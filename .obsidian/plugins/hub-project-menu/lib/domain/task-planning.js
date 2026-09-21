@@ -1,18 +1,25 @@
 "use strict";
-const { localISODate, parseLocalISODate } = require("./dates");
+const { localISODate, parseLocalISODate, validLocalTime, localDateTime } = require("./dates");
 const { taskLineDetails, taskDisplayText, taskIdentity, locateTaskLine, normalizedTaskText } = require("./tasks");
 
 function taskMetadata(value = {}) {
     return {
         necessity: ["should", "must"].includes(value?.necessity) ? value.necessity : null,
         fromDate: parseLocalISODate(value?.fromDate) ? value.fromDate : null,
-        dueDate: parseLocalISODate(value?.dueDate) ? value.dueDate : null
+        dueDate: parseLocalISODate(value?.dueDate) ? value.dueDate : null,
+        ...(parseLocalISODate(value?.fromDate) && validLocalTime(value?.fromTime) ? { fromTime: value.fromTime } : {}),
+        ...(parseLocalISODate(value?.dueDate) && validLocalTime(value?.dueTime) ? { dueTime: value.dueTime } : {})
     };
 }
 
 function validateTaskMetadata(value) {
     for (const key of ["fromDate", "dueDate"]) {
         if (value[key] && !parseLocalISODate(value[key])) throw Error("Choose a valid date.");
+    }
+    for (const prefix of ["from", "due"]) {
+        if (value[prefix + "Time"] && (!validLocalTime(value[prefix + "Time"]) || !value[prefix + "Date"])) {
+            throw Error("Choose a valid time and its date.");
+        }
     }
     const metadata = taskMetadata(value);
     if (metadata.fromDate && metadata.dueDate && metadata.fromDate > metadata.dueDate) {
@@ -21,7 +28,15 @@ function validateTaskMetadata(value) {
     return metadata;
 }
 
-function taskGroups(items, today = localISODate()) {
+function taskIsOverdue(task, now = new Date()) {
+    const due = localDateTime(task.dueDate, task.dueTime);
+    return !!due && due < now;
+}
+
+function taskGroups(items, now = new Date()) {
+    // Preserve the date-string argument used by existing callers.
+    if (typeof now === "string") now = parseLocalISODate(now);
+    const today = localISODate(now);
     const taskOf = item => item.task && typeof item.task === "object" ? item.task : item;
     const rank = task => ({ must: 0, should: 1 }[task.necessity] ?? 2);
     const active = [], future = [], completed = [];
@@ -31,9 +46,10 @@ function taskGroups(items, today = localISODate()) {
         target.push({ item, task, order });
     }
     const compare = (a, b) => {
-        const category = task => task.dueDate ? (task.dueDate < today ? 0 : 1) : 2;
+        const category = task => task.dueDate ? (taskIsOverdue(task, now) ? 0 : 1) : 2;
         return category(a.task) - category(b.task) ||
             String(a.task.dueDate ?? "").localeCompare(String(b.task.dueDate ?? "")) ||
+            String(a.task.dueTime ?? "24:00").localeCompare(String(b.task.dueTime ?? "24:00")) ||
             rank(a.task) - rank(b.task) || a.order - b.order;
     };
     active.sort(compare);
@@ -191,4 +207,4 @@ function insertTaskAtCursor(editor) {
     editor.setCursor({ line: cursor.line, ch: Math.max(marker.length + 4, cursor.ch + marker.length + 4 - prefix.length) });
 }
 
-module.exports = { taskMetadata, validateTaskMetadata, taskGroups, taskBlockEnd, readTaskSnapshot, saveTaskSnapshot, appendTask, insertTaskAtCursor, toggleTaskStep };
+module.exports = { taskIsOverdue, taskMetadata, validateTaskMetadata, taskGroups, taskBlockEnd, readTaskSnapshot, saveTaskSnapshot, appendTask, insertTaskAtCursor, toggleTaskStep };

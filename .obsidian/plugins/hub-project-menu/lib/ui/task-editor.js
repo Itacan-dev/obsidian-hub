@@ -53,6 +53,21 @@ function openTaskEditor(service, task, onEdit = () => {}) {
                 const label = fields.createEl("label"); label.createSpan({ text });
                 const input = label.createEl("input", { type: "date" }); input.value = snapshot[key] ?? "";
                 label.createSpan({ cls: "hub-task-help", text: help });
+                // Native local controls, as in Oath; a separate time permits date-only values.
+                const timeKey = key.replace("Date", "Time");
+                const time = label.createEl("input", { type: "time", attr: { "aria-label": text + " time (optional)" } });
+                time.value = snapshot[timeKey] ?? "";
+                const clearTime = label.createEl("button", { text: "Clear time", attr: { type: "button" } });
+                const syncTime = () => {
+                    time.disabled = !input.value;
+                    if (!input.value) time.value = "";
+                    clearTime.disabled = !time.value;
+                };
+                input.addEventListener("change", syncTime);
+                time.addEventListener("input", syncTime);
+                clearTime.addEventListener("click", () => { time.value = ""; syncTime(); });
+                syncTime();
+                input.timeInput = time;
                 return input;
             };
             const from = dateInput("Start (From)", "fromDate", "Earliest date to start");
@@ -101,6 +116,7 @@ function openTaskEditor(service, task, onEdit = () => {}) {
                 try {
                     const edit = await service.save(snapshot, { operation: deleting ? "delete" : "edit",
                         text: input.value, necessity: selected, fromDate: from.value, dueDate: due.value,
+                        fromTime: from.timeInput.value, dueTime: due.timeInput.value,
                         steps: stepRows.filter(step => !step.removed).map(step => ({ line: step.line, text: step.input.value, completed: step.checkbox.checked })) });
                     this.saving = false; onEdit(edit); this.close();
                 } catch (error) {

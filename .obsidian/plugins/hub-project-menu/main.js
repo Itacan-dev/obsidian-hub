@@ -1002,7 +1002,35 @@ function shortDateLabel(value) {
     ].join("/");
 }
 
+function validLocalTime(value) {
+    return typeof value === "string" && /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(value);
+}
+
+function localDateTime(date, time) {
+    const value = parseLocalISODate(date);
+    if (!value) return null;
+    if (validLocalTime(time)) {
+        const [hours, minutes] = time.split(":").map(Number);
+        value.setHours(hours, minutes, 0, 0);
+    } else value.setHours(23, 59, 59, 999);
+    return value;
+}
+
+function taskDateLabel(date, time, relative = false, now = new Date()) {
+    const value = parseLocalISODate(date);
+    if (!value) return "";
+    const tomorrow = new Date(now); tomorrow.setDate(tomorrow.getDate() + 1);
+    const label = relative && date === localISODate(now) ? "today" :
+        relative && date === localISODate(tomorrow) ? "tomorrow" :
+        value.toLocaleDateString("en-US", { month: "short", day: "numeric",
+            ...(value.getFullYear() !== now.getFullYear() ? { year: "numeric" } : {}) });
+    return label + (validLocalTime(time) ? " \u00b7 " + localDateTime(date, time).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "");
+}
+
 module.exports = {
+    validLocalTime,
+    localDateTime,
+    taskDateLabel,
     localISODate,
     parseLocalISODate,
     shortDateLabel
@@ -1430,20 +1458,27 @@ module.exports = {
 },
 "lib/domain/task-planning.js": function (module, exports, __hubRequire) {
 "use strict";
-const { localISODate, parseLocalISODate } = __hubRequire("lib/domain/dates.js");
+const { localISODate, parseLocalISODate, validLocalTime, localDateTime } = __hubRequire("lib/domain/dates.js");
 const { taskLineDetails, taskDisplayText, taskIdentity, locateTaskLine, normalizedTaskText } = __hubRequire("lib/domain/tasks.js");
 
 function taskMetadata(value = {}) {
     return {
         necessity: ["should", "must"].includes(value?.necessity) ? value.necessity : null,
         fromDate: parseLocalISODate(value?.fromDate) ? value.fromDate : null,
-        dueDate: parseLocalISODate(value?.dueDate) ? value.dueDate : null
+        dueDate: parseLocalISODate(value?.dueDate) ? value.dueDate : null,
+        ...(parseLocalISODate(value?.fromDate) && validLocalTime(value?.fromTime) ? { fromTime: value.fromTime } : {}),
+        ...(parseLocalISODate(value?.dueDate) && validLocalTime(value?.dueTime) ? { dueTime: value.dueTime } : {})
     };
 }
 
 function validateTaskMetadata(value) {
     for (const key of ["fromDate", "dueDate"]) {
         if (value[key] && !parseLocalISODate(value[key])) throw Error("Choose a valid date.");
+    }
+    for (const prefix of ["from", "due"]) {
+        if (value[prefix + "Time"] && (!validLocalTime(value[prefix + "Time"]) || !value[prefix + "Date"])) {
+            throw Error("Choose a valid time and its date.");
+        }
     }
     const metadata = taskMetadata(value);
     if (metadata.fromDate && metadata.dueDate && metadata.fromDate > metadata.dueDate) {
@@ -1452,7 +1487,15 @@ function validateTaskMetadata(value) {
     return metadata;
 }
 
-function taskGroups(items, today = localISODate()) {
+function taskIsOverdue(task, now = new Date()) {
+    const due = localDateTime(task.dueDate, task.dueTime);
+    return !!due && due < now;
+}
+
+function taskGroups(items, now = new Date()) {
+    // Preserve the date-string argument used by existing callers.
+    if (typeof now === "string") now = parseLocalISODate(now);
+    const today = localISODate(now);
     const taskOf = item => item.task && typeof item.task === "object" ? item.task : item;
     const rank = task => ({ must: 0, should: 1 }[task.necessity] ?? 2);
     const active = [], future = [], completed = [];
@@ -1462,9 +1505,10 @@ function taskGroups(items, today = localISODate()) {
         target.push({ item, task, order });
     }
     const compare = (a, b) => {
-        const category = task => task.dueDate ? (task.dueDate < today ? 0 : 1) : 2;
+        const category = task => task.dueDate ? (taskIsOverdue(task, now) ? 0 : 1) : 2;
         return category(a.task) - category(b.task) ||
             String(a.task.dueDate ?? "").localeCompare(String(b.task.dueDate ?? "")) ||
+            String(a.task.dueTime ?? "24:00").localeCompare(String(b.task.dueTime ?? "24:00")) ||
             rank(a.task) - rank(b.task) || a.order - b.order;
     };
     active.sort(compare);
@@ -1622,7 +1666,7 @@ function insertTaskAtCursor(editor) {
     editor.setCursor({ line: cursor.line, ch: Math.max(marker.length + 4, cursor.ch + marker.length + 4 - prefix.length) });
 }
 
-module.exports = { taskMetadata, validateTaskMetadata, taskGroups, taskBlockEnd, readTaskSnapshot, saveTaskSnapshot, appendTask, insertTaskAtCursor, toggleTaskStep };
+module.exports = { taskIsOverdue, taskMetadata, validateTaskMetadata, taskGroups, taskBlockEnd, readTaskSnapshot, saveTaskSnapshot, appendTask, insertTaskAtCursor, toggleTaskStep };
 
 },
 "lib/domain/tasks.js": function (module, exports, __hubRequire) {
@@ -5701,6 +5745,21 @@ function openTaskEditor(service, task, onEdit = () => {}) {
                 const label = fields.createEl("label"); label.createSpan({ text });
                 const input = label.createEl("input", { type: "date" }); input.value = snapshot[key] ?? "";
                 label.createSpan({ cls: "hub-task-help", text: help });
+                // Native local controls, as in Oath; a separate time permits date-only values.
+                const timeKey = key.replace("Date", "Time");
+                const time = label.createEl("input", { type: "time", attr: { "aria-label": text + " time (optional)" } });
+                time.value = snapshot[timeKey] ?? "";
+                const clearTime = label.createEl("button", { text: "Clear time", attr: { type: "button" } });
+                const syncTime = () => {
+                    time.disabled = !input.value;
+                    if (!input.value) time.value = "";
+                    clearTime.disabled = !time.value;
+                };
+                input.addEventListener("change", syncTime);
+                time.addEventListener("input", syncTime);
+                clearTime.addEventListener("click", () => { time.value = ""; syncTime(); });
+                syncTime();
+                input.timeInput = time;
                 return input;
             };
             const from = dateInput("Start (From)", "fromDate", "Earliest date to start");
@@ -5749,6 +5808,7 @@ function openTaskEditor(service, task, onEdit = () => {}) {
                 try {
                     const edit = await service.save(snapshot, { operation: deleting ? "delete" : "edit",
                         text: input.value, necessity: selected, fromDate: from.value, dueDate: due.value,
+                        fromTime: from.timeInput.value, dueTime: due.timeInput.value,
                         steps: stepRows.filter(step => !step.removed).map(step => ({ line: step.line, text: step.input.value, completed: step.checkbox.checked })) });
                     this.saving = false; onEdit(edit); this.close();
                 } catch (error) {
@@ -5892,8 +5952,8 @@ module.exports = { createTaskSteps };
 "lib/ui/tasks.js": function (module, exports, __hubRequire) {
 "use strict";
 const { createHubMarkdown } = __hubRequire("lib/ui/markdown.js");
-const { taskGroups } = __hubRequire("lib/domain/task-planning.js");
-const { localISODate, parseLocalISODate } = __hubRequire("lib/domain/dates.js");
+const { taskGroups, taskIsOverdue } = __hubRequire("lib/domain/task-planning.js");
+const { localISODate, parseLocalISODate, taskDateLabel, validLocalTime } = __hubRequire("lib/domain/dates.js");
 const { createTaskSteps } = __hubRequire("lib/ui/task-steps.js");
 const { createOathTaskSection } = __hubRequire("lib/ui/oath-tasks.js");
 
@@ -6043,15 +6103,16 @@ function createTaskUi({ app, component, body, mutate, onEdit, editTask, createTa
         badge.textContent = task.necessity === "must" ? "MUST" : task.necessity === "should" ? "SHOULD" : "TO DO";
         checkbox?.after(badge);
         const dates = document.createElement("div"); dates.className = "hub-task-dates";
-        for (const [label, date] of [["From", task.fromDate], ["Due", task.dueDate]]) {
+        const now = new Date();
+        for (const [label, date, clock] of [["From", task.fromDate, task.fromTime], ["Due", task.dueDate, task.dueTime]]) {
             if (!date) continue;
             const value = parseLocalISODate(date); if (!value) continue;
             const span = document.createElement("span");
-            const overdue = label === "Due" && date < localISODate() && !task.completed && !(task.fromDate > localISODate());
+            const overdue = label === "Due" && taskIsOverdue(task, now) && !task.completed && !(task.fromDate > localISODate(now));
             span.className = overdue ? "is-overdue" : "";
             const labelEl = document.createElement("span"); labelEl.className = "hub-task-date-label"; labelEl.textContent = label + " ";
-            const time = document.createElement("time"); time.dateTime = date;
-            time.textContent = value.toLocaleDateString("en-US", { month: "short", day: "numeric", ...(value.getFullYear() !== new Date().getFullYear() ? { year: "numeric" } : {}) });
+            const time = document.createElement("time"); time.dateTime = date + (validLocalTime(clock) ? "T" + clock : "");
+            time.textContent = taskDateLabel(date, clock, label === "Due", now);
             span.append(labelEl, time);
             if (overdue) { const hint = document.createElement("span"); hint.className = "hub-task-overdue"; hint.textContent = " (overdue)"; span.append(hint); }
             dates.appendChild(span);

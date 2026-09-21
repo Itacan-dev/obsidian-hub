@@ -47,7 +47,35 @@ function shortDateLabel(value) {
     ].join("/");
 }
 
+function validLocalTime(value) {
+    return typeof value === "string" && /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(value);
+}
+
+function localDateTime(date, time) {
+    const value = parseLocalISODate(date);
+    if (!value) return null;
+    if (validLocalTime(time)) {
+        const [hours, minutes] = time.split(":").map(Number);
+        value.setHours(hours, minutes, 0, 0);
+    } else value.setHours(23, 59, 59, 999);
+    return value;
+}
+
+function taskDateLabel(date, time, relative = false, now = new Date()) {
+    const value = parseLocalISODate(date);
+    if (!value) return "";
+    const tomorrow = new Date(now); tomorrow.setDate(tomorrow.getDate() + 1);
+    const label = relative && date === localISODate(now) ? "today" :
+        relative && date === localISODate(tomorrow) ? "tomorrow" :
+        value.toLocaleDateString("en-US", { month: "short", day: "numeric",
+            ...(value.getFullYear() !== now.getFullYear() ? { year: "numeric" } : {}) });
+    return label + (validLocalTime(time) ? " \u00b7 " + localDateTime(date, time).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "");
+}
+
 module.exports = {
+    validLocalTime,
+    localDateTime,
+    taskDateLabel,
     localISODate,
     parseLocalISODate,
     shortDateLabel

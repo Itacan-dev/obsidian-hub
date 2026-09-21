@@ -1,7 +1,6 @@
 - [ ] Write the primary views section <!-- hub-task:7f5fc3bf-e6ba-44ec-badc-330e0f3f268d -->
 
 - [ ] Complete Obsidian prototype, including Hub and Atlas <!-- hub-task:b208baad-1f29-446d-b202-3e5f69685d99 -->
-- [ ] Move Itacan prototype to GitHub <!-- hub-task:f8b2af63-ce0f-4d5e-a5d7-c832ebb90880 -->
 - [ ] Validate core workflows through sustained prototype use <!-- hub-task:92c8bbb6-284d-4ca8-a5ab-1f2901d5b329 -->
 - [ ] Conduct initial competitor and workflow research <!-- hub-task:657739cf-9d70-4d93-91d4-64a9c81b3a57 -->
 - [ ] Interview prospective users about workflows and problems <!-- hub-task:82d9aac2-b702-4fe2-b5d8-5009b847fdf7 -->

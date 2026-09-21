@@ -1,7 +1,7 @@
 "use strict";
 const { createHubMarkdown } = require("./markdown");
-const { taskGroups } = require("../domain/task-planning");
-const { localISODate, parseLocalISODate } = require("../domain/dates");
+const { taskGroups, taskIsOverdue } = require("../domain/task-planning");
+const { localISODate, parseLocalISODate, taskDateLabel, validLocalTime } = require("../domain/dates");
 const { createTaskSteps } = require("./task-steps");
 const { createOathTaskSection } = require("./oath-tasks");
 
@@ -151,15 +151,16 @@ function createTaskUi({ app, component, body, mutate, onEdit, editTask, createTa
         badge.textContent = task.necessity === "must" ? "MUST" : task.necessity === "should" ? "SHOULD" : "TO DO";
         checkbox?.after(badge);
         const dates = document.createElement("div"); dates.className = "hub-task-dates";
-        for (const [label, date] of [["From", task.fromDate], ["Due", task.dueDate]]) {
+        const now = new Date();
+        for (const [label, date, clock] of [["From", task.fromDate, task.fromTime], ["Due", task.dueDate, task.dueTime]]) {
             if (!date) continue;
             const value = parseLocalISODate(date); if (!value) continue;
             const span = document.createElement("span");
-            const overdue = label === "Due" && date < localISODate() && !task.completed && !(task.fromDate > localISODate());
+            const overdue = label === "Due" && taskIsOverdue(task, now) && !task.completed && !(task.fromDate > localISODate(now));
             span.className = overdue ? "is-overdue" : "";
             const labelEl = document.createElement("span"); labelEl.className = "hub-task-date-label"; labelEl.textContent = label + " ";
-            const time = document.createElement("time"); time.dateTime = date;
-            time.textContent = value.toLocaleDateString("en-US", { month: "short", day: "numeric", ...(value.getFullYear() !== new Date().getFullYear() ? { year: "numeric" } : {}) });
+            const time = document.createElement("time"); time.dateTime = date + (validLocalTime(clock) ? "T" + clock : "");
+            time.textContent = taskDateLabel(date, clock, label === "Due", now);
             span.append(labelEl, time);
             if (overdue) { const hint = document.createElement("span"); hint.className = "hub-task-overdue"; hint.textContent = " (overdue)"; span.append(hint); }
             dates.appendChild(span);
