@@ -1,0 +1,31 @@
+"use strict";
+
+module.exports = {
+    ...require("./config"),
+    ...require("./domain/activity"),
+    ...require("./domain/audit"),
+    ...require("./domain/contexts"),
+    ...require("./domain/dates"),
+    ...require("./domain/focus"),
+    ...require("./domain/files"),
+    ...require("./domain/naming"),
+    ...require("./domain/navigation"),
+    ...require("./domain/progress"),
+    ...require("./domain/tasks"),
+    ...require("./services/data-store"),
+    ...require("./services/task-data"),
+    ...require("./services/presets"),
+    ...require("./services/home-covers"),
+    ...require("./ui/home-covers"),
+    ...require("./ui/presets"),
+    ...require("./services/project-deletion"),
+    ...require("./services/transition-service"),
+    ...require("./ui/dashboard-ui"),
+    ...require("./ui/tasks"),
+    ...require("./ui/markdown"),
+    ...require("./ui/note-rail"),
+    ...require("./ui/file-icons"),
+    ...require("./ui/card-images"),
+    ...require("./ui/tooltips"),
+    ...require("./ui/header-image")
+};

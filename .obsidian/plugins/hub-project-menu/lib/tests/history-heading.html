@@ -1,0 +1,52 @@
+<!doctype html>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../../styles.css">
+<link rel="stylesheet" href="../../../../../System/Dashboards/Home/view.css">
+<link rel="stylesheet" href="../../../../../System/Dashboards/Project/view.css">
+<style>
+body { background:#1e1e1e; color:#ddd; --text-muted:#aaa; --background-secondary:#262626; --background-modifier-border:#444; }
+.fixture { width:360px; margin:16px; padding:14px; border:1px solid #444; }
+</style>
+<pre id="result">RUNNING</pre>
+<script>
+window.module={exports:{}};
+// Reproduce the installed Obsidian version: the requested icon is unavailable.
+window.require=name=>name==="obsidian"?{getIcon(name){if(name!=="rotate-ccw-clock")throw Error("Wrong icon");return null;}}:{setHubTooltip(){}};
+HTMLElement.prototype.createEl=function(tag,options={}){const el=document.createElement(tag);el.className=options.cls||"";el.textContent=options.text||"";this.append(el);return el;};
+HTMLElement.prototype.createDiv=function(options){return this.createEl("div",options);};
+HTMLElement.prototype.createSpan=function(options){return this.createEl("span",options);};
+</script>
+<script src="../ui/dashboard-ui.js"></script>
+<script>
+try {
+ const check=(ok,message)=>{if(!ok)throw Error(message);};
+ const ui=module.exports.createDashboardUi({navClass:"test"});
+ for(const context of ["home","project","resource"]){
+  const prefix=context==="home"?"home":"project";
+  const panel=document.body.createDiv({cls:`fixture ${prefix}-dashboard hub-button-scope`});
+  const row=panel.createDiv({cls:`${prefix}-progress-tabs`});
+  const title=ui.historyHeading(row);
+  let selected="Reports";
+  const buttons=["Reports","Activity","Tasks"].map(text=>{
+   const button=row.createEl("button",{text});
+   button.onclick=()=>{selected=text;buttons.forEach(item=>item.classList.toggle("is-active",item===button));};
+   return button;
+  });
+  check(title.textContent==="History","Title");
+  const svg=title.querySelector("svg");
+  check(svg&&svg.querySelectorAll("path").length===3,"Official icon rendered when native icon is unavailable");
+  check(svg.getBoundingClientRect().width===14&&svg.getBoundingClientRect().height===14,"Icon visible at existing size");
+  check(getComputedStyle(title).fontSize==="14.4px","Semantic subsection size");
+  check(getComputedStyle(title).fontWeight==="700","Bold");
+  const bounds=row.getBoundingClientRect(), heading=title.getBoundingClientRect();
+  check(Math.abs(heading.left-bounds.left)<1,"History left-aligned");
+  check(Math.abs(buttons[2].getBoundingClientRect().right-bounds.right)<1,"Filters right-aligned");
+  check(heading.right<buttons[0].getBoundingClientRect().left,"No title/filter overlap");
+  for(const button of buttons){
+   button.click();check(selected===button.textContent&&button.classList.contains("is-active"),"Filter clicks preserved");
+   check(Math.abs(button.getBoundingClientRect().height-23)<1,"Original compact button height");
+  }
+ }
+ document.getElementById("result").textContent="PASS: shared Home/Project/Resource History heading, actual fallback SVG, 14.4px bold text, left/right alignment, compact buttons and filter clicks.";
+}catch(error){document.getElementById("result").textContent="FAIL: "+error.stack;}
+</script>

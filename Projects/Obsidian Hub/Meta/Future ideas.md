@@ -1,0 +1,8 @@
+- A statistics page 
+- A news report that basically just displays the history logs of the latest day with progress, given to the user the first time the application is opened for the day after 6 am in the local time. 
+- Focus mode: make it full-screen, leaving has cooldown and confirm button, going to another project has a cooldown. No notification shown nor notification sound. BEFORE THIS WE NEED BROWSER. 
+- Report cards should have some way of showing you history logs to help you.
+- Expand the possibilities with tasks to enable future planning. Find a way to prioritize tasks
+- Being able to make mindmaps, integrated in notes or alone.
+- Being able to write by hand and have it be put in the note, as it is or converted to text/latex/markdown.
+- 

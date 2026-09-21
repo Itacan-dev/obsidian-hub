@@ -1,0 +1,36 @@
+<!doctype html><meta charset='utf-8'><link rel='stylesheet' href='../../styles.css'>
+<style>body{background:#1e1e1e;color:#ddd;--background-primary:#1e1e1e;--background-secondary:#262626;--background-modifier-border:#444}#host{width:900px;margin:24px}</style>
+<div id='host'></div><pre id='result'>RUNNING</pre>
+<script type='module'>
+const check=(ok,message)=>{if(!ok)throw Error(message)},module={exports:{}};
+new Function('module','require',await(await fetch('../ui/dashboard-frame.js')).text())(module,()=>({refreshHeaderImages:()=>{}}));
+const create=module.exports.createDashboardFrame;
+const owner=()=>({register(){}});
+try{
+ // Match dv.view(): stylesheet is an existing child of the same container.
+ const style=document.createElement('style');style.setAttribute('scope',' ');
+ style.textContent=await(await fetch('../../../../../System/Dashboards/Home/view.css')).text();
+ style.textContent+=await(await fetch('../../../../../System/Dashboards/Project/view.css')).text();
+ host.append(style);
+ const sentinel=document.createComment('Host-owned sibling');host.append(sentinel);
+ let previous=null;
+ for(const kind of ['home','project','resource','home','project','resource','home']){
+  const frame=create(host,owner(),(kind==='home'?'home':'project')+'-dashboard hub-button-scope');
+  const heading=document.createElement('h2');heading.textContent=kind+' dashboard';frame.root.append(heading);
+  const shortcut=document.createElement('span');shortcut.className='home-shortcut-icon';
+  const image=document.createElement('img');image.width=1024;image.height=1024;shortcut.append(image);frame.root.append(shortcut);
+  const cover=document.createElement('div');cover.className='home-cover';frame.root.append(cover);
+  check(style.parentElement===host&&(!previous||previous.isConnected),'Building detached frame keeps styles and old page');
+  let commits=0;const observer=new MutationObserver(records=>commits+=records.length);observer.observe(host,{childList:true});
+  frame.commit();await Promise.resolve();observer.disconnect();
+  check(commits===1,'One page-level DOM commit');
+  check(style.parentElement===host&&style.sheet&&sentinel.parentNode===host,'Dataview styles and host siblings retained');
+  check(host.querySelectorAll(':scope > .home-dashboard, :scope > .project-dashboard').length===1,'Exactly one Hub root');
+  check(!previous||!previous.isConnected,'Previous root replaced');
+  check(getComputedStyle(image).width==='16px'&&getComputedStyle(image).height==='16px','Shortcut uses actual 16px sizing, not source dimensions');
+  check(getComputedStyle(cover).height==='325px','Actual cover container geometry retained');
+  previous=frame.root;
+ }
+ result.textContent='PASS: actual Dataview in-container CSS survives initial and repeated Home/Project/Resource commits; 16px shortcut images, 325px cover, host siblings and single-root atomic replacement.';
+}catch(error){result.textContent='FAIL: '+error.stack}
+</script>

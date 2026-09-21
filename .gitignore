@@ -1,0 +1,92 @@
+# Vault-root repository: new top-level vault content is private by default.
+/*
+!/.gitignore
+!/README.md
+!/Home.md
+!/.obsidian/
+!/System/
+!/Assets/
+!/Projects/
+
+# Share the Hub implementation, not installed third-party plugins or settings.
+/.obsidian/*
+!/.obsidian/plugins/
+!/.obsidian/snippets/
+/.obsidian/plugins/*
+!/.obsidian/plugins/hub-project-menu/
+/.obsidian/plugins/hub-project-menu/*
+!/.obsidian/plugins/hub-project-menu/build.js
+!/.obsidian/plugins/hub-project-menu/plugin.js
+!/.obsidian/plugins/hub-project-menu/main.js
+!/.obsidian/plugins/hub-project-menu/manifest.json
+!/.obsidian/plugins/hub-project-menu/styles.css
+!/.obsidian/plugins/hub-project-menu/lib/
+/.obsidian/snippets/*
+!/.obsidian/snippets/dashbboard.css
+!/.obsidian/snippets/heatmap-fix.css
+!/.obsidian/snippets/math-callouts.css
+
+# Dashboard source, scripts, built-in templates and implementation documentation.
+/System/*
+!/System/Dashboards/
+!/System/Scripts/
+!/System/Templates/
+!/System/CSS/
+!/System/Hub-*.md
+!/System/Project Templates/
+/System/Project Templates/*
+!/System/Project Templates/Physics Research/
+!/System/Project Templates/Nonfiction Book/
+!/System/Project Templates/Fiction Book/
+
+# Built-in UI artwork; uploaded covers and category images stay private.
+/Assets/*
+!/Assets/AppShortcuts/
+!/Assets/ResourceCards/
+!/Assets/ProjectCards/
+!/Assets/Covers/
+/Assets/ProjectCards/*
+!/Assets/ProjectCards/books.jpg
+!/Assets/ProjectCards/novel.jpg
+!/Assets/ProjectCards/research.jpg
+!/Assets/ProjectCards/wip.jpg
+/Assets/Covers/*
+!/Assets/Covers/morning.jpg
+!/Assets/Covers/day.jpeg
+!/Assets/Covers/night.jpeg
+
+# Collaborative development Projects; every other Project is private by default.
+/Projects/*
+!/Projects/Itacan/
+!/Projects/Obsidian Hub/
+
+# Personal Obsidian Hub data — synced through OneDrive, never Git
+/Resources/
+/Archive/
+/Areas/
+/Daily Notes/
+/Inbox/
+/Knowledge/
+/Sources/
+/old (DONT DELETE)/
+/System/Backups/
+/System/Migrations/
+/Assets/Covers/Home/
+/Assets/ProjectCards/Categories/
+/Assets/ProjectCards/Projects/
+/.obsidian/plugins/*/data*.json
+/.obsidian/plugins/*/.data.*.tmp
+
+# Machine conflict copies and logs outside the collaborative Projects.
+**/*-DESKTOP-*
+**/*-Nadil.*
+**/*.log
+
+# Share complete Project content, including assets, logs and future subfolders.
+!/Projects/Itacan/**
+!/Projects/Obsidian Hub/**
+
+# Secret environment files and generated dependencies remain excluded everywhere.
+**/.env
+**/.env.*
+**/node_modules/

@@ -1,0 +1,122 @@
+<!doctype html><meta charset="utf-8"><title>Hub card placement regression checks</title>
+<link rel="stylesheet" href="../../styles.css">
+<link rel="stylesheet" href="../../../../../System/Dashboards/Home/view.css">
+<style>
+* {box-sizing:border-box} body {background:#262626;color:#ddd;font:14px Arial;--background-primary:#1e1e1e;--background-secondary:#262626;--background-modifier-border:#363636;--text-normal:#ddd;--text-muted:#aaa;--interactive-accent:#8955ed}
+#cards {display:flex;gap:24px;padding:25px} .home-project-card{flex:none;width:316.667px} .home-resource-card{flex:none;width:235px}
+</style>
+<div id="cards" class="hub-button-scope"></div><pre id="result">RUNNING</pre>
+<script type="module">
+const errors=[],data={};let saves=0,navigations=0,reorders=0,menuAction,menuTitle,failSave=false;
+const cards=document.getElementById('cards');
+console.warn=(...args)=>errors.push(args.map(a=>a.stack||a).join(' '));
+window.addEventListener('error',event=>errors.push(event.error?.stack||event.message));
+const assert=(ok,message)=>{if(!ok) errors.push(message)};
+window.requestAnimationFrame=callback=>setTimeout(callback,0);window.cancelAnimationFrame=clearTimeout;
+const wait=()=>new Promise(resolve=>setTimeout(resolve,50));
+class Component {
+ constructor(){this.cleanups=[]} load(){} register(fn){this.cleanups.push(fn)}
+ registerDomEvent(el,type,fn,options){el.addEventListener(type,fn,options);this.register(()=>el.removeEventListener(type,fn,options))}
+ unload(){this.cleanups.splice(0).reverse().forEach(fn=>fn())}
+}
+class Menu {
+ addItem(fn){const item={setTitle(t){menuTitle=t;return item},setIcon(){return item},onClick(fn){menuAction=fn;return item}};fn(item);return this}
+ showAtMouseEvent(){}
+}
+HTMLElement.prototype.createEl=function(tag,o={}) {const el=document.createElement(tag);el.className=o.cls||'';el.textContent=o.text||'';this.append(el);return el};
+HTMLElement.prototype.createDiv=function(o){return this.createEl('div',o)};
+HTMLElement.prototype.createSpan=function(o){return this.createEl('span',o)};
+const header={exports:{}},renderer={exports:{}};
+new Function('module','require',await (await fetch('../ui/header-image.js')).text())(header,()=>({Component,Menu,Notice:class{}}));
+new Function('module','require',await (await fetch('../ui/card-images.js')).text())(renderer,()=>header.exports);
+const asset=new URL('../../../../../Assets/ProjectCards/Categories/custom-master-s-thesis.jpg',location.href).href;
+let owner=new Component();
+const storage=key=>({initial:data[key],save:async placement=>{if(failSave)throw Error('test failure');data[key]=JSON.parse(JSON.stringify(placement));saves++}});
+const sessionCache=renderer.exports.createCardImageCache();
+let setImage=renderer.exports.createCardImageRenderer(cards,owner,storage,sessionCache);
+cards.addEventListener('pointerdown',()=>reorders++);
+function make(kind,key) {
+ const card=document.createElement('div');card.className=`home-${kind}-card`;
+ card.innerHTML=kind==='project'?'<div class="home-project-surface"><div class="home-project-content"><div class="home-project-title">Pulsed Optomechanics</div><div class="home-project-category">Master’s thesis</div></div><div class="home-project-image"></div></div>':'<div class="home-resource-face"><div class="home-resource-thumbnail"></div><div class="home-resource-title">Knowledge</div></div>';
+ cards.append(card);const image=card.querySelector(kind==='project'?'.home-project-image':'.home-resource-thumbnail');
+ image.setPointerCapture=()=>{};image.hasPointerCapture=()=>false;
+ card.addEventListener('click',()=>navigations++);
+ const ready=setImage(image,asset,{card,key});return {card,image,key,ready};
+}
+function begin(item) {item.image.dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true}));assert(menuTitle==='Edit image placement','Native menu uses exact title');menuAction();}
+function zoom(item) {const r=item.image.getBoundingClientRect();const e=new WheelEvent('wheel',{deltaY:-350,clientX:r.right-30,clientY:r.top+20,bubbles:true,cancelable:true});item.image.dispatchEvent(e);assert(e.defaultPrevented,'Edit wheel is consumed')}
+function button(item,text){return [...item.card.querySelectorAll('button')].find(b=>b.textContent===text)}
+try {
+ // Real Home builds all cards while the dashboard is detached. A warm image
+ // can decode before commit; neither pruning nor editor setup may drop it.
+ const cardsParent=cards.parentElement,cardsNext=cards.nextSibling;
+ cards.remove();
+ const a=make('project','card:project:A::same.jpg'),b=make('project','card:project:B::same.jpg'),r=make('resource','card:resource:study::same.jpg');
+ await Promise.all([a.ready,b.ready,r.ready]);
+ assert(!cards.isConnected,'Initial image decoding finishes in detached dashboard');
+ cardsParent.insertBefore(cards,cardsNext);await wait();
+ for(const item of [a,b,r]) assert(item.image.style.backgroundImage.startsWith('url('),'Every detached-bound card loads on first mount, without a status toggle');
+ const hit=a.image.getBoundingClientRect();
+ assert(document.elementFromPoint(hit.left+hit.width*.2,hit.top+hit.height*.6)===a.image,'Text overlay does not intercept visible diagonal image area');
+ const original=[a,b,r].map(i=>({width:i.card.getBoundingClientRect().width,height:i.card.getBoundingClientRect().height,background:i.image.style.backgroundImage}));
+ for(const [idx,item] of [a,r].entries()) {
+  item.image.click();assert(navigations===idx*2+1,'Normal image click navigates');
+  const normal=new WheelEvent('wheel',{deltaY:-40,bubbles:true,cancelable:true});item.image.dispatchEvent(normal);assert(!normal.defaultPrevented,'Normal wheel scroll unaffected');
+  begin(item);await wait();zoom(item);await wait();
+  const afterZoom=item.image.style.backgroundImage;const bounds=item.image.getBoundingClientRect();
+  item.image.dispatchEvent(new PointerEvent('pointerdown',{button:0,pointerId:1,clientX:bounds.right-20,clientY:bounds.top+20,bubbles:true,cancelable:true}));
+  item.image.dispatchEvent(new PointerEvent('pointermove',{pointerId:1,clientX:bounds.right-10,clientY:bounds.top+35,bubbles:true}));
+  item.image.dispatchEvent(new PointerEvent('pointerup',{pointerId:1,bubbles:true}));await wait();
+  assert(item.image.style.backgroundImage!==afterZoom,'Drag changes sampled crop');
+  assert(reorders===0,'Placement drag never starts card reorder');
+  item.image.click();assert(navigations===idx*2+1,'Edit click does not navigate');
+  const done=button(item,'Done'),cr=item.card.getBoundingClientRect(),dr=done.getBoundingClientRect();
+  assert(dr.left>=cr.left&&dr.right<=cr.right&&dr.bottom<=cr.bottom,'Controls fit within existing card');
+  done.click();await wait();assert(saves===idx+1&&data[item.key].zoom>1,'Done saves individual placement');
+  assert(!item.card.classList.contains('is-placement-editing'),'Done exits');
+  assert(navigations===idx*2+1,'Done does not navigate');
+  const savedImage=item.image.style.backgroundImage;
+  begin(item);await wait();zoom(item);await wait();button(item,'Cancel').click();await wait();
+  assert(item.image.style.backgroundImage===savedImage,'Cancel restores exact saved image');
+  assert(saves===idx+1&&navigations===idx*2+1,'Cancel neither saves nor navigates');
+  item.image.click();assert(navigations===idx*2+2,'Navigation resumes after editing');
+ }
+ assert(!data[b.key]&&b.image.style.backgroundImage===original[1].background,'Shared source does not share placement');
+ const savedA=a.image.style.backgroundImage;
+ begin(a);await wait();zoom(a);await wait();failSave=true;button(a,'Done').click();await wait();
+ assert(a.card.classList.contains('is-placement-editing')&&!button(a,'Cancel').disabled,'Save failure retains editable controls');
+ failSave=false;button(a,'Cancel').click();await wait();assert(a.image.style.backgroundImage===savedA,'Failed save can be cancelled');
+ for(const [index,item] of [a,b,r].entries()) {const rect=item.card.getBoundingClientRect();assert(rect.width===original[index].width&&rect.height===original[index].height,'Card geometry unchanged')}
+ assert(getComputedStyle(a.image).clipPath.startsWith('polygon'),'Project diagonal retained');
+ assert(getComputedStyle(r.card,'::before').transform!=='none','Resource layers retained');
+ owner.unload();owner=new Component();setImage=renderer.exports.createCardImageRenderer(cards,owner,storage,sessionCache);
+ const savedR=r.image.style.backgroundImage;
+ cards.remove();
+ const mounted=Promise.all([setImage(a.image,asset,{card:a.card,key:a.key}),setImage(r.image,asset,{card:r.card,key:r.key})]);
+ await mounted;
+ cardsParent.insertBefore(cards,cardsNext);
+ let watching=true,frames=0;
+ function checkFrame(){
+  if(!watching)return;
+  for(const [item,expected] of [[a,savedA],[r,savedR]]) assert(item.image.style.backgroundImage==='none'||item.image.style.backgroundImage===expected,'Every visible reload frame has the saved crop');
+  frames++;if(watching)requestAnimationFrame(checkFrame);
+ }
+ checkFrame();await mounted;await wait();watching=false;
+ assert(frames>1,'Saved-placement verification spans rendered frames');
+ assert(a.image.style.backgroundImage===savedA,'Reload applies stored placement');
+ const hoverStyle=document.createElement('style');
+ hoverStyle.textContent=(await (await fetch('../../../../../System/Dashboards/Home/view.css')).text()).replaceAll(':hover','.test-hover');
+ document.head.append(hoverStyle);
+ const layerTransforms=['::before','::after'].map(p=>getComputedStyle(r.card,p).transform);
+ r.card.classList.add('test-hover');await new Promise(resolve=>setTimeout(resolve,180));
+ assert(getComputedStyle(r.card).transform==='none','Resource wrapper remains stationary on hover');
+ assert(getComputedStyle(r.card.querySelector('.home-resource-face')).transform!=='none','Only the front face lifts on hover');
+ for(const [i,p] of ['::before','::after'].entries())assert(getComputedStyle(r.card,p).transform===layerTransforms[i],'Back layer remains stationary');
+ r.card.classList.remove('test-hover');hoverStyle.remove();
+ begin(r);await wait();zoom(r);await wait();document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',cancelable:true}));await wait();
+ assert(!r.card.classList.contains('is-placement-editing'),'Escape cancels shared editor');
+ result.textContent=errors.length?'FAIL\n'+errors.join('\n'):'PASS: Project + Resource pan/zoom, Cancel/Done/Escape, independent persistence, reload, failed save, navigation/reorder isolation, geometry, clipping, layers and high-quality raster.';
+ // Leave both editors visible for control-layout inspection.
+ begin(a);begin(r);
+} catch(error) {result.textContent='ERROR '+error.stack+'\n'+errors.join('\n')}
+</script>

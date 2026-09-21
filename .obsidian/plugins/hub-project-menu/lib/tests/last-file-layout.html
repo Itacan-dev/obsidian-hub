@@ -1,0 +1,53 @@
+<!doctype html><meta charset="utf-8"><title>Last File native layout replacement</title>
+<link rel="stylesheet" href="../../styles.css">
+<style>
+body{background:#1e1e1e;color:#ddd;font:14px Arial;--background-primary:#1e1e1e}
+.workspace{width:850px;margin:20px}.mod-root{height:400px}.hub-dashboard-enter-row{padding:20px}
+</style>
+<div class="workspace"><div class="workspace-split mod-root"></div></div><pre id="result">RUNNING</pre>
+<script type="module">
+const assert=(ok,message)=>{if(!ok)throw Error(message)};
+const frame=()=>new Promise(resolve=>requestAnimationFrame(resolve));
+const header={exports:{}},module={exports:{}};
+new Function('module','require',await (await fetch('../ui/header-image.js')).text())(header,()=>({}));
+const readiness={exports:{}};new Function('module',await(await fetch('../ui/render-readiness.js')).text())(readiness);
+new Function('module','require',await (await fetch('../services/transition-service.js')).text())(module,name=>name.endsWith('render-readiness')?readiness.exports:header.exports);
+const service=new module.exports.HubTransitionService(),shell=document.querySelector('.workspace');
+function replaceMain(text){
+ const main=document.createElement('div');main.className='workspace-split mod-root';main.textContent=text;
+ shell.querySelector('.mod-root').replaceWith(main);return main;
+}
+function covered(){
+ assert(!document.documentElement.classList.contains('hub-atomic-navigation'),'Native layout work does not suspend browser rendering');
+ assert(!shell.classList.contains('hub-workspace-switching'),'No blank CSS shield');
+}
+try{
+ for(const origin of ['home','project','resource'])for(const context of [{projectId:'project-a'},{projectId:'resource:study'}]){
+  document.body.classList.remove('hub-project-note-mode');
+  const initial=replaceMain('');
+  const source=initial.appendChild(document.createElement('div'));
+  source.className=origin==='home'?'home-dashboard':'project-dashboard';
+  source.innerHTML='<div class="hub-dashboard-enter-row" style="--hub-enter-order:1">Source workspace</div>';
+  await service.navigateToLastFile(source,async()=>{
+   const stage=service.stageWorkspace(document);
+   let main=replaceMain(origin==='home'?'Temporary full workspace':'Temporary split: note one | note two');
+   await frame();covered(); // Native render work must be able to request frames.
+   let leaf=main.appendChild(document.createElement('div'));leaf.className='workspace-leaf';
+   const reveal=stage.reveal(()=>leaf,context,true);
+   await Promise.resolve();covered();
+   // Native deserialization can replace the tree again before Dataview is ready.
+   main=replaceMain('');leaf=main.appendChild(document.createElement('div'));
+   leaf.className='workspace-leaf hub-project-rail';
+   const root=leaf.appendChild(document.createElement('div'));
+   root.className='project-dashboard is-hub-cover-pending';root.dataset.hubContextId=context.projectId;
+   root.innerHTML='<div class="hub-dashboard-enter-row">Ready folder rail and notes</div>';
+   document.body.classList.add('hub-project-note-mode');
+   await service.enter(root);await reveal;stage.cancel();
+   assert(!shell.classList.contains('hub-workspace-switching'),'Only completed note-mode is revealed');
+   assert(root.getAnimations({subtree:true}).length===0,'Note mode appears directly without an intermediate entry animation');
+   assert(!root.classList.contains('is-hub-cover-pending'),'Ready rail has no stale pending state');
+  });
+ }
+ service.destroy();result.textContent='PASS: Last File from Home/Project/Resource; both workspace kinds; native frame-dependent work is not suspended; completion observers survive root replacement; no page animations.';
+}catch(error){service.destroy();result.textContent='FAIL '+error.stack}
+</script>

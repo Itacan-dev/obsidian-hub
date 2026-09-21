@@ -1,0 +1,35 @@
+<!doctype html><meta charset="utf-8">
+<link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../../../../../System/Dashboards/Home/view.css"><link rel="stylesheet" href="../../../../../System/Dashboards/Project/view.css">
+<style>body{--text-muted:#aaa;--text-faint:#666;--hub-font-secondary:12px;--hub-font-meta:11px;background:#222;color:#ddd;font:14px Arial}.pair{display:flex;gap:40px;margin:20px}.home-progress-report-time{position:static}</style>
+<div id="fixtures"></div><pre id="result">RUNNING</pre>
+<script type="module">
+try{
+ const check=(v,m)=>{if(!v)throw Error(m)};
+ const ui={exports:{}};new Function('module','require',await(await fetch('../ui/dashboard-ui.js')).text())(ui,()=>({}));
+ const {historyDate}=ui.exports.createDashboardUi({navClass:'test'});
+ check(historyDate({format:pattern=>{check(pattern==='D MMM','Home format remains unchanged');return '14 Sep'}})==='14 Sep','Shared date formatter');
+ for(const kind of ['Reports','Activity','Tasks']){
+  const pair=document.createElement('div');pair.className='pair';
+  pair.innerHTML='<div class="home-dashboard"><div class="'+(kind==='Reports'?'home-progress-report-time':'home-recent-time')+'"><div class="home-recent-date">14 Sep</div><div class="home-recent-clock">14:12</div></div><div class="home-recent-type">Workspace › Note</div></div><div class="project-dashboard"><div class="project-activity-time"><div class="project-activity-date">14 Sep</div><div class="project-activity-clock">14:12</div></div><div class="project-activity-location">Workspace › Note</div></div>';
+  fixtures.append(pair);
+  for(const [home,project] of [['.home-recent-date','.project-activity-date'],['.home-recent-clock','.project-activity-clock'],['.home-recent-type','.project-activity-location']]){
+   const a=getComputedStyle(pair.querySelector(home)),b=getComputedStyle(pair.querySelector(project));
+   check(a.color===b.color&&a.fontSize===b.fontSize,kind+' metadata emphasis and text size match');
+  }
+  check(getComputedStyle(pair.querySelector('.home-recent-date')).color==='rgb(170, 170, 170)','Home date unchanged');
+  check(getComputedStyle(pair.querySelector('.home-recent-clock')).color==='rgb(102, 102, 102)','Home time unchanged');
+ }
+ const source=await(await fetch('../../../../../System/Dashboards/Project/view.js')).text();
+ const start=source.indexOf('        const time = meta.createDiv'),end=source.indexOf('        row.addEventListener',start);
+ const block=source.slice(start,end);
+ const run=new Function('meta','el','historyDate','moment','report',block);
+ const moment=value=>({format:pattern=>pattern==='HH:mm'?'14:12':'14 Sep'});
+ for(const timestamp of [12345,undefined]){
+  const meta=document.createElement('div');meta.createDiv=({cls})=>{const e=document.createElement('div');e.className=cls;meta.append(e);return e};
+  run(meta,(p,t,c,text)=>{const e=document.createElement(t);e.className=c;e.textContent=text;p.append(e)},historyDate,moment,{date:'2026-09-14',timestamp});
+  check(meta.querySelector('.project-activity-date').textContent==='14 Sep','Actual report markup uses shared date');
+  check(!!meta.querySelector('.project-activity-clock')===Number.isFinite(timestamp),'Actual report markup includes only a real saved time');
+ }
+ result.textContent='PASS: Reports/Activity/Tasks Home versus Workspace metadata colors and font sizes; unchanged Home colors/date format; actual Workspace report timestamp rendering and missing-time fallback.';
+}catch(e){result.textContent='FAIL '+e.stack}
+</script>

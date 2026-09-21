@@ -1,0 +1,138 @@
+<!doctype html><meta charset="utf-8"><title>Note/Home structural handoff</title>
+<link rel="stylesheet" href="../../../../snippets/dashbboard.css">
+<style>
+/* Native Obsidian readable-width rule; dashboard width comes from the real snippet. */
+.markdown-preview-view.is-readable-line-width .markdown-preview-sizer{max-width:var(--file-line-width);margin-left:auto;margin-right:auto}
+body{background:#1e1e1e;color:#ddd;font:14px Arial}.workspace{display:flex;width:1000px;height:450px}
+.leaf{flex:1;min-width:0}.workspace.note .leaf:first-child{flex:0 0 420px}
+.workspace.note.half .leaf:first-child{flex-basis:280px}
+.project-folder,.home-panel{padding:16px;border:1px solid #444;margin:8px}
+.home-main-grid{display:grid;grid-template-columns:repeat(3,1fr)}
+.home-cover{height:100px;background:#354554}.is-active{background:#8855e8;color:white}button{padding:6px}
+</style>
+<div class="workspace"></div><pre id="result">RUNNING</pre>
+<script type="module">
+const check=(v,m)=>{if(!v)throw Error(m)},paint=()=>new Promise(resolve=>requestAnimationFrame(resolve));
+const gate=()=>{let resolve;const promise=new Promise(r=>resolve=r);return{resolve,promise}};
+HTMLElement.prototype.createEl=function(tag,o={}){const e=document.createElement(tag);e.className=o.cls||'';e.textContent=o.text||'';this.append(e);return e};
+HTMLElement.prototype.createDiv=function(o){return this.createEl('div',o)};
+class Component{
+ constructor(){this.children=[];this.cleanup=[]}
+ load(){} register(fn){this.cleanup.push(fn)}
+ addChild(c){this.children.push(c);return c}
+ removeChild(c){c.unload();this.children=this.children.filter(x=>x!==c)}
+ unload(){this.children.splice(0).forEach(c=>c.unload());this.cleanup.splice(0).forEach(fn=>fn())}
+}
+class ItemView extends Component{
+ constructor(leaf){super();this.leaf=leaf;this.containerEl=document.createElement('div');this.contentEl=this.containerEl.createDiv({cls:'view-content'})}
+ async setState(){}
+ async close(){this.containerEl.remove();this.unload();await this.leaf.closeGate?.promise}
+ async open(parent){parent.append(this.containerEl);this.load()}
+}
+class TFile{constructor(path){this.path=path}}
+const read=async path=>(await fetch(path)).text();
+const frameModule={exports:{}},hostModule={exports:{}},uiModule={exports:{}};
+new Function('module','require',await read('../ui/dashboard-frame.js'))(frameModule,()=>({refreshHeaderImages(){}}));
+new Function('module','require',await read('../ui/prepared-note-rail.js'))(hostModule,()=>({ItemView,Component}));
+new Function('module','require',await read('../ui/dashboard-ui.js'))(uiModule,()=>({}));
+const project=await read('../../../../../System/Dashboards/Project/view.js');
+const selection=project.slice(project.indexOf('selectNavigation(nav,'),project.indexOf(';',project.indexOf('selectNavigation(nav,'))+1);
+check(selection.includes('hubDestinationMode'),'Uses destination intent in actual Project renderer');
+const source=await read('../../plugin.js');
+const method=source.slice(source.indexOf('    async leaveNoteModeForHome('),source.indexOf('    async applyHome(',source.indexOf('    async leaveNoteModeForHome(')));
+const Mode=new Function('TFile','return class {'+method+'}')(TFile);
+check(source.indexOf('this.applyModeClasses();',source.indexOf('this.mode = {\n            project: record,')) <
+ source.indexOf('await this.ensureFileInLeaf(',source.indexOf('this.mode = {\n            project: record,')),
+ 'Ordinary note entry selects before opening file yields');
+let renders=0,secondary=0,reads=0,blockHome=null,readable=true;
+const factories=new Map(),shell=document.querySelector('.workspace');
+const noteCode=`
+app.rendered();const current={file:{path:dv.path}};
+const selectNavigation=app.selectNavigation;
+const frame=app.frame(dv.container,dv.component,"project-dashboard");
+const nav=frame.root.createDiv({cls:"project-nav"});
+for(const role of ["home","workspace","last-file"]){const button=nav.createEl("button",{text:role});button.dataset.hubNav=role}
+`+selection+`
+frame.root.createDiv({cls:"project-folder",text:dv.path});
+frame.root.hubCaptureFolders=()=>({});
+frame.commit();`;
+const homeCode=`
+app.rendered();const frame=app.frame(dv.container,dv.component,"home-dashboard");
+frame.root.createDiv({cls:"home-cover"}).createEl("img");
+const nav=frame.root.createDiv({cls:"home-nav"});const home=nav.createEl("button",{text:"Home"});home.dataset.hubNav="home";app.selectNavigation(nav,"home");
+const grid=frame.root.createDiv({cls:"home-main-grid"});
+for(const text of ["Focus","Tasks","Calendar"])grid.createDiv({cls:"home-panel",text});
+frame.defer(()=>app.secondary());frame.commit();`;
+window.hubIsProjectNoteMode=()=>false;
+const app={rendered(){renders++},secondary(){secondary++},frame:frameModule.exports.createDashboardFrame,selectNavigation:uiModule.exports.selectNavigation,
+ vault:{on(){},getConfig:key=>key==='readableLineLength'&&readable,getAbstractFileByPath:path=>new TFile(path),adapter:{async read(path){
+ reads++;if(path.includes('/Home/')&&blockHome)await blockHome.promise;
+ return path.endsWith('.css')?'':path.includes('/Home/')?homeCode:noteCode;
+ }}},
+ plugins:{getPlugin(){return{localApi(path,component,container){return{path,component,container}}}}}
+};
+const plugin={app,registerView(type,fn){factories.set(type,fn)},registerEvent(){},workspaceModes:{}};
+const controller=hostModule.exports.createPreparedNoteRails(plugin);plugin.preparedNoteRails=controller;
+let verified=0;
+try{
+for(const viewport of [1000,2000])for(const setting of [true,false])for(const context of ['Projects/Obsidian Hub','Resources/Knowledge'])for(const width of ['full','half'])for(const route of ['Last File','Preset']){
+ readable=setting;shell.style.width=viewport+'px';
+ shell.replaceChildren();shell.className='workspace note '+width;
+ const target={id:'rail',containerEl:shell.createDiv({cls:'leaf'}),history:[],getViewState(){return{type:this.view.getViewType(),state:this.view.getState()}},
+ async setViewState(state){
+  // Same ordering as native: construct new view, close/await old, mount, setState.
+  const old=this.view,history=this.getViewState();
+  const next=factories.get(state.type)(this);
+  await old.close();
+  this.containerEl.replaceChildren();this.view=next;await next.open(this.containerEl);
+  await next.setState(state.state,{});this.history.push(history);
+ }};
+ const path=context+'/Hub.md';
+ const note=await controller.prepare({path,name:context},{main:{type:'leaf',id:'rail',state:{state:{file:path}}}},document);
+ target.view=factories.get(hostModule.exports.NOTE_RAIL_VIEW)(target);
+ target.containerEl.append(target.view.containerEl);
+ const content=shell.createDiv({cls:'leaf',text:'Browser / PDF / notes remain mounted'});
+ await paint();
+ check(shell.querySelector('[data-hub-nav="last-file"].is-active'),'Last File selected on FIRST note paint');
+ check(!shell.querySelector('[data-hub-nav="workspace"].is-active'),'No Workspace selection before native setState');
+ note.dispose();
+ const mode=new Mode();
+ Object.assign(mode,{app,plugin,state:{currentMode:'note'},mode:{projectLeaf:target},captureNoteLayout(){this.captured=true},
+ isMainLeaf:leaf=>leaf===target&&leaf.containerEl.isConnected,leafDocument:()=>document,
+ async releaseModeOutside(){},beginLayoutMutation(){},
+ clearModeClasses(){shell.classList.remove('note','half')},
+ detachLeavesExcept(){content.remove()},setPinned(){},collapseNativeSidebars(){},saveState(){this.saved=true}});
+ target.closeGate=gate();
+ if(verified===0)blockHome=gate();
+ const before=renders,leaving=mode.leaveNoteModeForHome(target);
+ if(blockHome){
+  for(let i=0;i<3;i++){await paint();check(shell.contains(content)&&shell.querySelector('.project-folder'),'Rail and notes intact during asset preparation')}
+  blockHome.resolve();blockHome=null;
+ }
+ // Poll frames, not just eventual state. Native close remains unresolved.
+ for(let i=0;i<5;i++){
+  await paint();
+  const home=shell.querySelector('.home-dashboard');
+  if(home){
+   check(!shell.classList.contains('note')&&!shell.contains(content),'Home content and full layout commit together');
+   check(home.querySelector('.home-cover')&&home.querySelectorAll('.home-panel').length===3,'Complete structural Home, independent of images/panels');
+   check(target.containerEl.getBoundingClientRect().width===shell.getBoundingClientRect().width,'No intermediate narrow Home');
+   const expected=readable?Math.min(viewport,1500):viewport;
+   const rect=home.getBoundingClientRect(),outer=target.containerEl.getBoundingClientRect();
+   check(rect.width===expected,'FIRST Home frame matches native dashboard width, not full pane width');
+   check(rect.left-outer.left===(viewport-expected)/2,'FIRST Home frame has native centered margins');
+  }else check(shell.contains(content)&&shell.querySelector('.project-folder'),'No empty or dismantled frame');
+ }
+ check(shell.querySelector('.home-dashboard'),'Home visible WITHOUT awaiting native close');
+ check(renders===before+1,'Home constructed only once');
+ target.closeGate.resolve();await leaving;
+ await paint();check(shell.querySelector('.home-dashboard')&&mode.saved,'Home persists after native lifecycle completes');
+ check(target.history.length===1,'Native history retained');
+ check(target.getViewState().state.mode==='preview','Reconciliation recognizes final preview');
+ check(!('hubPreparedRail' in target.getViewState().state),'Transient preparation token not persisted');
+ target.view.unload();verified++;
+}
+controller.destroy();
+result.textContent='PASS: '+verified+' repeated Project/Resource, Full/Half, Last File/Preset entry and Home-exit frame sequences; first-frame native Home width/centering at narrow and wide viewport sizes, readable width enabled/disabled; old layout retained during preparation; atomic pane expansion during delayed native close; one render; no image/content wait; history/state preserved. Mock native lifecycle, not live Obsidian.';
+}catch(error){result.textContent='FAIL '+error.stack;controller.destroy()}
+</script>

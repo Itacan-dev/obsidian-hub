@@ -1,0 +1,103 @@
+<!doctype html><meta charset="utf-8"><title>Workspace transitions</title>
+<link rel="stylesheet" href="../../styles.css">
+<link rel="stylesheet" href="../../../../../System/Dashboards/Home/view.css">
+<link rel="stylesheet" href="../../../../../System/Dashboards/Project/view.css">
+<style>
+body{background:#1e1e1e;color:#ddd;font:14px Arial;--background-primary:#1e1e1e;--background-secondary:#262626;--background-modifier-border:#363636;--text-normal:#ddd;--interactive-accent:#8955ed}
+.workspace-split.mod-root{width:800px;margin:24px}.hub-dashboard-enter-row{padding:16px;background:#262626;margin-bottom:8px}
+</style>
+<div class="workspace"><div class="workspace-split mod-root"><div class="workspace-leaf"></div></div></div><pre id="result">RUNNING</pre>
+<script type="module">
+const assert=(value,message)=>{if(!value)throw Error(message)};
+const frame=()=>new Promise(resolve=>requestAnimationFrame(resolve));
+HTMLElement.prototype.createEl=function(tag,o={}){const e=document.createElement(tag);e.className=o.cls||'';e.textContent=o.text||'';this.append(e);return e};
+const module={exports:{}};
+const header={exports:{}};
+new Function('module','require',await (await fetch('../ui/header-image.js')).text())(header,()=>({}));
+const readiness={exports:{}};new Function('module',await(await fetch('../ui/render-readiness.js')).text())(readiness);
+new Function('module','require',await (await fetch('../services/transition-service.js')).text())(module,name=>name.endsWith('render-readiness')?readiness.exports:header.exports);
+const service=new module.exports.HubTransitionService();
+const ui={exports:{}},tooltips={exports:{}};
+new Function('module',await (await fetch('../ui/tooltips.js')).text())(tooltips);
+new Function('module','require',await (await fetch('../ui/dashboard-ui.js')).text())(ui,()=>tooltips.exports);
+const shell=document.querySelector('.workspace'),container=document.querySelector('.mod-root'),leaf=container.firstElementChild;
+const events=[];const nativeAnimate=Element.prototype.animate;
+Element.prototype.animate=function(frames,options){events.push({target:this,frames,options});return nativeAnimate.call(this,frames,options)};
+function dashboard(kind,id){
+ const root=document.createElement('div');root.className=`${kind==='home'?'home':'project'}-dashboard is-hub-cover-pending`;
+ if(id)root.dataset.hubContextId=id;
+ for(let i=0;i<4;i++){const row=root.createEl('div',{cls:'hub-dashboard-enter-row',text:`${kind} row ${i}`});row.style.setProperty('--hub-enter-order',i)}
+ leaf.replaceChildren(root);return root;
+}
+try{
+ window.hubHasWorkspace=()=>false;
+ let opens=0;window.hubOpenWorkspace=()=>opens++;
+ const controls=ui.exports.createDashboardUi({navClass:'home-nav-button'});
+ let home=dashboard('home');
+ const disabled=controls.workspaceButton(home,home);assert(disabled.disabled,'Workspace disabled with no history');
+ const active=controls.workspaceButton(home,home,true);
+ assert(active.textContent==='Workspace'&&active.classList.contains('is-active'),'Shared label and selected state');
+ assert(!active.hasAttribute('aria-label'),'Selected Workspace has no tooltip');
+ active.click();assert(opens===0,'Selected Workspace does not navigate');
+ window.hubHasWorkspace=()=>true;
+ const inactive=controls.workspaceButton(home,home);
+ assert(inactive.getAttribute('aria-label')==='Go to last opened Project or Resource','Inactive Workspace retains exact native tooltip');
+ inactive.click();assert(opens===1,'Inactive Workspace navigates normally');
+ for(const kind of ['project','resource']) {
+  const bar=document.createElement('div');home.append(bar);
+  const buttons=['home','workspace','last-file'].map(role=>controls.navButton(bar,role,
+   ()=>opens++,false,()=>opens++,`Go to ${role}`,role));
+  for(const selected of ['home','workspace','last-file','workspace','home']) {
+   controls.selectNavigation(bar,selected);
+   assert(buttons.filter(b=>b.classList.contains('is-active')).length===1,`${kind}: exactly one active button`);
+   for(const b of buttons) {
+    const current=b.dataset.hubNav===selected,before=opens;
+    const rect=b.getBoundingClientRect();
+    b.dispatchEvent(new PointerEvent('pointerenter'));b.dispatchEvent(new FocusEvent('focus'));
+    assert(b.hasAttribute('aria-label')===!current,`${kind}: tooltip follows live selection`);
+    b.click();b.dispatchEvent(new MouseEvent('click',{bubbles:true,detail:0,cancelable:true}));
+    b.dispatchEvent(new MouseEvent('auxclick',{button:1,bubbles:true,cancelable:true}));
+    assert(opens-before===(current?0:3),`${kind}: pointer, keyboard-style activation and middle click obey current state`);
+    assert(!b.disabled&&b.getBoundingClientRect().width===rect.width,`${kind}: no disabled styling or size change`);
+    assert(b.hasAttribute('aria-current')===current,`${kind}: accessible selection matches appearance`);
+   }
+  }
+ }
+ for(const id of ['project-a','resource:study']){
+  const context={projectId:id};let full=dashboard('workspace',id);await service.enter(full);
+  events.length=0;
+  await service.navigateToLastFile(full,async()=>{
+   assert(events.length===0,'Full to note has no page exit animation');
+   const stage=service.stageWorkspace(document);
+   document.body.classList.add('hub-project-note-mode');
+   assert(!shell.classList.contains('hub-workspace-switching'),'No blank transition shield');
+   assert(getComputedStyle(full).visibility==='visible','The render tree stays paintable during layout changes');
+   const bounds=full.getBoundingClientRect();
+   assert(getComputedStyle(full).visibility==='visible','No visibility gate');
+   await stage.reveal(()=>leaf,context,true);stage.cancel();
+  });
+  assert(!shell.classList.contains('hub-workspace-switching'),'Note mode revealed directly');
+  assert(full.getAnimations({subtree:true}).length===0,'No note-mode entry animation');
+  for(const destination of ['home','workspace']){
+   document.body.classList.add('hub-project-note-mode');events.length=0;
+   await service.navigate(full,async()=>{
+    assert(events.length===0,'Note mode skips outgoing rail animation');
+    const stage=service.stageWorkspace(document);
+    document.body.classList.remove('hub-project-note-mode');
+    const target=destination==='home'?null:context;
+    const next=dashboard(destination,target?.projectId);
+    const reveal=stage.reveal(()=>leaf,target,false);
+    await frame();assert(!shell.classList.contains('hub-workspace-switching'),'Structural handoff has no CSS shield');
+    await service.enter(next);await reveal;
+    assert(events.length===0,'Ready destination has no page entry animation');
+    assert(getComputedStyle(next).visibility==='visible','Correct ready destination is visible');
+    await Promise.all(next.getAnimations({subtree:true}).map(a=>a.finished));stage.cancel();full=next;
+   });
+  }
+ }
+ const stage=service.stageWorkspace(document);dashboard('home');
+ const waiting=stage.reveal(()=>leaf,null,false);service.destroy();await waiting;
+ assert(!shell.classList.contains('hub-workspace-switching'),'Unload cancels pending readiness and restores visibility');
+ result.textContent='PASS: Home/Workspace/Last File routing controls; Project/Resource full-to-note and note-to-Home/Workspace readiness; no page entrance/exit animations; disposal.';
+}catch(error){service.destroy();result.textContent='FAIL '+error.stack}
+</script>

@@ -1,0 +1,55 @@
+"use strict";
+
+const frames = new WeakMap();
+
+function createDashboardFrame(container, component, className) {
+    frames.get(container)?.abort();
+    const controller = new AbortController();
+    const root = container.ownerDocument.createElement("div");
+    root.className = className;
+    const work = [];
+    const current = () => !controller.signal.aborted && frames.get(container) === frame && root.isConnected;
+    const frame = {
+        root, current,
+        abort: () => controller.abort(),
+        defer: task => work.push(task),
+        commit() {
+            if (controller.signal.aborted || frames.get(container) !== frame) return;
+            root.dataset.hubReady = "true";
+            // Dataview owns this container, including its scoped view.css style.
+            // Replace only the Hub root, preserving every host-owned sibling.
+            const previous = [...container.children].find(child =>
+                child.matches('.home-dashboard, .project-dashboard'));
+            if (previous) previous.replaceWith(root);
+            else container.appendChild(root);
+            component.hubOnFrameCommit?.(frame);
+            if (!component.hubDeferFrameActivation) frame.activate(true);
+        },
+        activate(allowDetached = false) {
+            if (controller.signal.aborted || frames.get(container) !== frame ||
+                (!allowDetached && !root.isConnected)) return;
+            require("./header-image").refreshHeaderImages(root);
+            for (const task of work.splice(0)) {
+                const run = () => current() ? task() : undefined;
+                const view = container.ownerDocument.defaultView;
+                if (view.scheduler?.postTask) {
+                    void view.scheduler.postTask(run, { priority: "background", signal: controller.signal })
+                        .catch(error => { if (error.name !== "AbortError") console.error("Hub panel update failed", error); });
+                } else {
+                    // A task boundary, not a delay or an animation-frame readiness gate.
+                    const channel = new view.MessageChannel();
+                    channel.port1.onmessage = () => {
+                        channel.port1.close(); channel.port2.close();
+                        Promise.resolve().then(run).catch(error => console.error("Hub panel update failed", error));
+                    };
+                    channel.port2.postMessage(null);
+                }
+            }
+        }
+    };
+    frames.set(container, frame);
+    component.register(frame.abort);
+    return frame;
+}
+
+module.exports = { createDashboardFrame };

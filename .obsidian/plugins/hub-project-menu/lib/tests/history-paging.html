@@ -1,0 +1,33 @@
+<!doctype html><meta charset="utf-8"><style>body{background:#222;color:#ddd;font:14px Arial}#list{height:180px;overflow:auto}.row{height:24px}</style><div id="list"></div><pre id="result">RUNNING</pre>
+<script type="module">
+try{
+ const check=(v,m)=>{if(!v)throw Error(m)},module={exports:{}};
+ new Function("module",await(await fetch("../ui/history-pager.js")).text())(module);
+ const cleanups=[],pager=module.exports.createHistoryPager(list,{register:fn=>cleanups.push(fn)});
+ const paint=()=>new Promise(r=>requestAnimationFrame(r));
+ for(const workspace of ["Home Projects","Home Resources","Project","Resource"])for(const type of ["Reports","Activity","Tasks"]){
+  pager.reset();list.replaceChildren();list.scrollTop=0;
+  const records=Array.from({length:123},(_,i)=>({id:i,text:workspace+" "+type+" "+i}));
+  const before=JSON.stringify(records);
+  pager.render(records,record=>{const row=document.createElement("div");row.className="row";row.dataset.id=record.id;row.textContent=record.text;list.append(row)});
+  check(list.children.length===50,"First batch is exactly 50");
+  const first=list.firstChild;
+  for(const expected of [100,123]){
+   list.scrollTop=list.scrollHeight;list.dispatchEvent(new Event("scroll"));await paint();
+   check(list.children.length===expected,"Progressive batches of 50 without lost older records");
+   check(list.firstChild===first,"Appending does not replace existing rendered Markdown rows");
+  }
+  check([...list.children].every((row,i)=>+row.dataset.id===i),"Chronological input order unchanged");
+  check(JSON.stringify(records)===before,"Render never mutates history");
+ }
+ pager.reset();list.replaceChildren();pager.render([],()=>{throw Error("Empty list render")});
+ list.dispatchEvent(new Event("scroll"));check(!list.children.length,"Switch to empty scope cannot append stale rows");
+ pager.render(Array(100).fill("entry"),()=>list.append(document.createElement("div")));
+ cleanups.forEach(fn=>fn());list.dispatchEvent(new Event("scroll"));
+ check(list.children.length===50,"Unload unregisters scroll listener and releases pending records");
+ const home=await(await fetch("../../../../../System/Dashboards/Home/view.js")).text();
+ const project=await(await fetch("../../../../../System/Dashboards/Project/view.js")).text();
+ check((home.match(/historyPager.render\(/g)||[]).length===3&&(project.match(/historyPager.render\(/g)||[]).length===3,"All six real renderers use shared pager");
+ result.textContent="PASS: 50/100/123 progressive History rows; Home Projects/Resources and Project/Resource scopes, Reports/Activity/Tasks; stable order, retained DOM, view-switch reset, empty state, no record mutation, listener cleanup.";
+}catch(e){result.textContent="FAIL "+e.stack}
+</script>

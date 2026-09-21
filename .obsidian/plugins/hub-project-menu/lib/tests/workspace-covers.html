@@ -1,0 +1,145 @@
+<!doctype html><meta charset="utf-8"><title>Workspace cover lifecycle</title>
+<link rel="stylesheet" href="../../styles.css">
+<link rel="stylesheet" href="../../../../../System/Dashboards/Home/view.css">
+<link rel="stylesheet" href="../../../../../System/Dashboards/Project/view.css">
+<style>
+body{background:#1e1e1e;color:#ddd;font:14px Arial;--background-primary:#1e1e1e;--background-secondary:#262626;--background-modifier-border:#363636;--text-normal:#ddd;--interactive-accent:#8955ed}
+.workspace-split.mod-root{width:800px;margin:20px}.hub-dashboard-enter-row{padding:10px}
+</style>
+<div class="workspace"><div class="workspace-split mod-root"><div class="workspace-leaf"></div></div></div><pre id="result">RUNNING</pre>
+<script type="module">
+const assert=(ok,message)=>{if(!ok)throw Error(message)};
+const frame=()=>new Promise(resolve=>requestAnimationFrame(resolve));
+class Component {
+ constructor(){this.cleanups=[]}load(){}register(fn){this.cleanups.push(fn)}
+ registerDomEvent(el,type,fn,options){el.addEventListener(type,fn,options);this.register(()=>el.removeEventListener(type,fn,options))}
+ unload(){this.cleanups.splice(0).reverse().forEach(fn=>fn())}
+}
+const header={exports:{}},transitions={exports:{}};
+new Function('module','require',await (await fetch('../ui/header-image.js')).text())(header,()=>({Component,Menu:class{},Notice:class{}}));
+const readiness={exports:{}};new Function('module',await(await fetch('../ui/render-readiness.js')).text())(readiness);
+new Function('module','require',await (await fetch('../services/transition-service.js')).text())(transitions,name=>name.endsWith('render-readiness')?readiness.exports:header.exports);
+const service=new transitions.exports.HubTransitionService();
+const shell=document.querySelector('.workspace'),container=document.querySelector('.mod-root'),leaf=container.firstElementChild;
+const asset=new URL('../../../../../Assets/ProjectCards/Categories/custom-master-s-thesis.jpg',location.href).href;
+let mounts=0;
+function create(kind,id,placement){
+ const owner=new Component(),root=document.createElement('div');root.className=`${kind==='home'?'home':'project'}-dashboard is-hub-cover-pending`;
+ if(id)root.dataset.hubContextId=id;
+ const cover=root.appendChild(document.createElement('div'));cover.className=kind==='home'?'home-cover':'project-cover';
+ const image=cover.appendChild(new Image());image.className=kind==='home'?'home-cover-image':'project-cover-image';image.src=asset;
+ const row=root.appendChild(document.createElement('div'));row.className='hub-dashboard-enter-row';row.style.setProperty('--hub-enter-order','1');row.textContent=id||'Home';
+ leaf.replaceChildren(root);
+ const editor=header.exports.mountHeaderImage({cover,image,component:owner,initial:placement,save:async()=>{},manageMenu:false});mounts++;
+ return {owner,root,cover,image,editor,placement,context:id?{projectId:id}:null};
+}
+function check(item){
+ assert(item.image.complete&&item.image.naturalWidth>0,'Source image is decoded');
+ const cover=item.cover.getBoundingClientRect(),image=item.image.getBoundingClientRect();
+ assert(cover.width>0&&cover.height===325,'Complete cover restored at its normal height');
+ assert(getComputedStyle(item.cover).display!=='none'&&getComputedStyle(item.cover).visibility==='visible','Cover visible after rail teardown');
+ if(item.placement){
+  const g=header.exports.imagePlacementGeometry(item.cover.clientWidth,item.cover.clientHeight,item.image.naturalWidth,item.image.naturalHeight,item.placement);
+  assert(Math.abs(image.width-g.imageWidth)<.1&&Math.abs(image.left-cover.left-g.left)<.1&&Math.abs(image.top-cover.top-g.top)<.1,'Saved placement is correct at first reveal, not a later ResizeObserver frame');
+ }else assert(!item.image.hasAttribute('style'),'Default cover keeps its original CSS crop');
+ assert(leaf.querySelectorAll('img').length===1&&leaf.querySelectorAll('.project-dashboard,.home-dashboard').length===1,'No duplicate dashboard or image');
+}
+async function settled(item){await Promise.all(item.root.getAnimations({subtree:true}).map(a=>a.finished.catch(()=>{})));assert(getComputedStyle(item.cover).opacity==='1','No stale transparent cover animation');}
+async function leaveNote(item){
+ const stage=service.stageWorkspace(document);
+ leaf.classList.remove('hub-project-rail');document.body.classList.remove('hub-project-note-mode');
+ await stage.reveal(()=>leaf,item.context,false);check(item);stage.cancel();await settled(item);
+}
+try{
+ // Emulate the host's delegated image-opening handler around the Hub.
+ let nativeClicks=0;
+ const nativeClick=event=>{if(event.target.tagName==='IMG')nativeClicks++};
+ document.addEventListener('click',nativeClick);
+ for(const kind of ['home','project','resource']){
+  const item=create(kind,kind==='home'?null:kind,null);
+  const click=new MouseEvent('click',{button:0,bubbles:true,cancelable:true});
+  item.image.dispatchEvent(click);
+  assert(click.defaultPrevented&&nativeClicks===0,'Cover click cannot reach native image viewer');
+  assert(getComputedStyle(item.image).pointerEvents!=='none','Cover retains pointer/hover hit testing');
+  let context=0,pointers=0,buttons=0;
+  item.cover.addEventListener('contextmenu',()=>context++);
+  item.cover.addEventListener('pointerdown',()=>pointers++);
+  item.image.dispatchEvent(new MouseEvent('contextmenu',{button:2,bubbles:true,cancelable:true}));
+  item.image.dispatchEvent(new PointerEvent('pointerdown',{button:0,bubbles:true}));
+  const button=item.cover.appendChild(document.createElement('button'));button.addEventListener('click',()=>buttons++);button.click();
+  assert(context===1&&pointers===1&&buttons===1,'Context menu, pointer interaction and cover controls remain reachable');
+  item.owner.unload();item.image.click();
+  assert(nativeClicks===1,'Cover click listener is removed on unload');nativeClicks=0;
+ }
+ const ordinary=document.body.appendChild(new Image());ordinary.click();ordinary.remove();
+ assert(nativeClicks===1,'Images outside Hub retain native click behavior');
+ document.removeEventListener('click',nativeClick);
+ for(const id of ['project-a','resource:study'])for(const placement of [null,{x:84,y:73,zoom:2.1}]){
+  let item=create('workspace',id,placement);await service.enter(item.root);await item.image.decode();item.editor.refresh();check(item);await settled(item);
+  const initialMounts=mounts;
+  for(let i=0;i<3;i++){
+   await service.navigateToLastFile(item.root,async()=>{
+    const stage=service.stageWorkspace(document);leaf.classList.add('hub-project-rail');document.body.classList.add('hub-project-note-mode');
+    await stage.reveal(()=>leaf,item.context,true);stage.cancel();
+   });
+   assert(item.cover.clientWidth===0,'Note rail hides but retains the cover');
+   container.style.width=`${i%2?760:1000}px`;
+   await service.navigate(item.root,()=>leaveNote(item));
+  }
+  assert(mounts===initialMounts,'Repeated note/full re-entry reuses the controller and DOM');
+  // Cold note-mode mounting is also the Last File / restored-layout path.
+  item.owner.unload();leaf.classList.add('hub-project-rail');document.body.classList.add('hub-project-note-mode');
+  item=create('workspace',id,placement);await service.enter(item.root);
+  await item.image.decode();await frame();
+  if(placement) assert(!item.image.style.left,'A hidden cold-mounted cover has no usable saved geometry yet');
+  let decoded;const actualDecode=item.image.decode.bind(item.image);
+  item.image.decode=()=>new Promise(resolve=>{decoded=()=>actualDecode().catch(()=>{}).then(resolve)});
+  await leaveNote(item);
+  assert(!decoded,'Re-entry never requests image decode');
+  item.image.decode=actualDecode;
+  // Note -> Home -> another Workspace uses the same full-view readiness path.
+  leaf.classList.add('hub-project-rail');document.body.classList.add('hub-project-note-mode');
+  const homeStage=service.stageWorkspace(document);item.owner.unload();
+  leaf.classList.remove('hub-project-rail');document.body.classList.remove('hub-project-note-mode');
+  item=create('home',null,placement);await service.enter(item.root);await homeStage.reveal(()=>leaf,null,false);homeStage.cancel();check(item);await settled(item);
+  const nextStage=service.stageWorkspace(document);item.owner.unload();
+  item=create('workspace',id==='project-a'?'resource:study':'project-a',placement);
+  await service.enter(item.root);await nextStage.reveal(()=>leaf,item.context,false);nextStage.cancel();check(item);await settled(item);item.owner.unload();
+ }
+ // A reading-view replacement can finish while its previous root is still
+ // connected. A document-wide handoff must not strand that new cover pending.
+ for(const kind of ['workspace','home']){
+  document.body.classList.add('hub-project-note-mode');
+  const stage=service.stageWorkspace(document);
+  document.body.classList.remove('hub-project-note-mode');
+  const id=kind==='home'?null:'resource:study';
+  const previous=create(kind,id,null);await service.enter(previous.root);
+  await previous.image.decode();
+  const previousDecode=previous.image.decode.bind(previous.image);
+  let release,decoding;
+  const started=new Promise(resolve=>decoding=resolve);
+  previous.image.decode=()=>new Promise(resolve=>{release=resolve;decoding()});
+  const reveal=stage.reveal(()=>leaf,previous.context,false);
+  await reveal;assert(!release,'Structural reveal does not wait for decode');
+  const next=create(kind,id,{x:84,y:73,zoom:2.1});
+  leaf.prepend(previous.root); // Native reading-view overlap, before old DOM removal.
+  await service.enter(next.root);previous.image.decode=previousDecode;stage.cancel();
+  previous.root.remove();previous.owner.unload();
+  await frame();await settled(next);
+  assert(!next.root.classList.contains('is-hub-cover-pending'),'Replacement dashboard must not retain pending cover state');
+  check(next);next.owner.unload();
+ }
+ for(const kind of ['workspace','home']){
+  const stage=service.stageWorkspace(document),id=kind==='home'?null:'resource:study';
+  const visible=create(kind,id,{x:84,y:73,zoom:2.1});await service.enter(visible.root);
+  const hidden=create(kind,id,null),editor=document.createElement('div');
+  editor.className='markdown-source-view';editor.style.display='none';
+  editor.append(hidden.root);leaf.replaceChildren(editor,visible.root);
+  await service.enter(hidden.root); // Hidden editor happens to finish last.
+  await stage.reveal(()=>leaf,visible.context,false);
+  assert(stage.presentedRoot===visible.root,'Handoff targets reading view, never hidden editor duplicate');
+  stage.cancel();editor.remove();hidden.owner.unload();check(visible);await settled(visible);visible.owner.unload();
+ }
+ service.destroy();result.textContent='PASS: Project/Resource/Home cover lifecycle, placement, repeated navigation and overlapping reading-view replacement; no stranded pending covers.';
+}catch(error){service.destroy();result.textContent='FAIL '+error.stack}
+</script>

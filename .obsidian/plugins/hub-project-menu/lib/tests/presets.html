@@ -1,0 +1,171 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="../../styles.css">
+<style>
+:root{--layer-menu:65}
+.menu{position:fixed;z-index:var(--layer-menu)}
+body{font:13px Arial;background:#1e1e1e;color:#ddd;--background-primary:#1e1e1e;--background-modifier-border:#444;--background-modifier-hover:#383838;--text-normal:#ddd;--interactive-normal:#262626}
+#nav{display:flex;gap:8px;margin:30px}.menu{padding:6px;background:#262626;border:1px solid #444;border-radius:6px;box-shadow:0 4px 16px #0006}.menu-item{padding:7px 10px;border-radius:3px}.menu-item:hover{background:#383838}.is-disabled{opacity:.5}.menu-separator{border-top:1px solid #444;margin:4px}.modal{background:#262626;padding:24px;margin:40px;width:400px;border-radius:10px}input{background:#333;border:1px solid #444;color:#ddd;padding:8px}
+</style><nav id="nav" class="hub-button-scope"></nav><pre id="result">RUNNING</pre>
+<script type="module">
+const check=(ok,message)=>{if(!ok)throw Error(message)};
+const settle=async()=>{for(let i=0;i<12;i++)await Promise.resolve()};
+HTMLElement.prototype.createEl=function(tag,o={}){const e=document.createElement(tag);e.className=o.cls||'';e.textContent=o.text||'';if(o.type)e.type=o.type;this.append(e);return e;};
+HTMLElement.prototype.createDiv=function(o){return this.createEl('div',o)};
+HTMLElement.prototype.addClass=function(...cls){this.classList.add(...cls)};
+HTMLElement.prototype.empty=function(){this.replaceChildren()};
+class Modal{constructor(){this.contentEl=document.body.createDiv({cls:'modal'})}open(){this.onOpen()}close(){this.onClose();this.contentEl.remove()}}
+let context;
+class Menu{
+ constructor(){this.items=[];this.separators=0;this.dom=document.createElement('div');this.dom.className='menu';context=this}
+ addItem(callback){const i={setTitle(t){this.title=t;return this},setIcon(){return this},setDisabled(v){this.disabled=v;return this},setWarning(v){this.warning=v;return this},onClick(fn){this.action=fn;return this}};callback(i);this.items.push(i);
+  const row=this.dom.createDiv({text:i.title});i.click=()=>{row.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true}));if(!i.disabled)i.action();this.hide()}}
+ addSeparator(){this.separators++}onHide(fn){this.hidden=fn}hide(){this.dom.remove();this.hidden?.()}
+ showAtMouseEvent(){document.body.append(this.dom)}showAtPosition(){this.showAtMouseEvent()}
+}
+const notices=[];
+const module={exports:{}};new Function('module','require',await(await fetch('../ui/presets.js')).text())(module,()=>({Modal,Menu,setIcon(el,name){el.dataset.icon=name;el.innerHTML='<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor"/></svg>'},Notice:class{constructor(m){notices.push(m)}}}));
+const tooltips={exports:{}},ui={exports:{}};
+new Function('module',await(await fetch('../ui/tooltips.js')).text())(tooltips);
+new Function('module','require',await(await fetch('../ui/dashboard-ui.js')).text())(ui,name=>name==='obsidian'?{setIcon(el,name){el.dataset.icon=name;el.innerHTML='<svg viewBox="0 0 24 24"></svg>'}}:tooltips.exports);
+const calls=[],presets={modes:{app:{}},canSave:false,items:[],defaultName:()=> 'Preset 1',
+create(name){calls.push(['create',name]);this.items.push({id:'p',name:name.trim()||this.defaultName()})},
+rename(id,name){calls.push(['rename',id,name]);this.items.find(item=>item.id===id).name=name},delete(id){calls.push(['delete',id]);this.items=this.items.filter(item=>item.id!==id)},
+reorder(ids){calls.push(['reorder',ids]);this.items=ids.map(id=>this.items.find(item=>item.id===id))},
+update(id){calls.push(['update',id])},open(id){calls.push(['open',id])}};
+let handle;window.hubShowPresets=anchor=>handle=module.exports.showPresetsMenu(anchor,presets);
+const component={cleanup:[],register(fn){this.cleanup.push(fn)}};
+const controls=ui.exports.createDashboardUi({navClass:'home-nav-button'});
+for(const name of ['Home','Workspace','Last File'])controls.navButton(nav,name,()=>{});
+const button=controls.presetsButton(nav,component);
+const rows=()=>[...document.querySelectorAll('.hub-presets-menu .menu-item')];
+const click=text=>rows().find(row=>row.textContent===text).click();
+const key=(el,value)=>el.dispatchEvent(new KeyboardEvent('keydown',{key:value,bubbles:true,cancelable:true}));
+const checkChevron=(anchor,open)=>{
+ check(anchor.getAttribute('aria-expanded')===String(open),'Menu aria state matches visibility');
+ const visible=[...anchor.querySelectorAll('.hub-presets-chevron')].filter(el=>getComputedStyle(el).display!=='none');
+ check(visible.length===1&&visible[0].dataset.icon===(open?'chevron-down':'chevron-right'),'Exactly the correct Lucide chevron is visible');
+};
+try{
+ checkChevron(button,false);
+ button.click();check(rows().length===1&&rows()[0].textContent==='No presets','Empty outside note-mode');
+ checkChevron(button,true);
+ check(rows()[0].getAttribute('aria-disabled')==='true','Empty item disabled');
+ key(document.activeElement,'Escape');check(!document.querySelector('.hub-presets-menu')&&document.activeElement===button,'Escape closes empty menu');
+ checkChevron(button,false);
+ presets.canSave=true;button.click();check(rows().length===1&&rows()[0].textContent==='Save as new preset','Creation offered only in note mode');
+ click('Save as new preset');const input=document.querySelector('.hub-preset-name');check(input===document.activeElement,'Name input focused');
+ key(input,'Enter');await settle();check(calls.at(-1)[0]==='create'&&presets.items[0].name==='Preset 1','Empty name delegates conventional default');
+ checkChevron(button,true);check(rows()[1].textContent==='Preset 1','Creation keeps menu open and refreshes saved rows');
+ const bounds=document.querySelector('.hub-presets-menu').getBoundingClientRect();check(bounds.top===button.getBoundingClientRect().bottom+6,'Dropdown below navigation');
+ check(document.activeElement===document.querySelector('.hub-presets-menu'),'Creation returns focus to the neutral menu container');
+ key(document.activeElement,'ArrowDown');check(document.activeElement.textContent==='Save as new preset','Down enters at the first action');
+ key(document.activeElement,'ArrowDown');check(document.activeElement.textContent==='Preset 1','Vertical keyboard navigation');
+ key(document.activeElement,'Enter');await settle();check(calls.at(-1)[0]==='open','Enter opens saved preset');
+ checkChevron(button,false);check(!document.querySelector('.hub-presets-menu'),'Opening a preset closes dropdown');
+ button.click();rows()[1].dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true}));
+ check(context.items.map(i=>i.title).join(',')==='Rename,Update preset,Delete','Conventional context menu order');
+ check(context.items[2].warning&&context.separators===1,'Delete uses native red warning style and destructive separator');
+ const originalMenu=document.querySelector('.hub-presets-menu');
+ context.items[0].click();checkChevron(button,true);
+ document.querySelector('.hub-preset-name').dispatchEvent(new PointerEvent('pointerdown',{bubbles:true}));checkChevron(button,true);
+ document.querySelector('.hub-preset-name').value='Renamed';key(document.querySelector('.hub-preset-name'),'Enter');await settle();check(presets.items[0].name==='Renamed','Rename modal');
+ check(document.querySelector('.hub-presets-menu')===originalMenu&&rows()[1].textContent==='Renamed','Rename refreshes existing open dropdown');
+ rows()[1].dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true}));context.items[1].click();await settle();check(calls.at(-1)[0]==='update','Update current note arrangement');
+ checkChevron(button,true);check(document.querySelector('.hub-presets-menu')===originalMenu,'Update retains same dropdown');
+ handle.close();presets.canSave=false;button.click();check(rows().length===1,'No save outside note-mode');
+ rows()[0].dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true}));check(context.items[1].disabled,'Update disabled outside note mode');
+ document.body.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true}));check(!document.querySelector('.hub-presets-menu'),'Outside closes');
+ checkChevron(button,false);
+ button.click();rows()[0].dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true}));context.items[2].click();await settle();check(!presets.items.length,'Delete preset only');
+ checkChevron(button,true);check(rows()[0].textContent==='No presets','Deleting last preset refreshes empty state without closing');
+ component.cleanup.forEach(fn=>fn());check(!document.querySelector('.hub-presets-menu'),'View lifecycle cleanup');
+ checkChevron(button,false);
+ check(!notices.length,'No unexpected errors');
+ presets.canSave=true;presets.items=[{id:'1',name:'Reading — Knowledge'},{id:'2',name:'Thesis notes'}];button.click();
+ check(document.querySelectorAll('.hub-presets-menu .menu-separator').length===1,'Only creation is separated from saved presets');
+ check(rows()[0].querySelector('.hub-preset-create-icon')?.dataset.icon==='plus','Create action uses Lucide plus');
+ const createRow=rows()[0],label=createRow.querySelector('.menu-item-title'),plus=createRow.querySelector('svg');
+ const labelRect=label.getBoundingClientRect(),plusRect=plus.getBoundingClientRect();
+ check(Math.abs(labelRect.top+labelRect.height/2-plusRect.top-plusRect.height/2)<.1,'Plus and label are vertically centered without offsets');
+ check(plusRect.width===14&&plusRect.height===14&&getComputedStyle(createRow).gap==='6px','Icon size and row gap preserved');
+ check(rows().slice(1).every(row=>row.querySelector('.hub-preset-icon')?.dataset.icon==='panels-top-left'),'Saved presets use a consistent Lucide icon');
+ check(parseFloat(getComputedStyle(rows()[0].nextElementSibling).marginTop)===7,'Extra spacing separates creation action');
+ const dropdown=document.querySelector('.hub-presets-menu'),rect=dropdown.getBoundingClientRect();
+ const nativeLayer=document.body.createDiv({cls:'menu'});nativeLayer.style.cssText=`left:${rect.left}px;top:${rect.top}px;width:80px;height:60px`;
+ check(nativeLayer.contains(document.elementFromPoint(rect.left+10,rect.top+10)),'Later native context menu paints above preset dropdown at the native menu layer');nativeLayer.remove();
+ handle.close();
+ const clipped=document.body.createDiv({cls:'hub-button-scope'});clipped.style.cssText='overflow:hidden;height:35px;width:350px';
+ const noteButton=ui.exports.createDashboardUi({navClass:'project-nav-button'}).presetsButton(clipped,component);
+ noteButton.click();checkChevron(noteButton,true);
+ check(rows()[0].textContent==='Save as new preset','Note view preserves save at top');
+ check(rows()[0].querySelector('.hub-preset-create-icon')?.dataset.icon==='plus','Note view uses shared create action icon');
+ const noteMenu=document.querySelector('.hub-presets-menu'),noteRect=noteMenu.getBoundingClientRect();
+ check(noteMenu.parentElement===document.body&&noteRect.top===noteButton.getBoundingClientRect().bottom+6,'Note-view menu anchored outside clipped header');
+ check(rows().every(row=>Math.abs(row.getBoundingClientRect().width-rows()[0].getBoundingClientRect().width)<.1),'Full-width aligned row targets');
+ rows()[1].dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true}));context.items[1].click();await settle();checkChevron(noteButton,true);
+ rows()[1].dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true}));context.items[0].click();
+ const cancel=[...document.querySelectorAll('.modal button')].find(b=>b.textContent==='Cancel');
+ cancel.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true}));cancel.click();checkChevron(noteButton,true);
+ check(document.querySelector('.hub-presets-menu')===noteMenu,'Note-view rename cancellation and update preserve dropdown identity');
+ noteButton.click();checkChevron(noteButton,false);check(!document.querySelector('.hub-presets-menu'),'Button toggles menu closed');
+ noteButton.click();window.dispatchEvent(new Event('resize'));checkChevron(noteButton,false);
+ button.click();
+ handle.close();
+ presets.items=['a','b','c','d','e'].map(id=>({id,name:'Preset '+id}));button.click();
+ const neutral=()=>{
+  const menu=document.querySelector('.hub-presets-menu');
+  check(document.activeElement===menu,'Opening focuses the container, not a saved preset');
+  check([...menu.querySelectorAll('.hub-preset-list .menu-item')].every(row=>!row.contains(document.activeElement)&&!row.matches(':focus-within')),'No saved preset has stale focus');
+  check([...menu.querySelectorAll('.hub-preset-list .menu-item:not(:hover) .hub-preset-more')].every(more=>getComputedStyle(more).opacity==='0'),'Unhovered rows open with hidden management controls');
+ };
+ neutral();
+ key(document.activeElement,'ArrowUp');check(document.activeElement.dataset.presetId==='e','Up enters at the last preset');
+ handle.close();button.click();neutral();
+ key(document.activeElement,'ArrowDown');check(document.activeElement.textContent==='Save as new preset','Down enters at the first action');
+ key(document.activeElement,'ArrowDown');check(document.activeElement.dataset.presetId==='a','Deliberate navigation focuses the first preset');
+ handle.close();presets.canSave=false;button.click();neutral();
+ key(document.activeElement,'ArrowDown');check(document.activeElement.dataset.presetId==='a','Without creation, Down enters the first saved preset');
+ handle.close();presets.canSave=true;button.click();neutral();
+ const saved=()=>[...document.querySelectorAll('.hub-preset-list > .menu-item')];
+ const order=()=>presets.items.map(item=>item.id).join('');
+ const pointer=(target,type,x,y)=>target.dispatchEvent(new PointerEvent(type,{bubbles:true,cancelable:true,pointerId:7,isPrimary:true,button:0,clientX:x,clientY:y}));
+ const tick=()=>new Promise(resolve=>setTimeout(resolve,10));
+ const start=id=>{const row=saved().find(row=>row.dataset.presetId===id),r=row.getBoundingClientRect();pointer(row,'pointerdown',r.left+30,r.top+r.height/2);return {row,r,x:r.left+30,y:r.top+r.height/2}};
+ const move=(s,y,x=s.x)=>pointer(document,'pointermove',x,y);
+ const drop=(s,y,x=s.x)=>pointer(document,'pointerup',x,y);
+ const ids=()=>saved().map(row=>row.dataset.presetId).join('');
+ let s=start('a');move(s,s.y+2);check(!document.querySelector('.is-dragging'),'Small movement remains a click');drop(s,s.y+2);s.row.click();await settle();check(calls.at(-1).join(',')==='open,a','Ordinary pointer click restores preset');button.click();
+ s=start('a');move(s,s.y+s.r.height);
+ check(document.querySelector('.hub-preset-placeholder'),'Drag has a visible insertion placeholder');
+ check(saved().find(row=>row.dataset.presetId==='b').getBoundingClientRect().top===s.r.top,'Neighbor moves into the vacated slot');
+ move(s,s.y+s.r.height,s.x+500);check(Math.abs(s.row.getBoundingClientRect().left-s.r.left)<.1,'Dragged row stays horizontally in the menu column');
+ drop(s,s.y+s.r.height);s.row.click();check(document.querySelector('.hub-presets-menu'),'Drag release suppresses accidental open');await tick();
+ check(order()==='bacde'&&ids()==='bacde','Down one position');
+ s=start('a');move(s,s.y-s.r.height);drop(s,s.y-s.r.height);await tick();check(order()==='abcde','Up one position');
+ s=start('a');move(s,s.y+4*s.r.height);drop(s,s.y+4*s.r.height);await tick();check(order()==='bcdea','Across several rows to last');
+ s=start('a');move(s,s.y-4*s.r.height);drop(s,s.y-4*s.r.height);await tick();check(order()==='abcde','Last to first');
+ s=start('a');move(s,s.y+s.r.height*.7);const placeholder=document.querySelector('.hub-preset-placeholder');const before=placeholder.nextElementSibling;
+ for(const offset of [.49,.51,.48,.52])move(s,s.y+s.r.height*offset);
+ check(placeholder.nextElementSibling===before,'Dead band prevents insertion jitter');
+ key(document.activeElement,'Escape');await tick();check(order()==='abcde'&&ids()==='abcde'&&!document.querySelector('.is-dragging'),'Escape restores original order without closing');
+ s=start('a');move(s,s.y+3*s.r.height);pointer(document,'pointercancel',s.x,s.y);await tick();check(order()==='abcde'&&ids()==='abcde','Pointer cancellation restores order');
+ s=start('a');move(s,s.y+3*s.r.height);drop(s,s.y+3*s.r.height,s.x+600);await tick();check(order()==='abcde'&&ids()==='abcde','Outside drop cancels');
+ s=start('b');move(s,s.y+2*s.r.height);drop(s,s.y+2*s.r.height);await tick();check(order()==='acdbe','Reorder before management');
+ handle.close();button.click();check(ids()==='acdbe','Reopening retains custom order');
+ const managed=saved().find(row=>row.dataset.presetId==='b');managed.focus();
+ // Headless Firefox has no focused OS window; Chromium also checks focus styling here.
+ check(!document.hasFocus() || getComputedStyle(managed.querySelector('.hub-preset-more')).opacity==='1','Management control visible on focused row: '+JSON.stringify({active:document.activeElement===managed,within:managed.matches(':focus-within'),opacity:getComputedStyle(managed.querySelector('.hub-preset-more')).opacity,focus:document.hasFocus()}));
+ check(getComputedStyle(saved()[0].querySelector('.hub-preset-more')).opacity==='0','Management controls hidden on unfocused rows');
+ managed.querySelector('.hub-preset-more').click();check(context.items.map(i=>i.title).join(',')==='Rename,Update preset,Delete','Ellipsis opens the existing management menu');
+ context.items[0].click();document.querySelector('.hub-preset-name').value='Moved and renamed';key(document.querySelector('.hub-preset-name'),'Enter');await settle();
+ check(presets.items[3].name==='Moved and renamed'&&ids()==='acdbe','Rename targets reordered identity and preserves order');
+ saved()[3].querySelector('.hub-preset-more').click();context.items[1].click();await settle();check(calls.at(-1).join(',')==='update,b','Update targets reordered identity');
+ saved()[3].dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true}));context.items[2].click();await settle();check(order()==='acde'&&ids()==='acde','Right-click Delete targets reordered identity');
+ handle.close();presets.items=Array.from({length:35},(_,i)=>({id:String(i),name:'Saved reading workspace '+i}));button.click();
+ s=start('0');const longMenu=document.querySelector('.hub-presets-menu'),longRect=longMenu.getBoundingClientRect();
+ check(longMenu.scrollHeight>longMenu.clientHeight,'Many presets stay inside a scrollable dropdown');
+ move(s,longRect.bottom-8);await new Promise(resolve=>setTimeout(resolve,150));check(longMenu.scrollTop>0,'Dragging near bottom auto-scrolls');
+ key(document.activeElement,'Escape');await tick();check(presets.items[0].id==='0'&&!document.querySelector('.hub-preset-placeholder'),'Scrolled cancellation cleans up');
+ handle.close();presets.items=[{id:'a',name:'Reading workspace'},{id:'b',name:'Thesis notes'}];button.click();
+ result.textContent='PASS'+(!document.hasFocus()?' (focus appearance requires a focused browser window)':'')+': preset actions, ellipsis/right-click, compact icon rows, click threshold, up/down/multi-row/first/last sorting, stable insertion, horizontal confinement, cancellation, reopening, management after reorder and long-list auto-scroll.';
+}catch(error){result.textContent='FAIL: '+error.message+'\n'+error.stack}
+</script>

@@ -1,0 +1,34 @@
+<!doctype html><meta charset="utf-8"><title>Hub truncated-title tooltip checks</title>
+<link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../../../../../System/Dashboards/Project/view.css">
+<style>body{background:#262626;color:#ddd;font:14px Arial} .surface{display:inline-block;vertical-align:top;width:230px;padding:12px}.title{display:block;width:100px;max-width:none;margin:8px 0}</style>
+<div id="fixtures"></div><pre id="result">RUNNING</pre>
+<script type="module">
+const module={exports:{}};
+new Function('module',await (await fetch('../ui/tooltips.js')).text())(module);
+const errors=[],assert=(v,m)=>{if(!v)errors.push(m)};
+const wait=()=>new Promise(resolve=>setTimeout(resolve,60));
+class Component{constructor(){this.cleanups=[]}register(fn){this.cleanups.push(fn)}registerDomEvent(el,type,fn,options){el.addEventListener(type,fn,options);this.register(()=>el.removeEventListener(type,fn,options))}unload(){this.cleanups.forEach(fn=>fn())}}
+try {
+for(const mode of ['Project full','Resource full','Project note','Resource note']) {
+ const surface=document.createElement('div');surface.className='surface hub-button-scope '+(mode.endsWith('note')?'hub-project-rail':'');surface.textContent=mode;fixtures.append(surface);
+ const owner=new Component();module.exports.watchHubTooltips(surface,owner);
+ for(const cls of ['project-browser-name','project-folder-crumb']) {
+  const title=document.createElement('div');title.className=cls+' title';title.textContent='A long descriptive file or folder title';surface.append(title);await wait();
+  assert(title.scrollWidth>title.clientWidth,'Fixture genuinely overflows');
+  assert(title.getAttribute('aria-label')===title.textContent,mode+': truncated title exposes full text');
+  assert(title.dataset.tooltipPosition==='bottom'&&!title.hasAttribute('title'),'Use one native bottom tooltip');
+  title.style.width='550px';await wait();assert(!title.hasAttribute('aria-label'),'Resize to fit removes tooltip');
+  title.style.width='100px';await wait();assert(title.hasAttribute('aria-label'),'Resize back restores tooltip');
+  title.textContent='Fits';await wait();assert(!title.hasAttribute('aria-label'),'Short text has no tooltip');
+  title.firstChild.data='Another overflowing title after rename';await wait();assert(title.getAttribute('aria-label')===title.textContent,'Text-node rename updates full title');
+  title.setAttribute('contenteditable','true');await wait();assert(!title.hasAttribute('aria-label'),'No truncation tooltip during inline editing');
+  title.removeAttribute('contenteditable');await wait();assert(title.hasAttribute('aria-label'),'Tooltip returns after editing');
+  title.style.width='550px';title.dispatchEvent(new PointerEvent('pointerover',{bubbles:true}));assert(!title.hasAttribute('aria-label'),'Hover checks current rendered size immediately');
+  title.remove();await wait();
+ }
+ const help=document.createElement('button');help.title='Unrelated help';surface.append(help);await wait();assert(help.getAttribute('aria-label')==='Unrelated help','Existing help tooltips preserved');
+ owner.unload();
+}
+result.textContent=errors.length?'FAIL\n'+errors.join('\n'):'PASS: file/folder/subfolder title overflow, fit, resizing, rename, inline editing, native bottom tooltip, cleanup and existing help behavior in Project/Resource full/note surfaces.';
+}catch(error){result.textContent='ERROR '+error.stack}
+</script>

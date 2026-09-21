@@ -1,0 +1,75 @@
+<!doctype html><meta charset="utf-8">
+<link rel="stylesheet" href="../../styles.css">
+<link rel="stylesheet" href="../../../../../System/Dashboards/Home/view.css">
+<style>body{background:#262626;color:#ddd;font:16px Arial;--background-primary:#1e1e1e;--background-modifier-border:#444;--interactive-accent:#8955ed}.row{display:flex;gap:12px;margin:20px;width:947px}.home-project-card{box-sizing:border-box}</style>
+<div id="fixture" class="hub-button-scope"></div><pre id="result">RUNNING</pre>
+<script type="module">
+const check=(v,m)=>{if(!v)throw Error(m)};
+try{
+ const css=await(await fetch('../../../../../System/Dashboards/Home/view.css')).text();
+ // Exercise the actual hover rules deterministically without relying on cursor location.
+ const sheet=document.createElement('style');sheet.textContent=css.replaceAll(':hover','.test-hover');document.head.append(sheet);
+ const cards=[];
+ for(const status of ['active','future','shelved']){
+  const row=document.createElement('div');row.className='row';fixture.append(row);
+  for(const [title,subtitle] of [['Short',''],['Quantum Gravitational Phenomena','Textbook'],['Another multi-line project title','']]){
+   const card=document.createElement('div');card.className='home-project-card';card.dataset.projectStatus=status;
+   card.innerHTML='<div class="home-project-surface"><div class="home-project-content"><div class="home-project-title"></div></div><div class="home-project-image"></div></div>';
+   card.querySelector('.home-project-title').textContent=title;
+   if(subtitle){const sub=document.createElement('div');sub.className='home-project-category';sub.textContent=subtitle;card.querySelector('.home-project-content').append(sub)}
+   row.append(card);cards.push(card);
+  }
+ }
+ function geometry(card){
+  const title=card.querySelector('.home-project-title'),range=document.createRange();range.selectNodeContents(title);
+  const surface=card.querySelector('.home-project-surface');
+  const matrix=new DOMMatrix(getComputedStyle(surface).transform),scale=matrix.a,box=surface.getBoundingClientRect();
+  return {layout:[card.offsetWidth,card.offsetHeight,title.offsetWidth,title.offsetHeight,title.offsetLeft,title.offsetTop].join('|'),
+   lines:[...range.getClientRects()].map(r=>[(r.left-box.left)/scale,(r.top-box.top)/scale,r.width/scale,r.height/scale])};
+ }
+ const before=cards.map(geometry);
+ const surfaces=cards.map(card=>card.querySelector('.home-project-surface'));
+ const restingSurfaces=surfaces.map(surface=>surface.getBoundingClientRect());
+ const restingSlots=cards.map(card=>card.getBoundingClientRect());
+ cards.forEach(card=>check(getComputedStyle(card).willChange==='auto','No speculative compositing hint'));
+ const screenLines=cards.map(card=>{
+  const range=document.createRange();range.selectNodeContents(card.querySelector('.home-project-title'));
+  return [...range.getClientRects()].map(r=>[r.x,r.y,r.width,r.height]);
+ });
+ for(let round=0;round<3;round++)for(const hover of [true,false]){
+  cards.forEach(c=>c.classList.toggle('test-hover',hover));
+  const animations=surfaces.flatMap(c=>c.getAnimations()).filter(a=>a.transitionProperty==='transform');
+  check(animations.length===cards.length,'Every card retains hover transition');
+  animations.forEach(a=>a.pause());
+  for(const time of [0,20,40,70,100,139,140]){
+   animations.forEach(a=>a.currentTime=time);
+   cards.forEach((card,i)=>{
+    const actual=geometry(card),expected=before[i];
+    check(actual.layout===expected.layout,'No layout/reflow');
+    check(actual.lines.length===expected.lines.length,'No title rewrapping');
+    actual.lines.forEach((r,j)=>r.forEach((value,k)=>check(Math.abs(value-expected.lines[j][k])<0.08,'Text stays fixed relative to scaled card')));
+    const range=document.createRange();range.selectNodeContents(card.querySelector('.home-project-title'));
+    const surface=surfaces[i],matrix=new DOMMatrix(getComputedStyle(surface).transform),anchor=surface.getBoundingClientRect();
+    const rest=restingSurfaces[i],slot=card.getBoundingClientRect(),restSlot=restingSlots[i];
+    const origin=getComputedStyle(surface).transformOrigin.split(' ').map(parseFloat);
+    check(Math.abs(origin[0]-rest.width/2)<0.01&&Math.abs(origin[1]-rest.height/2)<0.01&&matrix.e===0&&matrix.f===0,'Centered origin without compensating translation');
+    check(Math.abs((anchor.left+anchor.right)-(rest.left+rest.right))<0.01&&Math.abs((anchor.top+anchor.bottom)-(rest.top+rest.bottom))<0.01,'Surface expands equally in both directions around its original center');
+    check(slot.x===restSlot.x&&slot.y===restSlot.y&&slot.width===restSlot.width&&slot.height===restSlot.height,'Outer layout/drag slot never moves or resizes');
+    [...range.getClientRects()].forEach((r,j)=>{
+     const original=screenLines[i][j];
+     const expected=[anchor.left+(original[0]-rest.left)*matrix.a,anchor.top+(original[1]-rest.top)*matrix.a,original[2]*matrix.a,original[3]*matrix.a];
+     [r.x,r.y,r.width,r.height].forEach((v,k)=>check(Math.abs(v-expected[k])<0.08,'Each line including Phenomena follows the same visible scale'));
+    });
+    check(getComputedStyle(card).transform==='none'&&getComputedStyle(card.querySelector('.home-project-content')).transform==='none','Only one transform surface, no independent text transform');
+   });
+  }
+  animations.forEach(a=>a.finish());
+  await Promise.all(animations.map(a=>a.finished));
+  check(Math.abs(new DOMMatrix(getComputedStyle(surfaces[0]).transform).a-(hover?1.015:1))<0.0001,'Original 1.015 surface scale preserved');
+ }
+ cards[0].classList.add('test-hover','is-dragging');await Promise.all(surfaces[0].getAnimations().map(a=>a.finished));
+ check(getComputedStyle(cards[0]).transform==='none','Drag keeps hover suppression');
+ check(getComputedStyle(surfaces[0]).transform==='none','Drag surface also suppresses hover');
+ result.textContent='PASS: repeated hover-in/out; all statuses; short/multiline/Quantum titles with/without subtitles; stable layout, line geometry and 1.015 scale; drag override. Raster appearance still requires live GPU inspection.';
+}catch(e){result.textContent='FAIL '+e.stack}
+</script>

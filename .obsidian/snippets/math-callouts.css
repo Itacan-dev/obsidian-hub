@@ -1,0 +1,31 @@
+/* ─────────────────────────────
+   Lecture-note callouts
+   ───────────────────────────── */
+
+/* Default — gray */
+.callout {
+    --lecture-callout-color: 140, 140, 140;
+
+    background: rgba(var(--lecture-callout-color), 0.12) !important;
+    border-color: rgba(var(--lecture-callout-color), 0.30) !important;
+}
+
+/* Definition — blue */
+.callout[data-callout="definition"] {
+    --lecture-callout-color: 45, 140, 255;
+}
+
+/* Theorem — green */
+.callout[data-callout="theorem"] {
+    --lecture-callout-color: 65, 175, 100;
+}
+
+/* Title uses the callout color */
+.callout .callout-title {
+    color: rgb(var(--lecture-callout-color)) !important;
+}
+
+/* Remove icons */
+.callout .callout-icon {
+    display: none;
+}

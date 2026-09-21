@@ -1,0 +1,84 @@
+<!doctype html><meta charset="utf-8"><title>Hub card image rendering comparison</title>
+<style>
+body { background:#262626;color:#ddd;font:14px Arial; }
+.comparison { display:grid;grid-template-columns:180px 180px 180px 180px;gap:20px;margin:20px; }
+.sample { width:176px;height:118px;background:center / cover no-repeat;object-fit:cover; }
+.small { width:76px;height:76px; }
+label { display:block; }
+</style>
+<h2>Original background / image auto / shared renderer / canvas high</h2>
+<div id="samples"></div><pre id="result">RUNNING</pre>
+<link rel="stylesheet" href="../../styles.css">
+<link rel="stylesheet" href="../../../../../System/Dashboards/Home/view.css">
+<style>
+* { box-sizing:border-box; }
+body { --background-primary:#1e1e1e;--background-secondary:#262626;--background-modifier-border:#363636;--text-normal:#ddd;--text-muted:#aaa;--interactive-accent:#8955ed; }
+.actual { display:flex;gap:12px;width:980px;margin:20px; }
+.actual .home-project-card { flex:1; }
+#resources { width:980px;margin:20px; }
+</style>
+<h2>Current card geometry (shared renderer)</h2>
+<div id="projects" class="actual hub-button-scope"></div>
+<div id="resources" class="home-resource-grid hub-button-scope"></div>
+<pre id="checks">RUNNING geometry and renderer checks</pre>
+<script type="module">
+const header={exports:{}},module={exports:{}};
+new Function('module',await (await fetch('../ui/header-image.js')).text())(header);
+new Function('module','require',await (await fetch('../ui/card-images.js')).text())(module,()=>header.exports);
+const cleanups=[];
+const renderCardImage=module.exports.createCardImageRenderer(document.body,{register:fn=>cleanups.push(fn)});
+const rendering=[];
+function rendered(el,url) {
+ const ready=new Promise(resolve=>{
+  const observer=new MutationObserver(()=>{
+   if(el.style.backgroundImage.includes('data:image/png')) { observer.disconnect();resolve(); }
+  }); observer.observe(el,{attributes:true,attributeFilter:['style']});
+ });
+ renderCardImage(el,url);rendering.push(ready);
+}
+const root='../../../../../';
+const assets=['Assets/ProjectCards/Categories/custom-textbook.jpg','Assets/ProjectCards/Categories/custom-master-s-thesis.jpg','Assets/ProjectCards/Categories/custom-meta-obsidian.webp','Assets/ResourceCards/study.jpg','Assets/ResourceCards/literature.jpg','Assets/ResourceCards/references.jpg','Assets/ResourceCards/inspiration.jpg'];
+const loads=[];
+for(const [i,asset] of assets.entries()) {
+ const row=document.createElement('div');row.className='comparison';samples.append(row);
+ const cls='sample'+(i>2?' small':'');
+ const bg=document.createElement('div');bg.className=cls;bg.style.backgroundImage=`url("${root+asset}")`;row.append(bg);
+ const img=new Image();img.className=cls;img.src=root+asset;row.append(img);
+ const smooth=bg.cloneNode();row.append(smooth);rendered(smooth,new URL(root+asset,location.href).href);
+ const canvas=document.createElement('canvas');canvas.className=cls;row.append(canvas);
+ loads.push(img.decode().then(()=>{
+  const w=i>2?76:176,h=i>2?76:118,dpr=devicePixelRatio;
+  canvas.width=w*dpr;canvas.height=h*dpr;
+  const c=canvas.getContext('2d');c.imageSmoothingEnabled=true;c.imageSmoothingQuality='high';
+  const scale=Math.max(w/img.naturalWidth,h/img.naturalHeight);
+  const sw=w/scale,sh=h/scale;
+  c.drawImage(img,(img.naturalWidth-sw)/2,(img.naturalHeight-sh)/2,sw,sh,0,0,canvas.width,canvas.height);
+  return `${asset}: ${img.naturalWidth}x${img.naturalHeight}, rendering=${getComputedStyle(img).imageRendering}`;
+ }));
+}
+Promise.all(loads).then(lines=>result.textContent=lines.join('\n')).catch(e=>result.textContent=e.stack);
+const geometry=[];
+for (const [i,asset] of assets.entries()) {
+ const card=document.createElement('div');
+ card.className=i<3?'home-project-card':'home-resource-card';
+ const label=['Quantum Gravitational Phenomena','Pulsed Optomechanics','Obsidian Hub','Knowledge','Research','Explorations','Inspiration'][i];
+ card.innerHTML=i<3?`<div class="home-project-content"><div class="home-project-title">${label}</div><div class="home-project-category">Category</div></div><div class="home-project-image"></div>`:`<div class="home-resource-face"><div class="home-resource-thumbnail"></div><div class="home-resource-title">${label}</div></div>`;
+ document.getElementById(i<3?'projects':'resources').append(card);
+ const pic=card.querySelector(i<3?'.home-project-image':'.home-resource-thumbnail');
+ rendered(pic,new URL(root+asset,location.href).href);
+ geometry.push({card,pic});
+}
+// Capture after every flex sibling exists. Ignore page coordinates because the
+// diagnostic text above expands independently when its source decodes finish.
+const dimensions=el=>{const r=el.getBoundingClientRect();return [r.width,r.height];};
+for(const item of geometry) item.before=[dimensions(item.card),dimensions(item.pic)];
+Promise.all(rendering).then(()=>{
+ const errors=[];
+ for(const {card,pic,before} of geometry) {
+  if(JSON.stringify(before)!==JSON.stringify([dimensions(card),dimensions(pic)])) errors.push('Geometry changed');
+  if(getComputedStyle(pic).backgroundSize!=='100% 100%') errors.push('Extra crop');
+  if(card.classList.contains('home-project-card')&&!getComputedStyle(pic).clipPath.startsWith('polygon')) errors.push('Missing diagonal');
+ }
+ checks.textContent=errors.length?errors.join('\n'):`PASS: all 7 actual cards preserve geometry/crops; DPR ${devicePixelRatio}; high-quality previews loaded. No CSS layout or hover changes.`;
+});
+</script>

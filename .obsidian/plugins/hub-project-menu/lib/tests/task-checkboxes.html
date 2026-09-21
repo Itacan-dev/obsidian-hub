@@ -1,0 +1,81 @@
+<!doctype html><meta charset="utf-8"><title>Task checkbox regression checks</title>
+<style>
+body { background:#1e1e1e;color:#ddd;font:17px Arial;--background-primary:#1e1e1e;--background-secondary:#262626;--background-modifier-border:#444;--text-faint:#777;--text-muted:#aaa;--interactive-accent:#8955ed; }
+* { box-sizing:border-box; }
+#fixture { width:460px; }
+#result { white-space:pre-wrap; }
+</style>
+<link rel="stylesheet" href="../../styles.css">
+<link rel="stylesheet" href="../../../../../System/Dashboards/Home/view.css">
+<link rel="stylesheet" href="../../../../../System/Dashboards/Project/view.css">
+<div id="fixture"></div><pre id="result">RUNNING</pre>
+<script>window.module={exports:{}};</script>
+<script src="../domain/tasks.js"></script>
+<script>
+const domain=module.exports;
+HTMLElement.prototype.createEl=function(tag,opts={}){const el=document.createElement(tag);el.className=opts.cls||"";el.textContent=opts.text||"";this.appendChild(el);return el;};
+HTMLElement.prototype.createDiv=function(opts){return this.createEl("div",opts);};
+HTMLElement.prototype.createSpan=function(opts){return this.createEl("span",opts);};
+HTMLElement.prototype.empty=function(){this.replaceChildren();};
+const errors=[]; const check=(ok,message)=>{if(!ok)errors.push(message);};
+window.hubApplyTaskEdit=domain.applyTaskEdit;
+window.hubSetIcon=()=>{};
+window.onload=async()=>{
+ try {
+ const homeSource=await(await fetch("../../../../../System/Dashboards/Home/view.js")).text();
+ const projectSource=await(await fetch("../../../../../System/Dashboards/Project/view.js")).text();
+ const homeRenderer=homeSource.slice(homeSource.indexOf("function renderTasksToDo("),homeSource.indexOf("function completedTaskRequest("));
+ const projectRenderer=projectSource.slice(projectSource.indexOf("function renderTaskRows()"),projectSource.indexOf("function renderCurrentTasks()"));
+ let count=0;
+ for(const mode of ["home","project","resource"]) for(const position of [0,2,4]) {
+  const prefix=mode==="home"?"home":"project", fixture=document.getElementById("fixture");fixture.empty();
+  const root=fixture.createDiv({cls:prefix+"-dashboard hub-button-scope"});
+  const panel=root.createDiv({cls:prefix==="home"?"home-panel home-upcoming":"project-panel project-tasks"});
+  const heading=panel.createDiv({cls:prefix+"-panel-title",text:"Tasks to Do"});
+  const clear=heading.createEl("button",{cls:prefix+"-task-clear-completed",text:"Clear"});
+  const body=panel.createDiv({cls:prefix==="home"?"home-tasks-body":"project-tasks-body"});
+  const path=(mode==="resource"?"Resources/Knowledge":"Projects/Test")+"/Tasks.md";
+  const texts=["Top task","Second task","Middle task","Fourth task","Bottom task"].map(text=>text+" with enough detail to wrap naturally in the compact panel");
+  let content=texts.map(text=>"- [ ] "+text+"  ").join("\r\n");
+  const tasks=texts.map((text,line)=>({path,line,text,completed:false}));
+  const wrapped=tasks.map(task=>({task,owner:{name:"Test"}}));
+  const el=(parent,tag,cls,text)=>parent.createEl(tag,{cls,text});
+  const setup=mode==="home"?
+   "let projectTasks=items,resourceTasks=[];const upcomingBody=body;let visibleCompletedTasks=[];const currentPath=p=>p;const homeTaskLocation=()=> 'Project › Tasks';const openFileFromHome=()=>{opens++;};const clearCompletedTaskItems=async()=>{};function renderActiveContext(){renderTasksToDo(projectTasks,resourceTasks);}"+
+   homeRenderer+";return {render:renderActiveContext,get:()=>projectTasks.map(i=>i.task),refresh:()=>{projectTasks=projectTasks.map(i=>({...i,task:{...i.task}}));renderActiveContext();},opens:()=>opens};":
+   "let currentProjectTasks=items;const tasksBody=body;let visibleCompletedTasks=[];const taskLocation=()=> 'Tasks › Note';const clearCompletedProjectTasks=async()=>{};const openProjectNote=()=>{opens++;};const app={vault:{getAbstractFileByPath:p=>({path:p})}};"+
+   projectRenderer+";return {render:renderTaskRows,get:()=>currentProjectTasks,refresh:()=>{currentProjectTasks=currentProjectTasks.map(t=>({...t}));renderTaskRows();},opens:()=>opens};";
+  const controller=new Function("root","body","clearCompletedTasksButton","items","el","let opens=0;"+setup)(root,body,clear,mode==="home"?wrapped:tasks,el);
+  let release,apiCalls=0;
+  window.hubToggleTask=(path,line,text,completed)=>{
+   apiCalls++;
+   const result=domain.editTaskContent(content,{path,line,text,completed},value=>value.includes("[ ]")?
+    value.replace("[ ]","[x]").trimEnd()+" ✅ 2026-09-06":value.replace("[x]","[ ]").replace(" ✅ 2026-09-06",""));
+   content=result.content;
+   return new Promise(resolve=>{release=()=>resolve(result.edit);});
+  };
+  controller.render();
+  const checkbox=body.querySelectorAll("input[type=checkbox]")[position];
+  checkbox.scrollIntoView({block:"center"});
+  const bounds=checkbox.getBoundingClientRect(),hit=document.elementFromPoint(bounds.left+bounds.width/2,bounds.top+bounds.height/2);
+  check(hit===checkbox,mode+"/"+position+": header or another element intercepts the checkbox");
+  checkbox.click();
+  check(checkbox.checked&&checkbox.disabled,mode+"/"+position+": click must respond immediately and avoid duplicate pending activation");
+  check(apiCalls===1,mode+"/"+position+": one change must cause exactly one write");
+  // Replace rows AND task objects while persistence is pending, without a timer/retry.
+  controller.refresh();checkbox.checked=false;
+  release();await Promise.resolve();await Promise.resolve();
+  check(controller.get().find(task=>task.text.startsWith(texts[position])).completed,mode+"/"+position+": stale DOM/model lost completion");
+  const completed=body.querySelector("."+prefix+"-task-row.is-completed input");
+  check(completed?.checked,mode+"/"+position+": completed group failed to update");
+  check(controller.opens()===0,mode+"/"+position+": checkbox opened its source note");
+  check(body.lastElementChild.classList.contains("is-completed"),mode+"/"+position+": open/completed ordering changed");
+  completed?.click();release();await Promise.resolve();await Promise.resolve();
+  check(controller.get().every(task=>!task.completed),mode+"/"+position+": repeat toggle uses stale task text");
+  check(apiCalls===2,mode+"/"+position+": unexpected repeated/retried write");
+  count++;
+ }
+ document.getElementById("result").textContent=errors.length?"FAIL\n"+errors.join("\n"):"PASS: "+count+" top/middle/bottom cases across Home, Project and Resource; checkbox hit targets, immediate feedback, single writes, stale DOM/model replacement, repeat toggles and ordering.";
+ }catch(error){document.getElementById("result").textContent="FAIL\n"+error.stack;}
+};
+</script>

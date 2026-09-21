@@ -1,0 +1,103 @@
+<!doctype html><meta charset="utf-8">
+<link rel="stylesheet" href="../../styles.css">
+<link rel="stylesheet" href="../../../../../System/Dashboards/Home/view.css">
+<link rel="stylesheet" href="../../../../../System/Dashboards/Project/view.css">
+<style>body{background:#1e1e1e;color:#ddd;--background-primary:#1e1e1e;--background-secondary:#262626;--text-muted:#aaa;--text-faint:#777;--background-modifier-border:#444;--interactive-accent:#8955ed}#fixture{width:460px;padding:20px}.hub-task-markdown p{margin:0}#result{white-space:pre-wrap}</style>
+<div id="fixture"></div><button id="outside">Outside editor</button><pre id="result">RUNNING</pre>
+<script>window.module={exports:{}};</script><script src="../domain/tasks.js"></script>
+<script>
+const domain=module.exports;
+HTMLElement.prototype.createEl=function(tag,o={}){const e=document.createElement(tag);e.className=o.cls||"";e.textContent=o.text||"";this.append(e);return e;};
+HTMLElement.prototype.createDiv=function(o){return this.createEl("div",o);};
+HTMLElement.prototype.createSpan=function(o){return this.createEl("span",o);};
+HTMLElement.prototype.empty=function(){this.replaceChildren();};
+class MockComponent{constructor(){this.children=new Set();this.cleanup=[];}addChild(c){this.children.add(c);}removeChild(c){c.unload();this.children.delete(c);}register(fn){this.cleanup.push(fn);}unload(){this.cleanup.splice(0).forEach(fn=>fn());this.children.forEach(c=>c.unload());this.children.clear();}}
+class MockMenu{constructor(){this.items=[];window.lastMenu=this;}addItem(fn){const item={setTitle(v){this.title=v;return this;},setIcon(){return this;},setWarning(){return this;},onClick(fn){this.click=fn;return this;}};fn(item);this.items.push(item);}showAtMouseEvent(){}}
+const rendered=[],notices=[];
+window.require=()=>({trackDashboardRender:(_,work)=>work,Component:MockComponent,Menu:MockMenu,Notice:class{constructor(t){notices.push(t);}},MarkdownRenderer:{async render(app,text,el,path,component){
+ // Host-renderer contract fixture; production delegates to Obsidian/MathJax.
+ rendered.push({text,path,component});const p=el.createEl("p");
+ const strong=p.createEl("strong",{text:text.match(/\*\*(.*?)\*\*/)?.[1]||text});
+ if(text.includes("$x^2$")){const math=document.createElementNS("http://www.w3.org/1998/Math/MathML","math");math.innerHTML="<msup><mi>x</mi><mn>2</mn></msup>";p.append(math);}
+ if(text.includes("[link]")){const a=p.createEl("a",{text:"link"});a.href="#fixture";a.onclick=e=>e.preventDefault();}
+}}});
+window.hubApplyTaskEdit=domain.applyTaskEdit;window.hubSetIcon=()=>{};
+const check=(ok,msg)=>{if(!ok)throw Error(msg);};
+const settle=async()=>{for(let i=0;i<16;i++)await Promise.resolve();};
+</script><script src="../ui/markdown.js"></script>
+<script>const markdownModule=module.exports,obsidianRequire=window.require;window.require=name=>name==='./markdown'?markdownModule:obsidianRequire(name);</script>
+<script>
+window.onload=async()=>{try{
+ const stepModule={exports:{}};new Function('module',await(await fetch('../ui/task-steps.js')).text())(stepModule);
+ const oathDomain={exports:{}};new Function('module',await(await fetch('../domain/oath.js')).text())(oathDomain);
+ const oathModule={exports:{}};new Function('module','require',await(await fetch('../ui/oath-tasks.js')).text())(oathModule,name=>name==='../domain/oath'?oathDomain.exports:domain);
+ const previousRequire=window.require;window.require=name=>name==='./task-steps'?stepModule.exports:name==='./oath-tasks'?oathModule.exports:previousRequire(name);
+ new Function('module','require',await(await fetch('../ui/tasks.js')).text())(module,window.require);
+ const uiFactory=module.exports.createTaskUi;
+ const home=await(await fetch("../../../../../System/Dashboards/Home/view.js")).text();
+ const project=await(await fetch("../../../../../System/Dashboards/Project/view.js")).text();
+ const homeRender=home.slice(home.indexOf("function renderTasksToDo("),home.indexOf("function completedTaskRequest("));
+ const projectRender=project.slice(project.indexOf("function renderTaskRows()"),project.indexOf("function renderCurrentTasks()"));
+ for(const mode of ["home","project","resource"]){
+  const fixture=document.getElementById("fixture");fixture.empty();
+  const prefix=mode==="home"?"home":"project", root=fixture.createDiv({cls:prefix+"-dashboard hub-button-scope"});
+  const body=root.createDiv({cls:prefix==="home"?"home-tasks-body":"project-tasks-body"});
+  const clear=root.createEl("button",{text:"Clear"}),component=new MockComponent();
+  const path=(mode==="resource"?"Resources/Knowledge":"Projects/A")+"/Tasks.md";
+  let content="- [ ] **Top** $x^2$\n- [ ] Middle [link](Note.md)\n- [ ] Bottom\n",writes=0;
+  const read=()=>content.trimEnd().split("\n").flatMap((line,i)=>{const task=domain.taskLineDetails(line);return task?[{path,line:i,text:task.text,completed:/[xX]/.test(task.marker)}]:[];});
+  const initial=read();
+  const common="let opens=0; const el=(p,t,c,s)=>p.createEl(t,{cls:c,text:s});";
+  const factory=mode==="home"? common+`let projectTasks=items.map(task=>({task,owner:{root:'Projects/A'}})),resourceTasks=[],visibleCompletedTasks=[];
+   const upcomingBody=body; const currentPath=p=>p; const homeTaskLocation=()=> 'A › Tasks';const clearCompletedTaskItems=async()=>{};const openFileFromHome=()=>{opens++;};
+   function renderTaskContext(){renderTasksToDo(projectTasks,resourceTasks);}const renderActiveContext=renderTaskContext;
+   ${homeRender}
+   return {render:renderTaskContext, apply:edit=>{projectTasks=domain.applyTaskEdit(projectTasks,edit);renderTaskContext();},get:()=>projectTasks.map(i=>i.task),opens:()=>opens};`:
+   common+`let currentProjectTasks=items,visibleCompletedTasks=[];const tasksBody=body;const taskLocation=()=> 'Tasks';const clearCompletedProjectTasks=async()=>{};const app={vault:{getAbstractFileByPath:p=>({path:p})}};const openProjectNote=()=>{opens++;};
+   ${projectRender}
+   return {render:renderTaskRows,apply:edit=>{currentProjectTasks=domain.applyTaskEdit(currentProjectTasks,edit);renderTaskRows();},get:()=>currentProjectTasks,opens:()=>opens};`;
+  const controller=new Function("items","body","clearCompletedTasksButton","root","domain",factory)(initial,body,clear,root,domain);
+  body.hubTaskUi=uiFactory({app:{},component,body,onEdit:edit=>controller.apply(edit),mutate:async request=>{
+   const result=domain.mutateTaskContent(content,request);content=result.content;writes++;return result.edit;
+  }});
+  controller.render();await settle();
+  check(body.querySelector("strong")&&body.querySelector("math"),mode+": Markdown/math host output attached");
+  check(rendered.some(item=>item.path===path&&item.text.includes("$x^2$")),"Source path and raw LaTeX supplied to native renderer");
+  const menu=async(index,title)=>{body.querySelectorAll('.'+prefix+'-task-row')[index].dispatchEvent(new MouseEvent("contextmenu",{bubbles:true,cancelable:true}));
+   check(lastMenu.items.map(i=>i.title).join(',')==='Add task above,Add task below,Edit,Delete',"All actions present");await lastMenu.items.find(i=>i.title===title).click();await settle();};
+  await menu(1,"Add task below");
+  check(content.split("\n")[2]==="- [ ] ","New unchecked source task inserted immediately below selection");
+  let input=body.querySelector("textarea");check(input&&document.activeElement===input,"New task edited inline");
+  input.value="**New task** $x^2$";
+  controller.render();check(body.querySelector("textarea")===input,"Rerender deferred while editing");
+  input.dispatchEvent(new KeyboardEvent("keydown",{key:"Enter",bubbles:true,cancelable:true}));input.dispatchEvent(new Event("blur"));await settle();
+  check(writes===2&&!body.querySelector("textarea"),"Enter/blur commit only once and exit");
+  check(content.split("\n")[2]==="- [ ] **New task** $x^2$","Inline add saved to real source transform");
+  await menu(2,"Edit");input=body.querySelector("textarea");input.value="Edited **task** $x^2$";
+  document.getElementById("outside").dispatchEvent(new PointerEvent("pointerdown",{bubbles:true}));await settle();
+  check(writes===3&&!body.querySelector("textarea")&&content.includes("Edited **task** $x^2$"),"Outside click saves edit once");
+  await menu(2,"Delete");check(writes===4&&!content.includes("Edited **task**"),"Delete removes unchecked source task");
+  await menu(0,"Edit");input=body.querySelector("textarea");input.value="Cancel this";
+  input.dispatchEvent(new KeyboardEvent("keydown",{key:"Escape",bubbles:true,cancelable:true}));await settle();
+  check(writes===4&&!body.querySelector("textarea")&&content.includes("**Top**"),"Escape restores original renderer without saving");
+  await menu(0,"Add task below");input=body.querySelector("textarea");
+  input.dispatchEvent(new KeyboardEvent("keydown",{key:"Escape",bubbles:true,cancelable:true}));await settle();
+  check(controller.get().length===3&&!content.includes("- [ ] \n"),"Cancelled new draft removed from source and cache");
+  for(const position of ['above','below']) for(const save of ['Enter','outside']) {
+   await menu(1,'Add task '+position);input=body.querySelector('textarea');
+   const at=position==='above'?1:2;
+   check(content.split('\n')[at]==='- [ ] ' && body.querySelectorAll('.'+prefix+'-task-row')[at].contains(input),'Source and inline editor positioned '+position);
+   check(document.activeElement===input,'New editor focused');input.value='Inserted';
+   if(save==='Enter')input.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true,cancelable:true}));
+   else document.getElementById('outside').dispatchEvent(new PointerEvent('pointerdown',{bubbles:true}));
+   await settle();check(!body.querySelector('textarea')&&content.split('\n')[at]==='- [ ] Inserted',position+' saves on '+save);
+   await menu(at,'Delete');
+  }
+  body.querySelector("a").click();check(controller.opens()===0,"Links do not also navigate the task row");
+  check(component.children.size===3,"Rendering children replaced rather than accumulated");
+  component.unload();check(component.children.size===0,"Markdown components cleaned up on unload");
+ }
+ check(notices.length===0,"No task errors");
+ document.getElementById("result").textContent="PASS: actual Home/Project/Resource row renderers; shared add/edit/delete menu; immediate source insert; Enter/outside save-once; refresh deferral; draft/Escape cleanup; Markdown/LaTeX renderer contract, source paths, links and component disposal.";
+}catch(error){document.getElementById("result").textContent="FAIL: "+error.stack;}};
+</script>

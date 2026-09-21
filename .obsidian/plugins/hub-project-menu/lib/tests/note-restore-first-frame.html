@@ -1,0 +1,42 @@
+<!doctype html><meta charset="utf-8"><div class="workspace"></div><pre id="result">RUNNING</pre>
+<script type="module">
+const check=(value,message)=>{if(!value)throw Error(message)};
+const frame=()=>new Promise(resolve=>requestAnimationFrame(resolve));
+try{
+ const source=await(await fetch('../../plugin.js')).text();
+ const start=source.indexOf('    prepareRestoredNoteMode(context, snapshot) {');
+ const method=source.slice(start,source.indexOf('    async applyNoteLayout(',start));
+ const Service=new Function('return class {'+method+'}')();
+ const shell=document.querySelector('.workspace');
+ for(const kind of ['project','resource'])for(const route of ['Last File','Preset'])for(const count of [1,3]){
+  let leaves=[],applications=0;
+  const service=new Service();
+  Object.assign(service,{state:{},leafDocument:()=>document,activeMainLeaf:()=>null,
+   mainLeaves:()=>leaves,leafElement:leaf=>leaf?.containerEl,
+   applyModeClasses(){
+    applications++;const el=this.mode.projectLeaf.containerEl;
+    el.classList.add('hub-project-rail-leaf');
+    el.closest('.workspace-tabs').classList.add('hub-project-rail');
+    el.closest('.mod-root').classList.add('hub-project-note-layout');
+   }});
+  const context={projectId:kind,path:kind+'/Hub.md'};
+  const snapshot={main:{type:'split',children:[{type:'leaf',id:'rail',state:{state:{file:context.path}}}]}};
+  const restore=service.prepareRestoredNoteMode(context,snapshot);
+  // Native changeLayout has inserted a leaf but has NOT assigned its file or
+  // resolved its async restore. These are the conditions of the reported flash.
+  shell.innerHTML='<div class="mod-root"><div class="workspace-tabs"><div class="workspace-leaf"></div></div></div>';
+  const element=shell.querySelector('.workspace-leaf');
+  leaves=[{id:'rail',containerEl:element,view:{file:null}}];
+  for(let n=0;n<count;n++){const note=document.createElement('div');note.textContent='Note '+n;shell.firstElementChild.append(note)}
+  await frame();
+  check(element.classList.contains('hub-project-rail-leaf')&&service.state.currentMode==='note',route+': rail adopted before native content is ready');
+  check(service.mode.project===context,'Workspace context ready before content');
+  const calls=applications;await frame();check(applications===calls,'No mutation loop');
+  restore.cancel();shell.replaceChildren();await frame();
+  check(applications===calls&&!service.cancelNoteRestore,'Restore observer cleaned up');
+  const cancelled=service.prepareRestoredNoteMode(context,snapshot);cancelled.cancel();
+  shell.append(document.createElement('div'));await frame();check(applications===calls,'Cancelled restore cannot touch newer DOM');
+ }
+ result.textContent='PASS: shared Last File/Preset pre-paint rail adoption with unresolved native file state; Project/Resource, one/multiple panes, no mutation loop, cancellation/cleanup. Live folder-render timing requires Obsidian validation.';
+}catch(error){result.textContent='FAIL '+error.stack}
+</script>

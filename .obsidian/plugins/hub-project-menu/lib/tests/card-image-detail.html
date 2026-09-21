@@ -1,0 +1,61 @@
+<!doctype html><meta charset="utf-8"><title>KTH card fine-detail investigation</title>
+<link rel="stylesheet" href="../../styles.css">
+<link rel="stylesheet" href="../../../../../System/Dashboards/Home/view.css">
+<style>
+* { box-sizing:border-box; }
+body { background:#262626;color:#ddd;font:14px Arial; --background-primary:#1e1e1e;--background-modifier-border:#363636;--text-normal:#ddd;--text-muted:#aaa;--interactive-accent:#8955ed; }
+.row { display:flex;gap:18px;margin:18px 0 28px; }
+.cell { width:318px; }
+.home-project-card { width:316px; }
+.fractional .home-project-card { width:316.667px;left:.333px; }
+.hovered .home-project-card { transform:scale(1.015); }
+.caption { height:32px; }
+pre { white-space:pre-wrap; }
+</style>
+<h2>Same source, crop and card size — no sharpening</h2>
+<div id="samples" class="hub-button-scope"></div>
+<pre id="result">RUNNING</pre>
+<script type="module">
+const header={exports:{}},module={exports:{}};
+new Function('module',await (await fetch('../ui/header-image.js')).text())(header);
+new Function('module','require',await (await fetch('../ui/card-images.js')).text())(module,()=>header.exports);
+const url=new URL('../../../../../Assets/ProjectCards/Categories/custom-master-s-thesis.jpg',location.href).href;
+const setImage=module.exports.createCardImageRenderer(document.body,{register(){}});
+const source=new Image();source.crossOrigin='anonymous';source.src=url;
+const pending=[], measurements=[];
+const variants=['Current renderer (2× headroom)','Previous final-sized intermediate','Original CSS background','Direct image element'];
+for(const [name,cls] of [['Rest, integral card width',''],['Rest, fractional width and position','fractional'],['Existing 1.015 hover scale','fractional hovered']]) {
+ const h=document.createElement('h3');h.textContent=name;samples.append(h);
+ const row=document.createElement('div');row.className='row '+cls;samples.append(row);
+ for(const [index,label] of variants.entries()) {
+  const cell=document.createElement('div');cell.className='cell';row.append(cell);
+  cell.innerHTML=`<div class="caption">${label}</div><div class="home-project-card"><div class="home-project-content"><div class="home-project-title">Pulsed Optomechanics</div><div class="home-project-category">Master's thesis</div></div><div class="home-project-image"></div></div>`;
+  const pic=cell.querySelector('.home-project-image');
+  if(index===0) {
+   pending.push(new Promise(resolve=>{
+    const obs=new MutationObserver(async()=>{
+     if(!pic.style.backgroundImage.includes('data:image/png')) return;
+     obs.disconnect();
+     const raster=new Image();raster.src=JSON.parse(pic.style.backgroundImage.slice(4,-1));await raster.decode();
+     measurements.push(`${name}: CSS ${getComputedStyle(pic).width} × ${getComputedStyle(pic).height}; raster ${raster.naturalWidth} × ${raster.naturalHeight}; transform ${getComputedStyle(pic.parentElement).transform}`);
+     resolve();
+    });obs.observe(pic,{attributes:true,attributeFilter:['style']});setImage(pic,url);
+   }));
+  } else if(index===2) pic.style.backgroundImage=`url("${url}")`;
+  else if(index===1) pending.push(source.decode().then(()=>{
+   const style=getComputedStyle(pic),w=parseFloat(style.width),h=parseFloat(style.height);
+   const c=document.createElement('canvas');c.width=Math.ceil(w*devicePixelRatio);c.height=Math.ceil(h*devicePixelRatio);
+   const ctx=c.getContext('2d');ctx.imageSmoothingQuality='high';
+   const scale=Math.max(w/source.naturalWidth,h/source.naturalHeight),sw=w/scale,sh=h/scale;
+   ctx.drawImage(source,(source.naturalWidth-sw)/2,(source.naturalHeight-sh)/2,sw,sh,0,0,c.width,c.height);
+   pic.style.backgroundImage=`url("${c.toDataURL()}")`;pic.style.backgroundSize='100% 100%';
+  }));
+  else {
+   const im=new Image();im.src=url;im.style.cssText='width:100%;height:100%;object-fit:cover;display:block;image-rendering:auto';pic.append(im);
+  }
+ }
+}
+Promise.all(pending).then(()=>{
+ result.textContent=`DPR ${devicePixelRatio}; source ${source.naturalWidth} × ${source.naturalHeight}\n`+measurements.join('\n')+'\nSmall emblem letters occupy about 15–17 source pixels vertically, about 3.4–3.9 CSS pixels in this crop.';
+}).catch(error=>result.textContent=error.stack);
+</script>

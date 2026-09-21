@@ -1,0 +1,239 @@
+"use strict";
+const { createHubMarkdown } = require("./markdown");
+const { taskGroups } = require("../domain/task-planning");
+const { localISODate, parseLocalISODate } = require("../domain/dates");
+const { createTaskSteps } = require("./task-steps");
+const { createOathTaskSection } = require("./oath-tasks");
+
+function taskSourceLabel(path) {
+    const parts = String(path ?? "").replace(/\\/g, "/").split("/").filter(Boolean);
+    return parts.length > 1 ? parts[parts.length - 2] : (parts[0]?.replace(/\.md$/i, "") || "Vault");
+}
+
+function createTaskUi({ app, component, body, mutate, onEdit, editTask, createTask, oath }) {
+    const { Menu, Notice } = require("obsidian");
+    const document = body.ownerDocument;
+    let active = null, deferred = null, lastRender = null, disposed = false;
+    const expanded = new Set();
+    const markdown = createHubMarkdown({ app, component });
+    const report = error => { console.error("Hub task action failed", error); new Notice(error.message || "Could not update task."); };
+    const steps = createTaskSteps({ markdown, mutate, onEdit, report });
+    component.register(() => steps.clear());
+    const oathSection = createOathTaskSection(oath, body);
+    if (oath) component.register(oath.onChange(() => { if (!disposed && body.isConnected) lastRender?.(); }));
+
+    function defer(render) {
+        if (!active) return false;
+        deferred = render;
+        return true;
+    }
+
+    function beginRender(render) {
+        if (defer(render)) return false;
+        lastRender = render;
+        markdown.clear();
+        return true;
+    }
+
+    function finish(state) {
+        if (active !== state) return;
+        document.removeEventListener("pointerdown", outside, true);
+        active = null;
+        const render = deferred;
+        deferred = null;
+        if (!disposed) render?.();
+    }
+
+    async function commit() {
+        const state = active;
+        if (!state || state.saving) return;
+        state.saving = true;
+        // Snapshot text before any await or navigation can detach the editor.
+        const value = state.input.value;
+        state.input.disabled = true;
+        try {
+            await state.ready;
+            const edit = await mutate({ ...state.request, operation: "edit", value });
+            onEdit(edit);
+            finish(state);
+        } catch (error) {
+            state.saving = false;
+            state.input.disabled = false;
+            if (!disposed) { report(error); state.input.focus(); }
+        }
+    }
+
+    async function cancel() {
+        const state = active;
+        if (!state || state.saving) return;
+        state.saving = true;
+        try {
+            await state.ready;
+            if (state.created) onEdit(await mutate({ ...state.request, operation: "delete" }));
+            finish(state);
+        } catch (error) { state.saving = false; report(error); }
+    }
+
+    function outside(event) {
+        if (active && !active.input.contains(event.target)) void commit();
+    }
+
+    async function start(row, textEl, task, path, add) {
+        if (active || disposed) return;
+        if (!row.isConnected) { new Notice("The task list changed. Open the task menu again."); return; }
+        deferred = lastRender;
+        let editorRow = row, host = textEl;
+        if (add) {
+            editorRow = document.createElement("div");
+            editorRow.className = row.className;
+            editorRow.classList.remove("is-completed");
+            const checkbox = row.querySelector('input[type="checkbox"]').cloneNode();
+            checkbox.checked = false;
+            checkbox.disabled = true;
+            editorRow.appendChild(checkbox);
+            const info = document.createElement("div");
+            info.className = textEl.parentElement.className;
+            host = document.createElement("div");
+            host.className = textEl.className;
+            info.appendChild(host);
+            editorRow.appendChild(info);
+            if (add === "above") row.before(editorRow);
+            else row.after(editorRow);
+        }
+        host.replaceChildren();
+        editorRow.classList.add("is-task-editing");
+        editorRow.querySelectorAll("button, input").forEach(control => { control.disabled = true; });
+        const input = document.createElement("textarea");
+        input.className = "hub-task-editor";
+        input.rows = 1;
+        input.value = add ? "" : task.text;
+        input.placeholder = "Task text…";
+        input.setAttribute("aria-label", add ? "New task text" : "Edit task text");
+        host.appendChild(input);
+        const resize = () => { input.style.height = "auto"; input.style.height = `${input.scrollHeight}px`; };
+        input.addEventListener("input", resize);
+        // Preserve native links/checkbox behavior outside editing. Only the
+        // inline editor consumes clicks so they cannot navigate to the note.
+        input.addEventListener("click", event => event.stopPropagation());
+        input.addEventListener("keydown", event => {
+            event.stopPropagation();
+            if (event.isComposing) return;
+            if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void commit(); }
+            else if (event.key === "Escape") { event.preventDefault(); void cancel(); }
+        });
+        input.addEventListener("blur", () => { if (active && !input.disabled) void commit(); });
+        const state = active = { request: { ...task, path }, input, editorRow, saving: false, created: false };
+        document.addEventListener("pointerdown", outside, true);
+        if (add) {
+            input.disabled = true;
+            state.ready = mutate({ ...state.request, operation: "add", position: add, value: "" }).then(edit => {
+                state.request = edit.tasks[0];
+                state.created = true;
+                onEdit(edit);
+            });
+        } else state.ready = Promise.resolve();
+        try {
+            await state.ready;
+            if (active === state && !state.saving && !disposed) {
+                input.disabled = false;
+                resize(); input.focus();
+                input.setSelectionRange(input.value.length, input.value.length);
+            }
+        } catch (error) { report(error); finish(state); }
+    }
+
+    function bind(row, textEl, task, getPath, options = {}) {
+        row.classList.add("hub-planned-task-row");
+        const checkbox = row.querySelector('input[type="checkbox"]');
+        checkbox?.setAttribute("aria-label", `Complete task: ${task.text}`);
+        const badge = document.createElement("span");
+        badge.className = `hub-task-badge${task.necessity ? ` is-${task.necessity}` : ""}`;
+        badge.textContent = task.necessity === "must" ? "MUST" : task.necessity === "should" ? "SHOULD" : "TO DO";
+        checkbox?.after(badge);
+        const dates = document.createElement("div"); dates.className = "hub-task-dates";
+        for (const [label, date] of [["From", task.fromDate], ["Due", task.dueDate]]) {
+            if (!date) continue;
+            const value = parseLocalISODate(date); if (!value) continue;
+            const span = document.createElement("span");
+            const overdue = label === "Due" && date < localISODate() && !task.completed && !(task.fromDate > localISODate());
+            span.className = overdue ? "is-overdue" : "";
+            const labelEl = document.createElement("span"); labelEl.className = "hub-task-date-label"; labelEl.textContent = label + " ";
+            const time = document.createElement("time"); time.dateTime = date;
+            time.textContent = value.toLocaleDateString("en-US", { month: "short", day: "numeric", ...(value.getFullYear() !== new Date().getFullYear() ? { year: "numeric" } : {}) });
+            span.append(labelEl, time);
+            if (overdue) { const hint = document.createElement("span"); hint.className = "hub-task-overdue"; hint.textContent = " (overdue)"; span.append(hint); }
+            dates.appendChild(span);
+        }
+        if (dates.children.length) row.appendChild(dates);
+        const info = textEl.parentElement;
+        const source = info.querySelector(".home-task-location, .project-task-location");
+        if (source) source.textContent = options.selection ? getPath().replace(/\.md$/i, "").split("/").join(" › ") : taskSourceLabel(getPath());
+        if (!options.selection) steps.bind(info, task, getPath);
+        if (editTask) {
+            textEl.tabIndex = 0; textEl.setAttribute("role", "button"); textEl.setAttribute("aria-label", `Edit task: ${task.text}`);
+            const open = event => {
+                if (event.target.closest("a, input, textarea, button")) return;
+                event.preventDefault(); event.stopImmediatePropagation();
+                editTask({ ...task, path: getPath() }, onEdit);
+            };
+            // Checkbox/links and the source breadcrumb retain their own action.
+            row.addEventListener("click", event => {
+                if (event.target.closest(".home-task-location, .project-task-location")) return;
+                open(event);
+            });
+            textEl.addEventListener("keydown", event => {
+                if (event.key === "Enter" || event.key === " ") open(event);
+            });
+        }
+        textEl.classList.add("hub-task-markdown");
+        void markdown.render(textEl, task.text, getPath,
+            () => !textEl.querySelector(".hub-task-editor"));
+        if (options.selection) return;
+        row.addEventListener("contextmenu", event => {
+            if (event.target.closest("textarea, input:not([type=checkbox])")) return;
+            event.preventDefault(); event.stopPropagation();
+            if (active) return;
+            const menu = new Menu();
+            for (const position of ["above", "below"]) {
+                menu.addItem(item => item.setTitle(`Add task ${position}`).setIcon("list-plus")
+                    .onClick(() => start(row, textEl, task, getPath(), position)));
+            }
+            menu.addItem(item => item.setTitle("Edit").setIcon("pencil")
+                .onClick(() => editTask ? editTask({ ...task, path: getPath() }, onEdit) : start(row, textEl, task, getPath(), false)));
+            menu.addItem(item => item.setTitle("Delete").setIcon("trash-2").setWarning(true)
+                .onClick(async () => {
+                    try {
+                        if (editTask) editTask({ ...task, path: getPath() }, onEdit);
+                        else onEdit(await mutate({ ...task, path: getPath(), operation: "delete" }));
+                    }
+                    catch (error) { report(error); }
+                }));
+            menu.showAtMouseEvent(event);
+        });
+    }
+
+    component.register(() => {
+        // A view closing behaves like leaving the inline editor.
+        if (active) void commit();
+        disposed = true;
+        document.removeEventListener("pointerdown", outside, true);
+        deferred = null;
+    });
+    function group(kind, items, render) {
+        if (!items.length) return;
+        const button = body.createEl("button", { cls: "hub-task-group-toggle", attr: { type: "button" } });
+        const open = expanded.has(kind);
+        button.textContent = `${open ? "▾" : "▸"} ${items.length} ${kind} ${items.length === 1 ? "task" : "tasks"}${open ? "" : " hidden"}`;
+        button.setAttribute("aria-expanded", String(open));
+        button.addEventListener("click", () => { if (open) expanded.delete(kind); else expanded.add(kind); lastRender?.(); });
+        if (open) items.forEach(render);
+    }
+    function addButton(header, options = {}) {
+        if (!createTask) return;
+        const button = header.createEl("button", { text: "+ Add task", cls: "hub-panel-action hub-task-add", attr: { type: "button" } });
+        button.addEventListener("click", () => createTask(options));
+    }
+    return { bind, beginRender, defer, groups: taskGroups, group, addButton, partitionOath: oathSection.partition, renderOath: oathSection.render };
+}
+
+module.exports = { createTaskUi, taskSourceLabel };

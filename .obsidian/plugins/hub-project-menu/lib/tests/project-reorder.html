@@ -1,0 +1,59 @@
+<!doctype html><meta charset="utf-8">
+<link rel="stylesheet" href="../../../../../System/Dashboards/Home/view.css">
+<style>body{margin:50px;background:#262626;color:white;--background-primary:#222;--background-modifier-border:#444;--background-modifier-border-hover:#666;--background-modifier-hover:#333}.home-project-grid{display:flex;gap:12px;width:1000px;margin-top:150px;overflow:auto}.home-project-card{min-width:0;flex:0 0 220px}</style>
+<div id="fixture"></div><pre id="result">RUNNING</pre>
+<script type="module">
+const check=(v,m)=>{if(!v)throw Error(m)};
+HTMLElement.prototype.addClass=function(c){this.classList.add(c)};
+HTMLElement.prototype.removeClass=function(c){this.classList.remove(c)};
+const source=await(await fetch('../../../../../System/Dashboards/Home/view.js')).text();
+const code=source.slice(source.indexOf('const projectCardSwapAnimations ='),source.indexOf('root.addEventListener("hub-project-status"'));
+try{
+for(const status of ['active','future','shelved']){
+ const projectGrid=document.createElement('div');projectGrid.className='home-project-grid';fixture.append(projectGrid);
+ projectGrid.setPointerCapture=()=>{};projectGrid.hasPointerCapture=()=>false;
+ const original=['a','b','c','d'].map(id=>{const c=document.createElement('div');c.className='home-project-card';c.dataset.projectId=id;c.innerHTML='<span>'+id+'</span>';projectGrid.append(c);return c});
+ let saved=[],cleanup;
+ const api=new Function('projectGrid','currentProjectStatus','dv','suppressedProjectCardClicks','rememberProjectCardOrder','mergeVisibleProjectCardOrder',code+';return {cancel:()=>cancelProjectCardDrag?.()};')(projectGrid,status,{component:{register:f=>cleanup=f}},new Set(),(s,ids)=>{check(s===status,'Status preserved');saved.push(ids)},(_,ids)=>ids);
+ const order=()=>[...projectGrid.children].map(c=>c.dataset.projectId).join('');
+ const send=(target,type,x,y)=>target.dispatchEvent(new PointerEvent(type,{bubbles:true,button:0,pointerId:7,pointerType:'mouse',clientX:x,clientY:y}));
+ function drag(id,targetIndex,vertical=0,finish='pointerup'){
+  const card=original.find(c=>c.dataset.projectId===id),r=card.getBoundingClientRect(),row=projectGrid.getBoundingClientRect();
+  const slots=[...projectGrid.children].map(c=>{const b=c.getBoundingClientRect();return(b.left+b.right)/2});
+  send(card,'pointerdown',(r.left+r.right)/2,r.top+60);
+  send(window,'pointermove',slots[targetIndex],row.top+60+vertical);
+  check(card.classList.contains('is-drop-placeholder'),'Card-sized slot visible');
+  check(document.querySelector('.is-dragging').style.top!==r.top+'px'||vertical===0,'Ghost follows vertical pointer');
+  send(window,finish,slots[targetIndex],row.top+60+vertical);
+  check(!document.querySelector('.is-dragging,.is-drop-placeholder,.is-invalid-drop'),'Drag cleanup');
+ }
+ drag('a',1,-100);check(order()==='bacd','One right above row');
+ drag('a',0,100);check(order()==='abcd','One left below row');
+ drag('a',3);check(order()==='bcda','Across several to last uses insertion, not swap');
+ drag('a',0);check(order()==='abcd','Move to first');
+ const count=saved.length;drag('a',3,0,'pointercancel');check(order()==='abcd'&&saved.length===count,'Cancellation restores without persistence');
+ drag('a',3,350);check(order()==='abcd'&&saved.length===count,'Outside finite region does not save');
+ const r=original[0].getBoundingClientRect(),next=original[1].getBoundingClientRect(),x=(r.left+r.right)/2,y=r.top+60,boundary=(x+(next.left+next.right)/2)/2;
+ send(original[0],'pointerdown',x,y);send(window,'pointermove',boundary+10,y);
+ for(const dx of [-2,2,-1,1])send(window,'pointermove',boundary+dx,y);
+ check(order()==='bacd','Boundary tolerance prevents jitter');
+ window.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));
+ check(order()==='abcd','Escape restores original order');
+ check(saved.at(-1).join('')==='abcd','Existing persistence receives final full order');
+ // A re-created row can consume the exact same persisted identifiers.
+ projectGrid.replaceChildren(...saved.at(-1).map(id=>original.find(c=>c.dataset.projectId===id)));
+ check(order()==='abcd','Persisted ordering round-trips');
+ for(const size of [1,2,3,4]){
+  projectGrid.replaceChildren(...original.slice(0,size));
+  if(size===4){projectGrid.style.width='500px';projectGrid.scrollLeft=projectGrid.scrollWidth;}
+  const card=projectGrid.lastElementChild,box=card.getBoundingClientRect();
+  send(card,'pointerdown',(box.left+box.right)/2,box.top+60);
+  send(window,'pointermove',(box.left+box.right)/2-10,box.top+60);
+  send(window,'pointerup',(box.left+box.right)/2-10,box.top+60);
+  check(projectGrid.children.length===size&&!document.querySelector('.is-drop-placeholder'),'Different counts and scrolled overflow clean up');
+ }
+ cleanup();projectGrid.remove();
+}
+result.textContent='PASS: actual Home drag lifecycle for all statuses; left/right, multi-slot insertion, above/below, first/last, tolerance, invalid/cancel/Escape rollback, persistence payload and cleanup.';
+}catch(e){result.textContent='FAIL '+e.stack}
+</script>

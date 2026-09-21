@@ -1,0 +1,75 @@
+<!doctype html><meta charset="utf-8"><title>History Markdown rendering</title>
+<link rel="stylesheet" href="../../styles.css">
+<link rel="stylesheet" href="../../../../../System/Dashboards/Home/view.css">
+<link rel="stylesheet" href="../../../../../System/Dashboards/Project/view.css">
+<style>body{background:#1e1e1e;color:#ddd;font:14px Arial;--background-primary:#1e1e1e;--background-secondary:#262626;--background-modifier-border:#444;--text-normal:#ddd;--text-muted:#aaa;--text-faint:#777;--interactive-accent:#8955ed}#fixture{width:470px;padding:18px}</style>
+<div id="fixture"></div><pre id="result">RUNNING</pre>
+<script type="module">
+const assert=(v,m)=>{if(!v)throw Error(m)},settle=async()=>{for(let i=0;i<20;i++)await Promise.resolve()};
+HTMLElement.prototype.createEl=function(t,o={}){const e=document.createElement(t);e.className=o.cls||'';e.textContent=o.text||'';this.append(e);return e};
+HTMLElement.prototype.createDiv=function(o){return this.createEl('div',o)};
+HTMLElement.prototype.createSpan=function(o){return this.createEl('span',o)};
+HTMLElement.prototype.empty=function(){this.replaceChildren()};
+HTMLElement.prototype.setText=function(t){this.textContent=t};
+HTMLElement.prototype.addClass=function(c){this.classList.add(c)};
+class Component{constructor(){this.children=new Set();this.cleanup=[]}register(f){this.cleanup.push(f)}addChild(c){this.children.add(c)}removeChild(c){c.unload();this.children.delete(c)}unload(){this.cleanup.splice(0).forEach(f=>f());this.children.forEach(c=>c.unload());this.children.clear()}}
+const calls=[];let editorCalls=0,linkCalls=0,hold=null;
+const obsidian={Component,MarkdownRenderer:{async render(app,text,el,path){
+ calls.push({text,path});if(hold)await hold;
+ const p=el.createEl('p');
+ // Fixture for the native MarkdownRenderer contract; production uses Obsidian/MathJax.
+ if(text.startsWith('**')){p.createEl('strong',{text:'Rich'});const math=document.createElementNS('http://www.w3.org/1998/Math/MathML','math');math.innerHTML='<msup><mi>x</mi><mn>2</mn></msup>';p.append(math);const a=p.createEl('a',{cls:'internal-link',text:'Note'});a.setAttribute('data-href','Note')}
+ else p.textContent=text;
+}}};
+const readiness={exports:{}};new Function('module',await(await fetch('../ui/render-readiness.js')).text())(readiness);
+const module={exports:{}};new Function('module','require',await(await fetch('../ui/markdown.js')).text())(module,name=>name==='./render-readiness'?readiness.exports:obsidian);
+const app={vault:{getAbstractFileByPath:p=>({path:p})},workspace:{openLinkText:async()=>linkCalls++}};
+window.hubSetIcon=()=>{};window.hubOpenProgressEditor=()=>editorCalls++;
+const home=await(await fetch('../../../../../System/Dashboards/Home/view.js')).text();
+const project=await(await fetch('../../../../../System/Dashboards/Project/view.js')).text();
+const paging={exports:{}},historyData={exports:{}};
+new Function('module',await(await fetch('../ui/history-pager.js')).text())(paging);
+new Function('module',await(await fetch('../domain/history.js')).text())(historyData);
+function extract(source,name,end,env){return new Function(...Object.keys(env),source.slice(source.indexOf(`function ${name}(`),source.indexOf(`function ${end}(`))+`;return ${name};`)(...Object.values(env))}
+const style=e=>{const s=getComputedStyle(e);return [s.fontSize,s.fontWeight,s.color,s.lineHeight,e.getBoundingClientRect().height].join('|')};
+try{
+ for(const place of ['home-project','home-resource','project-full','resource-full','project-note','resource-note']){
+  const isHome=place.startsWith('home'),resource=place.includes('resource'),id=resource?'resource:study':'p';
+  const path=resource?'Resources/Knowledge/Knowledge.md':'Projects/P/P.md',root=path.slice(0,path.lastIndexOf('/'));
+  fixture.className=isHome?'home-dashboard hub-button-scope':'project-dashboard hub-button-scope';fixture.replaceChildren();
+  const body=fixture.createDiv({});const owner=new Component();body.hubMarkdown=module.exports.createHubMarkdown({app,component:owner});
+  const rich='**Rich** $x^2$ [[Note]]';
+  const reports=[rich,'Ordinary progress.',''].map(summary=>Object.freeze({summary,score:2,date:'2026-09-08',timestamp:1,targetKind:resource?'resource':'project',projectStatus:'active',projectId:id,resourceId:'study',projectName:'P'}));
+  const history=[rich,'Ordinary completed task.'].map(text=>Object.freeze({text,path:root+'/Tasks.md',projectId:id,contextKind:resource?'resource':'project',resourceType:resource?'study':null,projectPath:path,projectRoot:root,projectName:'P',timestamp:1}));
+  const saved=JSON.stringify({reports,history});window.hubGetCompletedTaskHistory=()=>history;
+  const env={recentBody:body,activityBody:body,progressReports:reports,projectReports:reports,completedTaskHistory:history,
+   historyPager:paging.exports.createHistoryPager(body,owner),historyKind:historyData.exports.historyKind,
+   historyDate:when=>when.format('D MMM'),
+   progressScope:resource?'resources':'projects',resourceTypes:[{id:'study',resourceType:'study',label:'Knowledge',path}],projects:[{projectId:id,path,name:'P'}],
+   isResourceContext:resource,current:{projectId:id,resourceType:'study',file:{path}},projectRoot:root,
+   displayProjectName:s=>s,el:(p,t,c,s)=>p.createEl(t,{cls:c,text:s}),moment:()=>({format:()=> '8 Sep'}),app,
+   openFileFromHome:async()=>{},openProjectNote:async()=>{}};
+  const renderReports=extract(isHome?home:project,isHome?'renderRecentReports':'renderProjectReports',isHome?'renderCompletedTaskHistory':'renderProjectTaskHistory',env);
+  const renderHistory=extract(isHome?home:project,isHome?'renderCompletedTaskHistory':'renderProjectTaskHistory',isHome?'renderActiveProgressView':'renderProjectProgressView',env);
+  renderReports();const summaries=body.querySelectorAll('[class*="progress-report-summary"]'),before=style(summaries[1]);await settle();
+  assert(summaries[0].querySelector('strong')&&summaries[0].querySelector('math'),place+': report Markdown/LaTeX delegated');
+  assert(style(summaries[1])===before&&summaries[1].textContent==='Ordinary progress.',place+': plain report styling unchanged');
+  assert(summaries[2].textContent==='No summary recorded.'&&summaries[2].classList.contains('is-empty'),'Empty report unchanged');
+  const clicks=editorCalls;summaries[0].querySelector('a').click();assert(editorCalls===clicks&&linkCalls>0,'Link does not also open report editor');
+  summaries[1].click();assert(editorCalls===clicks+1,'Normal report click still edits');
+  assert(calls.at(-1).path===path,'Report-relative link source is its workspace note');
+  renderHistory();const titles=body.querySelectorAll(isHome?'.home-recent-title':'.project-activity-title'),plain=style(titles[1]);await settle();
+  assert(titles[0].querySelector('strong')&&titles[0].querySelector('math'),place+': task History uses same renderer');
+  assert(style(titles[1])===plain&&titles[1].textContent==='Ordinary completed task.','Plain task History unchanged');
+  assert(calls.at(-1).path===root+'/Tasks.md','History links use original task note');
+  for(let i=0;i<3;i++){renderReports();await settle();renderHistory();await settle()}
+  assert(owner.children.size===2,'Refreshes/filter changes release old Markdown components');
+  assert(JSON.stringify({reports,history})===saved,'Stored text and report values remain untouched');
+  owner.unload();assert(owner.children.size===0,'View cleanup releases render components');
+ }
+ const owner=new Component(),renderer=module.exports.createHubMarkdown({app,component:owner}),target=document.createElement('div');
+ let release;hold=new Promise(r=>release=r);const pending=renderer.render(target,'Old','Old.md');await Promise.resolve();renderer.clear();hold=null;
+ await renderer.render(target,'New','New.md');release();await pending;assert(target.textContent==='New','Late old rendering cannot overwrite refreshed text');owner.unload();
+ result.textContent='PASS: actual Home/Project/Resource report and task History renderers; Markdown/LaTeX contract, plain-text geometry/style, link/edit actions, source paths, immutable data, refresh/disposal and stale-render protection.';
+}catch(error){result.textContent='FAIL '+error.stack}
+</script>

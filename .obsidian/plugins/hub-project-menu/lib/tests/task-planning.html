@@ -1,0 +1,98 @@
+<!doctype html><meta charset="utf-8"><title>Hub task planning</title>
+<link rel="stylesheet" href="../../styles.css">
+<link rel="stylesheet" href="../../../../../System/Dashboards/Home/view.css">
+<link rel="stylesheet" href="../../../../../System/Dashboards/Project/view.css">
+<style>
+body{margin:20px;background:#191b1e;color:#e0e4ef;font:16px system-ui;--background-primary:#202329;--background-secondary:#262a31;--text-normal:#e0e4ef;--text-muted:#a6afbe;--text-faint:#818996;--background-modifier-border:#3c424e;--background-modifier-hover:#ffffff0c;--interactive-accent:#5957da;--text-accent:#78c7ec;--text-on-accent:white;--color-red:#f5787e;--color-yellow:#ebbd58}
+*{box-sizing:border-box}button,input{font:inherit;color:inherit;border:1px solid var(--background-modifier-border);border-radius:6px;background:var(--background-primary);padding:7px}button{cursor:pointer}input[type=checkbox]{width:16px;height:16px;accent-color:var(--interactive-accent)}input[type=date]{color-scheme:dark}button:disabled{opacity:.45}.modal-container{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:#0008}.modal{background:var(--background-primary);border:1px solid var(--background-modifier-border);border-radius:12px;padding:22px;max-height:94vh;overflow:auto}.modal-close-button{float:right}#fixture{width:990px}.home-panel,.project-panel{padding:16px;border:1px solid var(--background-modifier-border);border-radius:12px}.home-tasks-body,.project-tasks-body{max-height:700px}#result{white-space:pre-wrap;font-size:12px}.hub-task-markdown p{margin:0}
+</style><div id="fixture"></div><pre id="result">RUNNING</pre>
+<script>
+HTMLElement.prototype.createEl=function(tag,o={}){const e=document.createElement(tag);e.className=o.cls||'';e.textContent=o.text||'';for(const[k,v]of Object.entries(o.attr||{}))e.setAttribute(k,v);if(o.type)e.type=o.type;this.append(e);return e};
+HTMLElement.prototype.createDiv=function(o){return this.createEl('div',o)};HTMLElement.prototype.createSpan=function(o){return this.createEl('span',o)};HTMLElement.prototype.empty=function(){this.replaceChildren()};
+class Component{constructor(){this.children=new Set();this.cleanups=[]}register(fn){this.cleanups.push(fn)}addChild(c){this.children.add(c)}removeChild(c){c.unload();this.children.delete(c)}unload(){this.cleanups.splice(0).forEach(fn=>fn());this.children.forEach(c=>c.unload());this.children.clear()}}
+class Modal{constructor(app){this.app=app;this.containerEl=document.body.createDiv({cls:'modal-container'});this.modalEl=this.containerEl.createDiv({cls:'modal'});this.modalEl.createEl('button',{text:'×',cls:'modal-close-button'}).onclick=()=>this.close();this.contentEl=this.modalEl.createDiv({cls:'modal-content'});this.escape=e=>{if(e.key==='Escape')this.close()};document.addEventListener('keydown',this.escape)}open(){this.onOpen()}close(){this.onClose();this.containerEl.remove();document.removeEventListener('keydown',this.escape)}}
+class Menu{constructor(){this.items=[];window.lastMenu=this}addItem(fn){const item={setTitle(v){this.title=v;return this},setIcon(){return this},setWarning(){return this},onClick(fn){this.click=fn;return this}};fn(item);this.items.push(item)}showAtMouseEvent(){}}
+const notices=[],obsidian={Component,Modal,Menu,FuzzySuggestModal:class{},Notice:class{constructor(text){notices.push(text)}},setIcon:(el,name)=>{el.textContent=({plus:'＋',x:'×',folder:'▱','calendar-days':'▦','list-checks':'☷','square-check':'☑'})[name]||''},MarkdownRenderer:{render:async(app,text,el)=>{el.createEl('p',{text})}}};
+const assert=(ok,message)=>{if(!ok)throw Error(message)};
+const settle=async()=>{for(let i=0;i<30;i++)await Promise.resolve();await new Promise(r=>requestAnimationFrame(r))};
+window.onload=async()=>{try{
+ const names=['domain/tasks','domain/dates','domain/task-planning','domain/oath','ui/markdown','ui/task-steps','ui/oath-tasks','ui/tasks','ui/task-editor'];
+ const sources=Object.fromEntries(await Promise.all(names.map(async name=>[name,await(await fetch('../'+name+'.js')).text()]))),cache={};
+ const load=name=>{if(name==='obsidian')return obsidian;if(cache[name])return cache[name].exports;const mod=cache[name]={exports:{}};new Function('module','require',sources[name])(mod,request=>{if(request==='obsidian')return obsidian;const parts=(name.slice(0,name.lastIndexOf('/'))+'/'+request).split('/'),out=[];for(const part of parts){if(part==='..')out.pop();else if(part!=='.')out.push(part)}return load(out.join('/'))});return mod.exports};
+ const domain=load('domain/tasks'),planning=load('domain/task-planning'),dates=load('domain/dates'),{createTaskUi,taskSourceLabel}=load('ui/tasks'),{openTaskEditor,openTaskCreator}=load('ui/task-editor');
+ assert(taskSourceLabel('Root.md')==='Root'&&taskSourceLabel('A/B/C/Tasks.md')==='C'&&taskSourceLabel('A/Tasks.md')==='A','Immediate folder at arbitrary depth and root fallback');
+ window.hubApplyTaskEdit=domain.applyTaskEdit;window.hubTaskGroups=planning.taskGroups;window.hubSetIcon=obsidian.setIcon;
+ const today=dates.localISODate(),shift=days=>{const d=new Date();d.setDate(d.getDate()+days);return dates.localISODate(d)};
+ const home=await(await fetch('../../../../../System/Dashboards/Home/view.js')).text(),project=await(await fetch('../../../../../System/Dashboards/Project/view.js')).text();
+ const homeRender=home.slice(home.indexOf('function renderTasksToDo('),home.indexOf('function completedTaskRequest(')),projectRender=project.slice(project.indexOf('function renderTaskRows()'),project.indexOf('function renderCurrentTasks()'));
+ let preview;
+ for(const mode of ['home','project','resource']){
+  const fixture=document.getElementById('fixture');fixture.empty();const prefix=mode==='home'?'home':'project';
+  const root=fixture.createDiv({cls:prefix+'-dashboard hub-button-scope'}),panel=root.createDiv({cls:prefix+'-panel '+(mode==='home'?'home-upcoming':'project-tasks')}),header=panel.createDiv({cls:prefix+'-panel-title',text:'Tasks to Do'});
+  const clear=header.createEl('button',{text:'Clear',cls:prefix+'-task-clear-completed'}),body=panel.createDiv({cls:mode==='home'?'home-tasks-body':'project-tasks-body'}),component=new Component();
+  const path=(mode==='resource'?'Resources/Knowledge':'Projects/A')+'/Mathematics/MM5022 HT26, Complex Analysis/Tasks.md';
+  const items=[{text:'A distant important task',necessity:'must',dueDate:shift(20)},{text:'Finish topology assignment',necessity:null,dueDate:shift(1)},{text:'Submit problem set',necessity:'must',dueDate:shift(-2)},
+   {text:'Write the primary views section',necessity:'should',steps:[{line:4,text:'Outline Homepage',completed:true},{line:5,text:'Outline Workspace',completed:false}]},{text:'Prepare supervisor questions',necessity:null},{text:'Renew passport',necessity:'must',fromDate:shift(3)},{text:'Completed task',completed:true}].map((task,line)=>({path,line:line>3?line+2:line,completed:false,...task}));
+  let stepContent=items.flatMap(task=>['- ['+(task.completed?'x':' ')+'] '+task.text,...(task.steps||[]).map(step=>'    - ['+(step.completed?'x':' ')+'] '+step.text)]).join('\n');
+  const common="let opens=0;const el=(p,t,c,s)=>p.createEl(t,{cls:c,text:s});";
+  const factory=mode==='home'?common+`let projectTasks=items.map(task=>({task,owner:{root:'Projects/A'}})),resourceTasks=[],visibleCompletedTasks=[];const upcomingBody=body,currentPath=p=>p,homeTaskLocation=()=> 'Knowledge › Mathematics › Topology › Tasks';const clearCompletedTaskItems=async()=>{},openFileFromHome=()=>{opens++};function renderTaskContext(){renderTasksToDo(projectTasks,resourceTasks)}const renderActiveContext=renderTaskContext;${homeRender};return{render:renderTaskContext,apply:edit=>{projectTasks=domain.applyTaskEdit(projectTasks,edit);renderTaskContext()},opens:()=>opens};`:
+  common+`let currentProjectTasks=items,visibleCompletedTasks=[];const tasksBody=body,taskLocation=()=> 'Mathematics › Topology › Tasks',clearCompletedProjectTasks=async()=>{},app={vault:{getAbstractFileByPath:p=>({path:p})}},openProjectNote=()=>{opens++};${projectRender};return{render:renderTaskRows,apply:edit=>{currentProjectTasks=domain.applyTaskEdit(currentProjectTasks,edit);renderTaskRows()},opens:()=>opens};`;
+  const controller=new Function('items','body','clearCompletedTasksButton','root','domain',factory)(items,body,clear,root,domain);
+  let edits=0,toggles=0,creates=0,release,failStep=false;body.hubTaskUi=createTaskUi({app:{},component,body,onEdit:controller.apply,mutate:request=>new Promise((resolve,reject)=>{release=()=>{if(failStep){reject(Error('Step write failed'));return}try{const result=planning.toggleTaskStep(stepContent,request);stepContent=result.content;resolve(result.edit)}catch(error){reject(error)}}}),editTask:()=>edits++,createTask:()=>creates++});body.hubTaskUi.addButton(header);
+  window.hubToggleTask=async(path,line,text,completed)=>{toggles++;return{path,line,requestLine:line,oldText:text,lineDelta:0,tasks:[{line,text,status:completed?'x':' ',completed}]}};
+  controller.render();await settle();
+  const texts=()=>[...body.querySelectorAll('.'+prefix+'-task-text')].map(el=>el.textContent);
+  assert(texts()[0]==='Submit problem set'&&texts()[1]==='Finish topology assignment',mode+': date first, no distant MUST jump');
+  assert(!texts().includes('Renew passport')&&!texts().includes('Completed task'),mode+': future/completed collapsed');
+  const badgeWidths=[...body.querySelectorAll('.hub-task-badge')].map(el=>el.getBoundingClientRect().width);assert(new Set(badgeWidths).size===1,mode+': equal badge widths');
+  const offsets=[...body.querySelectorAll('.'+prefix+'-task-text')].map(el=>el.getBoundingClientRect().left);assert(new Set(offsets).size===1,mode+': descriptions align');
+  assert(body.querySelector('time[datetime="'+shift(-2)+'"]').parentElement.classList.contains('is-overdue'),'Explicit overdue due date');
+  assert(body.querySelector('.hub-task-step-progress').textContent==='1 / 2 steps','Restrained step progress');
+  let stepHost=body.querySelector('.hub-task-steps');
+  assert([...body.querySelectorAll('.'+prefix+'-task-location')].every(el=>el.textContent==='MM5022 HT26, Complex Analysis'),'Only immediate source folder');
+  assert(stepHost.previousElementSibling.classList.contains(prefix+'-task-location'),'Steps immediately follow source');
+  assert(stepHost.querySelector('.hub-task-step-items').hidden,'Steps start collapsed');
+  stepHost.querySelector('button').click();assert(!stepHost.querySelector('.hub-task-step-items').hidden&&edits===0&&controller.opens()===0,'Disclosure independent from parent');
+  stepHost.querySelectorAll('input')[1].click();assert(stepHost.querySelector('.hub-task-step-progress').textContent==='2 / 2 steps','Step progress updates before write completes');
+  controller.render();await settle();stepHost=body.querySelector('.hub-task-steps');assert(stepHost.querySelector('button').getAttribute('aria-expanded')==='true'&&stepHost.querySelectorAll('input')[1].checked&&stepHost.querySelectorAll('input')[1].disabled,'Expansion and optimistic progress survive pending rerender');
+  release();await settle();stepHost=body.querySelector('.hub-task-steps');assert(stepContent.includes('    - [x] Outline Workspace')&&stepContent.includes('- [ ] Write the primary views section'),'Source Step updated; parent stays incomplete');
+  stepHost.querySelectorAll('input')[0].click();release();await settle();stepHost=body.querySelector('.hub-task-steps');assert(stepHost.querySelector('.hub-task-step-progress').textContent==='1 / 2 steps'&&stepContent.includes('    - [ ] Outline Homepage'),'Repeated unchecking updates source and progress');
+  failStep=true;stepHost.querySelectorAll('input')[0].click();release();await settle();failStep=false;assert(!stepHost.querySelectorAll('input')[0].checked&&stepHost.querySelector('.hub-task-step-progress').textContent==='1 / 2 steps','Failed write restores checkbox and progress');assert(notices.pop()==='Step write failed','Write failure reported');
+  assert(edits===0&&toggles===0&&controller.opens()===0,'Step interaction never edits, opens or completes parent');
+  stepHost.querySelector('button').click();assert(stepHost.querySelector('.hub-task-step-items').hidden,'Steps collapse again');
+  const future=[...body.querySelectorAll('.hub-task-group-toggle')].find(el=>el.textContent.includes('future'));future.click();await settle();assert(texts().includes('Renew passport'),'Expand future tasks');
+  const futureRow=[...body.querySelectorAll('.'+prefix+'-task-row')].find(el=>el.textContent.includes('Renew passport'));assert(futureRow.querySelector('.hub-task-badge').textContent==='MUST'&&futureRow.querySelector('.hub-task-dates').textContent.startsWith('From '),'Future preserves MUST and explicit From');
+  body.querySelector('.'+prefix+'-task-text').click();assert(edits===1&&controller.opens()===0,'Row opens dedicated editor');
+  body.querySelector('.'+prefix+'-task-location').click();assert(controller.opens()===1,'Breadcrumb still opens source note');
+  body.querySelector('input[type=checkbox]').click();await settle();assert(toggles===1&&edits===1,'Checkbox does not open editor');
+  const completed=[...body.querySelectorAll('.hub-task-group-toggle')].find(el=>el.textContent.includes('completed'));assert(completed.textContent.includes('2 completed'),'Completion count updated immediately');completed.click();await settle();
+  assert(body.querySelectorAll('.'+prefix+'-task-row.is-completed').length===2,'Completed tasks can be revealed');header.querySelector('.hub-task-add').click();assert(creates===1,'Panel creation affordance');
+  fixture.style.width='330px';await settle();assert(body.scrollWidth<=body.clientWidth+1,'Compact rail does not overflow');
+  const clippedTitle=body.querySelector('.'+prefix+'-task-text'),clippedSource=body.querySelector('.'+prefix+'-task-location');
+  assert(clippedTitle.scrollWidth>clippedTitle.clientWidth&&getComputedStyle(clippedTitle).textOverflow==='ellipsis','Long titles ellipsize before moving dates');
+  assert(clippedSource.scrollWidth>clippedSource.clientWidth&&getComputedStyle(clippedSource).textOverflow==='ellipsis','Long folder names ellipsize');
+  for(const row of body.querySelectorAll('.'+prefix+'-task-row')){const date=row.querySelector('.hub-task-dates'),info=row.querySelector('.'+prefix+'-task-info');if(date){assert(Math.abs(date.getBoundingClientRect().top-info.getBoundingClientRect().top)<3,'Compact date remains at top right');assert(date.getBoundingClientRect().left>=info.getBoundingClientRect().right,'Date stays outside shrinking text column')}}
+  fixture.style.width='990px';body.querySelector('.hub-task-steps-toggle').click();await settle();
+  assert(body.querySelector('.hub-task-step-items').hidden===false,'Expanded Steps remain available at full width');
+  panel.style.minHeight='540px';component.unload();preview=controller;
+ }
+ let content='- [ ] Finish topology assignment\n    - [x] Outline proof\n    - [ ] Write solution\n',metadata={necessity:null,fromDate:null,dueDate:null},writes=0;
+ const file={path:'Knowledge/Mathematics/MM7052 HT26, Topology/Tasks.md',extension:'md'};
+ const service={app:{workspace:{getActiveFile:()=>file},vault:{getMarkdownFiles:()=>[file]}},read:async()=>({...planning.readTaskSnapshot(content,{path:file.path,line:0,text:domain.taskDisplayText(domain.taskLineDetails(content.split('\n')[0]).text)}),...metadata}),
+  save:async(snapshot,values)=>{const result=planning.saveTaskSnapshot(content,snapshot,values,values.necessity?'test-id':snapshot.hubTaskId);metadata=planning.validateTaskMetadata(values);content=result.content;writes++;return result.edit},create:async(path,text)=>{assert(path===file.path,'Destination note passed');content=planning.appendTask(content,text);writes++}};
+ let modal=openTaskEditor(service,{});await settle();let form=modal.contentEl;
+ assert(form.querySelectorAll('[aria-pressed=true]').length===0,'Unclassified task has neither necessity selected');
+ assert(form.querySelectorAll('input[type=date]').length===2&&!/Until|Planned/.test(form.textContent),'Only From and Due');
+ const must=form.querySelector('.is-must'),clearNecessity=form.querySelector('.hub-task-clear-necessity');must.click();assert(must.getAttribute('aria-pressed')==='true','Select must');clearNecessity.click();assert(must.getAttribute('aria-pressed')==='false','Clear necessity');must.click();
+ const dateInputs=form.querySelectorAll('input[type=date]');dateInputs[0].value=today;dateInputs[1].value=shift(4);
+ form.querySelector('.hub-task-add-step').click();const stepInputs=form.querySelectorAll('.hub-task-step input[type=text]');stepInputs[2].value='Check the final proof';form.querySelector('.hub-task-title-input').value='Finish and review topology assignment';
+ form.querySelector('button[type=submit]').click();await settle();assert(writes===1&&metadata.necessity==='must'&&content.includes('Check the final proof'),'Save title, necessity, dates and nested Markdown Steps');
+ modal=openTaskEditor(service,{});await settle();form=modal.contentEl;form.querySelector('.hub-task-title-input').value='Cancelled';[...form.querySelectorAll('button')].find(el=>el.textContent==='Cancel').click();assert(writes===1&&!content.includes('Cancelled'),'Cancel leaves source untouched');
+ modal=openTaskEditor(service,{});await settle();document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape'}));assert(!modal.containerEl.isConnected&&writes===1,'Escape cancels');
+ const creator=openTaskCreator(service);const creationForm=creator.contentEl;creationForm.querySelector('input[type=text]').value='A quick ordinary task';creationForm.querySelector('button[type=submit]').click();await settle();assert(writes===2&&content.endsWith('- [ ] A quick ordinary task\n'),'Quick creation needs only text and destination');
+ modal=openTaskEditor(service,{});await settle();form=modal.contentEl;const remove=form.querySelector('.hub-task-remove');remove.click();assert(writes===2,'Delete requests explicit local confirmation');remove.click();await settle();assert(writes===3&&!content.includes('Outline proof')&&content.includes('A quick ordinary task'),'Delete includes Steps, retains sibling');
+ content='- [ ] Finish topology assignment\n';metadata={necessity:null,fromDate:null,dueDate:null};
+ assert(notices.length===0,'No runtime notices: '+notices.join(';'));
+ document.getElementById('result').textContent='PASS: Home/Workspace/Resource rows; source-folder labels, title/source ellipsis, fixed right-side dates at 330px; expandable Steps, immediate progress, source writes, pending rerender, failure rollback and parent isolation; existing ordering, groups, native editor and quick creation.';
+}catch(error){document.getElementById('result').textContent='FAIL: '+error.stack}};
+</script>

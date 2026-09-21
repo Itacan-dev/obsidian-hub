@@ -1,0 +1,39 @@
+<!doctype html><meta charset="utf-8"><title>Note-mode balanced rail clearance</title>
+<style>
+/* Relevant rules from installed Obsidian app.css, including the reserved gutter. */
+* {box-sizing:border-box} body {margin:0;background:#1e1e1e;color:#ddd;--scrollbar-width:12px}
+body.styled-scrollbars ::-webkit-scrollbar {width:var(--scrollbar-width);height:12px}
+.workspace-split {display:flex}.workspace-tabs{overflow:hidden;position:relative}
+.markdown-preview-view{width:100%;height:100%;scrollbar-gutter:stable;overflow-y:auto}
+.layout{height:210px;margin-bottom:15px}.sidebar{width:45px;flex:none;background:#333}
+.mod-root{flex:1;min-width:0}.note{flex:1;min-width:0;border-left:1px solid #555}
+.project-folder-panel{height:130px;border:1px solid #444;border-radius:8px;background:#262626}
+/* Capture the actual previous rule before enabling the change. */
+.baseline .hub-project-rail .markdown-preview-view:has(.project-dashboard){padding-inline:6px!important;scrollbar-gutter:stable}
+</style>
+<link rel="stylesheet" href="../../styles.css">
+<link rel="stylesheet" href="../../../../../System/Dashboards/Project/view.css">
+<body class="styled-scrollbars baseline"><div id="fixtures"></div><pre id="result">RUNNING</pre>
+<script>
+const errors=[];
+for(const kind of ['Project','Resource']) {
+ const layout=document.createElement('div');layout.className='layout workspace-split';
+ layout.innerHTML=`<aside class="sidebar"></aside><main class="workspace-split mod-root hub-project-note-layout"><section class="workspace-tabs hub-project-rail hub-project-rail-pane"><div class="markdown-preview-view"><div class="markdown-preview-sizer"><div><div class="project-dashboard"><div class="project-main-grid"><div class="project-left-column"><div class="project-folder-stack"><div class="project-folder-panel">${kind} folders</div></div></div></div></div></div></div></div></section><article class="note">Note pane</article></main>`;
+ fixtures.append(layout);
+}
+const full=document.createElement('div');full.className='markdown-preview-view';full.style.height='50px';full.innerHTML='<div class="project-dashboard">Full-page view (unaffected)</div>';fixtures.append(full);
+function measure(layout){const rail=layout.querySelector('.hub-project-rail').getBoundingClientRect(),panel=layout.querySelector('.project-folder-panel').getBoundingClientRect();return {rail:rail.width,note:layout.querySelector('.note').getBoundingClientRect().width,panel:panel.width,left:panel.left-rail.left,right:rail.right-panel.right}}
+window.onload=()=>{
+ const layouts=[...document.querySelectorAll('.layout')],before=layouts.map(measure),fullBefore=getComputedStyle(full).cssText;
+ document.body.classList.remove('baseline');
+ const after=layouts.map(measure);
+ for(let i=0;i<layouts.length;i++) {
+  for(const width of ['rail','note','panel']) if(Math.abs(before[i][width]-after[i][width])>.01)errors.push(width+' width changed');
+  if(Math.abs(after[i].left-after[i].right)>.01)errors.push('Clearance is not balanced');
+  if(before[i].left!==6||before[i].right!==18)errors.push('Native gutter baseline not reproduced');
+  if(after[i].left!==12||after[i].right!==12)errors.push('Expected redistributed 12px clearance');
+ }
+ if(getComputedStyle(full).scrollbarGutter!=='stable'||getComputedStyle(full).paddingLeft!=='0px')errors.push('Full page affected');
+ result.textContent=errors.length?'FAIL\n'+errors.join('\n'):'PASS: Project and Resource note-mode clearance 6/18px → 12/12px; folder, rail and note widths unchanged; full-page styling unaffected.\n'+JSON.stringify({before,after},null,2);
+};
+</script>

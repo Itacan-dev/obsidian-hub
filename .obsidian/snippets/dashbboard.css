@@ -1,0 +1,143 @@
+/* HOME DASHBOARD */
+
+.dashboard {
+    --dashboard-gap: 14px;
+
+    /* Full-width dashboard */
+    --file-line-width: 1500px;
+    --line-width: 1500px;
+}
+
+/* Hide properties on dashboard */
+.dashboard .metadata-container {
+    display: none;
+}
+
+
+/* Dashboard cards */
+.dashboard .callout[data-callout="dash"] {
+    background: var(--background-secondary);
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 10px;
+    padding: 4px 8px;
+    box-shadow: none;
+}
+
+.dashboard .callout[data-callout="dash"] .callout-title {
+    font-size: 1rem;
+    font-weight: 650;
+}
+
+/* Two-column dashboard */
+.dashboard .callout[data-callout="columns"] {
+    background: transparent;
+    border: none;
+    padding: 0;
+}
+
+.dashboard .callout[data-callout="columns"] > .callout-content {
+    display: grid;
+    grid-template-columns: minmax(0, 1.4fr) minmax(300px, 0.8fr);
+    gap: var(--dashboard-gap);
+}
+
+.dashboard .callout[data-callout="columns"] > .callout-content > blockquote {
+    margin: 0;
+}
+
+/* Tables */
+.dashboard table {
+    width: 100%;
+}
+
+.dashboard th {
+    font-size: 0.85em;
+    color: var(--text-muted);
+}
+
+/* Less wasted vertical space */
+.dashboard h2 {
+    margin-top: 1.4em;
+}
+
+.dashboard .callout-content > :first-child {
+    margin-top: 0;
+}
+
+/* Mobile / narrow window */
+@media (max-width: 900px) {
+    .dashboard .callout[data-callout="columns"] > .callout-content {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* PROJECT CARDS */
+
+.dashboard .project-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+    gap: 12px;
+    margin: 10px 0 20px;
+}
+
+.dashboard .project-card {
+    background: var(--background-secondary);
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 10px;
+    padding: 16px;
+    transition: 120ms ease;
+}
+
+.dashboard .project-card:hover {
+    border-color: var(--interactive-accent);
+    transform: translateY(-1px);
+}
+
+.dashboard .project-card-title {
+    display: block;
+    font-size: 1.05rem;
+    font-weight: 650;
+    margin-bottom: 10px;
+    text-decoration: none;
+}
+
+.dashboard .project-card-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.dashboard .project-card-meta span {
+    background: var(--background-modifier-hover);
+    border-radius: 5px;
+    padding: 3px 7px;
+    font-size: 0.78rem;
+    color: var(--text-muted);
+}
+
+/* Hide Obsidian note chrome on dashboard pages */
+
+.dashboard .inline-title,
+.dashboard .metadata-container {
+    display: none !important;
+}
+
+/* Dashboard spacing */
+
+.dashboard.markdown-preview-view .markdown-preview-sizer {
+    padding-top: 15px !important;
+}
+
+/* Stop dashboard shortly after final panel */
+
+.dashboard.markdown-preview-view .markdown-preview-sizer {
+    min-height: auto !important;
+    height: auto !important;
+    padding-bottom: 60px !important;
+}
+
+.dashboard.markdown-preview-view .markdown-preview-section {
+    min-height: auto !important;
+    height: auto !important;
+    padding-bottom: 0 !important;
+}

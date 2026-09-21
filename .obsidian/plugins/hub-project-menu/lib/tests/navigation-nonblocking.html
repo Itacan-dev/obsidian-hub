@@ -1,0 +1,65 @@
+<!doctype html><meta charset='utf-8'><title>Non-blocking Hub navigation</title>
+<div class='workspace'><div class='workspace-split mod-root'><div id='host' class='workspace-leaf'></div></div></div>
+<pre id='result'>RUNNING</pre>
+<script type='module'>
+const check=(ok,message)=>{if(!ok)throw Error(message)};
+const nextFrame=()=>new Promise(resolve=>requestAnimationFrame(resolve));
+const within=async promise=>{
+ let timeout;
+ try{return await Promise.race([promise,new Promise((_,reject)=>timeout=setTimeout(()=>reject(Error('Route blocked behind Dataview or browser snapshot')),500))])}
+ finally{clearTimeout(timeout)}
+};
+const images={refreshHeaderImages:()=>{}},module={exports:{}},frames={exports:{}};
+new Function('module','require',await(await fetch('../services/transition-service.js')).text())(module,()=>images);
+new Function('module','require',await(await fetch('../ui/dashboard-frame.js')).text())(frames,()=>images);
+const source=await(await fetch('../../plugin.js')).text();
+// Exercise the production route coordinator, not a simulated replacement.
+const start=source.indexOf('    async presentWorkspace('),end=source.indexOf('\n    normalizeHome(',start);
+const Coordinator=new Function('return class {'+source.slice(start,end)+'}')();
+const service=new module.exports.HubTransitionService(),router=new Coordinator();
+router.plugin={transitions:service};router.leafDocument=()=>document;
+router.leafElement=()=>host;router.findLeafByPath=()=>host;
+document.startViewTransition=()=>{throw Error('Native updates must not run in a browser snapshot callback')};
+const component=()=>({register(){}});
+try{
+ check(!source.includes('presentAtomic'),'Obsolete asynchronous snapshot wrapper removed from routing');
+ let nativeFrames=0;
+ const update=async()=>{await nextFrame();nativeFrames++;return true};
+ for(const origin of ['startup','home','project','resource','last-file','note']){
+  host.replaceChildren();
+  await within(router.presentWorkspace(null,{projectId:origin},origin==='note',update));
+  const pending=service.presentations.get(document);
+  check(pending,'An unfinished Dataview render is observed, not awaited by routing');
+  // Navigate again without ever finishing the previous destination.
+  await within(router.presentWorkspace(null,null,false,update));
+  check(service.presentations.get(document)!==pending,'Superseding navigation cancels the obsolete observer');
+  const page=frames.exports.createDashboardFrame(host,component(),'home-dashboard');
+  page.root.innerHTML='<header>Home navigation</header><div class=home-cover><img></div><section>Panel geometry</section>';
+  page.root.querySelector('img').decode=()=>{throw Error('A page swap must not decode the cover')};
+  let secondaryStarted=false;
+  page.defer(()=>{secondaryStarted=true;return new Promise(()=>{})});
+  page.commit();await service.enter(page.root);await Promise.resolve();await Promise.resolve();
+  check(page.root.isConnected&&page.root.dataset.hubReady==='true','One structural frame commits without secondary content');
+  check(!secondaryStarted,'No expensive panel work is needed to commit');
+  check(!service.presentations.has(document),'Observer released once structural frame arrives');
+  await within(router.presentWorkspace(null,{projectId:'next'},true,update));
+  page.abort();
+ }
+ check(nativeFrames===18,'All native frame-dependent layout operations completed');
+ let failed=false;
+ try{await router.presentWorkspace(null,null,false,()=>{throw Error('native error')})}catch(e){failed=e.message==='native error'}
+ check(failed&&!service.presentations.has(document),'Routing errors propagate and release listeners');
+ await router.presentWorkspace(null,null,false,()=>false);
+ check(!service.presentations.has(document),'Cancelled routes release listeners');
+ let finishNative;
+ const duringUnload=router.presentWorkspace(null,null,false,()=>new Promise(resolve=>finishNative=resolve));
+ const cancelled=service.presentations.get(document);service.destroy();
+ let observations=0;const NativeObserver=window.MutationObserver;
+ window.MutationObserver=class extends NativeObserver{observe(...args){observations++;return super.observe(...args)}};
+ finishNative(true);await duringUnload;await cancelled.reveal(()=>host,null,false);
+ window.MutationObserver=NativeObserver;
+ check(observations===0,'A native operation finishing after unload must not reinstall observers');
+ check(!service.presentations.size,'Unload cancels remaining destination observers');
+ result.textContent='PASS: production route coordinator; startup/Home/Project/Resource/Last File/note paths; native frame work; unfinished Dataview never blocks later routes; structural commit independent of images/panels; cancellation/error/unload cleanup.';
+}catch(error){service.destroy();result.textContent='FAIL '+error.stack}
+</script>

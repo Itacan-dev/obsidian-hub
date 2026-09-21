@@ -1,0 +1,99 @@
+<!doctype html><meta charset='utf-8'><title>Contextual report rating guidance</title>
+<link rel='stylesheet' href='../../styles.css'>
+<link rel='stylesheet' href='../../../../../System/Dashboards/Home/view.css'>
+<link rel='stylesheet' href='../../../../../System/Dashboards/Project/view.css'>
+<style>
+body{font:14px Arial;background:#1e1e1e;color:#ddd;--text-normal:#ddd;--text-muted:#999;--background-primary:#1e1e1e;--background-secondary:#262626;--background-modifier-border:#444;--interactive-accent:#8955ed}
+.modal{width:650px;margin:20px;padding:24px;background:#262626;border-radius:10px}
+.tooltip{z-index:100;background:#111;color:#eee;padding:10px;border-radius:5px;box-shadow:0 2px 8px #0008}
+button,textarea,input,select{color:#ddd;background:#333}textarea{width:100%}
+</style><pre id='result'>RUNNING</pre>
+<script type='module'>
+const assert=(ok,message)=>{if(!ok)throw Error(message)};
+window.addEventListener('error',event=>{result.textContent='FAIL '+(event.error?.stack||event.message)});
+window.addEventListener('unhandledrejection',event=>{result.textContent='FAIL '+event.reason?.stack});
+HTMLElement.prototype.createEl=function(tag,o={}){const e=document.createElement(tag);e.className=o.cls||'';e.textContent=o.text||'';for(const [k,v] of Object.entries(o.attr||{}))e.setAttribute(k,v);this.append(e);return e};
+HTMLElement.prototype.createDiv=function(o){return this.createEl('div',o)};
+HTMLElement.prototype.createSpan=function(o){return this.createEl('span',o)};
+HTMLElement.prototype.addClass=function(...c){this.classList.add(...c)};
+HTMLElement.prototype.toggleClass=function(c,v){this.classList.toggle(c,v)};
+HTMLElement.prototype.empty=function(){this.replaceChildren()};
+HTMLElement.prototype.setText=function(t){this.textContent=t};
+class Modal{constructor(){this.contentEl=document.body.createDiv({cls:'modal'})}open(){this.onOpen()}close(){this.onClose();this.contentEl.remove()}}
+const config={exports:{}},tooltips={exports:{}};
+const focus={exports:{}};
+new Function('module',await(await fetch('../domain/focus.js')).text())(focus);
+new Function('module','process',await(await fetch('../config.js')).text())(config,{env:{}});
+new Function('module',await(await fetch('../ui/tooltips.js')).text())(tooltips);
+const source=await(await fetch('../../plugin.js')).text();
+const code=source.slice(source.indexOf('class FocusListEditor'),source.indexOf('class DailyFocusModal'));
+const Report=new Function('Modal','PROJECT_ADVANCEMENT_OPTIONS','progressRatingOptions','createImmediateHubTooltip','setIcon','Notice','normalizeFocusItems',code+';return ProjectAdvancementModal;')(
+ Modal,config.exports.PROJECT_ADVANCEMENT_OPTIONS,config.exports.progressRatingOptions,tooltips.exports.createImmediateHubTooltip,()=>{},class{constructor(message){throw Error(message)}},focus.exports.normalizeFocusItems);
+const project={projectId:'p',name:'Project A',contextKind:'project'},resource={projectId:'resource:study',name:'Knowledge',resourceType:'study'};
+const tooltip=()=>document.querySelector('.hub-detail-tooltip');
+const hover=button=>button.dispatchEvent(new PointerEvent('pointermove',{bubbles:true,pointerType:'mouse'}));
+const leave=button=>button.dispatchEvent(new PointerEvent('pointerout',{bubbles:true,relatedTarget:document.body}));
+try{
+ for(const editing of [false,true]){
+  let saved,savedCalls=0;
+  const modal=new Report({}, {projects:[project],resources:[resource],title:editing?'Edit daily progress':'Today\'s progress report',
+   currentScores:{p:1,'resource:study':2},currentSummaries:{p:'Keep project summary','resource:study':'Keep resource summary'},
+   showNextFocus:true,focusProjects:[project,resource],currentFocus:[{projectId:'p',projectName:'Project A',text:'Next step'}],
+   allowNoProgress:editing,requireEveryProject:!editing,onSave:async value=>{saved=value},onSaved:()=>savedCalls++});
+  modal.open();
+  const root=modal.contentEl;
+  const initial=root.querySelector('.hub-project-advancement-score');
+  initial.focus();
+  assert(!tooltip(),'Initial modal autofocus never shows guidance, even with focus-visible');
+  initial.dispatchEvent(new PointerEvent('pointerover',{bubbles:true,pointerType:'mouse'}));
+  assert(!tooltip(),'Opening underneath a stationary pointer does not count as intentional hover');
+  initial.blur();
+  assert(!root.querySelector('.hub-project-advancement-scale'),'Old visible rubric removed');
+  assert(root.querySelector('h2').nextElementSibling.textContent==="Rate the significance of today's work in each workspace.Hover over a rating for details.",'Exact compact guidance directly follows title');
+  assert([...root.querySelectorAll('.hub-project-advancement-name')].map(e=>e.textContent).join(',')==='Project A,Knowledge','Workspace ordering and visible titles unchanged');
+  for(const [index,workspace] of [project,resource].entries()){
+   const row=root.querySelectorAll('.hub-project-advancement-row')[index];
+   const buttons=[...row.querySelectorAll('.hub-project-advancement-score')];
+   assert(buttons.length===(editing?5:4),'Existing zero-rating availability preserved');
+   for(const button of buttons){
+    const score=Number(button.dataset.score),definition=config.exports.progressRatingOptions(workspace).find(o=>o.score===score);
+    hover(button);
+    assert(tooltip()?.querySelector('strong').textContent===`${score} · ${definition.title}`,'Contextual title appears synchronously on hover');
+    assert(tooltip().querySelector('.hub-detail-tooltip-description').textContent===definition.description,'Exact contextual explanation');
+    assert(!button.hasAttribute('title')&&!button.hasAttribute('aria-label'),'No browser title or competing delayed tooltip');
+    assert(document.querySelectorAll('.hub-detail-tooltip').length===1,'Only one tooltip is mounted');
+    assert(getComputedStyle(tooltip()).animationName==='none'&&parseFloat(getComputedStyle(tooltip()).transitionDuration)===0,'No appearance animation or delay');
+    const rect=tooltip().getBoundingClientRect();assert(rect.left>=0&&rect.right<=innerWidth,'Long explanations fit viewport');
+    leave(button);assert(!tooltip(),'Pointer exit removes hover tooltip');
+    button.focus();assert(!tooltip(),'Programmatic focus alone never opens a tooltip');button.blur();
+    root.dispatchEvent(new KeyboardEvent('keydown',{key:'Tab',bubbles:true}));
+    button.focus();assert(tooltip()?.id===button.getAttribute('aria-describedby'),'Intentional visible keyboard focus exposes tooltip immediately');
+    button.dispatchEvent(new KeyboardEvent('keyup',{key:'Tab',bubbles:true}));
+    button.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true,cancelable:true}));assert(!tooltip(),'Escape dismisses tooltip');
+    button.blur();assert(!tooltip(),'Losing keyboard focus closes tooltip');
+    button.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,pointerType:'mouse'}));
+    button.focus();hover(button);leave(button);
+    assert(!tooltip(),'Mouse-focused rating does not keep tooltip open after pointer exit');button.blur();
+   }
+  }
+  const p=root.querySelector('[data-project-id=p]'),r=root.querySelector('[data-project-id="resource:study"]');
+  p.querySelector('[data-score="3"]').click();r.querySelector('[data-score="4"]').click();
+  assert(modal.selectedScores.get('p')===3&&modal.selectedScores.get(resource.projectId)===4,'Rating selection unchanged');
+  assert(p.querySelector('[data-score="3"]').getAttribute('aria-pressed')==='true','Pressed state preserved');
+  if(editing){p.querySelector('[data-score="0"]').click();assert(modal.summaryInputs.get('p').value==='','Zero still clears previous summary')}
+  hover(r.querySelector('[data-score="4"]'));await modal.save();
+  assert(!tooltip()&&savedCalls===1,'Saving closes tooltip and modal exactly once');
+  assert(saved.scores[resource.projectId]===4&&(editing?!('p' in saved.scores):saved.scores.p===3),'Stored score semantics unchanged');
+  assert(saved.summaries[resource.projectId]==='Keep resource summary'&&saved.focus[0].text==='Next step','Summaries and focus persist unchanged');
+ }
+ const external=document.body.appendChild(document.createElement('button'));tooltips.exports.setHubTooltip(external,'Ordinary delayed tooltip');hover(external);
+ assert(!tooltip()&&external.getAttribute('aria-label')==='Ordinary delayed tooltip','Unrelated tooltip mechanism unchanged');
+ const modal=new Report({}, {projects:[project],resources:[resource],currentScores:{},allowNoProgress:true,onSave:async()=>{}});modal.open();
+ const button=modal.contentEl.querySelector('[data-score="4"]');hover(button);modal.close();hover(button);
+ assert(!tooltip(),'Modal close disposes tooltip and delegated listeners');
+ // Leave a representative Resource tooltip for visual inspection.
+ const sample=new Report({}, {projects:[project],resources:[resource],title:"Today's progress report",currentScores:{},allowNoProgress:true,onSave:async()=>{}});sample.open();
+ hover(sample.contentEl.querySelector('[data-project-id="resource:study"] [data-score="4"]'));
+ result.textContent='PASS: shared creation/editing modal; exact contextual 0–4 definitions, synchronous hover/focus, compact native tooltip surface, unchanged selection/summary/focus/save semantics, cleanup and unrelated tooltip isolation.';
+}catch(error){result.textContent='FAIL '+error.stack}
+</script>

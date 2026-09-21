@@ -1,0 +1,39 @@
+/* 1) Control the row height (this is what really fixes vertical spacing) */
+.heatmap-calendar-days,
+.heatmap-calendar-boxes {
+  /* 7 rows (Mon–Sun), each only 10px tall – tweak this */
+  grid-template-rows: repeat(7, minmax(0, 10px)) !important;
+}
+
+/* 2) Equal spacing between rows and columns */
+.heatmap-calendar-boxes {
+  row-gap: 2px !important;      /* vertical spacing */
+  column-gap: 2px !important;   /* horizontal spacing */
+}
+
+/* 3) Make cells actual squares, independent of container width */
+.heatmap-calendar-boxes li {
+  width: 10px !important;       /* tweak size here */
+  height: 10px !important;
+  border-radius: 2px;
+}
+
+/* Optional: empty cell color */
+.theme-dark .heatmap-calendar-boxes .isEmpty {
+  background-color: #131820;
+}
+.theme-light .heatmap-calendar-boxes .isEmpty {
+  background-color: #ebedf0;
+}
+/* Move weekday labels up a bit */
+.heatmap-calendar-days li {
+  position: relative;
+  top: -4px !important;   /* tweak: -2, -6, etc. */
+}
+
+/* Make weekday labels closer together */
+.heatmap-calendar-days {
+  display: grid !important;
+  grid-template-rows: repeat(7, minmax(0, 12px)) !important; /* try 6px, 5px, 4px */
+  row-gap: 0 !important;
+}

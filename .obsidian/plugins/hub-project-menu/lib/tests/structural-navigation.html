@@ -1,0 +1,37 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="../../styles.css">
+<div class="workspace"><div class="workspace-split mod-root"><div class="workspace-leaf" id="host">Current page</div></div></div><pre id="result">RUNNING</pre>
+<script type="module">
+const check=(v,m)=>{if(!v)throw Error(m)},module={exports:{}},frames={exports:{}};
+const images={refreshHeaderImages:()=>{}};
+new Function('module','require',await(await fetch('../ui/dashboard-frame.js')).text())(frames,()=>images);
+new Function('module','require',await(await fetch('../services/transition-service.js')).text())(module,()=>images);
+const service=new module.exports.HubTransitionService();
+const component=()=>({cleanups:[],register(f){this.cleanups.push(f)},unload(){this.cleanups.forEach(f=>f())}});
+try{
+ host.textContent='';const initialRoot=document.createElement('div');initialRoot.className='home-dashboard';host.append(initialRoot);
+ for(const kind of ['home','project','resource','home','project','resource']){
+  const owner=component(),before=host.firstChild;
+  const page=frames.exports.createDashboardFrame(host,owner,kind==='home'?'home-dashboard':'project-dashboard');
+  page.root.dataset.hubContextId=kind;
+  page.root.innerHTML='<header>Identity and navigation</header><div class="home-cover"><img></div><section>Panel geometry</section>';
+  page.root.querySelector('img').decode=()=>{throw Error('Navigation must not decode images')};
+  let started=false,resolveJob;
+  page.defer(async()=>{started=true;await new Promise(r=>resolveJob=r);if(page.current())page.root.querySelector('section').textContent='Secondary content'});
+  check(host.firstChild===before&&!page.root.isConnected,'Existing view retained while detached structure is built');
+  let commits=0;const observer=new MutationObserver(records=>commits+=records.filter(r=>r.target===host).length);observer.observe(host,{childList:true});
+  page.commit();await service.enter(page.root);await Promise.resolve();observer.disconnect();
+  check(commits===1&&host.firstChild===page.root&&page.root.dataset.hubReady==='true','Exactly one structural commit, independent of unfinished work');
+  check(!document.querySelector('.hub-workspace-switching'),'No visibility/blank shield');
+  const stage=service.stageWorkspace(document);await stage.reveal(()=>host,kind==='home'?null:{projectId:kind},false);stage.cancel();
+  check(!started,'Secondary work is not part of structural readiness');
+  await new Promise(r=>setTimeout(r,0));
+  owner.unload();resolveJob?.();await Promise.resolve();
+  check(page.root.querySelector('section').textContent==='Panel geometry','Stale async work cannot update disposed page');
+ }
+ const owner=component(),old=frames.exports.createDashboardFrame(host,owner,'home-dashboard');let stale=false;old.defer(()=>stale=true);
+ const fresh=frames.exports.createDashboardFrame(host,component(),'home-dashboard');old.commit();fresh.commit();
+ await new Promise(r=>setTimeout(r,0));check(host.firstChild===fresh.root&&!stale,'Rapid replacement aborts obsolete commits and queued work');
+ const source=await(await fetch('../../plugin.js')).text();check(!source.includes('prepareNoteView'),'Native note/image readiness gate removed');
+ service.destroy();result.textContent='PASS: detached structural commits, current view retention, cold/repeated Home/Project/Resource frames, non-blocking images and secondary work, rapid navigation cancellation, no page animations or visibility shield.';
+}catch(e){result.textContent='FAIL: '+e.stack}
+</script>

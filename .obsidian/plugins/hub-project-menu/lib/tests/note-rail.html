@@ -1,0 +1,87 @@
+<!doctype html><meta charset="utf-8">
+<link rel="stylesheet" href="../../styles.css">
+<link rel="stylesheet" href="../../../../../System/Dashboards/Project/view.css">
+<style>
+*{box-sizing:border-box}body{margin:0;background:#1e1e1e;color:#ddd;--background-primary:#1e1e1e;--background-secondary:#262626;--background-modifier-border:#444}
+.layout,.workspace-split{display:flex}.layout{height:700px}.sidebar{width:45px;flex:none;background:#333}.mod-root{flex:1;min-width:0}.workspace-tabs{overflow:hidden}.note{flex:1;min-width:0;border-left:1px solid #444}
+.markdown-preview-view{width:100%;height:100%}.hub-rail-toggle svg{display:block}
+</style><div id="fixtures"></div><pre id="result">RUNNING</pre>
+<script>
+window.module={exports:{}};window.require=()=>({setHubTooltip:(e,t)=>e.setAttribute('aria-label',t),setIcon:e=>e.innerHTML='<svg viewBox="0 0 24 24" stroke="currentColor" fill="none"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/></svg>'});
+</script><script src="../ui/note-rail.js"></script><script>
+const check=(ok,m)=>{if(!ok)throw Error(m)};
+const settle=()=>new Promise(resolve=>setTimeout(resolve,240));
+(async()=>{try{
+ for(const kind of ['Project','Resource']){
+  const layout=document.createElement('div');layout.className='layout';layout.innerHTML=`<aside class="sidebar"></aside><main class="workspace-split mod-root hub-project-note-layout"><section class="workspace-tabs hub-project-rail hub-project-rail-pane"><div class="workspace-tab-container"><div class="markdown-preview-view"><div class="markdown-preview-sizer"><div><div class="project-dashboard"><div class="project-nav-dock"><div class="project-nav-identity"><div class="project-nav-title">${kind}</div><div class="project-nav-category">Workspace subtitle</div></div><div class="project-nav"><button class="project-nav-button">Home</button><button class="project-nav-button">Workspace</button><button class="project-nav-button">Last File</button><button class="project-nav-button">Presets</button></div></div><div class="project-main-grid"><div class="project-left-column"><div class="project-folder-stack"><div class="project-folder-panel"><div class="project-folder-header">Folder<input class="project-folder-search"></div><div class="project-browser-columns"><button class="project-browser-column">Name</button><button class="project-browser-column-modified">Modified</button><button class="project-browser-column-created">Created</button></div><div class="project-browser-row"><div class="project-browser-info">Some note</div><div class="project-browser-time">Today</div><div class="project-browser-time">Yesterday</div></div></div></div></div></div></div></div></div></div></div></section><article class="note">Note pane</article></main>`;
+  fixtures.append(layout);const pane=layout.querySelector('section'),full=pane.getBoundingClientRect().width;
+  const grid=pane.querySelector('.project-main-grid'),folders=pane.querySelector('.project-folder-stack');
+  const right=document.createElement('div');right.className='project-right-column';
+  right.innerHTML='<div class="project-panel project-tasks"><div class="project-panel-title project-tasks-title">Tasks to Do<button class="project-task-clear-completed">Clear</button></div><div class="project-tasks-body"></div></div><div class="project-panel project-progress">Progress remains hidden in note-view</div>';
+  grid.append(right);
+  const tasks=right.querySelector('.project-tasks'),taskBody=right.querySelector('.project-tasks-body');
+  const fillTasks=()=>{taskBody.innerHTML=Array.from({length:35},(_,i)=>`<div class="project-task-row"><input class="project-task-checkbox" type="checkbox"><div class="project-task-info"><div class="project-task-text">${kind} task ${i}: a long task description that wraps within Half mode</div></div></div>`).join('')};
+  fillTasks();
+  const extraFolders=document.createElement('div');extraFolders.style.minHeight='1800px';extraFolders.textContent='Long folder structure';folders.append(extraFolders);
+  const checkSplit=()=>{
+   const g=grid.getBoundingClientRect(),t=tasks.getBoundingClientRect(),f=folders.getBoundingClientRect();
+   const gap=parseFloat(getComputedStyle(grid).rowGap),available=g.height-gap;
+   check(Math.abs(t.height/available-.3)<.01,'Tasks use 30 percent after the standard panel gap');
+   check(Math.abs(f.height/available-.7)<.01,'Folders use 70 percent after the standard panel gap');
+   check(Math.abs(t.top-f.bottom-gap)<1&&gap===12,'Standard Workspace spacing separates folders and task panel');
+   const style=getComputedStyle(tasks),reference=getComputedStyle(right.querySelector('.project-progress'));
+   for(const key of ['backgroundColor','borderTopWidth','borderBottomWidth','borderTopStyle','borderTopColor','borderRadius','padding'])
+    check(style[key]===reference[key],'Task panel reuses standard Workspace '+key);
+   check(Math.abs(t.left-f.left)<1&&Math.abs(t.right-f.right)<1,'Task panel aligns with folder inset');
+   check(Math.abs(t.bottom-g.bottom)<1,'Tasks remain anchored to content bottom');
+   check(getComputedStyle(right.querySelector('.project-progress')).display==='none','Other Workspace panels stay hidden');
+   check(grid.scrollHeight<=grid.clientHeight+1,'No outer content scrollbar');
+   check(tasks.scrollWidth<=tasks.clientWidth+1,'Tasks do not overflow horizontally');
+   taskBody.scrollTop=0;folders.scrollTop=60;check(folders.scrollTop>0&&taskBody.scrollTop===0,'Folder scrolling is independent');
+   const folderScroll=folders.scrollTop;taskBody.scrollTop=60;check(taskBody.scrollTop>0&&folders.scrollTop===folderScroll,'Task scrolling is independent');
+   const nodes=[...taskBody.childNodes];taskBody.textContent='No tasks.';
+   check(Math.abs(tasks.getBoundingClientRect().height-t.height)<1,'Empty tasks preserve allocation');
+   taskBody.textContent='One task';check(Math.abs(tasks.getBoundingClientRect().height-t.height)<1,'Short task list preserves allocation');
+   taskBody.replaceChildren(...nodes);
+   extraFolders.hidden=true;check(Math.abs(tasks.getBoundingClientRect().top-t.top)<1,'Short folders preserve task position');extraFolders.hidden=false;
+  };
+  const control=module.exports.mountNoteRail(pane),button=pane.querySelector('.hub-rail-toggle'),edge=pane.querySelector('.hub-rail-resizer');
+  const header=pane.querySelector('.project-nav-dock'),identity=pane.querySelector('.project-nav-identity'),nav=pane.querySelector('.project-nav');
+  const checkHeader=()=>{
+   check(getComputedStyle(identity).textAlign==='center','Identity is centered');
+   const headerRect=header.getBoundingClientRect(),navRect=nav.getBoundingClientRect();
+   check(Math.abs((headerRect.left+headerRect.right)-(navRect.left+navRect.right))<1,'Navigation is centered');
+   check(getComputedStyle(pane.querySelector('.project-folder-stack')).textAlign!=='center','Folder browser is not centered');
+   check(parseFloat(getComputedStyle(pane.querySelector('.project-nav-title')).paddingLeft)===0,'Title has no leading offset');
+   check(getComputedStyle(identity).borderBottomWidth==='0px'&&getComputedStyle(header).borderBottomWidth==='0px','No header dividers');
+   check(nav.getBoundingClientRect().top>identity.getBoundingClientRect().bottom,'Identity precedes navigation with a spacing gap');
+   check(getComputedStyle(nav).display==='grid','Navigation reuses the Workspace grid');
+   check(nav.scrollWidth<=nav.clientWidth+1,'Navigation does not overflow');
+   check(nav.getBoundingClientRect().top>=button.getBoundingClientRect().bottom,'Navigation clears the rail toggle');
+   check([...nav.children].every(el=>getComputedStyle(el).flexGrow==='0'),'Buttons do not stretch');
+  };
+  checkHeader();checkSplit();
+  check(pane.getBoundingClientRect().width===full,'Full preserves original width');
+  button.click();await settle();check(Math.abs(pane.getBoundingClientRect().width-full/2)<1,'Half width');checkHeader();checkSplit();
+  for(const el of pane.querySelectorAll('.project-folder-search,.project-browser-time,.project-browser-column-modified,.project-browser-column-created'))check(getComputedStyle(el).display==='none','Half hides search/date columns');
+  const row=pane.querySelector('.project-browser-row');check(Math.abs(row.firstElementChild.getBoundingClientRect().width-row.getBoundingClientRect().width)<1,'Name uses whole row, not clipped date layout');
+  button.click();await settle();check(pane.getBoundingClientRect().width===32,'Closed width');check(tasks.getBoundingClientRect().height===0,'Closed tasks occupy no layout space');
+  check(getComputedStyle(pane.querySelector('.project-dashboard')).visibility==='hidden','Closed content hidden');
+  check(getComputedStyle(button).visibility==='visible','Expand remains visible');
+  button.click();await settle();check(pane.getBoundingClientRect().width===full,'Reopen full');checkSplit();
+  check(getComputedStyle(pane.querySelector('.project-folder-search')).display!=='none','Search restored');
+  // Pointer capture mock for synthetic pointer events (real browser handles physical capture).
+  let captured=null;edge.setPointerCapture=id=>captured=id;edge.hasPointerCapture=id=>captured===id;edge.releasePointerCapture=()=>captured=null;
+  const pointer=(type,x)=>edge.dispatchEvent(new PointerEvent(type,{pointerId:1,clientX:x,button:0,bubbles:true}));
+  pointer('pointerdown',full);pointer('pointermove',full*.6);await settle();check(pane.dataset.hubRailState==='half','Drag snaps half');
+  pointer('pointermove',40);await settle();check(pane.dataset.hubRailState==='closed','Same captured drag snaps closed');
+  pointer('pointermove',full);pointer('pointerup',full);await settle();check(pane.dataset.hubRailState==='full','Drag snaps full');
+  edge.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowLeft',bubbles:true}));await settle();check(pane.dataset.hubRailState==='half','Keyboard half');
+  check(layout.querySelector('.sidebar').getBoundingClientRect().width===45,'Native sidebar unchanged');
+  control.destroy();check(!pane.querySelector('.hub-rail-controls,.hub-rail-resizer')&&!pane.hasAttribute('data-hub-rail-state'),'Cleanup removes controls and state');
+  const reopened=module.exports.mountNoteRail(pane,'half');await settle();check(pane.getBoundingClientRect().width===full/2,'State reapplies on reentry without new sidebar');reopened.destroy();
+  module.exports.mountNoteRail(pane,kind==='Project'?'full':'half');await settle();
+ }
+ result.textContent='PASS: Project/Resource Full/Half/Closed, natural single-column rows, hidden search/dates, button cycle, discrete drag, keyboard, sidebar width, reentry and cleanup.';
+}catch(error){result.textContent='FAIL: '+error.message+'\n'+error.stack}})();
+</script>

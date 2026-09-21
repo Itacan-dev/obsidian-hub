@@ -1,0 +1,72 @@
+
+/* ---------- DAILY PROJECTS ---------- */
+
+.daily-project-list {
+    display: flex;
+    flex-direction: column;
+
+    gap: 2px;
+}
+
+
+.daily-project-row {
+    display: flex;
+    align-items: center;
+
+    gap: 8px;
+
+    padding:
+        5px 7px;
+
+    border-radius: 5px;
+
+    cursor: pointer;
+}
+
+
+.daily-project-row:hover {
+    background:
+        var(--background-modifier-hover);
+}
+
+
+.daily-project-row:hover
+.daily-project-name {
+    color:
+        var(--interactive-accent);
+}
+
+
+.daily-project-icon {
+    width: 14px;
+    height: 14px;
+
+    flex: 0 0 14px;
+
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+
+    color:
+        var(--text-muted);
+}
+
+
+.daily-project-icon svg {
+    width: 14px;
+    height: 14px;
+}
+
+
+.daily-project-name {
+    font-size: var(--hub-font-body);
+}
+
+
+.daily-project-empty {
+    color:
+        var(--text-muted);
+
+    font-size: var(--hub-font-compact);
+    font-style: italic;
+}

@@ -1,0 +1,65 @@
+<!doctype html><meta charset='utf-8'><title>Warm card image session</title>
+<style>body{background:#222;color:#ddd}#host{display:flex;gap:12px}.card{width:190px;height:120px;background-size:cover}</style>
+<div id='host'></div><pre id='result'>RUNNING</pre>
+<script type='module'>
+const assert=(v,m)=>{if(!v)throw Error(m)};
+const settle=async predicate=>{for(let i=0;i<120;i++){if(predicate())return;await new Promise(r=>requestAnimationFrame(r))}throw Error('Image did not settle')};
+const header={exports:{}},module={exports:{}};
+new Function('module','require',await(await fetch('../ui/header-image.js')).text())(header,()=>({}));
+new Function('module','require',await(await fetch('../ui/card-images.js')).text())(module,()=>header.exports);
+let decodes=0,rasters=0;
+const decode=HTMLImageElement.prototype.decode,toDataURL=HTMLCanvasElement.prototype.toDataURL;
+HTMLImageElement.prototype.decode=function(){decodes++;return decode.call(this)};
+HTMLCanvasElement.prototype.toDataURL=function(...args){rasters++;return toDataURL.apply(this,args)};
+const cache=module.exports.createCardImageCache();
+const asset=new URL('../../../../../Assets/ProjectCards/Categories/custom-master-s-thesis.jpg',location.href).href;
+const paths=['Assets/active.jpg','Assets/future.jpg','Assets/shelved.jpg','Assets/resource.jpg'];
+let current=null;
+function unmount(){if(current){current.cleanups.forEach(fn=>fn());current.root.remove();current=null}}
+function mount(indices){
+ unmount();const root=document.createElement('div');root.style.display='flex';root.style.gap='12px';
+ const cleanups=[],render=module.exports.createCardImageRenderer(root,{register:fn=>cleanups.push(fn)},null,cache);
+ const cards=indices.map(i=>{const el=root.appendChild(document.createElement('div'));el.className='card';render(el,asset+'?state='+i,{sourcePath:paths[i]});return el});
+ host.append(root);current={root,cleanups,cards};return cards;
+}
+const ready=cards=>settle(()=>cards.every(el=>el.style.backgroundImage.startsWith('url(')));
+try{
+ await ready(mount([0,3]));const cold={decodes,rasters};
+ await ready(mount([1,3]));await ready(mount([2,3]));
+ const prepared={decodes,rasters};
+ assert(prepared.decodes===4&&prepared.rasters===4,'Only each genuinely new source/state needs first-use decoding/rasterization');
+ for(let i=0;i<18;i++){
+  unmount();host.textContent='Workspace (Home renderer destroyed)';
+  const cards=mount([i%3,3]);await ready(cards);
+  assert(decodes===prepared.decodes&&rasters===prepared.rasters,'Home revisit and previous tab reuse decoded sources and raster computations');
+ }
+ cache.invalidate(paths[1]);await ready(mount([0,3]));
+ assert(decodes===prepared.decodes&&rasters===prepared.rasters,'Changing Future image does not invalidate Active or Resource');
+ await ready(mount([1,3]));
+ assert(decodes===prepared.decodes+1&&rasters===prepared.rasters+1,'Modified source is redecoded and rerasterized even at identical URL');
+ cache.invalidate('Assets');await ready(mount([0,3]));
+ assert(decodes===prepared.decodes+3,'Folder rename/delete invalidates only descendant images');
+ // A decode begun before an invalidation cannot refill the cache afterward.
+ const pending=cache.load(document,asset+'?pending',paths[0]);cache.invalidate(paths[0]);await pending;
+ assert(!pending.valid(),'Invalidated in-flight work is marked stale');
+ // Raster storage is LRU and bounded by entry count and encoded byte budget.
+ for(let i=0;i<55;i++)cache.remember('test'+i,'data:'+i,paths[0]);
+ assert(!cache.preview('test0')&&cache.preview('test54'),'Old raster entries are evicted, current ones retained');
+ cache.remember('oversize','x'.repeat(7*1024*1024),paths[0]);assert(!cache.preview('oversize'),'Oversize raster cannot exceed session budget');
+ // Rapid unmounts do not keep view-specific observers or publish to old roots.
+ const abandoned=mount([2]);unmount();await new Promise(r=>requestAnimationFrame(r));
+ assert(abandoned[0].style.backgroundImage==='none','Abandoned uncommitted image remains untouched');
+ const beforeDestroy=decodes;cache.destroy();
+ assert(!cache.preview('test54'),'Plugin unload releases session rasters');
+ const uncached=cache.load(document,asset,paths[0]);await uncached;
+ assert(!uncached.valid(),'Destroyed cache cannot publish new session results');
+ assert(decodes===beforeDestroy+1,'Destroyed cache no longer reuses sources');
+ const bounded=module.exports.createCardImageCache();let smallDecodes=0;
+ const fakeWindow={Image:class{constructor(){this.naturalWidth=this.naturalHeight=1024}decode(){smallDecodes++;return Promise.resolve()}},addEventListener(){},removeEventListener(){}};
+ for(let i=0;i<20;i++)await bounded.load({defaultView:fakeWindow},'budget'+i,'Assets/'+i);
+ await bounded.load({defaultView:fakeWindow},'budget19','Assets/19');assert(smallDecodes===20,'Recent decoded source retained');
+ await bounded.load({defaultView:fakeWindow},'budget0','Assets/0');assert(smallDecodes===21,'Decoded pixel budget evicts older sources');bounded.destroy();
+ result.textContent=`PASS: cold ${cold.decodes} decodes/${cold.rasters} rasters; all states ${prepared.decodes}/${prepared.rasters}; 18 Home/workspace round trips add 0 decodes and 0 rasters. Targeted invalidation, in-flight cancellation, LRU/byte caps and disposal passed.`;
+}catch(error){result.textContent='FAIL '+error.stack}
+finally{unmount();cache.destroy();HTMLImageElement.prototype.decode=decode;HTMLCanvasElement.prototype.toDataURL=toDataURL}
+</script>

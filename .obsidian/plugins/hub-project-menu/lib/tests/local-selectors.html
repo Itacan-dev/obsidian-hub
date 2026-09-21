@@ -1,0 +1,74 @@
+<!doctype html><meta charset='utf-8'><title>Hub local selector hierarchy</title>
+<link rel='stylesheet' href='../../styles.css'>
+<link rel='stylesheet' href='../../../../../System/Dashboards/Home/view.css'>
+<link rel='stylesheet' href='../../../../../System/Dashboards/Project/view.css'>
+<style>
+body{font:14px Arial;background:#1e1e1e;color:#ddd;--background-primary:#1e1e1e;--background-secondary:#262626;--background-modifier-border:#444;--background-modifier-border-hover:#666;--background-modifier-hover:#333;--interactive-accent:#8955ed;--text-on-accent:#fff;--text-muted:#aaa;--text-normal:#ddd;--input-height:30px}
+button{height:var(--input-height);padding:4px 12px}#fixture{padding:24px;width:900px}.section{margin-bottom:24px}.home-project-tab-buttons{justify-content:flex-end}h3{font-size:16px}
+</style><div id='fixture' class='hub-button-scope'></div><pre id='result'>RUNNING</pre>
+<script type='module'>
+const check=(ok,message)=>{if(!ok)throw Error(message)};
+HTMLElement.prototype.createEl=function(tag,o={}){const e=document.createElement(tag);e.className=o.cls||'';e.textContent=o.text||'';for(const [k,v] of Object.entries(o.attr||{}))e.setAttribute(k,v);this.append(e);return e};
+HTMLElement.prototype.createDiv=function(o){return this.createEl('div',o)};
+HTMLElement.prototype.createSpan=function(o){return this.createEl('span',o)};
+const snapshot=el=>{const s=getComputedStyle(el);return ['height','minHeight','padding','fontSize','fontWeight','borderWidth','borderStyle','borderColor','borderRadius','backgroundColor','color','transition'].map(p=>s[p]).join('|')};
+const settle=async buttons=>{await Promise.all(buttons.flatMap(b=>b.getAnimations()).map(a=>a.finished))};
+try{
+ const home=await(await fetch('../../../../../System/Dashboards/Home/view.js')).text(),workspace=await(await fetch('../../../../../System/Dashboards/Project/view.js')).text();
+ check(home.includes('projectStatusSelectors.createEl("button"')&&home.includes('projectTabButtons.createEl('),'Only status buttons enter selector group; + retains action parent');
+ check(home.includes('home-progress-scope-controls hub-panel-selectors')&&home.includes('home-progress-tabs hub-panel-selectors')&&workspace.includes('project-progress-tabs hub-panel-selectors'),'All actual renderers opt into shared selector family');
+ const standard=fixture.createDiv({cls:'section'});
+ const actions=['Home','Workspace','Last File','Presets','Overleaf','ChatGPT','Zotero','Google'].map(text=>standard.createEl('button',{text}));
+ const panel=fixture.createDiv({cls:'home-dashboard'});
+ const compactActions=['home-focus-edit','home-task-clear-completed','home-calendar-today','project-task-clear-completed'].map((cls,i)=>panel.createEl('button',{cls:cls+' hub-panel-action',text:['Edit','Clear','Today','Clear'][i]}));
+ const actionBefore=actions.map(snapshot);
+ const groups=[];
+ for(const [title,cls,labels] of [
+  ['Projects','home-project-tab-buttons',['Active (3)','Future (3)','Shelved (0)']],
+  ['Progress','home-progress-scope-controls',['Projects','Resources']],
+  ['Home History','home-progress-tabs',['Reports','Activity','Tasks']],
+  ['Project History','project-progress-tabs',['Reports','Activity','Tasks']],
+  ['Resource History','project-progress-tabs',['Reports','Activity','Tasks']]]){
+  const section=fixture.createDiv({cls:'section'});section.createEl('h3',{text:title});
+  const row=section.createDiv({cls}),group=cls==='home-project-tab-buttons'?row.createDiv({cls:'hub-panel-selectors'}):title.includes('History')?row.createDiv({cls:'hub-history-selectors hub-panel-selectors'}):row;
+  group.classList.add('hub-panel-selectors');
+  const buttons=labels.map(text=>group.createEl('button',{text,cls:title==='Projects'?'home-project-tab home-project-status-tab':''}));
+  for(const button of buttons)button.addEventListener('click',()=>buttons.forEach(b=>b.classList.toggle('is-active',b===button)));
+  if(title==='Projects'){
+   const plus=row.createEl('button',{cls:'home-project-create hub-panel-action hub-panel-action-icon',text:'+'});
+   check(!plus.closest('.hub-panel-selectors'),'Plus remains a standalone action');
+   check(getComputedStyle(plus).width==='23px'&&getComputedStyle(plus).height==='23px','Plus shares compact height and stays square');
+   for(const count of [0,3,99,1000]){buttons[0].textContent=`Active (${count})`;check(buttons[0].scrollWidth<=buttons[0].clientWidth,'Counts fit natural width without clipping')}
+   buttons[0].textContent='Active (3)';
+  }
+  groups.push({group,buttons});
+ }
+ const buttons=groups.flatMap(g=>g.buttons),reference=groups[1].buttons[0];
+ check(getComputedStyle(reference).height==='23px'&&getComputedStyle(reference).fontWeight==='400','Canonical compact reference retained');
+ for(const action of compactActions){
+  const s=getComputedStyle(action);
+  check(s.height==='23px'&&s.minHeight==='23px'&&s.padding==='1px 10px'&&s.fontSize===getComputedStyle(reference).fontSize&&s.fontWeight==='400','Panel actions share compact scale');
+  action.disabled=true;check(action.disabled,'Disabled state preserved');action.disabled=false;
+ }
+ check(compactActions[2].getBoundingClientRect().width>compactActions[0].getBoundingClientRect().width,'Actions retain natural label widths');
+ for(const {buttons:items} of groups.slice(2)){
+  const widths=items.map(b=>b.getBoundingClientRect().width);
+  check(Math.max(...widths)-Math.min(...widths)<0.1,'All History buttons have equal intrinsic widths');
+ }
+ for(const {group,buttons:items} of groups){check(getComputedStyle(group).gap==='4px','Shared four-pixel selector spacing');for(const button of items)check(snapshot(button)===snapshot(reference),'All inactive local selector styles match reference')}
+ check(groups[0].buttons[2].getBoundingClientRect().width>groups[0].buttons[0].getBoundingClientRect().width,'Status labels use natural unequal widths');
+ for(const button of buttons)button.classList.add('is-active');await settle(buttons);
+ for(const button of buttons)check(snapshot(button)===snapshot(reference),'All selected styles match purple reference');
+ const hoverStyle=document.head.appendChild(document.createElement('style'));
+ hoverStyle.textContent=(await(await fetch('../../styles.css')).text()+'\n'+await(await fetch('../../../../../System/Dashboards/Home/view.css')).text()+'\n'+await(await fetch('../../../../../System/Dashboards/Project/view.css')).text()).replaceAll(':hover','.test-hover');
+ for(const active of [false,true]){
+  for(const button of buttons){button.classList.toggle('is-active',active);button.classList.add('test-hover')}await settle(buttons);
+  for(const button of buttons)check(snapshot(button)===snapshot(reference),'Selected/inactive hover remains consistent');
+ }
+ hoverStyle.remove();for(const button of buttons){button.classList.remove('test-hover','is-active')}await settle(buttons);
+ for(const button of buttons){button.focus();check(button.matches(':focus-visible'),'Selector accepts visible keyboard focus');button.blur()}
+ actions.forEach((button,i)=>check(snapshot(button)===actionBefore[i],'Navigation, commands, shortcuts and + retain their standard treatment'));
+ for(const {buttons:items} of groups){items[1].click();check(items.filter(b=>b.classList.contains('is-active')).length===1,'Selection remains mutually exclusive')}
+ result.textContent='PASS: compact selectors and panel actions; square +; equal-width Home/Project/Resource History; selected/hover/focus states; natural count/action widths; navigation and launchers unchanged.';
+}catch(error){result.textContent='FAIL '+error.stack}
+</script>

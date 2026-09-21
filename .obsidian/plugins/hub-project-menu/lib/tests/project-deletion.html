@@ -1,0 +1,68 @@
+<!doctype html><meta charset="utf-8">
+<link rel="stylesheet" href="../../styles.css">
+<style>
+body{font-family:Arial;background:#1e1e1e;color:#ddd;--background-modifier-border:#444;--text-muted:#aaa;--interactive-normal:#333;--text-normal:#ddd}
+.modal{width:480px;padding:20px;border:1px solid #555;border-radius:12px;background:#262626;margin:20px}
+button,input{background:#333;color:#ddd;border:1px solid #444;border-radius:6px;padding:7px}button:disabled,input:disabled{opacity:.4}input{box-sizing:border-box}
+</style><pre id="result">RUNNING</pre>
+<script>
+HTMLElement.prototype.createEl=function(tag,o={}){const e=document.createElement(tag);e.className=o.cls||"";e.textContent=o.text||"";this.append(e);return e;};
+HTMLElement.prototype.createDiv=function(o){return this.createEl("div",o);};
+HTMLElement.prototype.createSpan=function(o){return this.createEl("span",o);};
+HTMLElement.prototype.addClass=function(...c){this.classList.add(...c);};
+HTMLElement.prototype.empty=function(){this.replaceChildren();};
+class MockModal{constructor(){this.contentEl=document.body.createDiv({cls:"modal"});}open(){this.onOpen();}close(){this.onClose();this.contentEl.remove();}}
+window.module={exports:{}};window.require=()=>({Modal:MockModal,setIcon(e){e.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>';}});
+// Deterministic monotonic clock: test the actual thirty-second boundary without waiting.
+let now=0;Object.defineProperty(performance,"now",{value:()=>now});
+const intervals=new Map();let id=0;window.setInterval=fn=>{intervals.set(++id,fn);return id;};window.clearInterval=id=>intervals.delete(id);
+const check=(ok,m)=>{if(!ok)throw Error(m);};
+const key=(el,repeat=false)=>el.dispatchEvent(new KeyboardEvent("keydown",{key:"Enter",repeat,bubbles:true,cancelable:true}));
+</script>
+<script src="../ui/project-deletion.js"></script>
+<script>
+(async()=>{try{
+ const {ProjectDeletionModal}=module.exports;
+ for(const status of ["active","future","shelved"]){
+  const name="Exact Project Å";const modal=new ProjectDeletionModal({},name,`Projects/${status}`);
+  const answer=modal.waitForConfirmation();
+  check(!modal.input.disabled&&modal.confirm.disabled,"Name editable immediately; Delete initially disabled");
+  for(const wrong of ["",name.toLowerCase(),name+" "," "+name,"Exact Project A"]){
+   modal.input.value=wrong;modal.input.dispatchEvent(new Event("input"));key(modal.input);modal.finish(true);
+   check(modal.confirm.disabled&&!modal.settled,"Only exact name accepted");
+  }
+  modal.input.value=name;modal.input.dispatchEvent(new Event("input"));
+  check(!modal.confirm.disabled,"Exact name enables Delete");
+  modal.finish(true);check(!modal.settled,"Exact name alone cannot delete");
+  const deleteSize=modal.confirm.getBoundingClientRect();
+  modal.confirm.click();
+  const countdownSize=modal.countdown.getBoundingClientRect();
+  check(modal.countdown.tagName==='BUTTON'&&modal.countdown.disabled,'Countdown is a native disabled button');
+  check(countdownSize.width===deleteSize.width&&countdownSize.height===deleteSize.height,'Countdown keeps Delete dimensions');
+  modal.countdown.click();key(modal.countdown);check(!modal.settled,'Countdown cannot activate deletion');
+  check(!modal.settled&&modal.confirm.hidden&&!modal.countdown.hidden&&modal.deadline===now+30000,"Delete starts thirty-second countdown only");
+  check(getComputedStyle(modal.confirm).display==='none',"Delete actually hidden");
+  key(modal.input);modal.confirm.dispatchEvent(new MouseEvent('click'));modal.finish(true);
+  check(!modal.settled,"Enter and dispatched clicks cannot bypass countdown");
+  now=modal.deadline-1;modal.updateCountdown();modal.finish(true);check(!modal.settled,"Locked until full deadline");
+  now=modal.deadline;modal.updateCountdown();
+  check(!modal.confirm.hidden&&modal.countdown.hidden&&modal.confirm.textContent==='Confirm'&&intervals.size===0,"Countdown replaced by Confirm, no automatic deletion");
+  key(modal.input);key(modal.confirm,true);check(!modal.settled,"Input Enter and held key cannot perform final confirmation");
+  modal.input.value=name+' ';modal.input.dispatchEvent(new Event('input'));modal.finish(true);
+  check(modal.confirm.disabled&&!modal.settled,"Exact name still checked at final confirmation");
+  modal.input.value=name;modal.input.dispatchEvent(new Event('input'));
+  key(modal.confirm);check(await answer===true,"Explicit Confirm activation deletes");
+ }
+ for(const phase of ['name','countdown','confirm']){
+  const modal=new ProjectDeletionModal({},'Cancel','Projects/Cancel');const answer=modal.waitForConfirmation();
+  if(phase!=='name'){modal.input.value='Cancel';modal.input.dispatchEvent(new Event('input'));modal.confirm.click();}
+  if(phase==='confirm'){now=modal.deadline;modal.updateCountdown();}
+  modal.cancel.click();check(await answer===false&&intervals.size===0,'Cancel works in '+phase);
+ }
+ const cancelled=new ProjectDeletionModal({},"Cancel me","Projects/Cancel me");const answer=cancelled.waitForConfirmation();
+ cancelled.close();check(await answer===false&&intervals.size===0,"Escape/X/unload close cancels and clears timer");
+ // Leave an example visible for visual review.
+ const preview=new ProjectDeletionModal({},"Pulsed Optomechanics","Projects/Pulsed Optomechanics");preview.waitForConfirmation();
+ document.getElementById("result").textContent="PASS: all statuses, immediate name editing, exact matching, Delete starts 30-second countdown, explicit final Confirm, keyboard bypass protection, cancellation in every phase and timer cleanup.";
+}catch(error){document.getElementById("result").textContent="FAIL: "+error.stack;}})();
+</script>

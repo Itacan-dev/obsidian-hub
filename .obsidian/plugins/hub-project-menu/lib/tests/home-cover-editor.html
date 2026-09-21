@@ -1,0 +1,88 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../../../../../System/Dashboards/Home/view.css">
+<style>
+*{box-sizing:border-box}body{font:14px Arial;background:#1e1e1e;color:#ddd;--background-primary:#1e1e1e;--background-secondary:#262626;--background-modifier-border:#444;--background-modifier-border-hover:#777;--text-normal:#ddd}
+#home{width:900px}.modal{position:absolute;top:15px;left:100px;padding:24px;background:#262626;border:1px solid #444;border-radius:12px;max-height:92vh;overflow:auto;z-index:10}.modal-content{width:100%}button{color:#ddd;padding:5px 10px}.mod-cta{background:#8955ed}.hub-project-wizard-actions{display:flex;justify-content:flex-end}
+</style><div id="home" class="home-dashboard hub-button-scope"><div id="cover" class="home-cover"><img class="home-cover-image"></div></div><pre id="result">RUNNING</pre>
+<script type="module">
+const check=(ok,message)=>{if(!ok)throw Error(message)},frame=()=>new Promise(resolve=>requestAnimationFrame(resolve));
+const until=async(predicate)=>{for(let i=0;i<250;i++){if(predicate())return;await frame()}throw Error('Timed out waiting for image/editor')};
+class Component{constructor(){this.cleanups=[]}load(){}register(fn){this.cleanups.push(fn)}registerDomEvent(el,event,fn,options){el.addEventListener(event,fn,options);this.register(()=>el.removeEventListener(event,fn,options))}unload(){this.cleanups.splice(0).reverse().forEach(fn=>fn())}}
+HTMLElement.prototype.createEl=function(tag,o={}){const el=document.createElement(tag);el.className=o.cls||'';el.textContent=o.text||'';this.append(el);return el};
+HTMLElement.prototype.createDiv=function(o){return this.createEl('div',o)};HTMLElement.prototype.createSpan=function(o){return this.createEl('span',o)};HTMLElement.prototype.empty=function(){this.replaceChildren()};
+let menu;class Menu{constructor(){this.items=[];menu=this}addItem(fn){const i={setTitle(t){this.title=t;return this},setIcon(){return this},setDisabled(v){this.disabled=v;return this},onClick(fn){this.click=fn;return this}};fn(i);this.items.push(i)}showAtMouseEvent(){}showAtPosition(){}}
+class Modal{constructor(){this.modalEl=document.body.createDiv({cls:'modal'});this.contentEl=this.modalEl.createDiv({cls:'modal-content'});this.scope={register:(_mods,_key,fn)=>{this.escape=fn}}}open(){this.onOpen()}close(){this.onClose();this.modalEl.remove()}}
+const notices=[],obsidian={Component,Menu,Modal,setIcon(el){el.innerHTML='<svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg>'},Notice:class{constructor(message){notices.push(message)}}};
+const header={exports:{}},dataModule={exports:{}},ui={exports:{}};
+new Function('module','require',await(await fetch('../ui/header-image.js')).text())(header,()=>obsidian);
+new Function('module','require',await(await fetch('../services/home-covers.js')).text())(dataModule,name=>name==='../ui/header-image'?header.exports:name==='crypto'?{randomUUID:()=>crypto.randomUUID()}:obsidian);
+new Function('module','require',await(await fetch('../ui/home-covers.js')).text())(ui,name=>name==='../services/home-covers'?dataModule.exports:name==='./header-image'?header.exports:obsidian);
+const {HomeCovers,HOME_COVER_PERIODS}=dataModule.exports;
+const assets=new Map(HOME_COVER_PERIODS.map(period=>[period.cover,{path:period.cover}])),data={homeCoverImages:{}};
+for(const [index,period]of HOME_COVER_PERIODS.entries())data.homeCoverImages[period.name]={path:period.cover,placement:index?{x:20+index*15,y:10+index*20,zoom:1+index*.3}:null};
+let saves=0,persisted;const plugin={projectWizard:{data,ensureFolder:async()=>{}},dataStore:{save:async data=>{saves++;persisted=JSON.stringify(data)}},app:{vault:{getAbstractFileByPath:p=>assets.get(p),getResourcePath:f=>f.url??new URL('../../../../../'+f.path,location.href).href,createBinary:async(path,bytes)=>{assets.set(path,{path,url:URL.createObjectURL(new Blob([bytes],{type:'image/jpeg'}))})}}}};
+const service=new HomeCovers(plugin),owner=new Component(),cover=document.querySelector('#cover'),homeImage=cover.querySelector('img');
+homeImage.src=plugin.app.vault.getResourcePath(assets.get(service.config('night').path));
+let modal;
+try{
+ service.mount(cover,homeImage,owner,'night',source=>{modal=ui.exports.openHomeCoverEditor(service,source)});
+ await header.exports.prepareHeaderImages(document.querySelector('#home'));
+ cover.dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true}));
+ check(menu.items.length===1&&menu.items[0].title==='Edit cover images…','Home menu supersedes placement choice');menu.items[0].click();
+ await until(()=>modal.previews.every(p=>p.editor&&!p.surface.querySelector('.hub-home-cover-staging')));
+ check(modal.contentEl.querySelector('h2').textContent==='Edit cover images','Modal title');
+ check(modal.contentEl.querySelector('p').textContent==='Right-click a preview to change its image or image placement.','Instruction');
+ check([...modal.contentEl.querySelectorAll('h3')].map(el=>el.textContent).join('|')==='Morning|Afternoon|Evening|Night','Ordered period labels');
+ check([...modal.contentEl.querySelectorAll('.hub-home-cover-time')].map(el=>el.textContent).join('|')==='06:00–11:59|12:00–17:59|18:00–23:59|00:00–05:59','Ordered time metadata');
+ const headings=[...modal.contentEl.querySelectorAll('.hub-home-cover-heading')];
+ for(const h of headings){
+  const [label,time,button]=[...h.children].map(el=>el.getBoundingClientRect()),bounds=h.getBoundingClientRect();
+  check(Math.abs(label.left-bounds.left)<.1&&Math.abs(button.right-bounds.right)<.1,'Header left/right alignment');
+  check(Math.abs(button.left-time.right-8)<.1,'Fixed metadata/menu gap');
+  check(Math.abs(button.right-headings[0].lastElementChild.getBoundingClientRect().right)<.1,'Menu column aligned across periods');
+  h.lastElementChild.click();check(menu.items.map(i=>i.title).join('|')==='Change image…|Edit image placement…','Header menu reuses preview actions');
+ }
+ async function verifyGeometry(){
+  for(const p of modal.previews){
+   const rect=p.frame.getBoundingClientRect(),surface=p.surface.getBoundingClientRect(),scale=rect.width/cover.clientWidth;
+   check(Math.abs(rect.height/rect.width-cover.clientHeight/cover.clientWidth)<.001,'Preview exact Home aspect ratio');
+   check(Math.abs(surface.width-rect.width)<.1&&Math.abs(surface.height-rect.height)<.1,'Scaled source surface fits preview');
+   check(p.surface.clientWidth===cover.clientWidth&&p.surface.clientHeight===cover.clientHeight,'Same full-size layout metrics as Home');
+   check(Math.abs(parseFloat(getComputedStyle(p.frame).borderTopLeftRadius)-10*scale)<.01,'Rounded clipping scaled faithfully');
+   const reference=document.createElement('div');reference.className='home-cover';reference.style.cssText=`position:absolute;left:-10000px;width:${cover.clientWidth}px`;
+   const image=reference.createEl('img',{cls:'home-cover-image'});image.src=p.surface.querySelector('img').src;document.body.append(reference);
+   const component=new Component(),editor=header.exports.mountHeaderImage({cover:reference,image,component,...service.placementOptions(p.name)});await editor.prepare();
+   const expected=image.getBoundingClientRect(),ref=reference.getBoundingClientRect(),actual=p.surface.querySelector('img').getBoundingClientRect();
+   check(Math.abs(actual.width/scale-expected.width)<.15&&Math.abs(actual.height/scale-expected.height)<.15,'Identical image fit/zoom');
+   check(Math.abs((actual.left-surface.left)/scale-(expected.left-ref.left))<.15&&Math.abs((actual.top-surface.top)/scale-(expected.top-ref.top))<.15,'Identical crop/position');component.unload();reference.remove();
+  }
+ }
+ await verifyGeometry();
+ const p=modal.previews[3],before=JSON.stringify(data.homeCoverImages),homeBefore=cover.querySelector('img').style.cssText;
+ p.frame.dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true}));check(menu.items.map(i=>i.title).join('|')==='Change image…|Edit image placement…','Preview context menu');menu.items[1].click();await frame();
+ p.surface.setPointerCapture=()=>{};p.surface.hasPointerCapture=()=>false;
+ function zoom(){const r=p.frame.getBoundingClientRect();p.surface.dispatchEvent(new WheelEvent('wheel',{deltaY:-100,clientX:r.left+r.width/2,clientY:r.top+r.height/2,bubbles:true,cancelable:true}))}
+ zoom();await frame();modal.escape();await frame();
+ check(!p.editor.editing&&JSON.stringify(data.homeCoverImages)===before&&cover.querySelector('img').style.cssText===homeBefore,'Escape cancels placement only; no saved/live changes');
+ p.editor.begin();await frame();zoom();await frame();
+ const r=p.frame.getBoundingClientRect();p.surface.dispatchEvent(new PointerEvent('pointerdown',{button:0,pointerId:1,clientX:r.left+80,clientY:r.top+30,bubbles:true,cancelable:true}));p.surface.dispatchEvent(new PointerEvent('pointermove',{pointerId:1,clientX:r.left+110,clientY:r.top+40,bubbles:true}));p.surface.dispatchEvent(new PointerEvent('pointerup',{pointerId:1,bubbles:true}));await frame();
+ [...p.frame.querySelectorAll('button')].find(button=>button.textContent==='Done').click();await until(()=>saves===1&&!p.editor.editing&&cover.querySelector('img')!==homeImage);await frame();
+ check(data.homeCoverImages.night.placement.zoom>1.9,'Done persists zoom');check(data.homeCoverImages.evening.placement.zoom===1.6,'Shared image Evening unchanged');
+ check(JSON.parse(persisted).homeCoverImages.night.placement.zoom===data.homeCoverImages.night.placement.zoom,'Persistence round trip');
+ await verifyGeometry();
+ document.querySelector('#home').style.width='750px';await frame();await frame();await verifyGeometry();
+ const selectedImage=new File([await(await fetch('../../../../../Assets/Covers/day.jpeg')).arrayBuffer()],'New night.jpg',{type:'image/jpeg'});
+ const oldClick=HTMLInputElement.prototype.click;let picker;
+ HTMLInputElement.prototype.click=function(){picker=this};
+ modal.chooseImage(p);HTMLInputElement.prototype.click=oldClick;
+ check(picker?.accept==='image/*','Change image uses existing native file chooser convention');
+ Object.defineProperty(picker,'files',{value:[selectedImage]});picker.dispatchEvent(new Event('change'));
+ await until(()=>data.homeCoverImages.night.path.startsWith('Assets/Covers/Home/night-')&&p.surface.querySelector('img')?.src.startsWith('blob:')&&cover.querySelector('img')?.src.startsWith('blob:'));
+ await frame();await verifyGeometry();
+ check(data.homeCoverImages.night.placement===null&&data.homeCoverImages.evening.path==='Assets/Covers/night.jpeg','Image replacement resets only its own placement and retains other periods');
+ modal.close();check(!document.querySelector('.hub-home-covers-dialog'),'Modal cleanup');
+ modal=ui.exports.openHomeCoverEditor(service,cover);await until(()=>modal.previews.every(p=>p.editor&&!p.surface.querySelector('.hub-home-cover-staging')));await verifyGeometry();
+ check(!notices.length,'No unexpected errors');
+ service.destroy();check(!service.listeners.size&&!service.mounts.size,'Plugin unload removes live-cover listeners/editors');
+ result.textContent='PASS: actual shared editor; Home/preview menus, four periods, default/custom miniature geometry and scaled radii, resize, drag/zoom, Cancel/Done, native image chooser/import, isolated persistence, live Home update, reopening and disposal.';
+}catch(error){result.textContent='FAIL: '+error.stack}
+</script>

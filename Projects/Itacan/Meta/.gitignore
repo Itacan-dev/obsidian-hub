@@ -1,0 +1,3 @@
+# This entire directory is shared through the vault-root repository.
+# No documentation, task, roadmap or asset allowlist is applied here.
+# Secret environment files and generated dependencies use the root exclusions.

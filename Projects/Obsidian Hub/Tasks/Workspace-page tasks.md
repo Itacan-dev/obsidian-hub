@@ -1,0 +1,3 @@
+
+- [ ] Workspace folders resize depending on how note-view was opened.
+- [ ] In note-view mode, make resizing workspace folders have them resize with their top edge fixed (just that workspace folders above aren't affected) and when there's no vertical space below and the larger scroll wheel appear. Or perhaps we don't allow any resizing... However the case adding workspace folders shouldnt affect the size of the rest of the workspace folders above, rather if there's no space that can be visually be displayed at once have it scroll automatically quickly to view it.

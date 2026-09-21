@@ -1,0 +1,131 @@
+<!doctype html><meta charset="utf-8"><title>Hub UI regression checks</title>
+<style>
+body { --background-primary:#1e1e1e; --background-secondary:#262626; --background-modifier-border:#404040; --background-modifier-hover:#353535; --interactive-accent:#8955ed; --text-on-accent:white; --text-normal:#ddd; --text-muted:#aaa; --text-faint:#666; --text-selection:#8955ed66; --input-shadow:0 1px 2px #0005; --font-ui-small:13px; }
+* { box-sizing:border-box; }
+</style>
+<link rel="stylesheet" href="../../styles.css">
+<link rel="stylesheet" href="../../../../../System/Dashboards/Home/view.css">
+<link rel="stylesheet" href="../../../../../System/Dashboards/Project/view.css">
+<div class="home-dashboard hub-button-scope">
+ <div id="cover" class="home-cover" style="width:400px;height:180px"><img id="image" class="home-cover-image"></div>
+ <button id="tooltip" title="One tooltip" aria-label="Old label">Test</button>
+ <button id="clear" class="home-task-clear-completed" disabled>Clear</button>
+ <div class="home-progress-report-header"><span id="report-icon" class="home-recent-action-icon is-progress-report">x</span><span>Report</span></div>
+</div>
+<div class="project-dashboard hub-button-scope"><button id="cancel" class="project-create-cancel">x</button></div>
+<div class="hub-project-rail"><div id="rail-preview" class="markdown-preview-view" style="padding:32px"><div class="project-dashboard"></div></div></div>
+<pre id="result">RUNNING</pre>
+<script>
+const problems = [];
+const assert = (condition, message) => { if (!condition) problems.push(message); };
+// Deterministic frames for headless virtual-time checks; production uses native RAF.
+window.requestAnimationFrame = callback => setTimeout(() => callback(performance.now()), 0);
+window.cancelAnimationFrame = clearTimeout;
+const wait = () => new Promise(resolve => setTimeout(resolve, 40));
+class Component {
+ constructor(){this.cleanups=[];}
+ load(){}
+ register(fn){this.cleanups.push(fn);}
+ registerDomEvent(el,type,handler,options){el.addEventListener(type,handler,options);this.register(()=>el.removeEventListener(type,handler,options));}
+ unload(){this.cleanups.splice(0).reverse().forEach(fn=>fn());}
+}
+HTMLElement.prototype.createEl = function(tag, options={}) {
+ const el=document.createElement(tag); if(options.cls)el.className=options.cls;
+ if(options.text)el.textContent=options.text; this.appendChild(el); return el;
+};
+HTMLElement.prototype.createDiv = function(options){return this.createEl('div',options);};
+HTMLElement.prototype.createSpan = function(options){return this.createEl('span',options);};
+HTMLElement.prototype.addClass = function(name){this.classList.add(name);};
+HTMLElement.prototype.removeClass = function(name){this.classList.remove(name);};
+HTMLElement.prototype.toggleClass = function(name,value){this.classList.toggle(name,value);};
+window.require = () => ({Component, Menu:class{}, Notice:class{}});
+window.module = {exports:{}};
+</script>
+<script src="../ui/tooltips.js"></script>
+<script>window.tooltipModule=module.exports; window.module={exports:{}};</script>
+<script src="../ui/header-image.js"></script>
+<script>
+window.onload = async () => {
+ try {
+ const owner=new Component(), cover=document.getElementById('cover'), image=document.getElementById('image');
+ cover.setPointerCapture=()=>{}; cover.hasPointerCapture=()=>false;
+ image.src='data:image/svg+xml,'+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="2000" height="800"><rect width="2000" height="800" fill="gray"/></svg>');
+ await image.decode();
+ tooltipModule.watchHubTooltips(document.querySelector('.home-dashboard'),owner);
+ await wait();
+ const tooltip=document.getElementById('tooltip');
+ assert(!tooltip.hasAttribute('title')&&tooltip.getAttribute('aria-label')==='One tooltip','Convert native title to one Obsidian tooltip');
+ let saved;
+ let editor=module.exports.mountHeaderImage({cover,image,component:owner,initial:null,save:async p=>{saved=p;},manageMenu:false});
+ await wait();
+ assert(getComputedStyle(image).objectPosition==='50% 35%','Normal image placement stays unchanged');
+ const normalWheel=new WheelEvent('wheel',{deltaY:-300,cancelable:true});cover.dispatchEvent(normalWheel);
+ assert(!normalWheel.defaultPrevented,'Normal scrolling remains native');
+ editor.begin();await wait();
+ const rect=cover.getBoundingClientRect();
+ const wheel=new WheelEvent('wheel',{deltaY:-500,clientX:rect.left+200,clientY:rect.top+90,cancelable:true});cover.dispatchEvent(wheel);
+ await wait();
+ assert(wheel.defaultPrevented&&parseFloat(image.style.width)>450,'Editing wheel zooms the image: '+image.style.width+' / '+wheel.defaultPrevented);
+ const before=image.style.left;
+ cover.dispatchEvent(new PointerEvent('pointerdown',{pointerId:1,button:0,clientX:200,clientY:90}));
+ cover.dispatchEvent(new PointerEvent('pointermove',{pointerId:1,clientX:230,clientY:100}));await wait();
+ cover.dispatchEvent(new PointerEvent('pointerup',{pointerId:1}));
+ assert(image.style.left!==before,'Editing drag pans the image');
+ [...cover.querySelectorAll('button')].find(b=>b.textContent==='Done').click();await wait();
+ assert(saved?.zoom>1&&!cover.classList.contains('is-image-editing'),'Done persists and exits');
+ const applied={width:image.style.width,left:image.style.left,top:image.style.top};
+ editor.dispose();
+ editor=module.exports.mountHeaderImage({cover,image,component:owner,initial:saved,save:async p=>{saved=p;},manageMenu:false});await wait();
+ assert(image.style.width===applied.width&&image.style.left===applied.left&&image.style.top===applied.top,'Remount restores saved image geometry: '+JSON.stringify({applied,current:image.getAttribute('style')}));
+ editor.begin();await wait();
+ [...cover.querySelectorAll('button')].find(b=>b.textContent==='Cancel').click();await wait();
+ assert(!cover.classList.contains('is-image-editing'),'Cancel exits subsequent edit');
+ assert(getComputedStyle(document.getElementById('cancel')).width==='26px'&&getComputedStyle(document.getElementById('cancel')).height==='26px','Cancel is square');
+ assert(getComputedStyle(document.getElementById('clear')).display!=='none'&&getComputedStyle(document.getElementById('clear')).opacity==='0.42','Clear remains visible and disabled');
+ assert(getComputedStyle(document.getElementById('report-icon')).marginTop==='0px','Report icon aligned');
+ assert(getComputedStyle(document.getElementById('rail-preview')).paddingLeft==='12px'&&getComputedStyle(document.getElementById('rail-preview')).paddingRight==='12px','Rail redistributes native gutter into balanced outer clearance');
+
+ // Exercise the actual Home drag handler; the surrounding services are in-memory stubs.
+ const homeSource=await (await fetch('../../../../../System/Dashboards/Home/view.js')).text();
+ const projectGrid=document.body.createDiv({cls:'home-project-grid'});
+ projectGrid.style.cssText='display:flex;width:500px;overflow:hidden';
+ const card=projectGrid.createDiv({cls:'home-project-card'});card.style.cssText='width:240px;height:120px';card.dataset.projectId='test';
+ projectGrid.setPointerCapture=()=>{};projectGrid.hasPointerCapture=()=>false;
+ const dragFunctions=homeSource.slice(homeSource.indexOf('const projectCardSwapAnimations ='),homeSource.indexOf('let cancelProjectCardDrag ='));
+ const dragHandler=homeSource.slice(homeSource.indexOf('let cancelProjectCardDrag ='),homeSource.indexOf('root.addEventListener("hub-project-status"'));
+ new Function('dv','projectGrid','suppressedProjectCardClicks','rememberProjectCardOrder','mergeVisibleProjectCardOrder',
+   'const currentProjectStatus="active";'+dragFunctions+dragHandler)({component:owner},projectGrid,new WeakSet(),()=>{},(_status,ids)=>ids);
+ card.dispatchEvent(new PointerEvent('pointerdown',{button:0,pointerId:9,pointerType:'mouse',clientX:20,clientY:20,bubbles:true}));
+ window.dispatchEvent(new PointerEvent('pointermove',{pointerId:9,clientX:50,clientY:50,cancelable:true}));
+ const ghost=document.querySelector('body > .home-project-card.is-dragging');
+ assert(ghost&&getComputedStyle(ghost).position==='fixed'&&getComputedStyle(ghost).zIndex==='10000','Dragged card escapes clipping in a temporary top layer');
+ window.dispatchEvent(new PointerEvent('pointerup',{pointerId:9}));
+ assert(!document.querySelector('body > .home-project-card.is-dragging')&&card.style.visibility==='','Drag end removes ghost and restores original card');
+
+ const projectSource=await (await fetch('../../../../../System/Dashboards/Project/view.js')).text();
+ const folderStack=document.body.createDiv({cls:'project-folder-stack'});
+ const fileRows=['one.md','two.md'].map(path=>{const row=folderStack.createDiv({cls:'project-browser-row'});row.dataset.path=path;row.tabIndex=0;row.textContent=path;return row;});
+ const removed=[];
+ const selectionSource=projectSource.slice(projectSource.indexOf('function clearProjectItemSelection()'),projectSource.indexOf('function handleProjectItemContextMenu('));
+ const selection=new Function('dv','root','folderStack','app',
+   'const selectedProjectItemPaths=new Set(); let selectionAnchorPath=null; const selectedRootPaths=p=>p; function renderFolderPanels(){syncProjectItemSelection();}'+selectionSource+';return {handleProjectItemSelection,selectedProjectItemPaths};')(
+   {component:owner},folderStack,folderStack,{vault:{getAbstractFileByPath:path=>({path})},fileManager:{trashFile:async file=>removed.push(file.path)}});
+ fileRows.forEach(row=>row.addEventListener('click',event=>selection.handleProjectItemSelection(event,row,row.dataset.path)));
+ fileRows[0].dispatchEvent(new MouseEvent('click',{button:0,ctrlKey:true,bubbles:true}));
+ fileRows[1].dispatchEvent(new MouseEvent('click',{button:0,ctrlKey:true,bubbles:true}));
+ assert(selection.selectedProjectItemPaths.size===2&&fileRows.every(row=>row.getAttribute('aria-selected')==='true'),'Ctrl-click builds accessible multi-selection');
+ assert(fileRows.every(row=>getComputedStyle(row).boxShadow==='none'),'Selected file rows have no left accent');
+ assert(fileRows.every(row=>getComputedStyle(row).backgroundColor==='rgba(137, 85, 237, 0.4)'),'Selected file rows retain the selection background');
+ document.getElementById('tooltip').click();
+ assert(selection.selectedProjectItemPaths.size===0,'An ordinary outside click clears selection');
+ fileRows[0].dispatchEvent(new KeyboardEvent('keydown',{key:' ',bubbles:true,cancelable:true}));
+ fileRows[0].dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true,cancelable:true}));
+ assert(selection.selectedProjectItemPaths.has('two.md')&&document.activeElement===fileRows[1],'Arrow navigation moves focus and selection together');
+ fileRows[1].dispatchEvent(new KeyboardEvent('keydown',{key:'Delete',bubbles:true,cancelable:true}));await wait();
+ assert(removed.join(',')==='two.md'&&selection.selectedProjectItemPaths.size===0,'Delete uses native trash for selected files');
+ owner.unload();
+ assert(!cover.querySelector('.hub-image-placement-controls'),'Editing controls cleaned up');
+ document.getElementById('result').textContent=problems.length?'FAIL\n'+problems.join('\n'):'PASS: cover pan/zoom/save/remount/cancel, normal scrolling, single tooltip, square controls, disabled Clear, report icon, rail spacing, card drag layer/cleanup and file selection/keyboard/Delete.';
+ }catch(error){document.getElementById('result').textContent='FAIL\n'+error.stack;}
+};
+</script>

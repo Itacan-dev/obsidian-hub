@@ -1,0 +1,37 @@
+<!doctype html><meta charset="utf-8">
+<link rel="stylesheet" href="../../styles.css">
+<link rel="stylesheet" href="../../../../../System/Dashboards/Home/view.css">
+<link rel="stylesheet" href="../../../../../System/Dashboards/Project/view.css">
+<style>
+body{font:14px Arial;background:#222;color:#ddd;--text-muted:#aaa;--text-normal:#ddd;--color-red:#f66;--background-primary:#222;--background-modifier-border:#444;--background-modifier-hover:#333}
+.fixture{padding:12px;display:block}
+</style><pre id="result">RUNNING</pre>
+<script>
+window.onload=()=>{try{
+ const check=(ok,message)=>{if(!ok)throw Error(message)};
+ const buttons=[];
+ for(const variant of ['Home','Project','Resource','Project note','Resource note']){
+  const host=document.createElement('div');host.className='fixture hub-button-scope '+(variant==='Home'?'home-dashboard':'project-dashboard')+(variant.includes('Resource')?' resource-dashboard':'');
+  if(variant.includes('note')){const rail=document.createElement('div');rail.className='hub-project-rail';document.body.append(rail);rail.append(host)}else document.body.append(host);
+  const button=document.createElement('button');button.className=(variant==='Home'?'home':'project')+'-task-clear-completed hub-panel-action hub-compact-panel-action';
+  button.innerHTML='<span class="hub-compact-panel-action-label">Clear</span><span class="hub-compact-panel-action-sizer" aria-hidden="true">Today</span>';
+  host.append(button);buttons.push(button);
+ }
+ const properties=['height','width','paddingTop','paddingBottom','paddingLeft','paddingRight','fontSize','fontFamily','fontWeight','lineHeight','borderRadius','borderTopWidth','borderTopColor','backgroundColor','color','opacity','boxSizing'];
+ const compare=()=>{
+  const reference=getComputedStyle(buttons[0]),rect=buttons[0].getBoundingClientRect();
+  for(const button of buttons){
+   const style=getComputedStyle(button),r=button.getBoundingClientRect();
+   for(const property of properties)check(style[property]===reference[property],property+' differs from Home');
+   check(r.width===rect.width&&r.height===rect.height,'Physical dimensions differ');
+   const label=button.firstElementChild.getBoundingClientRect();
+   check(Math.abs((label.left+label.right)-(r.left+r.right))<1,'Label not horizontally centered');
+   check(Math.abs((label.top+label.bottom)-(r.top+r.bottom))<1,'Label not vertically centered');
+  }
+ };
+ compare();check(getComputedStyle(buttons[0]).height==='23px','Home compact height preserved');
+ buttons.forEach(button=>button.disabled=true);compare();check(getComputedStyle(buttons[0]).opacity==='0.42','Disabled appearance preserved');
+ buttons.forEach(button=>button.disabled=false);
+ result.textContent='PASS: Home, Project/Resource Workspace and note-view Clear dimensions, typography, padding, border, background, centering and disabled state match.';
+}catch(error){result.textContent='FAIL: '+error.message}};
+</script>

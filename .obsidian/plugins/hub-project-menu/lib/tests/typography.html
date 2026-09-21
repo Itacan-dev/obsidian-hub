@@ -1,0 +1,126 @@
+<!doctype html><meta charset="utf-8"><title>Hub typography checks</title>
+<style>
+/* Minimal native-theme baseline, deliberately outside Hub's type scale. */
+:root { font-size:16px; --font-ui-small:13px; --font-ui-medium:15px; --h2-size:1.462em; }
+body { font:17px Arial,sans-serif; color:#ddd; background:#1e1e1e; --background-primary:#1e1e1e; --background-secondary:#262626; --background-modifier-border:#404040; --background-modifier-hover:#353535; --text-normal:#ddd; --text-muted:#aaa; --text-faint:#777; --interactive-accent:#8955ed; --text-on-accent:white; }
+button,input,textarea,select { font-size:var(--font-ui-small); color:inherit; background:#333; }
+.modal-content { font-size:var(--font-ui-medium); }
+.modal-content h2 { font-size:var(--h2-size); }
+.heatmap-calendar-graph { font-size:.65em; }
+#fixtures { display:grid; grid-template-columns:1fr 1fr; gap:20px; }
+.test-surface { border:1px solid #404040; padding:16px; min-width:0; }
+#result { white-space:pre-wrap; }
+</style>
+<link rel="stylesheet" href="../../styles.css">
+<link rel="stylesheet" href="../../../../../System/Dashboards/Home/view.css">
+<link rel="stylesheet" href="../../../../../System/Dashboards/Project/view.css">
+<link rel="stylesheet" href="../../../../../System/Dashboards/Daily/view.css">
+<button id="native-button">Native Obsidian control</button>
+<div id="fixtures">
+ <section id="home" class="test-surface home-dashboard hub-button-scope"></section>
+ <section id="project" class="test-surface project-dashboard hub-button-scope"></section>
+ <section id="resource" class="test-surface project-dashboard hub-button-scope"></section>
+ <section class="test-surface hub-project-rail"><div id="rail" class="project-dashboard hub-button-scope"></div></section>
+ <section id="daily" class="test-surface daily-project-list"></section>
+ <section id="modal" class="test-surface modal-content hub-daily-focus-modal hub-button-scope">
+  <h2 id="today">Edit focus for today</h2>
+  <div class="hub-project-advancement-focus"><h2 id="next">Edit focus for next day</h2></div>
+ </section>
+</div>
+<pre id="result">RUNNING</pre>
+<script>
+const checks = [], sizes = new Set();
+function check(ok, message) { if (!ok) checks.push(message); }
+function fixture(surface, cls, text, size, tag="div", parent=null) {
+ const node=document.createElement(tag);node.className=cls;node.textContent=text;
+ (parent||document.getElementById(surface)).appendChild(node);
+ const computed=parseFloat(getComputedStyle(node).fontSize);
+ check(Math.abs(computed-size)<.01, cls+": expected "+size+", got "+computed);
+ sizes.add(computed);return node;
+}
+window.onload=()=>{
+ fixture("home","home-greeting","Good morning",26.4);
+ fixture("home","home-context","You have 3 tasks to do.",12.48);
+ fixture("home","home-date","Sunday, September 6, 2026",11.52);
+ const heading=fixture("home","home-panel-title","Progress › ",16);
+ fixture("home","home-progress-scope","Projects ▾",16,"button",heading);
+ fixture("home","home-project-heading","Projects",16);
+ fixture("home","home-resource-heading","Resources",16);
+ fixture("home","home-project-title","Quantum Gravitational Phenomena",16);
+ fixture("home","home-project-category","Textbook",11.52);
+ fixture("home","home-resource-title","Explorations",16);
+ fixture("home","home-task-text","Review the notes and draft the next section.",12.48);
+ fixture("home","home-task-location","Knowledge › Concepts › Bandwidth",10.56);
+ fixture("home","home-focus-text","Today's Focus uses the primary text size.",13.44);
+ fixture("home","home-calendar-title","Weekly research meeting",13.44);
+ fixture("home","home-calendar-time","07:39",10.56);
+ fixture("home","home-calendar-day-date","6 Sep",11.52);
+ fixture("home","home-recent-title","Completed a task",13.44);
+ fixture("home","home-progress-report-project","Obsidian Hub",13.44);
+ fixture("home","home-progress-report-summary","A compact, muted progress summary.",11.52);
+ fixture("home","home-recent-clock","07:39",10.56);
+ fixture("home","home-progress-year","2026",11.52);
+ const heatmap=document.createElement("div");heatmap.className="home-progress-calendar";document.getElementById("home").appendChild(heatmap);
+ fixture("home","heatmap-calendar-graph","Jan  Feb  Mar  Apr  May  Jun",11.52,"div",heatmap);
+ for(const surface of ["project","resource"]) {
+  fixture(surface,"project-title",surface==="project"?"Project title":"Knowledge",26.4);
+  fixture(surface,"project-category",surface==="project"?"Master's thesis":"Structured understanding of subjects",11.52);
+  fixture(surface,"project-panel-title","Tasks to Do",16);
+  fixture(surface,"project-folder-title","Concepts",13.44);
+  fixture(surface,"project-browser-name","A long but readable filename.md",12.48);
+  fixture(surface,"project-browser-time","07:39, 06/09/26",10.56);
+  const search=fixture(surface,"project-folder-search","",12.48,"input");search.type="text";search.placeholder="Search";
+  check(Math.abs(parseFloat(getComputedStyle(search).fontSize)-12.48)<.01,"Native typed input overrides "+surface+" size");
+  fixture(surface,"project-folder-placeholder-input","",12.48,"input").placeholder="Folder name…";
+  fixture(surface,"project-task-text","Complete the next step",12.48);
+  fixture(surface,"project-task-location","Concepts › Note",10.56);
+  fixture(surface,"project-activity-title","Edited a note",13.44);
+  fixture(surface,"project-activity-date","6 Sep",11.52);
+  fixture(surface,"project-progress-report-summary","Supporting report text.",11.52);
+ }
+ fixture("rail","project-nav-title","Pulsed Optomechanics",16);
+ fixture("rail","project-nav-category","Master's thesis",11.52);
+ fixture("daily","daily-project-name","Daily project name",13.44);
+ fixture("daily","daily-project-empty","No project activity.",12.48);
+ fixture("modal","hub-project-advancement-definition","1. At most polished, not clearly advanced.",13.44);
+ fixture("modal","hub-project-advancement-description","Refined, reorganized or fixed a minor issue.",12.48);
+ fixture("modal","hub-project-advancement-name","Project / Resource",14.4);
+ fixture("modal","","Save changes",12.48,"button");
+ check(getComputedStyle(document.getElementById("today")).fontSize===getComputedStyle(document.getElementById("next")).fontSize,"Focus modal headings differ");
+ check(Math.abs(parseFloat(getComputedStyle(document.getElementById("today")).fontSize)-21.93)<.01,"Native modal heading changed");
+ check(getComputedStyle(document.getElementById("native-button")).fontSize==="13px","Hub sizes leaked outside Hub");
+ // Progress tabs retain their exact compact box dimensions and fit their text.
+ for(const prefix of ["home","project"]) {
+  const tabs=document.createElement("div");tabs.className=prefix+"-progress-tabs";document.getElementById(prefix).appendChild(tabs);
+  for(const title of ["Reports","Activity","Tasks"]) {
+   const button=fixture(prefix,"",title,11.52,"button",tabs), style=getComputedStyle(button);
+   check(style.height==="23px"&&style.width==="64px",prefix+" log button dimensions changed");
+   const range=document.createRange();range.selectNodeContents(button);
+   check(range.getBoundingClientRect().width<=button.clientWidth-parseFloat(style.paddingLeft)-parseFloat(style.paddingRight),title+" text is crowded");
+  }
+ }
+ // Drag copies have their own token scope, even outside the dashboard.
+ const resourceCard=document.createElement("div");resourceCard.className="home-resource-card";resourceCard.style.width="205px";
+ const resourceFace=document.createElement("div");resourceFace.className="home-resource-face";resourceCard.appendChild(resourceFace);
+ const thumbnail=document.createElement("div");thumbnail.className="home-resource-thumbnail";resourceFace.appendChild(thumbnail);
+ const resourceGrid=document.createElement("div");resourceGrid.className="home-resource-grid";
+ document.getElementById("home").appendChild(resourceGrid);resourceGrid.appendChild(resourceCard);
+ const longLabel=fixture("home","home-resource-title","Explorations",16,"div",resourceFace);
+ check(longLabel.scrollWidth<=longLabel.clientWidth&&longLabel.scrollHeight<=resourceFace.clientHeight,"Long Resource label clips at minimum card width");
+ check(getComputedStyle(resourceCard).height==="100px","Resource card height changed");
+ const ghost=document.createElement("div");ghost.className="home-project-card";document.body.appendChild(ghost);
+ fixture("home","home-project-title","Dragged card",16,"div",ghost);ghost.remove();
+ check(sizes.size===7,"Expected seven computed Hub text sizes, got "+[...sizes].join(", "));
+ for (const surface of ["home","project","resource"]) {
+  const prefix=surface==="home"?"home":"project";
+  const location=document.querySelector("#"+surface+" ."+prefix+"-task-location");
+  check(getComputedStyle(location).color==="rgb(119, 119, 119)",surface+" task undertext must use Home's text-faint token");
+  const row=document.createElement("div");row.className=prefix+"-task-row is-completed";
+  location.parentElement.insertBefore(row,location);row.appendChild(location);
+  check(getComputedStyle(location).opacity==="0.7",surface+" completed-task undertext opacity changed");
+  const secondary=document.querySelector("#"+surface+" ."+(surface==="home"?"home-context":"project-category"));
+  check(getComputedStyle(secondary).color==="rgb(170, 170, 170)",surface+" unrelated secondary text changed");
+ }
+ document.getElementById("result").textContent=checks.length?"FAIL\n"+checks.join("\n"):"PASS: seven semantic sizes across Home, Project, Resource, Daily, rail and modal content; compact controls fit; native headings and outside controls unchanged.";
+};
+</script>
