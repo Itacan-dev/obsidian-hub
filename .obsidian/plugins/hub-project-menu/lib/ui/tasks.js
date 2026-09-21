@@ -1,7 +1,6 @@
 "use strict";
 const { createHubMarkdown } = require("./markdown");
-const { taskGroups, taskIsOverdue } = require("../domain/task-planning");
-const { localISODate, parseLocalISODate, taskDateLabel, validLocalTime } = require("../domain/dates");
+const { taskGroups, taskIsOverdue, taskIsFuture, taskStartDate, taskDatePresentation } = require("../domain/task-planning");
 const { createTaskSteps } = require("./task-steps");
 const { createOathTaskSection } = require("./oath-tasks");
 
@@ -11,9 +10,10 @@ function taskSourceLabel(path) {
 }
 
 function createTaskUi({ app, component, body, mutate, onEdit, editTask, createTask, oath }) {
-    const { Menu, Notice } = require("obsidian");
+    const { Menu, Notice, setIcon } = require("obsidian");
     const document = body.ownerDocument;
     let active = null, deferred = null, lastRender = null, disposed = false;
+    let renderNow = new Date(), refreshTimer = null, refreshAt = Infinity;
     const expanded = new Set();
     const markdown = createHubMarkdown({ app, component });
     const report = error => { console.error("Hub task action failed", error); new Notice(error.message || "Could not update task."); };
@@ -31,8 +31,30 @@ function createTaskUi({ app, component, body, mutate, onEdit, editTask, createTa
     function beginRender(render) {
         if (defer(render)) return false;
         lastRender = render;
+        renderNow = new Date();
+        clearTimeout(refreshTimer); refreshAt = Infinity;
+        const midnight = new Date(renderNow); midnight.setHours(24, 0, 0, 0);
+        scheduleRefresh(midnight.getTime());
         markdown.clear();
         return true;
+    }
+
+    function scheduleRefresh(at) {
+        if (at >= refreshAt) return;
+        refreshAt = at;
+        clearTimeout(refreshTimer);
+        refreshTimer = setTimeout(() => {
+            if (disposed || !body.isConnected) return;
+            const scrollTop = body.scrollTop;
+            lastRender?.();
+            body.scrollTop = scrollTop;
+        }, Math.max(1, at - renderNow.getTime()));
+    }
+
+    function groups(items) {
+        const grouped = taskGroups(items, renderNow);
+        for (const item of grouped.future) scheduleRefresh(taskStartDate(item.task ?? item).getTime());
+        return grouped;
     }
 
     function finish(state) {
@@ -146,27 +168,28 @@ function createTaskUi({ app, component, body, mutate, onEdit, editTask, createTa
         row.classList.add("hub-planned-task-row");
         const checkbox = row.querySelector('input[type="checkbox"]');
         checkbox?.setAttribute("aria-label", `Complete task: ${task.text}`);
-        const badge = document.createElement("span");
-        badge.className = `hub-task-badge${task.necessity ? ` is-${task.necessity}` : ""}`;
-        badge.textContent = task.necessity === "must" ? "MUST" : task.necessity === "should" ? "SHOULD" : "TO DO";
-        checkbox?.after(badge);
-        const dates = document.createElement("div"); dates.className = "hub-task-dates";
-        const now = new Date();
-        for (const [label, date, clock] of [["From", task.fromDate, task.fromTime], ["Due", task.dueDate, task.dueTime]]) {
-            if (!date) continue;
-            const value = parseLocalISODate(date); if (!value) continue;
-            const span = document.createElement("span");
-            const overdue = label === "Due" && taskIsOverdue(task, now) && !task.completed && !(task.fromDate > localISODate(now));
-            span.className = overdue ? "is-overdue" : "";
-            const labelEl = document.createElement("span"); labelEl.className = "hub-task-date-label"; labelEl.textContent = label + " ";
-            const time = document.createElement("time"); time.dateTime = date + (validLocalTime(clock) ? "T" + clock : "");
-            time.textContent = taskDateLabel(date, clock, label === "Due", now);
-            span.append(labelEl, time);
-            if (overdue) { const hint = document.createElement("span"); hint.className = "hub-task-overdue"; hint.textContent = " (overdue)"; span.append(hint); }
-            dates.appendChild(span);
+        if (task.necessity === "must" || task.necessity === "should") {
+            const indicator = document.createElement("span");
+            indicator.className = `hub-task-necessity-bar is-${task.necessity}`;
+            indicator.setAttribute("role", "img");
+            indicator.setAttribute("aria-label", task.necessity === "must" ? "Must do" : "Should do");
+            checkbox?.before(indicator);
         }
-        if (dates.children.length) row.appendChild(dates);
         const info = textEl.parentElement;
+        const future = taskIsFuture(task, renderNow);
+        if (future) scheduleRefresh(taskStartDate(task).getTime());
+        const presentation = taskDatePresentation(task, renderNow);
+        if (presentation?.label) {
+            const dates = document.createElement("div"); dates.className = "hub-task-dates";
+            const overdue = taskIsOverdue(task, renderNow) && !task.completed && !future;
+            const span = document.createElement("span"); span.className = overdue ? "is-overdue" : "";
+            const value = document.createElement(presentation.dateTime ? "time" : "span");
+            if (presentation.dateTime) value.dateTime = presentation.dateTime;
+            value.textContent = presentation.label;
+            span.appendChild(value);
+            if (overdue) { span.title = "Overdue"; span.setAttribute("aria-label", presentation.label + " (overdue)"); }
+            dates.appendChild(span); info.appendChild(dates);
+        }
         const source = info.querySelector(".home-task-location, .project-task-location");
         if (source) source.textContent = options.selection ? getPath().replace(/\.md$/i, "").split("/").join(" › ") : taskSourceLabel(getPath());
         if (!options.selection) steps.bind(info, task, getPath);
@@ -217,6 +240,7 @@ function createTaskUi({ app, component, body, mutate, onEdit, editTask, createTa
         // A view closing behaves like leaving the inline editor.
         if (active) void commit();
         disposed = true;
+        clearTimeout(refreshTimer);
         document.removeEventListener("pointerdown", outside, true);
         deferred = null;
     });
@@ -224,7 +248,9 @@ function createTaskUi({ app, component, body, mutate, onEdit, editTask, createTa
         if (!items.length) return;
         const button = body.createEl("button", { cls: "hub-task-group-toggle", attr: { type: "button" } });
         const open = expanded.has(kind);
-        button.textContent = `${open ? "▾" : "▸"} ${items.length} ${kind} ${items.length === 1 ? "task" : "tasks"}${open ? "" : " hidden"}`;
+        const chevron = button.createSpan({ cls: "hub-task-group-chevron", attr: { "aria-hidden": "true" } });
+        setIcon(chevron, open ? "chevron-down" : "chevron-right");
+        button.createSpan({ text: `${items.length} ${kind} ${items.length === 1 ? "task" : "tasks"}` });
         button.setAttribute("aria-expanded", String(open));
         button.addEventListener("click", () => { if (open) expanded.delete(kind); else expanded.add(kind); lastRender?.(); });
         if (open) items.forEach(render);
@@ -234,7 +260,7 @@ function createTaskUi({ app, component, body, mutate, onEdit, editTask, createTa
         const button = header.createEl("button", { text: "+ Add task", cls: "hub-panel-action hub-task-add", attr: { type: "button" } });
         button.addEventListener("click", () => createTask(options));
     }
-    return { bind, beginRender, defer, groups: taskGroups, group, addButton, partitionOath: oathSection.partition, renderOath: oathSection.render };
+    return { bind, beginRender, defer, groups, group, addButton, partitionOath: oathSection.partition, renderOath: oathSection.render };
 }
 
 module.exports = { createTaskUi, taskSourceLabel };

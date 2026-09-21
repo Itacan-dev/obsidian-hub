@@ -1,7 +1,6 @@
 "use strict";
 const { createTaskUi } = require("./tasks");
 const { openTaskCreator } = require("./task-editor");
-const { taskGroups } = require("../domain/task-planning");
 const { isCommitted, validateOath, oathTime, oathProgress, shortOathTime, fulfilmentLabel, oathDuration, validDuration } = require("../domain/oath");
 
 const taskKey = task => task.hubTaskId ?? `${task.path}:${task.line}:${task.text}`;
@@ -64,7 +63,7 @@ function openOathPicker(service, selected, onSelect) {
             const update = () => { add.textContent = `Add selected (${chosen.size})`; add.disabled = !chosen.size; };
             const render = () => {
                 ui.beginRender(render); body.empty();
-                const groups = taskGroups(service.tasks().filter(task => !task.completed && !task.identityConflict));
+                const groups = ui.groups(service.tasks().filter(task => !task.completed && !task.identityConflict));
                 const query = search.value.toLocaleLowerCase();
                 const tasks = [...groups.active, ...groups.future].filter(task => `${task.text} ${task.path}`.toLocaleLowerCase().includes(query));
                 for (const task of tasks) {

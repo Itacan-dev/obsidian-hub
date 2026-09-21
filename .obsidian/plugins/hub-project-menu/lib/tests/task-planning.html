@@ -13,6 +13,13 @@ class Component{constructor(){this.children=new Set();this.cleanups=[]}register(
 class Modal{constructor(app){this.app=app;this.containerEl=document.body.createDiv({cls:'modal-container'});this.modalEl=this.containerEl.createDiv({cls:'modal'});this.modalEl.createEl('button',{text:'×',cls:'modal-close-button'}).onclick=()=>this.close();this.contentEl=this.modalEl.createDiv({cls:'modal-content'});this.escape=e=>{if(e.key==='Escape')this.close()};document.addEventListener('keydown',this.escape)}open(){this.onOpen()}close(){this.onClose();this.containerEl.remove();document.removeEventListener('keydown',this.escape)}}
 class Menu{constructor(){this.items=[];window.lastMenu=this}addItem(fn){const item={setTitle(v){this.title=v;return this},setIcon(){return this},setWarning(){return this},onClick(fn){this.click=fn;return this}};fn(item);this.items.push(item)}showAtMouseEvent(){}}
 const notices=[],obsidian={Component,Modal,Menu,FuzzySuggestModal:class{},Notice:class{constructor(text){notices.push(text)}},setIcon:(el,name)=>{el.textContent=({plus:'＋',x:'×',folder:'▱','calendar-days':'▦','list-checks':'☷','square-check':'☑'})[name]||''},MarkdownRenderer:{render:async(app,text,el)=>{el.createEl('p',{text})}}};
+const originalSetIcon=obsidian.setIcon;
+obsidian.setIcon=(el,name)=>{
+ el.dataset.icon=name;
+ if(!name.startsWith('chevron-')) return originalSetIcon(el,name);
+ const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');svg.setAttribute('viewBox','0 0 24 24');svg.setAttribute('fill','none');svg.setAttribute('stroke','currentColor');
+ const line=document.createElementNS(svg.namespaceURI,'polyline');line.setAttribute('points',name==='chevron-down'?'6 9 12 15 18 9':'9 18 15 12 9 6');svg.append(line);el.append(svg);
+};
 const assert=(ok,message)=>{if(!ok)throw Error(message)};
 const settle=async()=>{for(let i=0;i<30;i++)await Promise.resolve();await new Promise(r=>requestAnimationFrame(r))};
 window.onload=async()=>{try{
@@ -28,11 +35,11 @@ window.onload=async()=>{try{
  let preview;
  for(const mode of ['home','project','resource']){
   const fixture=document.getElementById('fixture');fixture.empty();const prefix=mode==='home'?'home':'project';
-  const root=fixture.createDiv({cls:prefix+'-dashboard hub-button-scope'}),panel=root.createDiv({cls:prefix+'-panel '+(mode==='home'?'home-upcoming':'project-tasks')}),header=panel.createDiv({cls:prefix+'-panel-title',text:'Tasks to Do'});
+  const root=fixture.createDiv({cls:prefix+'-dashboard hub-button-scope'}),panel=root.createDiv({cls:prefix+'-panel '+(mode==='home'?'home-upcoming':'project-tasks')}),header=panel.createDiv({cls:prefix+'-panel-title',text:'Tasks'});
   const clear=header.createEl('button',{text:'Clear',cls:prefix+'-task-clear-completed'}),body=panel.createDiv({cls:mode==='home'?'home-tasks-body':'project-tasks-body'}),component=new Component();
   const path=(mode==='resource'?'Resources/Knowledge':'Projects/A')+'/Mathematics/MM5022 HT26, Complex Analysis/Tasks.md';
-  const items=[{text:'A distant important task',necessity:'must',dueDate:shift(20)},{text:'Finish topology assignment',necessity:null,dueDate:shift(1)},{text:'Submit problem set',necessity:'must',dueDate:shift(-2)},
-   {text:'Write the primary views section',necessity:'should',steps:[{line:4,text:'Outline Homepage',completed:true},{line:5,text:'Outline Workspace',completed:false}]},{text:'Prepare supervisor questions',necessity:null},{text:'Renew passport',necessity:'must',fromDate:shift(3)},{text:'Completed task',completed:true}].map((task,line)=>({path,line:line>3?line+2:line,completed:false,...task}));
+  const items=[{text:'A distant important task with a long title that uses the reclaimed badge space',necessity:'must',dueDate:shift(20)},{text:'Finish topology assignment',necessity:null,dueDate:shift(1),dueTime:'12:00'},{text:'Submit problem set',necessity:'must',dueDate:shift(-2)},
+   {text:'Write the primary views section',necessity:'should',steps:[{line:4,text:'Outline Homepage',completed:true},{line:5,text:'Outline Workspace',completed:false}]},{text:'Prepare supervisor questions',necessity:null},{text:'Renew passport',necessity:'must',fromDate:shift(3)},{text:'Completed task',completed:true},{text:'Date range',fromDate:shift(3),dueDate:shift(33),fromTime:'09:00',dueTime:'17:00'},{text:'Same day',fromDate:shift(3),dueDate:shift(3)}].map((task,line)=>({path,line:line>3?line+2:line,completed:false,...task}));
   let stepContent=items.flatMap(task=>['- ['+(task.completed?'x':' ')+'] '+task.text,...(task.steps||[]).map(step=>'    - ['+(step.completed?'x':' ')+'] '+step.text)]).join('\n');
   const common="let opens=0;const el=(p,t,c,s)=>p.createEl(t,{cls:c,text:s});";
   const factory=mode==='home'?common+`let projectTasks=items.map(task=>({task,owner:{root:'Projects/A'}})),resourceTasks=[],visibleCompletedTasks=[];const upcomingBody=body,currentPath=p=>p,homeTaskLocation=()=> 'Knowledge › Mathematics › Topology › Tasks';const clearCompletedTaskItems=async()=>{},openFileFromHome=()=>{opens++};function renderTaskContext(){renderTasksToDo(projectTasks,resourceTasks)}const renderActiveContext=renderTaskContext;${homeRender};return{render:renderTaskContext,apply:edit=>{projectTasks=domain.applyTaskEdit(projectTasks,edit);renderTaskContext()},opens:()=>opens};`:
@@ -44,13 +51,26 @@ window.onload=async()=>{try{
   const texts=()=>[...body.querySelectorAll('.'+prefix+'-task-text')].map(el=>el.textContent);
   assert(texts()[0]==='Submit problem set'&&texts()[1]==='Finish topology assignment',mode+': date first, no distant MUST jump');
   assert(!texts().includes('Renew passport')&&!texts().includes('Completed task'),mode+': future/completed collapsed');
-  const badgeWidths=[...body.querySelectorAll('.hub-task-badge')].map(el=>el.getBoundingClientRect().width);assert(new Set(badgeWidths).size===1,mode+': equal badge widths');
-  const offsets=[...body.querySelectorAll('.'+prefix+'-task-text')].map(el=>el.getBoundingClientRect().left);assert(new Set(offsets).size===1,mode+': descriptions align');
+  assert(!body.querySelector('.hub-task-badge'),mode+': old badges removed');
+  for(const row of body.querySelectorAll('.'+prefix+'-task-row')) {
+   const title=row.querySelector('.'+prefix+'-task-text'), task=items.find(task=>task.text===title.textContent),bar=row.querySelector('.hub-task-necessity-bar');
+   assert(task.necessity ? bar?.classList.contains('is-'+task.necessity) : !bar,mode+': necessity bars only for classified tasks');
+   if(bar) assert(getComputedStyle(bar).backgroundColor===(task.necessity==='must'?'rgb(245, 120, 126)':'rgb(235, 189, 88)'),mode+': correct necessity color');
+   if(row.previousElementSibling?.classList.contains('hub-planned-task-row')) assert(getComputedStyle(row).borderTopWidth==='1px',mode+': separator between rows');
+   const checkbox=row.querySelector('input'),gap=title.getBoundingClientRect().left-checkbox.getBoundingClientRect().right;
+   assert(gap>=10&&gap<=16,mode+': conventional checkbox gap without badge column');
+   if(!task.necessity) assert(!bar,mode+': no neutral marker');
+  }
+  for(const selector of ['input[type=checkbox]','.'+prefix+'-task-text']) {
+   const positions=[...body.querySelectorAll('.hub-planned-task-row')].map(row=>row.querySelector(selector).getBoundingClientRect().left);
+   assert(new Set(positions).size===1,mode+': all necessity states align for '+selector);
+  }
+  assert(!/\bDue |\bFrom /.test(body.textContent),'No old task-row date prefixes');
   assert(body.querySelector('time[datetime="'+shift(-2)+'"]').parentElement.classList.contains('is-overdue'),'Explicit overdue due date');
   assert(body.querySelector('.hub-task-step-progress').textContent==='1 / 2 steps','Restrained step progress');
   let stepHost=body.querySelector('.hub-task-steps');
   assert([...body.querySelectorAll('.'+prefix+'-task-location')].every(el=>el.textContent==='MM5022 HT26, Complex Analysis'),'Only immediate source folder');
-  assert(stepHost.previousElementSibling.classList.contains(prefix+'-task-location'),'Steps immediately follow source');
+  assert(stepHost.parentElement.querySelector('.'+prefix+'-task-location'),'Steps retain their source');
   assert(stepHost.querySelector('.hub-task-step-items').hidden,'Steps start collapsed');
   stepHost.querySelector('button').click();assert(!stepHost.querySelector('.hub-task-step-items').hidden&&edits===0&&controller.opens()===0,'Disclosure independent from parent');
   stepHost.querySelectorAll('input')[1].click();assert(stepHost.querySelector('.hub-task-step-progress').textContent==='2 / 2 steps','Step progress updates before write completes');
@@ -60,22 +80,54 @@ window.onload=async()=>{try{
   failStep=true;stepHost.querySelectorAll('input')[0].click();release();await settle();failStep=false;assert(!stepHost.querySelectorAll('input')[0].checked&&stepHost.querySelector('.hub-task-step-progress').textContent==='1 / 2 steps','Failed write restores checkbox and progress');assert(notices.pop()==='Step write failed','Write failure reported');
   assert(edits===0&&toggles===0&&controller.opens()===0,'Step interaction never edits, opens or completes parent');
   stepHost.querySelector('button').click();assert(stepHost.querySelector('.hub-task-step-items').hidden,'Steps collapse again');
-  const future=[...body.querySelectorAll('.hub-task-group-toggle')].find(el=>el.textContent.includes('future'));future.click();await settle();assert(texts().includes('Renew passport'),'Expand future tasks');
-  const futureRow=[...body.querySelectorAll('.'+prefix+'-task-row')].find(el=>el.textContent.includes('Renew passport'));assert(futureRow.querySelector('.hub-task-badge').textContent==='MUST'&&futureRow.querySelector('.hub-task-dates').textContent.startsWith('From '),'Future preserves MUST and explicit From');
+  const future=[...body.querySelectorAll('.hub-task-group-toggle')].find(el=>el.textContent.includes('future'));assert(future.querySelector('[data-icon=chevron-right]'),'Collapsed uses icon chevron');future.click();await settle();assert(texts().includes('Renew passport'),'Expand future tasks');assert(body.querySelector('.hub-task-group-toggle[aria-expanded=true] [data-icon=chevron-down]'),'Expanded uses icon chevron');
+  const futureRow=[...body.querySelectorAll('.'+prefix+'-task-row')].find(el=>el.textContent.includes('Renew passport'));assert(futureRow.querySelector('.hub-task-necessity-bar.is-must')&&futureRow.querySelector('.hub-task-dates').textContent.startsWith('Starts '),'Future preserves necessity and explicit Starts');
   body.querySelector('.'+prefix+'-task-text').click();assert(edits===1&&controller.opens()===0,'Row opens dedicated editor');
   body.querySelector('.'+prefix+'-task-location').click();assert(controller.opens()===1,'Breadcrumb still opens source note');
   body.querySelector('input[type=checkbox]').click();await settle();assert(toggles===1&&edits===1,'Checkbox does not open editor');
   const completed=[...body.querySelectorAll('.hub-task-group-toggle')].find(el=>el.textContent.includes('completed'));assert(completed.textContent.includes('2 completed'),'Completion count updated immediately');completed.click();await settle();
   assert(body.querySelectorAll('.'+prefix+'-task-row.is-completed').length===2,'Completed tasks can be revealed');header.querySelector('.hub-task-add').click();assert(creates===1,'Panel creation affordance');
   fixture.style.width='330px';await settle();assert(body.scrollWidth<=body.clientWidth+1,'Compact rail does not overflow');
-  const clippedTitle=body.querySelector('.'+prefix+'-task-text'),clippedSource=body.querySelector('.'+prefix+'-task-location');
-  assert(clippedTitle.scrollWidth>clippedTitle.clientWidth&&getComputedStyle(clippedTitle).textOverflow==='ellipsis','Long titles ellipsize before moving dates');
+  const clippedTitle=[...body.querySelectorAll('.'+prefix+'-task-text')].find(el=>el.textContent.startsWith('A distant')),clippedSource=body.querySelector('.'+prefix+'-task-location');
+  assert(clippedTitle.scrollWidth<=clippedTitle.clientWidth+1&&getComputedStyle(clippedTitle).whiteSpace==='normal'&&clippedTitle.clientHeight>20,'Long titles wrap without clipping');
   assert(clippedSource.scrollWidth>clippedSource.clientWidth&&getComputedStyle(clippedSource).textOverflow==='ellipsis','Long folder names ellipsize');
-  for(const row of body.querySelectorAll('.'+prefix+'-task-row')){const date=row.querySelector('.hub-task-dates'),info=row.querySelector('.'+prefix+'-task-info');if(date){assert(Math.abs(date.getBoundingClientRect().top-info.getBoundingClientRect().top)<3,'Compact date remains at top right');assert(date.getBoundingClientRect().left>=info.getBoundingClientRect().right,'Date stays outside shrinking text column')}}
+  for(const row of body.querySelectorAll('.'+prefix+'-task-row')) {
+   const date=row.querySelector('.hub-task-dates'),info=row.querySelector('.'+prefix+'-task-info'),source=row.querySelector('.'+prefix+'-task-location'),title=row.querySelector('.'+prefix+'-task-text');
+   if(date) {
+    assert(Math.abs(date.getBoundingClientRect().top-source.getBoundingClientRect().top)<3,'Date aligns with metadata');
+    assert(Math.abs(date.getBoundingClientRect().right-info.getBoundingClientRect().right)<2,'Date stays right aligned');
+    assert(title.getBoundingClientRect().width>=info.getBoundingClientRect().width-1,'Title uses full width above date');
+    assert(date.clientHeight<20,'Date metadata stays on one line, including Future ranges');
+   }
+  }
   fixture.style.width='990px';body.querySelector('.hub-task-steps-toggle').click();await settle();
   assert(body.querySelector('.hub-task-step-items').hidden===false,'Expanded Steps remain available at full width');
   panel.style.minHeight='540px';component.unload();preview=controller;
  }
+ // Exercise the actual scheduled refresh without waiting for wall-clock minutes.
+ const RealDate=Date,realSetTimeout=window.setTimeout,realClearTimeout=window.clearTimeout;
+ let clock=new RealDate(2026,8,21,9,59).getTime(),timerId=0;const timers=new Map();
+ const clockHost=document.body.createDiv({cls:'hub-button-scope'}),clockBody=clockHost.createDiv({cls:'home-tasks-body'}),clockOwner=new Component();
+ try {
+  window.Date=class extends RealDate { constructor(...args){super(...(args.length?args:[clock]))} static now(){return clock} };
+  window.setTimeout=(fn,delay)=>{timers.set(++timerId,{fn,delay});return timerId};window.clearTimeout=id=>timers.delete(id);
+  const tasks=[{text:'Soon',fromDate:'2026-09-21',fromTime:'10:00',dueDate:'2026-10-01'},
+   {text:'Midnight',fromDate:'2026-09-22',dueDate:'2026-10-31'},
+   {text:'Later',dueDate:'2026-11-01'}];
+  const ui=createTaskUi({app:{},component:clockOwner,body:clockBody});let grouped;
+  const row=task=>{const el=clockBody.createDiv({cls:'home-task-row'});el.createEl('input',{type:'checkbox'});const info=el.createDiv({cls:'home-task-info'}),title=info.createDiv({cls:'home-task-text'});info.createDiv({cls:'home-task-location'});ui.bind(el,title,task,()=> 'A/Tasks.md')};
+  const render=()=>{ui.beginRender(render);clockBody.empty();grouped=ui.groups(tasks);grouped.active.forEach(row);ui.group('future',grouped.future,row)};
+  render();assert(grouped.future.length===2&&timers.size===1,'Future count and one boundary timer');
+  assert([...timers.values()][0].delay===60000,'Refresh scheduled at start instant');
+  clockBody.querySelector('.hub-task-group-toggle').click();
+  assert(clockBody.textContent.includes('Sep 21')&&clockBody.textContent.includes('\u2192'),'Expanded Future dates use range');
+  clock+=60000;[...timers.values()][0].fn();
+  assert(grouped.future.length===1&&grouped.active[0].text==='Soon','Boundary refresh updates Future count and active order');
+  assert(clockBody.querySelector('.hub-task-dates').textContent==='Oct 1','Reached start disappears automatically');
+  clock=new RealDate(2026,8,22).getTime();[...timers.values()][0].fn();
+  assert(grouped.future.length===0&&!clockBody.querySelector('.hub-task-group-toggle'),'Midnight activates date-only start and removes empty Future group');
+  clockOwner.unload();assert(timers.size===0,'View disposal clears boundary timer');
+ } finally { window.Date=RealDate;window.setTimeout=realSetTimeout;window.clearTimeout=realClearTimeout;clockHost.remove(); }
  let content='- [ ] Finish topology assignment\n    - [x] Outline proof\n    - [ ] Write solution\n',metadata={necessity:null,fromDate:null,dueDate:null},writes=0;
  const file={path:'Knowledge/Mathematics/MM7052 HT26, Topology/Tasks.md',extension:'md'};
  const service={app:{workspace:{getActiveFile:()=>file},vault:{getMarkdownFiles:()=>[file]}},read:async()=>({...planning.readTaskSnapshot(content,{path:file.path,line:0,text:domain.taskDisplayText(domain.taskLineDetails(content.split('\n')[0]).text)}),...metadata}),
@@ -93,6 +145,6 @@ window.onload=async()=>{try{
  modal=openTaskEditor(service,{});await settle();form=modal.contentEl;const remove=form.querySelector('.hub-task-remove');remove.click();assert(writes===2,'Delete requests explicit local confirmation');remove.click();await settle();assert(writes===3&&!content.includes('Outline proof')&&content.includes('A quick ordinary task'),'Delete includes Steps, retains sibling');
  content='- [ ] Finish topology assignment\n';metadata={necessity:null,fromDate:null,dueDate:null};
  assert(notices.length===0,'No runtime notices: '+notices.join(';'));
- document.getElementById('result').textContent='PASS: Home/Workspace/Resource rows; source-folder labels, title/source ellipsis, fixed right-side dates at 330px; expandable Steps, immediate progress, source writes, pending rerender, failure rollback and parent isolation; existing ordering, groups, native editor and quick creation.';
+ document.getElementById('result').textContent='PASS: Home/Workspace/Resource rows; source-folder labels, aligned gutters, wrapped titles, compact metadata dates at 330px; timed Future transitions and chevron disclosure; expandable Steps, immediate progress, source writes, pending rerender, failure rollback and parent isolation; existing ordering, groups, native editor and quick creation.';
 }catch(error){document.getElementById('result').textContent='FAIL: '+error.stack}};
 </script>

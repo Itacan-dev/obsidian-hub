@@ -255,49 +255,61 @@
 :is(.home-tasks-body, .project-tasks-body) { container-type: inline-size; }
 .hub-button-scope .hub-planned-task-row {
     display: grid;
-    grid-template-columns: 16px 62px minmax(0, 1fr) max-content;
+    grid-template-columns: 16px minmax(0, 1fr);
     align-items: start;
-    column-gap: 10px;
-    row-gap: 3px;
+    column-gap: var(--size-4-3, 12px);
     position: relative;
-    padding-block: 8px;
+    padding-block: var(--size-4-2, 8px);
+    padding-left: var(--size-4-3, 12px);
 }
-.hub-task-badge {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    box-sizing: border-box;
-    width: 62px;
-    min-height: 25px;
-    border-radius: 5px;
-    color: var(--text-muted);
-    background: var(--background-modifier-hover);
-    font-size: var(--hub-font-secondary);
-    font-weight: 650;
-    line-height: 1;
-    white-space: nowrap;
+.hub-planned-task-row + .hub-planned-task-row { border-top: 1px solid var(--background-modifier-border); }
+.hub-task-necessity-bar {
+    position: absolute;
+    left: 0;
+    top: var(--size-4-2, 8px);
+    width: 3px;
+    height: 32px;
+    max-height: calc(100% - 12px);
+    border-radius: 2px;
 }
-.hub-task-badge.is-should { color: var(--color-yellow, #e6b84d); background: color-mix(in srgb, var(--color-yellow, #e6b84d) 21%, transparent); }
-.hub-task-badge.is-must { color: var(--color-red, #f16d73); background: color-mix(in srgb, var(--color-red, #f16d73) 21%, transparent); }
+.hub-task-necessity-bar.is-should { background: var(--color-yellow, #e6b84d); }
+.hub-task-necessity-bar.is-must { background: var(--color-red, #f16d73); }
+.hub-planned-task-row > input[type=checkbox] { margin: var(--size-4-2, 8px) 0 0; }
 .hub-task-dates {
-    display: grid;
-    grid-column: 4;
-    grid-row: 1;
-    justify-items: end;
+    display: block;
+    grid-column: 2;
+    grid-row: 2;
+    white-space: nowrap;
+    align-self: start;
     gap: 3px;
     width: max-content;
+    max-width: 100%;
     text-align: right;
-    padding-top: 1px;
-    font-size: var(--hub-font-secondary);
-    color: var(--text-normal);
+    margin-top: 2px;
+    font-size: var(--hub-font-meta);
+    color: var(--text-muted);
     line-height: 1.5;
 }
 .hub-task-dates > span { white-space: nowrap; }
-.hub-task-date-label, .hub-task-overdue { color: var(--text-muted); }
 .hub-task-dates .is-overdue time { color: var(--color-red, #f16d73); }
-.hub-task-overdue { display: block; text-align: right; font-size: var(--hub-font-meta); }
-.hub-planned-task-row :is(.home-task-info, .project-task-info) { min-width: 0; grid-column: 3; grid-row: 1; }
-.hub-planned-task-row :is(.home-task-text, .project-task-text, .home-task-location, .project-task-location) {
+.hub-planned-task-row :is(.home-task-info, .project-task-info) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) max-content;
+    column-gap: var(--size-4-3, 12px);
+    min-width: 0;
+    grid-column: 2;
+    grid-row: 1;
+}
+.hub-planned-task-row :is(.home-task-text, .project-task-text) { grid-column: 1 / -1; grid-row: 1; }
+.hub-planned-task-row :is(.home-task-location, .project-task-location) { grid-column: 1; grid-row: 2; }
+.hub-planned-task-row .hub-task-steps { grid-column: 1 / -1; grid-row: 3; }
+.hub-planned-task-row :is(.home-task-text, .project-task-text) {
+    white-space: normal;
+    overflow: visible;
+    overflow-wrap: anywhere;
+    min-width: 0;
+}
+.hub-planned-task-row :is(.home-task-location, .project-task-location) {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -323,23 +335,38 @@
 .hub-planned-task-row:has(.home-task-delete, .project-task-delete) { padding-right: 32px; }
 .hub-planned-task-row :is(.home-task-delete, .project-task-delete) { position: absolute; right: 0; top: 8px; }
 .hub-button-scope button.hub-task-group-toggle {
-    display: block;
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: var(--size-4-2, 8px);
     width: 100%;
     text-align: left;
     height: auto;
     padding: 8px 5px;
     margin-top: 4px;
     background: transparent;
-    border-color: transparent;
+    border: 1px solid transparent;
     box-shadow: none;
+    transform: none;
+    cursor: pointer;
     color: var(--text-muted);
     font-size: var(--hub-font-secondary);
+    transition: background-color 120ms ease, color 120ms ease;
 }
+.hub-button-scope button.hub-task-group-toggle:enabled:is(:hover, :active) {
+    transform: none;
+    translate: none;
+    scale: none;
+    box-shadow: none;
+    border: 1px solid transparent;
+    background: var(--background-modifier-hover);
+    color: var(--text-normal);
+}
+.hub-button-scope button.hub-task-group-toggle:enabled:active { background: var(--background-secondary); }
+.hub-task-group-chevron { display: inline-flex; flex: 0 0 14px; color: inherit; }
+.hub-task-group-chevron svg { width: 14px; height: 14px; stroke-width: 1.5; }
 .hub-button-scope .hub-task-add { flex-shrink: 0; margin-left: 6px; }
 .hub-planned-task-row .hub-task-markdown:focus-visible { outline: 2px solid var(--interactive-accent); outline-offset: 3px; border-radius: 3px; }
-@container (max-width: 460px) {
-    .hub-button-scope .hub-planned-task-row { column-gap: 8px; }
-}
 
 /* Native Obsidian modal; theme colors and the existing Hub buttons apply. */
 .modal.hub-task-dialog { width: 680px; max-width: calc(100vw - 32px); }

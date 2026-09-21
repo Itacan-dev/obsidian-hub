@@ -14,7 +14,7 @@ HTMLElement.prototype.empty=function(){this.replaceChildren();};
 class MockComponent{constructor(){this.children=new Set();this.cleanup=[];}addChild(c){this.children.add(c);}removeChild(c){c.unload();this.children.delete(c);}register(fn){this.cleanup.push(fn);}unload(){this.cleanup.splice(0).forEach(fn=>fn());this.children.forEach(c=>c.unload());this.children.clear();}}
 class MockMenu{constructor(){this.items=[];window.lastMenu=this;}addItem(fn){const item={setTitle(v){this.title=v;return this;},setIcon(){return this;},setWarning(){return this;},onClick(fn){this.click=fn;return this;}};fn(item);this.items.push(item);}showAtMouseEvent(){}}
 const rendered=[],notices=[];
-window.require=()=>({trackDashboardRender:(_,work)=>work,Component:MockComponent,Menu:MockMenu,Notice:class{constructor(t){notices.push(t);}},MarkdownRenderer:{async render(app,text,el,path,component){
+window.require=()=>({trackDashboardRender:(_,work)=>work,Component:MockComponent,Menu:MockMenu,setIcon:()=>{},Notice:class{constructor(t){notices.push(t);}},MarkdownRenderer:{async render(app,text,el,path,component){
  // Host-renderer contract fixture; production delegates to Obsidian/MathJax.
  rendered.push({text,path,component});const p=el.createEl("p");
  const strong=p.createEl("strong",{text:text.match(/\*\*(.*?)\*\*/)?.[1]||text});
@@ -31,7 +31,9 @@ window.onload=async()=>{try{
  const stepModule={exports:{}};new Function('module',await(await fetch('../ui/task-steps.js')).text())(stepModule);
  const oathDomain={exports:{}};new Function('module',await(await fetch('../domain/oath.js')).text())(oathDomain);
  const oathModule={exports:{}};new Function('module','require',await(await fetch('../ui/oath-tasks.js')).text())(oathModule,name=>name==='../domain/oath'?oathDomain.exports:domain);
- const previousRequire=window.require;window.require=name=>name==='./task-steps'?stepModule.exports:name==='./oath-tasks'?oathModule.exports:previousRequire(name);
+ const dateModule={exports:{}};new Function('module',await(await fetch('../domain/dates.js')).text())(dateModule);
+ const planningModule={exports:{}};new Function('module','require',await(await fetch('../domain/task-planning.js')).text())(planningModule,name=>name==='./dates'?dateModule.exports:domain);
+ const previousRequire=window.require;window.require=name=>name==='../domain/task-planning'?planningModule.exports:name==='./task-steps'?stepModule.exports:name==='./oath-tasks'?oathModule.exports:previousRequire(name);
  new Function('module','require',await(await fetch('../ui/tasks.js')).text())(module,window.require);
  const uiFactory=module.exports.createTaskUi;
  const home=await(await fetch("../../../../../System/Dashboards/Home/view.js")).text();

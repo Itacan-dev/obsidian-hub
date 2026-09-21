@@ -112,7 +112,7 @@ window.onload=async()=>{try{
  // Existing picker and actual Home/Workspace/note task renderers.
  button.click();click(modal(),'Select task');await settle();let picker=modal();
  assert(picker.querySelectorAll('.project-task-row').length===5,'Picker includes future tasks, excludes Steps and completed parents');
- const search=picker.querySelector('input[type=search]');search.value='Future';search.dispatchEvent(new Event('input'));await settle();assert(picker.querySelectorAll('.project-task-row').length===1&&picker.textContent.includes('From'),'Search includes future metadata');
+ const search=picker.querySelector('input[type=search]');search.value='Future';search.dispatchEvent(new Event('input'));await settle();assert(picker.querySelectorAll('.project-task-row').length===1&&picker.textContent.includes('Starts '),'Search includes future metadata');
  search.value='';search.dispatchEvent(new Event('input'));await settle();
  for(const text of ['Write the primary views section','Prepare supervisor questions'])[...picker.querySelectorAll('.project-task-row')].find(row=>row.textContent.includes(text)).querySelector('input').click();
  click(picker,'Add selected (2)');click(modal(),'Continue');click(modal(),'Back');assert(modal().querySelectorAll('.hub-oath-selected').length===2,'Back retains multi-selection');

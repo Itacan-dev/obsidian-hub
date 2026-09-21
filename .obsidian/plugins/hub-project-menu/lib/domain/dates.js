@@ -61,18 +61,32 @@ function localDateTime(date, time) {
     return value;
 }
 
-function taskDateLabel(date, time, relative = false, now = new Date()) {
+function taskDateLabel(date, time, relative = false, now = new Date(), includeYear = false) {
     const value = parseLocalISODate(date);
     if (!value) return "";
     const tomorrow = new Date(now); tomorrow.setDate(tomorrow.getDate() + 1);
-    const label = relative && date === localISODate(now) ? "today" :
-        relative && date === localISODate(tomorrow) ? "tomorrow" :
+    const label = relative && date === localISODate(now) ? "Today" :
+        relative && date === localISODate(tomorrow) ? "Tomorrow" :
         value.toLocaleDateString("en-US", { month: "short", day: "numeric",
-            ...(value.getFullYear() !== now.getFullYear() ? { year: "numeric" } : {}) });
-    return label + (validLocalTime(time) ? " \u00b7 " + localDateTime(date, time).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "");
+            ...(includeYear || value.getFullYear() !== now.getFullYear() ? { year: "numeric" } : {}) });
+    return (validLocalTime(time) ? localDateTime(date, time).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) + " \u00b7 " : "") + label;
+}
+
+function taskDateRangeLabel(fromDate, fromTime, dueDate, dueTime, now = new Date()) {
+    if (fromDate === dueDate) {
+        if (validLocalTime(fromTime) && validLocalTime(dueTime) && fromTime !== dueTime) {
+            const start = localDateTime(fromDate, fromTime).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+            return start + " \u2192 " + taskDateLabel(dueDate, dueTime, false, now);
+        }
+        return taskDateLabel(dueDate, dueTime || fromTime, false, now);
+    }
+    const crossYear = fromDate.slice(0, 4) !== dueDate.slice(0, 4);
+    return taskDateLabel(fromDate, fromTime, false, now, crossYear) + " \u2192 " +
+        taskDateLabel(dueDate, dueTime, false, now, crossYear);
 }
 
 module.exports = {
+    taskDateRangeLabel,
     validLocalTime,
     localDateTime,
     taskDateLabel,

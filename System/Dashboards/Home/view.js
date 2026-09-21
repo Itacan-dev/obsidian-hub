@@ -963,7 +963,7 @@ root.addEventListener(
 
 const upcoming = panel(
     grid,
-    "Tasks to Do",
+    "Tasks",
     "home-upcoming",
     "list-checks"
 );
@@ -1038,7 +1038,7 @@ function renderTasksToDo(
     const oathPlan = upcomingBody.hubTaskUi?.partitionOath?.(activeTasks, task => ({ task,
         owner: activeTasks.find(item => item.task.hubTaskId === task.hubTaskId)?.owner ?? window.hubTaskOwner?.(task.path) ?? {} }));
     const ordinaryTasks = oathPlan?.ordinary ?? activeTasks;
-    const groups = window.hubTaskGroups?.(ordinaryTasks);
+    const groups = upcomingBody.hubTaskUi?.groups(ordinaryTasks) ?? window.hubTaskGroups?.(ordinaryTasks);
     const openTasks = groups?.active ?? ordinaryTasks.filter(item => !item.task.completed);
     const futureTasks = groups?.future ?? [];
 

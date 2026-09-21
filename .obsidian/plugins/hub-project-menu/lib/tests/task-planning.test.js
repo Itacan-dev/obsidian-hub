@@ -1,6 +1,6 @@
 "use strict";
 const assert = require("assert");
-const { taskIsOverdue, taskGroups, taskMetadata, validateTaskMetadata, readTaskSnapshot, saveTaskSnapshot, appendTask, insertTaskAtCursor, toggleTaskStep } = require("../domain/task-planning");
+const { taskIsFuture, taskDatePresentation, taskIsOverdue, taskGroups, taskMetadata, validateTaskMetadata, readTaskSnapshot, saveTaskSnapshot, appendTask, insertTaskAtCursor, toggleTaskStep } = require("../domain/task-planning");
 const { tasksForPage, HubTaskDataService } = require("../services/task-data");
 const { taskIdentity, taskDisplayText, editTaskContent, applyTaskEdit } = require("../domain/tasks");
 const { HubTaskEditor } = require("../services/task-editor");
@@ -49,14 +49,18 @@ assert.equal(taskIsOverdue(timed[0], new Date(2026, 8, 21, 23, 59, 59, 999)), fa
 assert.equal(taskIsOverdue(timed[0], new Date(2026, 8, 22)), true);
 assert.equal(taskIsOverdue(timed[3], new Date(2026, 8, 21, 8)), false);
 assert.equal(taskIsOverdue(timed[3], new Date(2026, 8, 21, 8, 0, 1)), true);
-assert.equal(taskGroups([{ fromDate: "2026-09-21", fromTime: "23:00" }], now).active.length, 1);
+assert.equal(taskGroups([{ fromDate: "2026-09-21", fromTime: "23:00" }], now).future.length, 1);
 const { taskDateLabel, localDateTime } = require("../domain/dates");
-assert.equal(taskDateLabel("2026-09-21", null, true, now), "today");
-assert.equal(taskDateLabel("2026-09-22", null, true, now), "tomorrow");
+assert.equal(taskDateLabel("2026-09-21", null, true, now), "Today");
+assert.equal(taskDateLabel("2026-09-22", null, true, now), "Tomorrow");
 assert.equal(taskDateLabel("2026-09-23", null, true, now), "Sep 23");
-assert.equal(taskDateLabel("2027-01-01", null, true, new Date(2026, 11, 31, 12)), "tomorrow");
-assert.equal(taskDateLabel("2026-09-21", "16:30", true, now), "today \u00b7 " +
-    new Date(2026, 8, 21, 16, 30).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }));
+assert.equal(taskDateLabel("2027-01-01", null, true, new Date(2026, 11, 31, 12)), "Tomorrow");
+assert.equal(taskDateLabel("2026-09-21", "16:30", true, now), new Date(2026, 8, 21, 16, 30).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) + " \u00b7 Today");
+const noonLabel = new Date(2026, 8, 23, 12).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+assert.equal(taskDateLabel("2026-09-23", "12:00", true, now), noonLabel + " \u00b7 Sep 23");
+assert.equal(taskDateLabel("2026-09-22", "12:00", true, now), noonLabel + " \u00b7 Tomorrow");
+assert.equal(taskDateLabel("2026-09-30", null, true, now), "Sep 30");
+assert.equal(taskDateLabel("2027-09-23", "12:00", true, now), noonLabel + " \u00b7 Sep 23, 2027");
 assert.equal(localDateTime("2026-09-21", "16:30").getHours(), 16);
 assert.throws(() => validateTaskMetadata({ dueDate: "2026-09-21", dueTime: "24:00" }), /valid time/);
 assert.throws(() => validateTaskMetadata({ dueTime: "09:00" }), /valid time/);
@@ -65,6 +69,26 @@ assert.equal(taskMetadata(withTimes).dueTime, "16:30");
 assert.equal(taskMetadata(withTimes).fromTime, "08:00");
 assert.equal("dueTime" in taskMetadata({ ...withTimes, dueTime: "" }), false);
 assert.equal("dueTime" in taskMetadata({ ...withTimes, dueDate: null }), false);
+
+// Future begins/ends at the local start instant, independently of due ordering.
+const scheduled = { text: "Scheduled", fromDate: "2026-09-21", fromTime: "10:00", dueDate: "2026-09-22" };
+assert.equal(taskIsFuture(scheduled, now), true);
+assert.equal(taskIsFuture(scheduled, new Date(2026, 8, 21, 10)), false);
+assert.equal(taskIsFuture({ fromDate: "2026-09-21" }, new Date(2026, 8, 21)), false);
+assert.equal(taskIsFuture({ fromDate: "2026-09-22" }, new Date(2026, 8, 21, 23, 59, 59)), true);
+assert.equal(taskIsFuture({ ...scheduled, completed: true }, now), false);
+assert.equal(taskGroups([scheduled, { text: "Later", dueDate: "2026-09-23" }], now).future.length, 1);
+assert.deepEqual(taskGroups([scheduled, { text: "Later", dueDate: "2026-09-23" }], new Date(2026, 8, 21, 10)).active.map(t => t.text), ["Scheduled", "Later"]);
+assert.equal(taskDatePresentation({ fromDate: "2026-09-20", dueDate: "2026-12-15" }, now).label, "Dec 15");
+assert.equal(taskDatePresentation({ fromDate: "2026-09-20" }, now), null);
+assert.equal(taskDatePresentation({ fromDate: "2026-10-01" }, now).label, "Starts Oct 1");
+assert.equal(taskDatePresentation({ fromDate: "2026-10-01", dueDate: "2026-10-31" }, now).label, "Oct 1 \u2192 Oct 31");
+assert.equal(taskDatePresentation({ fromDate: "2026-10-01", dueDate: "2026-10-01" }, now).label, "Oct 1");
+assert.equal(taskDatePresentation({ fromDate: "2026-12-15", dueDate: "2027-01-10" }, now).label, "Dec 15, 2026 \u2192 Jan 10, 2027");
+const startTimeLabel = new Date(2026, 9, 1, 9).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+const endTimeLabel = new Date(2026, 9, 1, 17).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+assert.equal(taskDatePresentation({ fromDate: "2026-10-01", fromTime: "09:00", dueDate: "2026-10-01", dueTime: "17:00" }, now).label, startTimeLabel + " \u2192 " + endTimeLabel + " \u00b7 Oct 1");
+assert.equal(taskDatePresentation({ fromDate: "2026-10-01", fromTime: "09:00", dueDate: "2026-10-31", dueTime: "17:00" }, now).label, startTimeLabel + " \u00b7 Oct 1 \u2192 " + endTimeLabel + " \u00b7 Oct 31");
 
 const child = { line: 2, parent: 0, text: "Step", task: true, completed: true, children: [] };
 const other = { line: 6, parent: 5, text: "Task under ordinary bullet", task: true, children: [] };

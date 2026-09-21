@@ -5512,7 +5512,7 @@ window.hubSetIcon?.(
 const tasksTitleText =
     tasksTitle.createSpan({
         text:
-            "Tasks to Do"
+            "Tasks"
     });
 
 
@@ -5613,7 +5613,7 @@ function renderTaskRows() {
 
     const oathPlan = tasksBody.hubTaskUi?.partitionOath?.(currentProjectTasks);
     const ordinaryTasks = oathPlan?.ordinary ?? currentProjectTasks;
-    const groups = window.hubTaskGroups?.(ordinaryTasks);
+    const groups = tasksBody.hubTaskUi?.groups(ordinaryTasks) ?? window.hubTaskGroups?.(ordinaryTasks);
     const openTasks = groups?.active ?? ordinaryTasks.filter(task => !task.completed);
     const futureTasks = groups?.future ?? [];
 

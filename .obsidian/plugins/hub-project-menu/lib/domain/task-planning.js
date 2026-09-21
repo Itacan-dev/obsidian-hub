@@ -1,5 +1,5 @@
 "use strict";
-const { localISODate, parseLocalISODate, validLocalTime, localDateTime } = require("./dates");
+const { parseLocalISODate, validLocalTime, localDateTime, taskDateLabel, taskDateRangeLabel } = require("./dates");
 const { taskLineDetails, taskDisplayText, taskIdentity, locateTaskLine, normalizedTaskText } = require("./tasks");
 
 function taskMetadata(value = {}) {
@@ -33,16 +33,35 @@ function taskIsOverdue(task, now = new Date()) {
     return !!due && due < now;
 }
 
+// An untimed start is reached at local midnight; untimed due dates remain end-of-day.
+function taskStartDate(task) {
+    return localDateTime(task.fromDate, task.fromTime || "00:00");
+}
+
+function taskIsFuture(task, now = new Date()) {
+    const start = taskStartDate(task);
+    return !task.completed && !!start && start > now;
+}
+
+function taskDatePresentation(task, now = new Date()) {
+    if (taskIsFuture(task, now)) {
+        if (task.dueDate) return { label: taskDateRangeLabel(task.fromDate, task.fromTime, task.dueDate, task.dueTime, now) };
+        return { label: "Starts " + taskDateLabel(task.fromDate, task.fromTime, false, now) };
+    }
+    if (!task.dueDate) return null;
+    return { label: taskDateLabel(task.dueDate, task.dueTime, true, now),
+        dateTime: task.dueDate + (validLocalTime(task.dueTime) ? "T" + task.dueTime : "") };
+}
+
 function taskGroups(items, now = new Date()) {
     // Preserve the date-string argument used by existing callers.
     if (typeof now === "string") now = parseLocalISODate(now);
-    const today = localISODate(now);
     const taskOf = item => item.task && typeof item.task === "object" ? item.task : item;
     const rank = task => ({ must: 0, should: 1 }[task.necessity] ?? 2);
     const active = [], future = [], completed = [];
     for (const [order, item] of items.entries()) {
         const task = taskOf(item);
-        const target = task.completed ? completed : task.fromDate > today ? future : active;
+        const target = task.completed ? completed : taskIsFuture(task, now) ? future : active;
         target.push({ item, task, order });
     }
     const compare = (a, b) => {
@@ -207,4 +226,4 @@ function insertTaskAtCursor(editor) {
     editor.setCursor({ line: cursor.line, ch: Math.max(marker.length + 4, cursor.ch + marker.length + 4 - prefix.length) });
 }
 
-module.exports = { taskIsOverdue, taskMetadata, validateTaskMetadata, taskGroups, taskBlockEnd, readTaskSnapshot, saveTaskSnapshot, appendTask, insertTaskAtCursor, toggleTaskStep };
+module.exports = { taskStartDate, taskIsFuture, taskDatePresentation, taskIsOverdue, taskMetadata, validateTaskMetadata, taskGroups, taskBlockEnd, readTaskSnapshot, saveTaskSnapshot, appendTask, insertTaskAtCursor, toggleTaskStep };
