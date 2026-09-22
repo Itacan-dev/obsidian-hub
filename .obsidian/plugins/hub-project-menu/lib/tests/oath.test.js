@@ -51,14 +51,23 @@ async function run() {
     for (const durationMs of [null, undefined, 0, -1, Infinity, NaN, 30000, 90000]) {
         assert.throws(() => validateOath({ start: "now", durationMs, tasks: [] }), /duration/);
     }
-    validateOath({ start: "now", durationMs: minute, tasks: [] });
+    for (const tasks of [[], undefined, null]) {
+        assert.throws(() => validateOath({ start: "now", durationMs: minute, tasks }), /Select at least one task/);
+    }
+    validateOath({ start: "now", durationMs: minute, tasks: [{ text: "Selected task" }] });
+    const empty = fixture();
+    for (const start of ["now", "scheduled"]) {
+        await assert.rejects(empty.service.take(empty.draft({ start, scheduledAt: 1_100_000, tasks: [] })), /Select at least one task/);
+    }
+    assert.equal(empty.saved, null); assert.equal(empty.full.entries, 0);
+    assert.equal(empty.service.committed, false); empty.destroy();
     assert.throws(() => validateOath({ start: "scheduled", scheduledAt: 0, durationMs: minute }, 1), /future/);
 
     // 1, 4, 10, 11, 12, 13: exact boundary, continued enforcement/time,
     // time before unfinished tasks, and an exit request with stale intent.
-    for (const withTasks of [false, true]) {
+    for (const taskCount of [1, 2]) {
         const f = fixture(); await f.service.start();
-        await f.service.take(f.draft(withTasks ? {} : { tasks: [] }));
+        await f.service.take(f.draft({ tasks: f.readTasks().slice(0, taskCount) }));
         const start = f.service.current.startedAt;
         assert.equal(f.service.current.fulfilment, undefined);
         f.advance(50 * minute - 1000); await f.service.refresh(false);
@@ -144,8 +153,9 @@ async function run() {
     try { await reloadFailure.service.start(); } finally { console.error = startupLog; }
     assert.equal(reloadFailure.full.full, true, "Migration/save failure cannot bypass fullscreen restoration");
     assert.ok(reloadFailure.service.timer); reloadFailure.destroy();
-    const noIndex = fixture(); noIndex.setReady(false); await noIndex.service.take(noIndex.draft({ tasks: [] }));
-    assert.equal(noIndex.service.active, true, "General work does not depend on the task index"); noIndex.destroy();
+    const noIndex = fixture(); noIndex.setReady(false);
+    await assert.rejects(noIndex.service.take(noIndex.draft()), /index/);
+    assert.equal(noIndex.service.active, false); noIndex.destroy();
 
     const missing = fixture(); await missing.service.take(missing.draft());
     const original = missing.files.get("Projects/A/Tasks.md"); missing.files.delete("Projects/A/Tasks.md"); await missing.service.refresh();

@@ -39,8 +39,11 @@ const assert=(ok,message)=>{if(!ok)throw Error(message)};
 const click=(scope,text)=>{const button=[...scope.querySelectorAll('button')].find(el=>el.textContent===text)||[...scope.querySelectorAll('.hub-oath-choice')].find(el=>el.querySelector('.hub-oath-choice-title')?.textContent===text)?.querySelector('input');assert(button,'Missing control '+text);button.click();return button};
 const modal=()=>[...document.querySelectorAll('.modal-content')].at(-1);
 const settle=async()=>{for(let i=0;i<80;i++)await Promise.resolve();await new Promise(r=>requestAnimationFrame(r))};
+const runtimeErrors=[];
+window.addEventListener('error',event=>runtimeErrors.push(event.message));
+window.addEventListener('unhandledrejection',event=>runtimeErrors.push(String(event.reason)));
 window.onload=async()=>{try{
- const names=['domain/tasks','domain/dates','domain/task-planning','domain/oath','services/oath','services/oath-fullscreen','ui/markdown','ui/task-steps','ui/oath-tasks','ui/tasks','ui/task-editor','ui/oath'];
+ const names=['domain/tasks','domain/dates','domain/task-planning','domain/oath','services/oath','services/task-data','services/oath-fullscreen','ui/markdown','ui/task-steps','ui/oath-tasks','ui/tasks','ui/task-editor','ui/oath'];
  const sources=Object.fromEntries(await Promise.all(names.map(async name=>[name,await(await fetch('../'+name+'.js')).text()]))),cache={};
  const load=name=>{if(name==='obsidian')return obsidian;if(name==='crypto')return{randomUUID:()=>crypto.randomUUID()};if(cache[name])return cache[name].exports;assert(sources[name],'Missing module '+name);const mod=cache[name]={exports:{}};new Function('module','require',sources[name])(mod,request=>{if(!request.startsWith('.'))return load(request);const out=[];for(const part of(name.slice(0,name.lastIndexOf('/'))+'/'+request).split('/')){if(part==='..')out.pop();else if(part!=='.')out.push(part)}return load(out.join('/'))});return mod.exports};
  const domain=load('domain/tasks'),planning=load('domain/task-planning'),{HubOathService}=load('services/oath'),{createTaskUi}=load('ui/tasks'),{mountOathControl}=load('ui/oath');
@@ -50,9 +53,22 @@ window.onload=async()=>{try{
  const files=new Map([[sourcePath,'- [ ] Write the primary views section <!-- hub-task:views -->\n    - [x] Outline Homepage\n    - [x] Outline Workspace Full-view\n    - [ ] Outline Workspace Note-view\n    - [ ] Polish transitions\n- [ ] Submit topology problem set <!-- hub-task:topology -->\n- [ ] Review lecture 2 again <!-- hub-task:review -->\n'],[otherPath,'- [ ] Prepare supervisor questions <!-- hub-task:supervisor -->\n- [ ] Future task <!-- hub-task:future -->\n- [x] Completed task <!-- hub-task:completed -->\n']]);
  const metadata={views:{necessity:'should',dueDate:shift(0)},topology:{necessity:'must',dueDate:shift(-4)},review:{necessity:'should',dueDate:shift(3)},supervisor:{dueDate:shift(5)},future:{necessity:'must',fromDate:shift(10)}};
  const vault={getAbstractFileByPath:path=>files.has(path)?{path,extension:'md'}:null,read:async file=>files.get(file.path),process:async(file,change)=>files.set(file.path,change(files.get(file.path)))};
- const read=()=>[...files].flatMap(([path,content])=>content.split('\n').flatMap((raw,line)=>{const details=domain.taskLineDetails(raw);return details&&!/^\s/.test(raw)?[{...planning.readTaskSnapshot(content,{path,line,text:details.text,hubTaskId:domain.taskIdentity(raw)}),...planning.taskMetadata(metadata[domain.taskIdentity(raw)])}]:[]}));
- const subscriptions=new Set(),app={vault,plugins:{getPlugin:()=>({api:{index:{initialized:true}}})},workspace:{openLinkText(){}}};
- const plugin={app,projectWizard:{data:{}},register(){},enqueueTaskMutation:async work=>work(),dataStore:{deviceId:'browser-fixture',save:async()=>{}},addStatusBarItem:()=>document.querySelector('.status-bar').createDiv(),taskData:{readPages:()=>[{file:{tasks:read()}}],subscribe:(owner,fn)=>{subscriptions.add(fn);owner.register(()=>subscriptions.delete(fn))}},taskEditor:{file:path=>vault.getAbstractFileByPath(path),metadata:id=>planning.taskMetadata(metadata[id])}};
+ // Model Dataview's boolean task flag and nested list items, then use the production task source.
+ const rawPages=()=>[...files].map(([path,content])=>{
+  let parent=null;const tasks=content.split('\n').flatMap((raw,line)=>{
+   const details=domain.taskLineDetails(raw);if(!details)return [];
+   const task={task:true,path,line,text:details.text,completed:/^[xX]$/.test(details.marker),status:details.marker,children:[]};
+   if(/^\s/.test(raw)&&parent){task.parent=parent.line;parent.children.push(task)}else parent=task;
+   return [task];
+  });return {file:{path,tasks,lists:tasks}};
+ });
+ const subscriptions=new Set(),api={index:{initialized:true},pages:()=>({array:rawPages})};
+ const app={vault,plugins:{getPlugin:()=>({api})},workspace:{openLinkText(){},getActiveFile:()=>null}};
+ const taskData=new (load('services/task-data').HubTaskDataService)(app,{metadata:id=>metadata[id]});
+ taskData.subscribe=(owner,fn)=>{subscriptions.add(fn);owner.register(()=>subscriptions.delete(fn))};
+ const read=()=>taskData.readPages(api).flatMap(page=>page.file.tasks);
+ const plugin={app,projectWizard:{data:{},getContextForPath:()=>({status:'active'})},register(){},enqueueTaskMutation:async work=>work(),dataStore:{deviceId:'browser-fixture',save:async()=>{}},addStatusBarItem:()=>document.querySelector('.status-bar').createDiv(),taskData,taskEditor:{app,file:path=>vault.getAbstractFileByPath(path),metadata:id=>planning.taskMetadata(metadata[id])}};
+ plugin.taskEditor.plugin=plugin;vault.getMarkdownFiles=()=>[...files.keys()].map(path=>vault.getAbstractFileByPath(path));
  let now=Date.now();
  const native={full:false,kiosk:false,entries:0,listeners:new Map(),isFullScreen(){return this.full},isKiosk(){return this.kiosk},setFullScreen(value){if(value&&!this.full)this.entries++;this.full=value},setKiosk(value){this.kiosk=value},on(name,fn){this.listeners.set(name,fn)},removeListener(name){this.listeners.delete(name)}};
  window.electronWindow=native;
@@ -87,15 +103,17 @@ window.onload=async()=>{try{
   const cards=[...setup.contentEl.querySelector(selector).children],rects=cards.map(el=>el.getBoundingClientRect());
   assert(rects.every(r=>Math.abs(r.width-rects[0].width)<1&&r.top===rects[0].top),'Equal-width cards in one row');
  }
- click(setup.contentEl,'Continue');assert(setup.contentEl.textContent.includes('General work'),'Tasks optional in review');
- assert(setup.contentEl.textContent.includes('Commitment50 minutes')&&!setup.contentEl.textContent.includes('Applies to'),'Duration replaces old summary rows');
- click(setup.contentEl,'Back');click(setup.contentEl,'Custom');
+ assert(click(setup.contentEl,'Continue').disabled&&setup.contentEl.querySelector('h2').textContent==='Make an Oath','Empty selection cannot continue');
+ let rejected=false;try{setup.review()}catch(error){rejected=/Select at least one task/.test(error.message)}
+ assert(rejected&&!setup.contentEl.classList.contains('hub-oath-review'),'Review rejects an empty draft before rendering');
+ click(setup.contentEl,'Custom');
  for(const value of ['', '0', '-2', '1.5']){
   const input=setup.contentEl.querySelector('input[type=number]');input.value=value;input.dispatchEvent(new Event('input'));
   assert(click(setup.contentEl,'Continue').disabled,'Invalid custom duration cannot proceed: '+value);
  }
  const custom=setup.contentEl.querySelector('input[type=number]');custom.value='35';custom.dispatchEvent(new Event('input'));
- draft.tasks=[{text:'1'},{text:'  Preserve  spaces & <literal text>  '}];click(setup.contentEl,'Continue');
+ assert(click(setup.contentEl,'Continue').disabled,'Valid custom duration still requires selected work');
+ draft.tasks=[{text:'1'},{text:'  Preserve  spaces & <literal text>  '}];setup.setup();click(setup.contentEl,'Continue');
  const groups=setup.contentEl.querySelectorAll('.hub-oath-row-group'),rows=groups[0].querySelectorAll('.hub-oath-review-row');
  assert(rows.length===3&&rows[2].textContent==='Commitment35 minutes','Custom commitment reviewed');
  assert(JSON.stringify([...rows[1].querySelector('.hub-oath-review-value').children].map(el=>el.textContent))===JSON.stringify(draft.tasks.map(task=>task.text)),'Exact selected task representation');
@@ -112,14 +130,49 @@ window.onload=async()=>{try{
  // Existing picker and actual Home/Workspace/note task renderers.
  button.click();click(modal(),'Select task');await settle();let picker=modal();
  assert(picker.querySelectorAll('.project-task-row').length===5,'Picker includes future tasks, excludes Steps and completed parents');
+ assert(click(picker,'Add selected (0)').disabled,'Zero selection is disabled');
+ click(picker,'+ Add task');assert(modal().querySelector('h2').textContent==='Add task','Existing task creator opens');click(modal(),'Cancel');
+ const first=picker.querySelector('input[type=checkbox]');first.click();assert(!click(picker,'Cancel').disabled,'Cancel remains available');
+ assert(modal().querySelectorAll('.hub-oath-selected').length===0,'Cancel does not apply selection');
+ click(modal(),'Select task');picker=modal();await settle();
+ const toggle=picker.querySelector('input[type=checkbox]');toggle.click();
+ assert([...picker.querySelectorAll('button')].some(el=>el.textContent==='Add selected (1)'&&!el.disabled),'Selection updates count');
+ toggle.click();assert(click(picker,'Add selected (0)').disabled,'Deselection disables Add');
+ // Copied IDs remain ineligible, and an index refresh updates the open picker.
+ files.set('Copy.md','- [ ] Duplicate <!-- hub-task:review -->\n');for(const refresh of subscriptions)refresh();await settle();
+ assert(picker.querySelectorAll('.project-task-row').length===4&&!picker.textContent.includes('Duplicate'),'Conflicting IDs cannot be selected');
+ files.delete('Copy.md');for(const refresh of subscriptions)refresh();await settle();
+ assert(picker.querySelectorAll('.project-task-row').length===5,'Index refresh restores eligible tasks');
  const search=picker.querySelector('input[type=search]');search.value='Future';search.dispatchEvent(new Event('input'));await settle();assert(picker.querySelectorAll('.project-task-row').length===1&&picker.textContent.includes('Starts '),'Search includes future metadata');
+ search.value='no such task';search.dispatchEvent(new Event('input'));await settle();assert(!picker.querySelector('.project-task-row')&&picker.textContent.includes('No matching incomplete tasks.'),'No search results fabricate work');
  search.value='';search.dispatchEvent(new Event('input'));await settle();
  for(const text of ['Write the primary views section','Prepare supervisor questions'])[...picker.querySelectorAll('.project-task-row')].find(row=>row.textContent.includes(text)).querySelector('input').click();
- click(picker,'Add selected (2)');click(modal(),'Continue');click(modal(),'Back');assert(modal().querySelectorAll('.hub-oath-selected').length===2,'Back retains multi-selection');
+ click(picker,'Add selected (2)');click(modal(),'Continue');
+ assert(JSON.stringify([...modal().querySelectorAll('.hub-oath-row-group:first-of-type .hub-oath-review-row')[1].querySelectorAll('.hub-oath-review-value > div')].map(el=>el.textContent))===JSON.stringify(['Write the primary views section','Prepare supervisor questions']),'Confirmation uses the two selected task titles');
+ click(modal(),'Back');assert(modal().querySelectorAll('.hub-oath-selected').length===2,'Back retains multi-selection');
+ click(modal(),'Select task');picker=modal();assert(picker.querySelectorAll('input[type=checkbox]:checked').length===2,'Reopened picker preserves selection');
+ const picked=picker.querySelector('input[type=checkbox]:checked');picked.click();click(picker,'Cancel');assert(modal().querySelectorAll('.hub-oath-selected').length===2,'Cancelling changes preserves previous selection');
  click(modal(),'Continue');click(modal(),'Take Oath');await settle();await service.refresh();await settle();
  assert(service.active&&full.full&&native.kiosk,'Oath activates native enforcement');
  for(const mode of ['home','project','note']){mount(mode);await settle();assert(view.body.querySelectorAll('.hub-oath-pinned .hub-planned-task-row').length===2,mode+': selected tasks pinned');assert([...view.body.querySelectorAll('.'+view.prefix+'-task-text')].filter(el=>el.textContent==='Write the primary views section').length===1,mode+': no duplicate task');assert(document.querySelector('.hub-oath-button')===button,'Stable dock')}
- document.getElementById('fixture').style.width='330px';await settle();assert(view.body.scrollWidth<=view.body.clientWidth+1,'Pinned tasks fit narrow view');document.getElementById('fixture').style.width='100%';
+ assert(!view.body.querySelector('.hub-oath-banner,progress')&&!view.body.textContent.includes('Your selected work'),'Only pinned panel remains, without subtitle or progress bar');
+ const liveHeader=()=>view.body.querySelector('.hub-oath-pinned-heading');
+ const timer=()=>liveHeader()?.querySelector('.hub-oath-pinned-timer');
+ const completion=()=>liveHeader()?.querySelector('.hub-oath-pinned-completion');
+ assert(timer().textContent==='50:00 remaining'&&completion().textContent.includes('0 / 2 completed'),'Pinned header shows current countdown and completion count');
+ const headingBefore=liveHeader(),rowsBefore=[...view.body.querySelectorAll('.hub-planned-task-row')],clockCount=service.clockListeners.size;
+ now+=28000;service.tickDisplay();assert(timer().textContent==='49:32 remaining','MM:SS comes directly from service time');now-=28000;service.tickDisplay();
+ assert(liveHeader()===headingBefore&&rowsBefore.every((row,i)=>view.body.querySelectorAll('.hub-planned-task-row')[i]===row),'Clock updates preserve header and task DOM');
+ view.controller.render();assert(service.clockListeners.size===clockCount,'Rerender does not duplicate clock listeners');
+ for(const width of [680,435,330,240]){
+  document.getElementById('fixture').style.width=width+'px';await settle();
+  const heading=liveHeader(),title=heading.querySelector('.hub-oath-pinned-title').getBoundingClientRect(),status=heading.querySelector('.hub-oath-pinned-status').getBoundingClientRect();
+  assert(heading.scrollWidth<=heading.clientWidth+1&&view.body.scrollWidth<=view.body.clientWidth+1,'Pinned header fits width '+width);
+  assert(title.right<=status.left+1||title.bottom<=status.top+1,'Title and status never overlap at '+width);
+ }
+ assert(getComputedStyle(timer()).fontVariantNumeric==='tabular-nums','Tabular countdown digits');
+ assert(getComputedStyle(timer()).fontWeight>getComputedStyle(completion()).fontWeight,'Timer is stronger than completion metadata');
+ document.getElementById('fixture').style.width='100%';
  let stepHost=view.body.querySelector('.hub-task-steps');stepHost.querySelector('button').click();stepHost.querySelectorAll('input')[2].click();await settle();await service.refresh();await settle();
  assert(files.get(sourcePath).includes('- [x] Outline Workspace Note-view')&&!service.fulfilled,'Step writes do not fulfill parent');
  // 5-8: Escape, Keep, Escape in warning, and X all preserve native fullscreen.
@@ -130,25 +183,48 @@ window.onload=async()=>{try{
  await escape();await escape();assert(!modal()&&service.active&&full.full,'Escape inside warning keeps Oath');
  await escape();document.querySelector('.modal-close-button').click();assert(!modal()&&service.active&&full.full,'X keeps Oath');
  button.click();click(modal(),'End Oath');await settle();assert(modal().querySelector('h2').textContent==='Break your Oath?'&&full.full,'Status exit uses same warning');click(modal(),'Keep Oath');
- view.body.querySelector('.hub-oath-pinned input[type=checkbox]').click();await settle();await service.refresh();await settle();assert(!service.fulfilled,'Some tasks leave Oath unfulfilled');
+ view.body.querySelector('.hub-oath-pinned input[type=checkbox]').click();await settle();await service.refresh();await settle();assert(!service.fulfilled,'Some tasks leave Oath unfulfilled');assert(completion().textContent.includes('1 / 2 completed'),'Completion updates in header');
  now+=32*60000;view.body.querySelectorAll('.hub-oath-pinned .project-task-checkbox')[1].click();await settle();await service.refresh();await settle();
  assert(service.fulfilled&&service.active&&full.full&&view.body.querySelector('.hub-oath-pinned')&&!modal(),'Final task fulfills without ending or a modal');
+ assert(timer().textContent==='Fulfilled'&&completion().textContent.includes('2 / 2 completed'),'Task fulfillment replaces countdown while remaining Oathbound');
  now+=5*60000;await escape();assert(service.current.state==='fulfilled'&&!full.full&&!modal(),'Escape after fulfillment ends normally');
  assert(service.current.elapsedMs===37*60000,'All continued task-Oath time recorded');
- // 1, 9-13: timer-only, exact boundary, warning expiry, and continued time.
- const takeGeneral=async()=>{button.click();click(modal(),'Continue');click(modal(),'Take Oath');await settle();assert(service.active,'General work activates')};
- await takeGeneral();await escape();click(modal(),'Break Oath');await settle();assert(service.current.state==='broken'&&!full.full,'Explicit Break releases fullscreen after ending');
- await takeGeneral();now+=50*60000-1000;await escape();assert(modal()?.querySelector('h2').textContent==='Break your Oath?'&&!service.fulfilled&&full.full,'One second early still requires explicit break');
+ // 1, 9-13: timer before unfinished work, exact boundary, warning expiry, and continued time.
+ const takeSelected=async()=>{
+  button.click();click(modal(),'Select task');const picker=modal();
+  picker.querySelector('input[type=checkbox]').click();click(picker,'Add selected (1)');
+  const title=modal().querySelector('.hub-oath-selected-title').textContent;click(modal(),'Continue');
+  const work=[...modal().querySelectorAll('.hub-oath-review-row')].find(row=>row.querySelector('strong')?.textContent==='Work');
+  assert(work.querySelector('.hub-oath-review-value').textContent===title,'One task confirmation uses selected title');
+  click(modal(),'Back');modal().querySelector('.hub-oath-remove-task').click();assert(click(modal(),'Continue').disabled,'Removing last task prevents progression');
+  click(modal(),'Select task');modal().querySelector('input[type=checkbox]').click();click(modal(),'Add selected (1)');
+  click(modal(),'Continue');click(modal(),'Take Oath');await settle();assert(service.active,'Selected work activates');
+ };
+ await takeSelected();await escape();click(modal(),'Break Oath');await settle();assert(service.current.state==='broken'&&!full.full,'Explicit Break releases fullscreen after ending');
+ await takeSelected();now+=50*60000-1000;await escape();assert(modal()?.querySelector('h2').textContent==='Break your Oath?'&&!service.fulfilled&&full.full,'One second early still requires explicit break');
  now+=1000;await service.refresh(false);await settle();assert(service.fulfilled&&service.active&&full.full&&!modal(),'Expiry closes stale warning without ending or releasing fullscreen');
+ assert(timer().textContent==='Fulfilled'&&completion().textContent.includes('0 / 1 completed'),'Timed fulfillment reflects unfinished selected work');
  now+=20*60000;await service.refresh(false);service.tickDisplay();await settle();assert(button.textContent.includes('70m')||button.textContent.includes('1h 10m'),'Dock continues Oathbound clock');
  await escape();assert(service.current.state==='fulfilled'&&service.current.elapsedMs===70*60000&&!full.full,'70-minute total recorded on deliberate exit');
  // 14: a schedule activates with the same enforcement and exit rules.
- await service.take({start:'scheduled',scheduledAt:now+60000,durationMs:60000,tasks:[]});assert(!full.full,'Scheduled Oath does not enforce early');now+=60000;await service.refresh();
+ await service.take({start:'scheduled',scheduledAt:now+60000,durationMs:60000,tasks:read().filter(task=>!task.completed).slice(0,1)});assert(!full.full,'Scheduled Oath does not enforce early');now+=60000;await service.refresh();
  await escape();assert(full.full&&modal().textContent.includes('Break your Oath?'),'Scheduled activation uses warning');click(modal(),'Keep Oath');now+=60000;await service.refresh(false);assert(service.active&&service.fulfilled&&full.full,'Scheduled duration fulfills but stays active');await escape();assert(service.current.state==='fulfilled'&&!full.full,'Scheduled deliberate exit');
- await service.take({start:'scheduled',scheduledAt:now+60000,durationMs:60000,tasks:[]});button.click();click(modal(),'Cancel Oath');await settle();assert(!service.committed,'Prestart cancellation');
+ await service.take({start:'scheduled',scheduledAt:now+60000,durationMs:60000,tasks:read().filter(task=>!task.completed).slice(0,1)});button.click();click(modal(),'Cancel Oath');await settle();assert(!service.committed,'Prestart cancellation');
+ // Hour boundary, clock-only updates, and view lifecycle all use the existing service.
+ await service.take({start:'now',durationMs:90*60000,tasks:read().filter(task=>!task.completed).slice(0,1)});await settle();
+ now+=28000;service.tickDisplay();assert(timer().textContent==='1:29:32 remaining','H:MM:SS for commitments over an hour');
+ now+=29*60000+32000;service.tickDisplay();assert(timer().textContent==='1:00:00 remaining','Exact one-hour boundary');
+ now+=1000;service.tickDisplay();assert(timer().textContent==='59:59 remaining','Below one hour uses MM:SS');
+ now+=250;service.tickDisplay();assert(timer().textContent==='59:59 remaining','Fractional seconds round up');
+ const listenersBefore=service.clockListeners.size;component.unload();assert(service.clockListeners.size===listenersBefore-1,'Task view unload removes header clock listener');
+ mount('home');await settle();assert(service.clockListeners.size===listenersBefore&&timer().textContent==='59:59 remaining','Reopened view reads existing state without duplicate listeners');
+ await service.end(service.current.id,'broken');await settle();assert(!view.body.querySelector('.hub-oath-pinned'),'Ending Oath removes pinned header');
  clearInterval(service.timer);
  const preview=new URLSearchParams(location.search).get('preview');
- if(preview){const screen=load('ui/oath').openOathSetup(service);if(preview==='review'){screen.draft.tasks=read().filter(task=>['views','supervisor'].includes(task.hubTaskId));screen.review();}await settle();assert(screen.modalEl.scrollWidth<=screen.modalEl.clientWidth+1,'Preview fits');}
- document.getElementById('result').textContent='PASS: redesigned setup/review, radio proportions, optional/multiple tasks, custom validation, Back, picker/source integration, Steps, pinned work, Escape/Keep/X/Break, task/timer fulfillment, exact boundary, 70-minute Oathbound time, schedules and cancellation.';
+ if(preview==='pinned'){
+  await service.take({start:'now',durationMs:50*60000,tasks:read().filter(task=>!task.completed).slice(0,1)});now+=28000;mount('project');await settle();service.tickDisplay();document.getElementById('fixture').style.width='435px';
+ }else if(preview){const screen=load('ui/oath').openOathSetup(service);if(preview==='review'){screen.draft.tasks=read().filter(task=>['views','supervisor'].includes(task.hubTaskId));screen.review();}await settle();assert(screen.modalEl.scrollWidth<=screen.modalEl.clientWidth+1,'Preview fits');}
+ assert(!runtimeErrors.length,'No uncaught runtime errors: '+runtimeErrors.join('; '));
+ document.getElementById('result').textContent='PASS: redesigned setup/review, radio proportions, required/single/multiple tasks, custom validation, Back, picker/source integration, Steps, consolidated live pinned header, responsive layout, clock cleanup, Escape/Keep/X/Break, task/timer fulfillment, exact boundary, 70-minute Oathbound time, schedules and cancellation.';
 }catch(error){document.getElementById('result').textContent='FAIL: '+error.stack}};
 </script>

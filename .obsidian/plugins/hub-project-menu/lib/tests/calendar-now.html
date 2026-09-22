@@ -1,0 +1,103 @@
+<!doctype html><meta charset="utf-8"><title>Calendar current-time divider</title>
+<link rel="stylesheet" href="../../styles.css">
+<link rel="stylesheet" href="../../../../../System/Dashboards/Home/view.css">
+<style>
+body{margin:12px;background:#191919;color:#ddd;font:16px system-ui;--background-primary:#191919;--background-secondary:#262626;--background-modifier-border:#383838;--text-normal:#ddd;--text-muted:#aaa;--text-faint:#777;--interactive-accent:#8961ff}
+.host{width:478px;margin-bottom:12px}.home-dashboard{padding:0}.home-panel-title{display:flex}button{background:#222;color:inherit;border:1px solid #333;border-radius:6px}button:disabled{opacity:.42}#result{white-space:pre-wrap}
+</style><div id="fixtures"></div><pre id="result">RUNNING</pre>
+<script>
+HTMLElement.prototype.createEl=function(tag,o={}){const e=document.createElement(tag);e.className=o.cls||'';e.textContent=o.text||'';for(const[k,v]of Object.entries(o.attr||{}))e.setAttribute(k,v);this.append(e);return e};
+HTMLElement.prototype.createDiv=function(o){return this.createEl('div',o)};HTMLElement.prototype.createSpan=function(o){return this.createEl('span',o)};HTMLElement.prototype.addClass=function(cls){this.classList.add(cls)};
+const assert=(ok,message)=>{if(!ok)throw Error(message)};
+const settle=async()=>{for(let i=0;i<3;i++){await new Promise(r=>setTimeout(r,0));await new Promise(r=>requestAnimationFrame(r))}};
+const runtimeErrors=[];window.addEventListener('error',e=>runtimeErrors.push(e.message));window.addEventListener('unhandledrejection',e=>runtimeErrors.push(String(e.reason)));
+// Deterministic local-time adapter for the Moment methods used by the actual
+// agenda. Local Date arithmetic also exercises day/week and DST boundaries.
+let clock=new Date(2026,8,22,14,0).getTime();
+const pad=n=>String(n).padStart(2,'0');
+class LocalMoment {
+ constructor(value){this.date=new Date(value instanceof LocalMoment?value.valueOf():value===undefined?clock:typeof value==='string'&&value.length===10?value+'T00:00:00':value)}
+ clone(){return new LocalMoment(this)} valueOf(){return this.date.getTime()}
+ add(n,unit){assert(unit==='days','Only calendar-day additions');this.date.setDate(this.date.getDate()+n);return this}
+ startOf(unit){this.date.setHours(0,0,0,0);if(unit==='isoWeek')this.date.setDate(this.date.getDate()-(this.date.getDay()+6)%7);else assert(unit==='day','Known start unit');return this}
+ endOf(unit){assert(unit==='day','Known end unit');this.date.setHours(23,59,59,999);return this}
+ isoWeek(){return 39}
+ format(pattern){const d=this.date;if(pattern==='YYYY-MM-DD')return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;if(pattern==='HH:mm')return `${pad(d.getHours())}:${pad(d.getMinutes())}`;if(pattern==='ddd')return d.toLocaleDateString('en',{weekday:'short'});if(pattern==='D MMM')return `${d.getDate()} ${d.toLocaleDateString('en',{month:'short'})}`;assert(pattern===undefined,'Known date format');return d.toISOString()}
+}
+const moment=value=>new LocalMoment(value);
+const timers=new Map();let timerId=0;
+const every=(fn,delay)=>{assert(delay===60000,'Exactly one minute interval');const id=++timerId;timers.set(id,fn);return id};
+const tick=async value=>{clock=new Date(value).getTime();for(const fn of [...timers.values()])fn();await settle()};
+const event=(time,title,extra={})=>({start:moment(`2026-09-22T${time}:00`),title,calendarColor:'#80c8c8',...extra});
+window.onload=async()=>{try{
+ const source=await(await fetch('../../../../../System/Dashboards/Home/view.js')).text();
+ const agenda=source.slice(source.indexOf('calendarTodayButton.disabled = true;'),source.indexOf('// ---------- PROJECTS ----------'));
+ const frameModule={exports:{}};new Function('module','require',await(await fetch('../ui/dashboard-frame.js')).text())(frameModule,()=>({refreshHeaderImages(){}}));
+ const build=new Function('dv','app','frame','calendar','calendarHeader','calendarTodayButton','moment','el','setInterval','clearInterval',
+  'let homeCalendarEventCount=null;const updateHomeContext=()=>{};'+agenda+';return {body:calendarBody,refresh:refreshCalendarNow,update:updateCalendarNow,render:renderCalendarWeek,get summary(){return homeCalendarEventCount}}');
+ const views=[];
+ async function mount(events=[],host=null,enabled=true){
+  host??=document.getElementById('fixtures').createDiv({cls:'host'});
+  const cleanups=[],owner={register:fn=>cleanups.push(fn),unload(){cleanups.splice(0).forEach(fn=>fn())}};
+  const frame=frameModule.exports.createDashboardFrame(host,owner,'home-dashboard hub-button-scope');
+  const panel=frame.root.createDiv({cls:'home-panel home-calendar'}),header=panel.createDiv({cls:'home-panel-title',text:'Calendar'}),today=header.createEl('button',{cls:'home-calendar-today hub-panel-action',text:'Today'});
+  const queries=[],scrolls=[];const nativeScroll=panel.scrollTo.bind(panel);panel.scrollTo=options=>{scrolls.push(options);nativeScroll(options)};
+  const app={plugins:{plugins:enabled?{'google-calendar-agenda':{async runQuery(query){queries.push(query);return {events:events.filter(e=>e.start.valueOf()>=query.from.valueOf()&&e.start.valueOf()<=query.to.valueOf()),warnings:[]}}}}:{}}};
+  const controls=build({container:host,component:owner},app,frame,panel,header,today,moment,(p,t,c,text)=>p.createEl(t,{cls:c,text}),every,id=>timers.delete(id));
+  const view={...controls,host,owner,frame,panel,header,today,queries,scrolls,events};views.push(view);frame.commit();await settle();return view;
+ }
+ const nowRow=v=>v.body.querySelector('.home-calendar-now');
+ const day=v=>v.body.querySelector('.home-calendar-day.is-today');
+ const order=v=>[...day(v).children].filter(e=>e.matches('.home-calendar-row,.home-calendar-now')).map(e=>e.matches('.home-calendar-now')?'NOW':e.querySelector('.home-calendar-title').textContent).join('|');
+ const visible=v=>{const r=nowRow(v).getBoundingClientRect(),p=v.panel.getBoundingClientRect();return r.top>=p.top+v.header.getBoundingClientRect().height&&r.bottom<=p.bottom};
+ const originals=[event('09:00','Morning'),event('16:00','Afternoon',{location:'Existing location',link:'https://example.test/event'}),event('16:00','Same start'),event('20:00','Evening')];
+ let v=await mount(originals);
+ assert(order(v)==='Morning|NOW|Afternoon|Same start|Evening','Divider between timed events, stable event order');
+ assert(visible(v)&&v.scrolls.length===1&&v.scrolls[0].behavior==='auto','Initial navigation shows divider once without animation');
+ assert(v.queries.length===1&&v.queries[0].allDay==='include'&&v.queries[0].limit===100,'Existing Google query options preserved');
+ const row=v.body.querySelector('.home-calendar-row'),divider=nowRow(v);
+ assert(row.querySelector('.home-calendar-time').getBoundingClientRect().left===divider.querySelector('time').getBoundingClientRect().left,'Time-column alignment');
+ assert(row.querySelector('.home-calendar-info').getBoundingClientRect().left===divider.querySelector('.home-calendar-now-line').getBoundingClientRect().left,'Content-column alignment');
+ assert(getComputedStyle(divider).color===getComputedStyle(day(v).querySelector('.home-calendar-day-heading')).color,'Existing accent color');
+ assert(divider.textContent==='14:00'&&!divider.querySelector('svg,.home-calendar-dot'),'Time only, no icon or Now label');
+ assert(v.panel.scrollWidth===v.panel.clientWidth,'Panel width and horizontal overflow unchanged');
+ const rows=[...v.body.querySelectorAll('.home-calendar-row')];
+ await tick('2026-09-22T08:00:00');assert(order(v)==='NOW|Morning|Afternoon|Same start|Evening','Before every event');
+ await tick('2026-09-22T16:00:00');assert(order(v)==='Morning|Afternoon|Same start|NOW|Evening','Equal starts all precede divider');
+ v.panel.scrollTop=0;await settle();const scrollTop=v.panel.scrollTop,calls=v.scrolls.length;
+ await tick('2026-09-22T16:01:00');assert(nowRow(v)===divider&&divider.textContent==='16:01','Live minute updates reuse one divider');
+ assert(v.panel.scrollTop===scrollTop&&v.scrolls.length===calls,'Minute label never scrolls');
+ await tick('2026-09-22T23:05:00');assert(order(v).endsWith('Evening|NOW'),'After final event');
+ assert(v.panel.scrollTop===scrollTop&&v.scrolls.length===calls,'Crossing events never navigates');
+ assert(rows.every((r,i)=>v.body.querySelectorAll('.home-calendar-row')[i]===r),'Event rows retain their DOM, links, and metadata');
+ assert(!v.today.disabled,'Today enabled while divider is out of view');v.today.click();await settle();assert(visible(v)&&v.scrolls.length===calls+1,'Today targets divider, even when part of today was visible');
+ const anchor=v.body.querySelector('[data-calendar-date="2026-09-23"]');v.panel.scrollTop+=anchor.getBoundingClientRect().top-v.panel.getBoundingClientRect().top-v.header.getBoundingClientRect().height;await settle();const tomorrowScroll=v.panel.scrollTop;
+ await tick('2026-09-22T23:06:00');assert(v.panel.scrollTop===tomorrowScroll,'Looking at tomorrow remains undisturbed');
+ await tick('2026-09-23T00:00:00');assert(day(v).dataset.calendarDate==='2026-09-23'&&nowRow(v).parentElement===day(v)&&nowRow(v).textContent==='00:00','Midnight moves one divider and current-day styling');
+ assert(v.body.querySelectorAll('.home-calendar-now').length===1&&v.body.querySelectorAll('.is-today').length===1,'No stale prior-day divider');
+ assert(v.panel.scrollTop===tomorrowScroll&&v.scrolls.length===calls+1,'Midnight does not navigate');
+ v.owner.unload();assert(timers.size===0,'Component unload clears clock');v.host.remove();
+ clock=new Date(2026,8,22,14,0).getTime();
+ v=await mount([]);assert(day(v).textContent.includes('No events')&&nowRow(v).textContent==='14:00','Empty current day retains heading and shows time');
+ const old=v;v=await mount([event('00:00','All day',{allDay:true}),event('13:00','Ongoing',{end:moment('2026-09-22T15:00:00')}),event('16:00','Later')],old.host);
+ assert(timers.size===1&&!old.frame.current()&&v.body.querySelectorAll('.home-calendar-now').length===1,'Same-container rerender replaces clock and indicator');
+ old.owner.unload();assert(timers.size===1,'Old component cleanup cannot remove the new clock');
+ assert(order(v)==='All day|Ongoing|NOW|Later'&&nowRow(v).previousElementSibling.querySelector('.home-calendar-title').textContent==='Ongoing','All-day ordering and divider immediately after ongoing event');
+ const lineHeight=nowRow(v).getBoundingClientRect().height;assert(lineHeight<35,'Compact agenda row, no proportional duration gap');
+ const root=v.frame.root;root.remove();await tick('2026-09-22T14:01:00');v.host.append(root);await tick('2026-09-22T14:02:00');assert(nowRow(v).textContent==='14:02'&&timers.size===1,'Cached detached/reopened frame resumes its one clock');
+ const second=await mount([]);assert(timers.size===2&&nowRow(second).textContent==='14:02','Already initialized elsewhere still initializes a separate view');second.owner.unload();second.host.remove();
+ v.owner.unload();v.host.remove();
+ clock=new Date(2026,8,27,23,59).getTime();v=await mount([]);const boundaryScroll=v.panel.scrollTop,boundaryCalls=v.scrolls.length;
+ await tick('2026-09-28T00:00:00');assert(day(v).dataset.calendarDate==='2026-09-28'&&v.queries.length===2,'Sunday midnight loads next week through existing query');
+ assert(v.panel.scrollTop===boundaryScroll&&v.scrolls.length===boundaryCalls,'Week rollover preserves scroll');
+ await tick('2026-10-12T10:00:00');assert(day(v).dataset.calendarDate==='2026-10-12'&&v.body.querySelectorAll('.home-calendar-now').length===1,'Wake after multiple weeks catches up without duplicate dividers');
+ v.owner.unload();v.host.remove();
+ clock=new Date(2026,2,29,1,59).getTime();v=await mount([]);await tick('2026-03-29T03:00:00');assert(day(v).dataset.calendarDate==='2026-03-29'&&nowRow(v).textContent==='03:00','Local daylight-saving transition preserves date and wall time');v.owner.unload();v.host.remove();
+ v=await mount([],null,false);assert(v.body.textContent.includes('Google Calendar Agenda is not enabled.')&&!nowRow(v),'Disabled integration retains existing message');v.owner.unload();v.host.remove();
+ assert(timers.size===0&&!runtimeErrors.length,'All clocks cleaned up, no runtime errors: '+runtimeErrors.join(';'));
+ // Leave a compact representative preview using the production rendering/CSS.
+ clock=new Date(2026,8,22,23,5).getTime();v=await mount([event('00:30','Clases de ingl\u00e9s'),event('16:00','Lilly',{location:'Skogsfrugr\u00e4nd 36, 167 62 Bromma, Suecia'})]);
+ v.panel.scrollTop+=day(v).getBoundingClientRect().top-v.panel.getBoundingClientRect().top-v.header.getBoundingClientRect().height-4;await settle();v.owner.unload();
+ document.getElementById('result').textContent='PASS: actual Calendar source/CSS; before/between/after, ties, all-day/ongoing/empty days; event DOM/columns/accent/compactness; initial and Today navigation; silent minute/event/day/week/wake/DST updates; same-container rerender, independent/cached views, timer disposal and disabled integration.';
+}catch(error){document.getElementById('result').textContent='FAIL: '+error.stack}};
+</script>

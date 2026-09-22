@@ -17,6 +17,9 @@ function validateOath(draft, now = Date.now()) {
     if (!validDuration(draft.durationMs)) {
         throw Error("Choose a duration in whole minutes, at least one minute.");
     }
+    if (!Array.isArray(draft.tasks) || !draft.tasks.length) {
+        throw Error("Select at least one task for your Oath.");
+    }
 }
 function oathTime(oath, now = Date.now()) {
     const elapsedMs = oath?.startedAt == null ? 0 : Math.max(0, (oath.completedAt ?? now) - oath.startedAt);

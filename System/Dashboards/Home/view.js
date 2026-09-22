@@ -1503,7 +1503,7 @@ calendar.setAttribute(
 
 
 let calendarNextWeekStart =
-    moment(todayISO)
+    moment()
         .startOf("isoWeek");
 
 
@@ -1511,12 +1511,73 @@ let calendarLoading = false;
 let calendarCanLoadMore = true;
 let calendarHasPositionedToday = false;
 
+// One clock per rendered Home view, including Dataview replacing a frame on
+// the same component. Separate leaves retain their own Calendar and clock.
+dv.container.hubCalendarClockDispose?.();
+let calendarClock = null;
+const disposeCalendarClock = () => {
+    clearInterval(calendarClock);
+    if (dv.container.hubCalendarClockDispose === disposeCalendarClock) {
+        delete dv.container.hubCalendarClockDispose;
+    }
+};
+dv.container.hubCalendarClockDispose = disposeCalendarClock;
+dv.component.register(disposeCalendarClock);
+
+const calendarNowRow = calendarBody.ownerDocument.createElement("div");
+calendarNowRow.className = "home-calendar-now";
+calendarNowRow.setAttribute("role", "separator");
+const calendarNowTime = calendarNowRow.createEl("time", { cls: "home-calendar-time" });
+calendarNowRow.createSpan({ cls: "home-calendar-now-line", attr: { "aria-hidden": "true" } });
+
+function updateCalendarNow() {
+    const now = moment(), date = now.format("YYYY-MM-DD");
+    const scrollTop = calendar.scrollTop;
+    let todayGroup = null;
+    for (const group of calendarBody.querySelectorAll(".home-calendar-day")) {
+        const isToday = group.dataset.calendarDate === date;
+        group.classList.toggle("is-today", isToday);
+        if (isToday) todayGroup = group;
+    }
+    if (todayGroup) {
+        const next = [...todayGroup.querySelectorAll(".home-calendar-row")].find(row =>
+            row.dataset.calendarStart && Number(row.dataset.calendarStart) > now.valueOf()
+        ) ?? todayGroup.querySelector(".home-calendar-day-empty");
+        calendarNowTime.textContent = now.format("HH:mm");
+        calendarNowTime.dateTime = now.format();
+        calendarNowRow.setAttribute("aria-label", `Current time ${now.format("HH:mm")}`);
+        // An ongoing event remains a single entry. All-day rows keep their
+        // existing positions; only timed start instants determine insertion.
+        if (calendarNowRow.parentElement !== todayGroup || calendarNowRow.nextSibling !== next) {
+            todayGroup.insertBefore(calendarNowRow, next);
+        }
+    } else {
+        calendarNowRow.remove();
+    }
+    // Insertion/removal can trigger browser scroll anchoring. Clock changes
+    // never navigate, even when the divider changes day or passes an event.
+    calendar.scrollTop = scrollTop;
+    updateCalendarTodayButton();
+}
+
+async function refreshCalendarNow() {
+    if (!frame.current()) return;
+    updateCalendarNow();
+    // A midnight rollover or wake can put today beyond the loaded weeks.
+    // Reuse the existing paged query; never scroll as part of this refresh.
+    while (frame.current() && gcal && !calendarLoading && calendarCanLoadMore &&
+        calendarNextWeekStart.valueOf() <= moment().valueOf() &&
+        !calendarBody.querySelector(".home-calendar-day.is-today")) {
+        await loadNextCalendarWeek();
+    }
+}
+
 
 function updateCalendarTodayButton() {
 
     const todayGroup =
         calendarBody.querySelector(
-            ".home-calendar-day.is-today"
+            ".home-calendar-day.is-today .home-calendar-now"
         );
 
 
@@ -1544,18 +1605,18 @@ function updateCalendarTodayButton() {
 
 
     calendarTodayButton.disabled =
-        todayRect.bottom > visibleTop &&
-        todayRect.top < calendarRect.bottom;
+        todayRect.top >= visibleTop &&
+        todayRect.bottom <= calendarRect.bottom;
 }
 
 
 function scrollCalendarToToday(
-    behavior = "smooth"
+    behavior = "auto"
 ) {
 
     const todayGroup =
         calendarBody.querySelector(
-            ".home-calendar-day.is-today"
+            ".home-calendar-day.is-today .home-calendar-now"
         );
 
 
@@ -1600,6 +1661,7 @@ function scrollCalendarToToday(
 calendarTodayButton.addEventListener(
     "click",
     () => {
+        updateCalendarNow();
         scrollCalendarToToday();
     }
 );
@@ -1616,6 +1678,8 @@ function renderCalendarEvent(
                 "home-calendar-row"
         });
 
+
+    if (!event.allDay) row.dataset.calendarStart = String(event.start.valueOf());
 
     const time =
         event.allDay
@@ -1788,14 +1852,11 @@ function renderCalendarWeek(
         const dayGroup =
             week.createDiv({
                 cls:
-                    "home-calendar-day" +
-                    (
-                        key === todayISO
-                            ? " is-today"
-                            : ""
-                    )
+                    "home-calendar-day"
             });
 
+
+        dayGroup.dataset.calendarDate = key;
 
         const dayHeading =
             dayGroup.createDiv({
@@ -1859,7 +1920,7 @@ function renderCalendarWeek(
     }
 
 
-    updateCalendarTodayButton();
+    updateCalendarNow();
 
 
     if (
@@ -1872,6 +1933,7 @@ function renderCalendarWeek(
 
         requestAnimationFrame(
             () => {
+                if (!frame.current()) return;
                 scrollCalendarToToday(
                     "auto"
                 );
@@ -1987,10 +2049,11 @@ async function loadNextCalendarWeek() {
         * The first loaded week contains today.
         * Use it to update the Home summary.
         */
+        const calendarTodayISO = moment().format("YYYY-MM-DD");
         if (
-            todayISO >=
+            calendarTodayISO >=
                 weekStart.format("YYYY-MM-DD") &&
-            todayISO <=
+            calendarTodayISO <=
                 weekEnd.format("YYYY-MM-DD")
         ) {
 
@@ -2004,7 +2067,7 @@ async function loadNextCalendarWeek() {
                     if (
                         event.start.format(
                             "YYYY-MM-DD"
-                        ) !== todayISO
+                        ) !== calendarTodayISO
                     ) {
                         return false;
                     }
@@ -2106,7 +2169,10 @@ calendar.addEventListener(
 );
 
 
-frame.defer(() => loadNextCalendarWeek());
+frame.defer(() => {
+    void loadNextCalendarWeek().then(() => refreshCalendarNow());
+    calendarClock = setInterval(() => { void refreshCalendarNow(); }, 60000);
+});
 // ---------- PROJECTS ----------
 
 const projectPanel = grid.createDiv({

@@ -1388,6 +1388,9 @@ function validateOath(draft, now = Date.now()) {
     if (!validDuration(draft.durationMs)) {
         throw Error("Choose a duration in whole minutes, at least one minute.");
     }
+    if (!Array.isArray(draft.tasks) || !draft.tasks.length) {
+        throw Error("Select at least one task for your Oath.");
+    }
 }
 function oathTime(oath, now = Date.now()) {
     const elapsedMs = oath?.startedAt == null ? 0 : Math.max(0, (oath.completedAt ?? now) - oath.startedAt);
@@ -4572,10 +4575,26 @@ module.exports = { mountNoteRail };
 },
 "lib/ui/oath-tasks.js": function (module, exports, __hubRequire) {
 "use strict";
-const { oathProgress, fulfilmentLabel } = __hubRequire("lib/domain/oath.js");
+const { oathProgress, oathTime } = __hubRequire("lib/domain/oath.js");
 const { normalizedTaskText } = __hubRequire("lib/domain/tasks.js");
 
-function createOathTaskSection(service, body) {
+function countdown(ms) {
+    const seconds = Math.ceil(ms / 1000), hours = Math.floor(seconds / 3600);
+    const minutes = String(Math.floor(seconds / 60) % 60).padStart(2, "0");
+    const remainder = String(seconds % 60).padStart(2, "0");
+    return `${hours ? hours + ":" : ""}${minutes}:${remainder}`;
+}
+
+function createOathTaskSection(service, body, component) {
+    let status = null;
+    function updateClock() {
+        if (!status || !service.active || service.current.id !== status.id) return;
+        const timer = service.fulfilled ? "Fulfilled" :
+            `${countdown(oathTime(service.current, service.now()).remainingMs)} remaining`;
+        if (status.timer.textContent !== timer) status.timer.textContent = timer;
+    }
+    // Reuse the service clock; task rows only rerender on ordinary state changes.
+    if (service) component.register(service.onChange(updateClock, true));
     const taskOf = item => item.task && typeof item.task === "object" ? item.task : item;
     function partition(items, wrap = task => task) {
         if (!service?.active) return { ordinary: items, pinned: [], missing: [] };
@@ -4588,21 +4607,22 @@ function createOathTaskSection(service, body) {
             missing: service.work.filter(item => !item.task), oath: service.current };
     }
     function render(plan, renderTask) {
-        if (!plan.oath) return;
+        status = null;
+        if (!plan.oath?.tasks.length) return;
         const { setIcon } = require("obsidian");
-        const progress = oathProgress(service.work), taskBased = plan.oath.tasks.length > 0;
-        const banner = body.createDiv({ cls: "hub-oath-banner" });
-        setIcon(banner.createSpan({ cls: "hub-oath-icon" }), "shield");
-        banner.createSpan({ cls: "hub-oath-label", text: "Oathbound" });
-        banner.createSpan({ cls: "hub-oath-condition", text: fulfilmentLabel(plan.oath) });
-        banner.createSpan({ cls: "hub-oath-count", text: taskBased ? `${progress.completed} / ${progress.total} completed` : "In progress" });
-        if (taskBased) banner.createEl("progress", { attr: { max: String(progress.total), value: String(progress.completed), "aria-label": "Oathbound task progress" } });
-        if (!taskBased) return;
+        const progress = oathProgress(service.work);
         const box = body.createDiv({ cls: "hub-oath-pinned" });
         const heading = box.createDiv({ cls: "hub-oath-pinned-heading" });
-        setIcon(heading.createSpan({ cls: "hub-oath-icon" }), "pin");
-        heading.createEl("strong", { text: "Pinned for Oath" });
-        heading.createSpan({ text: "Your selected work" });
+        const title = heading.createDiv({ cls: "hub-oath-pinned-title" });
+        setIcon(title.createSpan({ cls: "hub-oath-icon" }), "pin");
+        title.createEl("strong", { text: "Pinned for Oath" });
+        const live = heading.createDiv({ cls: "hub-oath-pinned-status" });
+        const timer = live.createSpan({ cls: "hub-oath-pinned-timer" });
+        const completion = live.createSpan({ cls: "hub-oath-pinned-completion" });
+        completion.createSpan({ text: "\u00b7", attr: { "aria-hidden": "true" } });
+        completion.createSpan({ text: `${progress.completed} / ${progress.total} completed` });
+        status = { id: plan.oath.id, timer };
+        updateClock();
         for (const item of plan.pinned) renderTask(item, !!taskOf(item).completed, box);
         for (const item of plan.missing) {
             const missing = box.createDiv({ cls: "hub-oath-missing" });
@@ -4790,20 +4810,22 @@ function openOathSetup(service) {
                 input.value = draft.durationMs ? draft.durationMs / 60000 : "";
                 input.addEventListener("input", () => {
                     draft.durationMs = Number(input.value) * 60000;
-                    next.disabled = !validDuration(draft.durationMs);
+                    next.disabled = !draft.tasks.length || !validDuration(draft.durationMs);
                 });
             }
             const error = this.contentEl.createDiv({ cls: "hub-task-error", attr: { role: "alert" } });
             const actions = this.contentEl.createDiv({ cls: "hub-oath-actions" });
             actions.createEl("button", { text: "Cancel" }).addEventListener("click", () => this.close());
             const next = actions.createEl("button", { text: "Continue", cls: "mod-cta" });
-            next.disabled = !validDuration(draft.durationMs);
+            next.disabled = !draft.tasks.length || !validDuration(draft.durationMs);
             next.addEventListener("click", () => {
-                try { validateOath(draft, service.now()); this.review(); } catch (problem) { error.textContent = problem.message; }
+                try { this.review(); } catch (problem) { error.textContent = problem.message; }
             });
         }
         review() {
-            const draft = this.draft; this.contentEl.empty();
+            const draft = this.draft;
+            validateOath(draft, service.now());
+            this.contentEl.empty();
             this.contentEl.classList.remove("hub-oath-setup");
             this.contentEl.classList.add("hub-oath-review");
             this.contentEl.createEl("h2", { text: OATH_COPY.confirmation });
@@ -4811,7 +4833,7 @@ function openOathSetup(service) {
             const summary = this.section("Your Oath").createDiv({ cls: "hub-oath-row-group" });
             for (const [icon, label, value] of [
                 ["clock", "Starts", draft.start === "now" ? "Now" : dateLabel(draft.scheduledAt)],
-                ["file-text", "Work", draft.tasks.length ? draft.tasks.map(task => task.text) : "General work"],
+                ["file-text", "Work", draft.tasks.map(task => task.text)],
                 ["timer", "Commitment", oathDuration(draft.durationMs)]
             ]) {
                 oathRow(summary, icon, value, label);
@@ -5731,8 +5753,7 @@ function openTaskEditor(service, task, onEdit = () => {}) {
             this.closed = false;
             this.modalEl.classList.add("hub-task-dialog");
             this.contentEl.classList.add("hub-button-scope", "hub-task-form");
-            const heading = this.contentEl.createEl("h2", { cls: "hub-task-dialog-title" });
-            setIcon(heading.createSpan(), "square-check"); heading.createSpan({ text: "Edit task" });
+            this.contentEl.createEl("h2", { cls: "hub-task-dialog-title", text: "Edit task" });
             const loading = this.contentEl.createEl("p", { text: "Loading task…" });
             try {
                 this.snapshot = await service.read(task);
@@ -5743,45 +5764,43 @@ function openTaskEditor(service, task, onEdit = () => {}) {
         render() {
             const snapshot = this.snapshot;
             const form = this.contentEl.createEl("form");
-            const section = (title, icon, help) => {
+            const section = (title, help) => {
                 const el = form.createEl("section", { cls: "hub-task-section" });
-                const heading = el.createEl("h3");
-                if (icon) setIcon(heading.createSpan(), icon);
-                heading.createSpan({ text: title });
+                el.createEl("h3", { text: title });
                 if (help) el.createEl("p", { cls: "hub-task-help", text: help });
                 return el;
             };
             const title = section("Task");
             const input = title.createEl("input", { type: "text", cls: "hub-task-title-input", attr: { "aria-label": "Task", required: "" } });
             input.value = snapshot.text;
-            const necessity = section("Necessity", null, "Highlight this task if it is especially important. Optional.");
+            const necessity = section("Necessity");
+            const necessityHeading = necessity.createDiv({ cls: "hub-task-necessity-heading" });
+            necessityHeading.appendChild(necessity.querySelector("h3"));
             const choices = necessity.createDiv({ cls: "hub-task-necessity-choices", attr: { role: "group", "aria-label": "Necessity" } });
             let selected = snapshot.necessity;
             const buttons = ["should", "must"].map(value => {
-                const button = choices.createEl("button", { text: value === "should" ? "Should" : "Must",
+                const button = choices.createEl("button", { text: value === "should" ? "Should do" : "Must do",
                     cls: `hub-task-necessity-choice is-${value}`, attr: { type: "button" } });
                 button.addEventListener("click", () => { selected = selected === value ? null : value; sync(); });
                 return { button, value };
             });
-            const clear = choices.createEl("button", { text: "Clear", cls: "hub-button-plain hub-task-clear-necessity", attr: { type: "button" } });
-            const hint = necessity.createEl("p", { cls: "hub-task-help", attr: { "aria-live": "polite" } });
+            const clear = necessityHeading.createEl("button", { text: "Clear", cls: "hub-button-plain hub-task-clear-necessity", attr: { type: "button" } });
             const sync = () => {
                 for (const { button, value } of buttons) button.setAttribute("aria-pressed", String(selected === value));
                 clear.disabled = selected === null;
-                hint.textContent = selected ? "Clear the classification to display this task as TO DO." : "No necessity set. This task appears as TO DO.";
             };
             clear.addEventListener("click", () => { selected = null; sync(); }); sync();
-            const dates = section("Dates", "calendar-days", "Add dates if relevant. All are optional.");
+            const dates = section("Dates");
             const fields = dates.createDiv({ cls: "hub-task-date-fields" });
-            const dateInput = (text, key, help) => {
+            const dateInput = (text, key) => {
                 const label = fields.createEl("label"); label.createSpan({ text });
                 const input = label.createEl("input", { type: "date" }); input.value = snapshot[key] ?? "";
-                label.createSpan({ cls: "hub-task-help", text: help });
                 // Native local controls, as in Oath; a separate time permits date-only values.
                 const timeKey = key.replace("Date", "Time");
-                const time = label.createEl("input", { type: "time", attr: { "aria-label": text + " time (optional)" } });
+                const timeRow = label.createDiv({ cls: "hub-task-time-field" });
+                const time = timeRow.createEl("input", { type: "time", attr: { "aria-label": text + " time (optional)" } });
                 time.value = snapshot[timeKey] ?? "";
-                const clearTime = label.createEl("button", { text: "Clear time", attr: { type: "button" } });
+                const clearTime = timeRow.createEl("button", { text: "Clear time", attr: { type: "button" } });
                 const syncTime = () => {
                     time.disabled = !input.value;
                     if (!input.value) time.value = "";
@@ -5794,10 +5813,10 @@ function openTaskEditor(service, task, onEdit = () => {}) {
                 input.timeInput = time;
                 return input;
             };
-            const from = dateInput("Start (From)", "fromDate", "Earliest date to start");
-            const due = dateInput("Due", "dueDate", "Deadline for completion");
+            const from = dateInput("Start", "fromDate");
+            const due = dateInput("Due", "dueDate");
             from.addEventListener("change", () => { due.min = from.value; }); due.min = from.value;
-            const steps = section("Steps", "list-checks", "Break the task into smaller actions (optional).");
+            const steps = section("Steps", "Break the task into smaller actions (optional).");
             const list = steps.createDiv({ cls: "hub-task-step-list" });
             const stepRows = [];
             const addStep = step => {
@@ -5821,7 +5840,7 @@ function openTaskEditor(service, task, onEdit = () => {}) {
             const add = steps.createEl("button", { cls: "hub-task-add-step", attr: { type: "button" } });
             setIcon(add.createSpan(), "plus"); add.createSpan({ text: "Add step" });
             add.addEventListener("click", () => addStep({}).focus());
-            const location = section("Location", "folder", "This task is saved in:");
+            const location = section("Location");
             location.createDiv({ cls: "hub-task-source", text: snapshot.path.replace(/\.md$/i, "").split("/").join(" › ") });
             const errorEl = form.createDiv({ cls: "hub-task-error", attr: { role: "alert" } });
             const actions = form.createDiv({ cls: "hub-task-dialog-actions" });
@@ -5921,7 +5940,7 @@ module.exports = { openTaskEditor, openTaskCreator };
 
 // Panel-local disclosure and pending state; reusable wherever a parent task is
 // rendered. Receives existing Markdown rendering and source-mutation boundaries.
-function createTaskSteps({ markdown, mutate, onEdit, report }) {
+function createTaskSteps({ markdown, mutate, onEdit, report, setIcon }) {
     const states = new Map();
     function bind(info, task, getPath) {
         if (!task.steps?.length) return;
@@ -5934,6 +5953,7 @@ function createTaskSteps({ markdown, mutate, onEdit, report }) {
         for (const event of ["click", "keydown", "contextmenu"]) host.addEventListener(event, e => e.stopPropagation());
         const toggle = host.createEl("button", { cls: "hub-task-steps-toggle", attr: { type: "button" } });
         const chevron = toggle.createSpan({ cls: "hub-task-steps-chevron", attr: { "aria-hidden": "true" } });
+        toggle.createSpan({ cls: "hub-task-steps-label", text: "Steps" });
         const progress = toggle.createSpan({ cls: "hub-task-step-progress", attr: { "aria-live": "polite" } });
         const list = host.createDiv({ cls: "hub-task-step-items" });
         const rows = task.steps.map(step => {
@@ -5965,10 +5985,10 @@ function createTaskSteps({ markdown, mutate, onEdit, report }) {
                 row.classList.toggle("is-completed", checkbox.checked);
                 if (checkbox.checked) completed++;
             }
-            progress.textContent = `${completed} / ${rows.length} steps`;
+            progress.textContent = `${completed}/${rows.length}`;
             toggle.setAttribute("aria-expanded", String(state.open));
             toggle.setAttribute("aria-label", `${state.open ? "Collapse" : "Expand"} Steps: ${progress.textContent}`);
-            chevron.textContent = state.open ? "⌄" : "›";
+            setIcon(chevron, state.open ? "chevron-down" : "chevron-right");
             list.hidden = !state.open;
         }
         toggle.addEventListener("click", () => { state.open = !state.open; refresh(); });
@@ -6001,9 +6021,9 @@ function createTaskUi({ app, component, body, mutate, onEdit, editTask, createTa
     const expanded = new Set();
     const markdown = createHubMarkdown({ app, component });
     const report = error => { console.error("Hub task action failed", error); new Notice(error.message || "Could not update task."); };
-    const steps = createTaskSteps({ markdown, mutate, onEdit, report });
+    const steps = createTaskSteps({ markdown, mutate, onEdit, report, setIcon });
     component.register(() => steps.clear());
-    const oathSection = createOathTaskSection(oath, body);
+    const oathSection = createOathTaskSection(oath, body, component);
     if (oath) component.register(oath.onChange(() => { if (!disposed && body.isConnected) lastRender?.(); }));
 
     function defer(render) {
@@ -6037,7 +6057,11 @@ function createTaskUi({ app, component, body, mutate, onEdit, editTask, createTa
 
     function groups(items) {
         const grouped = taskGroups(items, renderNow);
-        for (const item of grouped.future) scheduleRefresh(taskStartDate(item.task ?? item).getTime());
+        for (const item of grouped.future) {
+            // Dataview tasks have a boolean `task` flag; dashboard wrappers hold an object.
+            const task = item.task && typeof item.task === "object" ? item.task : item;
+            scheduleRefresh(taskStartDate(task).getTime());
+        }
         return grouped;
     }
 
@@ -6184,11 +6208,8 @@ function createTaskUi({ app, component, body, mutate, onEdit, editTask, createTa
                 event.preventDefault(); event.stopImmediatePropagation();
                 editTask({ ...task, path: getPath() }, onEdit);
             };
-            // Checkbox/links and the source breadcrumb retain their own action.
-            row.addEventListener("click", event => {
-                if (event.target.closest(".home-task-location, .project-task-location")) return;
-                open(event);
-            });
+            // Checkbox, links, and buttons retain their own action.
+            row.addEventListener("click", open);
             textEl.addEventListener("keydown", event => {
                 if (event.key === "Enter" || event.key === " ") open(event);
             });

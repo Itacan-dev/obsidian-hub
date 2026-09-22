@@ -1094,18 +1094,22 @@
     font-style: italic;
 }
 
-.home-calendar-row {
+.home-calendar-row,
+.home-calendar-now {
     position: relative;
     display: grid;
     grid-template-columns: 48px 1fr;
     gap: 9px;
 
     padding: 6px 0 6px 11px;
+}
 
+.home-calendar-row {
     border-bottom: 1px solid var(--background-modifier-border);
 }
 
-.home-calendar-row:last-child {
+.home-calendar-row:last-child,
+.home-calendar-row:has(+ .home-calendar-now:last-child) {
     border-bottom: none;
 }
 
@@ -1114,6 +1118,23 @@
     font-weight: 650;
     color: var(--text-muted);
     white-space: nowrap;
+}
+
+/* The clock shares the event columns without adding event decoration. */
+.home-calendar-now {
+    align-items: center;
+    color: var(--interactive-accent);
+}
+
+.home-calendar-now .home-calendar-time {
+    color: inherit;
+}
+
+.home-calendar-now-line {
+    height: 1px;
+    min-width: 0;
+    background: currentColor;
+    opacity: 0.6;
 }
 
 .home-calendar-info {

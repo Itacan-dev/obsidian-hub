@@ -2,7 +2,7 @@
 
 // Panel-local disclosure and pending state; reusable wherever a parent task is
 // rendered. Receives existing Markdown rendering and source-mutation boundaries.
-function createTaskSteps({ markdown, mutate, onEdit, report }) {
+function createTaskSteps({ markdown, mutate, onEdit, report, setIcon }) {
     const states = new Map();
     function bind(info, task, getPath) {
         if (!task.steps?.length) return;
@@ -15,6 +15,7 @@ function createTaskSteps({ markdown, mutate, onEdit, report }) {
         for (const event of ["click", "keydown", "contextmenu"]) host.addEventListener(event, e => e.stopPropagation());
         const toggle = host.createEl("button", { cls: "hub-task-steps-toggle", attr: { type: "button" } });
         const chevron = toggle.createSpan({ cls: "hub-task-steps-chevron", attr: { "aria-hidden": "true" } });
+        toggle.createSpan({ cls: "hub-task-steps-label", text: "Steps" });
         const progress = toggle.createSpan({ cls: "hub-task-step-progress", attr: { "aria-live": "polite" } });
         const list = host.createDiv({ cls: "hub-task-step-items" });
         const rows = task.steps.map(step => {
@@ -46,10 +47,10 @@ function createTaskSteps({ markdown, mutate, onEdit, report }) {
                 row.classList.toggle("is-completed", checkbox.checked);
                 if (checkbox.checked) completed++;
             }
-            progress.textContent = `${completed} / ${rows.length} steps`;
+            progress.textContent = `${completed}/${rows.length}`;
             toggle.setAttribute("aria-expanded", String(state.open));
             toggle.setAttribute("aria-label", `${state.open ? "Collapse" : "Expand"} Steps: ${progress.textContent}`);
-            chevron.textContent = state.open ? "⌄" : "›";
+            setIcon(chevron, state.open ? "chevron-down" : "chevron-right");
             list.hidden = !state.open;
         }
         toggle.addEventListener("click", () => { state.open = !state.open; refresh(); });

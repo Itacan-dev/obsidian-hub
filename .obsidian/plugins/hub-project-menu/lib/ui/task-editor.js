@@ -7,8 +7,7 @@ function openTaskEditor(service, task, onEdit = () => {}) {
             this.closed = false;
             this.modalEl.classList.add("hub-task-dialog");
             this.contentEl.classList.add("hub-button-scope", "hub-task-form");
-            const heading = this.contentEl.createEl("h2", { cls: "hub-task-dialog-title" });
-            setIcon(heading.createSpan(), "square-check"); heading.createSpan({ text: "Edit task" });
+            this.contentEl.createEl("h2", { cls: "hub-task-dialog-title", text: "Edit task" });
             const loading = this.contentEl.createEl("p", { text: "Loading task…" });
             try {
                 this.snapshot = await service.read(task);
@@ -19,45 +18,43 @@ function openTaskEditor(service, task, onEdit = () => {}) {
         render() {
             const snapshot = this.snapshot;
             const form = this.contentEl.createEl("form");
-            const section = (title, icon, help) => {
+            const section = (title, help) => {
                 const el = form.createEl("section", { cls: "hub-task-section" });
-                const heading = el.createEl("h3");
-                if (icon) setIcon(heading.createSpan(), icon);
-                heading.createSpan({ text: title });
+                el.createEl("h3", { text: title });
                 if (help) el.createEl("p", { cls: "hub-task-help", text: help });
                 return el;
             };
             const title = section("Task");
             const input = title.createEl("input", { type: "text", cls: "hub-task-title-input", attr: { "aria-label": "Task", required: "" } });
             input.value = snapshot.text;
-            const necessity = section("Necessity", null, "Highlight this task if it is especially important. Optional.");
+            const necessity = section("Necessity");
+            const necessityHeading = necessity.createDiv({ cls: "hub-task-necessity-heading" });
+            necessityHeading.appendChild(necessity.querySelector("h3"));
             const choices = necessity.createDiv({ cls: "hub-task-necessity-choices", attr: { role: "group", "aria-label": "Necessity" } });
             let selected = snapshot.necessity;
             const buttons = ["should", "must"].map(value => {
-                const button = choices.createEl("button", { text: value === "should" ? "Should" : "Must",
+                const button = choices.createEl("button", { text: value === "should" ? "Should do" : "Must do",
                     cls: `hub-task-necessity-choice is-${value}`, attr: { type: "button" } });
                 button.addEventListener("click", () => { selected = selected === value ? null : value; sync(); });
                 return { button, value };
             });
-            const clear = choices.createEl("button", { text: "Clear", cls: "hub-button-plain hub-task-clear-necessity", attr: { type: "button" } });
-            const hint = necessity.createEl("p", { cls: "hub-task-help", attr: { "aria-live": "polite" } });
+            const clear = necessityHeading.createEl("button", { text: "Clear", cls: "hub-button-plain hub-task-clear-necessity", attr: { type: "button" } });
             const sync = () => {
                 for (const { button, value } of buttons) button.setAttribute("aria-pressed", String(selected === value));
                 clear.disabled = selected === null;
-                hint.textContent = selected ? "Clear the classification to display this task as TO DO." : "No necessity set. This task appears as TO DO.";
             };
             clear.addEventListener("click", () => { selected = null; sync(); }); sync();
-            const dates = section("Dates", "calendar-days", "Add dates if relevant. All are optional.");
+            const dates = section("Dates");
             const fields = dates.createDiv({ cls: "hub-task-date-fields" });
-            const dateInput = (text, key, help) => {
+            const dateInput = (text, key) => {
                 const label = fields.createEl("label"); label.createSpan({ text });
                 const input = label.createEl("input", { type: "date" }); input.value = snapshot[key] ?? "";
-                label.createSpan({ cls: "hub-task-help", text: help });
                 // Native local controls, as in Oath; a separate time permits date-only values.
                 const timeKey = key.replace("Date", "Time");
-                const time = label.createEl("input", { type: "time", attr: { "aria-label": text + " time (optional)" } });
+                const timeRow = label.createDiv({ cls: "hub-task-time-field" });
+                const time = timeRow.createEl("input", { type: "time", attr: { "aria-label": text + " time (optional)" } });
                 time.value = snapshot[timeKey] ?? "";
-                const clearTime = label.createEl("button", { text: "Clear time", attr: { type: "button" } });
+                const clearTime = timeRow.createEl("button", { text: "Clear time", attr: { type: "button" } });
                 const syncTime = () => {
                     time.disabled = !input.value;
                     if (!input.value) time.value = "";
@@ -70,10 +67,10 @@ function openTaskEditor(service, task, onEdit = () => {}) {
                 input.timeInput = time;
                 return input;
             };
-            const from = dateInput("Start (From)", "fromDate", "Earliest date to start");
-            const due = dateInput("Due", "dueDate", "Deadline for completion");
+            const from = dateInput("Start", "fromDate");
+            const due = dateInput("Due", "dueDate");
             from.addEventListener("change", () => { due.min = from.value; }); due.min = from.value;
-            const steps = section("Steps", "list-checks", "Break the task into smaller actions (optional).");
+            const steps = section("Steps", "Break the task into smaller actions (optional).");
             const list = steps.createDiv({ cls: "hub-task-step-list" });
             const stepRows = [];
             const addStep = step => {
@@ -97,7 +94,7 @@ function openTaskEditor(service, task, onEdit = () => {}) {
             const add = steps.createEl("button", { cls: "hub-task-add-step", attr: { type: "button" } });
             setIcon(add.createSpan(), "plus"); add.createSpan({ text: "Add step" });
             add.addEventListener("click", () => addStep({}).focus());
-            const location = section("Location", "folder", "This task is saved in:");
+            const location = section("Location");
             location.createDiv({ cls: "hub-task-source", text: snapshot.path.replace(/\.md$/i, "").split("/").join(" › ") });
             const errorEl = form.createDiv({ cls: "hub-task-error", attr: { role: "alert" } });
             const actions = form.createDiv({ cls: "hub-task-dialog-actions" });

@@ -17,9 +17,9 @@ function createTaskUi({ app, component, body, mutate, onEdit, editTask, createTa
     const expanded = new Set();
     const markdown = createHubMarkdown({ app, component });
     const report = error => { console.error("Hub task action failed", error); new Notice(error.message || "Could not update task."); };
-    const steps = createTaskSteps({ markdown, mutate, onEdit, report });
+    const steps = createTaskSteps({ markdown, mutate, onEdit, report, setIcon });
     component.register(() => steps.clear());
-    const oathSection = createOathTaskSection(oath, body);
+    const oathSection = createOathTaskSection(oath, body, component);
     if (oath) component.register(oath.onChange(() => { if (!disposed && body.isConnected) lastRender?.(); }));
 
     function defer(render) {
@@ -53,7 +53,11 @@ function createTaskUi({ app, component, body, mutate, onEdit, editTask, createTa
 
     function groups(items) {
         const grouped = taskGroups(items, renderNow);
-        for (const item of grouped.future) scheduleRefresh(taskStartDate(item.task ?? item).getTime());
+        for (const item of grouped.future) {
+            // Dataview tasks have a boolean `task` flag; dashboard wrappers hold an object.
+            const task = item.task && typeof item.task === "object" ? item.task : item;
+            scheduleRefresh(taskStartDate(task).getTime());
+        }
         return grouped;
     }
 
@@ -200,11 +204,8 @@ function createTaskUi({ app, component, body, mutate, onEdit, editTask, createTa
                 event.preventDefault(); event.stopImmediatePropagation();
                 editTask({ ...task, path: getPath() }, onEdit);
             };
-            // Checkbox/links and the source breadcrumb retain their own action.
-            row.addEventListener("click", event => {
-                if (event.target.closest(".home-task-location, .project-task-location")) return;
-                open(event);
-            });
+            // Checkbox, links, and buttons retain their own action.
+            row.addEventListener("click", open);
             textEl.addEventListener("keydown", event => {
                 if (event.key === "Enter" || event.key === " ") open(event);
             });

@@ -17,6 +17,7 @@ const originalSetIcon=obsidian.setIcon;
 obsidian.setIcon=(el,name)=>{
  el.dataset.icon=name;
  if(!name.startsWith('chevron-')) return originalSetIcon(el,name);
+ el.replaceChildren();
  const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');svg.setAttribute('viewBox','0 0 24 24');svg.setAttribute('fill','none');svg.setAttribute('stroke','currentColor');
  const line=document.createElementNS(svg.namespaceURI,'polyline');line.setAttribute('points',name==='chevron-down'?'6 9 12 15 18 9':'9 18 15 12 9 6');svg.append(line);el.append(svg);
 };
@@ -67,17 +68,18 @@ window.onload=async()=>{try{
   }
   assert(!/\bDue |\bFrom /.test(body.textContent),'No old task-row date prefixes');
   assert(body.querySelector('time[datetime="'+shift(-2)+'"]').parentElement.classList.contains('is-overdue'),'Explicit overdue due date');
-  assert(body.querySelector('.hub-task-step-progress').textContent==='1 / 2 steps','Restrained step progress');
+  assert(body.querySelector('.hub-task-step-progress').textContent==='1/2','Restrained step progress');
+  assert(body.querySelector('.hub-task-steps-label').textContent==='Steps'&&body.querySelector('.hub-task-steps-chevron[data-icon=chevron-right]'),'Full Steps label and icon');
   let stepHost=body.querySelector('.hub-task-steps');
   assert([...body.querySelectorAll('.'+prefix+'-task-location')].every(el=>el.textContent==='MM5022 HT26, Complex Analysis'),'Only immediate source folder');
   assert(stepHost.parentElement.querySelector('.'+prefix+'-task-location'),'Steps retain their source');
   assert(stepHost.querySelector('.hub-task-step-items').hidden,'Steps start collapsed');
   stepHost.querySelector('button').click();assert(!stepHost.querySelector('.hub-task-step-items').hidden&&edits===0&&controller.opens()===0,'Disclosure independent from parent');
-  stepHost.querySelectorAll('input')[1].click();assert(stepHost.querySelector('.hub-task-step-progress').textContent==='2 / 2 steps','Step progress updates before write completes');
+  stepHost.querySelectorAll('input')[1].click();assert(stepHost.querySelector('.hub-task-step-progress').textContent==='2/2','Step progress updates before write completes');
   controller.render();await settle();stepHost=body.querySelector('.hub-task-steps');assert(stepHost.querySelector('button').getAttribute('aria-expanded')==='true'&&stepHost.querySelectorAll('input')[1].checked&&stepHost.querySelectorAll('input')[1].disabled,'Expansion and optimistic progress survive pending rerender');
   release();await settle();stepHost=body.querySelector('.hub-task-steps');assert(stepContent.includes('    - [x] Outline Workspace')&&stepContent.includes('- [ ] Write the primary views section'),'Source Step updated; parent stays incomplete');
-  stepHost.querySelectorAll('input')[0].click();release();await settle();stepHost=body.querySelector('.hub-task-steps');assert(stepHost.querySelector('.hub-task-step-progress').textContent==='1 / 2 steps'&&stepContent.includes('    - [ ] Outline Homepage'),'Repeated unchecking updates source and progress');
-  failStep=true;stepHost.querySelectorAll('input')[0].click();release();await settle();failStep=false;assert(!stepHost.querySelectorAll('input')[0].checked&&stepHost.querySelector('.hub-task-step-progress').textContent==='1 / 2 steps','Failed write restores checkbox and progress');assert(notices.pop()==='Step write failed','Write failure reported');
+  stepHost.querySelectorAll('input')[0].click();release();await settle();stepHost=body.querySelector('.hub-task-steps');assert(stepHost.querySelector('.hub-task-step-progress').textContent==='1/2'&&stepContent.includes('    - [ ] Outline Homepage'),'Repeated unchecking updates source and progress');
+  failStep=true;stepHost.querySelectorAll('input')[0].click();release();await settle();failStep=false;assert(!stepHost.querySelectorAll('input')[0].checked&&stepHost.querySelector('.hub-task-step-progress').textContent==='1/2','Failed write restores checkbox and progress');assert(notices.pop()==='Step write failed','Write failure reported');
   assert(edits===0&&toggles===0&&controller.opens()===0,'Step interaction never edits, opens or completes parent');
   stepHost.querySelector('button').click();assert(stepHost.querySelector('.hub-task-step-items').hidden,'Steps collapse again');
   const future=[...body.querySelectorAll('.hub-task-group-toggle')].find(el=>el.textContent.includes('future'));assert(future.querySelector('[data-icon=chevron-right]'),'Collapsed uses icon chevron');future.click();await settle();assert(texts().includes('Renew passport'),'Expand future tasks');assert(body.querySelector('.hub-task-group-toggle[aria-expanded=true] [data-icon=chevron-down]'),'Expanded uses icon chevron');
@@ -91,6 +93,10 @@ window.onload=async()=>{try{
   const clippedTitle=[...body.querySelectorAll('.'+prefix+'-task-text')].find(el=>el.textContent.startsWith('A distant')),clippedSource=body.querySelector('.'+prefix+'-task-location');
   assert(clippedTitle.scrollWidth<=clippedTitle.clientWidth+1&&getComputedStyle(clippedTitle).whiteSpace==='normal'&&clippedTitle.clientHeight>20,'Long titles wrap without clipping');
   assert(clippedSource.scrollWidth>clippedSource.clientWidth&&getComputedStyle(clippedSource).textOverflow==='ellipsis','Long folder names ellipsize');
+  const stepToggle=body.querySelector('.hub-task-steps-toggle'),stepsLabel=stepToggle.querySelector('.hub-task-steps-label'),countLabel=stepToggle.querySelector('.hub-task-step-progress');
+  assert(stepsLabel.scrollWidth<=stepsLabel.clientWidth&&countLabel.scrollWidth<=countLabel.clientWidth,'Full Steps label and compact count at narrow width');
+  assert(Math.abs(stepToggle.getBoundingClientRect().left-stepToggle.closest('.'+prefix+'-task-info').getBoundingClientRect().left)<1,'Steps aligns to parent content');
+
   for(const row of body.querySelectorAll('.'+prefix+'-task-row')) {
    const date=row.querySelector('.hub-task-dates'),info=row.querySelector('.'+prefix+'-task-info'),source=row.querySelector('.'+prefix+'-task-location'),title=row.querySelector('.'+prefix+'-task-text');
    if(date) {
@@ -134,6 +140,29 @@ window.onload=async()=>{try{
   save:async(snapshot,values)=>{const result=planning.saveTaskSnapshot(content,snapshot,values,values.necessity?'test-id':snapshot.hubTaskId);metadata=planning.validateTaskMetadata(values);content=result.content;writes++;return result.edit},create:async(path,text)=>{assert(path===file.path,'Destination note passed');content=planning.appendTask(content,text);writes++}};
  let modal=openTaskEditor(service,{});await settle();let form=modal.contentEl;
  assert(form.querySelectorAll('[aria-pressed=true]').length===0,'Unclassified task has neither necessity selected');
+ const necessityButtons=[...form.querySelectorAll('.hub-task-necessity-choice')];
+ assert(necessityButtons.map(b=>b.textContent).join('|')==='Should do|Must do','Exact necessity labels');
+ assert(necessityButtons[0].getBoundingClientRect().width===necessityButtons[1].getBoundingClientRect().width,'Equal necessity button widths');
+ assert(!form.querySelector('h3 [data-icon]')&&!modal.contentEl.querySelector('h2 [data-icon]'),'No decorative heading icons');
+ assert(form.querySelector('.hub-task-add-step [data-icon=plus]')&&form.querySelector('.hub-task-step [data-icon=x]'),'Functional action icons retained');
+ assert(form.querySelector('.hub-task-necessity-heading h3').textContent==='Necessity'&&form.querySelector('.hub-task-necessity-heading .hub-task-clear-necessity'),'Clear shares heading row');
+ assert(!form.querySelector('.hub-task-necessity-choices .hub-task-clear-necessity')&&!form.querySelector('input[type=radio]'),'Only two cards without radio circles');
+ for(const width of [680,420]) {
+  modal.modalEl.style.width=width+'px';
+  const group=form.querySelector('.hub-task-necessity-choices').getBoundingClientRect(),a=necessityButtons[0].getBoundingClientRect(),b=necessityButtons[1].getBoundingClientRect();
+  assert(Math.abs(a.width-b.width)<1&&a.height===b.height,'Equal card dimensions at '+width);
+  assert(Math.abs(a.left-group.left)<1&&Math.abs(b.right-group.right)<1&&Math.abs(b.left-a.right-10)<1,'Cards fill width with Oath gap at '+width);
+ }
+ modal.modalEl.style.width='';
+ necessityButtons[0].click();assert(necessityButtons[0].getAttribute('aria-pressed')==='true'&&necessityButtons[1].getAttribute('aria-pressed')==='false','Should do selects exclusively');
+ await new Promise(resolve=>setTimeout(resolve,160));
+ assert(getComputedStyle(necessityButtons[0]).color==='rgb(235, 189, 88)','Selected Should do remains yellow');
+ form.querySelector('.hub-task-clear-necessity').click();
+
+ assert(!/Highlight this task|Clear the classification|Add dates if relevant|Earliest date|Deadline for completion|This task is saved in|Start \(From\)/.test(form.textContent),'Redundant helper text removed');
+ assert(form.textContent.includes('Break the task into smaller actions (optional).'),'Steps help retained');
+ assert(form.querySelector('.hub-task-source').textContent.includes('Topology'),'Location retained');
+
  assert(form.querySelectorAll('input[type=date]').length===2&&!/Until|Planned/.test(form.textContent),'Only From and Due');
  const must=form.querySelector('.is-must'),clearNecessity=form.querySelector('.hub-task-clear-necessity');must.click();assert(must.getAttribute('aria-pressed')==='true','Select must');clearNecessity.click();assert(must.getAttribute('aria-pressed')==='false','Clear necessity');must.click();
  const dateInputs=form.querySelectorAll('input[type=date]');dateInputs[0].value=today;dateInputs[1].value=shift(4);

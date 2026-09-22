@@ -172,20 +172,22 @@ function openOathSetup(service) {
                 input.value = draft.durationMs ? draft.durationMs / 60000 : "";
                 input.addEventListener("input", () => {
                     draft.durationMs = Number(input.value) * 60000;
-                    next.disabled = !validDuration(draft.durationMs);
+                    next.disabled = !draft.tasks.length || !validDuration(draft.durationMs);
                 });
             }
             const error = this.contentEl.createDiv({ cls: "hub-task-error", attr: { role: "alert" } });
             const actions = this.contentEl.createDiv({ cls: "hub-oath-actions" });
             actions.createEl("button", { text: "Cancel" }).addEventListener("click", () => this.close());
             const next = actions.createEl("button", { text: "Continue", cls: "mod-cta" });
-            next.disabled = !validDuration(draft.durationMs);
+            next.disabled = !draft.tasks.length || !validDuration(draft.durationMs);
             next.addEventListener("click", () => {
-                try { validateOath(draft, service.now()); this.review(); } catch (problem) { error.textContent = problem.message; }
+                try { this.review(); } catch (problem) { error.textContent = problem.message; }
             });
         }
         review() {
-            const draft = this.draft; this.contentEl.empty();
+            const draft = this.draft;
+            validateOath(draft, service.now());
+            this.contentEl.empty();
             this.contentEl.classList.remove("hub-oath-setup");
             this.contentEl.classList.add("hub-oath-review");
             this.contentEl.createEl("h2", { text: OATH_COPY.confirmation });
@@ -193,7 +195,7 @@ function openOathSetup(service) {
             const summary = this.section("Your Oath").createDiv({ cls: "hub-oath-row-group" });
             for (const [icon, label, value] of [
                 ["clock", "Starts", draft.start === "now" ? "Now" : dateLabel(draft.scheduledAt)],
-                ["file-text", "Work", draft.tasks.length ? draft.tasks.map(task => task.text) : "General work"],
+                ["file-text", "Work", draft.tasks.map(task => task.text)],
                 ["timer", "Commitment", oathDuration(draft.durationMs)]
             ]) {
                 oathRow(summary, icon, value, label);

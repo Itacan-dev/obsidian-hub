@@ -225,19 +225,13 @@
 .hub-oath-picker-tasks .project-task-location { margin-top: 3px; font-size: var(--hub-font-secondary); }
 
 /* The pinned section contains the ordinary task renderer, including Steps. */
-.hub-oath-banner, .hub-oath-pinned { border: 1px solid #6e5ebc; border-radius: 8px; background: color-mix(in srgb, #7567d8 7%, transparent); }
-.hub-oath-banner { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; padding: 10px 12px; margin: 4px 0 12px; font-size: var(--hub-font-secondary); }
-.hub-oath-banner > .hub-oath-icon, .hub-oath-label, .hub-oath-pinned-heading > :is(.hub-oath-icon, strong) { color: #a496f0; }
-.theme-light :is(.hub-oath-label, .hub-oath-banner > .hub-oath-icon, .hub-oath-pinned-heading > .hub-oath-icon, .hub-oath-pinned-heading > strong) { color: #6750a8; }
-.hub-oath-label { font-weight: 700; background: color-mix(in srgb, #7567d8 20%, transparent); border-radius: 4px; padding: 4px 7px; }
-.hub-oath-condition { color: var(--text-muted); }
-.hub-oath-count { margin-left: auto; white-space: nowrap; color: var(--text-muted); }
-.hub-oath-banner progress { width: 84px; height: 7px; appearance: none; border: 0; border-radius: 8px; overflow: hidden; accent-color: #8973e6; }
-.hub-oath-banner progress::-webkit-progress-bar { background: color-mix(in srgb, #8973e6 16%, var(--background-secondary)); border-radius: 8px; }
-.hub-oath-banner progress::-webkit-progress-value { background: #8973e6; border-radius: 8px; }
-.hub-oath-pinned { padding: 0 10px 6px; margin-bottom: 12px; overflow: hidden; }
+.hub-oath-pinned { border: 1px solid #6e5ebc; border-radius: 8px; background: color-mix(in srgb, #7567d8 7%, transparent); padding: 0 10px 6px; margin-bottom: 12px; overflow: hidden; }
 .hub-oath-pinned-heading { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 0 -10px 4px; padding: 10px 12px; background: color-mix(in srgb, #7567d8 12%, transparent); font-size: var(--hub-font-secondary); }
-.hub-oath-pinned-heading > span:last-child { color: var(--text-muted); }
+.hub-oath-pinned-title { display: flex; align-items: center; gap: 8px; color: #a496f0; }
+.theme-light .hub-oath-pinned-title { color: #6750a8; }
+.hub-oath-pinned-status { display: flex; align-items: baseline; justify-content: flex-end; flex-wrap: wrap; gap: 2px 6px; margin-left: auto; min-width: 0; font-variant-numeric: tabular-nums; }
+.hub-oath-pinned-timer { color: var(--text-normal); font-weight: 600; white-space: nowrap; }
+.hub-oath-pinned-completion { display: inline-flex; gap: 6px; color: var(--text-muted); white-space: nowrap; }
 .hub-oath-pinned .hub-planned-task-row + .hub-planned-task-row { border-top: 1px solid var(--background-modifier-border); }
 .hub-oath-missing { padding: 12px 0; font-size: var(--hub-font-secondary); overflow-wrap: anywhere; }
 .hub-oath-missing > div { color: var(--text-muted); margin-top: 4px; }
@@ -315,23 +309,29 @@
     text-overflow: ellipsis;
     min-width: 0;
 }
-.hub-task-steps { margin-top: 4px; min-width: 0; }
+.hub-task-steps { margin-top: var(--size-4-1, 4px); min-width: 0; }
 .hub-button-scope button.hub-task-steps-toggle {
-    display: flex; align-items: center; gap: 6px; max-width: 100%;
-    height: auto; min-height: 20px; padding: 0;
+    display: flex; align-items: center; justify-content: flex-start;
+    gap: var(--size-4-2, 8px); width: 100%; max-width: 100%;
+    height: auto; min-height: 28px; padding: 3px 0;
     color: var(--text-muted); background: transparent; border: 0; box-shadow: none;
-    font-size: var(--hub-font-meta);
+    font-size: var(--hub-font-secondary); text-align: left; cursor: pointer;
+    transform: none; transition: background-color 120ms ease, color 120ms ease;
 }
-.hub-task-steps-chevron { flex: 0 0 12px; text-align: center; }
-.hub-task-step-progress { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.hub-task-step-items { margin: 4px 0 0 5px; padding-left: 13px; border-left: 1px solid var(--background-modifier-border); }
+.hub-button-scope button.hub-task-steps-toggle:enabled:is(:hover, :active) {
+    transform: none; translate: none; scale: none; box-shadow: none; border: 0;
+    color: var(--text-normal); background: var(--background-modifier-hover);
+}
+.hub-task-steps-chevron { display: inline-flex; flex: 0 0 16px; }
+.hub-task-steps-chevron svg { width: 16px; height: 16px; stroke-width: 1.5; }
+.hub-task-steps-label, .hub-task-step-progress { flex: 0 0 auto; white-space: nowrap; }
+.hub-task-step-progress { color: var(--text-faint); }
+.hub-task-step-items { margin: 0; padding-left: calc(16px + var(--size-4-2, 8px)); }
 .hub-task-step-items[hidden] { display: none; }
-.hub-button-scope .hub-task-step-item { display: flex; align-items: flex-start; gap: 7px; padding-block: 3px; min-width: 0; font-size: var(--hub-font-compact); cursor: pointer; }
+.hub-button-scope .hub-task-step-item { display: flex; align-items: flex-start; gap: var(--size-4-2, 8px); padding-block: 3px; min-width: 0; font-size: var(--hub-font-compact); cursor: pointer; }
 .hub-task-step-item input[type=checkbox] { flex: 0 0 auto; margin: 2px 0 0; }
 .hub-task-step-text { min-width: 0; overflow-wrap: anywhere; line-height: 1.4; }
 .hub-task-step-item.is-completed .hub-task-step-text { text-decoration: line-through; color: var(--text-muted); }
-.hub-planned-task-row :is(.home-task-location, .project-task-location) { cursor: pointer; }
-.hub-planned-task-row :is(.home-task-location, .project-task-location):hover { color: var(--text-muted); text-decoration: underline; }
 .hub-planned-task-row:has(.home-task-delete, .project-task-delete) { padding-right: 32px; }
 .hub-planned-task-row :is(.home-task-delete, .project-task-delete) { position: absolute; right: 0; top: 8px; }
 .hub-button-scope button.hub-task-group-toggle {
@@ -371,20 +371,37 @@
 /* Native Obsidian modal; theme colors and the existing Hub buttons apply. */
 .modal.hub-task-dialog { width: 680px; max-width: calc(100vw - 32px); }
 .modal.hub-task-create-dialog { width: 480px; }
-.hub-task-form .hub-task-dialog-title { display: flex; align-items: center; gap: 14px; margin: 0 0 16px; }
-.hub-task-dialog-title > span:first-child, .hub-task-section h3 > span:first-child:not(:last-child) { display: inline-flex; }
+.hub-task-form .hub-task-dialog-title { margin: 0 0 16px; }
 .hub-task-section { padding: 18px 0; border-top: 1px solid var(--background-modifier-border); }
-.hub-task-section h3 { display: flex; align-items: center; gap: 10px; font-size: var(--hub-font-subheading); margin: 0 0 10px; }
-.hub-task-section h3 svg { width: 19px; height: 19px; color: var(--text-muted); }
+.hub-task-section h3 { font-size: var(--hub-font-subheading); margin: 0 0 10px; }
 .hub-task-form input[type=text], .hub-task-form input[type=date] { width: 100%; min-width: 0; height: 40px; }
 .hub-task-form input.hub-task-title-input { height: 46px; font-size: var(--hub-font-heading); }
 .hub-task-form .hub-task-help { display: block; margin: 5px 0 12px; color: var(--text-muted); font-size: var(--hub-font-secondary); line-height: 1.5; }
-.hub-task-necessity-choices { display: flex; gap: 12px; align-items: center; }
-.hub-button-scope .hub-task-necessity-choice { min-width: 110px; height: 40px; }
-.hub-button-scope .hub-task-necessity-choice.is-should { color: var(--color-yellow, #e6b84d); }
-.hub-button-scope .hub-task-necessity-choice.is-must { color: var(--color-red, #f16d73); }
-.hub-button-scope .hub-task-necessity-choice[aria-pressed=true] { border-color: currentColor; background: color-mix(in srgb, currentColor 12%, var(--background-primary)); box-shadow: inset 0 0 0 1px currentColor; }
+.hub-task-necessity-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+.hub-task-necessity-heading h3 { margin: 0; }
+.hub-task-necessity-choices { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.hub-button-scope .hub-task-necessity-choice {
+    display: flex; align-items: center; justify-content: center;
+    width: 100%; min-width: 0; height: auto; min-height: 48px; padding: 12px 16px;
+    white-space: normal; line-height: 1.4; color: var(--text-normal);
+}
+.hub-task-form button.hub-task-clear-necessity {
+    flex-shrink: 0; padding: 4px 8px; height: auto;
+    border: 0; background: transparent; box-shadow: none; color: var(--text-muted);
+}
+.hub-task-form button.hub-task-clear-necessity:enabled:hover { color: var(--text-normal); background: var(--background-modifier-hover); box-shadow: none; }
+.hub-button-scope .hub-task-necessity-choice.is-should[aria-pressed=true] { color: var(--color-yellow, #e6b84d); }
+.hub-button-scope .hub-task-necessity-choice.is-must[aria-pressed=true] { color: var(--color-red, #f16d73); }
+.hub-button-scope .hub-task-necessity-choice[aria-pressed=true] { border-color: currentColor; background: color-mix(in srgb, currentColor 12%, var(--background-primary)); box-shadow: inset 0 0 0 1px currentColor; transition: none; }
+.hub-button-scope button.hub-task-necessity-choice[aria-pressed=true]:enabled:hover {
+    border-color: currentColor;
+    background: color-mix(in srgb, currentColor 18%, var(--background-primary));
+    box-shadow: inset 0 0 0 1px currentColor;
+    cursor: pointer;
+}
 .hub-task-date-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+.hub-task-time-field { display: flex; align-items: center; gap: var(--size-4-2, 8px); margin-top: var(--size-4-2, 8px); }
+.hub-task-time-field input { min-width: 0; }
 .hub-task-date-fields label > span:first-child { display: block; margin-bottom: 8px; }
 .hub-task-step { display: grid; grid-template-columns: 18px minmax(0, 1fr) 28px; align-items: center; gap: 8px; margin-bottom: 8px; }
 .hub-task-step > button { padding: 3px; }
@@ -402,9 +419,8 @@
 .hub-task-create-label input { margin-top: 8px; }
 .hub-task-create-dialog .hub-task-source { margin-bottom: 10px; }
 @media (max-width: 480px) {
-    .hub-task-date-fields { grid-template-columns: 1fr; gap: 4px; }
+    .hub-task-date-fields { grid-template-columns: 1fr; gap: 16px; }
     .hub-task-dialog-actions { flex-wrap: wrap; }
-    .hub-button-scope .hub-task-necessity-choice { min-width: 85px; }
 }
 
 /*
