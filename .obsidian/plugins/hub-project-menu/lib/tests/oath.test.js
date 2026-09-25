@@ -9,6 +9,15 @@ const { oathTime, oathProgress, validateOath, fulfilmentLabel, oathDuration, nor
 function fixture(data = {}, deviceId = "this-device") {
     let now = 1_000_000, persisted = null, failSave = false, ready = true, frozen = null, queries = 0;
     const files = new Map([["Projects/A/Tasks.md", "- [ ] First\n    - [ ] A step\n- [ ] Second\n"], ["Personal/Tasks.md", "- [ ] Future <!-- hub-task:future -->\n"]]);
+    const contexts = [{ projectId: "a", name: "A", root: "Projects/A", path: "Projects/A/A.md", status: "active", contextKind: "project" },
+        { projectId: "b", name: "B", root: "Projects/B", path: "Projects/B/B.md", status: "active", contextKind: "project" }];
+    const resources = require("../config").RESOURCE_TYPES.map(require("../config").publicResourceType);
+    for (const context of [...contexts, ...resources]) files.set(context.path, "");
+    const wizard = { data, getProjectRecords: () => contexts, getResourceTypes: () => resources,
+        getProjectById: id => contexts.find(item => item.projectId === id),
+        getResourceById: id => resources.find(item => item.id === id || item.projectId === id),
+        getProjectForPath: path => contexts.find(item => String(path).startsWith(item.root + "/")),
+        getResourceForPath: path => resources.find(item => String(path).startsWith(item.root + "/")) };
     const notices = [], cleanups = [], subscribers = new Set();
     const vault = {
         getAbstractFileByPath: path => files.has(path) ? { path, extension: "md" } : null,
@@ -20,7 +29,7 @@ function fixture(data = {}, deviceId = "this-device") {
         return details && !/^\s/.test(raw) ? [readTaskSnapshot(content, { path, line, text: details.text, hubTaskId: taskIdentity(raw) })] : [];
     }));
     const plugin = { app: { vault, plugins: { getPlugin: () => ({ api: { index: { get initialized() { return ready; } } } }) } },
-        projectWizard: { data }, register: fn => cleanups.push(fn), enqueueTaskMutation: async fn => fn(),
+        projectWizard: wizard, register: fn => cleanups.push(fn), enqueueTaskMutation: async fn => fn(),
         dataStore: { deviceId, save: async data => { if (failSave) throw Error("Disk unavailable"); persisted = structuredClone(data); } },
         taskData: { readPages: () => { queries++; const tasks = frozen ?? readTasks(); return [{ file: { tasks: tasks.map(task => ({ ...task, identityConflict: tasks.filter(item => item.hubTaskId && item.hubTaskId === task.hubTaskId).length > 1 })) } }]; },
             subscribe: (component, fn) => { subscribers.add(fn); component.register(() => subscribers.delete(fn)); } },
@@ -31,12 +40,12 @@ function fixture(data = {}, deviceId = "this-device") {
         onChange(fn) { this.change = fn; }, async enter() { if (this.full) return this.owned; this.entries++; if (!this.available) return false; this.full = this.owned = true; return true; },
         async exit() { if (this.owned) { this.full = false; this.exits++; } this.owned = false; this.change?.(false); }, destroy() {} };
     const service = new HubOathService(plugin, full, { now: () => now, notice: text => notices.push(text) });
-    const draft = (extra = {}) => ({ start: "now", durationMs: 50 * 60000, tasks: readTasks().slice(0, 2), ...extra });
+    const draft = (extra = {}) => ({ start: "now", workspace: { type: "project", id: "a", name: "A" }, durationMs: 50 * 60000, tasks: readTasks().slice(0, 2), ...extra });
     const complete = index => {
         const task = readTasks()[index], result = editTaskContent(files.get(task.path), { ...task, completed: true }, line => line.replace("[ ]", "[x]"));
         files.set(task.path, result.content); service.changed(result.edit); return result.edit;
     };
-    return { service, full, plugin, files, notices, draft, complete, readTasks, advance: ms => now += ms,
+    return { service, full, plugin, files, contexts, resources, notices, draft, complete, readTasks, advance: ms => now += ms,
         freeze: () => frozen = readTasks(), thaw: () => frozen = null, setReady: value => ready = value, fail: value => failSave = value,
         get saved() { return persisted; }, get queries() { return queries; },
         destroy() { service.destroy(); cleanups.forEach(fn => fn()); } };
@@ -54,7 +63,7 @@ async function run() {
     for (const tasks of [[], undefined, null]) {
         assert.throws(() => validateOath({ start: "now", durationMs: minute, tasks }), /Select at least one task/);
     }
-    validateOath({ start: "now", durationMs: minute, tasks: [{ text: "Selected task" }] });
+    validateOath({ start: "now", workspace: { type: "project", id: "a" }, durationMs: minute, tasks: [{ text: "Selected task" }] });
     const empty = fixture();
     for (const start of ["now", "scheduled"]) {
         await assert.rejects(empty.service.take(empty.draft({ start, scheduledAt: 1_100_000, tasks: [] })), /Select at least one task/);
@@ -135,7 +144,7 @@ async function run() {
     // 15: normalize only committed legacy records; history is unchanged.
     for (const mode of ["open", "tasks", "timed", "unknown"]) {
         const history = [{ id: "old", state: "fulfilled", fulfilment: mode, elapsedMs: 123 }];
-        const legacy = fixture({ oathsByDevice: { "this-device": { current: { id: "legacy", state: "active", startedAt: 1_000_000,
+        const legacy = fixture({ oathsByDevice: { "this-device": { current: { id: "legacy", workspace: { type: "project", id: "a" }, state: "active", startedAt: 1_000_000,
             durationMs: null, fulfilment: mode, autoExit: true, scope: "all", tasks: [] }, history } } });
         await legacy.service.start(); assert.equal(legacy.service.current.durationMs, 50 * minute);
         assert.equal(legacy.service.current.fulfilment, undefined); assert.equal(legacy.full.full, true);
@@ -148,7 +157,7 @@ async function run() {
     }
     assert.equal(normalizeOath({ state: "active", durationMs: 25 * minute }).durationMs, 25 * minute);
     const reloadFailure = fixture({ oathsByDevice: { "this-device": { current: {
-        id: "save-failure", state: "active", startedAt: 1_000_000, fulfilment: "open", durationMs: null, tasks: [] }, history: [] } } });
+        id: "save-failure", workspace: { type: "project", id: "a" }, state: "active", startedAt: 1_000_000, fulfilment: "open", durationMs: null, tasks: [] }, history: [] } } });
     reloadFailure.fail(true); const startupLog = console.error; console.error = () => {};
     try { await reloadFailure.service.start(); } finally { console.error = startupLog; }
     assert.equal(reloadFailure.full.full, true, "Migration/save failure cannot bypass fullscreen restoration");
@@ -160,6 +169,7 @@ async function run() {
     const missing = fixture(); await missing.service.take(missing.draft());
     const original = missing.files.get("Projects/A/Tasks.md"); missing.files.delete("Projects/A/Tasks.md"); await missing.service.refresh();
     assert.equal(oathProgress(missing.service.work).missing, 2);
+    missing.contexts[0].root = "Projects/Renamed";
     missing.files.set("Projects/Renamed/Tasks.md", original.replace("First", "Edited title")); await missing.service.refresh();
     assert.equal(missing.service.work[0].task.path, "Projects/Renamed/Tasks.md");
     missing.files.set("Copy.md", original); await missing.service.refresh(); assert.equal(oathProgress(missing.service.work).missing, 2);
@@ -218,4 +228,5 @@ async function run() {
     api = createOathFullscreen(browser); assert.equal(await api.enter(), false); api.destroy();
     console.log("PASS: duration validation, timer/tasks/monotonic fulfillment, continued time, centralized exits, schedules, legacy/reload, persistence failures, native fullscreen enforcement. Warning interactions are covered by oath.html.");
 }
-run().catch(error => { console.error(error); process.exitCode = 1; });
+module.exports = { fixture };
+if (require.main === module) run().catch(error => { console.error(error); process.exitCode = 1; });

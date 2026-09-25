@@ -215,7 +215,7 @@ function createCardImageRenderer(root, component, placementStorage = null, share
             resample: !/\.(svg|gif|apng)(?:[?#]|$)/i.test(url) };
         entries.set(element, entry);
         observer.observe(element);
-        if (storage && options.card) {
+        if (storage && options.card && !options.readOnly) {
             const pending = load(url, entry.path);
             return pending.then(image => {
                 if (!pending.valid() || disposed || entries.get(element) !== entry || !root.contains(element)) return;

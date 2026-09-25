@@ -1,4 +1,5 @@
 "use strict";
+const { validWorkspace } = require("./oath-workspace");
 
 const isCommitted = oath => ["scheduled", "active"].includes(oath?.state);
 const DEFAULT_DURATION_MS = 50 * 60000;
@@ -20,6 +21,7 @@ function validateOath(draft, now = Date.now()) {
     if (!Array.isArray(draft.tasks) || !draft.tasks.length) {
         throw Error("Select at least one task for your Oath.");
     }
+    if (!validWorkspace(draft.workspace)) throw Error("Select a Project or Resource for your Oath.");
 }
 function oathTime(oath, now = Date.now()) {
     const elapsedMs = oath?.startedAt == null ? 0 : Math.max(0, (oath.completedAt ?? now) - oath.startedAt);

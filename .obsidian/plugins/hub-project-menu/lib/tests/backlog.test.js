@@ -84,7 +84,14 @@ async function run() {
             getResourceFolders: ids => ids.includes("math") ? [{ path: "Resources/Knowledge/Math" }] : []
         }
     };
+    let persisted;
+    plugin.workspaceState = { load: () => persisted ? JSON.parse(persisted) : null,
+        save: state => { persisted = JSON.stringify(state); } };
     const navigation = new HubWorkspaceModeService(plugin);
+    navigation.presentWorkspace = async (_, context, note, apply) => apply();
+    plugin.preparedNoteRails = { prepare: async (context, snapshot) => ({ snapshot, dispose() {} }) };
+    navigation.prepareRestoredNoteMode = () => ({ adopt() {}, cancel() {} });
+    navigation.activeMainLeaf = () => null;
     navigation.dashboardRoot = source => source?.dataset ? source : null;
     navigation.leafForSource = source => source;
     navigation.leafPath = source => source?.path;
@@ -109,7 +116,7 @@ async function run() {
     await navigation.openWorkspace(homeSource);
     assert.equal(destination, resource, "Home Workspace opens the most recently opened kind");
     await navigation.openWorkspace(projectSource);
-    assert.equal(destination, project, "Workspace inside a Project returns to that Project");
+    assert.equal(destination, resource, "Workspace resolves its independent MRU from a Project too");
     await navigation.openWorkspace(resourceSource);
     assert.equal(destination, resource, "Workspace inside a Resource returns to that Resource");
     navigation.openProjectFull = originalFull;
@@ -125,22 +132,22 @@ async function run() {
     }
     navigation.rememberNote(project, files.get("Resources/Knowledge/Math/two.md"));
     assert.equal(navigation.lastNoteFile(project).path, "Resources/Knowledge/Math/two.md");
-    navigation.state.lastFile = { path: "Inbox/free.md", contextKind: null };
+    navigation.navigationHistory.rememberFile(null, files.get("Inbox/free.md"));
     assert.equal(navigation.lastNavigationInfo(homeSource).file.path, "Inbox/free.md");
     assert.equal(navigation.lastNavigationInfo(resourceSource).file.path, "Resources/Knowledge/Math/two.md");
     navigation.rememberNote(project, files.get("Projects/A/one.md"));
     project.status = "shelved";
-    assert.equal(navigation.globalLastFile(), null, "Shelved Last File is ignored without falling back");
-    assert.equal(navigation.hasLastFile(homeSource), false);
+    assert.equal(navigation.globalLastFile().path, "Inbox/free.md", "Shelved Last File falls through to the next eligible entry");
+    assert.equal(navigation.hasLastFile(homeSource), true);
     assert.equal(navigation.hasLastFile(projectSource), false);
-    assert.equal(navigation.lastNavigationInfo(homeSource).file, null);
+    assert.equal(navigation.lastNavigationInfo(homeSource).file.path, "Inbox/free.md");
     assert.equal(navigation.lastNoteFile(project), null);
     assert.equal(navigation.hasLastFile(resourceSource), true, "Resource Last File remains independent");
     const ensureContextOpen = plugin.ensureContextOpen;
     plugin.ensureContextOpen = async () => { throw Error("Last File must not request shelved activation"); };
     navigation.enqueue = fn => fn();
-    assert.equal(await navigation.openLastFile(homeSource), false);
-    assert.equal(notices.at(-1), "No Hub file has been opened yet.");
+    assert.equal(await navigation.openLastFile(projectSource), false);
+    assert.equal(notices.at(-1), "No recently opened files.");
     plugin.ensureContextOpen = ensureContextOpen;
     project.status = "active";
     assert.equal(navigation.globalLastFile().path, "Projects/A/one.md", "Ignoring shelved state is reversible when reactivated");
@@ -148,8 +155,10 @@ async function run() {
     assert.equal(await navigation.desiredMode(files.get(project.path)), "preview");
     navigation.state.projects.a.layout = nativeLayout;
     navigation.state.projects.a.lastNotePath = "deleted.md";
+    files.delete("Projects/A/one.md");
     assert.equal(navigation.lastNoteFile(project).path, "Resources/Knowledge/Math/two.md",
-        "A deleted last file falls back to the active surviving note in its context layout");
+        "A deleted last file falls back to surviving contextual history");
+    files.set("Projects/A/one.md", new TFile("Projects/A/one.md"));
 
     const restoredLeaves = ["Projects/A/one.md", "Resources/Knowledge/Math/two.md"].map((path, index) => ({ id: index ? "two" : "one", path }));
     let appliedLayout;

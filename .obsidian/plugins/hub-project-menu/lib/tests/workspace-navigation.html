@@ -34,7 +34,7 @@ try{
  let opens=0;window.hubOpenWorkspace=()=>opens++;
  const controls=ui.exports.createDashboardUi({navClass:'home-nav-button'});
  let home=dashboard('home');
- const disabled=controls.workspaceButton(home,home);assert(disabled.disabled,'Workspace disabled with no history');
+ const empty=controls.workspaceButton(home,home);assert(!empty.disabled,'Empty Workspace remains clickable for its history toast');
  const active=controls.workspaceButton(home,home,true);
  assert(active.textContent==='Workspace'&&active.classList.contains('is-active'),'Shared label and selected state');
  assert(!active.hasAttribute('aria-label'),'Selected Workspace has no tooltip');

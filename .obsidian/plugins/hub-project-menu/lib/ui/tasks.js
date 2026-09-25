@@ -9,6 +9,16 @@ function taskSourceLabel(path) {
     return parts.length > 1 ? parts[parts.length - 2] : (parts[0]?.replace(/\.md$/i, "") || "Vault");
 }
 
+function createTaskRow(parent, task, completed = task.completed) {
+    const row = parent.createDiv({ cls: "project-task-row" + (completed ? " is-completed" : "") });
+    const checkbox = row.createEl("input", { type: "checkbox", cls: "project-task-checkbox" });
+    checkbox.checked = !!completed;
+    const info = row.createDiv({ cls: "project-task-info" });
+    const textEl = info.createDiv({ cls: "project-task-text", text: task.text });
+    info.createDiv({ cls: "project-task-location" });
+    return { row, checkbox, info, textEl };
+}
+
 function createTaskUi({ app, component, body, mutate, onEdit, editTask, createTask, oath }) {
     const { Menu, Notice, setIcon } = require("obsidian");
     const document = body.ownerDocument;
@@ -195,7 +205,7 @@ function createTaskUi({ app, component, body, mutate, onEdit, editTask, createTa
             dates.appendChild(span); info.appendChild(dates);
         }
         const source = info.querySelector(".home-task-location, .project-task-location");
-        if (source) source.textContent = options.selection ? getPath().replace(/\.md$/i, "").split("/").join(" › ") : taskSourceLabel(getPath());
+        if (source) source.textContent = options.selection && !options.normalSource ? getPath().replace(/\.md$/i, "").split("/").join(" › ") : taskSourceLabel(getPath());
         if (!options.selection) steps.bind(info, task, getPath);
         if (editTask) {
             textEl.tabIndex = 0; textEl.setAttribute("role", "button"); textEl.setAttribute("aria-label", `Edit task: ${task.text}`);
@@ -264,4 +274,4 @@ function createTaskUi({ app, component, body, mutate, onEdit, editTask, createTa
     return { bind, beginRender, defer, groups, group, addButton, partitionOath: oathSection.partition, renderOath: oathSection.render };
 }
 
-module.exports = { createTaskUi, taskSourceLabel };
+module.exports = { createTaskUi, createTaskRow, taskSourceLabel };

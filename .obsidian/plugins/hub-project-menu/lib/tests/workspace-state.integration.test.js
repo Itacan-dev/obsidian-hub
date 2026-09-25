@@ -142,6 +142,18 @@ async function run() {
         assert.deepEqual((await disk()).folderUi.p, { panel: { collapsed: false } });
         assert.equal((await disk()).workspaceMode.presets[0].name, "New vault name");
 
+        plugin.workspaceModes.state.workspaceHistory = ["p", "resource:study"];
+        plugin.workspaceModes.state.fileHistory = [
+            { contextId: "p", path: "Projects/Test/A.md" },
+            { contextId: "resource:study", path: "Resources/Knowledge/A.md" }
+        ];
+        await plugin.workspaceModes.saveState();
+        const historyReload = await boot(oldStorage);
+        assert.deepEqual(historyReload.workspaceModes.state.workspaceHistory, ["p", "resource:study"]);
+        assert.deepEqual(historyReload.workspaceModes.state.fileHistory, plugin.workspaceModes.state.fileHistory,
+            "Both MRU histories survive an actual data.json save and reload");
+        assert.deepEqual((await disk()).workspaceMode.fileHistory, plugin.workspaceModes.state.fileHistory);
+
         // A OneDrive update during a live session must never be silently overwritten.
         const external = await disk(); external.workspaceMode.presets[0].name = "Other computer";
         await fs.writeFile(file, JSON.stringify(external));

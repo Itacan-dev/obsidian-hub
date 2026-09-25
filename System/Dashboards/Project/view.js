@@ -471,14 +471,6 @@ const lastFileButton = navButton(
 );
 
 
-if (
-    window.hubHasLastFile?.(root) ===
-        false
-) {
-    lastFileButton.disabled = true;
-}
-
-
 presetsButton(nav, dv.component);
 
 
@@ -5657,53 +5649,7 @@ function renderTaskRows() {
         target = tasksBody
     ) {
 
-        const row =
-            target.createDiv({
-                cls:
-                    "project-task-row" +
-                    (
-                        completed
-                            ? " is-completed"
-                            : ""
-                    )
-            });
-
-
-        const checkbox =
-            row.createEl(
-                "input",
-                {
-                    cls:
-                        "project-task-checkbox"
-                }
-            );
-
-
-        checkbox.type =
-            "checkbox";
-
-        checkbox.checked =
-            completed;
-
-
-        const info =
-            row.createDiv({
-                cls:
-                    "project-task-info"
-            });
-
-
-        const textEl = el(info, "div", "project-task-text", task.text);
-
-
-        el(
-            info,
-            "div",
-            "project-task-location",
-            taskLocation(
-                task.path
-            )
-        );
+        const { row, checkbox, textEl } = window.hubCreateTaskRow(target, task, completed);
         tasksBody.hubTaskUi?.bind(row, textEl, task, () => window.hubTaskData?.currentPath(task.path) ?? task.path);
 
 

@@ -78,6 +78,7 @@ class HubPresets {
             if (!item) return false;
             const { Notice, TFile } = require("obsidian");
             const context = m.contextFor(item.contextId);
+            if (m.plugin.oath?.canOpen(context) === false) return false;
             if (!context || !(m.app.vault.getAbstractFileByPath(context.path) instanceof TFile)) {
                 new Notice("This preset's workspace no longer exists."); return false;
             }
@@ -86,7 +87,8 @@ class HubPresets {
                 path => m.app.vault.getAbstractFileByPath(path) instanceof TFile,
                 type => m.canRestoreLayoutView(type));
             if (!layout) { new Notice("No saved tabs are available for this preset. The current workspace was left unchanged."); return false; }
-            if (!await m.plugin.ensureContextOpen(context, m.dashboardRoot(source))) return false;
+            if (!await m.plugin.ensureContextOpen(context, m.dashboardRoot(source)) ||
+                m.plugin.oathNavigation?.allowLayout(layout) === false) return false;
             const files = tree => tree?.type === "leaf" ? 1 : (tree?.children ?? []).reduce((n, child) => n + files(child), 0);
             const missing = files(item.layout.main) - files(layout.main);
             const folders = Object.fromEntries(Object.entries(item.folderState?.folders ?? {}).filter(([path]) =>

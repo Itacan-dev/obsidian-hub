@@ -1,0 +1,191 @@
+<!doctype html><meta charset="utf-8"><title>Historical daily reports</title>
+<link rel="stylesheet" href="../../styles.css">
+<link rel="stylesheet" href="../../../../../System/Dashboards/Home/view.css">
+<link rel="stylesheet" href="../../../../../System/Dashboards/Project/view.css">
+<style>
+body{font:14px Arial;background:#1e1e1e;color:#ddd;--text-normal:#ddd;--text-muted:#999;--text-faint:#666;--background-primary:#1e1e1e;--background-secondary:#262626;--background-modifier-border:#444;--background-modifier-hover:#333;--interactive-accent:#8955ed;--color-green:#62b478;--color-blue:#70a3d7;--color-red:#de7272}
+.modal{margin:20px auto;padding:24px;background:#262626;border-radius:10px;box-sizing:border-box}
+button,textarea,input,select{color:#ddd;background:#333}textarea{width:100%}
+</style><pre id="result">RUNNING</pre>
+<script type="module">
+const assert=(value,message)=>{if(!value)throw Error(message)};
+window.addEventListener('error',event=>result.textContent='FAIL '+(event.error?.stack||event.message));
+window.addEventListener('unhandledrejection',event=>result.textContent='FAIL '+event.reason?.stack);
+HTMLElement.prototype.createEl=function(tag,o={}){const e=document.createElement(tag);e.className=o.cls||'';e.textContent=o.text||'';for(const [k,v] of Object.entries(o.attr||{}))e.setAttribute(k,v);this.append(e);return e};
+HTMLElement.prototype.createDiv=function(o){return this.createEl('div',o)};
+HTMLElement.prototype.createSpan=function(o){return this.createEl('span',o)};
+HTMLElement.prototype.addClass=function(...c){this.classList.add(...c)};
+HTMLElement.prototype.toggleClass=function(c,v){this.classList.toggle(c,v)};
+HTMLElement.prototype.empty=function(){this.replaceChildren()};
+HTMLElement.prototype.setText=function(t){this.textContent=t};
+let opened;
+class Modal{constructor(){this.modalEl=document.body.createDiv({cls:'modal'});this.contentEl=this.modalEl.createDiv()}open(){opened=this;this.onOpen()}close(){this.onClose();this.modalEl.remove()}}
+const fixtureIcons={
+ 'square-check':'<rect x="3" y="3" width="18" height="18" rx="2"/><path d="m9 12 2 2 4-4"/>',
+ 'rotate-ccw-clock':'<path d="M2 12a10 10 0 1 0 2.93-7.07L2 8m0-6v6h6"/><path d="M12 7v5l4 2"/>',
+ target:'<circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/>',
+ 'circle-arrow-right':'<circle cx="12" cy="12" r="10"/><path d="m12 8 4 4-4 4m-4-4h8"/>'
+};
+const setIcon=(el,name)=>{el.dataset.icon=name;el.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">'+(fixtureIcons[name]||'<path d="m9 5 7 7-7 7"/>')+'</svg>'};
+const modules={};
+async function load(name,file,require=()=>{}){const m={exports:{}};new Function('module','require','process',await(await fetch(file)).text())(m,require,{env:{}});modules[name]=m.exports;return m.exports}
+const dates=await load('dates','../domain/dates.js'),focus=await load('focus','../domain/focus.js');
+const domain=await load('context','../domain/report-context.js',n=>n==='./dates'?dates:focus);
+class Component{constructor(){this.callbacks=[];this.children=[]}load(){}register(fn){this.callbacks.push(fn)}addChild(c){this.children.push(c)}removeChild(c){c.unload();this.children=this.children.filter(x=>x!==c)}unload(){this.children.forEach(c=>c.unload());this.callbacks.forEach(fn=>fn())}}
+const native={Modal,Component,setIcon,getIcon:()=>null,MarkdownRenderer:{async render(app,text,el){el.textContent=text}}};
+const markdown=await load('markdown','../ui/markdown.js',()=>native);
+const dashboard=await load('dashboard','../ui/dashboard-ui.js',n=>n==='obsidian'?native:{});
+const ui=await load('ui','../ui/daily-report.js',n=>n==='obsidian'?native:n==='./markdown'?markdown:n==='./dashboard-ui'?dashboard:n.includes('dates')?dates:domain);
+const config=await load('config','../config.js'),tooltips=await load('tooltips','../ui/tooltips.js');
+const source=await(await fetch('../../plugin.js')).text();
+const code=source.slice(source.indexOf('class FocusListEditor'),source.indexOf('class DailyFocusModal'));
+const Report=new Function('Modal','PROJECT_ADVANCEMENT_OPTIONS','progressRatingOptions','createImmediateHubTooltip','setIcon','Notice','normalizeFocusItems','renderReportEvidence','focusSection',code+';return ProjectAdvancementModal;')(
+ Modal,config.PROJECT_ADVANCEMENT_OPTIONS,config.progressRatingOptions,tooltips.createImmediateHubTooltip,setIcon,class{constructor(message){throw Error(message)}},focus.normalizeFocusItems,ui.renderReportEvidence,ui.focusSection);
+const date='2026-09-14',timestamp=new Date(2026,8,14,10,23).getTime();
+const context={version:1,tasks:[{text:'Finish the historical report view',timestamp},{text:'Review completion records',timestamp:timestamp+600000}],activity:[{action:'created',title:'Daily reports',timestamp},{action:'edited',title:'Progress interface',timestamp}],focus:['Make completed reports useful as daily records.']};
+const empty={version:1,tasks:[],activity:[],focus:[]};
+const reports=[{date,projectId:'p',projectName:'Itacan',score:3,summary:'Completed the daily report layout and checked historical task records.',context},
+ {date,projectId:'q',projectName:'Research',score:2,summary:'Reviewed the approach and recorded next steps.',context:empty}];
+const nextFocus=[{projectId:'p',projectName:'Itacan',text:'Check the final interaction in Obsidian.'},{projectId:'other',projectName:'Writing',text:'Draft the introduction.'}];
+try{
+ const day={date,reports,nextFocus};
+ // Exercise both icon-registry branches; the normal fixture mimics older Obsidian.
+ const iconProbe=document.body.createSpan();
+ let requestedIcon;
+ native.getIcon=name=>{requestedIcon=name;return document.createElementNS('http://www.w3.org/2000/svg','svg')};
+ dashboard.renderHistoryIcon(iconProbe);
+ assert(requestedIcon==='rotate-ccw-clock'&&iconProbe.querySelector('svg'),'Use native RotateCcwClock when available');
+ iconProbe.remove();native.getIcon=()=>null;
+ // Actual summary rendering: literal text, restrained newlines, no paragraph DOM.
+ const summaryHost=document.body.createDiv({cls:'hub-button-scope'});summaryHost.style.width='500px';
+ for(const [value,expected,lines] of [
+  ['One line','One line',1],['First\nSecond','First\nSecond',2],
+  ['First\n\n\n\nSecond','First\n\nSecond',3],
+  ['First\r\n  \r\n\r\nSecond','First\n\nSecond',3],
+  ['<b>Literal</b>','<b>Literal</b>',1]
+ ]){
+  summaryHost.replaceChildren();
+  const record={...reports[0],summary:value},before=JSON.stringify(record);
+  const renderer={render(el,text){if(el.classList.contains('hub-report-summary'))throw Error('Summary must bypass Markdown');}};
+  ui.renderDailyReport(summaryHost,{date,reports:[record],nextFocus:[]},renderer);
+  const text=summaryHost.querySelector('.hub-report-summary');
+  assert(text.textContent===expected&&!text.children.length,'Plain summary preserves intended line breaks without paragraph blocks');
+  assert(text.getBoundingClientRect().height<=parseFloat(getComputedStyle(text).lineHeight)*lines+1,'Newlines use normal line height, with at most one blank line');
+  assert(JSON.stringify(record)===before,'Display normalization never changes saved text');
+ }
+ summaryHost.remove();
+
+ const modal=new ui.DailyReportModal({}, {day});modal.open();
+ const root=modal.contentEl;
+ const localizedDate=dates.parseLocalISODate(date).toLocaleDateString([], {day:'numeric',month:'long',year:'numeric'});
+ assert(root.querySelector('h2').textContent==='Progress report — '+localizedDate,'Localized view title');
+ assert(ui.reportTitle(date,true)==='Edit progress report — '+localizedDate,'Localized edit title');
+ assert((source.match(/title:\s*reportTitle\(date, true\)/g)||[]).length===2,'Both production writing entry points use the edit title');
+ assert(root.querySelectorAll('.hub-report-card').length===2,'All workspace reports rendered');
+ assert(!root.querySelector('.hub-report-heading svg'),'No workspace icons');
+ assert(root.querySelectorAll('.hub-report-activity > summary .hub-report-section-icon svg path').length===3,'Official RotateCcwClock renders when native registry lacks it');
+ assert(root.querySelector('.hub-report-focus .hub-report-section-icon').dataset.icon==='target','Day focus uses Target');
+ assert(root.querySelectorAll('.hub-report-focus .hub-report-section-icon')[1].dataset.icon==='circle-arrow-right','Next focus uses CircleArrowRight');
+ assert(root.querySelector('.hub-report-rating').textContent==='3/4','Rating shown');
+ assert(!root.querySelector('input,textarea'),'Historical view is read only');
+ assert(root.querySelectorAll('.hub-report-check').length===2,'Tasks visible without disclosure');
+ assert(root.querySelector('time').dateTime===new Date(timestamp).toISOString(),'Uses completion timestamp');
+ assert(root.textContent.includes('No focus set for this day.')&&root.textContent.includes('No next focus recorded.'),'Restrained empty focus states');
+ assert(root.textContent.includes('Writing: Draft the introduction.'),'Next focus outside reported scope retained with label');
+ const details=root.querySelector('details');assert(!details.open,'Activity starts collapsed');
+ assert(details.querySelector('summary').textContent.includes('1 created · 1 edited'),'Real activity counts');
+ details.querySelector('summary').click();assert(details.open,'Activity opens inline');
+ assert(getComputedStyle(details.querySelector('.hub-report-chevron')).transform!=='none','Chevron rotates');
+ details.querySelector('summary').click();assert(!details.open,'Activity collapses');
+ modal.close();
+
+ let saved;
+ const project={projectId:'p',name:'Itacan'},resource={projectId:'resource:study',name:'Knowledge',resourceType:'study'};
+ const many={...context,tasks:Array.from({length:20},(_,i)=>({text:'Completed task '+i,timestamp}))};
+ const editor=new Report({}, {projects:[project],resources:[resource],reportContexts:{p:many,'resource:study':empty},
+ currentScores:{p:3,'resource:study':1},currentSummaries:{p:'Keep summary'},showNextFocus:true,focusProjects:[project,resource],
+ currentFocus:[nextFocus[0]],allowNoProgress:true,onSave:async value=>{saved=value}});editor.open();
+ const row=editor.contentEl.querySelector('[data-project-id=p]');
+ assert(row.querySelector('.hub-report-evidence').compareDocumentPosition(row.querySelector('.hub-project-advancement-choices')) & Node.DOCUMENT_POSITION_FOLLOWING,'Evidence precedes rating');
+ const list=row.querySelector('.hub-report-task-list');assert(list.scrollHeight>list.clientHeight&&list.clientHeight<=132,'Many tasks stay compact and scroll');
+ assert(editor.contentEl.textContent.includes('No completed tasks for this day.'),'Empty workspace context');
+ assert(editor.saveButton.textContent==='Save & close','Save workflow retained');
+ assert(editor.contentEl.querySelector('textarea').placeholder==='Summarise progress on Itacan','Concise interpolated placeholder');
+ await editor.save();assert(saved.scores.p===3&&saved.summaries.p==='Keep summary'&&saved.focus[0].text===nextFocus[0].text,'Rating summary and shared focus save unchanged');
+
+ // Exercise the production calendar handlers with project, resource and workspace scopes.
+ const calendarCode=source.slice(source.indexOf('    enableProgressCalendarEditing('),source.indexOf('    async copyProjectObsidianUrl('));
+ const host=new Function('localISODate','setHubTooltip','reportDay','DailyReportModal',`return {${calendarCode}}`)(dates.localISODate,tooltips.setHubTooltip,domain.reportDay,ui.DailyReportModal);
+ const resourceReport={...reports[0],projectId:'resource:study',projectName:'Knowledge',targetKind:'resource'};
+ const all=[...reports,resourceReport];
+ host.projectWizard={data:{reportFocusByDate:{[date]:{items:nextFocus}}},getProgressReports(scope){return all.filter(r=>typeof scope==='string'?r.projectId===scope:scope?.kind==='resource'?r.targetKind==='resource':r.targetKind!=='resource')}};
+ let editCalls=[];window.hubOpenProgressEditor=(...args)=>editCalls.push(args);
+ for(const scope of [{kind:'project'},{kind:'resource'},'p','resource:study']){
+  const calendar=document.body.createDiv(),boxes=calendar.createEl('ol',{cls:'heatmap-calendar-boxes'});
+  for(let i=0;i<365;i++)boxes.createEl('li',{cls:'month-1',attr:{'data-hub-progress-details':'Existing hover details'}});
+  host.enableProgressCalendarEditing(calendar,{year:2026,projectId:scope});
+  const cell=calendar.querySelector(`[data-date="${date}"]`),emptyCell=calendar.querySelector('[data-date="2026-09-13"]');
+  const rect=cell.getBoundingClientRect();
+  assert(cell.classList.contains('has-report')&&cell.getAttribute('aria-label').includes('Existing hover details'),'Discoverability and hover retained');
+  const before=editCalls.length;cell.click();assert(editCalls.length===before&&opened instanceof ui.DailyReportModal,'Report cell opens history');
+  assert(opened.day.reports.length===(scope?.kind==='project'?2:1),'Scope retained');
+  opened.contentEl.querySelector('button').click();assert(editCalls.at(-1)[0]===date&&editCalls.at(-1)[1]===scope,'Edit action preserves date and scope');
+  cell.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true,cancelable:true}));assert(opened instanceof ui.DailyReportModal,'Keyboard opens history');opened.close();
+  emptyCell.click();assert(editCalls.at(-1)[0]==='2026-09-13','Empty day retains existing editor');
+  assert(cell.getBoundingClientRect().width===rect.width&&cell.getBoundingClientRect().height===rect.height,'Cell geometry unchanged');
+  host.enableProgressCalendarEditing(calendar,{year:2026,projectId:scope});cell.click();opened.close();calendar.remove();
+ }
+ // Grouping remains clear with one/multiple records and many editing workspaces.
+ function checkCards(modal,selector){
+  const cards=[...modal.contentEl.querySelectorAll(selector)];
+  for(const [i,card] of cards.entries()){
+   const style=getComputedStyle(card),box=card.getBoundingClientRect();
+   assert(style.backgroundColor!==getComputedStyle(modal.modalEl).backgroundColor&&style.backgroundColor!=='rgba(0, 0, 0, 0)','Workspace surface distinct from modal');
+   assert(style.borderRadius==='8px'&&style.borderTopWidth==='1px','Shared conventional radius and quiet border');
+   assert(parseFloat(style.paddingLeft)===16,'Compact shared inner padding');
+   const name=card.querySelector('.hub-project-advancement-name');
+   assert(parseFloat(getComputedStyle(name).fontSize)>parseFloat(getComputedStyle(card.querySelector('.hub-report-section h3')).fontSize),'Workspace heading is more prominent than section labels');
+   assert(!name.querySelector('svg'),'Workspace names have no icons');
+   const activity=card.querySelector('.hub-report-activity > summary');
+   if(activity){
+    assert(activity.querySelectorAll('.hub-report-section-icon svg path').length===3,'Activity icon renders in historical and edit cards without native support');
+    assert(getComputedStyle(activity).backgroundColor==='rgba(0, 0, 0, 0)','Disclosure rests on transparent surface');
+    const centers=[...activity.children].map(e=>{const r=e.getBoundingClientRect();return r.top+r.height/2});
+    assert(Math.max(...centers)-Math.min(...centers)<1,'Disclosure icon, label, count and chevron centered');
+    assert(getComputedStyle(activity).paddingTop===getComputedStyle(activity).paddingBottom,'Balanced disclosure padding');
+   }
+   const empty=card.querySelector('.hub-report-empty');
+   if(empty)assert(getComputedStyle(empty).color!==getComputedStyle(card.querySelector('.hub-report-section h3')).color,'Empty state recedes below real content');
+   for(const focus of card.querySelectorAll('.hub-report-focus'))assert(getComputedStyle(focus).borderTopWidth==='1px','Focus sections have subtle dividers');
+   const controls=card.querySelector('.hub-project-advancement-choices');
+   if(controls)assert(getComputedStyle(controls).borderTopWidth==='1px','Report-writing controls separated from evidence');
+   assert(card.scrollWidth<=card.clientWidth,'Card content fits narrow widths');
+   assert(box.right<=modal.contentEl.getBoundingClientRect().right+1,'Card fits modal');
+   if(i)assert(box.top-cards[i-1].getBoundingClientRect().bottom>=13,'Visible space between workspace cards');
+  }
+ }
+ for(const width of [640,360]){
+  for(const count of [1,2]){
+   const view=new ui.DailyReportModal({}, {day:{...day,reports:reports.slice(0,count)}});view.open();view.modalEl.style.width=width+'px';
+   checkCards(view,'.hub-report-card');
+   const disclosure=view.contentEl.querySelector('details');disclosure.querySelector('summary').click();assert(disclosure.open,'Activity expands inside card');
+   checkCards(view,'.hub-report-card');disclosure.querySelector('summary').click();assert(!disclosure.open,'Activity collapses inside card');view.close();
+  }
+  const workspaces=Array.from({length:8},(_,i)=>({projectId:'w'+i,name:'Workspace '+(i+1)}));
+  const writing=new Report({}, {projects:workspaces,reportContexts:Object.fromEntries(workspaces.map((w,i)=>[w.projectId,i%2?empty:context])),currentScores:{},allowNoProgress:true,onSave:async()=>{}});
+  writing.open();writing.modalEl.style.width=width+'px';checkCards(writing,'.hub-project-advancement-row');
+  assert(writing.contentEl.scrollHeight>writing.contentEl.clientHeight,'Many workspace cards scroll within modal');
+  writing.contentEl.scrollTop=writing.contentEl.scrollHeight;checkCards(writing,'.hub-project-advancement-row');
+  assert(writing.contentEl.querySelectorAll('textarea').length===8,'All workspace inputs retained');writing.close();
+ }
+ const preview=new URLSearchParams(location.search);
+ const sample=preview.get('view')==='editor'
+  ? new Report({}, {title:ui.reportTitle(date,true),projects:[project,{projectId:'q',name:'Research'}],reportContexts:{p:context,q:empty},currentScores:{p:3,q:2},
+    currentSummaries:{p:reports[0].summary,q:reports[1].summary},allowNoProgress:true,showNextFocus:true,focusProjects:[project],currentFocus:[nextFocus[0]],onSave:async()=>{}})
+  : new ui.DailyReportModal({}, {day,onEdit:()=>{}});
+ sample.open();
+ if(preview.get('width'))sample.modalEl.style.width=preview.get('width')+'px';
+ assert(sample.contentEl.scrollWidth===sample.contentEl.clientWidth,'Modal has no horizontal overflow');
+ result.textContent='PASS: historical cards, visible tasks and actual times, activity disclosure, focus/empty states, bounded editor context, Save & close, report/no-report heatmap clicks, keyboard, scope and geometry; shared cards at wide/narrow widths, single/multiple reports and many scrolling edit workspaces.';
+}catch(error){result.textContent='FAIL '+error.stack}
+</script>

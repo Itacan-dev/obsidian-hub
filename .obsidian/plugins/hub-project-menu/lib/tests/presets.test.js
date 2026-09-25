@@ -46,7 +46,7 @@ async function test() {
  assert(!("hubPreparedRail" in canonical.main.children[0].state.state));
  assert.equal(nativePrepared.main.children[0].state.type, "hub-prepared-note-rail");
  for (const kind of ["project", "resource"]) {
-    const context = { projectId: kind === "project" ? "p" : "resource:study", path: `${kind}/Hub.md`, root: kind, contextKind: kind };
+    const context = { projectId: kind === "project" ? "p" : "resource:study", path: `${kind}/Hub.md`, root: kind, contextKind: kind, status: "active", resourceType: kind === "resource" ? "study" : undefined };
     const files = new Map([context.path, `${kind}/A.md`, `${kind}/B.md`].map(path => [path,new TFile(path)]));
     files.set(`${kind}/Folder`, {}); files.set(`${kind}/Folder/Sub`, {});
     const layout = { main: { id: "root", type: "split", direction: "vertical", children: [
@@ -114,12 +114,14 @@ async function test() {
     const lastFileMode=Object.create(m);
     Object.assign(lastFileMode,{
         state:{projects:{[context.projectId]:{layout:browserLayout}}},
-        mode:null, contextFromSource:()=>null,lastContext:()=>context,
+        history:null, mode:null, contextFromSource:()=>null,lastContext:()=>context,
         globalLastFile:()=>null,lastNoteFile:()=>null,isShelvedLastFile:()=>false,
+        rememberContext:()=>{}, contextFor:ref=>(ref===context.projectId||ref?.projectId===context.projectId||ref===context.path)?context:null,
         dashboardRoot:()=>null,isProjectNoteMode(){return !!this.mode},
         usableContentLeaves:()=>[{id:"web1"}],pickContentLeaf(){return this.lastActiveNoteLeaf},
         leafPath:()=>null
     });
+    lastFileMode.rememberBrowserLayout(context);
     assert(lastFileMode.hasLastFile(),"Browser-only Last File remains enabled");
     assert(await lastFileMode.openLastFile(null),"Actual Last File route restores browser-only layout");
     assert.equal(liveLayout.active,"web1");

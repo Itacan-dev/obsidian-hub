@@ -105,16 +105,32 @@ try {
  assert(frames>1,'Saved-placement verification spans rendered frames');
  assert(a.image.style.backgroundImage===savedA,'Reload applies stored placement');
  const hoverStyle=document.createElement('style');
- hoverStyle.textContent=(await (await fetch('../../../../../System/Dashboards/Home/view.css')).text()).replaceAll(':hover','.test-hover');
+ hoverStyle.textContent=(await Promise.all(['../../styles.css','../../../../../System/Dashboards/Home/view.css'].map(async path=>(await fetch(path)).text()))).join('\n').replaceAll(':hover','.test-hover');
  document.head.append(hoverStyle);
  const layerTransforms=['::before','::after'].map(p=>getComputedStyle(r.card,p).transform);
  r.card.classList.add('test-hover');await new Promise(resolve=>setTimeout(resolve,180));
  assert(getComputedStyle(r.card).transform==='none','Resource wrapper remains stationary on hover');
  assert(getComputedStyle(r.card.querySelector('.home-resource-face')).transform!=='none','Only the front face lifts on hover');
  for(const [i,p] of ['::before','::after'].entries())assert(getComputedStyle(r.card,p).transform===layerTransforms[i],'Back layer remains stationary');
+ r.card.classList.add('is-oath-locked');await new Promise(resolve=>setTimeout(resolve,180));
+ assert(getComputedStyle(r.card.querySelector('.home-resource-face')).transform==='none','Locked Resource disables hover motion');
+ r.card.classList.remove('is-oath-locked');await new Promise(resolve=>setTimeout(resolve,180));
+ assert(getComputedStyle(r.card.querySelector('.home-resource-face')).transform!=='none','Ending Oath restores hover motion');
+ a.card.classList.add('test-hover','is-oath-locked');await new Promise(resolve=>setTimeout(resolve,180));
+ assert(getComputedStyle(a.card.querySelector('.home-project-surface')).transform==='none','Locked Project disables enlargement');
+ a.card.classList.remove('is-oath-locked');await new Promise(resolve=>setTimeout(resolve,180));
+ assert(getComputedStyle(a.card.querySelector('.home-project-surface')).transform!=='none','Unlocked Project retains enlargement');
+ a.card.classList.remove('test-hover');
  r.card.classList.remove('test-hover');hoverStyle.remove();
  begin(r);await wait();zoom(r);await wait();document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',cancelable:true}));await wait();
  assert(!r.card.classList.contains('is-placement-editing'),'Escape cancels shared editor');
+ // Read-only selection cards use the exact persisted crop without attaching an editor.
+ await setImage(a.image,asset,{card:a.card,key:a.key,readOnly:true});await wait();
+ assert(a.image.style.backgroundImage===savedA,'Read-only picker uses the saved Home crop');
+ menuTitle=null;menuAction=null;
+ a.image.dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true}));
+ assert(!menuTitle&&!a.card.querySelector('.hub-image-placement-controls'),'Read-only card has no image-edit action');
+ await setImage(a.image,asset,{card:a.card,key:a.key});await wait();
  result.textContent=errors.length?'FAIL\n'+errors.join('\n'):'PASS: Project + Resource pan/zoom, Cancel/Done/Escape, independent persistence, reload, failed save, navigation/reorder isolation, geometry, clipping, layers and high-quality raster.';
  // Leave both editors visible for control-layout inspection.
  begin(a);begin(r);

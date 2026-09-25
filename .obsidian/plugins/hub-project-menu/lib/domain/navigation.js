@@ -11,6 +11,7 @@ function browserViewState(view) {
     } catch (_) { return null; }
 }
 
+/** @param {(type: string) => boolean} [canRestoreView] */
 function prepareNoteLayout(snapshot, hubPath, exists, canRestoreView = () => true) {
     if (!snapshot?.main || !hubPath) return null;
     const leafIds = [];

@@ -11,10 +11,20 @@ body{margin:0;background:#191b1e;color:#e0e4ef;font:16px system-ui;--background-
 HTMLElement.prototype.createEl=function(tag,o={}){const e=document.createElement(tag);e.className=o.cls||'';e.textContent=o.text||'';for(const[k,v]of Object.entries(o.attr||{}))e.setAttribute(k,v);if(o.type)e.type=o.type;this.append(e);return e};
 HTMLElement.prototype.createDiv=function(o){return this.createEl('div',o)};HTMLElement.prototype.createSpan=function(o){return this.createEl('span',o)};HTMLElement.prototype.empty=function(){this.replaceChildren()};
 class Component{constructor(){this.children=new Set();this.cleanups=[]}load(){}register(fn){this.cleanups.push(fn)}addChild(c){this.children.add(c)}removeChild(c){c.unload();this.children.delete(c)}unload(){this.cleanups.splice(0).forEach(fn=>fn());this.children.forEach(c=>c.unload());this.children.clear()}}
-class Modal{constructor(app){this.app=app;this.containerEl=document.createElement('div');this.containerEl.className='modal-container';this.modalEl=this.containerEl.createDiv({cls:'modal'});this.modalEl.createEl('button',{text:'×',cls:'modal-close-button'}).onclick=()=>this.close();this.contentEl=this.modalEl.createDiv({cls:'modal-content'});this.escape=e=>{if(e.key==='Escape')this.close()}}open(){document.body.append(this.containerEl);document.addEventListener('keydown',this.escape);this.onOpen()}close(){this.onClose?.();this.containerEl.remove();document.removeEventListener('keydown',this.escape)}}
-const notices=[],obsidian={Component,Modal,Menu:class{},FuzzySuggestModal:class{},Notice:class{constructor(text){notices.push(text)}},setIcon:(el,name)=>{el.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="'+(name==='shield'?'M12 3L21 7V13Q20 18 12 22Q4 18 3 13V7Z':'M8 3L18 13M7 4L5 10L14 19L20 17M11 14L3 22')+'"/></svg>'},MarkdownRenderer:{render:async(app,text,el)=>el.createEl('p',{text})}};
+class Modal{constructor(app){this.app=app;this.containerEl=document.createElement('div');this.containerEl.className='modal-container';this.modalEl=this.containerEl.createDiv({cls:'modal'});this.modalEl.createEl('button',{text:'×',cls:'modal-close-button'}).onclick=()=>this.close();this.contentEl=this.modalEl.createDiv({cls:'modal-content'});this.escape=e=>{if(e.key==='Escape'&&this.containerEl===[...document.querySelectorAll('.modal-container')].at(-1))this.close()}}open(){document.body.append(this.containerEl);document.addEventListener('keydown',this.escape);this.onOpen()}close(){this.onClose?.();this.containerEl.remove();document.removeEventListener('keydown',this.escape)}}
+let sourcePicker;
+const notices=[],obsidian={Component,Modal,Menu:class{constructor(){this.items=[]}addItem(build){const item={setTitle(value){this.title=value;return this},setChecked(value){this.checked=value;return this},onClick(fn){this.action=fn;return this}};build(item);this.items.push(item);return this}onHide(fn){this.onhide=fn;return this}showAtPosition(point){this.el=document.body.createDiv({cls:'menu'});Object.assign(this.el.style,{position:'fixed',left:point.x+'px',top:point.y+'px',zIndex:100});for(const item of this.items){const b=this.el.createEl('button',{text:item.title,attr:{role:'menuitemradio','aria-checked':String(item.checked)}});b.onclick=()=>{item.action();this.hide()}}this.el.querySelector('button').focus()}hide(){this.el?.remove();this.onhide?.()}},FuzzySuggestModal:class{open(){sourcePicker=this}},Notice:class{constructor(text){notices.push(text)}},setIcon:(el,name)=>{el.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="'+(name==='shield'?'M12 3L21 7V13Q20 18 12 22Q4 18 3 13V7Z':'M8 3L18 13M7 4L5 10L14 19L20 17M11 14L3 22')+'"/></svg>'},MarkdownRenderer:{render:async(app,text,el)=>el.createEl('p',{text})}};
 // Representative Lucide outlines make modal previews useful as well as recording icon names.
 const iconShapes={
+ 'chevron-down':'<path d="m6 9 6 6 6-6"/>',
+ "chevrons-up-down":'<path d="m7 15 5 5 5-5"/><path d="m7 9 5-5 5 5"/>',
+ "triangle-alert":"<path d=\"m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3\"/><path d=\"M12 9v4\"/><path d=\"M12 17h.01\"/>",
+ "timer-off":"<path d=\"M10 2h4\"/><path d=\"M4.6 11a8 8 0 0 0 1.7 8.7 8 8 0 0 0 8.7 1.7\"/><path d=\"M7.4 7.4a8 8 0 0 1 10.3 1 8 8 0 0 1 .9 10.2\"/><path d=\"m2 2 20 20\"/><path d=\"M12 12v-2\"/>",
+ "clipboard-clock":"<path d=\"M16 14v2.2l1.6 1\"/><path d=\"M16 4h2a2 2 0 0 1 2 2v.832\"/><path d=\"M8 4H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h2\"/><circle cx=\"16\" cy=\"16\" r=\"6\"/><rect x=\"8\" y=\"2\" width=\"8\" height=\"4\" rx=\"1\"/>",
+ "scroll-text":"<path d=\"M15 12h-5\"/><path d=\"M15 8h-5\"/><path d=\"M19 17V5a2 2 0 0 0-2-2H4\"/><path d=\"M8 21h12a2 2 0 0 0 2-2v-1a1 1 0 0 0-1-1H11a1 1 0 0 0-1 1v1a2 2 0 1 1-4 0V5a2 2 0 1 0-4 0v2a1 1 0 0 0 1 1h3\"/>",
+
+ fullscreen:"<path d=\"M3 7V5a2 2 0 0 1 2-2h2\"/><path d=\"M17 3h2a2 2 0 0 1 2 2v2\"/><path d=\"M21 17v2a2 2 0 0 1-2 2h-2\"/><path d=\"M7 21H5a2 2 0 0 1-2-2v-2\"/><rect x=\"7\" y=\"8\" width=\"10\" height=\"8\" rx=\"1\"/>",
+ 'shield-user':'<path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1zM6.376 18.91a6 6 0 0 1 11.249.003"/><circle cx="12" cy="11" r="4"/>',
  'bell-off':'<path d="m2 2 20 20M10.6 4.1A6 6 0 0 1 18 10c0 1.1.1 2 .3 2.8M6.3 6.3A6 6 0 0 0 6 8v2c0 7-3 7-3 7h14M10 21h4"/>',
  'chart-no-axes-column-increasing':'<path d="M5 21v-6M12 21V9M19 21V3"/>',
  square:'<rect x="3" y="3" width="18" height="18" rx="2"/>',
@@ -31,28 +41,43 @@ const iconShapes={
  'circle-alert':'<circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/>',
  'circle-help':'<circle cx="12" cy="12" r="10"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3M12 17h.01"/>',
  history:'<path d="M3 12a9 9 0 1 0 2.8-6.5L3 8M3 3v5h5M12 7v5l4 2"/>',
- landmark:'<path d="m3 9 9-6 9 6ZM4 21h16M4 18h16M6 10v7M10 10v7M14 10v7M18 10v7"/>',
  'list-todo':'<rect x="3" y="4" width="4" height="4" rx="1"/><path d="m3 16 2 2 3-4M11 6h10M11 16h10"/>'
 };
-const fallbackIcon=obsidian.setIcon;obsidian.setIcon=(el,name)=>{el.dataset.icon=name;if(iconShapes[name])el.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'+iconShapes[name]+'</svg>';else fallbackIcon(el,name)};
+const fallbackIcon=obsidian.setIcon;obsidian.setIcon=(el,name)=>{el.dataset.icon=name;name=name.startsWith('lucide-')?name.slice(7):name==='fullscreen'?'maximize':name;if(iconShapes[name])el.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'+iconShapes[name]+'</svg>';else fallbackIcon(el,name)};
 const assert=(ok,message)=>{if(!ok)throw Error(message)};
-const click=(scope,text)=>{const button=[...scope.querySelectorAll('button')].find(el=>el.textContent===text)||[...scope.querySelectorAll('.hub-oath-choice')].find(el=>el.querySelector('.hub-oath-choice-title')?.textContent===text)?.querySelector('input');assert(button,'Missing control '+text);button.click();return button};
+const click=(scope,text)=>{const button=[...scope.querySelectorAll('button')].find(el=>el.textContent===text)||[...scope.querySelectorAll('.hub-oath-choice')].find(el=>(el.querySelector('.hub-oath-choice-title')?.textContent===text||el.querySelector('.hub-oath-choice-title')?.textContent.startsWith(text+': ')))?.querySelector('input');assert(button,'Missing control '+text);button.click();return button};
 const modal=()=>[...document.querySelectorAll('.modal-content')].at(-1);
 const settle=async()=>{for(let i=0;i<80;i++)await Promise.resolve();await new Promise(r=>requestAnimationFrame(r))};
 const runtimeErrors=[];
 window.addEventListener('error',event=>runtimeErrors.push(event.message));
 window.addEventListener('unhandledrejection',event=>runtimeErrors.push(String(event.reason)));
 window.onload=async()=>{try{
- const names=['domain/tasks','domain/dates','domain/task-planning','domain/oath','services/oath','services/task-data','services/oath-fullscreen','ui/markdown','ui/task-steps','ui/oath-tasks','ui/tasks','ui/task-editor','ui/oath'];
+ window.process={platform:'win32',env:{}};
+ const names=['domain/tasks','domain/dates','domain/task-planning','domain/oath','domain/oath-workspace','config','ui/workspace-cards','ui/card-images','ui/header-image','ui/tooltips','services/oath','services/task-data','services/task-editor','services/oath-fullscreen','ui/markdown','ui/task-steps','ui/oath-tasks','ui/tasks','ui/task-editor','ui/oath'];
  const sources=Object.fromEntries(await Promise.all(names.map(async name=>[name,await(await fetch('../'+name+'.js')).text()]))),cache={};
  const load=name=>{if(name==='obsidian')return obsidian;if(name==='crypto')return{randomUUID:()=>crypto.randomUUID()};if(cache[name])return cache[name].exports;assert(sources[name],'Missing module '+name);const mod=cache[name]={exports:{}};new Function('module','require',sources[name])(mod,request=>{if(!request.startsWith('.'))return load(request);const out=[];for(const part of(name.slice(0,name.lastIndexOf('/'))+'/'+request).split('/')){if(part==='..')out.pop();else if(part!=='.')out.push(part)}return load(out.join('/'))});return mod.exports};
  const domain=load('domain/tasks'),planning=load('domain/task-planning'),{HubOathService}=load('services/oath'),{createTaskUi}=load('ui/tasks'),{mountOathControl}=load('ui/oath');
- window.hubApplyTaskEdit=domain.applyTaskEdit;window.hubTaskGroups=planning.taskGroups;window.hubSetIcon=obsidian.setIcon;
+ window.hubCreateTaskRow=load('ui/tasks').createTaskRow;window.hubApplyTaskEdit=domain.applyTaskEdit;window.hubTaskGroups=planning.taskGroups;window.hubSetIcon=obsidian.setIcon;
  const shift=days=>{const date=new Date();date.setDate(date.getDate()+days);return load('domain/dates').localISODate(date)};
- const sourcePath='Projects/Itacan/Meta/Tasks.md',otherPath='Projects/Master’s Thesis/Tasks.md';
+ const sourcePath='Projects/Itacan/Meta/Tasks.md',otherPath='Projects/Itacan/Tasks.md';
  const files=new Map([[sourcePath,'- [ ] Write the primary views section <!-- hub-task:views -->\n    - [x] Outline Homepage\n    - [x] Outline Workspace Full-view\n    - [ ] Outline Workspace Note-view\n    - [ ] Polish transitions\n- [ ] Submit topology problem set <!-- hub-task:topology -->\n- [ ] Review lecture 2 again <!-- hub-task:review -->\n'],[otherPath,'- [ ] Prepare supervisor questions <!-- hub-task:supervisor -->\n- [ ] Future task <!-- hub-task:future -->\n- [x] Completed task <!-- hub-task:completed -->\n']]);
+ const contexts=[{projectId:'itacan',name:'Itacan',root:'Projects/Itacan',path:'Projects/Itacan/Itacan.md',status:'active',contextKind:'project'},
+  {projectId:'thesis',name:'Thesis',root:'Projects/Thesis',path:'Projects/Thesis/Thesis.md',status:'active',contextKind:'project'},
+  {projectId:'future',name:'Future project',root:'Projects/Future',path:'Projects/Future/Future.md',status:'future',contextKind:'project'},
+  {projectId:'shelved',name:'Shelved project',root:'Projects/Shelved',path:'Projects/Shelved/Shelved.md',status:'shelved',contextKind:'project'}];
+ contexts[0].categoryId='wip';
+ const config=load('config'),resources=config.RESOURCE_TYPES.map(config.publicResourceType);
+ for(const context of [...contexts,...resources])files.set(context.path,'');
+ files.set('Projects/Thesis/Tasks.md','- [ ] Thesis one\n- [ ] Thesis two\n');
+ files.set('Resources/Research/Tasks.md','- [ ] Read research source\n');
+ const oathWorkspace={type:'project',id:'itacan',name:'Itacan'};
+ const chooseProject=(name='Itacan')=>{
+  click(modal(),'Project');const picker=modal();
+  const card=[...picker.querySelectorAll('.home-project-card')].find(card=>card.querySelector('.home-project-title').textContent===name);
+  assert(card,'Available Project '+name);card.click();
+ };
  const metadata={views:{necessity:'should',dueDate:shift(0)},topology:{necessity:'must',dueDate:shift(-4)},review:{necessity:'should',dueDate:shift(3)},supervisor:{dueDate:shift(5)},future:{necessity:'must',fromDate:shift(10)}};
- const vault={getAbstractFileByPath:path=>files.has(path)?{path,extension:'md'}:null,read:async file=>files.get(file.path),process:async(file,change)=>files.set(file.path,change(files.get(file.path)))};
+ const vault={getAbstractFileByPath:path=>files.has(path)||path?.startsWith('Assets/')?{path,extension:path?.startsWith('Assets/')?'jpg':'md'}:null,getResourcePath:file=>new URL('../../../../../'+file.path,location.href).href,read:async file=>files.get(file.path),process:async(file,change)=>files.set(file.path,change(files.get(file.path)))};
  // Model Dataview's boolean task flag and nested list items, then use the production task source.
  const rawPages=()=>[...files].map(([path,content])=>{
   let parent=null;const tasks=content.split('\n').flatMap((raw,line)=>{
@@ -67,8 +92,23 @@ window.onload=async()=>{try{
  const taskData=new (load('services/task-data').HubTaskDataService)(app,{metadata:id=>metadata[id]});
  taskData.subscribe=(owner,fn)=>{subscriptions.add(fn);owner.register(()=>subscriptions.delete(fn))};
  const read=()=>taskData.readPages(api).flatMap(page=>page.file.tasks);
- const plugin={app,projectWizard:{data:{},getContextForPath:()=>({status:'active'})},register(){},enqueueTaskMutation:async work=>work(),dataStore:{deviceId:'browser-fixture',save:async()=>{}},addStatusBarItem:()=>document.querySelector('.status-bar').createDiv(),taskData,taskEditor:{app,file:path=>vault.getAbstractFileByPath(path),metadata:id=>planning.taskMetadata(metadata[id])}};
+ const plugin={app,projectWizard:{data:{},getCategories:()=>[{id:'wip',name:'Work in progress',image:'Assets/ProjectCards/wip.jpg'}],getProjectRecords:()=>contexts,getResourceTypes:()=>resources,
+ getProjectById:id=>contexts.find(c=>c.projectId===id),getResourceById:id=>resources.find(c=>c.id===id||c.projectId===id),
+ getProjectForPath:path=>contexts.find(c=>String(path).startsWith(c.root+'/')),getResourceForPath:path=>resources.find(c=>String(path).startsWith(c.root+'/')),
+ getContextForPath:()=>({status:'active'})},register(){},enqueueTaskMutation:async work=>work(),dataStore:{deviceId:'browser-fixture',save:async()=>{}},addStatusBarItem:()=>document.querySelector('.status-bar').createDiv(),taskData,taskEditor:{app,file:path=>vault.getAbstractFileByPath(path),metadata:id=>planning.taskMetadata(metadata[id])}};
  plugin.taskEditor.plugin=plugin;vault.getMarkdownFiles=()=>[...files.keys()].map(path=>vault.getAbstractFileByPath(path));
+ // Use the actual workspace context resolver with fixture leaves.
+ const pluginSource=await(await fetch('../../plugin.js')).text();
+ const contextStart=pluginSource.indexOf('    currentContext() {');
+ const CurrentModes=new Function('return class {'+pluginSource.slice(contextStart,pluginSource.indexOf('    captureNoteLayout()',contextStart))+'}')();
+ const modes=plugin.workspaceModes=new CurrentModes();
+ Object.assign(modes,{app,plugin,mode:null,isMainLeaf:leaf=>!!leaf?.main,leafPath:leaf=>leaf?.path,
+  leafDocument:leaf=>leaf?.ownerDocument,contextFromSource:()=>null,
+  contextForFile:path=>plugin.projectWizard.getProjectForPath(path)||plugin.projectWizard.getResourceForPath(path)});
+ const setContext=path=>{app.workspace.activeLeaf={path,main:true,ownerDocument:document}};
+ setContext('Home.md');app.workspace.getActiveFile=()=>vault.getAbstractFileByPath(app.workspace.activeLeaf?.path);
+ plugin.markProjectChangedByPath=()=>{};
+ plugin.taskEditor.create=load('services/task-editor').HubTaskEditor.prototype.create.bind(plugin.taskEditor);
  let now=Date.now();
  const native={full:false,kiosk:false,entries:0,listeners:new Map(),isFullScreen(){return this.full},isKiosk(){return this.kiosk},setFullScreen(value){if(value&&!this.full)this.entries++;this.full=value},setKiosk(value){this.kiosk=value},on(name,fn){this.listeners.set(name,fn)},removeListener(name){this.listeners.delete(name)}};
  window.electronWindow=native;
@@ -77,6 +117,17 @@ window.onload=async()=>{try{
  const escape=async()=>{window.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true,cancelable:true}));await settle();await service.queue;await settle()};
 
  const service=new HubOathService(plugin,full,{now:()=>now,notice:text=>notices.push(text)});const dock=mountOathControl(plugin,service);await service.start();
+ const cardsOwner=new Component();cardsOwner.load();
+ const cardsRoot=document.body.createDiv({cls:'hub-oath-workspace-grid is-project'});
+ let cardOpens=0;
+ const sharedCards=load('ui/workspace-cards').createWorkspaceCards({app,root:cardsRoot,component:cardsOwner,oath:service,
+  categories:()=>plugin.projectWizard.getCategories(),renderImage:(el,url)=>el.style.backgroundImage='url("'+url+'")'});
+ for(const context of [...contexts,...resources])sharedCards.render(cardsRoot,context,()=>cardOpens++);
+ const assertUnlocked=()=>{
+  assert(!cardsRoot.querySelector('.is-oath-locked,.is-oath-workspace,.hub-workspace-oath-state'),'End clears all card lock/active visuals');
+  assert([...cardsRoot.children].every(card=>card.tabIndex===0&&card.getAttribute('aria-disabled')==='false'),'Normal keyboard access restored');
+ };
+
  const mutate=async request=>{const result=request.operation==='step'?planning.toggleTaskStep(files.get(request.path),request):domain.editTaskContent(files.get(request.path),request,line=>line.replace('[ ]','[x]').replace(request.completed?'[never]':'[x]','[ ]'));files.set(request.path,result.content);service.changed(result.edit);return result.edit};
  window.hubToggleTask=(path,line,text,completed,hubTaskId)=>mutate({path,line,text,completed,hubTaskId});
  const home=await(await fetch('../../../../../System/Dashboards/Home/view.js')).text(),project=await(await fetch('../../../../../System/Dashboards/Project/view.js')).text();
@@ -92,68 +143,381 @@ window.onload=async()=>{try{
  }
  mount('home');await settle();const button=document.querySelector('.hub-oath-button');assert(button.textContent==='The Oath','Labelled inactive dock');
  assert(document.querySelector('.horizontal-main-container').getBoundingClientRect().bottom<=button.getBoundingClientRect().top,'Footer reserves content space');
+ // Fresh defaults must come from visible context, never persisted navigation or duration.
+ const reviewButton=screen=>[...screen.contentEl.querySelectorAll('button')].find(el=>el.textContent==='Review Oath');
+ const openSetup=()=>load('ui/oath').openOathSetup(service);
+ const resource=resources.find(item=>item.resourceType==='literature');
+ for(const [path,id] of [['Home.md',null],[contexts[0].path,'itacan'],[sourcePath,'itacan'],
+  [resource.path,'literature'],['Resources/Research/Tasks.md','literature'],
+  [contexts[2].path,null],[contexts[3].path,null],['Unrelated.md',null]]){
+  setContext(path);const fresh=openSetup();await settle();
+  assert(fresh.draft.start==='now'&&fresh.contentEl.querySelector('input[value=now]').checked,'Fresh Now from '+path);
+  assert(fresh.draft.durationMs===null&&!fresh.contentEl.querySelector('.hub-oath-duration-choices input:checked'),'Truly empty duration from '+path);
+  assert((fresh.draft.workspace?.id??null)===id,'Current eligible identity from '+path);
+  assert(reviewButton(fresh).disabled,'Fresh review disabled from '+path);
+  if(id){
+   assert(fresh.draft.tasks.map(load('domain/oath-workspace').taskKey).join('|')===service.workspaceTasks(fresh.draft.workspace).slice(0,3).map(load('domain/oath-workspace').taskKey).join('|'),'Canonical contextual suggestions');
+   assert(fresh.contentEl.querySelector('input[value='+fresh.draft.workspace.type+']').checked,'Contextual workspace card checked');
+   for(const minutes of [25,50,90]){
+    click(fresh.contentEl,minutes+' minutes');assert(!reviewButton(fresh).disabled,'Explicit preset enables review');
+    click(fresh.contentEl,'Review Oath');click(fresh.contentEl,'Back');
+    assert(fresh.draft.durationMs===minutes*60000&&fresh.contentEl.querySelector('input[value="'+minutes+'"]').checked,'Back preserves duration');
+   }
+  }else assert(!fresh.contentEl.querySelector('.hub-oath-workspace-choices input:checked'),'No substitute workspace');
+  fresh.close();
+ }
+ setContext(contexts[0].path);const customFresh=openSetup();click(customFresh.contentEl,'Custom');
+ assert(customFresh.contentEl.querySelector('input[type=number]').value===''&&reviewButton(customFresh).disabled,'Fresh Custom is blank and invalid');
+ const customInput=customFresh.contentEl.querySelector('input[type=number]');customInput.value='35';customInput.dispatchEvent(new Event('input'));
+ assert(!reviewButton(customFresh).disabled,'Explicit Custom becomes valid');customFresh.close();
+ // Slow indexing must not be mistaken for an empty workspace.
+ api.index.initialized=false;const loading=openSetup();
+ assert(loading.contentEl.textContent.includes('Loading tasks...')&&!loading.contentEl.textContent.includes('has no open tasks'),'Loading is distinct from empty');
+ api.index.initialized=true;for(const refresh of subscriptions)refresh();await settle();
+ assert(loading.draft.tasks.length===3&&loading.draft.durationMs===null,'Delayed context suggestions preserve fresh duration');loading.close();
+ // Completed-only Project and Resource use the existing scoped creator.
+ for(const context of [contexts[1],resources.find(item=>item.resourceType==='study')]){
+  const originals=new Map([...files].filter(([path])=>path.startsWith(context.root+'/')));
+  for(const [path] of originals)files.set(path,'- [x] Already finished\n');
+  setContext(context.path);const empty=openSetup();await settle();
+  const type=context.contextKind==='resource'?'resource':'project';
+  const copy=context.name+' has no open tasks. Create a task before making an Oath, or choose another '+type+'.';
+  assert(empty.contentEl.textContent.includes(copy)&&!empty.draft.tasks.length,'Exact completed-only '+type+' empty state');
+  click(empty.contentEl,'90 minutes');click(empty.contentEl,'Select date and time');
+  const local=new Date(now+3600000);local.setMinutes(local.getMinutes()-local.getTimezoneOffset());
+  const stamp=local.toISOString();
+  for(const [type,value] of [['datetime-local',stamp.slice(0,16)]]){
+   const input=empty.contentEl.querySelector('input[type='+type+']');input.value=value;input.dispatchEvent(new Event('input'));
+  }
+  const before=JSON.stringify(empty.draft);assert(reviewButton(empty).disabled,'No open tasks block review even with valid duration');
+  click(empty.contentEl,'Create task');assert(modal().querySelector('h2').textContent==='Add task','Existing creator opens');
+  const destination=modal().querySelector('.hub-task-source').textContent;
+  assert(destination.startsWith(context.root+'/'),'Creator destination scoped to '+type);
+  [...modal().querySelectorAll('button')].find(el=>el.textContent.startsWith('Choose note')).click();
+  assert(sourcePicker.getItems().length&&sourcePicker.getItems().every(file=>file.path.startsWith(context.root+'/')),'Source picker remains scoped');
+  click(modal(),'Cancel');assert(modal()===empty.contentEl&&JSON.stringify(empty.draft)===before,'Creator cancel preserves draft');
+  click(empty.contentEl,'Create task');modal().querySelector('input[type=text]').value='First open Oath task';
+  modal().querySelector('form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));await settle();
+  assert(modal()===empty.contentEl&&files.get(destination).includes('- [ ] First open Oath task'),'Creator writes inside workspace and returns to Oath');
+  for(const refresh of subscriptions)refresh();await settle();
+  assert(JSON.stringify(empty.draft)===before,'Creation preserves selected workspace, start and duration');
+  assert(empty.contentEl.textContent.includes('No tasks selected. Add at least one task to continue.')&&!empty.contentEl.textContent.includes('has no open tasks'),'Index refresh switches to unselected-open state');
+  click(empty.contentEl,'Add tasks');await settle();
+  assert(modal().querySelectorAll('.project-task-row').length===1&&modal().textContent.includes('First open Oath task'),'Created task available in scoped Add tasks');
+  modal().querySelector('.project-task-row').click();click(modal(),'Add tasks');
+  assert(!reviewButton(empty).disabled,'Selecting created task enables review');
+  click(empty.contentEl,'Review Oath');click(empty.contentEl,'Back');
+  assert(empty.draft.durationMs===90*60000&&empty.draft.start==='scheduled'&&empty.draft.tasks.length===1,'Created-task review Back retains configuration');
+  empty.close();for(const [path,content] of originals)files.set(path,content);
+ }
+ // Inline editors preserve visible representation and all validation boundaries.
+ setContext(contexts[0].path);const inline=openSetup();
+ const inputValue=(type,value)=>{const input=inline.contentEl.querySelector('input[type='+type+']');input.value=value;input.dispatchEvent(new Event('input'));return input};
+ const chooseUnit=value=>{const unit=inline.contentEl.querySelector('.hub-oath-duration-unit');unit.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true,cancelable:true}));assert(unit.getAttribute('aria-expanded')==='true','Unit menu opens from keyboard');click(document.querySelector('.menu'),value);assert(unit.getAttribute('aria-expanded')==='false'&&document.activeElement===unit,'Menu restores focus and expanded state')};
+ const taskHeader=inline.contentEl.querySelector('.hub-oath-tasks-heading');
+ assert(taskHeader.querySelector('h4').textContent==='Selected tasks from Itacan','Included tasks have selected heading');
+ assert(taskHeader.querySelector('button').textContent==='Add tasks'&&taskHeader.querySelector('[data-icon=plus]'),'Compact header action uses exact plus');
+ assert(!inline.contentEl.querySelector('.hub-oath-selected-tasks ~ .hub-oath-add-tasks'),'No detached task action');
+ assert(inline.contentEl.querySelectorAll('.hub-oath-selected-tasks .is-selected').length===3,'Top three rows visibly selected');
+ assert(!inline.contentEl.querySelector('.hub-oath-selected-tasks input[type=radio],.hub-oath-selected-tasks [data-icon=check]'),'No additional selection indicators');
+ const initialInlineHeight=inline.modalEl.getBoundingClientRect().height;
+ click(inline.contentEl,'50 minutes');click(inline.contentEl,'Custom');
+ assert(inline.contentEl.querySelector('input[type=number]').value===''&&inline.draft.durationMs===null&&reviewButton(inline).disabled,'First Custom after preset is blank, no stale duration');
+ assert(document.activeElement===inline.contentEl.querySelector('input[type=number]'),'Custom activation focuses number input');
+ assert(inline.contentEl.querySelector('.hub-oath-custom [data-icon=chevron-down]'),'Exact custom chevron');
+ chooseUnit('hours');inputValue('number','1.5');
+ assert(inline.draft.durationMs===90*60000&&!reviewButton(inline).disabled,'Fractional hours resolve to whole minutes');
+ click(inline.contentEl,'Review Oath');assert(inline.contentEl.textContent.includes('90 minutes'),'Review uses resolved duration');click(inline.contentEl,'Back');
+ assert(inline.contentEl.querySelector('input[type=number]').value==='1.5'&&inline.contentEl.querySelector('.hub-oath-duration-unit').textContent==='hours','Back retains custom value and unit');
+ click(inline.contentEl,'25 minutes');assert(!inline.contentEl.querySelector('.hub-oath-custom')&&inline.contentEl.querySelector('input[value=custom]').closest('.hub-oath-choice').textContent==='Custom','Preset restores Custom label');
+ click(inline.contentEl,'Custom');assert(inline.draft.durationMs===90*60000&&inline.contentEl.querySelector('input[type=number]').value==='1.5','Returning to configured Custom restores its own representation');
+ for(const value of ['', '0','-1','0.001']){inputValue('number',value);assert(reviewButton(inline).disabled,'Invalid hours blocked: '+value)}
+ inputValue('number','1');assert(inline.contentEl.querySelector('.hub-oath-duration-unit').textContent==='hour','Singular hour');
+ inputValue('number','2');assert(inline.contentEl.querySelector('.hub-oath-duration-unit').textContent==='hours','Plural hours');
+ chooseUnit('minutes');inputValue('number','1');assert(inline.contentEl.querySelector('.hub-oath-duration-unit').textContent==='minute','Singular minute');
+ inputValue('number','90');assert(inline.contentEl.querySelector('.hub-oath-duration-unit').textContent==='minutes'&&inline.draft.durationMs===90*60000,'Minutes stay minutes');
+ click(inline.contentEl,'Select date and time');
+ assert(inline.contentEl.querySelector('.hub-oath-start').textContent==='Select date and time'&&reviewButton(inline).disabled,'Incomplete start label and validation');
+ assert(!inline.contentEl.querySelector('.hub-oath-start svg'),'No redundant start icons');
+ const schedule=new Date(now+3600000),localSchedule=new Date(schedule.getTime()-schedule.getTimezoneOffset()*60000).toISOString();
+ const dateField=inputValue('datetime-local',localSchedule.slice(0,10));
+ assert(reviewButton(inline).disabled&&inline.draft.scheduledAt===null,'Incomplete native date-time blocked');
+ inputValue('datetime-local',localSchedule.slice(0,16));
+ assert(!reviewButton(inline).disabled,'Complete future schedule valid');
+ const localDate=new Date(localSchedule.slice(0,10)+'T12:00:00');
+ const displayedDate=localDate.getDate()+' '+localDate.toLocaleDateString('en-US',{month:'short'})+' '+localDate.getFullYear();
+ assert(inline.contentEl.querySelector('.hub-oath-start').textContent===displayedDate+', '+localSchedule.slice(11,16),'One combined English date-time value');
+ assert(dateField.getAttribute('aria-label')==='Scheduled Oath start: '+displayedDate+', '+localSchedule.slice(11,16),'Accessible label exposes full start value');
+ const scheduledCard=dateField.closest('.hub-oath-choice');
+ assert(scheduledCard.querySelector('input[type=radio]').tabIndex===-1&&dateField.tabIndex===0&&!scheduledCard.querySelector('button'),'One primary native edit control without nested buttons');
+ assert(!scheduledCard.querySelector('input[type=date],input[type=time],.hub-oath-native-field'),'No separate fields or divider remain');
+ let pickerCalls=0;dateField.showPicker=()=>pickerCalls++;
+ dateField.click();assert(pickerCalls===1,'Whole card target invokes native date-time picker');
+ dateField.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true,cancelable:true}));
+ assert(pickerCalls===2&&document.activeElement===dateField,'Keyboard reopens native picker');
+ assert(getComputedStyle(dateField).opacity==='0','Picker activation retains combined label');
+ dateField.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowRight',bubbles:true}));
+ assert(getComputedStyle(dateField).opacity==='1','Native keyboard editing remains available');
+ dateField.blur();
+ inputValue('datetime-local','');assert(reviewButton(inline).disabled&&inline.draft.scheduledAt===null,'Clearing visible start clears stored timestamp');
+ click(inline.contentEl,'Now');assert(!reviewButton(inline).disabled&&!inline.contentEl.querySelector('input[type=datetime-local]'),'Now ignores incomplete saved schedule');
+ click(inline.contentEl,'Select date and time');assert(reviewButton(inline).disabled&&inline.contentEl.querySelector('input[type=datetime-local]').value==='','Switching back restores incomplete visible schedule');
+ inputValue('datetime-local','2000-01-01T20:18');assert(reviewButton(inline).disabled,'Past schedule blocked');
+ inputValue('datetime-local','2026-09-01T20:18');
+ assert(inline.contentEl.querySelector('.hub-oath-start').textContent==='1 Sep 2026, 20:18','September uses Sep, not Sept');
+ inputValue('datetime-local',localSchedule.slice(0,16));
+ const inlineGeometry=async()=>{
+  for(const width of [740,570,490,460,420,330]){
+   inline.modalEl.style.width=width+'px';await settle();
+   for(const selector of ['.hub-oath-start-choices','.hub-oath-duration-choices']){
+    const cards=[...inline.contentEl.querySelector(selector).children],rects=cards.map(el=>el.getBoundingClientRect());
+    assert(rects.every(r=>Math.abs(r.height-rects[0].height)<1&&Math.abs(r.width-rects[0].width)<1),'Equal editor cards at '+width);
+    for(const card of cards)assert(card.scrollWidth<=card.clientWidth+1,'No card overflow at '+width);
+   }
+   const header=inline.contentEl.querySelector('.hub-oath-tasks-heading'),h=header.querySelector('h4').getBoundingClientRect(),b=header.querySelector('button').getBoundingClientRect();
+   assert(h.right<=b.left&&b.right<=header.getBoundingClientRect().right+1,'Task action aligned right at '+width);
+   assert(inline.modalEl.scrollWidth<=inline.modalEl.clientWidth+1,'Inline modal fits at '+width);
+  }
+  inline.modalEl.style.width='';
+ };
+ await inlineGeometry();assert(Math.abs(inline.modalEl.getBoundingClientRect().height-initialInlineHeight)<1,'Editors do not add modal rows');
+ const selectedRow=inline.contentEl.querySelector('.hub-oath-selected-tasks .project-task-row');
+ assert(getComputedStyle(selectedRow).backgroundColor!==getComputedStyle(inline.modalEl).backgroundColor&&getComputedStyle(selectedRow).borderTopColor!=='rgba(0, 0, 0, 0)','Restrained tint and edge on selected task');
+ const underlyingFiles=JSON.stringify([...files]);
+ while(inline.contentEl.querySelector('.hub-oath-remove-task'))inline.contentEl.querySelector('.hub-oath-remove-task').click();
+ assert(JSON.stringify([...files])===underlyingFiles&&inline.contentEl.textContent.includes('No tasks selected. Add at least one task to continue.')&&reviewButton(inline).disabled,'Removal affects only inclusion');
+ assert(inline.contentEl.querySelector('.hub-oath-tasks-heading button').textContent==='Add tasks','Empty selection retains header Add tasks');
+ inline.close();
+ setContext('Home.md');
  const setup=load('ui/oath').openOathSetup(service),draft=setup.draft;
- assert(setup.contentEl.querySelectorAll('input[type=radio]').length===6,'Two start and four duration cards');
- assert([...setup.contentEl.querySelectorAll('input:checked')].map(el=>el.value).join(',')==='now,50','Now and 50 minutes default');
- assert([...setup.contentEl.querySelectorAll('h3')].map(el=>el.textContent).join('|')==='When will you begin your Oath?|What will you work on?|How long will you commit?','Exact section headings');
+ assert(setup.contentEl.querySelectorAll('input[type=radio]').length===8,'Two start, two workspace and four duration cards');
+ assert([...setup.contentEl.querySelectorAll('input:checked')].map(el=>el.value).join(',')==='now'&&draft.durationMs===null,'Only Now defaults; duration is null');
+ assert([...setup.contentEl.querySelectorAll('h3')].map(el=>el.textContent).join('|')==='When will your Oath begin?|What will you work on?|How long will you commit?','Exact section headings');
  assert(setup.contentEl.querySelectorAll('.hub-oath-muted').length===1&&setup.contentEl.querySelector('.hub-oath-muted').textContent==='Set the terms of your commitment.','Only subtitle helper text');
  assert(!setup.contentEl.querySelector('.hub-oath-choice svg'),'No decorative card icons');
+ assert(!setup.contentEl.querySelector('input[type=datetime-local],input[type=number]'),'Default Now and preset duration disclose no fields');
+ const initialHeight=setup.modalEl.getBoundingClientRect().height;
+ click(setup.contentEl,'Custom');await settle();assert(Math.abs(setup.modalEl.getBoundingClientRect().height-initialHeight)<1,'Custom editor preserves modal height');
+ click(setup.contentEl,'50 minutes');await settle();assert(Math.abs(setup.modalEl.getBoundingClientRect().height-initialHeight)<1,'Modal shrinks when custom field is hidden');
+ for(const width of [740,460,330]){
+  setup.modalEl.style.width=width+'px';
+  for(const start of ['Now','Select date and time'])for(const duration of ['50 minutes','Custom']){
+   click(setup.contentEl,start);click(setup.contentEl,duration);await settle();
+   for(const [selector,option] of [['.hub-oath-start','scheduled'],['.hub-oath-custom','custom']]){
+    const controls=setup.contentEl.querySelector(selector);if(!controls)continue;
+    const card=setup.contentEl.querySelector('input[value="'+option+'"]').closest('.hub-oath-choice'),a=card.getBoundingClientRect(),b=controls.getBoundingClientRect();
+    assert(b.left>=a.left&&b.top>=a.top&&b.bottom<=a.bottom&&b.right<=a.right+1,'Editor stays inside its option: '+start+'/'+duration+' at '+width);
+    for(const input of controls.querySelectorAll('input')){const r=input.getBoundingClientRect();assert(r.left>=b.left&&r.right<=b.right+1,'Native control fits its option column')}
+   }
+   assert(setup.modalEl.scrollWidth<=setup.modalEl.clientWidth+1,'Conditional setup fits at '+width);
+   assert(getComputedStyle(setup.contentEl.querySelector('.hub-oath-actions')).paddingTop==='0px','No reserved action whitespace');
+  }
+ }
+ setup.modalEl.style.width='';click(setup.contentEl,'Now');click(setup.contentEl,'50 minutes');
+ const disabledReview=[...setup.contentEl.querySelectorAll('button')].find(button=>button.textContent==='Review Oath');
+ assert(disabledReview.disabled&&Number(getComputedStyle(disabledReview).opacity)<1,'Empty selection is visibly disabled');
  assert(!/Applies to|Extend to|When will you fulfill|When I decide|Automatically exit/.test(setup.contentEl.textContent),'Removed legacy sections');
  for(const selector of ['.hub-oath-start-choices','.hub-oath-duration-choices']){
   const cards=[...setup.contentEl.querySelector(selector).children],rects=cards.map(el=>el.getBoundingClientRect());
   assert(rects.every(r=>Math.abs(r.width-rects[0].width)<1&&r.top===rects[0].top),'Equal-width cards in one row');
  }
- assert(click(setup.contentEl,'Continue').disabled&&setup.contentEl.querySelector('h2').textContent==='Make an Oath','Empty selection cannot continue');
+ assert(click(setup.contentEl,'Review Oath').disabled&&setup.contentEl.querySelector('h2').textContent==='Make an Oath','Empty selection cannot continue');
  let rejected=false;try{setup.review()}catch(error){rejected=/Select at least one task/.test(error.message)}
  assert(rejected&&!setup.contentEl.classList.contains('hub-oath-review'),'Review rejects an empty draft before rendering');
  click(setup.contentEl,'Custom');
  for(const value of ['', '0', '-2', '1.5']){
   const input=setup.contentEl.querySelector('input[type=number]');input.value=value;input.dispatchEvent(new Event('input'));
-  assert(click(setup.contentEl,'Continue').disabled,'Invalid custom duration cannot proceed: '+value);
+  assert(click(setup.contentEl,'Review Oath').disabled,'Invalid custom duration cannot proceed: '+value);
  }
  const custom=setup.contentEl.querySelector('input[type=number]');custom.value='35';custom.dispatchEvent(new Event('input'));
- assert(click(setup.contentEl,'Continue').disabled,'Valid custom duration still requires selected work');
- draft.tasks=[{text:'1'},{text:'  Preserve  spaces & <literal text>  '}];setup.setup();click(setup.contentEl,'Continue');
+ assert(click(setup.contentEl,'Review Oath').disabled,'Valid custom duration still requires selected work');
+ draft.workspace=oathWorkspace;draft.tasks=read().slice(0,2);setup.setup();
+ const shortName=contexts[0].name,longName='Investigation of quantum gravitational effects and the foundations of spacetime across multiple experimental systems';
+ contexts[0].name=longName;setup.setup();await settle();
+ for(const width of [740,460,330]) {
+  setup.modalEl.style.width=width+'px';await settle();
+  const group=setup.contentEl.querySelector('.hub-oath-workspace-choices'),cards=[...group.children];
+  const card=cards[0],title=card.querySelector('.hub-oath-choice-title'),icon=card.querySelector('.hub-oath-workspace-change');
+  const a=card.getBoundingClientRect(),b=cards[1].getBoundingClientRect(),t=title.getBoundingClientRect(),c=icon.getBoundingClientRect();
+  assert(Math.abs(a.width-b.width)<1&&Math.abs(a.height-b.height)<1,'Equal workspace cards with long names at '+width);
+  assert(t.right<=c.left&&c.right<=a.right&&title.scrollWidth>title.clientWidth,'Text truncates before fixed icon at '+width);
+  assert(getComputedStyle(title).textOverflow==='ellipsis'&&getComputedStyle(title).whiteSpace==='nowrap','Single line ellipsis');
+  card.dispatchEvent(new Event('pointerover',{bubbles:true}));
+  assert(title.getAttribute('aria-label')==='Project: '+longName&&title.dataset.tooltipPosition==='bottom','Existing tooltip exposes full name');
+  assert(card.querySelector('input').getAttribute('aria-labelledby')===title.id&&title.textContent==='Project: '+longName,'Accessible label is unabridged');
+  assert(!card.querySelector('button,[tabindex]')&&icon.getAttribute('aria-hidden')==='true','Change icon adds no control or tab stop');
+ }
+ setup.modalEl.style.width='';contexts[0].name=shortName;setup.setup();await settle();
+ const shortTitle=setup.contentEl.querySelector('.hub-oath-workspace-choices .hub-oath-choice-title');
+ shortTitle.dispatchEvent(new Event('pointerover',{bubbles:true}));
+ assert(!shortTitle.hasAttribute('aria-label'),'Untruncated short name needs no tooltip');
+ const enabledReview=[...setup.contentEl.querySelectorAll('button')].find(button=>button.textContent==='Review Oath');
+ assert(!enabledReview.disabled&&getComputedStyle(enabledReview).opacity==='1','Selected work enables normal primary action');click(setup.contentEl,'Review Oath');
  const groups=setup.contentEl.querySelectorAll('.hub-oath-row-group'),rows=groups[0].querySelectorAll('.hub-oath-review-row');
- assert(rows.length===3&&rows[2].textContent==='Commitment35 minutes','Custom commitment reviewed');
- assert(JSON.stringify([...rows[1].querySelector('.hub-oath-review-value').children].map(el=>el.textContent))===JSON.stringify(draft.tasks.map(task=>task.text)),'Exact selected task representation');
+ assert(setup.contentEl.querySelector('h2').textContent==='Review your Oath','Review title');
+ assert(setup.contentEl.querySelector('.hub-oath-muted').textContent==='Review the terms of your commitment before taking the Oath.','Review subtitle');
+ assert([...rows].map(row=>row.querySelector('strong').textContent).join('|')==='Start time|Selected project|Selected tasks|Duration','Summary labels');
+ assert([...rows].map(row=>row.querySelector('[data-icon]').dataset.icon).join('|')==='clock|folder|list-todo|timer','Summary icons');
+ assert([...groups[1].querySelectorAll('[data-icon]')].map(el=>el.dataset.icon).join('|')==='lucide-fullscreen|shield-user|bell-off','During Oath icons');
+ const fullscreenSvg=groups[1].querySelector('svg');
+ assert(fullscreenSvg.querySelector('rect[x="7"][y="8"][width="10"][height="8"]')&&fullscreenSvg.querySelectorAll('path').length===4,'Actual fullscreen SVG has central screen and four corner paths, unlike maximize');
+ const aliasProbe=document.createElement('span');obsidian.setIcon(aliasProbe,'fullscreen');assert(!aliasProbe.querySelector('rect'),'Test models Obsidian fullscreen-to-maximize alias');
+ assert(!setup.contentEl.querySelector('[data-icon="infinity"],[data-icon="landmark"],[data-icon="history"],[data-icon="circle-alert"]'),'Replaced review icons are absent');
+ for(const group of [groups[1],groups[2]])for(const value of group.querySelectorAll('.hub-oath-review-value'))assert(!/[.!?]$/.test(value.textContent),'Informational row has no terminal punctuation');
+ assert([...groups[1].querySelectorAll('.hub-oath-review-value')].map(el=>el.textContent).join('|')==='Itacan enters and remains in fullscreen|Only whitelisted apps and websites are accessible|Notifications from non-permitted apps and websites are silenced','Requested restriction copy');
+ assert([...setup.contentEl.querySelectorAll('h3')].at(-1).textContent==='Ending the Oath','Ending the Oath heading');
+ assert([...groups[2].querySelectorAll('[data-icon]')].map(el=>el.dataset.icon).join('|')==='circle-check|triangle-alert|timer-off|clipboard-clock','Fulfillment icons');
+ assert(setup.contentEl.querySelector('.hub-oath-pledge [data-icon]').dataset.icon==='scroll-text','Pledge uses exact scroll-text icon');
+ assert(getComputedStyle(setup.contentEl.querySelector('.hub-oath-pledge')).display==='grid'&&getComputedStyle(setup.contentEl.querySelector('.hub-oath-pledge .hub-oath-row-icon')).borderRightWidth==='1px','Pledge restores icon column and vertical divider');
+ assert([...setup.contentEl.querySelector('.hub-oath-actions').children].map(el=>el.textContent).join('|')==='Back|Take the Oath','Review actions');
+ assert(rows.length===4&&rows[3].textContent==='Duration35 minutes','Custom commitment reviewed');
+ assert(JSON.stringify([...rows[2].querySelectorAll('.hub-oath-review-tasks > li')].map(el=>el.textContent))===JSON.stringify(draft.tasks.map(task=>task.text)),'Exact selected task representation');
  assert(groups[2].textContent.includes('whichever comes first')&&groups[2].textContent.includes('remain Oathbound'),'New task/continuation rules');
  assert(setup.contentEl.querySelector('.hub-oath-pledge p').textContent==='“I solemnly swear that I will do the work, the whole work, and nothing but the work.”','Exact pledge');
  setup.modalEl.style.width='330px';await settle();assert(setup.modalEl.scrollWidth<=setup.modalEl.clientWidth+1,'Narrow review fits');setup.modalEl.style.width='';
- click(setup.contentEl,'Back');assert(setup.contentEl.querySelectorAll('.hub-oath-selected').length===2&&setup.contentEl.querySelector('input[type=number]').value==='35','Back preserves draft');
+ const savedTasks=[...draft.tasks],longTaskPath='Projects/Itacan/Long review.md';
+ const longTasks=['Calendar today button should work better across all dates and retain the expected scroll position when moving through the current week',
+ 'Workspace folders resize depending on how note-view was opened and should remain consistent with the selected project workspace and restored layout',
+ 'Have a soft bling sound when checking tasks and preserve the existing completion feedback without changing task metadata or the current Oath'];
+ files.set(longTaskPath,longTasks.map(title=>'- [ ] '+title).join('\n'));
+ draft.tasks=read().filter(task=>task.path===longTaskPath);setup.review();
+ for(const width of [740,460,330]) {
+  setup.modalEl.style.width=width+'px';await settle();
+  const list=setup.contentEl.querySelector('.hub-oath-review-tasks'),items=[...list.children];
+  assert(items.length===3&&getComputedStyle(list).listStyleType==='disc'&&getComputedStyle(list).listStylePosition==='outside','Compact disc bullets');
+  assert(!list.querySelector('input,svg,button'),'Review tasks contain text only');
+  assert(JSON.stringify(items.map(li=>li.textContent))===JSON.stringify(longTasks),'Task titles remain complete without punctuation changes');
+  for(const li of items){
+   const range=document.createRange();range.selectNodeContents(li);const rects=[...range.getClientRects()],lines=rects.filter((rect,i)=>!rects.slice(0,i).some(previous=>Math.abs(previous.top-rect.top)<1));
+   assert(lines.length>1&&lines.every(line=>Math.abs(line.left-lines[0].left)<1),'Wrapped lines have a hanging indent');
+  }
+  assert(setup.modalEl.scrollWidth<=setup.modalEl.clientWidth+1,'Long review fits at '+width);
+ }
+ setup.modalEl.style.width='';files.delete(longTaskPath);draft.tasks=savedTasks;setup.review();
+ click(setup.contentEl,'Back');assert(setup.contentEl.querySelectorAll('.hub-oath-selected-tasks .project-task-row').length===2&&setup.contentEl.querySelector('input[type=number]').value==='35','Back preserves draft');
  click(setup.contentEl,'Select date and time');
  const dateInput=setup.contentEl.querySelector('input[type=datetime-local]'),date=new Date(now+3600000);
- dateInput.value=new Date(date.getTime()-date.getTimezoneOffset()*60000).toISOString().slice(0,16);dateInput.dispatchEvent(new Event('change'));
- click(setup.contentEl,'Continue');assert(setup.contentEl.querySelector('.hub-oath-review-value').textContent===new Date(draft.scheduledAt).toLocaleString([],{dateStyle:'medium',timeStyle:'short'}),'Scheduled start reviewed');
- click(setup.contentEl,'Back');assert(setup.contentEl.querySelector('input[type=datetime-local]').value===dateInput.value,'Back preserves date');
- setup.modalEl.style.width='330px';await settle();assert(setup.modalEl.scrollWidth<=setup.modalEl.clientWidth+1,'Narrow setup fits');setup.close();
- // Existing picker and actual Home/Workspace/note task renderers.
- button.click();click(modal(),'Select task');await settle();let picker=modal();
- assert(picker.querySelectorAll('.project-task-row').length===5,'Picker includes future tasks, excludes Steps and completed parents');
- assert(click(picker,'Add selected (0)').disabled,'Zero selection is disabled');
- click(picker,'+ Add task');assert(modal().querySelector('h2').textContent==='Add task','Existing task creator opens');click(modal(),'Cancel');
- const first=picker.querySelector('input[type=checkbox]');first.click();assert(!click(picker,'Cancel').disabled,'Cancel remains available');
- assert(modal().querySelectorAll('.hub-oath-selected').length===0,'Cancel does not apply selection');
- click(modal(),'Select task');picker=modal();await settle();
- const toggle=picker.querySelector('input[type=checkbox]');toggle.click();
- assert([...picker.querySelectorAll('button')].some(el=>el.textContent==='Add selected (1)'&&!el.disabled),'Selection updates count');
- toggle.click();assert(click(picker,'Add selected (0)').disabled,'Deselection disables Add');
- // Copied IDs remain ineligible, and an index refresh updates the open picker.
+ const local=new Date(date.getTime()-date.getTimezoneOffset()*60000).toISOString();
+ dateInput.value=local.slice(0,10);dateInput.dispatchEvent(new Event('input'));
+ assert(draft.scheduledAt===null,'Incomplete schedule cannot create a timestamp');
+ dateInput.value=local.slice(0,16);dateInput.dispatchEvent(new Event('input'));
+ click(setup.contentEl,'Review Oath');assert(setup.contentEl.querySelector('.hub-oath-review-value').textContent===new Date(draft.scheduledAt).toLocaleString([],{dateStyle:'medium',timeStyle:'short'}),'Scheduled start reviewed');
+ click(setup.contentEl,'Back');assert(setup.contentEl.querySelector('input[type=datetime-local]').value===dateInput.value,'Back preserves date and time');
+ setup.modalEl.style.width='330px';await settle();assert(setup.modalEl.scrollWidth<=setup.modalEl.clientWidth+1,'Narrow setup fits');
+ click(setup.contentEl,'Review Oath');setup.modalEl.querySelector('.modal-close-button').click();
+ assert(!setup.containerEl.isConnected&&!service.committed,'Close dismisses the whole creation flow without taking an Oath');
+ // Workspace pickers are atomic, scoped and use the shared Home card renderer.
+ button.click();click(modal(),'50 minutes');click(modal(),'Project');await settle();let picker=modal();
+ assert(picker.querySelector('h2').textContent==='Select project','Project picker title');
+ assert(picker.querySelectorAll('.home-project-card').length===2,'Only Active Projects');
+ assert(document.activeElement===picker.querySelector('input[type=search]'),'Project search autofocus');
+ const projectSearch=picker.querySelector('input');
+ projectSearch.value='Future';projectSearch.dispatchEvent(new Event('input'));
+ assert(!picker.querySelector('.home-project-card'),'Search cannot reveal Future Projects');
+ projectSearch.value='';projectSearch.dispatchEvent(new Event('input'));
+ assert(!picker.querySelector('input[type=radio],input[type=checkbox]'),'Cards have no selection icons');
+ assert(getComputedStyle(picker.querySelector('.hub-oath-workspace-grid')).gridTemplateColumns.split(' ').length===3,'Three-column Project grid');
+ picker.querySelector('.home-project-card').dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true,cancelable:true}));
+ assert(modal().querySelector('input[value=project]').closest('label').textContent==='Project: Itacan','Workspace is inside selected card');
+ assert(!modal().querySelector('.hub-oath-selected-workspace')&&![...modal().querySelectorAll('button')].some(button=>button.textContent==='Change'),'Standalone workspace and Change row removed');
+ assert(modal().querySelectorAll('.hub-oath-workspace-change').length===1&&modal().querySelector('.hub-oath-workspace-change').dataset.icon==='chevrons-up-down','Only selected card has exact change icon');
+ const selectedTitles=()=>[...modal().querySelectorAll('.hub-oath-selected-tasks .project-task-text')].map(el=>el.textContent);
+ await settle();
+ assert(JSON.stringify(selectedTitles())===JSON.stringify(service.workspaceTasks(oathWorkspace).slice(0,3).map(t=>t.text)),'Suggestions use normal Tasks-panel ordering');
+ for(const width of [740,460,330]) {
+  const shell=modal().closest('.modal');shell.style.width=width+'px';await settle();
+  for(const row of modal().querySelectorAll('.hub-oath-selected-tasks .project-task-row')) {
+   const info=row.querySelector('.project-task-info').getBoundingClientRect(),remove=row.querySelector('button').getBoundingClientRect();
+   assert(remove.left>=info.right&&remove.top<info.bottom,'Remove action trails task without wrapping at '+width);
+  }
+  assert(shell.scrollWidth<=shell.clientWidth+1,'Selected tasks fit at '+width);
+  shell.style.width='';
+ }
+ // Exercise the native checkbox hover convention against scoped Oath overrides.
+ const hoverStyle=document.createElement('style');
+ hoverStyle.textContent=`
+ .hub-button-scope input[type=checkbox] { --checkbox-border-color:#607080; --checkbox-border-color-hover:#bb99ee; appearance:none; border-color:var(--checkbox-border-color); background:transparent; }
+ .hub-button-scope input[type=checkbox].test-hover { border-color:var(--checkbox-border-color-hover); }
+ `+(await(await fetch('../../styles.css')).text()).replaceAll(':hover','.test-hover');
+ document.head.append(hoverStyle);
+ const hoverAppearance=checkbox=>{
+  const css=getComputedStyle(checkbox);
+  return [css.borderColor,css.backgroundColor,css.boxShadow,css.transform,css.cursor,css.transitionDuration].join('|');
+ };
+ const readonlyHover=checkbox=>{
+  const before=hoverAppearance(checkbox);checkbox.classList.add('test-hover');
+  assert(hoverAppearance(checkbox)===before,'Oath checkbox has no hover change');
+  assert(getComputedStyle(checkbox).cursor==='default'&&getComputedStyle(checkbox).transitionDuration==='0s','No checkbox pointer cursor or animation');
+  assert(checkbox.disabled&&checkbox.tabIndex===-1&&!checkbox.hasAttribute('title')&&!checkbox.hasAttribute('aria-label')&&checkbox.getAttribute('aria-hidden')==='true','Checkbox is presentation only without a completion tooltip');
+  checkbox.classList.remove('test-hover');
+ };
+ readonlyHover(modal().querySelector('.hub-oath-task-row input'));
+ const normalCheckbox=view.body.querySelector('input[type=checkbox]'),normalBefore=hoverAppearance(normalCheckbox);
+ normalCheckbox.classList.add('test-hover');assert(hoverAppearance(normalCheckbox)!==normalBefore,'Normal Tasks checkbox retains native hover feedback');normalCheckbox.classList.remove('test-hover');
+ const beforeSelection=selectedTitles(),beforeFiles=JSON.stringify([...files]);
+ modal().querySelector('.hub-oath-task-row input').click();
+ assert(JSON.stringify([...files])===beforeFiles&&selectedTitles().length===3,'Completion square cannot complete or remove');
+ click(modal(),'Resource');await settle();
+ assert(modal().querySelectorAll('.home-resource-card').length===4,'Exactly four Resources');
+ assert(getComputedStyle(modal().querySelector('.hub-oath-workspace-grid')).gridTemplateColumns.split(' ').length===2,'Two-column Resources');
+ document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));await settle();
+ assert(JSON.stringify(selectedTitles())===JSON.stringify(beforeSelection)&&modal().querySelector('input[value=project]').checked,'Escape preserves previous workspace and tasks');
+ click(modal(),'Project');assert(modal().querySelector('h2').textContent==='Select project','Selected Project card reopens picker');click(modal(),'Cancel');
+ assert(JSON.stringify(selectedTitles())===JSON.stringify(beforeSelection),'Change cancellation is atomic');
+ click(modal(),'Resource');
+ modal().querySelector('[data-resource-type=literature]').click();await settle();
+ assert(selectedTitles().join('|')==='Read research source','Switching to Resource replaces Project tasks');
+ click(modal(),'Review Oath');assert([...modal().querySelectorAll('.hub-oath-review-row strong')].map(el=>el.textContent).join('|')==='Start time|Selected resource|Selected tasks|Duration','Resource review label');
+ click(modal(),'Back');
+ assert(modal().querySelector('input[value=resource]').closest('label').textContent==='Resource: Research','Selected Resource card label');
+ click(modal(),'Project');click(modal(),'Cancel');
+ assert(selectedTitles().join('|')==='Read research source'&&modal().querySelector('input[value=resource]').checked,'Resource to Project cancellation is atomic');
+ click(modal(),'Resource');assert(modal().querySelector('h2').textContent==='Select resource','Selected Resource card reopens picker');modal().querySelector('[data-resource-type=study]').click();
+ assert(click(modal(),'Review Oath').disabled&&!modal().querySelector('.hub-oath-selected-tasks .project-task-row'),'No tasks leaves review disabled');
+ chooseProject('Thesis');await settle();assert(selectedTitles().length===2,'Fewer than three suggestions');
+ chooseProject();await settle();
+ for(const remove of [...modal().querySelectorAll('.hub-oath-remove-task')]) {
+  modal().querySelector('.hub-oath-remove-task')?.click();
+ }
+ assert(click(modal(),'Review Oath').disabled,'Removing all suggestions disables review');
+ click(modal(),'Add tasks');await settle();picker=modal();
+ assert(picker.querySelectorAll('.project-task-row').length===5,'Only this workspace open tasks, including Future');
+ assert(!picker.textContent.includes('Thesis one')&&!picker.textContent.includes('Read research source'),'Other workspaces excluded');
+ assert(click(picker,'Add tasks').disabled,'Empty additions disabled');
+ const square=picker.querySelector('input[type=checkbox]');readonlyHover(square);hoverStyle.remove();square.click();
+ assert(square.disabled&&click(picker,'Add tasks').disabled,'Completion square is not the selection control');
+ picker.querySelector('.project-task-row').click();
+ assert(![...picker.querySelectorAll('button')].find(el=>el.textContent==='Add tasks').disabled,'Row selection enables Add');
+ click(picker,'Cancel');assert(selectedTitles().length===0,'Cancel does not add tasks');
+ click(modal(),'Add tasks');picker=modal();
  files.set('Copy.md','- [ ] Duplicate <!-- hub-task:review -->\n');for(const refresh of subscriptions)refresh();await settle();
- assert(picker.querySelectorAll('.project-task-row').length===4&&!picker.textContent.includes('Duplicate'),'Conflicting IDs cannot be selected');
+ assert(picker.querySelectorAll('.project-task-row').length===4,'Conflicting IDs cannot be selected');
  files.delete('Copy.md');for(const refresh of subscriptions)refresh();await settle();
- assert(picker.querySelectorAll('.project-task-row').length===5,'Index refresh restores eligible tasks');
- const search=picker.querySelector('input[type=search]');search.value='Future';search.dispatchEvent(new Event('input'));await settle();assert(picker.querySelectorAll('.project-task-row').length===1&&picker.textContent.includes('Starts '),'Search includes future metadata');
- search.value='no such task';search.dispatchEvent(new Event('input'));await settle();assert(!picker.querySelector('.project-task-row')&&picker.textContent.includes('No matching incomplete tasks.'),'No search results fabricate work');
+ const search=picker.querySelector('input[type=search]');search.value='Future';search.dispatchEvent(new Event('input'));await settle();
+ assert(picker.querySelectorAll('.project-task-row').length===1&&picker.textContent.includes('Starts '),'Future metadata retained');
+ search.value='Thesis';search.dispatchEvent(new Event('input'));
+ assert(!picker.querySelector('.project-task-row'),'Task search stays scoped');
  search.value='';search.dispatchEvent(new Event('input'));await settle();
- for(const text of ['Write the primary views section','Prepare supervisor questions'])[...picker.querySelectorAll('.project-task-row')].find(row=>row.textContent.includes(text)).querySelector('input').click();
- click(picker,'Add selected (2)');click(modal(),'Continue');
- assert(JSON.stringify([...modal().querySelectorAll('.hub-oath-row-group:first-of-type .hub-oath-review-row')[1].querySelectorAll('.hub-oath-review-value > div')].map(el=>el.textContent))===JSON.stringify(['Write the primary views section','Prepare supervisor questions']),'Confirmation uses the two selected task titles');
- click(modal(),'Back');assert(modal().querySelectorAll('.hub-oath-selected').length===2,'Back retains multi-selection');
- click(modal(),'Select task');picker=modal();assert(picker.querySelectorAll('input[type=checkbox]:checked').length===2,'Reopened picker preserves selection');
- const picked=picker.querySelector('input[type=checkbox]:checked');picked.click();click(picker,'Cancel');assert(modal().querySelectorAll('.hub-oath-selected').length===2,'Cancelling changes preserves previous selection');
- click(modal(),'Continue');click(modal(),'Take Oath');await settle();await service.refresh();await settle();
+ for(const title of ['Write the primary views section','Prepare supervisor questions']) {
+  const row=[...picker.querySelectorAll('.project-task-row')].find(row=>row.textContent.includes(title));
+  row.dispatchEvent(new KeyboardEvent('keydown',{key:' ',bubbles:true,cancelable:true}));
+ }
+ click(picker,'Add tasks');assert(selectedTitles().length===2,'Two additions applied');
+ click(modal(),'Add tasks');picker=modal();await settle();
+ assert(picker.querySelectorAll('.is-already-selected').length===2,'Already included tasks visibly identified');
+ picker.querySelector('.is-already-selected').click();assert(click(picker,'Add tasks').disabled,'Already included task cannot duplicate');
+ click(picker,'Cancel');
+ assert(JSON.stringify([...files])===beforeFiles,'All selection interactions leave source tasks untouched');
+ click(modal(),'Review Oath');click(modal(),'Take the Oath');await settle();await service.refresh();await settle();
  assert(service.active&&full.full&&native.kiosk,'Oath activates native enforcement');
+ assert(cardsRoot.querySelectorAll('.is-oath-locked').length===7&&cardsRoot.querySelectorAll('.is-oath-workspace').length===1,'All other Project/Resource cards locked, selected card Oathbound');
+ const lockedCard=cardsRoot.querySelector('.is-oath-locked'),boundCard=cardsRoot.querySelector('.is-oath-workspace');
+ assert(lockedCard.tabIndex===-1&&lockedCard.getAttribute('aria-disabled')==='true','Locked card excluded from keyboard activation');
+ lockedCard.click();lockedCard.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true,cancelable:true}));
+ assert(cardOpens===0,'Locked cards cannot activate');
+ boundCard.dispatchEvent(new KeyboardEvent('keydown',{key:' ',bubbles:true,cancelable:true}));
+ assert(cardOpens===1&&boundCard.textContent.includes('Oathbound'),'Selected workspace remains usable');
+
  for(const mode of ['home','project','note']){mount(mode);await settle();assert(view.body.querySelectorAll('.hub-oath-pinned .hub-planned-task-row').length===2,mode+': selected tasks pinned');assert([...view.body.querySelectorAll('.'+view.prefix+'-task-text')].filter(el=>el.textContent==='Write the primary views section').length===1,mode+': no duplicate task');assert(document.querySelector('.hub-oath-button')===button,'Stable dock')}
  assert(!view.body.querySelector('.hub-oath-banner,progress')&&!view.body.textContent.includes('Your selected work'),'Only pinned panel remains, without subtitle or progress bar');
  const liveHeader=()=>view.body.querySelector('.hub-oath-pinned-heading');
@@ -191,27 +555,27 @@ window.onload=async()=>{try{
  assert(service.current.elapsedMs===37*60000,'All continued task-Oath time recorded');
  // 1, 9-13: timer before unfinished work, exact boundary, warning expiry, and continued time.
  const takeSelected=async()=>{
-  button.click();click(modal(),'Select task');const picker=modal();
-  picker.querySelector('input[type=checkbox]').click();click(picker,'Add selected (1)');
-  const title=modal().querySelector('.hub-oath-selected-title').textContent;click(modal(),'Continue');
-  const work=[...modal().querySelectorAll('.hub-oath-review-row')].find(row=>row.querySelector('strong')?.textContent==='Work');
-  assert(work.querySelector('.hub-oath-review-value').textContent===title,'One task confirmation uses selected title');
-  click(modal(),'Back');modal().querySelector('.hub-oath-remove-task').click();assert(click(modal(),'Continue').disabled,'Removing last task prevents progression');
-  click(modal(),'Select task');modal().querySelector('input[type=checkbox]').click();click(modal(),'Add selected (1)');
-  click(modal(),'Continue');click(modal(),'Take Oath');await settle();assert(service.active,'Selected work activates');
+  button.click();chooseProject();click(modal(),'50 minutes');await settle();
+  while(modal().querySelectorAll('.hub-oath-remove-task').length>1)modal().querySelector('.hub-oath-remove-task').click();
+  const title=modal().querySelector('.project-task-text').textContent;click(modal(),'Review Oath');
+  const work=[...modal().querySelectorAll('.hub-oath-review-row')].find(row=>row.querySelector('strong')?.textContent==='Selected tasks');
+  assert(work.querySelectorAll('.hub-oath-review-tasks > li').length===1&&work.querySelector('.hub-oath-review-value').textContent===title,'One task is also a bullet');
+  click(modal(),'Back');modal().querySelector('.hub-oath-remove-task').click();assert(click(modal(),'Review Oath').disabled,'Removing last task disables progression');
+  click(modal(),'Add tasks');modal().querySelector('.project-task-row').click();click(modal(),'Add tasks');
+  click(modal(),'Review Oath');click(modal(),'Take the Oath');await settle();assert(service.active,'Selected work activates');
  };
- await takeSelected();await escape();click(modal(),'Break Oath');await settle();assert(service.current.state==='broken'&&!full.full,'Explicit Break releases fullscreen after ending');
+ await takeSelected();await escape();click(modal(),'Break Oath');await settle();assert(service.current.state==='broken'&&!full.full,'Explicit Break releases fullscreen after ending');assertUnlocked();
  await takeSelected();now+=50*60000-1000;await escape();assert(modal()?.querySelector('h2').textContent==='Break your Oath?'&&!service.fulfilled&&full.full,'One second early still requires explicit break');
  now+=1000;await service.refresh(false);await settle();assert(service.fulfilled&&service.active&&full.full&&!modal(),'Expiry closes stale warning without ending or releasing fullscreen');
  assert(timer().textContent==='Fulfilled'&&completion().textContent.includes('0 / 1 completed'),'Timed fulfillment reflects unfinished selected work');
  now+=20*60000;await service.refresh(false);service.tickDisplay();await settle();assert(button.textContent.includes('70m')||button.textContent.includes('1h 10m'),'Dock continues Oathbound clock');
- await escape();assert(service.current.state==='fulfilled'&&service.current.elapsedMs===70*60000&&!full.full,'70-minute total recorded on deliberate exit');
+ await escape();assert(service.current.state==='fulfilled'&&service.current.elapsedMs===70*60000&&!full.full,'70-minute total recorded on deliberate exit');assertUnlocked();
  // 14: a schedule activates with the same enforcement and exit rules.
- await service.take({start:'scheduled',scheduledAt:now+60000,durationMs:60000,tasks:read().filter(task=>!task.completed).slice(0,1)});assert(!full.full,'Scheduled Oath does not enforce early');now+=60000;await service.refresh();
- await escape();assert(full.full&&modal().textContent.includes('Break your Oath?'),'Scheduled activation uses warning');click(modal(),'Keep Oath');now+=60000;await service.refresh(false);assert(service.active&&service.fulfilled&&full.full,'Scheduled duration fulfills but stays active');await escape();assert(service.current.state==='fulfilled'&&!full.full,'Scheduled deliberate exit');
- await service.take({start:'scheduled',scheduledAt:now+60000,durationMs:60000,tasks:read().filter(task=>!task.completed).slice(0,1)});button.click();click(modal(),'Cancel Oath');await settle();assert(!service.committed,'Prestart cancellation');
+ await service.take({workspace:oathWorkspace,start:'scheduled',scheduledAt:now+60000,durationMs:60000,tasks:read().filter(task=>!task.completed).slice(0,1)});assert(!full.full,'Scheduled Oath does not enforce early');now+=60000;await service.refresh();
+ await escape();assert(full.full&&modal().textContent.includes('Break your Oath?'),'Scheduled activation uses warning');click(modal(),'Keep Oath');now+=60000;await service.refresh(false);assert(service.active&&service.fulfilled&&full.full,'Scheduled duration fulfills but stays active');assert(cardsRoot.querySelectorAll('.is-oath-locked').length===7,'Fulfillment retains card restriction');await escape();assert(service.current.state==='fulfilled'&&!full.full,'Scheduled deliberate exit');
+ await service.take({workspace:oathWorkspace,start:'scheduled',scheduledAt:now+60000,durationMs:60000,tasks:read().filter(task=>!task.completed).slice(0,1)});button.click();click(modal(),'Cancel Oath');await settle();assert(!service.committed,'Prestart cancellation');
  // Hour boundary, clock-only updates, and view lifecycle all use the existing service.
- await service.take({start:'now',durationMs:90*60000,tasks:read().filter(task=>!task.completed).slice(0,1)});await settle();
+ await service.take({workspace:oathWorkspace,start:'now',durationMs:90*60000,tasks:read().filter(task=>!task.completed).slice(0,1)});await settle();
  now+=28000;service.tickDisplay();assert(timer().textContent==='1:29:32 remaining','H:MM:SS for commitments over an hour');
  now+=29*60000+32000;service.tickDisplay();assert(timer().textContent==='1:00:00 remaining','Exact one-hour boundary');
  now+=1000;service.tickDisplay();assert(timer().textContent==='59:59 remaining','Below one hour uses MM:SS');
@@ -219,12 +583,47 @@ window.onload=async()=>{try{
  const listenersBefore=service.clockListeners.size;component.unload();assert(service.clockListeners.size===listenersBefore-1,'Task view unload removes header clock listener');
  mount('home');await settle();assert(service.clockListeners.size===listenersBefore&&timer().textContent==='59:59 remaining','Reopened view reads existing state without duplicate listeners');
  await service.end(service.current.id,'broken');await settle();assert(!view.body.querySelector('.hub-oath-pinned'),'Ending Oath removes pinned header');
+ // Commit a schedule through the actual new native date/time fields.
+ button.click();chooseProject();await settle();
+ click(modal(),'Select date and time');click(modal(),'Custom');
+ const scheduledDate=new Date(now+3600000),scheduledLocal=new Date(scheduledDate.getTime()-scheduledDate.getTimezoneOffset()*60000).toISOString();
+ for(const [type,value] of [['datetime-local',scheduledLocal.slice(0,16)],['number','35']]){
+  const input=modal().querySelector('input[type='+type+']');input.value=value;input.dispatchEvent(new Event('input'));
+ }
+ click(modal(),'Review Oath');click(modal(),'Take the Oath');await settle();
+ assert(service.current.state==='scheduled'&&!full.full&&service.current.durationMs===35*60000&&service.current.scheduledAt===new Date(scheduledLocal.slice(0,16)).getTime(),'Review schedules the selected local date/time and custom duration');
+ await service.end(service.current.id,'cancel');
+ cardsOwner.unload();cardsRoot.remove();
  clearInterval(service.timer);
  const preview=new URLSearchParams(location.search).get('preview');
  if(preview==='pinned'){
-  await service.take({start:'now',durationMs:50*60000,tasks:read().filter(task=>!task.completed).slice(0,1)});now+=28000;mount('project');await settle();service.tickDisplay();document.getElementById('fixture').style.width='435px';
- }else if(preview){const screen=load('ui/oath').openOathSetup(service);if(preview==='review'){screen.draft.tasks=read().filter(task=>['views','supervisor'].includes(task.hubTaskId));screen.review();}await settle();assert(screen.modalEl.scrollWidth<=screen.modalEl.clientWidth+1,'Preview fits');}
+  await service.take({workspace:oathWorkspace,start:'now',durationMs:50*60000,tasks:read().filter(task=>!task.completed).slice(0,1)});now+=28000;mount('project');await settle();service.tickDisplay();document.getElementById('fixture').style.width='435px';
+ }else if(preview){
+ if(preview==='fresh-project')setContext(contexts[0].path);
+ if(preview==='fresh-resource')setContext(resource.path);
+ if(preview==='fresh-future')setContext(contexts[2].path);
+ if(preview==='fresh-empty')setContext(resources.find(item=>item.resourceType==='study').path);
+ const screen=load('ui/oath').openOathSetup(service);if(preview==='setup-controls'){click(screen.contentEl,'Select date and time');click(screen.contentEl,'Custom')}if(preview==='project-picker'){click(screen.contentEl,'Project');await new Promise(r=>setTimeout(r,300))}if(preview==='resource-picker'){click(screen.contentEl,'Resource');await new Promise(r=>setTimeout(r,300))}if(preview==='suggestions'){chooseProject();await settle()}
+ if(['inline-preset','inline-scheduled-empty','inline-scheduled-full','inline-custom-empty','inline-custom-minutes','inline-custom-hours','inline-one-task','inline-no-tasks'].includes(preview)){
+  chooseProject();click(screen.contentEl,'50 minutes');
+  if(preview.includes('custom')){click(screen.contentEl,'Custom');if(preview!=='inline-custom-empty'){
+   if(preview==='inline-custom-hours'){screen.contentEl.querySelector('.hub-oath-duration-unit').click();click(document.querySelector('.menu'),'hours')}
+   const number=screen.contentEl.querySelector('input[type=number]');number.value=preview==='inline-custom-hours'?'1.5':'90';number.dispatchEvent(new Event('input'));
+  }}
+  if(preview.includes('scheduled')){
+   click(screen.contentEl,'Select date and time');if(preview==='inline-scheduled-full'){
+    for(const [type,value] of [['datetime-local','2026-09-24T09:30']]){const input=screen.contentEl.querySelector('input[type='+type+']');input.value=value;input.dispatchEvent(new Event('input'))}
+   }
+  }
+  if(preview==='inline-one-task'||preview==='inline-no-tasks'){
+   const count=preview==='inline-one-task'?1:0;while(screen.contentEl.querySelectorAll('.hub-oath-remove-task').length>count)screen.contentEl.querySelector('.hub-oath-remove-task').click();
+  }
+  document.activeElement?.blur();await settle();
+ }
+ if(preview==='long-workspace'){contexts[0].name=longName;chooseProject(longName);await settle()}
+ if(preview==='resource-selection'){click(screen.contentEl,'Resource');modal().querySelector('[data-resource-type=literature]').click();await settle()}
+ if(preview==='long-review'){files.set(longTaskPath,longTasks.map(title=>'- [ ] '+title).join('\n'));screen.draft.durationMs=50*60000;screen.draft.workspace=oathWorkspace;screen.draft.tasks=read().filter(task=>task.path===longTaskPath);screen.review();await settle()}if(preview==='review'){screen.draft.durationMs=50*60000;screen.draft.workspace=oathWorkspace;screen.draft.tasks=service.workspaceTasks(oathWorkspace).slice(0,2);screen.review();}await settle();assert(screen.modalEl.scrollWidth<=screen.modalEl.clientWidth+1,'Preview fits');}
  assert(!runtimeErrors.length,'No uncaught runtime errors: '+runtimeErrors.join('; '));
- document.getElementById('result').textContent='PASS: redesigned setup/review, radio proportions, required/single/multiple tasks, custom validation, Back, picker/source integration, Steps, consolidated live pinned header, responsive layout, clock cleanup, Escape/Keep/X/Break, task/timer fulfillment, exact boundary, 70-minute Oathbound time, schedules and cancellation.';
+ document.getElementById('result').textContent='PASS: inline custom value/units, native inline schedules, selected task header/state, geometry and focus, contextual fresh defaults, required explicit duration, delayed suggestions, completed-only empty states, scoped task creation and preserved draft, shared Project/Resource cards, workspace switching/cancellation, scoped suggestions/search/additions, readonly checkboxes, live lock visuals/cleanup, redesigned setup/review, radio proportions, required/single/multiple tasks, custom validation, Back, picker/source integration, Steps, consolidated live pinned header, responsive layout, clock cleanup, Escape/Keep/X/Break, task/timer fulfillment, exact boundary, 70-minute Oathbound time, schedules and cancellation.';
 }catch(error){document.getElementById('result').textContent='FAIL: '+error.stack}};
 </script>

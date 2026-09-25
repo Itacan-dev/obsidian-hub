@@ -1,8 +1,10 @@
 "use strict";
 const { randomUUID } = require("crypto");
-const { readTaskSnapshot } = require("../domain/task-planning");
+const { taskGroups, readTaskSnapshot } = require("../domain/task-planning");
 const { taskLineDetails, taskIdentity, applyTaskEdit, normalizedTaskText } = require("../domain/tasks");
 const { isCommitted, validateOath, oathTime, normalizeOath, fulfilmentTime } = require("../domain/oath");
+
+const { workspaceRef, validWorkspace, sameWorkspace, taskKey } = require("../domain/oath-workspace");
 
 class HubOathService {
     constructor(plugin, fullscreen, options = {}) {
@@ -23,6 +25,75 @@ class HubOathService {
     api() { return this.app.plugins.getPlugin?.("dataview")?.api ?? this.app.plugins.plugins?.dataview?.api; }
     ready() { const api = this.api(); return !!api && api.index?.initialized !== false; }
     tasks() { return this.ready() ? this.plugin.taskData.readPages(this.api()).flatMap(page => page.file.tasks) : []; }
+    workspaces(type) {
+        const wizard = this.plugin.projectWizard;
+        return type === "resource" ? wizard.getResourceTypes() :
+            wizard.getProjectRecords().filter(context => context.status === "active");
+    }
+    resolveWorkspace(ref, eligible = true) {
+        if (!validWorkspace(ref)) return null;
+        const wizard = this.plugin.projectWizard;
+        const context = ref.type === "resource" ? wizard.getResourceById(ref.id) : wizard.getProjectById(ref.id);
+        if (!sameWorkspace(ref, workspaceRef(context)) || !this.app.vault.getAbstractFileByPath(context.path)) return null;
+        return eligible && ref.type === "project" && context.status !== "active" ? null : context;
+    }
+    get workspace() { return this.resolveWorkspace(this.current?.workspace, false); }
+    ownsTask(ref, task) {
+        const context = this.resolveWorkspace(ref, false);
+        return !!context && (task.path === context.path || task.path?.startsWith(context.root + "/"));
+    }
+    workspaceTasks(ref) {
+        const context = this.resolveWorkspace(ref);
+        if (!this.ready() || !context) return [];
+        const tasks = this.plugin.taskData.readPages(this.api(), context.root).flatMap(page => page.file.tasks);
+        const groups = taskGroups(tasks.filter(task => !task.completed && !task.identityConflict &&
+            (task.path === context.path || task.path?.startsWith(context.root + "/"))), new Date(this.now()));
+        return [...groups.active, ...groups.future];
+    }
+    validateDraft(draft) {
+        validateOath(draft, this.now());
+        if (!this.resolveWorkspace(draft.workspace)) throw Error("Choose an available Active Project or Resource.");
+        if (!this.ready()) throw Error("Wait for the task index to finish loading.");
+        const available = new Set(this.workspaceTasks(draft.workspace).map(taskKey));
+        if (draft.tasks.some(task => !available.has(taskKey(task)))) {
+            throw Error("Selected tasks must be open tasks from this workspace. Update your selection.");
+        }
+    }
+    projectWorkspaceForPath(path) {
+        if (!this.active || this.current.workspace?.type !== "project" || typeof path !== "string") return null;
+        const project = this.workspace;
+        if (!project) return null;
+        const contains = root => path === root || path.startsWith(root + "/");
+        if (contains(project.root)) return project;
+        // Resolve the live relationship by stable folder ID on every check.
+        // Renames, new shares and detachments must not leave a cached allowance.
+        const ids = project.resourceFolderIds ?? [];
+        return ids.length && this.plugin.projectWizard.getResourceFolders(ids).some(folder => contains(folder.path))
+            ? project : null;
+    }
+    canOpen(reference, notify = true) {
+        if (!this.active || !reference) return true;
+        const wizard = this.plugin.projectWizard;
+        const path = typeof reference === "string" ? reference : reference.path;
+        if (this.projectWorkspaceForPath(path)) return true;
+        const context = typeof reference === "object" && workspaceRef(reference) ? reference :
+            wizard.getResourceById(path) || wizard.getResourceForPath(path) ||
+            wizard.getProjectById(path) || wizard.getProjectForPath(path);
+        if (!context || sameWorkspace(this.current.workspace, workspaceRef(context))) return true;
+        if (notify) this.notice("Locked during this Oath");
+        return false;
+    }
+    async invalidateWorkspace() {
+        await this.persist({ ...this.current, state: "invalid", fullscreenOwned: false,
+            invalidReason: "workspace-unavailable" });
+        await this.fullscreen.exit();
+        this.work = []; this.awaitingIndex.clear(); this.emit();
+        this.notice("This Oath's workspace is unavailable. Make a new Oath and select an Active Project or Resource.");
+    }
+    async enterWorkspace() {
+        const context = this.workspace;
+        if (context) await this.plugin.workspaceModes?.openProjectFull(context);
+    }
     onChange(callback, clock = false) { const set = clock ? this.clockListeners : this.listeners; set.add(callback); return () => set.delete(callback); }
     notify(listeners) { for (const callback of listeners) { try { callback(); } catch (error) { console.error("Oath view update failed", error); } } }
     emit() { this.notify(this.listeners); this.tickDisplay(); }
@@ -38,7 +109,10 @@ class HubOathService {
         if (this.disposed) return;
         this.fullscreen.restore(this.active && this.current?.fullscreenOwned);
         try {
-            if (this.active) await this.returnToFullscreen();
+            if (this.active) {
+                if (!this.workspace) await this.invalidateWorkspace();
+                else { await this.returnToFullscreen(); await this.enterWorkspace(); }
+            }
             else if (this.committed && JSON.stringify(this.current) !== JSON.stringify(this.bucket.current)) await this.persist(this.current);
         } catch (error) { this.error(error); }
         this.plugin.taskData.subscribe(this.plugin, () => { void this.refresh(); });
@@ -76,6 +150,7 @@ class HubOathService {
                     task = { ...task, ...snapshot, ...this.plugin.taskEditor.metadata(ref.id) };
                 } catch (_) { task = null; }
             }
+            if (task && !this.ownsTask(this.current.workspace, task)) task = null;
             work.push({ ref, task });
         }
         const changed = JSON.stringify(work) !== JSON.stringify(this.work);
@@ -115,17 +190,20 @@ class HubOathService {
         this.emit(); return true;
     }
     async activate() {
+        if (!this.resolveWorkspace(this.current?.workspace)) { await this.invalidateWorkspace(); return false; }
         const owned = await this.fullscreen.enter();
         if (!this.fullscreen.isFull() && !owned) throw Error("Enforced fullscreen is unavailable on this device.");
         try {
+            if (!this.resolveWorkspace(this.current.workspace)) { await this.invalidateWorkspace(); return false; }
             await this.persist({ ...this.current, state: "active", startedAt: this.now(), fullscreenOwned: owned });
         } catch (error) { await this.fullscreen.exit(); throw error; }
+        await this.enterWorkspace();
         this.emit();
     }
     take(draft) {
         return this.enqueue(async () => {
             if (this.committed) throw Error("There is already an active or scheduled Oath on this device.");
-            validateOath(draft, this.now());
+            this.validateDraft(draft);
             if (draft.tasks?.length && !this.ready()) throw Error("Wait for the task index to finish loading.");
             const selectedTasks = draft.tasks ?? [], indexed = selectedTasks.length ? this.tasks() : [];
             if (selectedTasks.some(task => task.hubTaskId && indexed.some(item => item.hubTaskId === task.hubTaskId && item.identityConflict))) {
@@ -140,6 +218,9 @@ class HubOathService {
                     const file = this.plugin.taskEditor.file(task.path);
                     await this.app.vault.process(file, content => {
                         const snapshot = readTaskSnapshot(content, { ...task, path: file.path });
+                        if (snapshot.completed || !this.ownsTask(draft.workspace, { path: file.path })) {
+                            throw Error("A selected task is no longer available in this workspace.");
+                        }
                         const id = snapshot.hubTaskId ?? randomUUID();
                         if (seen.has(id)) return content;
                         seen.add(id); selected.push({ id, path: file.path, text: snapshot.text });
@@ -152,10 +233,11 @@ class HubOathService {
                 }
                 return selected;
             });
+            if (!this.resolveWorkspace(draft.workspace)) throw Error("The selected workspace is no longer available.");
             const now = this.now();
             await this.persist({ id: randomUUID(), deviceId: this.deviceId, takenAt: now, createdAt: now,
                 scheduledAt: draft.start === "scheduled" ? draft.scheduledAt : now, startedAt: null,
-                durationMs: draft.durationMs, fulfilledAt: null,
+                durationMs: draft.durationMs, fulfilledAt: null, workspace: workspaceRef(this.resolveWorkspace(draft.workspace)),
                 tasks: refs, state: "scheduled", completedAt: null, fullscreenOwned: false });
             // The freshly marked lines may not be imported by Dataview yet.
             this.work = await this.readNewWork(refs, selectedTasks);
@@ -199,6 +281,7 @@ class HubOathService {
                 await this.persist(null); this.work = []; this.awaitingIndex.clear(); this.emit(); return "cancelled";
             }
             await this.reconcile(true);
+            if (!this.committed) return "inactive";
             if (!this.fulfilled && outcome !== "broken") return "confirmation-required";
             await this.#finish(this.fulfilled ? "fulfilled" : "broken");
             return "ended";
@@ -215,6 +298,7 @@ class HubOathService {
     changed(edit) {
         if (!this.committed) return;
         this.work = this.work.map(item => item.task ? { ...item, task: applyTaskEdit([item.task], edit)[0] ?? null } : item);
+        this.work = this.work.map(item => item.task && !this.ownsTask(this.current.workspace, item.task) ? { ...item, task: null } : item);
         this.captureFulfilment();
         this.emit(); void this.refresh();
     }

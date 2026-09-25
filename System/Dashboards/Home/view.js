@@ -491,14 +491,6 @@ const lastFileButton = navButton(
 );
 
 
-if (
-    window.hubHasLastFile?.() ===
-        false
-) {
-    lastFileButton.disabled = true;
-}
-
-
 presetsButton(nav, dv.component);
 
 // ---------- HEADER ----------
@@ -2358,49 +2350,10 @@ const resourceGrid = resourceSection.createDiv({
     cls: "home-resource-grid"
 });
 
+const workspaceCards = window.hubCreateWorkspaceCards(root, dv.component, renderCardImage, () => projectCategories);
 for (const resource of resourceTypes) {
-    const card = resourceGrid.createDiv({
-        cls: "home-resource-card"
-    });
-    card.dataset.resourceType = resource.id;
-    card.dataset.resourcePath = resource.path;
-
-    const face = card.createDiv({
-        cls: "home-resource-face"
-    });
-
-    const thumbnail = face.createDiv({
-        cls: "home-resource-thumbnail"
-    });
-
-    const imageFile = resource.image
-        ? app.vault.getAbstractFileByPath(resource.image)
-        : null;
-
-    if (imageFile) {
-        renderCardImage(thumbnail, app.vault.getResourcePath(imageFile), {
-            card, sourcePath: imageFile.path, key: `card:resource:${resource.id}::${imageFile.path}`
-        });
-    } else {
-        card.addClass("has-icon-fallback");
-        const icon = thumbnail.createSpan({
-            cls: "home-resource-icon"
-        });
-        window.hubSetIcon?.(
-            icon,
-            resource.icon ?? "library"
-        );
-    }
-
-    el(face, "div", "home-resource-title", resource.label);
-
-    card.addEventListener("click", async () => {
-        if (window.hubOpenResourceFull) {
-            await window.hubOpenResourceFull(resource.id, root);
-            return;
-        }
-        const file = app.vault.getAbstractFileByPath(resource.path);
-        if (file) await app.workspace.getLeaf(false).openFile(file);
+    workspaceCards.render(resourceGrid, resource, async () => {
+        await window.hubOpenResourceFull(resource.id, root);
     });
 }
 
@@ -2651,26 +2604,7 @@ function renderProjects(status) {
 
     for (const project of visibleProjects) {
 
-        const card = projectGrid.createDiv({
-            cls: "home-project-card"
-        });
-
-        card.dataset.projectPath = project.path;
-        card.dataset.projectStatus = project.status;
-        card.dataset.projectId =
-            projectCardKey(project);
-
-        card.draggable = false;
-
-        // One visual surface scales text, image and card paint together.
-        const surface = card.createDiv({ cls: "home-project-surface" });
-
-        // Display name
-
-        const displayName = project.name.replace(
-            /^(Book|MSc Thesis|Novel|Research|Poetry)\s*-\s*/i,
-            ""
-        );
+        const card = workspaceCards.render(projectGrid, project);
 
         // Open project
 
@@ -2716,59 +2650,7 @@ function renderProjects(status) {
             }
         });
 
-        // Title
 
-        const content = surface.createDiv({
-            cls: "home-project-content"
-        });
-
-        el(
-            content,
-            "div",
-            "home-project-title",
-            displayName
-        );
-
-        const category =
-            projectCategory(
-                project.categoryId
-            );
-
-
-        if (category) {
-
-            el(
-                content,
-                "div",
-                "home-project-category",
-                category.name
-            );
-        }
-
-
-        // Image
-
-        if (category?.image) {
-
-            const imageFile =
-                app.vault.getAbstractFileByPath(
-                    category.image
-                );
-
-            if (imageFile) {
-
-                const image =
-                    surface.createDiv({
-                        cls:
-                            "home-project-image"
-                    });
-
-                renderCardImage(image, app.vault.getResourcePath(imageFile), {
-                    card, sourcePath: imageFile.path, key: `card:project:${projectCardKey(project)}::${imageFile.path}`
-                });
-
-            }
-        }
     }
 
     requestAnimationFrame(

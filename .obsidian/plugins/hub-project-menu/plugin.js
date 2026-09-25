@@ -1,3 +1,5 @@
+const { OathNavigationGuard } = require("./lib/services/oath-navigation");
+const { createWorkspaceCards } = require("./lib/ui/workspace-cards");
 /*
  * Source entry for the generated main.js plugin artifact.
  * Run build.js after changing this file or anything under lib/.
@@ -16,6 +18,8 @@ const {
 } = require("obsidian");
 
 const { queryHistory } = require("./lib/domain/history");
+const { savedReportContext, reportDay } = require("./lib/domain/report-context");
+const { reportTitle, DailyReportModal, renderReportEvidence, focusSection } = require("./lib/ui/daily-report");
 const { ProjectDeletionModal } = require("./lib/ui/project-deletion");
 const { createPreparedNoteRails, NOTE_RAIL_VIEW } = require("./lib/ui/prepared-note-rail");
 const { progressRatingOptions } = require('./lib/config');
@@ -27,6 +31,7 @@ const { HubOathService } = require('./lib/services/oath');
 const { createOathFullscreen } = require('./lib/services/oath-fullscreen');
 const { mountOathControl } = require('./lib/ui/oath');
 const { HubWorkspaceState, emptyWorkspaceState } = require('./lib/services/workspace-state');
+const { HubNavigationHistory } = require('./lib/services/navigation-history');
 
 const fs =
     require("fs");
@@ -883,6 +888,7 @@ class ProjectAdvancementModal
             resources = [],
             currentScores,
             currentSummaries = {},
+            reportContexts = {},
             showNextFocus = false,
             currentFocus = [],
             focusProjects = [],
@@ -925,6 +931,7 @@ class ProjectAdvancementModal
 
         this.currentSummaries =
             currentSummaries ?? {};
+        this.reportContexts = reportContexts;
 
 
         this.showNextFocus =
@@ -1103,6 +1110,12 @@ class ProjectAdvancementModal
             });
 
 
+            const context = this.reportContexts[project.projectId];
+            if (context) {
+                const evidence = renderReportEvidence(row, context);
+                if (context.focus.length) focusSection(evidence, "Focus for this day", context.focus, "");
+            }
+
             const choices =
                 row.createDiv({
                     cls:
@@ -1250,7 +1263,7 @@ class ProjectAdvancementModal
                             rows: "3",
                             maxlength: "1000",
                             placeholder:
-                                `Briefly summarise today's progress on ${project.name}.`
+                                `Summarise progress on ${project.name}`
                         }
                     }
                 );
@@ -4213,6 +4226,7 @@ class ProjectWizardService {
 
                 root,
 
+                categoryId: frontmatter.category,
                 status:
                     frontmatter.status,
 
@@ -5057,11 +5071,12 @@ class ProjectWizardService {
                         date,
                         targetKind: "resource",
                         resourceId: id,
-                        resourceName: resource.label,
+                        resourceName: log.resourceName ?? resource.label,
                         projectId: `resource:${id}`,
-                        projectName: resource.label,
+                        projectName: log.resourceName ?? resource.label,
                         score: Number.isInteger(score) && score >= 1 && score <= 4 ? score : null,
                         summary: typeof log.summary === "string" ? log.summary : "",
+                        context: log.context,
                         timestamp: Number(log.timestamp) > 0 ? Number(log.timestamp) : null
                     };
                     if (report.summary || report.score !== null) reports.push(report);
@@ -5172,9 +5187,10 @@ class ProjectWizardService {
                     date,
                     targetKind: "project",
                     projectId: id,
+                    context: log.context,
                     projectName:
-                        project?.name ??
                         log.projectName ??
+                        project?.name ??
                         "Unavailable project",
                     projectStatus:
                         project?.status ??
@@ -6313,6 +6329,14 @@ class ProjectWizardService {
         }
 
 
+        for (const projectId of scope) {
+            const log = nextLogs[projectId]?.[date];
+            if (!log) continue;
+            const previous = this.projectWorkLogs[projectId]?.[date];
+            log.projectName = previous?.projectName ?? log.projectName;
+            log.context = savedReportContext(this, date, projectId, previous?.context);
+        }
+
         const nextPendingFocus =
             normalizedFocus === null
                 ? this.pendingFocus
@@ -6331,7 +6355,11 @@ class ProjectWizardService {
             projectWorkLogs:
                 nextLogs,
             pendingFocus:
-                nextPendingFocus
+                nextPendingFocus,
+            ...(normalizedFocus === null ? {} : { reportFocusByDate: {
+                ...this.data.reportFocusByDate,
+                [date]: { items: normalizedFocus }
+            } })
         };
 
 
@@ -6390,7 +6418,8 @@ class ProjectWizardService {
             const previousTimestamp = Number(this.resourceWorkLogs[id]?.[date]?.timestamp);
             nextLogs[id][date] = {
                 summary: normalizedSummary,
-                resourceName: resource.label,
+                resourceName: this.resourceWorkLogs[id]?.[date]?.resourceName ?? resource.label,
+                context: savedReportContext(this, date, `resource:${id}`, this.resourceWorkLogs[id]?.[date]?.context),
                 targetKind: "resource",
                 timestamp: Number.isFinite(previousTimestamp) && previousTimestamp > 0
                     ? previousTimestamp
@@ -7323,8 +7352,12 @@ class HubWorkspaceModeService {
 
         this.state =
             this.loadState();
+        this.navigationHistory.initialize();
     }
 
+    get navigationHistory() {
+        return this.history ??= new HubNavigationHistory(this);
+    }
 
     emptyState() {
         return emptyWorkspaceState();
@@ -7365,12 +7398,15 @@ class HubWorkspaceModeService {
                 entry.layout = rewriteLayoutPaths(entry.layout, migratePath);
             }
             if (saved.lastFile) saved.lastFile.path = migratePath(saved.lastFile.path);
+            for (const entry of Array.isArray(saved.fileHistory) ? saved.fileHistory : []) {
+                if (entry?.path) entry.path = migratePath(entry.path);
+            }
 
             return {
                 ...fallback,
                 ...saved,
 
-                version: 3,
+                version: saved.version ?? 3,
 
                 projects:
                     saved.projects &&
@@ -7461,8 +7497,24 @@ class HubWorkspaceModeService {
     }
 
     contextForFile(path, source = null) {
+        const oathProject = this.plugin.oath?.projectWorkspaceForPath(path);
+        if (oathProject) return oathProject;
         const candidate = this.contextFromSource(source) || this.mode?.project;
         return this.contextContainsFile(candidate, path) ? candidate : this.contextFor(path);
+    }
+
+    currentContext() {
+        const leaf = this.app.workspace.activeLeaf;
+        if (!this.isMainLeaf(leaf)) return null;
+        const path = this.leafPath(leaf);
+        if (path === "Home.md") return null;
+        const context = this.plugin.oath?.projectWorkspaceForPath(path) || this.contextFromSource(leaf) || (path ? this.contextForFile(path, leaf) : null);
+        if (context) return context;
+        // A browser tab can belong to the visible note-mode workspace without
+        // having a vault path. Never infer context from saved navigation history.
+        const mode = this.mode;
+        return !path && mode && this.isMainLeaf(mode.projectLeaf) &&
+            this.leafDocument(leaf) === mode.ownerDocument ? mode.project : null;
     }
 
     captureNoteLayout() {
@@ -7484,10 +7536,12 @@ class HubWorkspaceModeService {
     }
 
     rememberBrowserLayout(context) {
+        if (this.plugin.oath?.canOpen(context, false) === false) return;
         this.rememberContext(context);
         // Workspace association, not a fabricated file path for a browser URL.
         this.state.lastFile = { contextKind: context.contextKind ?? "project",
             contextId: context.contextKind === "resource" ? context.resourceType : context.projectId };
+        this.navigationHistory.rememberFile(context);
         this.saveState();
     }
 
@@ -7503,8 +7557,8 @@ class HubWorkspaceModeService {
             type => this.canRestoreLayoutView(type));
     }
 
-    async restoreNoteLayout(context) {
-        return this.presentWorkspace(null, context, true, () => this.applyNoteLayout(context));
+    async restoreNoteLayout(context, snapshot = this.state.projects[context.projectId]?.layout) {
+        return this.presentWorkspace(null, context, true, () => this.applyNoteLayout(context, snapshot));
     }
 
     prepareRestoredNoteMode(context, snapshot) {
@@ -7546,6 +7600,7 @@ class HubWorkspaceModeService {
     }
 
     async applyNoteLayout(context, savedLayout = this.state.projects[context.projectId]?.layout) {
+        if (this.plugin.oath?.canOpen(context) === false || this.plugin.oathNavigation?.allowLayout(savedLayout) === false) return false;
         const snapshot = prepareNoteLayout(savedLayout,
             context.path, path => this.app.vault.getAbstractFileByPath(path) instanceof TFile,
             type => this.canRestoreLayoutView(type));
@@ -7555,7 +7610,7 @@ class HubWorkspaceModeService {
         // live. Native panes and secondary dashboard work are not readiness gates.
         const prepared = await this.plugin.preparedNoteRails.prepare(context, snapshot,
             this.leafDocument(this.mode?.projectLeaf || this.activeMainLeaf()));
-        if (this.destroyed) { prepared.dispose(); return false; }
+        if (this.destroyed || this.plugin.oath?.canOpen(context) === false || this.plugin.oathNavigation?.allowLayout(prepared.snapshot) === false) { prepared.dispose(); return false; }
         this.beginLayoutMutation();
         this.clearModeClasses();
         this.mode = null;
@@ -7620,9 +7675,11 @@ class HubWorkspaceModeService {
         }
 
 
+        if (this.plugin.oath?.canOpen(project, false) === false) return null;
         this.state.lastProjectId =
             project.projectId;
         this.state.lastWorkspaceId = project.projectId;
+        this.navigationHistory.rememberWorkspace(project);
 
 
         const current =
@@ -7653,9 +7710,10 @@ class HubWorkspaceModeService {
 
     rememberResource(reference) {
         const resource = this.resourceFor(reference);
-        if (!resource) return null;
+        if (!resource || this.plugin.oath?.canOpen(resource, false) === false) return null;
         this.state.lastResourceId = resource.resourceType;
         this.state.lastWorkspaceId = resource.projectId;
+        this.navigationHistory.rememberWorkspace(resource);
         this.state.projects[resource.projectId] = {
             ...(this.state.projects[resource.projectId] ?? {}),
             hubPath: resource.path
@@ -7667,6 +7725,7 @@ class HubWorkspaceModeService {
 
     rememberContext(reference) {
         const context = this.contextFor(reference);
+        if (this.plugin.oath?.canOpen(context, false) === false) return null;
         return context?.contextKind === "resource"
             ? this.rememberResource(context)
             : this.rememberProject(context);
@@ -7674,25 +7733,21 @@ class HubWorkspaceModeService {
 
 
     lastContext() {
-        const saved = this.state.lastFile;
-        if (saved?.contextKind === "resource") {
-            return this.resourceFor(saved.contextId) || this.lastResource();
-        }
-        if (saved?.contextKind === "project") {
-            return this.projectFor(saved.contextId) || this.lastProject();
-        }
-        if (saved?.path) return this.contextFor(saved.path);
-        return this.lastProject() || this.lastResource();
+        this.navigationHistory.initialize();
+        const entry = this.state.fileHistory[0];
+        return this.contextFor(entry?.contextId) || this.contextFor(entry?.path);
     }
 
     lastWorkspace() {
-        // Legacy state has no cross-kind recency; use its existing best guess.
-        return this.contextFor(this.state.lastWorkspaceId) || this.lastContext();
+        return this.navigationHistory.workspace();
     }
 
     openWorkspace(source = null) {
-        const context = this.contextFromSource(source) || this.lastWorkspace();
-        if (!context) return Promise.resolve(false);
+        const context = this.lastWorkspace();
+        if (!context) {
+            new Notice("No recently opened workspaces.");
+            return Promise.resolve(false);
+        }
         return this.openProjectFull(context, source);
     }
 
@@ -7708,10 +7763,7 @@ class HubWorkspaceModeService {
     }
 
     globalLastFile() {
-        if (this.isShelvedLastFile(this.state.lastFile?.path)) return null;
-        const file = this.app.vault.getAbstractFileByPath(this.state.lastFile?.path ?? "");
-        return file instanceof TFile && file.path !== "Home.md" && this.contextFor(file.path)?.path !== file.path
-            ? file : this.lastNoteFile(this.lastContext());
+        return this.navigationHistory.resolveFile()?.file ?? null;
     }
 
 
@@ -7729,6 +7781,7 @@ class HubWorkspaceModeService {
         }
 
 
+        if (this.plugin.oath?.canOpen(project, false) === false || this.plugin.oath?.canOpen(file.path, false) === false) return;
         this.rememberContext(project);
 
 
@@ -7753,41 +7806,22 @@ class HubWorkspaceModeService {
                 ? project.resourceType
                 : project.projectId
         };
+        this.navigationHistory.rememberFile(project, file);
 
 
         this.saveState();
     }
 
 
-    lastNoteFile(
-        project = this.lastContext()
-    ) {
+    rememberVaultFile(file) {
+        if (!(file instanceof TFile) || this.plugin.oath?.canOpen(file.path, false) === false) return;
+        this.state.lastFile = { path: file.path, contextKind: null, contextId: null };
+        this.navigationHistory.rememberFile(null, file);
+        this.saveState();
+    }
 
-        if (!project || this.isShelvedLastFile(project.path)) {
-            return null;
-        }
-
-
-        const saved = this.state.projects[project.projectId];
-        if (this.isShelvedLastFile(saved?.lastNotePath)) return null;
-        const candidates = [saved?.lastNotePath];
-        // A deleted last note must not make the remaining saved split inaccessible.
-        const visit = node => {
-            if (node?.type === "leaf") {
-                const path = node.state?.state?.file;
-                if (node.id === saved?.layout?.active) candidates.splice(1, 0, path);
-                else candidates.push(path);
-            }
-            for (const child of node?.children ?? []) visit(child);
-        };
-        visit(saved?.layout?.main);
-        for (const path of candidates) {
-            if (!this.contextContainsFile(project, path)) continue;
-            if (this.isShelvedLastFile(path)) continue;
-            const file = this.app.vault.getAbstractFileByPath(path);
-            if (file instanceof TFile) return file;
-        }
-        return null;
+    lastNoteFile(project = this.lastContext()) {
+        return project ? this.navigationHistory.resolveFile(project.projectId)?.file ?? null : null;
     }
 
 
@@ -7804,10 +7838,16 @@ class HubWorkspaceModeService {
     }
 
 
+    resolveLastFile(source = null) {
+        // Keep a dashboard's scope even if its workspace was just deleted.
+        // A missing scoped result must never fall through to global history.
+        const id = this.dashboardRoot(source)?.dataset.hubContextId ||
+            this.contextFromSource(source)?.projectId;
+        return this.navigationHistory.resolveFile(id);
+    }
+
     hasLastFile(source = null) {
-        const context = this.contextFromSource(source);
-        return Boolean((context ? this.lastNoteFile(context) : this.globalLastFile()) ||
-            this.restorableNoteLayout(context || this.lastContext()));
+        return Boolean(this.resolveLastFile(source));
     }
 
 
@@ -7818,9 +7858,9 @@ class HubWorkspaceModeService {
 
 
         const resource = this.lastResource();
-        const sourceContext = this.contextFromSource(source);
-        const context = sourceContext || this.lastContext();
-        const file = sourceContext ? this.lastNoteFile(sourceContext) : this.globalLastFile();
+        const destination = this.resolveLastFile(source);
+        const context = destination?.context;
+        const file = destination?.file;
 
 
         return {
@@ -9146,6 +9186,7 @@ class HubWorkspaceModeService {
 
 
     async presentWorkspace(sourceLeaf, context, note, update) {
+        if (this.plugin.oath?.canOpen(context) === false) return false;
         const doc = this.leafDocument(sourceLeaf || this.mode?.projectLeaf);
         const presentation = this.plugin.transitions?.stageWorkspace(doc);
         try {
@@ -9403,6 +9444,7 @@ class HubWorkspaceModeService {
         project,
         source = null
     ) {
+        if (this.plugin.oath?.canOpen(this.contextFor(project)) === false) return Promise.resolve(false);
 
         const sourceLeaf =
             this.leafForSource(source);
@@ -9441,7 +9483,8 @@ class HubWorkspaceModeService {
 
 
     async enterProjectNoteMode(project, file, options = {}) {
-        const context = this.contextFor(project);
+        if (this.plugin.oath?.canOpen(file?.path) === false) return false;
+        const context = this.plugin.oath?.projectWorkspaceForPath(file?.path) || this.contextFor(project);
         if (!context || !(file instanceof TFile) || file.path === context.path) return false;
         if (!await this.plugin.ensureContextOpen(context, this.dashboardRoot(options.sourceLeaf))) return false;
         return this.presentWorkspace(options.sourceLeaf || options.existingLeaf, context, true,
@@ -9752,6 +9795,7 @@ class HubWorkspaceModeService {
         placement = "replace",
         source = null
     ) {
+        if (this.plugin.oath?.canOpen(path) === false) return Promise.resolve(false);
 
         const sourceLeaf =
             this.leafForSource(source);
@@ -9819,7 +9863,7 @@ class HubWorkspaceModeService {
                 .getAbstractFileByPath(path);
 
 
-        if (!(file instanceof TFile)) {
+        if (!(file instanceof TFile) || this.plugin.oath?.canOpen(file.path) === false) {
             return false;
         }
 
@@ -9833,7 +9877,7 @@ class HubWorkspaceModeService {
 
 
         const project =
-            this.contextFor(file.path);
+            this.contextForFile(file.path);
 
 
         if (project) {
@@ -9884,6 +9928,9 @@ class HubWorkspaceModeService {
             leaf,
             file
         );
+        // Queued navigation suppresses file-open events, so record this route
+        // explicitly just as Project/Resource Note-view opening does.
+        this.rememberVaultFile(file);
 
 
         return true;
@@ -9973,26 +10020,17 @@ class HubWorkspaceModeService {
                         dashboardRoot
                     );
 
-                const sourceContext = this.contextFromSource(dashboardRoot);
-                const project = sourceContext || this.lastContext();
-
-
-                const file =
-                    sourceContext ? this.lastNoteFile(sourceContext) : this.globalLastFile();
-
-
-                if (!file && !this.restorableNoteLayout(project)) {
-                    new Notice(
-                                "No Hub file has been opened yet."
-                    );
+                const destination = this.resolveLastFile(dashboardRoot);
+                if (!destination) {
+                    new Notice("No recently opened files.");
                     return false;
                 }
-
+                const { file, context: project, layout } = destination;
 
                 const open = async () => {
                     if (!project) return this.openFile(file.path, sourceLeaf);
                     if (!await this.plugin.ensureContextOpen(project, transitionRoot)) return false;
-                    if (!this.isProjectNoteMode(project) && await this.restoreNoteLayout(project)) return true;
+                    if (!this.isProjectNoteMode(project) && layout && await this.restoreNoteLayout(project, layout)) return true;
                     if (!file) return this.isProjectNoteMode(project);
                     return this.enterProjectNoteMode(
                             project,
@@ -10002,18 +10040,20 @@ class HubWorkspaceModeService {
                 };
 
 
+                let opened = false;
+                const navigate = async () => { opened = await open(); return opened; };
                 if (transitionRoot) {
                     await this.plugin.transitions
                         .navigateToLastFile(
                             transitionRoot,
-                            open
+                            navigate
                         );
                 } else {
-                    await open();
+                    await navigate();
                 }
 
 
-                return true;
+                return opened;
             }
         );
     }
@@ -10127,8 +10167,7 @@ class HubWorkspaceModeService {
             leaf,
             file
         );
-        this.state.lastFile = { path: file.path, contextKind: null, contextId: null };
-        this.saveState();
+        this.rememberVaultFile(file);
     }
 
 
@@ -10694,6 +10733,7 @@ class HubWorkspaceModeService {
             };
 
         this.plugin.presets?.rewritePaths(rewritePath);
+        changed = this.navigationHistory.rewritePaths(rewritePath) || changed;
 
 
         if (this.mode?.project) {
@@ -10794,7 +10834,7 @@ class HubWorkspaceModeService {
         }
 
 
-        let changed = false;
+        let changed = this.navigationHistory.deletePath(path);
 
 
         for (
@@ -12547,6 +12587,10 @@ module.exports = class HubProjectMenu extends Plugin {
         const oathNativeModule = this.app.vault.adapter.getBasePath?.();
         this.oath = new HubOathService(this, createOathFullscreen(window, oathNativeModule ?
             require("path").join(oathNativeModule, this.manifest.dir, "lib/services/oath-fullscreen.js") : null));
+        this.oathNavigation = new OathNavigationGuard(this, require("obsidian").WorkspaceLeaf);
+        window.hubCreateWorkspaceCards = (root, component, renderImage, categories) =>
+            createWorkspaceCards({ app: this.app, root, component, renderImage, categories, oath: this.oath });
+        window.hubCreateTaskRow = require("./lib/ui/tasks").createTaskRow;
         window.hubTaskGroups = taskGroups;
         window.hubTaskOwner = path => this.projectWizard.getContextForPath(path);
         window.hubCreateTaskUi = (component, body, onEdit) => createTaskUi({
@@ -12694,6 +12738,9 @@ module.exports = class HubProjectMenu extends Plugin {
         delete window.hubSaveFolderUiState;
         this.oathControl?.destroy();
         this.oath?.destroy();
+        this.oathNavigation?.destroy();
+        delete window.hubCreateWorkspaceCards;
+        delete window.hubCreateTaskRow;
         this.taskData?.destroy();
         this.projectDeletion?.destroy();
         this.projectDeletionModal?.close();
@@ -13688,6 +13735,13 @@ module.exports = class HubProjectMenu extends Plugin {
         new ProjectAdvancementModal(
             this.app,
             {
+                reportContexts: Object.fromEntries([...projects, ...resources].map(workspace => {
+                    const id = workspace.projectId ?? `resource:${workspace.resourceType}`;
+                    const previous = id.startsWith("resource:")
+                        ? this.projectWizard.resourceWorkLogs[id.slice(9)]?.[date]
+                        : this.projectWizard.projectWorkLogs[id]?.[date];
+                    return [id, savedReportContext(this.projectWizard, date, id, previous?.context)];
+                })),
                 projects,
 
                 resources,
@@ -13713,7 +13767,7 @@ module.exports = class HubProjectMenu extends Plugin {
                         .getFocusContexts(),
 
                 title:
-                    "Today's progress report",
+                    reportTitle(date, true),
 
                 onSave:
                     async ({
@@ -15790,23 +15844,16 @@ module.exports = class HubProjectMenu extends Plugin {
             );
 
 
-        const shortDateLabel =
-            [
-                String(
-                    parsedDate.getDate()
-                ).padStart(2, "0"),
-
-                String(
-                    parsedDate.getMonth() + 1
-                ).padStart(2, "0"),
-
-                parsedDate.getFullYear()
-            ].join("/");
-
-
         new ProjectAdvancementModal(
             this.app,
             {
+                reportContexts: Object.fromEntries([...projects, ...resources].map(workspace => {
+                    const id = workspace.projectId ?? `resource:${workspace.resourceType}`;
+                    const previous = id.startsWith("resource:")
+                        ? this.projectWizard.resourceWorkLogs[id.slice(9)]?.[date]
+                        : this.projectWizard.projectWorkLogs[id]?.[date];
+                    return [id, savedReportContext(this.projectWizard, date, id, previous?.context)];
+                })),
                 projects,
 
                 resources,
@@ -15832,13 +15879,7 @@ module.exports = class HubProjectMenu extends Plugin {
                         .getFocusContexts(),
 
                 title:
-                    `${
-                        isGeneralReport
-                            ? "Edit daily progress"
-                            : requestedKind === "resource"
-                            ? "Edit Resource progress"
-                            : "Edit project progress"
-                    } of ${shortDateLabel}`,
+                    reportTitle(date, true),
 
                 requireEveryProject:
                     false,
@@ -15920,7 +15961,7 @@ module.exports = class HubProjectMenu extends Plugin {
 
         const today =
             localISODate();
-
+        const reportDates = new Set(this.projectWizard.getProgressReports(projectId).map(report => report.date));
 
         const dayCells =
             [
@@ -15987,6 +16028,7 @@ module.exports = class HubProjectMenu extends Plugin {
             );
 
 
+            cell.classList.toggle("has-report", reportDates.has(date));
             const progressDetails =
                 cell.dataset
                     .hubProgressDetails;
@@ -16048,7 +16090,7 @@ module.exports = class HubProjectMenu extends Plugin {
             );
 
 
-            setHubTooltip(cell, `${dateLabel}\n${details}\nClick to edit progress`);
+            setHubTooltip(cell, `${dateLabel}\n${details}\n${reportDates.has(date) ? "Click to view report" : "Click to edit progress"}`);
         }
 
 
@@ -16156,13 +16198,15 @@ module.exports = class HubProjectMenu extends Plugin {
                 setTabStop(cell);
 
 
-                window.hubOpenProgressEditor?.(
-                    cell.dataset.date,
-                    calendar
-                        .hubProgressEditorOptions
-                        ?.projectId ??
-                        null
-                );
+                const scope = calendar.hubProgressEditorOptions?.projectId ?? null;
+                const day = reportDay(this.projectWizard, cell.dataset.date, scope);
+                if (day.reports.length) {
+                    new DailyReportModal(this.app, { day,
+                        onEdit: () => window.hubOpenProgressEditor?.(day.date, scope)
+                    }).open();
+                } else {
+                    window.hubOpenProgressEditor?.(cell.dataset.date, scope);
+                }
             };
 
 
@@ -16813,6 +16857,7 @@ module.exports = class HubProjectMenu extends Plugin {
     }
 
     async ensureContextOpen(context, dashboard = null) {
+        if (this.oath?.canOpen(context) === false) return false;
         if (context.contextKind === "resource" || context.status === "active") return true;
         if (context.status !== "shelved") {
             new Notice("Activate this project before opening it.");

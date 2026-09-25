@@ -1291,6 +1291,80 @@ module.exports = {
 };
 
 },
+"lib/domain/navigation-history.js": function (module, exports, __hubRequire) {
+"use strict";
+
+// Paths are the vault's file identity; rename hooks rewrite them. Workspace IDs
+// are canonical projectId values, including the fixed resource:<type> IDs.
+const HISTORY_LIMIT = 500;
+const fileHistoryKey = entry => JSON.stringify([entry.contextId ?? null, entry.path ?? null]);
+const validFileHistoryEntry = entry => !!entry && typeof entry === "object" &&
+    (entry.contextId == null || typeof entry.contextId === "string") &&
+    (entry.path == null || typeof entry.path === "string") && !!(entry.contextId || entry.path);
+
+function uniqueHistory(entries, key = value => value) {
+    const seen = new Set();
+    return entries.filter(entry => {
+        const id = key(entry);
+        if (seen.has(id)) return false;
+        seen.add(id);
+        return true;
+    }).slice(0, HISTORY_LIMIT);
+}
+
+function rememberHistory(entries, entry, key) {
+    return uniqueHistory([entry, ...entries], key);
+}
+
+// Seed once, without guessing recency between legacy per-workspace snapshots.
+// Array presence is the migration marker, even when all entries were deleted.
+function migrateNavigationHistory(state, contextForPath) {
+    if (state.version === 4 && Array.isArray(state.workspaceHistory) && Array.isArray(state.fileHistory)) return false;
+    let changed = false;
+    const legacy = state.lastFile;
+    const legacyContextId = legacy?.contextKind === "resource"
+        ? `resource:${legacy.contextId}` : legacy?.contextId ??
+            (legacy?.path ? contextForPath(legacy.path)?.projectId : null);
+    if (!Array.isArray(state.workspaceHistory)) {
+        const id = state.lastWorkspaceId || legacyContextId || state.lastProjectId ||
+            (state.lastResourceId ? `resource:${state.lastResourceId}` : null);
+        state.workspaceHistory = id ? [id] : [];
+        changed = true;
+    }
+    if (!Array.isArray(state.fileHistory)) {
+        const entries = [];
+        if (legacy && (legacy.path || legacyContextId)) {
+            entries.push({ path: legacy.path ?? null, contextId: legacyContextId ?? null });
+        }
+        for (const [contextId, saved] of Object.entries(state.projects ?? {})) {
+            if (!saved) continue;
+            const leaves = [];
+            const visit = node => {
+                if (node?.type === "leaf") leaves.push(node);
+                for (const child of node?.children ?? []) visit(child);
+            };
+            visit(saved.layout?.main);
+            leaves.sort((a, b) => Number(b.id === saved.layout.active) - Number(a.id === saved.layout.active));
+            if (leaves[0]?.id === saved.layout?.active && leaves[0]?.state?.type === "webviewer") {
+                entries.push({ contextId, path: null });
+            }
+            if (saved.lastNotePath) entries.push({ contextId, path: saved.lastNotePath });
+            for (const leaf of leaves) {
+                const path = leaf.state?.state?.file;
+                if (path && path !== saved.hubPath) entries.push({ contextId, path });
+                else if (leaf.state?.type === "webviewer") entries.push({ contextId, path: null });
+            }
+        }
+        state.fileHistory = uniqueHistory(entries, fileHistoryKey);
+        changed = true;
+    }
+    if (state.version !== 4) { state.version = 4; changed = true; }
+    return changed;
+}
+
+module.exports = { HISTORY_LIMIT, fileHistoryKey, validFileHistoryEntry, uniqueHistory, rememberHistory, migrateNavigationHistory };
+
+},
 "lib/domain/navigation.js": function (module, exports, __hubRequire) {
 "use strict";
 
@@ -1305,6 +1379,7 @@ function browserViewState(view) {
     } catch (_) { return null; }
 }
 
+/** @param {(type: string) => boolean} [canRestoreView] */
 function prepareNoteLayout(snapshot, hubPath, exists, canRestoreView = () => true) {
     if (!snapshot?.main || !hubPath) return null;
     const leafIds = [];
@@ -1368,8 +1443,26 @@ function rewriteLayoutPaths(snapshot, rewrite) {
 module.exports = { prepareNoteLayout, rewriteLayoutPaths, browserViewState };
 
 },
+"lib/domain/oath-workspace.js": function (module, exports, __hubRequire) {
+"use strict";
+
+function workspaceRef(context) {
+    if (!context) return null;
+    const type = context.contextKind === "resource" ? "resource" : "project";
+    const id = type === "resource" ? context.resourceType ?? context.id : context.projectId;
+    return typeof id === "string" && id.trim() ? { type, id, name: context.name ?? context.label } : null;
+}
+function validWorkspace(ref) {
+    return !!ref && ["project", "resource"].includes(ref.type) && typeof ref.id === "string" && !!ref.id.trim();
+}
+function sameWorkspace(a, b) { return validWorkspace(a) && validWorkspace(b) && a.type === b.type && a.id === b.id; }
+function taskKey(task) { return task.hubTaskId ?? `${task.path}:${task.line}:${task.text}`; }
+module.exports = { workspaceRef, validWorkspace, sameWorkspace, taskKey };
+
+},
 "lib/domain/oath.js": function (module, exports, __hubRequire) {
 "use strict";
+const { validWorkspace } = __hubRequire("lib/domain/oath-workspace.js");
 
 const isCommitted = oath => ["scheduled", "active"].includes(oath?.state);
 const DEFAULT_DURATION_MS = 50 * 60000;
@@ -1391,6 +1484,7 @@ function validateOath(draft, now = Date.now()) {
     if (!Array.isArray(draft.tasks) || !draft.tasks.length) {
         throw Error("Select at least one task for your Oath.");
     }
+    if (!validWorkspace(draft.workspace)) throw Error("Select a Project or Resource for your Oath.");
 }
 function oathTime(oath, now = Date.now()) {
     const elapsedMs = oath?.startedAt == null ? 0 : Math.max(0, (oath.completedAt ?? now) - oath.startedAt);
@@ -1471,6 +1565,72 @@ function calculateHomeMomentum(scores) {
 module.exports = {
     calculateHomeMomentum
 };
+
+},
+"lib/domain/report-context.js": function (module, exports, __hubRequire) {
+"use strict";
+
+const { localISODate } = __hubRequire("lib/domain/dates.js");
+const { normalizeFocusItems } = __hubRequire("lib/domain/focus.js");
+
+function onDay(record, date) {
+    const timestamp = Number(record.timestamp);
+    return timestamp > 0 && localISODate(new Date(timestamp)) === date;
+}
+
+// Select by recorded identity, never by today's file location or workspace name.
+function workspaceId(record) {
+    return record.projectId || (record.resourceType ? `resource:${record.resourceType}` : null);
+}
+
+function captureReportContext(service, date, id) {
+    const select = records => (records ?? []).filter(record =>
+        workspaceId(record) === id && onDay(record, date));
+    return {
+        version: 1,
+        tasks: select(service.completedTaskHistory).map(task => ({
+            id: task.id ?? null, text: task.text, timestamp: task.timestamp,
+            ...(task.path ? { path: task.path } : {})
+        })).sort((a, b) => a.timestamp - b.timestamp),
+        activity: select(service.activityLog).map(item => ({
+            action: item.action, title: item.title, oldTitle: item.oldTitle ?? null,
+            timestamp: item.timestamp
+        })).sort((a, b) => b.timestamp - a.timestamp),
+        focus: normalizeFocusItems(service.dailyFocus?.[date])
+            .filter(item => item.projectId === id).map(item => item.text)
+    };
+}
+
+function savedReportContext(service, date, id, previous) {
+    // Editing a past reflection must not rewrite its evidence from current data.
+    if (previous?.version === 1 && date !== localISODate()) return previous;
+    return captureReportContext(service, date, id);
+}
+
+function reportDay(service, date, scope = null) {
+    const reports = service.getProgressReports(scope).filter(report => report.date === date)
+        .map(report => ({ ...report, context: report.context?.version === 1
+            ? report.context : captureReportContext(service, date, report.projectId) }));
+    const recorded = service.data?.reportFocusByDate?.[date];
+    // Pending focus is a single consumable list. Never borrow a different day's list.
+    const nextFocus = normalizeFocusItems(recorded?.items ??
+        (service.pendingFocus?.sourceDate === date ? service.pendingFocus.items : []));
+    return { date, reports, nextFocus,
+        sharedFocus: normalizeFocusItems(service.dailyFocus?.[date]).filter(item => !item.projectId) };
+}
+
+const activityLabels = {
+    created: "created", edited: "edited", deleted: "deleted", renamed: "renamed",
+    "project-created": "projects created", "project-renamed": "projects renamed",
+    "project-deleted": "projects deleted"
+};
+function activitySummary(entries) {
+    const counts = new Map();
+    for (const entry of entries) counts.set(entry.action, (counts.get(entry.action) ?? 0) + 1);
+    return [...counts].map(([action, count]) => `${count} ${activityLabels[action] ?? action}`).join(" · ");
+}
+
+module.exports = { captureReportContext, savedReportContext, reportDay, activitySummary };
 
 },
 "lib/domain/task-planning.js": function (module, exports, __hubRequire) {
@@ -2431,6 +2591,129 @@ class HomeCovers {
 module.exports = { HOME_COVER_PERIODS, homeTimePeriod, HomeCovers };
 
 },
+"lib/services/navigation-history.js": function (module, exports, __hubRequire) {
+"use strict";
+
+const { TFile } = require("obsidian");
+const { prepareNoteLayout, browserViewState } = __hubRequire("lib/domain/navigation.js");
+const { fileHistoryKey, validFileHistoryEntry, uniqueHistory, rememberHistory, migrateNavigationHistory } = __hubRequire("lib/domain/navigation-history.js");
+
+class HubNavigationHistory {
+    constructor(modes) { this.modes = modes; }
+    get state() { return this.modes.state; }
+    initialize() {
+        if (migrateNavigationHistory(this.state, path => this.modes.contextFor(path))) this.modes.saveState();
+    }
+    file(path) { return path ? this.modes.app.vault.getAbstractFileByPath(path) : null; }
+    context(id) { return id ? this.modes.contextFor(id) : null; }
+    exists(context) { return !!context && this.file(context.path) instanceof TFile; }
+    allowed(reference) { return this.modes.plugin.oath?.canOpen(reference, false) !== false; }
+    eligibleContext(context) {
+        return this.exists(context) && (context.contextKind === "resource" || context.status === "active") && this.allowed(context);
+    }
+    eligiblePath(path) {
+        const owner = this.modes.contextFor(path);
+        return this.file(path) instanceof TFile &&
+            (!owner || owner.contextKind === "resource" || owner.status === "active") && this.allowed(path);
+    }
+    rememberWorkspace(context) {
+        this.initialize();
+        this.state.workspaceHistory = rememberHistory(this.state.workspaceHistory.filter(id => typeof id === "string"), context.projectId);
+    }
+    rememberFile(context, file = null) {
+        this.initialize();
+        this.state.fileHistory = rememberHistory(this.state.fileHistory.filter(validFileHistoryEntry),
+            { contextId: context?.projectId ?? null, path: file?.path ?? null }, fileHistoryKey);
+    }
+    prune() {
+        this.initialize();
+        const workspaces = uniqueHistory(this.state.workspaceHistory.filter(id => typeof id === "string" && this.exists(this.context(id))));
+        const files = uniqueHistory(this.state.fileHistory.filter(entry => {
+            if (!validFileHistoryEntry(entry)) return false;
+            const context = this.context(entry.contextId);
+            if (entry.contextId && !this.exists(context)) return false;
+            if (entry.path) return this.file(entry.path) instanceof TFile && entry.path !== "Home.md" &&
+                this.modes.contextFor(entry.path)?.path !== entry.path;
+            // Browser availability is temporary; do not prune because its plugin
+            // is disabled or because an Oath filters the saved workspace.
+            const hasBrowser = node => !!browserViewState(node?.state) || (node?.children ?? []).some(hasBrowser);
+            return !!context && hasBrowser(this.state.projects[context.projectId]?.layout?.main);
+        }), fileHistoryKey);
+        if (JSON.stringify(workspaces) !== JSON.stringify(this.state.workspaceHistory) ||
+            JSON.stringify(files) !== JSON.stringify(this.state.fileHistory)) {
+            this.state.workspaceHistory = workspaces;
+            this.state.fileHistory = files;
+            this.modes.saveState();
+        }
+    }
+    workspace() {
+        this.prune();
+        return this.state.workspaceHistory.map(id => this.context(id)).find(context => this.eligibleContext(context)) ?? null;
+    }
+    layout(context, entry) {
+        if (!context) return null;
+        const layout = prepareNoteLayout(this.state.projects[context.projectId]?.layout, context.path,
+            path => this.eligiblePath(path), type => this.modes.canRestoreLayoutView(type));
+        if (!layout) return null;
+        const leaves = [];
+        const visit = node => {
+            if (node.type === "leaf") leaves.push(node);
+            for (const child of node.children ?? []) visit(child);
+        };
+        visit(layout.main);
+        const matches = leaf => entry.path ? leaf.state?.state?.file === entry.path : !!browserViewState(leaf.state);
+        const active = leaves.find(leaf => leaf.id === layout.active && matches(leaf)) || leaves.find(matches);
+        if (!active) return null;
+        layout.active = active.id;
+        const select = node => {
+            if (node.type === "leaf") return node.id === active.id;
+            const selected = (node.children ?? []).map(select).findIndex(Boolean);
+            if (selected >= 0 && node.type === "tabs") node.currentTab = selected;
+            return selected >= 0;
+        };
+        select(layout.main);
+        return layout;
+    }
+    resolveFile(scopeId = null) {
+        this.prune();
+        for (const entry of this.state.fileHistory) {
+            if (scopeId && entry.contextId !== scopeId) continue;
+            const context = this.context(entry.contextId) || (entry.path ? this.modes.contextFor(entry.path) : null);
+            if (context && !this.eligibleContext(context)) continue;
+            if (entry.path && (!this.eligiblePath(entry.path) ||
+                (context && !this.modes.contextContainsFile(context, entry.path)))) continue;
+            const layout = this.layout(context, entry);
+            if (!entry.path && !layout) continue;
+            return { entry, context, file: this.file(entry.path), layout };
+        }
+        return null;
+    }
+    rewritePaths(rewrite) {
+        this.initialize();
+        const entries = uniqueHistory(this.state.fileHistory.filter(validFileHistoryEntry).map(entry =>
+            ({ ...entry, path: rewrite(entry.path) })), fileHistoryKey);
+        if (JSON.stringify(entries) === JSON.stringify(this.state.fileHistory)) return false;
+        this.state.fileHistory = entries;
+        return true;
+    }
+    deletePath(path) {
+        this.initialize();
+        const removed = value => value === path || value?.startsWith(`${path}/`);
+        const deletedContexts = new Set(Object.entries(this.state.projects ?? {})
+            .filter(([, saved]) => removed(saved?.hubPath)).map(([id]) => id));
+        for (const id of this.state.workspaceHistory) if (removed(this.context(id)?.path)) deletedContexts.add(id);
+        const workspaces = this.state.workspaceHistory.filter(id => !deletedContexts.has(id));
+        const files = this.state.fileHistory.filter(entry => validFileHistoryEntry(entry) && !deletedContexts.has(entry.contextId) && !removed(entry.path));
+        const changed = workspaces.length !== this.state.workspaceHistory.length || files.length !== this.state.fileHistory.length;
+        this.state.workspaceHistory = workspaces;
+        this.state.fileHistory = files;
+        return changed;
+    }
+}
+
+module.exports = { HubNavigationHistory };
+
+},
 "lib/services/oath-fullscreen.js": function (module, exports, __hubRequire) {
 "use strict";
 
@@ -2532,12 +2815,59 @@ function createOathFullscreen(win = window, nativeModulePath = null) {
 module.exports = { createOathFullscreen, createNativeOathGuard };
 
 },
+"lib/services/oath-navigation.js": function (module, exports, __hubRequire) {
+"use strict";
+
+// One policy at native navigation boundaries also covers links, commands,
+// history, new leaves and saved layouts. Wrappers read live Oath state.
+class OathNavigationGuard {
+    constructor(plugin, Leaf) {
+        this.plugin = plugin; this.app = plugin.app; this.restores = []; this.disposed = false;
+        const guard = this;
+        const wrap = (target, key, permitted, async = true) => {
+            if (typeof target?.[key] !== "function") return;
+            const original = target[key];
+            function wrapped(...args) {
+                if (!permitted.apply(this, args)) return async ? Promise.resolve(false) : false;
+                return original.apply(this, args);
+            }
+            target[key] = wrapped;
+            this.restores.push(() => { if (target[key] === wrapped) target[key] = original; });
+        };
+        wrap(Leaf?.prototype, "openFile", file => guard.allow(file?.path));
+        wrap(Leaf?.prototype, "setViewState", state => guard.allowView(state));
+        wrap(this.app.workspace, "changeLayout", layout => guard.allowLayout(layout));
+        wrap(this.app.workspace, "setActiveLeaf", leaf => guard.allowView(leaf?.getViewState?.()), false);
+        wrap(this.app.workspace, "openLinkText", (link, source) => {
+            const path = String(link ?? "").split("#")[0];
+            const file = guard.app.metadataCache.getFirstLinkpathDest?.(path, source);
+            return guard.allow(file?.path ?? path);
+        });
+    }
+    allow(reference, notify = true) { return this.disposed || this.plugin.oath?.canOpen(reference, notify) !== false; }
+    allowView(view) {
+        const state = view?.state;
+        return this.allow(state?.contextId ?? state?.projectId) &&
+            this.allow(state?.file ?? state?.path);
+    }
+    allowLayout(layout) {
+        const visit = node => !node || (node.type === "leaf" ? this.allowView(node.state) :
+            (node.children ?? []).every(visit));
+        return visit(layout?.main) && visit(layout?.left) && visit(layout?.right);
+    }
+    destroy() { this.disposed = true; this.restores.reverse().forEach(restore => restore()); this.restores = []; }
+}
+module.exports = { OathNavigationGuard };
+
+},
 "lib/services/oath.js": function (module, exports, __hubRequire) {
 "use strict";
 const { randomUUID } = require("crypto");
-const { readTaskSnapshot } = __hubRequire("lib/domain/task-planning.js");
+const { taskGroups, readTaskSnapshot } = __hubRequire("lib/domain/task-planning.js");
 const { taskLineDetails, taskIdentity, applyTaskEdit, normalizedTaskText } = __hubRequire("lib/domain/tasks.js");
 const { isCommitted, validateOath, oathTime, normalizeOath, fulfilmentTime } = __hubRequire("lib/domain/oath.js");
+
+const { workspaceRef, validWorkspace, sameWorkspace, taskKey } = __hubRequire("lib/domain/oath-workspace.js");
 
 class HubOathService {
     constructor(plugin, fullscreen, options = {}) {
@@ -2558,6 +2888,75 @@ class HubOathService {
     api() { return this.app.plugins.getPlugin?.("dataview")?.api ?? this.app.plugins.plugins?.dataview?.api; }
     ready() { const api = this.api(); return !!api && api.index?.initialized !== false; }
     tasks() { return this.ready() ? this.plugin.taskData.readPages(this.api()).flatMap(page => page.file.tasks) : []; }
+    workspaces(type) {
+        const wizard = this.plugin.projectWizard;
+        return type === "resource" ? wizard.getResourceTypes() :
+            wizard.getProjectRecords().filter(context => context.status === "active");
+    }
+    resolveWorkspace(ref, eligible = true) {
+        if (!validWorkspace(ref)) return null;
+        const wizard = this.plugin.projectWizard;
+        const context = ref.type === "resource" ? wizard.getResourceById(ref.id) : wizard.getProjectById(ref.id);
+        if (!sameWorkspace(ref, workspaceRef(context)) || !this.app.vault.getAbstractFileByPath(context.path)) return null;
+        return eligible && ref.type === "project" && context.status !== "active" ? null : context;
+    }
+    get workspace() { return this.resolveWorkspace(this.current?.workspace, false); }
+    ownsTask(ref, task) {
+        const context = this.resolveWorkspace(ref, false);
+        return !!context && (task.path === context.path || task.path?.startsWith(context.root + "/"));
+    }
+    workspaceTasks(ref) {
+        const context = this.resolveWorkspace(ref);
+        if (!this.ready() || !context) return [];
+        const tasks = this.plugin.taskData.readPages(this.api(), context.root).flatMap(page => page.file.tasks);
+        const groups = taskGroups(tasks.filter(task => !task.completed && !task.identityConflict &&
+            (task.path === context.path || task.path?.startsWith(context.root + "/"))), new Date(this.now()));
+        return [...groups.active, ...groups.future];
+    }
+    validateDraft(draft) {
+        validateOath(draft, this.now());
+        if (!this.resolveWorkspace(draft.workspace)) throw Error("Choose an available Active Project or Resource.");
+        if (!this.ready()) throw Error("Wait for the task index to finish loading.");
+        const available = new Set(this.workspaceTasks(draft.workspace).map(taskKey));
+        if (draft.tasks.some(task => !available.has(taskKey(task)))) {
+            throw Error("Selected tasks must be open tasks from this workspace. Update your selection.");
+        }
+    }
+    projectWorkspaceForPath(path) {
+        if (!this.active || this.current.workspace?.type !== "project" || typeof path !== "string") return null;
+        const project = this.workspace;
+        if (!project) return null;
+        const contains = root => path === root || path.startsWith(root + "/");
+        if (contains(project.root)) return project;
+        // Resolve the live relationship by stable folder ID on every check.
+        // Renames, new shares and detachments must not leave a cached allowance.
+        const ids = project.resourceFolderIds ?? [];
+        return ids.length && this.plugin.projectWizard.getResourceFolders(ids).some(folder => contains(folder.path))
+            ? project : null;
+    }
+    canOpen(reference, notify = true) {
+        if (!this.active || !reference) return true;
+        const wizard = this.plugin.projectWizard;
+        const path = typeof reference === "string" ? reference : reference.path;
+        if (this.projectWorkspaceForPath(path)) return true;
+        const context = typeof reference === "object" && workspaceRef(reference) ? reference :
+            wizard.getResourceById(path) || wizard.getResourceForPath(path) ||
+            wizard.getProjectById(path) || wizard.getProjectForPath(path);
+        if (!context || sameWorkspace(this.current.workspace, workspaceRef(context))) return true;
+        if (notify) this.notice("Locked during this Oath");
+        return false;
+    }
+    async invalidateWorkspace() {
+        await this.persist({ ...this.current, state: "invalid", fullscreenOwned: false,
+            invalidReason: "workspace-unavailable" });
+        await this.fullscreen.exit();
+        this.work = []; this.awaitingIndex.clear(); this.emit();
+        this.notice("This Oath's workspace is unavailable. Make a new Oath and select an Active Project or Resource.");
+    }
+    async enterWorkspace() {
+        const context = this.workspace;
+        if (context) await this.plugin.workspaceModes?.openProjectFull(context);
+    }
     onChange(callback, clock = false) { const set = clock ? this.clockListeners : this.listeners; set.add(callback); return () => set.delete(callback); }
     notify(listeners) { for (const callback of listeners) { try { callback(); } catch (error) { console.error("Oath view update failed", error); } } }
     emit() { this.notify(this.listeners); this.tickDisplay(); }
@@ -2573,7 +2972,10 @@ class HubOathService {
         if (this.disposed) return;
         this.fullscreen.restore(this.active && this.current?.fullscreenOwned);
         try {
-            if (this.active) await this.returnToFullscreen();
+            if (this.active) {
+                if (!this.workspace) await this.invalidateWorkspace();
+                else { await this.returnToFullscreen(); await this.enterWorkspace(); }
+            }
             else if (this.committed && JSON.stringify(this.current) !== JSON.stringify(this.bucket.current)) await this.persist(this.current);
         } catch (error) { this.error(error); }
         this.plugin.taskData.subscribe(this.plugin, () => { void this.refresh(); });
@@ -2611,6 +3013,7 @@ class HubOathService {
                     task = { ...task, ...snapshot, ...this.plugin.taskEditor.metadata(ref.id) };
                 } catch (_) { task = null; }
             }
+            if (task && !this.ownsTask(this.current.workspace, task)) task = null;
             work.push({ ref, task });
         }
         const changed = JSON.stringify(work) !== JSON.stringify(this.work);
@@ -2650,17 +3053,20 @@ class HubOathService {
         this.emit(); return true;
     }
     async activate() {
+        if (!this.resolveWorkspace(this.current?.workspace)) { await this.invalidateWorkspace(); return false; }
         const owned = await this.fullscreen.enter();
         if (!this.fullscreen.isFull() && !owned) throw Error("Enforced fullscreen is unavailable on this device.");
         try {
+            if (!this.resolveWorkspace(this.current.workspace)) { await this.invalidateWorkspace(); return false; }
             await this.persist({ ...this.current, state: "active", startedAt: this.now(), fullscreenOwned: owned });
         } catch (error) { await this.fullscreen.exit(); throw error; }
+        await this.enterWorkspace();
         this.emit();
     }
     take(draft) {
         return this.enqueue(async () => {
             if (this.committed) throw Error("There is already an active or scheduled Oath on this device.");
-            validateOath(draft, this.now());
+            this.validateDraft(draft);
             if (draft.tasks?.length && !this.ready()) throw Error("Wait for the task index to finish loading.");
             const selectedTasks = draft.tasks ?? [], indexed = selectedTasks.length ? this.tasks() : [];
             if (selectedTasks.some(task => task.hubTaskId && indexed.some(item => item.hubTaskId === task.hubTaskId && item.identityConflict))) {
@@ -2675,6 +3081,9 @@ class HubOathService {
                     const file = this.plugin.taskEditor.file(task.path);
                     await this.app.vault.process(file, content => {
                         const snapshot = readTaskSnapshot(content, { ...task, path: file.path });
+                        if (snapshot.completed || !this.ownsTask(draft.workspace, { path: file.path })) {
+                            throw Error("A selected task is no longer available in this workspace.");
+                        }
                         const id = snapshot.hubTaskId ?? randomUUID();
                         if (seen.has(id)) return content;
                         seen.add(id); selected.push({ id, path: file.path, text: snapshot.text });
@@ -2687,10 +3096,11 @@ class HubOathService {
                 }
                 return selected;
             });
+            if (!this.resolveWorkspace(draft.workspace)) throw Error("The selected workspace is no longer available.");
             const now = this.now();
             await this.persist({ id: randomUUID(), deviceId: this.deviceId, takenAt: now, createdAt: now,
                 scheduledAt: draft.start === "scheduled" ? draft.scheduledAt : now, startedAt: null,
-                durationMs: draft.durationMs, fulfilledAt: null,
+                durationMs: draft.durationMs, fulfilledAt: null, workspace: workspaceRef(this.resolveWorkspace(draft.workspace)),
                 tasks: refs, state: "scheduled", completedAt: null, fullscreenOwned: false });
             // The freshly marked lines may not be imported by Dataview yet.
             this.work = await this.readNewWork(refs, selectedTasks);
@@ -2734,6 +3144,7 @@ class HubOathService {
                 await this.persist(null); this.work = []; this.awaitingIndex.clear(); this.emit(); return "cancelled";
             }
             await this.reconcile(true);
+            if (!this.committed) return "inactive";
             if (!this.fulfilled && outcome !== "broken") return "confirmation-required";
             await this.#finish(this.fulfilled ? "fulfilled" : "broken");
             return "ended";
@@ -2750,6 +3161,7 @@ class HubOathService {
     changed(edit) {
         if (!this.committed) return;
         this.work = this.work.map(item => item.task ? { ...item, task: applyTaskEdit([item.task], edit)[0] ?? null } : item);
+        this.work = this.work.map(item => item.task && !this.ownsTask(this.current.workspace, item.task) ? { ...item, task: null } : item);
         this.captureFulfilment();
         this.emit(); void this.refresh();
     }
@@ -2839,6 +3251,7 @@ class HubPresets {
             if (!item) return false;
             const { Notice, TFile } = require("obsidian");
             const context = m.contextFor(item.contextId);
+            if (m.plugin.oath?.canOpen(context) === false) return false;
             if (!context || !(m.app.vault.getAbstractFileByPath(context.path) instanceof TFile)) {
                 new Notice("This preset's workspace no longer exists."); return false;
             }
@@ -2847,7 +3260,8 @@ class HubPresets {
                 path => m.app.vault.getAbstractFileByPath(path) instanceof TFile,
                 type => m.canRestoreLayoutView(type));
             if (!layout) { new Notice("No saved tabs are available for this preset. The current workspace was left unchanged."); return false; }
-            if (!await m.plugin.ensureContextOpen(context, m.dashboardRoot(source))) return false;
+            if (!await m.plugin.ensureContextOpen(context, m.dashboardRoot(source)) ||
+                m.plugin.oathNavigation?.allowLayout(layout) === false) return false;
             const files = tree => tree?.type === "leaf" ? 1 : (tree?.children ?? []).reduce((n, child) => n + files(child), 0);
             const missing = files(item.layout.main) - files(layout.main);
             const folders = Object.fromEntries(Object.entries(item.folderState?.folders ?? {}).filter(([path]) =>
@@ -3684,7 +4098,7 @@ function createCardImageRenderer(root, component, placementStorage = null, share
             resample: !/\.(svg|gif|apng)(?:[?#]|$)/i.test(url) };
         entries.set(element, entry);
         observer.observe(element);
-        if (storage && options.card) {
+        if (storage && options.card && !options.readOnly) {
             const pending = load(url, entry.path);
             return pending.then(image => {
                 if (!pending.valid() || disposed || entries.get(element) !== entry || !root.contains(element)) return;
@@ -3705,6 +4119,144 @@ function createCardImageRenderer(root, component, placementStorage = null, share
 }
 
 module.exports = { createCardImageRenderer, createCardImageCache };
+
+},
+"lib/ui/daily-report.js": function (module, exports, __hubRequire) {
+"use strict";
+
+const { Modal, Component, setIcon } = require("obsidian");
+const { parseLocalISODate } = __hubRequire("lib/domain/dates.js");
+const { activitySummary } = __hubRequire("lib/domain/report-context.js");
+const { createHubMarkdown } = __hubRequire("lib/ui/markdown.js");
+const { renderHistoryIcon } = __hubRequire("lib/ui/dashboard-ui.js");
+
+function reportText(parent, text, markdown, cls = "hub-report-text", sourcePath = "Home.md") {
+    const element = parent.createDiv({ cls, text });
+    if (markdown && text) void markdown.render(element, text, sourcePath);
+    return element;
+}
+
+function time(parent, timestamp) {
+    const date = new Date(Number(timestamp));
+    if (!(Number(timestamp) > 0) || !Number.isFinite(date.getTime())) return;
+    parent.createEl("time", { cls: "hub-report-time", text: date.toLocaleTimeString([], {
+        hour: "2-digit", minute: "2-digit"
+    }), attr: { datetime: date.toISOString(), title: date.toLocaleString() } });
+}
+
+function sectionIcon(parent, name) {
+    const icon = parent.createSpan({ cls: "hub-report-section-icon", attr: { "aria-hidden": "true" } });
+    if (name === "rotate-ccw-clock") renderHistoryIcon(icon);
+    else setIcon(icon, name);
+}
+
+function focusSection(parent, heading, items, empty, markdown) {
+    const section = parent.createDiv({ cls: "hub-report-section hub-report-focus" });
+    const label = section.createEl("h3", { cls: "hub-report-section-heading" });
+    sectionIcon(label, heading.startsWith("Next focus") ? "circle-arrow-right" : "target");
+    label.createSpan({ text: heading });
+    if (!items.length) section.createDiv({ cls: "hub-report-empty", text: empty });
+    for (const text of items) reportText(section, text, markdown);
+}
+
+function renderReportEvidence(parent, context, markdown) {
+    const evidence = parent.createDiv({ cls: "hub-report-evidence" });
+    const tasks = evidence.createDiv({ cls: "hub-report-section" });
+    tasks.createEl("h3", { text: "Completed tasks" });
+    if (!context.tasks.length) tasks.createDiv({ cls: "hub-report-empty", text: "No completed tasks for this day." });
+    // Visible, bounded context uses the modal's native scrollbars; no active task controls.
+    const list = tasks.createDiv({ cls: "hub-report-task-list", attr: { role: "list", "aria-label": "Completed tasks" } });
+    if (context.tasks.length > 5) list.setAttribute("tabindex", "0");
+    for (const task of context.tasks) {
+        const row = list.createDiv({ cls: "hub-report-evidence-row", attr: { role: "listitem" } });
+        const icon = row.createSpan({ cls: "hub-report-check", attr: { "aria-hidden": "true" } });
+        setIcon(icon, "square-check");
+        reportText(row, task.text, markdown, "hub-report-text", task.path || "Home.md");
+        time(row, task.timestamp);
+    }
+
+    if (!context.activity.length) {
+        evidence.createDiv({ cls: "hub-report-empty hub-report-no-activity", text: "No activity recorded for this day." });
+        return evidence;
+    }
+    const disclosure = evidence.createEl("details", { cls: "hub-report-activity" });
+    const summary = disclosure.createEl("summary");
+    sectionIcon(summary, "rotate-ccw-clock");
+    summary.createSpan({ cls: "hub-report-section-label", text: "Activity summary" });
+    summary.createSpan({ cls: "hub-report-activity-count", text: activitySummary(context.activity) });
+    const chevron = summary.createSpan({ cls: "hub-report-chevron", attr: { "aria-hidden": "true" } });
+    setIcon(chevron, "chevron-right");
+    const entries = disclosure.createDiv({ cls: "hub-report-activity-list" });
+    const icons = { created: "file", edited: "file-pen-line", deleted: "trash-2", renamed: "pencil-line",
+        "project-created": "folder-plus", "project-deleted": "trash-2", "project-renamed": "folder-pen" };
+    for (const entry of context.activity) {
+        const row = entries.createDiv({ cls: "hub-report-evidence-row" });
+        const icon = row.createSpan({ cls: `hub-report-activity-icon is-${entry.action}`, attr: { "aria-hidden": "true" } });
+        setIcon(icon, icons[entry.action] ?? "file");
+        const action = String(entry.action ?? "Activity").replace("project-", "");
+        const label = action.charAt(0).toUpperCase() + action.slice(1);
+        row.createSpan({ cls: "hub-report-text", text: action === "renamed"
+            ? `${label} “${entry.oldTitle ?? ""}” to “${entry.title ?? ""}”`
+            : `${label}${entry.action?.startsWith("project-") ? " project" : ""} “${entry.title ?? ""}”` });
+        time(row, entry.timestamp);
+    }
+    return evidence;
+}
+
+// Reusable renderer: it knows nothing about the heatmap or the modal hosting it.
+function renderDailyReport(parent, day, markdown) {
+    for (const report of day.reports) {
+        const card = parent.createEl("section", { cls: "hub-report-card" });
+        const heading = card.createDiv({ cls: "hub-report-heading" });
+        heading.createEl("h3", { cls: "hub-project-advancement-name", text: report.projectName });
+        heading.createSpan({ cls: "hub-report-rating", text: report.score === null ? "Unrated" : `${report.score}/4` });
+        // Short reflections are plain text: no Markdown paragraph margins or
+        // extra DOM newlines on top of pre-wrap. Normalize display only.
+        const summary = String(report.summary || "").replace(/\r\n?/g, "\n")
+            .replace(/\n(?:[ \t]*\n){2,}/g, "\n\n");
+        reportText(card, summary || "No summary recorded.", null,
+            report.summary ? "hub-report-text hub-report-summary" : "hub-report-empty");
+        renderReportEvidence(card, report.context, markdown);
+        focusSection(card, "Focus for this day", report.context.focus, "No focus set for this day.", markdown);
+        focusSection(card, "Next focus", day.nextFocus.filter(item => item.projectId === report.projectId)
+            .map(item => item.text), "No next focus recorded.", markdown);
+    }
+    // The shared editor can target a workspace with no report (or the other scope).
+    // Retain those intentions once, with their recorded workspace labels.
+    const ids = new Set(day.reports.map(report => report.projectId));
+    const otherFocus = day.nextFocus.filter(item => !ids.has(item.projectId));
+    if (otherFocus.length) focusSection(parent, "Next focus · other workspaces", otherFocus.map(item =>
+        item.projectName ? `${item.projectName}: ${item.text}` : item.text), "", markdown);
+    if (day.sharedFocus?.length) focusSection(parent, "Focus for this day · shared",
+        day.sharedFocus.map(item => item.text), "", markdown);
+}
+
+function reportTitle(date, editing = false) {
+    const label = parseLocalISODate(date).toLocaleDateString([], {
+        day: "numeric", month: "long", year: "numeric"
+    });
+    return `${editing ? "Edit progress report" : "Progress report"} — ${label}`;
+}
+
+class DailyReportModal extends Modal {
+    constructor(app, { day, onEdit }) { super(app); this.day = day; this.onEdit = onEdit; }
+    onOpen() {
+        this.contentEl.addClass("hub-project-advancement-modal", "hub-daily-report-modal", "hub-button-scope");
+        this.contentEl.createEl("h2", { text: reportTitle(this.day.date) });
+        this.renderComponent = new Component();
+        this.renderComponent.load();
+        const markdown = createHubMarkdown({ app: this.app, component: this.renderComponent });
+        renderDailyReport(this.contentEl, this.day, markdown);
+        const actions = this.contentEl.createDiv({ cls: "hub-project-advancement-actions" });
+        if (this.onEdit) actions.createEl("button", { text: "Edit progress" }).addEventListener("click", () => {
+            this.close(); this.onEdit();
+        });
+        actions.createEl("button", { text: "Close" }).addEventListener("click", () => this.close());
+    }
+    onClose() { this.renderComponent?.unload(); this.contentEl.empty(); }
+}
+
+module.exports = { reportTitle, DailyReportModal, renderDailyReport, renderReportEvidence, focusSection };
 
 },
 "lib/ui/dashboard-frame.js": function (module, exports, __hubRequire) {
@@ -3783,6 +4335,39 @@ function selectNavigation(parent, role) {
     }
 }
 
+function renderHistoryIcon(icon) {
+    const nativeIcon = require("obsidian").getIcon("rotate-ccw-clock");
+    if (nativeIcon) {
+        icon.appendChild(nativeIcon);
+    } else {
+        // Older Obsidian releases lack this Lucide icon. Use the official
+        // geometry locally, without replacing or registering native icons.
+        // https://github.com/lucide-icons/lucide/blob/main/icons/rotate-ccw-clock.svg
+        // ISC License, Copyright (c) 2026 Lucide Icons and Contributors.
+        // Permission to use, copy, modify, and/or distribute this software for any
+        // purpose with or without fee is hereby granted, provided that the above
+        // copyright notice and this permission notice appear in all copies.
+        // THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+        // WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+        // MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+        // ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+        // WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+        // ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+        // OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+        const svg = icon.ownerDocument.createElementNS("http://www.w3.org/2000/svg", "svg");
+        for (const [key, value] of Object.entries({
+            viewBox: "0 0 24 24", fill: "none", stroke: "currentColor",
+            "stroke-width": "2", "stroke-linecap": "round", "stroke-linejoin": "round"
+        })) svg.setAttribute(key, value);
+        for (const d of ["M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8", "M3 3v5h5", "M12 7v5l4 2"]) {
+            const path = icon.ownerDocument.createElementNS(svg.namespaceURI, "path");
+            path.setAttribute("d", d);
+            svg.appendChild(path);
+        }
+        icon.appendChild(svg);
+    }
+}
+
 function createDashboardUi({
     navClass,
     getLastNavigation = () =>
@@ -3814,36 +4399,7 @@ function createDashboardUi({
         title.setAttribute("aria-level", "3");
         const icon = title.createSpan({ cls: "hub-history-icon" });
         icon.setAttribute("aria-hidden", "true");
-        const nativeIcon = require("obsidian").getIcon("rotate-ccw-clock");
-        if (nativeIcon) {
-            icon.appendChild(nativeIcon);
-        } else {
-            // Older Obsidian releases lack this Lucide icon. Use the official
-            // geometry locally, without replacing or registering native icons.
-            // https://github.com/lucide-icons/lucide/blob/main/icons/rotate-ccw-clock.svg
-            // ISC License, Copyright (c) 2026 Lucide Icons and Contributors.
-            // Permission to use, copy, modify, and/or distribute this software for any
-            // purpose with or without fee is hereby granted, provided that the above
-            // copyright notice and this permission notice appear in all copies.
-            // THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
-            // WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
-            // MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
-            // ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
-            // WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
-            // ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
-            // OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
-            const svg = icon.ownerDocument.createElementNS("http://www.w3.org/2000/svg", "svg");
-            for (const [key, value] of Object.entries({
-                viewBox: "0 0 24 24", fill: "none", stroke: "currentColor",
-                "stroke-width": "2", "stroke-linecap": "round", "stroke-linejoin": "round"
-            })) svg.setAttribute(key, value);
-            for (const d of ["M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8", "M3 3v5h5", "M12 7v5l4 2"]) {
-                const path = icon.ownerDocument.createElementNS(svg.namespaceURI, "path");
-                path.setAttribute("d", d);
-                svg.appendChild(path);
-            }
-            icon.appendChild(svg);
-        }
+        renderHistoryIcon(icon);
         title.createSpan({ text: "History" });
         return title;
     }
@@ -3920,7 +4476,6 @@ function createDashboardUi({
         const open = () => globalThis.window?.hubOpenWorkspace?.(root);
         const button = navButton(parent, "Workspace", open, active, open,
             "Go to last opened Project or Resource", "workspace");
-        button.disabled = !active && globalThis.window?.hubHasWorkspace?.() === false;
         return button;
     }
 
@@ -4021,6 +4576,7 @@ function createDashboardUi({
 }
 
 module.exports = {
+    renderHistoryIcon,
     createDashboardUi,
     selectNavigation
 };
@@ -4637,32 +5193,37 @@ module.exports = { createOathTaskSection };
 },
 "lib/ui/oath.js": function (module, exports, __hubRequire) {
 "use strict";
-const { createTaskUi } = __hubRequire("lib/ui/tasks.js");
+const { createTaskUi, createTaskRow } = __hubRequire("lib/ui/tasks.js");
+const { parseLocalISODate } = __hubRequire("lib/domain/dates.js");
+const { setHubTooltip } = __hubRequire("lib/ui/tooltips.js");
 const { openTaskCreator } = __hubRequire("lib/ui/task-editor.js");
-const { isCommitted, validateOath, oathTime, oathProgress, shortOathTime, fulfilmentLabel, oathDuration, validDuration } = __hubRequire("lib/domain/oath.js");
+const { createWorkspaceCards } = __hubRequire("lib/ui/workspace-cards.js");
+const { createCardImageRenderer } = __hubRequire("lib/ui/card-images.js");
+const { workspaceRef, sameWorkspace, taskKey } = __hubRequire("lib/domain/oath-workspace.js");
+const { isCommitted, validateOath, oathTime, oathProgress, shortOathTime, fulfilmentLabel, oathDuration } = __hubRequire("lib/domain/oath.js");
 
-const taskKey = task => task.hubTaskId ?? `${task.path}:${task.line}:${task.text}`;
 const dateLabel = time => new Date(time).toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
 const OATH_COPY = Object.freeze({
-    start: "When will you begin your Oath?",
+    start: "When will your Oath begin?",
     work: "What will you work on?",
     duration: "How long will you commit?",
-    confirmation: "Confirm your Oath",
+    confirmation: "Review your Oath",
     pledge: "“I solemnly swear that I will do the work, the whole work, and nothing but the work.”"
 });
+// Obsidian aliases bare "fullscreen" to "maximize"; the Lucide ID bypasses that alias.
 const duringOathRows = [
-    ["maximize", "Obsidian remains fullscreen"],
-    ["shield", "Selected work stays pinned while you remain Oathbound"],
-    ["bell-off", "Your current notification settings remain in effect"]
+    ["lucide-fullscreen", "Itacan enters and remains in fullscreen"],
+    ["shield-user", "Only whitelisted apps and websites are accessible"],
+    ["bell-off", "Notifications from non-permitted apps and websites are silenced"]
 ];
 function endingOathRows(draft) {
     return [
         ["circle-check", draft.tasks.length
-            ? `Fulfilled after ${oathDuration(draft.durationMs)} or when all selected tasks are complete, whichever comes first.`
-            : `The Oath is fulfilled after ${oathDuration(draft.durationMs)}.`],
-        ["circle-alert", "Ending before fulfillment will break the Oath."],
-        ["maximize", "After fulfillment, you may remain Oathbound and continue working."],
-        ["chart-no-axes-column-increasing", "The result is recorded in Oath History."]
+            ? `Fulfilled after ${oathDuration(draft.durationMs)} or when all selected tasks are complete, whichever comes first`
+            : `The Oath is fulfilled after ${oathDuration(draft.durationMs)}`],
+        ["triangle-alert", "Ending before fulfillment will break the Oath"],
+        ["timer-off", "After fulfillment, you may remain Oathbound and continue working"],
+        ["clipboard-clock", "The result is recorded in Oath History"]
     ];
 }
 
@@ -4676,53 +5237,126 @@ function oathRow(group, icon, text, label = null) {
     oathIcon(row, icon);
     if (label) row.createEl("strong", { text: label });
     const value = row.createDiv({ cls: "hub-oath-review-value" });
-    // Separate text nodes preserve numeric, short, and multiline task titles.
-    for (const title of Array.isArray(text) ? text : [text]) value.createDiv({ text: title });
+    if (Array.isArray(text)) {
+        const list = value.createEl("ul", { cls: "hub-oath-review-tasks" });
+        for (const title of text) list.createEl("li", { text: title });
+    } else value.createDiv({ text });
     return row;
 }
 let choiceGroupId = 0;
 
-function openOathPicker(service, selected, onSelect) {
+function selectionRow(ui, body, task) {
+    const parts = createTaskRow(body, task);
+    parts.row.classList.add("hub-oath-task-row");
+    parts.checkbox.disabled = true;
+    parts.checkbox.tabIndex = -1;
+    ui.bind(parts.row, parts.textEl, task, () => task.path, { selection: true, normalSource: true });
+    parts.checkbox.removeAttribute("aria-label");
+    parts.checkbox.removeAttribute("title");
+    parts.checkbox.setAttribute("aria-hidden", "true");
+    // Markdown links and the completion square are presentation only here.
+    parts.row.addEventListener("click", event => {
+        if (event.target.closest("a,input")) { event.preventDefault(); event.stopImmediatePropagation(); }
+    }, true);
+    return parts.row;
+}
+
+function openOathWorkspacePicker(service, type, onSelect) {
+    const { Modal, Component } = require("obsidian");
+    class Picker extends Modal {
+        onOpen() {
+            this.modalEl.classList.add("hub-oath-dialog", "hub-oath-workspace-picker");
+            this.contentEl.classList.add("hub-button-scope");
+            this.contentEl.createEl("h2", { text: type === "project" ? "Select project" : "Select resource" });
+            const search = type === "project" ? this.contentEl.createEl("input", { type: "search", cls: "hub-oath-search",
+                attr: { placeholder: "Search projects...", "aria-label": "Search projects" } }) : null;
+            const body = this.contentEl.createDiv({ cls: "hub-oath-workspace-grid is-" + type });
+            this.owner = new Component(); this.owner.load();
+            // Placement editing is intentionally unavailable in a selection modal.
+            const paintImage = createCardImageRenderer(body, this.owner,
+                key => ({ initial: service.plugin.projectWizard.data.headerImagePlacements?.[key] }), service.plugin.cardImageCache);
+            const renderImage = (element, url, options) => paintImage(element, url, { ...options, readOnly: true });
+            const cards = createWorkspaceCards({ app: service.app, root: body, component: this.owner, renderImage,
+                categories: () => service.plugin.projectWizard.getCategories() });
+            const render = () => {
+                body.empty();
+                const query = search?.value.toLocaleLowerCase().trim() ?? "";
+                const positions = service.plugin.projectWizard.data.projectCardOrder?.active ?? [];
+                const contexts = service.workspaces(type).filter(context => (context.name ?? context.label).toLocaleLowerCase().includes(query));
+                if (type === "project") contexts.sort((a, b) =>
+                    (positions.indexOf(a.projectId) < 0 ? Infinity : positions.indexOf(a.projectId)) -
+                    (positions.indexOf(b.projectId) < 0 ? Infinity : positions.indexOf(b.projectId)));
+                for (const context of contexts) cards.render(body, context, () => {
+                    const ref = workspaceRef(context);
+                    if (!service.resolveWorkspace(ref)) { render(); return; }
+                    onSelect(ref); this.close();
+                });
+                if (!contexts.length) body.createEl("p", { cls: "hub-oath-muted", text: "No matching Active Projects." });
+            };
+            search?.addEventListener("input", render);
+            service.plugin.taskData.subscribe(this.owner, render);
+            this.contentEl.createDiv({ cls: "hub-oath-actions" }).createEl("button", { text: "Cancel" }).addEventListener("click", () => this.close());
+            render(); (search ?? body.querySelector('[tabindex="0"]'))?.focus();
+        }
+        onClose() { this.owner?.unload(); this.contentEl.empty(); }
+    }
+    const modal = new Picker(service.app); modal.open(); return modal;
+}
+
+function openOathPicker(service, workspace, selected, onSelect) {
     const { Modal, Component } = require("obsidian");
     class Picker extends Modal {
         onOpen() {
             this.modalEl.classList.add("hub-oath-dialog", "hub-oath-picker");
             this.contentEl.classList.add("hub-button-scope");
-            this.contentEl.createEl("h2", { text: "Select tasks for your Oath" });
-            const search = this.contentEl.createEl("input", { type: "search", cls: "hub-oath-search", attr: { placeholder: "Search tasks…", "aria-label": "Search tasks" } });
+            this.contentEl.createEl("h2", { text: "Add tasks" });
+            const search = this.contentEl.createEl("input", { type: "search", cls: "hub-oath-search", attr: { placeholder: "Search tasks...", "aria-label": "Search tasks" } });
             const body = this.contentEl.createDiv({ cls: "hub-oath-picker-tasks project-tasks-body" });
             const actions = this.contentEl.createDiv({ cls: "hub-oath-actions" });
-            const create = actions.createEl("button", { text: "+ Add task", cls: "hub-oath-action-start" });
             const cancel = actions.createEl("button", { text: "Cancel" });
-            const add = actions.createEl("button", { cls: "mod-cta" });
+            const add = actions.createEl("button", { cls: "mod-cta", text: "Add tasks" });
             this.owner = new Component(); this.owner.load();
-            const chosen = new Map(selected.map(task => [taskKey(task), task]));
+            const existing = new Set(selected.map(taskKey)), chosen = new Map();
             const ui = createTaskUi({ app: service.app, component: this.owner, body });
-            const update = () => { add.textContent = `Add selected (${chosen.size})`; add.disabled = !chosen.size; };
+            const update = () => { add.disabled = !chosen.size; };
             const render = () => {
                 ui.beginRender(render); body.empty();
-                const groups = ui.groups(service.tasks().filter(task => !task.completed && !task.identityConflict));
-                const query = search.value.toLocaleLowerCase();
+                const available = service.workspaceTasks(workspace);
+                const keys = new Set(available.map(taskKey));
+                for (const key of chosen.keys()) if (!keys.has(key)) chosen.delete(key);
+                const query = search.value.toLocaleLowerCase().trim();
+                const groups = ui.groups(available);
                 const tasks = [...groups.active, ...groups.future].filter(task => `${task.text} ${task.path}`.toLocaleLowerCase().includes(query));
                 for (const task of tasks) {
-                    const row = body.createEl("label", { cls: "project-task-row" });
-                    const checkbox = row.createEl("input", { type: "checkbox", cls: "project-task-checkbox" });
-                    checkbox.checked = chosen.has(taskKey(task));
-                    const info = row.createDiv({ cls: "project-task-info" });
-                    const title = info.createDiv({ cls: "project-task-text" });
-                    info.createDiv({ cls: "project-task-location" });
-                    ui.bind(row, title, task, () => task.path, { selection: true });
-                    checkbox.setAttribute("aria-label", `Select task: ${task.text}`);
-                    checkbox.addEventListener("change", () => { if (checkbox.checked) chosen.set(taskKey(task), task); else chosen.delete(taskKey(task)); update(); });
+                    const row = selectionRow(ui, body, task), key = taskKey(task), included = existing.has(key);
+                    row.setAttribute("role", "button"); row.tabIndex = included ? -1 : 0;
+                    row.setAttribute("aria-label", (included ? "Already selected: " : "Select task: ") + task.text);
+                    row.setAttribute("aria-disabled", String(included));
+                    const paint = () => {
+                        row.classList.toggle("is-selected", included || chosen.has(key));
+                        row.classList.toggle("is-already-selected", included);
+                        row.setAttribute("aria-pressed", String(included || chosen.has(key)));
+                    };
+                    if (included) row.createSpan({ cls: "hub-oath-task-included", text: "Selected" });
+                    const toggle = () => { if (included) return; if (chosen.has(key)) chosen.delete(key); else chosen.set(key, task); paint(); update(); };
+                    row.addEventListener("click", toggle);
+                    row.addEventListener("keydown", event => {
+                        if (event.target === row && ["Enter", " "].includes(event.key)) { event.preventDefault(); toggle(); }
+                    });
+                    paint();
                 }
-                if (!tasks.length) body.createEl("p", { cls: "hub-oath-muted", text: service.ready() ? "No matching incomplete tasks." : "Loading tasks…" });
+                if (!tasks.length) body.createEl("p", { cls: "hub-oath-muted", text: service.ready() ? "No matching open tasks." : "Loading tasks..." });
+                update();
             };
-            create.addEventListener("click", () => openTaskCreator(service.plugin.taskEditor));
             cancel.addEventListener("click", () => this.close());
-            add.addEventListener("click", () => { onSelect([...chosen.values()]); this.close(); });
+            add.addEventListener("click", () => {
+                const available = service.workspaceTasks(workspace);
+                onSelect(available.filter(task => chosen.has(taskKey(task)) && !existing.has(taskKey(task))));
+                this.close();
+            });
             search.addEventListener("input", render);
             service.plugin.taskData.subscribe(this.owner, render);
-            update(); render(); search.focus();
+            render(); search.focus();
         }
         onClose() { this.owner?.unload(); this.contentEl.empty(); }
     }
@@ -4730,14 +5364,26 @@ function openOathPicker(service, selected, onSelect) {
 }
 
 function openOathSetup(service) {
-    const { Modal } = require("obsidian");
+    const { Modal, Component, Menu } = require("obsidian");
     class Setup extends Modal {
         onOpen() {
             this.modalEl.classList.add("hub-oath-dialog");
             this.contentEl.classList.add("hub-button-scope");
-            this.draft = { start: "now", scheduledAt: null, durationMs: 50 * 60000, tasks: [] };
+            this.draft = { start: "now", scheduledAt: null, durationMs: null, workspace: null, tasks: [] };
+            this.selectWorkspace(workspaceRef(service.plugin.workspaceModes?.currentContext()));
             this.choiceGroupId = ++choiceGroupId;
+            this.owner = new Component(); this.owner.load();
+            service.plugin.taskData.subscribe(this.owner, () => {
+                if (this.contentEl.classList.contains("hub-oath-setup")) this.renderSelected?.();
+            });
+            this.owner.register(service.onChange(() => this.updateNext?.(), true));
             this.setup();
+        }
+        selectWorkspace(ref) {
+            if (!service.resolveWorkspace(ref) || sameWorkspace(this.draft.workspace, ref)) return;
+            this.draft.workspace = ref;
+            this.draft.tasks = service.workspaceTasks(ref).slice(0, 3);
+            this.suggestWhenReady = !service.ready();
         }
         section(title) {
             const el = this.contentEl.createEl("section", { cls: "hub-oath-section" });
@@ -4747,7 +5393,8 @@ function openOathSetup(service) {
             const group = parent.createDiv({ cls: "hub-oath-choices", attr: { role: "radiogroup", "aria-label": parent.querySelector("h3").textContent } });
             if (name === "duration") group.classList.add("hub-oath-duration-choices");
             if (name === "start") group.classList.add("hub-oath-start-choices");
-            const titles = new Map(), radioName = `hub-oath-${this.choiceGroupId}-${name}`;
+            if (name === "workspace") group.classList.add("hub-oath-workspace-choices");
+            const radioName = `hub-oath-${this.choiceGroupId}-${name}`;
             for (const [key, label, help] of choices) {
                 const card = group.createEl("label", { cls: "hub-oath-choice" });
                 const radio = card.createEl("input", { type: "radio", attr: { name: radioName, value: key } });
@@ -4755,86 +5402,241 @@ function openOathSetup(service) {
                 const copy = card.createSpan({ cls: "hub-oath-choice-copy" });
                 const title = copy.createSpan({ text: label, cls: "hub-oath-choice-title", attr: { id: `${radioName}-${key}` } });
                 radio.setAttribute("aria-labelledby", title.id);
-                titles.set(key, title);
+                if (name === "workspace" && value === key) {
+                    oathIcon(card, "chevrons-up-down").classList.add("hub-oath-workspace-change");
+                    const tooltip = () => setHubTooltip(title, title.scrollWidth > title.clientWidth ? label : null);
+                    card.addEventListener("pointerover", tooltip);
+                    card.addEventListener("focusin", tooltip);
+                }
                 if (help) {
                     const hint = copy.createSpan({ text: help, cls: "hub-oath-choice-help", attr: { id: `${radioName}-${key}-help` } });
                     radio.setAttribute("aria-describedby", hint.id);
                 }
-                radio.addEventListener("change", () => {
+                if (name === "workspace") radio.addEventListener("click", () => {
+                    for (const input of group.querySelectorAll("input")) input.checked = input.value === this.draft.workspace?.type;
+                    changed(key);
+                });
+                else radio.addEventListener("change", () => {
                     if (!radio.checked) return;
                     changed(key);
-                    this.contentEl.querySelector(`input[name="${radioName}"]:checked`)?.focus();
+                    const selected = this.contentEl.querySelector(`input[name="${radioName}"]:checked`);
+                    (selected?.closest(".hub-oath-choice").querySelector("[data-oath-autofocus]") ?? selected)?.focus();
                 });
             }
-            return titles;
+            return group;
+        }
+        inlineEditor(group, key, className) {
+            const radio = group.querySelector(`input[value="${key}"]`);
+            const label = radio.closest(".hub-oath-choice");
+            // Multiple interactive controls must not share a native label.
+            const card = label.ownerDocument.createElement("div");
+            card.className = label.className + " is-editor";
+            card.append(...label.childNodes); label.replaceWith(card);
+            card.querySelector(".hub-oath-choice-title").classList.add("hub-oath-editor-label");
+            card.addEventListener("click", event => { if (event.target === card) radio.click(); });
+            return card.querySelector(".hub-oath-choice-copy").createSpan({ cls: className });
+        }
+        customDuration() {
+            const { value = "", unit = "minutes" } = this.customValue ?? {};
+            return value.trim() ? Number(value) * (unit === "hours" ? 3600000 : 60000) : null;
         }
         setup() {
-            const draft = this.draft; this.contentEl.empty();
+            const draft = this.draft; this.unitMenu?.hide(); this.taskOwner?.unload(); this.contentEl.empty();
             this.contentEl.classList.remove("hub-oath-review");
             this.contentEl.classList.add("hub-oath-setup");
             this.contentEl.createEl("h2", { text: "Make an Oath" });
             this.contentEl.createEl("p", { cls: "hub-oath-muted", text: "Set the terms of your commitment." });
             const start = this.section(OATH_COPY.start);
-            this.choices(start, "start", [["now", "Now"], ["scheduled", "Select date and time"]], draft.start, value => { draft.start = value; this.setup(); });
+            const startChoices = this.choices(start, "start", [["now", "Now"], ["scheduled", "Select date and time"]], draft.start, value => { draft.start = value; this.setup(); if (value === "scheduled") this.openScheduledPicker?.(); });
+            this.openScheduledPicker = null;
             if (draft.start === "scheduled") {
-                const input = start.createEl("input", { type: "datetime-local", cls: "hub-oath-start", attr: { "aria-label": "Oath start date and time" } });
-                if (draft.scheduledAt) { const date = new Date(draft.scheduledAt); input.value = new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16); }
-                input.addEventListener("change", () => draft.scheduledAt = new Date(input.value).getTime());
+                const controls = this.inlineEditor(startChoices, "scheduled", "hub-oath-start");
+                if (draft.scheduledAt) {
+                    const date = new Date(draft.scheduledAt);
+                    const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString();
+                    this.scheduledDate = local.slice(0, 10); this.scheduledTime = local.slice(11, 16);
+                }
+                const card = controls.closest(".hub-oath-choice");
+                card.classList.add("hub-oath-scheduled-card");
+                const radio = card.querySelector('input[type="radio"]');
+                radio.tabIndex = -1;
+                const display = controls.createSpan({ cls: "hub-oath-start-value", attr: { "aria-hidden": "true" } });
+                // One native date-time picker replaces the two separate hit areas.
+                // The draft still stores the same local timestamp as before.
+                const input = card.createEl("input", { type: "datetime-local", cls: "hub-oath-start-input",
+                    attr: { lang: "en", "aria-label": "Scheduled Oath start", "data-oath-autofocus": "" } });
+                input.value = this.scheduledDate && this.scheduledTime ? `${this.scheduledDate}T${this.scheduledTime}` : "";
+                const update = () => {
+                    const [date = "", time = ""] = input.value.split("T");
+                    this.scheduledDate = date; this.scheduledTime = time;
+                    draft.scheduledAt = date && time && input.validity.valid ? new Date(input.value).getTime() : null;
+                    const local = parseLocalISODate(date);
+                    const label = local && time ? `${local.getDate()} ${local.toLocaleDateString("en-US", { month: "short" })} ${local.getFullYear()}, ${time}` : "Select date and time";
+                    display.textContent = label;
+                    input.setAttribute("aria-label", `Scheduled Oath start: ${label}`);
+                    this.updateNext?.();
+                };
+                this.openScheduledPicker = () => {
+                    card.classList.remove("is-typing"); input.focus();
+                    try {
+                        if (input.showPicker) input.showPicker();
+                        else card.classList.add("is-typing");
+                    } catch (_) { card.classList.add("is-typing"); }
+                };
+                input.addEventListener("click", this.openScheduledPicker);
+                radio.addEventListener("click", this.openScheduledPicker);
+                input.addEventListener("keydown", event => {
+                    if (event.key === "Enter" || event.key === " " || (event.altKey && event.key === "ArrowDown")) {
+                        event.preventDefault(); this.openScheduledPicker();
+                    } else if (!["Tab", "Escape", "Shift", "Alt", "Control", "Meta"].includes(event.key)) card.classList.add("is-typing");
+                });
+                input.addEventListener("blur", () => card.classList.remove("is-typing"));
+                input.addEventListener("input", update); input.addEventListener("change", update); update();
             }
+
             const work = this.section(OATH_COPY.work);
-            for (const [index, task] of draft.tasks.entries()) {
-                const row = work.createDiv({ cls: "hub-oath-selected" });
-                oathIcon(row, "square");
-                row.createSpan({ text: task.text, cls: "hub-oath-selected-title" });
-                const remove = row.createEl("button", { cls: "hub-oath-remove-task hub-button-plain", attr: { type: "button", "aria-label": `Remove task: ${task.text}`, title: "Remove task" } });
-                oathIcon(remove, "x");
-                remove.addEventListener("click", () => { draft.tasks.splice(index, 1); this.setup(); });
+            const choose = type => {
+                this.picker = openOathWorkspacePicker(service, type, ref => {
+                    this.selectWorkspace(ref);
+                    this.setup();
+                });
+            };
+            const workspaceName = service.resolveWorkspace(draft.workspace)?.name ?? draft.workspace?.name;
+            this.choices(work, "workspace", [
+                ["project", draft.workspace?.type === "project" ? `Project: ${workspaceName}` : "Project"],
+                ["resource", draft.workspace?.type === "resource" ? `Resource: ${workspaceName}` : "Resource"]
+            ], draft.workspace?.type, choose);
+            this.renderSelected = null;
+            if (draft.workspace) {
+                const heading = work.createDiv({ cls: "hub-oath-tasks-heading" });
+                heading.createEl("h4", { cls: "hub-oath-suggestions-title", text: `Selected tasks from ${workspaceName}` });
+                const taskAction = heading.createEl("button", { cls: "hub-panel-action hub-oath-add-tasks", attr: { type: "button" } });
+                oathIcon(taskAction, "plus");
+                const taskActionLabel = taskAction.createSpan();
+                const body = work.createDiv({ cls: "hub-oath-selected-tasks project-tasks-body" });
+                this.taskOwner = new Component(); this.taskOwner.load();
+                const ui = createTaskUi({ app: service.app, component: this.taskOwner, body });
+                let noOpenTasks = false;
+                this.renderSelected = () => {
+                    ui.beginRender(this.renderSelected); body.empty();
+                    const ready = service.ready(), tasks = ready ? service.workspaceTasks(draft.workspace) : [];
+                    noOpenTasks = ready && !tasks.length;
+                    if (ready) {
+                        if (this.suggestWhenReady) { draft.tasks = tasks.slice(0, 3); this.suggestWhenReady = false; }
+                        const available = new Map(tasks.map(task => [taskKey(task), task]));
+                        draft.tasks = draft.tasks.map(task => available.get(taskKey(task))).filter(Boolean);
+                    }
+                    for (const task of draft.tasks) {
+                        const row = selectionRow(ui, body, task);
+                        row.classList.add("is-selected");
+                        const remove = row.createEl("button", { cls: "hub-oath-remove-task hub-button-plain",
+                            attr: { type: "button", "aria-label": `Remove from Oath: ${task.text}`, title: "Remove from Oath" } });
+                        oathIcon(remove, "x");
+                        remove.addEventListener("click", () => {
+                            draft.tasks = draft.tasks.filter(item => taskKey(item) !== taskKey(task));
+                            this.renderSelected();
+                            body.querySelector(".hub-oath-remove-task")?.focus();
+                        });
+                    }
+                    if (!draft.tasks.length) body.createEl("p", { cls: "hub-oath-muted", text: !ready ? "Loading tasks..." :
+                        noOpenTasks ? `${workspaceName} has no open tasks. Create a task before making an Oath, or choose another ${draft.workspace.type}.` :
+                        "No tasks selected. Add at least one task to continue." });
+                    taskActionLabel.textContent = noOpenTasks ? "Create task" : "Add tasks";
+                    taskAction.disabled = !ready || !service.resolveWorkspace(draft.workspace);
+                    this.updateNext?.();
+                };
+                this.renderSelected();
+                taskAction.addEventListener("click", () => {
+                    if (noOpenTasks) {
+                        const context = service.resolveWorkspace(draft.workspace);
+                        if (context) this.creator = openTaskCreator(service.plugin.taskEditor, { root: context.root });
+                        return;
+                    }
+                    this.picker = openOathPicker(service, draft.workspace, draft.tasks, tasks => {
+                        draft.tasks = [...new Map([...draft.tasks, ...tasks].map(task => [taskKey(task), task])).values()];
+                        this.renderSelected();
+                    });
+                });
             }
-            const selectTask = work.createEl("button", { cls: "hub-oath-select-task" });
-            const selectIcon = selectTask.createSpan({ attr: { "aria-hidden": "true" } });
-            require("obsidian").setIcon(selectIcon, "plus");
-            selectTask.createSpan({ text: "Select task" });
-            selectTask.addEventListener("click", () => {
-                this.picker = openOathPicker(service, draft.tasks, tasks => { draft.tasks = tasks; this.setup(); });
-            });
             const duration = this.section(OATH_COPY.duration);
-            this.choices(duration, "duration", [["25", "25 minutes"], ["50", "50 minutes"], ["90", "90 minutes"], ["custom", "Custom"]],
-                this.custom ? "custom" : String(draft.durationMs / 60000), value => {
+            const durationChoices = this.choices(duration, "duration", [["25", "25 minutes"], ["50", "50 minutes"], ["90", "90 minutes"], ["custom", "Custom"]],
+                this.custom ? "custom" : draft.durationMs == null ? null : String(draft.durationMs / 60000), value => {
                     this.custom = value === "custom";
-                    if (!this.custom) draft.durationMs = Number(value) * 60000;
+                    if (this.custom) {
+                        this.customValue ??= { value: "", unit: "minutes" };
+                        draft.durationMs = this.customDuration();
+                    } else draft.durationMs = Number(value) * 60000;
                     this.setup();
                 });
             if (this.custom) {
-                const label = duration.createEl("label", { text: "Minutes", cls: "hub-oath-custom" });
-                const input = label.createEl("input", { type: "number", attr: { min: "1", step: "1", "aria-label": "Duration in minutes" } });
-                input.value = draft.durationMs ? draft.durationMs / 60000 : "";
-                input.addEventListener("input", () => {
-                    draft.durationMs = Number(input.value) * 60000;
-                    next.disabled = !draft.tasks.length || !validDuration(draft.durationMs);
+                const editor = this.inlineEditor(durationChoices, "custom", "hub-oath-custom");
+                const input = editor.createEl("input", { type: "number", attr: {
+                    min: "0", step: "any", "aria-label": "Custom duration", "data-oath-autofocus": ""
+                } });
+                input.value = this.customValue.value;
+                const unit = editor.createEl("button", { cls: "hub-oath-duration-unit", attr: {
+                    type: "button", "aria-haspopup": "menu", "aria-expanded": "false"
+                } });
+                const unitLabel = unit.createSpan(); oathIcon(unit, "chevron-down");
+                const update = () => {
+                    this.customValue.value = input.value;
+                    draft.durationMs = this.customDuration();
+                    const singular = Number(input.value) === 1;
+                    unitLabel.textContent = this.customValue.unit === "hours" ? singular ? "hour" : "hours" : singular ? "minute" : "minutes";
+                    unit.setAttribute("aria-label", `Duration unit: ${unitLabel.textContent}`);
+                    this.updateNext?.();
+                };
+                const showUnits = () => {
+                    this.unitMenu?.hide();
+                    const menu = this.unitMenu = new Menu();
+                    for (const value of ["minutes", "hours"]) menu.addItem(item => item.setTitle(value)
+                        .setChecked(this.customValue.unit === value).onClick(() => {
+                            this.customValue.unit = value; update();
+                        }));
+                    menu.onHide(() => {
+                        if (this.unitMenu === menu) this.unitMenu = null;
+                        unit.setAttribute("aria-expanded", "false");
+                        if (unit.isConnected) unit.focus();
+                    });
+                    unit.setAttribute("aria-expanded", "true");
+                    const rect = unit.getBoundingClientRect();
+                    menu.showAtPosition({ x: rect.left, y: rect.bottom });
+                };
+                unit.addEventListener("click", showUnits);
+                unit.addEventListener("keydown", event => {
+                    if (event.key === "ArrowDown") { event.preventDefault(); showUnits(); }
                 });
+                input.addEventListener("input", update); update();
             }
             const error = this.contentEl.createDiv({ cls: "hub-task-error", attr: { role: "alert" } });
             const actions = this.contentEl.createDiv({ cls: "hub-oath-actions" });
             actions.createEl("button", { text: "Cancel" }).addEventListener("click", () => this.close());
-            const next = actions.createEl("button", { text: "Continue", cls: "mod-cta" });
-            next.disabled = !draft.tasks.length || !validDuration(draft.durationMs);
+            const next = actions.createEl("button", { text: "Review Oath", cls: "mod-cta" });
+            this.updateNext = () => {
+                try { validateOath(draft, service.now()); next.disabled = !service.ready() || !service.resolveWorkspace(draft.workspace); }
+                catch (_) { next.disabled = true; }
+            };
+            this.updateNext();
             next.addEventListener("click", () => {
                 try { this.review(); } catch (problem) { error.textContent = problem.message; }
             });
         }
         review() {
             const draft = this.draft;
-            validateOath(draft, service.now());
+            service.validateDraft(draft);
+            this.taskOwner?.unload(); this.updateNext = null;
             this.contentEl.empty();
             this.contentEl.classList.remove("hub-oath-setup");
             this.contentEl.classList.add("hub-oath-review");
             this.contentEl.createEl("h2", { text: OATH_COPY.confirmation });
-            this.contentEl.createEl("p", { text: "Review your commitment before taking the Oath.", cls: "hub-oath-muted" });
+            this.contentEl.createEl("p", { text: "Review the terms of your commitment before taking the Oath.", cls: "hub-oath-muted" });
             const summary = this.section("Your Oath").createDiv({ cls: "hub-oath-row-group" });
             for (const [icon, label, value] of [
-                ["clock", "Starts", draft.start === "now" ? "Now" : dateLabel(draft.scheduledAt)],
-                ["file-text", "Work", draft.tasks.map(task => task.text)],
-                ["timer", "Commitment", oathDuration(draft.durationMs)]
+                ["clock", "Start time", draft.start === "now" ? "Now" : dateLabel(draft.scheduledAt)],
+                [draft.workspace.type === "resource" ? "library" : "folder", draft.workspace.type === "resource" ? "Selected resource" : "Selected project",
+                    service.resolveWorkspace(draft.workspace).name],
+                ["list-todo", "Selected tasks", draft.tasks.map(task => task.text)],
+                ["timer", "Duration", oathDuration(draft.durationMs)]
             ]) {
                 oathRow(summary, icon, value, label);
             }
@@ -4843,12 +5645,12 @@ function openOathSetup(service) {
                 for (const [icon, text] of rows) oathRow(group, icon, text);
             }
             const pledge = this.contentEl.createEl("blockquote", { cls: "hub-oath-pledge" });
-            oathIcon(pledge, "landmark");
+            oathIcon(pledge, "scroll-text");
             pledge.createEl("p", { text: OATH_COPY.pledge });
             const error = this.contentEl.createDiv({ cls: "hub-task-error", attr: { role: "alert" } });
             const actions = this.contentEl.createDiv({ cls: "hub-oath-actions" });
             const back = actions.createEl("button", { text: "Back" });
-            const take = actions.createEl("button", { text: "Take Oath", cls: "mod-cta" });
+            const take = actions.createEl("button", { text: "Take the Oath", cls: "mod-cta" });
             back.addEventListener("click", () => this.setup());
             take.addEventListener("click", async () => {
                 if (this.saving) return; this.saving = true; take.disabled = back.disabled = true;
@@ -4857,7 +5659,7 @@ function openOathSetup(service) {
             });
         }
         close() { if (!this.saving) super.close(); }
-        onClose() { this.picker?.close(); this.contentEl.empty(); }
+        onClose() { this.unitMenu?.hide(); this.picker?.close(); this.creator?.close(); this.taskOwner?.unload(); this.owner?.unload(); this.contentEl.empty(); }
     }
     const modal = new Setup(service.app); modal.open(); return modal;
 }
@@ -6013,6 +6815,16 @@ function taskSourceLabel(path) {
     return parts.length > 1 ? parts[parts.length - 2] : (parts[0]?.replace(/\.md$/i, "") || "Vault");
 }
 
+function createTaskRow(parent, task, completed = task.completed) {
+    const row = parent.createDiv({ cls: "project-task-row" + (completed ? " is-completed" : "") });
+    const checkbox = row.createEl("input", { type: "checkbox", cls: "project-task-checkbox" });
+    checkbox.checked = !!completed;
+    const info = row.createDiv({ cls: "project-task-info" });
+    const textEl = info.createDiv({ cls: "project-task-text", text: task.text });
+    info.createDiv({ cls: "project-task-location" });
+    return { row, checkbox, info, textEl };
+}
+
 function createTaskUi({ app, component, body, mutate, onEdit, editTask, createTask, oath }) {
     const { Menu, Notice, setIcon } = require("obsidian");
     const document = body.ownerDocument;
@@ -6199,7 +7011,7 @@ function createTaskUi({ app, component, body, mutate, onEdit, editTask, createTa
             dates.appendChild(span); info.appendChild(dates);
         }
         const source = info.querySelector(".home-task-location, .project-task-location");
-        if (source) source.textContent = options.selection ? getPath().replace(/\.md$/i, "").split("/").join(" › ") : taskSourceLabel(getPath());
+        if (source) source.textContent = options.selection && !options.normalSource ? getPath().replace(/\.md$/i, "").split("/").join(" › ") : taskSourceLabel(getPath());
         if (!options.selection) steps.bind(info, task, getPath);
         if (editTask) {
             textEl.tabIndex = 0; textEl.setAttribute("role", "button"); textEl.setAttribute("aria-label", `Edit task: ${task.text}`);
@@ -6268,7 +7080,7 @@ function createTaskUi({ app, component, body, mutate, onEdit, editTask, createTa
     return { bind, beginRender, defer, groups, group, addButton, partitionOath: oathSection.partition, renderOath: oathSection.render };
 }
 
-module.exports = { createTaskUi, taskSourceLabel };
+module.exports = { createTaskUi, createTaskRow, taskSourceLabel };
 
 },
 "lib/ui/tooltips.js": function (module, exports, __hubRequire) {
@@ -6423,7 +7235,87 @@ function createImmediateHubTooltip(root) {
 module.exports = { setHubTooltip, watchHubTooltips, createImmediateHubTooltip };
 
 },
+"lib/ui/workspace-cards.js": function (module, exports, __hubRequire) {
+"use strict";
+const { workspaceRef, sameWorkspace } = __hubRequire("lib/domain/oath-workspace.js");
+
+// Shared by Home and the Oath pickers: identical markup, artwork placement,
+// category labels and CSS surfaces. The caller supplies the action.
+function createWorkspaceCards({ app, root, component, renderImage, categories = () => [], oath }) {
+    const { setIcon } = require("obsidian");
+    const cards = new Map();
+    const update = () => {
+        for (const [card, context] of cards) {
+            if (!root.contains(card)) { cards.delete(card); continue; }
+            const locked = oath?.canOpen(context, false) === false;
+            const bound = oath?.active && sameWorkspace(oath.current.workspace, workspaceRef(context));
+            card.classList.toggle("is-oath-locked", locked);
+            card.classList.toggle("is-oath-workspace", !!bound);
+            card.setAttribute("aria-disabled", String(locked));
+            card.tabIndex = locked ? -1 : 0;
+            card.querySelector(".hub-workspace-oath-state")?.remove();
+            if (locked || bound) {
+                const badge = card.createDiv({ cls: "hub-workspace-oath-state", attr: { "aria-label": locked ? "Locked during this Oath" : "Oathbound" } });
+                if (locked) setIcon(badge, "lock-keyhole");
+                else badge.textContent = "Oathbound";
+            }
+        }
+    };
+    if (oath) component.register(oath.onChange(update));
+    component.register(() => cards.clear());
+    function render(parent, context, activate) {
+        const resource = context.contextKind === "resource" || !!context.resourceType || !!context.hubPath;
+        const card = parent.createDiv({ cls: resource ? "home-resource-card" : "home-project-card",
+            attr: { role: "button", tabindex: "0", "aria-label": context.name ?? context.label } });
+        let thumbnail, imagePath, key;
+        if (resource) {
+            const id = context.resourceType ?? context.id;
+            card.dataset.resourceType = id; card.dataset.resourcePath = context.path;
+            const face = card.createDiv({ cls: "home-resource-face" });
+            thumbnail = face.createDiv({ cls: "home-resource-thumbnail" });
+            face.createDiv({ cls: "home-resource-title", text: context.label ?? context.name });
+            imagePath = context.image; key = "card:resource:" + id;
+        } else {
+            card.dataset.projectId = context.projectId || context.path;
+            card.dataset.projectPath = context.path; card.dataset.projectStatus = context.status;
+            card.draggable = false;
+            const surface = card.createDiv({ cls: "home-project-surface" });
+            const content = surface.createDiv({ cls: "home-project-content" });
+            content.createDiv({ cls: "home-project-title", text: context.name.replace(/^(Book|MSc Thesis|Novel|Research|Poetry)\s*-\s*/i, "") });
+            const category = categories().find(item => item.id === context.categoryId || item.name === context.categoryId);
+            if (category) content.createDiv({ cls: "home-project-category", text: category.name });
+            imagePath = category?.image; key = "card:project:" + (context.projectId || context.path);
+            if (imagePath) thumbnail = surface.createDiv({ cls: "home-project-image" });
+        }
+        const file = imagePath && app.vault.getAbstractFileByPath(imagePath);
+        if (file && thumbnail) renderImage(thumbnail, app.vault.getResourcePath(file), { card, sourcePath: file.path, key: key + "::" + file.path });
+        else if (resource) {
+            card.classList.add("has-icon-fallback");
+            setIcon(thumbnail.createSpan({ cls: "home-resource-icon" }), context.icon ?? "library");
+        }
+        card.addEventListener("click", event => {
+            if (oath?.canOpen(context) === false) { event.preventDefault(); event.stopImmediatePropagation(); return; }
+            activate?.(event, card);
+        });
+        card.addEventListener("keydown", event => {
+            if (event.target !== card || !["Enter", " "].includes(event.key)) return;
+            event.preventDefault();
+            if (!card.classList.contains("is-oath-locked")) card.click();
+        });
+        card.addEventListener("pointerdown", event => {
+            if (card.classList.contains("is-oath-locked")) event.stopPropagation();
+        });
+        cards.set(card, context); update();
+        return card;
+    }
+    return { render, update };
+}
+module.exports = { createWorkspaceCards };
+
+},
 "plugin.js": function (module, exports, __hubRequire) {
+const { OathNavigationGuard } = __hubRequire("lib/services/oath-navigation.js");
+const { createWorkspaceCards } = __hubRequire("lib/ui/workspace-cards.js");
 /*
  * Source entry for the generated main.js plugin artifact.
  * Run build.js after changing this file or anything under lib/.
@@ -6442,6 +7334,8 @@ const {
 } = require("obsidian");
 
 const { queryHistory } = __hubRequire("lib/domain/history.js");
+const { savedReportContext, reportDay } = __hubRequire("lib/domain/report-context.js");
+const { reportTitle, DailyReportModal, renderReportEvidence, focusSection } = __hubRequire("lib/ui/daily-report.js");
 const { ProjectDeletionModal } = __hubRequire("lib/ui/project-deletion.js");
 const { createPreparedNoteRails, NOTE_RAIL_VIEW } = __hubRequire("lib/ui/prepared-note-rail.js");
 const { progressRatingOptions } = __hubRequire("lib/config.js");
@@ -6453,6 +7347,7 @@ const { HubOathService } = __hubRequire("lib/services/oath.js");
 const { createOathFullscreen } = __hubRequire("lib/services/oath-fullscreen.js");
 const { mountOathControl } = __hubRequire("lib/ui/oath.js");
 const { HubWorkspaceState, emptyWorkspaceState } = __hubRequire("lib/services/workspace-state.js");
+const { HubNavigationHistory } = __hubRequire("lib/services/navigation-history.js");
 
 const fs =
     require("fs");
@@ -7309,6 +8204,7 @@ class ProjectAdvancementModal
             resources = [],
             currentScores,
             currentSummaries = {},
+            reportContexts = {},
             showNextFocus = false,
             currentFocus = [],
             focusProjects = [],
@@ -7351,6 +8247,7 @@ class ProjectAdvancementModal
 
         this.currentSummaries =
             currentSummaries ?? {};
+        this.reportContexts = reportContexts;
 
 
         this.showNextFocus =
@@ -7529,6 +8426,12 @@ class ProjectAdvancementModal
             });
 
 
+            const context = this.reportContexts[project.projectId];
+            if (context) {
+                const evidence = renderReportEvidence(row, context);
+                if (context.focus.length) focusSection(evidence, "Focus for this day", context.focus, "");
+            }
+
             const choices =
                 row.createDiv({
                     cls:
@@ -7676,7 +8579,7 @@ class ProjectAdvancementModal
                             rows: "3",
                             maxlength: "1000",
                             placeholder:
-                                `Briefly summarise today's progress on ${project.name}.`
+                                `Summarise progress on ${project.name}`
                         }
                     }
                 );
@@ -10639,6 +11542,7 @@ class ProjectWizardService {
 
                 root,
 
+                categoryId: frontmatter.category,
                 status:
                     frontmatter.status,
 
@@ -11483,11 +12387,12 @@ class ProjectWizardService {
                         date,
                         targetKind: "resource",
                         resourceId: id,
-                        resourceName: resource.label,
+                        resourceName: log.resourceName ?? resource.label,
                         projectId: `resource:${id}`,
-                        projectName: resource.label,
+                        projectName: log.resourceName ?? resource.label,
                         score: Number.isInteger(score) && score >= 1 && score <= 4 ? score : null,
                         summary: typeof log.summary === "string" ? log.summary : "",
+                        context: log.context,
                         timestamp: Number(log.timestamp) > 0 ? Number(log.timestamp) : null
                     };
                     if (report.summary || report.score !== null) reports.push(report);
@@ -11598,9 +12503,10 @@ class ProjectWizardService {
                     date,
                     targetKind: "project",
                     projectId: id,
+                    context: log.context,
                     projectName:
-                        project?.name ??
                         log.projectName ??
+                        project?.name ??
                         "Unavailable project",
                     projectStatus:
                         project?.status ??
@@ -12739,6 +13645,14 @@ class ProjectWizardService {
         }
 
 
+        for (const projectId of scope) {
+            const log = nextLogs[projectId]?.[date];
+            if (!log) continue;
+            const previous = this.projectWorkLogs[projectId]?.[date];
+            log.projectName = previous?.projectName ?? log.projectName;
+            log.context = savedReportContext(this, date, projectId, previous?.context);
+        }
+
         const nextPendingFocus =
             normalizedFocus === null
                 ? this.pendingFocus
@@ -12757,7 +13671,11 @@ class ProjectWizardService {
             projectWorkLogs:
                 nextLogs,
             pendingFocus:
-                nextPendingFocus
+                nextPendingFocus,
+            ...(normalizedFocus === null ? {} : { reportFocusByDate: {
+                ...this.data.reportFocusByDate,
+                [date]: { items: normalizedFocus }
+            } })
         };
 
 
@@ -12816,7 +13734,8 @@ class ProjectWizardService {
             const previousTimestamp = Number(this.resourceWorkLogs[id]?.[date]?.timestamp);
             nextLogs[id][date] = {
                 summary: normalizedSummary,
-                resourceName: resource.label,
+                resourceName: this.resourceWorkLogs[id]?.[date]?.resourceName ?? resource.label,
+                context: savedReportContext(this, date, `resource:${id}`, this.resourceWorkLogs[id]?.[date]?.context),
                 targetKind: "resource",
                 timestamp: Number.isFinite(previousTimestamp) && previousTimestamp > 0
                     ? previousTimestamp
@@ -13749,8 +14668,12 @@ class HubWorkspaceModeService {
 
         this.state =
             this.loadState();
+        this.navigationHistory.initialize();
     }
 
+    get navigationHistory() {
+        return this.history ??= new HubNavigationHistory(this);
+    }
 
     emptyState() {
         return emptyWorkspaceState();
@@ -13791,12 +14714,15 @@ class HubWorkspaceModeService {
                 entry.layout = rewriteLayoutPaths(entry.layout, migratePath);
             }
             if (saved.lastFile) saved.lastFile.path = migratePath(saved.lastFile.path);
+            for (const entry of Array.isArray(saved.fileHistory) ? saved.fileHistory : []) {
+                if (entry?.path) entry.path = migratePath(entry.path);
+            }
 
             return {
                 ...fallback,
                 ...saved,
 
-                version: 3,
+                version: saved.version ?? 3,
 
                 projects:
                     saved.projects &&
@@ -13887,8 +14813,24 @@ class HubWorkspaceModeService {
     }
 
     contextForFile(path, source = null) {
+        const oathProject = this.plugin.oath?.projectWorkspaceForPath(path);
+        if (oathProject) return oathProject;
         const candidate = this.contextFromSource(source) || this.mode?.project;
         return this.contextContainsFile(candidate, path) ? candidate : this.contextFor(path);
+    }
+
+    currentContext() {
+        const leaf = this.app.workspace.activeLeaf;
+        if (!this.isMainLeaf(leaf)) return null;
+        const path = this.leafPath(leaf);
+        if (path === "Home.md") return null;
+        const context = this.plugin.oath?.projectWorkspaceForPath(path) || this.contextFromSource(leaf) || (path ? this.contextForFile(path, leaf) : null);
+        if (context) return context;
+        // A browser tab can belong to the visible note-mode workspace without
+        // having a vault path. Never infer context from saved navigation history.
+        const mode = this.mode;
+        return !path && mode && this.isMainLeaf(mode.projectLeaf) &&
+            this.leafDocument(leaf) === mode.ownerDocument ? mode.project : null;
     }
 
     captureNoteLayout() {
@@ -13910,10 +14852,12 @@ class HubWorkspaceModeService {
     }
 
     rememberBrowserLayout(context) {
+        if (this.plugin.oath?.canOpen(context, false) === false) return;
         this.rememberContext(context);
         // Workspace association, not a fabricated file path for a browser URL.
         this.state.lastFile = { contextKind: context.contextKind ?? "project",
             contextId: context.contextKind === "resource" ? context.resourceType : context.projectId };
+        this.navigationHistory.rememberFile(context);
         this.saveState();
     }
 
@@ -13929,8 +14873,8 @@ class HubWorkspaceModeService {
             type => this.canRestoreLayoutView(type));
     }
 
-    async restoreNoteLayout(context) {
-        return this.presentWorkspace(null, context, true, () => this.applyNoteLayout(context));
+    async restoreNoteLayout(context, snapshot = this.state.projects[context.projectId]?.layout) {
+        return this.presentWorkspace(null, context, true, () => this.applyNoteLayout(context, snapshot));
     }
 
     prepareRestoredNoteMode(context, snapshot) {
@@ -13972,6 +14916,7 @@ class HubWorkspaceModeService {
     }
 
     async applyNoteLayout(context, savedLayout = this.state.projects[context.projectId]?.layout) {
+        if (this.plugin.oath?.canOpen(context) === false || this.plugin.oathNavigation?.allowLayout(savedLayout) === false) return false;
         const snapshot = prepareNoteLayout(savedLayout,
             context.path, path => this.app.vault.getAbstractFileByPath(path) instanceof TFile,
             type => this.canRestoreLayoutView(type));
@@ -13981,7 +14926,7 @@ class HubWorkspaceModeService {
         // live. Native panes and secondary dashboard work are not readiness gates.
         const prepared = await this.plugin.preparedNoteRails.prepare(context, snapshot,
             this.leafDocument(this.mode?.projectLeaf || this.activeMainLeaf()));
-        if (this.destroyed) { prepared.dispose(); return false; }
+        if (this.destroyed || this.plugin.oath?.canOpen(context) === false || this.plugin.oathNavigation?.allowLayout(prepared.snapshot) === false) { prepared.dispose(); return false; }
         this.beginLayoutMutation();
         this.clearModeClasses();
         this.mode = null;
@@ -14046,9 +14991,11 @@ class HubWorkspaceModeService {
         }
 
 
+        if (this.plugin.oath?.canOpen(project, false) === false) return null;
         this.state.lastProjectId =
             project.projectId;
         this.state.lastWorkspaceId = project.projectId;
+        this.navigationHistory.rememberWorkspace(project);
 
 
         const current =
@@ -14079,9 +15026,10 @@ class HubWorkspaceModeService {
 
     rememberResource(reference) {
         const resource = this.resourceFor(reference);
-        if (!resource) return null;
+        if (!resource || this.plugin.oath?.canOpen(resource, false) === false) return null;
         this.state.lastResourceId = resource.resourceType;
         this.state.lastWorkspaceId = resource.projectId;
+        this.navigationHistory.rememberWorkspace(resource);
         this.state.projects[resource.projectId] = {
             ...(this.state.projects[resource.projectId] ?? {}),
             hubPath: resource.path
@@ -14093,6 +15041,7 @@ class HubWorkspaceModeService {
 
     rememberContext(reference) {
         const context = this.contextFor(reference);
+        if (this.plugin.oath?.canOpen(context, false) === false) return null;
         return context?.contextKind === "resource"
             ? this.rememberResource(context)
             : this.rememberProject(context);
@@ -14100,25 +15049,21 @@ class HubWorkspaceModeService {
 
 
     lastContext() {
-        const saved = this.state.lastFile;
-        if (saved?.contextKind === "resource") {
-            return this.resourceFor(saved.contextId) || this.lastResource();
-        }
-        if (saved?.contextKind === "project") {
-            return this.projectFor(saved.contextId) || this.lastProject();
-        }
-        if (saved?.path) return this.contextFor(saved.path);
-        return this.lastProject() || this.lastResource();
+        this.navigationHistory.initialize();
+        const entry = this.state.fileHistory[0];
+        return this.contextFor(entry?.contextId) || this.contextFor(entry?.path);
     }
 
     lastWorkspace() {
-        // Legacy state has no cross-kind recency; use its existing best guess.
-        return this.contextFor(this.state.lastWorkspaceId) || this.lastContext();
+        return this.navigationHistory.workspace();
     }
 
     openWorkspace(source = null) {
-        const context = this.contextFromSource(source) || this.lastWorkspace();
-        if (!context) return Promise.resolve(false);
+        const context = this.lastWorkspace();
+        if (!context) {
+            new Notice("No recently opened workspaces.");
+            return Promise.resolve(false);
+        }
         return this.openProjectFull(context, source);
     }
 
@@ -14134,10 +15079,7 @@ class HubWorkspaceModeService {
     }
 
     globalLastFile() {
-        if (this.isShelvedLastFile(this.state.lastFile?.path)) return null;
-        const file = this.app.vault.getAbstractFileByPath(this.state.lastFile?.path ?? "");
-        return file instanceof TFile && file.path !== "Home.md" && this.contextFor(file.path)?.path !== file.path
-            ? file : this.lastNoteFile(this.lastContext());
+        return this.navigationHistory.resolveFile()?.file ?? null;
     }
 
 
@@ -14155,6 +15097,7 @@ class HubWorkspaceModeService {
         }
 
 
+        if (this.plugin.oath?.canOpen(project, false) === false || this.plugin.oath?.canOpen(file.path, false) === false) return;
         this.rememberContext(project);
 
 
@@ -14179,41 +15122,22 @@ class HubWorkspaceModeService {
                 ? project.resourceType
                 : project.projectId
         };
+        this.navigationHistory.rememberFile(project, file);
 
 
         this.saveState();
     }
 
 
-    lastNoteFile(
-        project = this.lastContext()
-    ) {
+    rememberVaultFile(file) {
+        if (!(file instanceof TFile) || this.plugin.oath?.canOpen(file.path, false) === false) return;
+        this.state.lastFile = { path: file.path, contextKind: null, contextId: null };
+        this.navigationHistory.rememberFile(null, file);
+        this.saveState();
+    }
 
-        if (!project || this.isShelvedLastFile(project.path)) {
-            return null;
-        }
-
-
-        const saved = this.state.projects[project.projectId];
-        if (this.isShelvedLastFile(saved?.lastNotePath)) return null;
-        const candidates = [saved?.lastNotePath];
-        // A deleted last note must not make the remaining saved split inaccessible.
-        const visit = node => {
-            if (node?.type === "leaf") {
-                const path = node.state?.state?.file;
-                if (node.id === saved?.layout?.active) candidates.splice(1, 0, path);
-                else candidates.push(path);
-            }
-            for (const child of node?.children ?? []) visit(child);
-        };
-        visit(saved?.layout?.main);
-        for (const path of candidates) {
-            if (!this.contextContainsFile(project, path)) continue;
-            if (this.isShelvedLastFile(path)) continue;
-            const file = this.app.vault.getAbstractFileByPath(path);
-            if (file instanceof TFile) return file;
-        }
-        return null;
+    lastNoteFile(project = this.lastContext()) {
+        return project ? this.navigationHistory.resolveFile(project.projectId)?.file ?? null : null;
     }
 
 
@@ -14230,10 +15154,16 @@ class HubWorkspaceModeService {
     }
 
 
+    resolveLastFile(source = null) {
+        // Keep a dashboard's scope even if its workspace was just deleted.
+        // A missing scoped result must never fall through to global history.
+        const id = this.dashboardRoot(source)?.dataset.hubContextId ||
+            this.contextFromSource(source)?.projectId;
+        return this.navigationHistory.resolveFile(id);
+    }
+
     hasLastFile(source = null) {
-        const context = this.contextFromSource(source);
-        return Boolean((context ? this.lastNoteFile(context) : this.globalLastFile()) ||
-            this.restorableNoteLayout(context || this.lastContext()));
+        return Boolean(this.resolveLastFile(source));
     }
 
 
@@ -14244,9 +15174,9 @@ class HubWorkspaceModeService {
 
 
         const resource = this.lastResource();
-        const sourceContext = this.contextFromSource(source);
-        const context = sourceContext || this.lastContext();
-        const file = sourceContext ? this.lastNoteFile(sourceContext) : this.globalLastFile();
+        const destination = this.resolveLastFile(source);
+        const context = destination?.context;
+        const file = destination?.file;
 
 
         return {
@@ -15572,6 +16502,7 @@ class HubWorkspaceModeService {
 
 
     async presentWorkspace(sourceLeaf, context, note, update) {
+        if (this.plugin.oath?.canOpen(context) === false) return false;
         const doc = this.leafDocument(sourceLeaf || this.mode?.projectLeaf);
         const presentation = this.plugin.transitions?.stageWorkspace(doc);
         try {
@@ -15829,6 +16760,7 @@ class HubWorkspaceModeService {
         project,
         source = null
     ) {
+        if (this.plugin.oath?.canOpen(this.contextFor(project)) === false) return Promise.resolve(false);
 
         const sourceLeaf =
             this.leafForSource(source);
@@ -15867,7 +16799,8 @@ class HubWorkspaceModeService {
 
 
     async enterProjectNoteMode(project, file, options = {}) {
-        const context = this.contextFor(project);
+        if (this.plugin.oath?.canOpen(file?.path) === false) return false;
+        const context = this.plugin.oath?.projectWorkspaceForPath(file?.path) || this.contextFor(project);
         if (!context || !(file instanceof TFile) || file.path === context.path) return false;
         if (!await this.plugin.ensureContextOpen(context, this.dashboardRoot(options.sourceLeaf))) return false;
         return this.presentWorkspace(options.sourceLeaf || options.existingLeaf, context, true,
@@ -16178,6 +17111,7 @@ class HubWorkspaceModeService {
         placement = "replace",
         source = null
     ) {
+        if (this.plugin.oath?.canOpen(path) === false) return Promise.resolve(false);
 
         const sourceLeaf =
             this.leafForSource(source);
@@ -16245,7 +17179,7 @@ class HubWorkspaceModeService {
                 .getAbstractFileByPath(path);
 
 
-        if (!(file instanceof TFile)) {
+        if (!(file instanceof TFile) || this.plugin.oath?.canOpen(file.path) === false) {
             return false;
         }
 
@@ -16259,7 +17193,7 @@ class HubWorkspaceModeService {
 
 
         const project =
-            this.contextFor(file.path);
+            this.contextForFile(file.path);
 
 
         if (project) {
@@ -16310,6 +17244,9 @@ class HubWorkspaceModeService {
             leaf,
             file
         );
+        // Queued navigation suppresses file-open events, so record this route
+        // explicitly just as Project/Resource Note-view opening does.
+        this.rememberVaultFile(file);
 
 
         return true;
@@ -16399,26 +17336,17 @@ class HubWorkspaceModeService {
                         dashboardRoot
                     );
 
-                const sourceContext = this.contextFromSource(dashboardRoot);
-                const project = sourceContext || this.lastContext();
-
-
-                const file =
-                    sourceContext ? this.lastNoteFile(sourceContext) : this.globalLastFile();
-
-
-                if (!file && !this.restorableNoteLayout(project)) {
-                    new Notice(
-                                "No Hub file has been opened yet."
-                    );
+                const destination = this.resolveLastFile(dashboardRoot);
+                if (!destination) {
+                    new Notice("No recently opened files.");
                     return false;
                 }
-
+                const { file, context: project, layout } = destination;
 
                 const open = async () => {
                     if (!project) return this.openFile(file.path, sourceLeaf);
                     if (!await this.plugin.ensureContextOpen(project, transitionRoot)) return false;
-                    if (!this.isProjectNoteMode(project) && await this.restoreNoteLayout(project)) return true;
+                    if (!this.isProjectNoteMode(project) && layout && await this.restoreNoteLayout(project, layout)) return true;
                     if (!file) return this.isProjectNoteMode(project);
                     return this.enterProjectNoteMode(
                             project,
@@ -16428,18 +17356,20 @@ class HubWorkspaceModeService {
                 };
 
 
+                let opened = false;
+                const navigate = async () => { opened = await open(); return opened; };
                 if (transitionRoot) {
                     await this.plugin.transitions
                         .navigateToLastFile(
                             transitionRoot,
-                            open
+                            navigate
                         );
                 } else {
-                    await open();
+                    await navigate();
                 }
 
 
-                return true;
+                return opened;
             }
         );
     }
@@ -16553,8 +17483,7 @@ class HubWorkspaceModeService {
             leaf,
             file
         );
-        this.state.lastFile = { path: file.path, contextKind: null, contextId: null };
-        this.saveState();
+        this.rememberVaultFile(file);
     }
 
 
@@ -17120,6 +18049,7 @@ class HubWorkspaceModeService {
             };
 
         this.plugin.presets?.rewritePaths(rewritePath);
+        changed = this.navigationHistory.rewritePaths(rewritePath) || changed;
 
 
         if (this.mode?.project) {
@@ -17220,7 +18150,7 @@ class HubWorkspaceModeService {
         }
 
 
-        let changed = false;
+        let changed = this.navigationHistory.deletePath(path);
 
 
         for (
@@ -18973,6 +19903,10 @@ module.exports = class HubProjectMenu extends Plugin {
         const oathNativeModule = this.app.vault.adapter.getBasePath?.();
         this.oath = new HubOathService(this, createOathFullscreen(window, oathNativeModule ?
             require("path").join(oathNativeModule, this.manifest.dir, "lib/services/oath-fullscreen.js") : null));
+        this.oathNavigation = new OathNavigationGuard(this, require("obsidian").WorkspaceLeaf);
+        window.hubCreateWorkspaceCards = (root, component, renderImage, categories) =>
+            createWorkspaceCards({ app: this.app, root, component, renderImage, categories, oath: this.oath });
+        window.hubCreateTaskRow = __hubRequire("lib/ui/tasks.js").createTaskRow;
         window.hubTaskGroups = taskGroups;
         window.hubTaskOwner = path => this.projectWizard.getContextForPath(path);
         window.hubCreateTaskUi = (component, body, onEdit) => createTaskUi({
@@ -19120,6 +20054,9 @@ module.exports = class HubProjectMenu extends Plugin {
         delete window.hubSaveFolderUiState;
         this.oathControl?.destroy();
         this.oath?.destroy();
+        this.oathNavigation?.destroy();
+        delete window.hubCreateWorkspaceCards;
+        delete window.hubCreateTaskRow;
         this.taskData?.destroy();
         this.projectDeletion?.destroy();
         this.projectDeletionModal?.close();
@@ -20114,6 +21051,13 @@ module.exports = class HubProjectMenu extends Plugin {
         new ProjectAdvancementModal(
             this.app,
             {
+                reportContexts: Object.fromEntries([...projects, ...resources].map(workspace => {
+                    const id = workspace.projectId ?? `resource:${workspace.resourceType}`;
+                    const previous = id.startsWith("resource:")
+                        ? this.projectWizard.resourceWorkLogs[id.slice(9)]?.[date]
+                        : this.projectWizard.projectWorkLogs[id]?.[date];
+                    return [id, savedReportContext(this.projectWizard, date, id, previous?.context)];
+                })),
                 projects,
 
                 resources,
@@ -20139,7 +21083,7 @@ module.exports = class HubProjectMenu extends Plugin {
                         .getFocusContexts(),
 
                 title:
-                    "Today's progress report",
+                    reportTitle(date, true),
 
                 onSave:
                     async ({
@@ -22216,23 +23160,16 @@ module.exports = class HubProjectMenu extends Plugin {
             );
 
 
-        const shortDateLabel =
-            [
-                String(
-                    parsedDate.getDate()
-                ).padStart(2, "0"),
-
-                String(
-                    parsedDate.getMonth() + 1
-                ).padStart(2, "0"),
-
-                parsedDate.getFullYear()
-            ].join("/");
-
-
         new ProjectAdvancementModal(
             this.app,
             {
+                reportContexts: Object.fromEntries([...projects, ...resources].map(workspace => {
+                    const id = workspace.projectId ?? `resource:${workspace.resourceType}`;
+                    const previous = id.startsWith("resource:")
+                        ? this.projectWizard.resourceWorkLogs[id.slice(9)]?.[date]
+                        : this.projectWizard.projectWorkLogs[id]?.[date];
+                    return [id, savedReportContext(this.projectWizard, date, id, previous?.context)];
+                })),
                 projects,
 
                 resources,
@@ -22258,13 +23195,7 @@ module.exports = class HubProjectMenu extends Plugin {
                         .getFocusContexts(),
 
                 title:
-                    `${
-                        isGeneralReport
-                            ? "Edit daily progress"
-                            : requestedKind === "resource"
-                            ? "Edit Resource progress"
-                            : "Edit project progress"
-                    } of ${shortDateLabel}`,
+                    reportTitle(date, true),
 
                 requireEveryProject:
                     false,
@@ -22346,7 +23277,7 @@ module.exports = class HubProjectMenu extends Plugin {
 
         const today =
             localISODate();
-
+        const reportDates = new Set(this.projectWizard.getProgressReports(projectId).map(report => report.date));
 
         const dayCells =
             [
@@ -22413,6 +23344,7 @@ module.exports = class HubProjectMenu extends Plugin {
             );
 
 
+            cell.classList.toggle("has-report", reportDates.has(date));
             const progressDetails =
                 cell.dataset
                     .hubProgressDetails;
@@ -22474,7 +23406,7 @@ module.exports = class HubProjectMenu extends Plugin {
             );
 
 
-            setHubTooltip(cell, `${dateLabel}\n${details}\nClick to edit progress`);
+            setHubTooltip(cell, `${dateLabel}\n${details}\n${reportDates.has(date) ? "Click to view report" : "Click to edit progress"}`);
         }
 
 
@@ -22582,13 +23514,15 @@ module.exports = class HubProjectMenu extends Plugin {
                 setTabStop(cell);
 
 
-                window.hubOpenProgressEditor?.(
-                    cell.dataset.date,
-                    calendar
-                        .hubProgressEditorOptions
-                        ?.projectId ??
-                        null
-                );
+                const scope = calendar.hubProgressEditorOptions?.projectId ?? null;
+                const day = reportDay(this.projectWizard, cell.dataset.date, scope);
+                if (day.reports.length) {
+                    new DailyReportModal(this.app, { day,
+                        onEdit: () => window.hubOpenProgressEditor?.(day.date, scope)
+                    }).open();
+                } else {
+                    window.hubOpenProgressEditor?.(cell.dataset.date, scope);
+                }
             };
 
 
@@ -23239,6 +24173,7 @@ module.exports = class HubProjectMenu extends Plugin {
     }
 
     async ensureContextOpen(context, dashboard = null) {
+        if (this.oath?.canOpen(context) === false) return false;
         if (context.contextKind === "resource" || context.status === "active") return true;
         if (context.status !== "shelved") {
             new Notice("Activate this project before opening it.");
