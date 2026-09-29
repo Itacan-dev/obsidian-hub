@@ -35,21 +35,28 @@ function focusSection(parent, heading, items, empty, markdown) {
     for (const text of items) reportText(section, text, markdown);
 }
 
-function renderReportEvidence(parent, context, markdown) {
-    const evidence = parent.createDiv({ cls: "hub-report-evidence" });
-    const tasks = evidence.createDiv({ cls: "hub-report-section" });
-    tasks.createEl("h3", { text: "Completed tasks" });
-    if (!context.tasks.length) tasks.createDiv({ cls: "hub-report-empty", text: "No completed tasks for this day." });
+function renderTaskProgress(parent, items, markdown, { heading = "Task progress", showTimes = true } = {}) {
+    const tasks = parent.createDiv({ cls: "hub-report-section" });
+    tasks.createEl("h3", { text: heading });
+    if (!items.length) tasks.createDiv({ cls: "hub-report-empty", text: "No task progress recorded for this day." });
     // Visible, bounded context uses the modal's native scrollbars; no active task controls.
-    const list = tasks.createDiv({ cls: "hub-report-task-list", attr: { role: "list", "aria-label": "Completed tasks" } });
-    if (context.tasks.length > 5) list.setAttribute("tabindex", "0");
-    for (const task of context.tasks) {
+    const list = tasks.createDiv({ cls: "hub-report-task-list", attr: { role: "list", "aria-label": heading } });
+    if (items.length > 5) list.setAttribute("tabindex", "0");
+    for (const task of [...items].sort((a, b) => a.timestamp - b.timestamp)) {
         const row = list.createDiv({ cls: "hub-report-evidence-row", attr: { role: "listitem" } });
         const icon = row.createSpan({ cls: "hub-report-check", attr: { "aria-hidden": "true" } });
-        setIcon(icon, "square-check");
-        reportText(row, task.text, markdown, "hub-report-text", task.path || "Home.md");
-        time(row, task.timestamp);
+        if (task.kind === "step") icon.classList.add("is-step-progress");
+        setIcon(icon, task.kind === "step" ? "circle-check" : "square-check");
+        reportText(row, task.kind === "step" ? `${task.parentText} \u00b7 ${task.text}` : task.text, markdown, "hub-report-text", task.path || "Home.md");
+        if (showTimes) time(row, task.timestamp);
     }
+
+    return tasks;
+}
+
+function renderReportEvidence(parent, context, markdown) {
+    const evidence = parent.createDiv({ cls: "hub-report-evidence" });
+    renderTaskProgress(evidence, context.tasks, markdown);
 
     if (!context.activity.length) {
         evidence.createDiv({ cls: "hub-report-empty hub-report-no-activity", text: "No activity recorded for this day." });
@@ -132,4 +139,4 @@ class DailyReportModal extends Modal {
     onClose() { this.renderComponent?.unload(); this.contentEl.empty(); }
 }
 
-module.exports = { reportTitle, DailyReportModal, renderDailyReport, renderReportEvidence, focusSection };
+module.exports = { reportTitle, DailyReportModal, renderDailyReport, renderReportEvidence, renderTaskProgress, focusSection };

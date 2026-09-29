@@ -1,4 +1,5 @@
 "use strict";
+const { bindCompletionSound, playStepCompletionSound } = require("./completion-audio");
 
 // Panel-local disclosure and pending state; reusable wherever a parent task is
 // rendered. Receives existing Markdown rendering and source-mutation boundaries.
@@ -6,8 +7,11 @@ function createTaskSteps({ markdown, mutate, onEdit, report, setIcon }) {
     const states = new Map();
     function bind(info, task, getPath) {
         if (!task.steps?.length) return;
-        const key = task.hubTaskId ?? `${getPath()}\0${task.line}\0${task.text}`;
-        let state = states.get(key);
+        const sourceKey = `${getPath()}\0${task.line}\0${task.text}`;
+        const key = task.hubTaskId ?? sourceKey;
+        let state = states.get(key) ?? states.get(sourceKey);
+        // First completion can assign an ID; retain the open/pending disclosure.
+        if (state && key !== sourceKey) { states.set(key, state); states.delete(sourceKey); }
         if (!state) states.set(key, state = { open: false, pending: null });
         const host = info.createDiv({ cls: "hub-task-steps" });
         // Neither disclosure nor Step interactions bubble into parent editing,
@@ -23,6 +27,7 @@ function createTaskSteps({ markdown, mutate, onEdit, report, setIcon }) {
             const checkbox = row.createEl("input", { type: "checkbox", attr: { "aria-label": `Complete Step: ${step.text}` } });
             const text = row.createSpan({ cls: "hub-task-step-text" });
             void markdown.render(text, step.text, getPath);
+            bindCompletionSound(checkbox, playStepCompletionSound);
             checkbox.addEventListener("change", async () => {
                 if (state.pending) { refresh(); return; }
                 const pending = state.pending = { line: step.line, completed: checkbox.checked };

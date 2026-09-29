@@ -1,5 +1,6 @@
 "use strict";
 
+const { itacanDay } = require("../domain/dates");
 const { TFile } = require("obsidian");
 const { prepareNoteLayout, browserViewState } = require("../domain/navigation");
 const { fileHistoryKey, validFileHistoryEntry, uniqueHistory, rememberHistory, migrateNavigationHistory } = require("../domain/navigation-history");
@@ -30,6 +31,32 @@ class HubNavigationHistory {
         this.initialize();
         this.state.fileHistory = rememberHistory(this.state.fileHistory.filter(validFileHistoryEntry),
             { contextId: context?.projectId ?? null, path: file?.path ?? null }, fileHistoryKey);
+    }
+    rememberConfiguration(context, configuration, now = Date.now(), worked = false) {
+        const saved = this.state.projects[context.projectId] ??= {};
+        const day = itacanDay(new Date(now));
+        const latest = saved.configurations?.[0];
+        if (latest && (!worked || latest.day === day)) {
+            const { capturedAt, day, ...previous } = latest;
+            if (JSON.stringify(previous) === JSON.stringify(configuration)) return;
+        }
+        // Latest configuration for this work day plus the previous worked day.
+        // Both use the existing Preset/Last File native layout format.
+        const legacy = !saved.configurations ? this.configurationAt(context.projectId, now) : null;
+        const previous = (saved.configurations ?? (legacy ? [{ ...legacy, capturedAt: 0, day: "legacy" }] : [])).filter(item => item.day !== day).slice(0, 1);
+        saved.configurations = JSON.parse(JSON.stringify([{ ...configuration, capturedAt: now, day }, ...previous]));
+    }
+    configurationAt(contextId, before) {
+        const saved = this.state.projects[contextId];
+        if (!saved) return null;
+        const found = saved.configurations?.find(item => item.capturedAt < before);
+        if (found) return JSON.parse(JSON.stringify(found));
+        // Legacy Last File layouts have no time evidence; never invent a date.
+        if (!saved.configurations && saved.layout) return JSON.parse(JSON.stringify({
+            contextId, hubPath: saved.hubPath ?? this.context(contextId)?.path,
+            root: this.context(contextId)?.root, layout: saved.layout, capturedAt: null
+        }));
+        return null;
     }
     prune() {
         this.initialize();

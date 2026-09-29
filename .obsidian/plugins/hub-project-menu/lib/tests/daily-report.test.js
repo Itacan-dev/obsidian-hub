@@ -91,6 +91,20 @@ async function run() {
     assert.equal(reportDay(wizard, today, "q").reports.length, 1, "Rating-only report retained");
     const midnight = new Date(2026, 8, 14, 0, 0).getTime();
     assert.equal(captureReportContext({ completedTaskHistory: [{ projectId: "p", text: "Midnight", timestamp: midnight }] }, date, "p").tasks.length, 1);
+    const progressDay = "2026-09-20", at = new Date(2026, 8, 20, 14).getTime();
+    wizard.completedTaskHistory = [
+        { id: "s2", kind: "step", hubTaskId: "step-b", parentTaskId: "parent", parentText: "Assignment 5", text: "2b", projectId: "p", timestamp: at + 1200000 },
+        { id: "t", kind: "task", text: "Review lecture 7", projectId: "p", timestamp: at + 600000 },
+        { id: "s1", kind: "step", hubTaskId: "step-a", parentTaskId: "parent", parentText: "Assignment 5", text: "2a", projectId: "p", timestamp: at }
+    ];
+    await wizard.replaceProjectProgress(progressDay, ["p"], { p: 3 }, { p: "Mixed progress" });
+    const snapshot = clone(reportDay(wizard, progressDay).reports[0].context);
+    assert.deepEqual(snapshot.tasks.map(item => item.id), ["s1", "t", "s2"]);
+    assert.equal(snapshot.tasks[0].parentText, "Assignment 5");
+    assert.equal(snapshot.tasks[0].hubTaskId, "step-a");
+    wizard.completedTaskHistory = [];
+    await wizard.replaceProjectProgress(progressDay, ["p"], { p: 4 }, { p: "Edited later" });
+    assert.deepEqual(reportDay(wizard, progressDay).reports[0].context, snapshot, "Finalized mixed evidence survives source deletion and reflection edits");
     console.log("PASS: report save/edit, project/resource scope, actual timestamps, empty states, focus association, source mutation/deletion, reload, legacy fallback, failed saves, zero/rating-only semantics and local dates.");
 }
 run().catch(error => { console.error(error); process.exitCode = 1; });

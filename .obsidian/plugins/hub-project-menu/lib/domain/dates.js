@@ -8,6 +8,13 @@ function localISODate(date = new Date()) {
     return `${year}-${month}-${day}`;
 }
 
+// Itacan's local work day starts at 06:00; calendar arithmetic preserves DST.
+function itacanDay(now = new Date()) {
+    const date = new Date(now);
+    if (date.getHours() < 6) date.setDate(date.getDate() - 1);
+    return localISODate(date);
+}
+
 function parseLocalISODate(value) {
     const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(
         String(value ?? "")
@@ -86,6 +93,7 @@ function taskDateRangeLabel(fromDate, fromTime, dueDate, dueTime, now = new Date
 }
 
 module.exports = {
+    itacanDay,
     taskDateRangeLabel,
     validLocalTime,
     localDateTime,

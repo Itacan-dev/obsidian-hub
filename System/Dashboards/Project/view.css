@@ -2138,3 +2138,168 @@
 
     margin-top: 20px;
 }
+
+
+/* One surface and one tree in both Workspace and Note-view. */
+.hub-workspace-explorer {
+    --hub-tree-indent: calc(var(--size-4-4, 16px) + var(--size-2-1, 2px));
+    --hub-tree-disclosure-size: var(--size-4-6, 24px);
+    container: hub-explorer / inline-size;
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    height: clamp(430px, 58vh, 660px);
+    min-width: 0;
+    min-height: 0;
+    padding: 0;
+    overflow: hidden;
+    font-size: var(--hub-font-body);
+}
+.hub-explorer-search {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 0 0 auto;
+    margin: 10px;
+    padding: 0 10px;
+    min-height: 36px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 6px;
+    background: var(--background-primary);
+    color: var(--text-muted);
+}
+.hub-explorer-search:focus-within { border-color: var(--interactive-accent); }
+/* Outrank native input[type=search]:not(:disabled):hover without adding a
+   second input surface. Focus is still shown by the surrounding search field. */
+.hub-workspace-explorer .hub-explorer-search input[type="search"].hub-explorer-search-input {
+    width: 100%; min-width: 0; height: 34px; padding: 0;
+    border: 0; background: transparent; box-shadow: none; outline: none;
+    font: inherit; color: var(--text-normal);
+}
+.hub-explorer-body {
+    display: grid;
+    grid-template-columns: minmax(160px, 1fr) minmax(0, 2fr);
+    flex: 1 1 0;
+    min-height: 0;
+    min-width: 0;
+    overflow: hidden;
+}
+.hub-explorer-tree, .hub-explorer-contents {
+    min-width: 0; min-height: 0;
+    overflow-y: auto; overflow-x: hidden;
+    scrollbar-width: thin; overscroll-behavior: contain;
+}
+.hub-explorer-tree { padding: 4px 6px 10px; }
+.hub-explorer-item, .hub-explorer-group {
+    position: relative; min-width: 0;
+    /* Nesting is structural: only the one-pixel guide paints this area. */
+    background: none; box-shadow: none;
+}
+.hub-explorer-group::before {
+    content: "";
+    position: absolute;
+    top: 0; bottom: 0;
+    left: calc(7px + var(--hub-tree-disclosure-size) / 2 + var(--hub-tree-depth) * var(--hub-tree-indent));
+    width: 0;
+    border-left: 1px solid var(--background-modifier-border-hover, #454545);
+    background: none;
+    box-shadow: none;
+    opacity: 1;
+    pointer-events: none;
+}
+.hub-workspace-explorer .hub-explorer-tree-row {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 32px;
+    margin: 0;
+    padding: 3px 6px 3px calc(7px + var(--hub-tree-depth) * var(--hub-tree-indent));
+    border: 0;
+    border-radius: 5px;
+    cursor: pointer;
+    color: var(--text-normal);
+    font-size: var(--hub-font-body);
+}
+.hub-explorer-tree-row:hover, .hub-explorer-detail-row:hover { background: var(--background-modifier-hover); }
+.hub-workspace-explorer :is(.hub-explorer-tree-row, .hub-explorer-detail-row):is(.is-current-folder, .is-selected, .is-active-file) {
+    background: color-mix(in srgb, var(--interactive-accent) 17%, transparent);
+}
+.hub-explorer-item:focus-visible { outline: none; }
+.hub-explorer-item:focus-visible > .hub-explorer-tree-row,
+.hub-workspace-explorer :is(button, .hub-explorer-detail-row):focus-visible {
+    outline: 1px solid var(--interactive-accent); outline-offset: -1px;
+}
+.hub-workspace-explorer button.hub-button-plain {
+    box-shadow: none; border: 0; background: transparent; color: inherit; font: inherit;
+}
+.hub-workspace-explorer button.hub-explorer-disclosure, .hub-explorer-disclosure-space {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: var(--hub-tree-disclosure-size); min-width: var(--hub-tree-disclosure-size); height: 26px; padding: 0;
+    flex: 0 0 var(--hub-tree-disclosure-size); border-radius: 4px;
+    /* Bring the icon closer while preserving the full, nonoverlapping hit target.
+       Leaves reserve exactly the same slot and spacing as folder disclosures. */
+    margin-inline-end: calc(-1 * var(--size-4-1, 4px));
+}
+.hub-workspace-explorer button.hub-explorer-disclosure:is(:hover, :active) {
+    background: transparent; box-shadow: none; color: inherit;
+}
+.hub-explorer-icon, .hub-explorer-crumb-separator {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 17px; height: 17px; flex: 0 0 17px;
+}
+.hub-explorer-icon svg, .hub-explorer-crumb-separator svg { display: block; width: 100%; height: 100%; }
+.hub-explorer-tree-row > .hub-explorer-icon, .hub-explorer-detail-name > .hub-explorer-icon,
+.hub-explorer-breadcrumb > .hub-explorer-icon { color: var(--text-muted); }
+.hub-explorer-disclosure .hub-explorer-icon { width: 14px; height: 14px; flex-basis: 14px; color: var(--text-faint); }
+.hub-explorer-label { display: flex; align-items: baseline; flex-wrap: wrap; gap: 0 10px; flex: 1 1 0; min-width: 0; }
+.hub-explorer-name { display: block; min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hub-explorer-origin { display: block; max-width: 100%; color: var(--text-muted); font-size: var(--hub-font-meta); line-height: 1.4; overflow-wrap: anywhere; }
+.hub-explorer-details { display: flex; flex-direction: column; min-width: 0; min-height: 0; border-left: 1px solid var(--background-modifier-border); }
+.hub-explorer-location { flex: 0 0 auto; min-height: 40px; padding: 7px 12px; border-bottom: 1px solid var(--background-modifier-border); }
+.hub-explorer-breadcrumb { display: flex; align-items: center; gap: 5px; min-width: 0; }
+.hub-workspace-explorer button.hub-explorer-crumb { display: block; min-width: 0; height: 26px; padding: 0 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.hub-explorer-crumb-separator { width: 12px; height: 12px; flex-basis: 12px; color: var(--text-faint); }
+.hub-explorer-columns, .hub-workspace-explorer .hub-explorer-detail-row {
+    display: grid; grid-template-columns: minmax(0, 1fr) 122px 122px; align-items: center;
+    gap: 0; margin: 0; padding: 0 8px;
+    border-bottom: 1px solid color-mix(in srgb, var(--background-modifier-border) 55%, transparent);
+}
+.hub-explorer-columns { flex: 0 0 auto; min-height: 34px; }
+.hub-workspace-explorer button.hub-explorer-column { display: flex; align-items: center; justify-content: flex-start; gap: 5px; min-width: 0; padding: 6px; font-size: var(--hub-font-compact); }
+.hub-explorer-column .hub-explorer-icon { width: 12px; height: 12px; flex-basis: 12px; }
+.hub-workspace-explorer .hub-explorer-detail-row { min-height: 36px; cursor: pointer; border-radius: 4px; font-size: var(--hub-font-body); }
+.hub-explorer-detail-name { display: flex; align-items: center; gap: 10px; min-width: 0; padding: 6px; }
+.hub-explorer-time { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 6px; color: var(--text-muted); font-size: var(--hub-font-meta); }
+.hub-explorer-footer { display: flex; align-items: center; justify-content: space-between; flex: 0 0 auto; gap: 8px; min-height: 32px; padding: 4px 10px; border-top: 1px solid var(--background-modifier-border); }
+.hub-workspace-explorer button.hub-explorer-new-folder { display: flex; align-items: center; gap: 7px; min-height: 26px; padding: 0; color: var(--text-muted); font-size: var(--hub-font-compact); }
+.hub-explorer-status { color: var(--text-muted); font-size: var(--hub-font-meta); }
+.hub-explorer-empty { padding: 16px 12px; color: var(--text-muted); font-size: var(--hub-font-compact); }
+.hub-explorer-editor { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 8px 10px; border-top: 1px solid var(--background-modifier-border); }
+.hub-explorer-editor[hidden] { display: none; }
+.hub-explorer-create-label { display: flex; flex-direction: column; flex: 1 1 0; min-width: 0; gap: 5px; color: var(--text-muted); font-size: var(--hub-font-meta); overflow-wrap: anywhere; }
+.hub-explorer-create-label input { width: 100%; }
+.hub-explorer-create-error { flex-basis: 100%; color: var(--color-red); font-size: var(--hub-font-meta); }
+.hub-explorer-tree-row.is-drop-before { box-shadow: inset 0 2px var(--interactive-accent); }
+.hub-explorer-tree-row.is-drop-after { box-shadow: inset 0 -2px var(--interactive-accent); }
+.hub-workspace-explorer .is-item-drop-target { outline: 1px solid var(--interactive-accent); outline-offset: -1px; }
+.hub-project-rail .hub-workspace-explorer { height: 100%; }
+.hub-project-rail .hub-explorer-body { display: flex; flex-direction: column; }
+.hub-project-rail .hub-explorer-tree { flex: 1 1 0; }
+.hub-project-rail .hub-explorer-details { display: none; }
+.hub-project-rail .hub-explorer-origin { flex-basis: 100%; }
+.hub-project-rail .project-folder-stack:has(> .hub-workspace-explorer) { padding: 0; overflow: hidden; }
+.project-left-column:has(.hub-workspace-explorer) { min-width: 0; }
+@container hub-explorer (max-width: 660px) {
+    .hub-explorer-columns, .hub-workspace-explorer .hub-explorer-detail-row { grid-template-columns: minmax(0, 1fr) 110px; }
+    .hub-explorer-column:last-child, .hub-explorer-time:last-child { display: none; }
+}
+@container hub-explorer (max-width: 450px) {
+    .hub-explorer-body { grid-template-columns: minmax(120px, 1fr) minmax(0, 1.2fr); }
+    .hub-explorer-columns, .hub-workspace-explorer .hub-explorer-detail-row { grid-template-columns: minmax(0, 1fr); }
+    .hub-explorer-column:not(:first-child), .hub-explorer-time { display: none; }
+}
+
+@container hub-explorer (max-width: 360px) {
+    .hub-explorer-tree { --hub-tree-indent: 14px; }
+}

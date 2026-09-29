@@ -59,13 +59,13 @@ async function run() {
     await plugin.toggleTask(file.path, 0, "Second", true);
     await plugin.toggleTask(file.path, 0, "Second", false);
     await plugin.toggleTask(file.path, 0, "Second", true);
-    assert.equal(wizard.completedTaskHistory.length, 3, "Each real unchecked-to-completed transition logs once");
+    assert.equal(wizard.completedTaskHistory.length, 2, "Uncheck removes its completion; recheck leaves one active event");
     wizard.completedTaskHistory = persisted.completedTaskHistory;
     wizard.completedTaskChecks = persisted.completedTaskChecks;
     await plugin.toggleTask(file.path, 0, "Second", true);
-    assert.equal(wizard.completedTaskHistory.length, 3, "Reloaded persisted state and repeated checked requests do not duplicate");
+    assert.equal(wizard.completedTaskHistory.length, 2, "Reloaded persisted state and repeated checked requests do not duplicate");
     await plugin.mutateTask({ path: file.path, line: 0, text: "Second", operation: "delete" });
-    assert.equal(wizard.completedTaskHistory.length, 3, "Deleting a completed source task retains its History");
+    assert.equal(wizard.completedTaskHistory.length, 2, "Deleting a completed source task retains its History");
     plugin.app.plugins.plugins = {};
     content = "- [ ] Parent <!-- hub-task:clear-test -->\n    - [x] First step\n    - [ ] Second step\n- [ ] Following task\n";
     wizard.data.taskMetadata = { "clear-test": { necessity: "must", fromDate: null, dueDate: null } };
@@ -75,7 +75,7 @@ async function run() {
     await plugin.mutateTask({ path: file.path, line: 0, text: "Parent", hubTaskId: "clear-test", operation: "step",
         step: { line: 2, text: "Second step" }, stepCompleted: true });
     assert.ok(content.startsWith("- [ ] Parent") && content.includes("    - [x] Second step"), "Step mutation writes only the nested source checkbox");
-    assert.equal(wizard.completedTaskHistory.length, historyBeforeSteps, "Steps never produce independent completion history");
+    assert.equal(wizard.completedTaskHistory.length, historyBeforeSteps + 1, "Steps contribute progress in the shared history");
     await plugin.mutateTask({ path: file.path, line: 0, text: "Parent", hubTaskId: "clear-test", operation: "step",
         step: { line: 2, text: "Second step" }, stepCompleted: false });
     await plugin.toggleTask(file.path, 0, "Parent", true, "clear-test");

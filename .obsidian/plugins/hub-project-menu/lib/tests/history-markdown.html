@@ -24,7 +24,7 @@ const obsidian={Component,MarkdownRenderer:{async render(app,text,el,path){
 const readiness={exports:{}};new Function('module',await(await fetch('../ui/render-readiness.js')).text())(readiness);
 const module={exports:{}};new Function('module','require',await(await fetch('../ui/markdown.js')).text())(module,name=>name==='./render-readiness'?readiness.exports:obsidian);
 const app={vault:{getAbstractFileByPath:p=>({path:p})},workspace:{openLinkText:async()=>linkCalls++}};
-window.hubSetIcon=()=>{};window.hubOpenProgressEditor=()=>editorCalls++;
+window.hubSetIcon=(el,name)=>{el.dataset.icon=name};window.hubOpenProgressEditor=()=>editorCalls++;
 const home=await(await fetch('../../../../../System/Dashboards/Home/view.js')).text();
 const project=await(await fetch('../../../../../System/Dashboards/Project/view.js')).text();
 const paging={exports:{}},historyData={exports:{}};
@@ -41,6 +41,7 @@ try{
   const rich='**Rich** $x^2$ [[Note]]';
   const reports=[rich,'Ordinary progress.',''].map(summary=>Object.freeze({summary,score:2,date:'2026-09-08',timestamp:1,targetKind:resource?'resource':'project',projectStatus:'active',projectId:id,resourceId:'study',projectName:'P'}));
   const history=[rich,'Ordinary completed task.'].map(text=>Object.freeze({text,path:root+'/Tasks.md',projectId:id,contextKind:resource?'resource':'project',resourceType:resource?'study':null,projectPath:path,projectRoot:root,projectName:'P',timestamp:1}));
+  history.push(Object.freeze({...history[0],kind:'step',parentText:'Assignment 5',text:'1a',timestamp:0.5}));
   const saved=JSON.stringify({reports,history});window.hubGetCompletedTaskHistory=()=>history;
   const env={recentBody:body,activityBody:body,progressReports:reports,projectReports:reports,completedTaskHistory:history,
    historyPager:paging.exports.createHistoryPager(body,owner),historyKind:historyData.exports.historyKind,
@@ -61,9 +62,12 @@ try{
   renderHistory();const titles=body.querySelectorAll(isHome?'.home-recent-title':'.project-activity-title'),plain=style(titles[1]);await settle();
   assert(titles[0].querySelector('strong')&&titles[0].querySelector('math'),place+': task History uses same renderer');
   assert(style(titles[1])===plain&&titles[1].textContent==='Ordinary completed task.','Plain task History unchanged');
+  assert(titles[2].textContent==='Assignment 5 \u00b7 1a',place+': Step retains parent context');
+  assert(body.querySelector('[data-icon=circle-check].is-step-progress'),place+': purple CircleCheck class');
+  assert(body.querySelector('[data-icon=square-check].is-completed-task'),place+': whole task icon retained');
   assert(calls.at(-1).path===root+'/Tasks.md','History links use original task note');
   for(let i=0;i<3;i++){renderReports();await settle();renderHistory();await settle()}
-  assert(owner.children.size===2,'Refreshes/filter changes release old Markdown components');
+  assert(owner.children.size===3,'Refreshes/filter changes release old Markdown components');
   assert(JSON.stringify({reports,history})===saved,'Stored text and report values remain untouched');
   owner.unload();assert(owner.children.size===0,'View cleanup releases render components');
  }

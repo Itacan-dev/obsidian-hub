@@ -1,3 +1,10 @@
+const { dispose: disposeCompletionAudio } = require("./lib/ui/completion-audio");
+const { mountMusicControl } = require("./lib/ui/music");
+const { mountSettingsControl } = require("./lib/ui/settings");
+const { processTaskWrite, isTaskWrite } = require("./lib/services/task-writes");
+const { DailyBriefService } = require("./lib/services/daily-brief");
+const { mountDailyBriefControl } = require("./lib/ui/daily-brief-control");
+const { StatisticsModal } = require("./lib/ui/statistics");
 const { OathNavigationGuard } = require("./lib/services/oath-navigation");
 const { createWorkspaceCards } = require("./lib/ui/workspace-cards");
 /*
@@ -17,6 +24,7 @@ const {
     TFolder
 } = require("obsidian");
 
+const { taskProgressMutation } = require("./lib/domain/task-progress");
 const { queryHistory } = require("./lib/domain/history");
 const { savedReportContext, reportDay } = require("./lib/domain/report-context");
 const { reportTitle, DailyReportModal, renderReportEvidence, focusSection } = require("./lib/ui/daily-report");
@@ -889,6 +897,7 @@ class ProjectAdvancementModal
             currentScores,
             currentSummaries = {},
             reportContexts = {},
+            getReportContexts = null,
             showNextFocus = false,
             currentFocus = [],
             focusProjects = [],
@@ -931,7 +940,8 @@ class ProjectAdvancementModal
 
         this.currentSummaries =
             currentSummaries ?? {};
-        this.reportContexts = reportContexts;
+        this.getReportContexts = getReportContexts;
+        this.reportContexts = getReportContexts?.() ?? reportContexts;
 
 
         this.showNextFocus =
@@ -1025,6 +1035,21 @@ class ProjectAdvancementModal
 
 
     onOpen() {
+        this.evidenceRows = new Map();
+        this.refreshEvidence = () => {
+            if (!this.getReportContexts) return;
+            this.reportContexts = this.getReportContexts();
+            for (const [id, previous] of this.evidenceRows) {
+                const context = this.reportContexts[id];
+                if (!context) continue;
+                const evidence = renderReportEvidence(previous.parentElement, context);
+                if (context.focus.length) focusSection(evidence, "Focus for this day", context.focus, "");
+                previous.replaceWith(evidence);
+                this.evidenceRows.set(id, evidence);
+            }
+        };
+        if (this.getReportContexts) document.addEventListener("hub-completed-tasks-changed", this.refreshEvidence);
+
 
         this.contentEl.addClass(
             "hub-project-advancement-modal", "hub-button-scope"
@@ -1113,6 +1138,7 @@ class ProjectAdvancementModal
             const context = this.reportContexts[project.projectId];
             if (context) {
                 const evidence = renderReportEvidence(row, context);
+                this.evidenceRows.set(project.projectId, evidence);
                 if (context.focus.length) focusSection(evidence, "Focus for this day", context.focus, "");
             }
 
@@ -1574,6 +1600,7 @@ class ProjectAdvancementModal
 
 
     onClose() {
+        if (this.refreshEvidence) document.removeEventListener("hub-completed-tasks-changed", this.refreshEvidence);
 
         this.ratingTooltips?.dispose();
         this.contentEl.empty();
@@ -5533,84 +5560,36 @@ class ProjectWizardService {
     }
 
 
-    getCompletedTaskTimestamp(
-        path,
-        line,
-        text
-    ) {
-
-        const exact =
-            this.completedTaskChecks.find(
-                item =>
-                    item.path === path &&
-                    item.line === line &&
-                    item.text === text
-            );
-
-
-        if (exact) {
-            return exact.timestamp;
-        }
-
-
-        const textMatches =
-            this.completedTaskChecks.filter(
-                item =>
-                    item.path === path &&
-                    item.text === text
-            );
-
-
-        return textMatches.length === 1
-            ? textMatches[0].timestamp
-            : null;
+    getCompletedTaskCheck(path, line, text, hubTaskId) {
+        const checks = this.completedTaskChecks.filter(item => item.kind !== "step");
+        const identified = hubTaskId ? checks.filter(item => item.hubTaskId === hubTaskId) : [];
+        if (identified.length) return identified.length === 1 ? identified[0] : null;
+        const matches = checks.filter(item => item.path === path && normalizedTaskText(item.text) === normalizedTaskText(text));
+        return matches.find(item => item.line === line) ?? (matches.length === 1 ? matches[0] : null);
     }
 
+    getCompletedTaskTimestamp(path, line, text, hubTaskId) {
+        return this.getCompletedTaskCheck(path, line, text, hubTaskId)?.timestamp ?? null;
+    }
 
-    async recordTaskMutation(edit, context) {
-        if (!edit.changed) return false;
+    async recordTaskMutation(edit, context, timestamp = Date.now()) {
+        if (!edit.changed && !edit.progressTransitions?.length) return false;
         const previousChecks = this.completedTaskChecks;
         const previousHistory = this.completedTaskHistory;
-        const saved = edit.tasks.find(task => task.completed);
-        const matches = previousChecks.filter(check => check.path === edit.path &&
-            normalizedTaskText(check.text) === normalizedTaskText(edit.oldText));
-        const target = matches.find(check => check.line === edit.line) ?? (matches.length === 1 ? matches[0] : null);
-        let checks = previousChecks.flatMap(check => {
-            if (check.path !== edit.path) return [check];
-            if (edit.operation === "add") return [{ ...check,
-                line: check.line >= edit.insertionLine ? check.line + edit.lineDelta : check.line }];
-            if (check === target) return [];
-            return [{ ...check, line: check.line > edit.line ? check.line + edit.lineDelta : check.line }];
-        });
-        const transition = !edit.operation && !edit.wasCompleted && edit.completed;
-        const timestamp = transition ? Date.now() : target?.timestamp ?? Date.now();
-        const historyId = transition && context ? randomUUID() : target?.historyId;
-        if (saved && edit.operation !== "add") checks.unshift({
-            path: edit.path, line: saved.line, text: saved.text,
-            timestamp, ...(historyId ? { historyId } : {})
-        });
-        const record = transition && context ? {
-            id: historyId, timestamp, text: saved.text, path: edit.path, line: saved.line,
-            projectId: context.projectId ?? `resource:${context.resourceType ?? context.id}`,
-            projectName: context.name ?? context.label,
-            projectStatus: context.status ?? null, projectPath: context.path, projectRoot: context.root,
-            contextKind: context.contextKind ?? "project", resourceType: context.resourceType ?? null
-        } : null;
-        this.completedTaskChecks = this.data.completedTaskChecks = checks;
-        this.completedTaskHistory = this.data.completedTaskHistory = record ? [record, ...previousHistory] : previousHistory;
+        const next = taskProgressMutation(previousChecks, previousHistory, edit, context, timestamp, randomUUID);
+        this.completedTaskChecks = this.data.completedTaskChecks = next.checks;
+        this.completedTaskHistory = this.data.completedTaskHistory = next.history;
         try { await this.store.save(this.data); }
         catch (error) {
             this.completedTaskChecks = this.data.completedTaskChecks = previousChecks;
             this.completedTaskHistory = this.data.completedTaskHistory = previousHistory;
             throw error;
         }
-        return Boolean(record);
+        return next.changed;
     }
 
-    getCompletedTaskHistoryId(path, line, text) {
-        const matches = this.completedTaskChecks.filter(check => check.path === path &&
-            normalizedTaskText(check.text) === normalizedTaskText(text));
-        const check = matches.find(check => check.line === line) ?? (matches.length === 1 ? matches[0] : null);
+    getCompletedTaskHistoryId(path, line, text, hubTaskId) {
+        const check = this.getCompletedTaskCheck(path, line, text, hubTaskId);
         return check?.historyId && this.completedTaskHistory.some(record => record.id === check.historyId)
             ? check.historyId : null;
     }
@@ -5683,7 +5662,8 @@ class ProjectWizardService {
             previous
                 .filter(
                     item =>
-                        !checksToRemove.has(item)
+                        !checksToRemove.has(item) && !clearedTasks.some(task => task.hubTaskId && (item.hubTaskId === task.hubTaskId || item.parentTaskId === task.hubTaskId)) && !(clearedByPath.get(item.path) ?? []).some(task =>
+                            item.line >= task.line && item.line < task.line + (task.removedLines ?? 1))
                 )
                 .map(item => {
 
@@ -6720,6 +6700,7 @@ class ProjectWizardService {
 
 
         await this.saveCategories();
+        this.plugin.appShortcutsControl?.refresh();
     }
 
 
@@ -7517,14 +7498,19 @@ class HubWorkspaceModeService {
             this.leafDocument(leaf) === mode.ownerDocument ? mode.project : null;
     }
 
-    captureNoteLayout() {
+    captureNoteLayout(worked = false) {
         if (!this.mode || !this.usableContentLeaves().length) return;
         const layout = this.app.workspace.getLayout();
         const snapshot = prepareNoteLayout(layout, this.mode.project.path,
             path => this.app.vault.getAbstractFileByPath(path) instanceof TFile);
         if (!snapshot) return;
         const id = this.mode.project.projectId;
-        this.state.projects[id] = { ...this.state.projects[id], layout: snapshot };
+        const configuration = this.plugin.presets?.snapshot() ?? {
+            contextId: id, hubPath: this.mode.project.path, root: this.mode.project.root,
+            layout: snapshot, railState: this.noteRailState ?? "full"
+        };
+        this.navigationHistory.rememberConfiguration(this.mode.project, configuration, Date.now(), worked);
+        this.state.projects[id] = { ...this.state.projects[id], hubPath: this.mode.project.path, layout: snapshot };
         const hasFile = node => node?.type === "leaf"
             ? !!node.state?.state?.file && node.state.state.file !== this.mode.project.path
             : (node?.children ?? []).some(hasFile);
@@ -8411,6 +8397,7 @@ class HubWorkspaceModeService {
                             file
                         );
                     }
+                    this.captureNoteLayout(true);
                 }
             )
         );
@@ -10777,6 +10764,16 @@ class HubWorkspaceModeService {
                 this.state.projects
             )
         ) {
+            if (entry?.configurations) {
+                entry.configurations = entry.configurations.map(item => ({ ...item,
+                    hubPath: rewritePath(item.hubPath), root: rewritePath(item.root),
+                    layout: rewriteLayoutPaths(item.layout, rewritePath),
+                    folderState: item.folderState ? { ...item.folderState,
+                        folders: Object.fromEntries(Object.entries(item.folderState.folders ?? {}).map(([path, state]) =>
+                            [rewritePath(path), { ...state, currentPath: rewritePath(state.currentPath) }])) } : undefined
+                }));
+                changed = true;
+            }
             if (entry?.layout) {
                 entry.layout = rewriteLayoutPaths(entry.layout, rewritePath);
                 changed = true;
@@ -12524,7 +12521,14 @@ module.exports = class HubProjectMenu extends Plugin {
                 );
 
 
-        window.hubSetIcon = setIcon;
+        window.hubOpenStatistics = () => {
+            if (this.statisticsModal) return;
+            this.statisticsModal = new StatisticsModal(this.app, this, {
+                onClose: () => { this.statisticsModal = null; }
+            });
+            this.statisticsModal.open();
+        };
+        window.hubSetIcon = require("./lib/ui/icons").setHubIcon;
         this.homeCovers = new HomeCovers(this);
         window.hubGetHomeTimePeriod = homeTimePeriod;
         window.hubGetHomeCover = name => this.homeCovers.config(name);
@@ -12566,6 +12570,8 @@ module.exports = class HubProjectMenu extends Plugin {
         window.hubCreateDashboardUi =
             createDashboardUi;
 
+        window.hubMountWorkspaceExplorer = require("./lib/ui/workspace-explorer").mountWorkspaceExplorer;
+
         window.hubCreateFileDomain =
             createFileDomain;
 
@@ -12601,10 +12607,16 @@ module.exports = class HubProjectMenu extends Plugin {
         window.hubCreateMarkdown = component => createHubMarkdown({ app: this.app, component });
         this.taskData = new HubTaskDataService(this.app, { metadata: id => this.taskEditor.metadata(id) });
         window.hubTaskData = this.taskData;
+        window.hubMountTaskWorkspace = options => require("./lib/ui/task-workspace").mountTaskWorkspace({ plugin: this, ...options });
+        this.dailyBrief = new DailyBriefService(this);
         this.app.workspace.onLayoutReady(() => {
             if (this.oath.disposed) return;
             this.oathControl = mountOathControl(this, this.oath);
-            void this.oath.start().catch(error => this.oath.error(error));
+            this.dailyBriefControl = mountDailyBriefControl(this, this.dailyBrief, this.oathControl.item);
+            this.musicControl = mountMusicControl(this, this.oathControl.item);
+            this.settingsControl = mountSettingsControl(this, this.oathControl.item);
+            this.appShortcutsControl = require("./lib/ui/app-shortcuts").mountAppShortcuts(this, this.oathControl.item);
+            void this.oath.start().then(() => this.dailyBrief.start()).catch(error => this.oath.error(error));
         });
         this.addCommand({ id: "the-oath", name: "The Oath", callback: () => this.oathControl?.open() });
         this.addCommand({ id: "insert-markdown-task", name: "Insert task at cursor", editorCallback: insertTaskAtCursor });
@@ -12726,7 +12738,16 @@ module.exports = class HubProjectMenu extends Plugin {
         );
     }
     onunload() {
+        disposeCompletionAudio();
+        this.statisticsModal?.close();
+        delete window.hubOpenStatistics;
 
+        this.appShortcutsControl?.destroy();
+        delete window.hubMountTaskWorkspace;
+        this.musicControl?.destroy();
+        this.settingsControl?.destroy();
+        this.dailyBriefControl?.destroy();
+        this.dailyBrief?.destroy();
         this.preparedNoteRails?.destroy();
         this.cardImageCache?.destroy();
         this.transitions?.destroy();
@@ -12768,6 +12789,7 @@ module.exports = class HubProjectMenu extends Plugin {
         delete window.hubGetHomeTimePeriod;
         delete window.hubGetHomeCover;
         delete window.hubMountHomeCover;
+        delete window.hubMountWorkspaceExplorer;
         delete window.hubCreateFileDomain;
         delete window.hubToggleTask;
         delete window.hubApplyTaskEdit;
@@ -13142,9 +13164,7 @@ module.exports = class HubProjectMenu extends Plugin {
                         file.path
                     );
 
-                    this.scheduleEditedActivity(
-                        file
-                    );
+                    this.recordEditorActivity(file, _editor);
                 }
             )
         );
@@ -13570,6 +13590,12 @@ module.exports = class HubProjectMenu extends Plugin {
     }
 
 
+    recordEditorActivity(file, editor) {
+        if (isTaskWrite(this, file, editor)) return;
+        if (this.workspaceModes?.mode && this.app.workspace.getActiveFile() === file) this.workspaceModes.captureNoteLayout(true);
+        this.scheduleEditedActivity(file);
+    }
+
     scheduleEditedActivity(file) {
 
         const details =
@@ -13735,7 +13761,7 @@ module.exports = class HubProjectMenu extends Plugin {
         new ProjectAdvancementModal(
             this.app,
             {
-                reportContexts: Object.fromEntries([...projects, ...resources].map(workspace => {
+                getReportContexts: () => Object.fromEntries([...projects, ...resources].map(workspace => {
                     const id = workspace.projectId ?? `resource:${workspace.resourceType}`;
                     const previous = id.startsWith("resource:")
                         ? this.projectWizard.resourceWorkLogs[id.slice(9)]?.[date]
@@ -13881,15 +13907,16 @@ module.exports = class HubProjectMenu extends Plugin {
     }
 
     mutateTask(request) {
+        const actionTimestamp = Date.now();
         return this.enqueueTaskMutation(async () => {
             const path = this.taskData?.currentPath(request.path) ?? request.path;
             const file = this.app.vault.getAbstractFileByPath(path);
             if (!file) throw new Error(`Task file not found: ${path}`);
             const tasksApi = this.app.plugins.plugins["obsidian-tasks-plugin"]?.apiV1;
             let edit;
-            await this.app.vault.process(file, data => {
+            await processTaskWrite(this, file, data => {
                 const args = { ...request, path };
-                const result = request.operation === "step" ? toggleTaskStep(data, args) : request.operation ? mutateTaskContent(data, args)
+                const result = request.operation === "step" ? toggleTaskStep(data, args, randomUUID) : request.operation ? mutateTaskContent(data, args)
                     : editTaskContent(data, args, (line, taskPath) => tasksApi?.executeToggleTaskDoneCommand
                         ? tasksApi.executeToggleTaskDoneCommand(line, taskPath)
                         : line.replace(/^(\s*(?:[-*+]|\d+[.)])\s+\[)([^\]])(\])/, (_all, prefix, mark, end) => prefix + (/^[xX]$/.test(mark) ? " " : "x") + end));
@@ -13898,7 +13925,7 @@ module.exports = class HubProjectMenu extends Plugin {
             });
             try {
                 const context = this.projectWizard.getContextForPath(path);
-                if (edit.operation !== "step" && await this.projectWizard.recordTaskMutation(edit, context)) this.notifyCompletedTasksChanged();
+                if (await this.projectWizard.recordTaskMutation(edit, context, actionTimestamp)) this.notifyCompletedTasksChanged();
             } catch (error) {
                 console.error("Could not save task History:", error);
                 new Notice("The task changed, but its History could not be saved.");
@@ -14123,7 +14150,7 @@ module.exports = class HubProjectMenu extends Plugin {
 
                 const records =
                     resolved.filter(request => !this.projectWizard.getCompletedTaskHistoryId(
-                        request.path, request.line, request.text
+                        request.path, request.line, request.text, request.hubTaskId
                     )).map(
                         (request, index) => ({
                             id:
@@ -14166,7 +14193,7 @@ module.exports = class HubProjectMenu extends Plugin {
                                     .getCompletedTaskTimestamp(
                                         request.path,
                                         request.line,
-                                        request.text
+                                        request.text, request.hubTaskId
                                     ) ?? archivedAt,
 
                             archivedAt
@@ -14182,8 +14209,7 @@ module.exports = class HubProjectMenu extends Plugin {
 
                 try {
 
-                    await this.app.vault
-                        .process(
+                    await processTaskWrite(this,
                             file,
                             currentData => {
 
@@ -15489,6 +15515,7 @@ module.exports = class HubProjectMenu extends Plugin {
                     )
                 );
             });
+        document.dispatchEvent(new CustomEvent("hub-completed-tasks-changed", { detail }));
     }
 
 
@@ -15847,7 +15874,7 @@ module.exports = class HubProjectMenu extends Plugin {
         new ProjectAdvancementModal(
             this.app,
             {
-                reportContexts: Object.fromEntries([...projects, ...resources].map(workspace => {
+                getReportContexts: () => Object.fromEntries([...projects, ...resources].map(workspace => {
                     const id = workspace.projectId ?? `resource:${workspace.resourceType}`;
                     const previous = id.startsWith("resource:")
                         ? this.projectWizard.resourceWorkLogs[id.slice(9)]?.[date]

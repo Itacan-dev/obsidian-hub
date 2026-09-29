@@ -1,4 +1,5 @@
 "use strict";
+const { bindCompletionSound, playTaskCompletionSound } = require("./completion-audio");
 const { createHubMarkdown } = require("./markdown");
 const { taskGroups, taskIsOverdue, taskIsFuture, taskStartDate, taskDatePresentation } = require("../domain/task-planning");
 const { createTaskSteps } = require("./task-steps");
@@ -182,6 +183,7 @@ function createTaskUi({ app, component, body, mutate, onEdit, editTask, createTa
         row.classList.add("hub-planned-task-row");
         const checkbox = row.querySelector('input[type="checkbox"]');
         checkbox?.setAttribute("aria-label", `Complete task: ${task.text}`);
+        if (checkbox && !options.selection) bindCompletionSound(checkbox, playTaskCompletionSound);
         if (task.necessity === "must" || task.necessity === "should") {
             const indicator = document.createElement("span");
             indicator.className = `hub-task-necessity-bar is-${task.necessity}`;
@@ -193,7 +195,7 @@ function createTaskUi({ app, component, body, mutate, onEdit, editTask, createTa
         const future = taskIsFuture(task, renderNow);
         if (future) scheduleRefresh(taskStartDate(task).getTime());
         const presentation = taskDatePresentation(task, renderNow);
-        if (presentation?.label) {
+        if (options.dates !== false && presentation?.label) {
             const dates = document.createElement("div"); dates.className = "hub-task-dates";
             const overdue = taskIsOverdue(task, renderNow) && !task.completed && !future;
             const span = document.createElement("span"); span.className = overdue ? "is-overdue" : "";
@@ -205,12 +207,12 @@ function createTaskUi({ app, component, body, mutate, onEdit, editTask, createTa
             dates.appendChild(span); info.appendChild(dates);
         }
         const source = info.querySelector(".home-task-location, .project-task-location");
-        if (source) source.textContent = options.selection && !options.normalSource ? getPath().replace(/\.md$/i, "").split("/").join(" › ") : taskSourceLabel(getPath());
-        if (!options.selection) steps.bind(info, task, getPath);
+        if (source) source.textContent = options.sourceLabel ?? (options.selection && !options.normalSource ? getPath().replace(/\.md$/i, "").split("/").join(" › ") : taskSourceLabel(getPath()));
+        if (!options.selection && options.steps !== false) steps.bind(info, task, getPath);
         if (editTask) {
             textEl.tabIndex = 0; textEl.setAttribute("role", "button"); textEl.setAttribute("aria-label", `Edit task: ${task.text}`);
             const open = event => {
-                if (event.target.closest("a, input, textarea, button")) return;
+                if (event.target.closest("a, input, textarea, button, .home-task-location, .project-task-location")) return;
                 event.preventDefault(); event.stopImmediatePropagation();
                 editTask({ ...task, path: getPath() }, onEdit);
             };

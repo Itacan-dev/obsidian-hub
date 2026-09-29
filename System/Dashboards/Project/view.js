@@ -98,34 +98,6 @@ const category =
     ?? null;
 
 
-const allShortcuts =
-    window.hubGetAppShortcuts?.()
-    ?? [];
-
-
-const shortcutsById =
-    new Map(
-        allShortcuts.map(
-            shortcut => [
-                shortcut.id,
-                shortcut
-            ]
-        )
-    );
-
-
-const projectShortcuts =
-    (
-        category?.shortcuts ??
-        []
-    )
-        .map(
-            id =>
-                shortcutsById.get(id)
-        )
-        .filter(Boolean);
-
-
 // ---------- ROOT ----------
 
 const frame = createFrame(dv.container, dv.component,
@@ -544,158 +516,10 @@ el(
 );
 
 
-// ---------- APP SHORTCUTS ----------
-
-const shortcutsBar =
-    root.createDiv({
-        cls:
-            "project-shortcuts"
-    });
-
-
-markDashboardRow(
-    shortcutsBar,
-    3
-);
-
-
-const shortcutsTitle =
-    shortcutsBar.createDiv({
-        cls:
-            "project-shortcuts-title"
-    });
-
-
-const shortcutsTitleIcon =
-    shortcutsTitle.createSpan({
-        cls:
-            "project-shortcuts-title-icon"
-    });
-
-
-window.hubSetIcon?.(
-    shortcutsTitleIcon,
-    "app-window"
-);
-
-
-shortcutsTitle.createSpan({
-    text:
-        "App Shortcuts"
-});
-
-
-const shortcutButtons =
-    shortcutsBar.createDiv({
-        cls:
-            "project-shortcut-buttons"
-    });
-
-
-if (
-    projectShortcuts.length === 0
-) {
-
-    el(
-        shortcutButtons,
-        "div",
-        "project-empty",
-        "No shortcuts configured."
-    );
-
-} else {
-
-    for (
-        const shortcut
-        of projectShortcuts
-    ) {
-
-        const button =
-            shortcutButtons.createEl(
-                "button",
-                {
-                    cls:
-                        "project-shortcut-button"
-                }
-            );
-
-
-        const icon =
-            button.createSpan({
-                cls:
-                    "project-shortcut-icon"
-            });
-
-
-        const iconFile =
-            shortcut.icon
-                ? app.vault
-                    .getAbstractFileByPath(
-                        shortcut.icon
-                    )
-                : null;
-
-
-        if (iconFile) {
-
-            const image =
-                icon.createEl(
-                    "img"
-                );
-
-
-            image.src =
-                app.vault
-                    .getResourcePath(
-                        iconFile
-                    );
-
-            image.alt = "";
-
-        } else {
-
-            window.hubSetIcon?.(
-                icon,
-
-                shortcut.type ===
-                    "website"
-                    ? "globe-2"
-                    : "app-window"
-            );
-        }
-
-
-        button.createSpan({
-            text:
-                shortcut.label
-        });
-
-
-        button.addEventListener(
-            "click",
-            async () => {
-
-                button.disabled =
-                    true;
-
-
-                try {
-
-                    await window
-                        .hubOpenAppShortcut?.(
-                            shortcut.id
-                        );
-
-                } finally {
-
-                    button.disabled =
-                        false;
-                }
-            }
-        );
-    }
-}
-
+// ---------- WORKSPACE MODES ----------
+const shortcutsBar = root.createDiv({ cls: "project-shortcuts" });
+markDashboardRow(shortcutsBar, 3);
+let taskWorkspace = null;
 
 // ---------- MAIN LAYOUT ----------
 
@@ -734,7 +558,7 @@ markDashboardRow(
 
 // ---------- TEMPORARY PLACEHOLDERS ----------
 
-// ---------- FOLDER PANELS ----------
+// ---------- WORKSPACE FILES ----------
 
 const folderStack =
     left.createDiv({
@@ -761,78 +585,6 @@ if (restoredFolderPreset) {
     Object.assign(savedFolderUiState, restoredFolderPreset.folders);
 }
 
-
-function saveFolderUiState(
-    path,
-    state
-) {
-
-    savedFolderUiState[
-        path
-    ] = {
-        currentPath:
-            state.currentPath,
-
-        search:
-            state.search,
-
-        sortKey:
-            state.sortKey,
-
-        sortDirection:
-            state.sortDirection,
-
-        collapsed:
-            state.collapsed,
-
-        manualHeight:
-            state.manualHeight
-    };
-
-
-    persistFolderUiState();
-}
-
-
-const folderState =
-    new Map();
-
-const FOLDER_SIZE = {
-    empty:
-        130,
-
-    firstItem:
-        104,
-
-    itemStep:
-        45,
-
-    autoMax:
-        204
-};
-
-
-function automaticFolderHeight(
-    itemCount
-) {
-
-    if (
-        itemCount <= 0
-    ) {
-        return FOLDER_SIZE.empty;
-    }
-
-
-    return Math.min(
-        FOLDER_SIZE.autoMax,
-
-        FOLDER_SIZE.firstItem +
-        (
-            itemCount - 1
-        ) *
-        FOLDER_SIZE.itemStep
-    );
-}
 
 const projectHubFile =
     app.vault
@@ -872,25 +624,6 @@ async function saveFolderOrder() {
             }
         );
 }
-
-function projectFileDisplayName(
-    file
-) {
-
-    return (
-        file.extension === "md"
-            ? file.basename
-            : file.name
-    );
-}
-
-
-function projectFileIcon(
-    file
-) {
-    return window.hubFileIcon?.(file) ?? "file";
-}
-
 
 // ---------- EXTERNAL FILE IMPORT ----------
 
@@ -1577,46 +1310,6 @@ async function renameTopLevelProjectFolder(
     }
 
 
-    // Move live panel state to the new path.
-
-    const liveState =
-        folderState.get(
-            oldPath
-        );
-
-
-    if (liveState) {
-
-        folderState.delete(
-            oldPath
-        );
-
-
-        if (
-            liveState.currentPath ===
-                oldPath ||
-            liveState.currentPath
-                .startsWith(
-                    `${oldPath}/`
-                )
-        ) {
-
-            liveState.currentPath =
-                newPath +
-                liveState.currentPath
-                    .slice(
-                        oldPath.length
-                    );
-        }
-
-
-        folderState.set(
-            newPath,
-            liveState
-        );
-    }
-
-
     // Move persisted panel state too.
 
     if (
@@ -1716,14 +1409,7 @@ async function deleteTopLevelProjectFolder(
     await saveFolderOrder();
 
 
-    // Remove live state.
-
-    folderState.delete(
-        descriptor.path
-    );
-
-
-    // Remove persisted state.
+// Remove persisted state.
 
     delete savedFolderUiState[
         descriptor.path
@@ -1736,12 +1422,7 @@ async function deleteTopLevelProjectFolder(
     renderFolderPanels();
 }
 
-/*
- * Only top-level folders become panels.
- *
- * Nested folders are navigated inside
- * their parent panel.
- */
+// Workspace roots retain their local or shared Resource identity in the tree.
 function projectFolderDescriptors() {
 
     const projectFolder =
@@ -2034,126 +1715,6 @@ async function moveTopLevelFolder(
 }
 
 
-function breadcrumbParts(
-    descriptor,
-    currentPath
-) {
-
-    if (
-        descriptor.isRoot
-    ) {
-
-        return [
-            {
-                name:
-                    isResourceContext
-                        ? "Resource Root"
-                        : "Project Root",
-
-                path:
-                    projectRoot
-            }
-        ];
-    }
-
-
-    const scopeRoot =
-        descriptor.sharedResource
-            ? descriptor.path.split("/").slice(0, -1).join("/")
-            : projectRoot;
-
-    const relative =
-        currentPath
-            .slice(
-                scopeRoot.length
-            )
-            .replace(
-                /^\/+/,
-                ""
-            );
-
-
-    const names =
-        relative
-            .split("/")
-            .filter(Boolean);
-
-
-    return names.map(
-        (
-            name,
-            index
-        ) => ({
-            name,
-
-            path:
-                `${scopeRoot}/${
-                    names
-                        .slice(
-                            0,
-                            index + 1
-                        )
-                        .join("/")
-                }`
-        })
-    );
-}
-
-function folderPanelItemCount(
-    folder,
-    descriptor
-) {
-
-    let files =
-        directFiles(
-            folder
-        );
-
-
-    if (
-        descriptor.isRoot
-    ) {
-
-        files =
-            files.filter(
-                file =>
-                    file.path !==
-                    current.file.path
-            );
-    }
-
-
-    const folders =
-        descriptor.isRoot
-            ? []
-            : directFolders(
-                folder
-            );
-
-
-    return (
-        files.length +
-        folders.length
-    );
-}
-
-function compareNames(
-    a,
-    b
-) {
-
-    return String(a)
-        .localeCompare(
-            String(b),
-            undefined,
-            {
-                sensitivity:
-                    "base"
-            }
-        );
-}
-
-
 function formatFileTime(
     timestamp
 ) {
@@ -2243,7 +1804,8 @@ dv.component.registerDomEvent(
 
 dv.component.registerDomEvent(folderStack, "keydown", event => {
     if (event.target.closest("input, textarea, select, [contenteditable=true]")) return;
-    const rows = [...folderStack.querySelectorAll(".project-browser-row[data-path]")]
+    const scope = event.target.closest(".hub-explorer-tree, .hub-explorer-contents") ?? folderStack;
+    const rows = [...scope.querySelectorAll(".project-browser-row[data-path]")]
         .filter(item => item.getClientRects().length);
     const row = event.target.closest(".project-browser-row[data-path]");
     const key = event.key;
@@ -2282,25 +1844,12 @@ dv.component.registerDomEvent(folderStack, "keydown", event => {
 });
 
 function syncProjectItemSelection() {
-
-    folderStack
-        .querySelectorAll(
-            ".project-browser-row[data-path]"
-        )
-        .forEach(
-            row => {
-
-                row.setAttribute("aria-selected", String(selectedProjectItemPaths.has(row.dataset.path)));
-                row.toggleClass(
-                    "is-selected",
-
-                    selectedProjectItemPaths
-                        .has(
-                            row.dataset.path
-                        )
-                );
-            }
-        );
+    if (workspaceExplorer) { workspaceExplorer.syncSelection(); return; }
+    for (const row of folderStack.querySelectorAll(".project-browser-row[data-path]")) {
+        const selected = selectedProjectItemPaths.has(row.dataset.path);
+        row.setAttribute("aria-selected", String(selected));
+        row.classList.toggle("is-selected", selected);
+    }
 }
 
 
@@ -2367,7 +1916,7 @@ function handleProjectItemSelection(
 
         const visibleRows =
             [
-                ...row.parentElement
+                ...(row.closest(".hub-explorer-tree, .hub-explorer-contents") ?? row.parentElement)
                     .querySelectorAll(
                         ".project-browser-row[data-path]"
                     )
@@ -2960,2450 +2509,150 @@ function clearFolderDropIndicators() {
         );
 }
 
-function renderFolderPanel(
-    descriptor
-) {
+// ---------- UNIFIED WORKSPACE EXPLORER ----------
 
-    const savedUi =
-        savedFolderUiState[
-            descriptor.path
-        ] ?? {};
+let workspaceExplorer = null;
 
-
-    const state =
-        folderState.get(
-            descriptor.path
-        )
-        ?? {
-            currentPath:
-                typeof savedUi.currentPath ===
-                    "string"
-                    ? savedUi.currentPath
-                    : descriptor.path,
-
-            search:
-                typeof savedUi.search ===
-                    "string"
-                    ? savedUi.search
-                    : "",
-
-            sortKey:
-                [
-                    "name",
-                    "modified",
-                    "created"
-                ].includes(
-                    savedUi.sortKey
-                )
-                    ? savedUi.sortKey
-                    : "modified",
-
-            sortDirection:
-                [
-                    "asc",
-                    "desc"
-                ].includes(
-                    savedUi.sortDirection
-                )
-                    ? savedUi.sortDirection
-                    : "desc",
-
-            createKind:
-                null,
-
-            collapsed:
-                savedUi.collapsed ===
-                    true,
-
-            autoFloor:
-                FOLDER_SIZE.empty,
-
-            manualHeight:
-                Number.isFinite(
-                    savedUi.manualHeight
-                )
-                    ? savedUi.manualHeight
-                    : FOLDER_SIZE.empty
+function explorerFolderActions(node, beginCreate) {
+    const { descriptor, path, parent } = node;
+    const actions = {
+        name: node.name,
+        path,
+        newNote: () => beginCreate("note", path),
+        newFolder: () => beginCreate("folder", path)
+    };
+    if (!parent) {
+        if (!descriptor.isRoot && !descriptor.sharedResource) {
+            actions.rename = name => renameTopLevelProjectFolder(descriptor, name);
+            actions.delete = () => deleteTopLevelProjectFolder(descriptor);
+        }
+        if (descriptor.sharedResource) actions.detach = async () => {
+            await window.hubDetachResourceFolder?.(current.file.path, descriptor.resourceFolderId);
+            renderFolderPanels();
         };
-
-
-    folderState.set(
-        descriptor.path,
-        state
-    );
-
-
-    /*
-     * The folder may have been deleted
-     * or renamed while the dashboard was
-     * open. Fall back to the panel root.
-     */
-    let currentFolder =
-        app.vault
-            .getAbstractFileByPath(
-                state.currentPath
-            );
-
-
-    const currentPathBelongsToPanel =
-        state.currentPath ===
-            descriptor.path ||
-        state.currentPath
-            .startsWith(
-                `${descriptor.path}/`
-            );
-
-
-    if (
-        !currentPathBelongsToPanel ||
-        !isFolder(
-            currentFolder
-        )
-    ) {
-
-        state.currentPath =
-            descriptor.path;
-
-
-        currentFolder =
-            app.vault
-                .getAbstractFileByPath(
-                    descriptor.path
-                );
-
-
-        saveFolderUiState(
-            descriptor.path,
-            state
-        );
+    } else {
+        actions.moveTo = async target => {
+            await moveProjectItemsTo([path], target);
+            clearProjectItemSelection(); renderFolderPanels();
+        };
+        actions.rename = async name => {
+            await renameProjectFolder(path, name);
+            clearProjectItemSelection(); renderFolderPanels();
+        };
+        actions.delete = async () => {
+            const folder = app.vault.getAbstractFileByPath(path);
+            if (isFolder(folder)) await app.fileManager.trashFile(folder);
+            clearProjectItemSelection(); renderFolderPanels();
+        };
     }
-
-
-    if (
-        !isFolder(
-            currentFolder
-        )
-    ) {
-        return;
-    }
-
-
-    const panel =
-        folderStack.createDiv({
-            cls:
-                "project-panel project-folder-panel" +
-                (descriptor.sharedResource ? " is-shared-resource" : "")
-        });
-
-    if (descriptor.sharedResource) {
-        panel.dataset.resourceType = descriptor.resourceType;
-        panel.setAttribute(
-            "aria-label",
-            `${descriptor.title}, shared from ${descriptor.resourceLabel}`
-        );
-    }
-
-
-    // ---------- HEADER ----------
-
-    const header =
-        panel.createDiv({
-            cls:
-                "project-folder-header"
-        });
-
-
-    const title =
-        header.createDiv({
-            cls:
-                "project-folder-title"
-        });
-
-    const folderIcon =
-        title.createSpan({
-            cls:
-                "project-folder-icon project-folder-toggle"
-        });
-
-
-    folderIcon.setAttribute(
-        "role",
-        "button"
-    );
-
-
-    folderIcon.tabIndex =
-        0;
-
-
-    const openFolderIcon =
-        folderIcon.createSpan({
-            cls:
-                "project-folder-toggle-icon"
-        });
-
-
-    const closedFolderIcon =
-        folderIcon.createSpan({
-            cls:
-                "project-folder-toggle-icon"
-        });
-
-
-    window.hubSetIcon?.(
-        openFolderIcon,
-        "folder-open"
-    );
-
-
-    window.hubSetIcon?.(
-        closedFolderIcon,
-        "folder-closed"
-    );
-
-
-    // ---------- REORDER HANDLE ----------
-
-    const canReorder =
-        !descriptor.isRoot &&
-        !descriptor.sharedResource &&
-        descriptor.title !==
-            "Meta";
-
-
-    if (
-        canReorder
-    ) {
-
-        header.draggable =
-            true;
-
-        header.addClass(
-            "is-reorderable"
-        );
-    }
-
-
-    const breadcrumb =
-        title.createDiv({
-            cls:
-                "project-folder-breadcrumb"
-        });
-
-
-    const controls =
-        header.createDiv({
-            cls:
-                "project-folder-controls"
-        });
-
-    const search =
-        controls.createEl(
-            "input",
-            {
-                cls:
-                    "project-folder-search"
-            }
-        );
-
-
-    search.type =
-        "search";
-
-    search.placeholder =
-        "Search";
-
-    search.value =
-        state.search;
-
-    // ---------- FOLDER REORDERING ----------
-
-    if (
-        canReorder
-    ) {
-
-        let canStartDrag =
-            true;
-
-
-        header.addEventListener(
-            "pointerdown",
-            event => {
-
-                /*
-                * Search/buttons keep their normal
-                * behaviour and never start dragging.
-                */
-                canStartDrag =
-                    !event.target.closest(
-                        "input, button"
-                    );
-            }
-        );
-
-
-        header.addEventListener(
-            "dragstart",
-            event => {
-
-                if (
-                    !canStartDrag
-                ) {
-
-                    event.preventDefault();
-
-                    return;
-                }
-
-
-                draggedFolderPath =
-                    descriptor.path;
-
-
-                panel.addClass(
-                    "is-dragging"
-                );
-
-
-                event.dataTransfer
-                    .setData(
-                        "text/plain",
-                        descriptor.path
-                    );
-
-
-                event.dataTransfer.effectAllowed =
-                    "move";
-            }
-        );
-
-
-        header.addEventListener(
-            "dragend",
-            () => {
-
-                draggedFolderPath =
-                    null;
-
-
-                panel.removeClass(
-                    "is-dragging"
-                );
-
-
-                clearFolderDropIndicators();
-            }
-        );
-    }
-
-
-    panel.addEventListener(
-        "dragover",
-        event => {
-
-            if (
-                !draggedFolderPath ||
-                descriptor.isRoot ||
-                descriptor.sharedResource ||
-                descriptor.path ===
-                    draggedFolderPath
-            ) {
-                return;
-            }
-
-
-            event.preventDefault();
-
-
-            const bounds =
-                panel
-                    .getBoundingClientRect();
-
-
-            const placeAfter =
-                descriptor.title ===
-                    "Meta"
-                    ? true
-                    : event.clientY >
-                        bounds.top +
-                        bounds.height / 2;
-
-
-            clearFolderDropIndicators();
-
-
-            panel.addClass(
-                placeAfter
-                    ? "is-drop-after"
-                    : "is-drop-before"
-            );
-
-
-            event.dataTransfer.dropEffect =
-                "move";
-        }
-    );
-
-
-    panel.addEventListener(
-        "dragleave",
-        event => {
-
-            if (
-                panel.contains(
-                    event.relatedTarget
-                )
-            ) {
-                return;
-            }
-
-
-            panel.removeClass(
-                "is-drop-before",
-                "is-drop-after"
-            );
-        }
-    );
-
-
-    panel.addEventListener(
-        "drop",
-        async event => {
-
-            if (
-                !draggedFolderPath ||
-                descriptor.isRoot ||
-                descriptor.sharedResource ||
-                descriptor.path ===
-                    draggedFolderPath
-            ) {
-                return;
-            }
-
-
-            event.preventDefault();
-            event.stopPropagation();
-
-
-            const bounds =
-                panel
-                    .getBoundingClientRect();
-
-
-            const placeAfter =
-                descriptor.title ===
-                    "Meta"
-                    ? true
-                    : event.clientY >
-                        bounds.top +
-                        bounds.height / 2;
-
-
-            const sourcePath =
-                draggedFolderPath;
-
-
-            draggedFolderPath =
-                null;
-
-
-            clearFolderDropIndicators();
-
-
-            await moveTopLevelFolder(
-                sourcePath,
-                descriptor.path,
-                placeAfter
-            );
-        }
-    );
-
-    function beginCreate(
-        kind,
-        targetPath =
-            state.currentPath
-    ) {
-
-        state.currentPath =
-            targetPath;
-
-
-        state.createKind =
-            kind;
-
-        state.search =
-            "";
-
-        search.value =
-            "";
-
-
-        if (
-            state.collapsed
-        ) {
-
-            state.collapsed =
-                false;
-
-
-            applyPanelGeometry();
-        }
-
-
-        saveFolderUiState(
-            descriptor.path,
-            state
-        );
-
-
-        renderContents();
-    }
-
-    makeProjectItemDropTarget(
-        header,
-        () =>
-            state.currentPath
-    );
-
-    makeExternalFileDropTarget(
-        header,
-        () =>
-            state.currentPath
-    );
-
-    // ---------- BODY ----------
-
-    const body =
-        panel.createDiv({
-            cls:
-                "project-folder-body"
-        });
-
-
-    makeProjectItemDropTarget(
-        body,
-        () =>
-            state.currentPath
-    );
-
-
-    makeExternalFileDropTarget(
-        body,
-        () =>
-            state.currentPath
-    );
-
-
-    const columns =
-        body.createDiv({
-            cls:
-                "project-browser-columns"
-        });
-
-
-    const rows =
-        body.createDiv({
-            cls:
-                "project-browser-rows",
-            attr: { role: "listbox", "aria-multiselectable": "true", "aria-label": descriptor.title }
-        });
-
-
-    const SORT_COLUMNS = [
-        {
-            key: "name",
-            label: "Name"
-        },
-        {
-            key: "modified",
-            label: "Modified"
-        },
-        {
-            key: "created",
-            label: "Created"
-        }
-    ];
-
-
-    function defaultSortDirection(
-        key
-    ) {
-
-        return (
-            key === "name"
-                ? "asc"
-                : "desc"
-        );
-    }
-
-
-    function renderSortHeaders() {
-
-        columns.empty();
-
-
-        for (
-            const definition
-            of SORT_COLUMNS
-        ) {
-
-            const button =
-                columns.createEl(
-                    "button",
-                    {
-                        cls:
-                            `project-browser-column hub-button-plain project-browser-column-${definition.key}`
-                    }
-                );
-
-
-            button.type =
-                "button";
-
-
-            button.createSpan({
-                text:
-                    definition.label
-            });
-
-
-            if (
-                state.sortKey ===
-                definition.key
-            ) {
-
-                button.addClass(
-                    "is-active"
-                );
-
-
-                const indicator =
-                    button.createSpan({
-                        cls:
-                            "project-browser-sort-indicator"
-                    });
-
-
-                window.hubSetIcon?.(
-                    indicator,
-                    state.sortDirection ===
-                        "asc"
-                        ? "chevron-up"
-                        : "chevron-down"
-                );
-            }
-
-
-            button.addEventListener(
-                "click",
-                () => {
-
-                    if (
-                        state.sortKey ===
-                        definition.key
-                    ) {
-
-                        state.sortDirection =
-                            state.sortDirection ===
-                                "asc"
-                                ? "desc"
-                                : "asc";
-
-                    } else {
-
-                        state.sortKey =
-                            definition.key;
-
-                        state.sortDirection =
-                            defaultSortDirection(
-                                definition.key
-                            );
-                    }
-
-
-                    saveFolderUiState(
-                        descriptor.path,
-                        state
-                    );
-
-
-                    renderSortHeaders();
-                    renderContents();
-                }
-            );
-        }
-    }
-
-
-    renderSortHeaders();
-
-    const resizeHandle =
-        panel.createDiv({
-            cls:
-                "project-folder-resize-handle"
-        });
-
-
-    function applyPanelGeometry() {
-
-        panel.toggleClass(
-            "is-collapsed",
-            state.collapsed
-        );
-
-
-        openFolderIcon.toggleClass(
-            "is-hidden",
-            state.collapsed
-        );
-
-
-        closedFolderIcon.toggleClass(
-            "is-hidden",
-            !state.collapsed
-        );
-
-
-        folderIcon.title =
-            state.collapsed
-                ? "Open folder"
-                : "Close folder";
-
-
-        if (
-            !state.collapsed
-        ) {
-
-            panel.style.height =
-                `${state.manualHeight}px`;
-        }
-    }
-
-    panel.addEventListener(
-        "contextmenu",
-        event => {
-
-            /*
-            * Notes already have their own
-            * right-click menu.
-            *
-            * Inputs/buttons should retain
-            * their normal behaviour.
-            */
-            if (
-                event.target.closest(
-                    ".project-browser-row, input, button"
-                )
-            ) {
-                return;
-            }
-
-
-            event.preventDefault();
-            event.stopPropagation();
-
-
-            const actions = {
-
-                name:
-                    descriptor.title,
-
-
-                newNote:
-                    () => {
-
-                        beginCreate(
-                            "note"
-                        );
-                    },
-
-
-                newFolder:
-                    () => {
-
-                        beginCreate(
-                            "folder"
-                        );
-                    }
-            };
-
-
-            /*
-            * Project Root is only a virtual
-            * panel, so it cannot itself be
-            * renamed or deleted.
-            */
-            if (!descriptor.isRoot && !descriptor.sharedResource) {
-
-                actions.rename =
-                    async newName => {
-
-                        await renameTopLevelProjectFolder(
-                            descriptor,
-                            newName
-                        );
-                    };
-
-
-                actions.delete =
-                    async () => {
-
-                        await deleteTopLevelProjectFolder(
-                            descriptor
-                        );
-                    };
-            }
-
-            if (descriptor.sharedResource) {
-                actions.detach = async () => {
-                    await window.hubDetachResourceFolder?.(
-                        current.file.path,
-                        descriptor.resourceFolderId
-                    );
-                    renderFolderPanels();
-                };
-            }
-
-
-            window
-                .hubShowProjectFolderMenu?.(
-                    event,
-                    actions
-                );
-        }
-    );
-
-    function updateAutoFloor(
-        folder
-    ) {
-
-        const requiredHeight =
-            automaticFolderHeight(
-                folderPanelItemCount(
-                    folder,
-                    descriptor
-                )
-            );
-
-
-        state.autoFloor =
-            requiredHeight;
-
-
-        state.manualHeight =
-            Math.max(
-                state.manualHeight,
-                state.autoFloor
-            );
-
-
-        if (
-            !state.collapsed
-        ) {
-
-            panel.style.height =
-                `${state.manualHeight}px`;
-        }
-    }
-
-
-    // ---------- COLLAPSE ----------
-
-    folderIcon.addEventListener(
-        "click",
-        event => {
-
-            event.preventDefault();
-            event.stopPropagation();
-
-
-            state.collapsed =
-                !state.collapsed;
-            
-            saveFolderUiState(
-                descriptor.path,
-                state
-            );
-
-            applyPanelGeometry();
-        }
-    );
-
-    folderIcon.addEventListener(
-        "keydown",
-        event => {
-
-            if (
-                event.key !== "Enter" &&
-                event.key !== " "
-            ) {
-                return;
-            }
-
-
-            event.preventDefault();
-            event.stopPropagation();
-
-
-            state.collapsed =
-                !state.collapsed;
-
-            saveFolderUiState(
-                descriptor.path,
-                state
-            );
-
-            applyPanelGeometry();
-        }
-    );
-
-    // ---------- MANUAL RESIZE ----------
-
-    let resizeSession =
-        null;
-
-
-    resizeHandle.addEventListener(
-        "pointerdown",
-        event => {
-
-            if (
-                state.collapsed
-            ) {
-                return;
-            }
-
-
-            event.preventDefault();
-            event.stopPropagation();
-
-
-            resizeSession = {
-                pointerId:
-                    event.pointerId,
-
-                startY:
-                    event.clientY,
-
-                startHeight:
-                    panel
-                        .getBoundingClientRect()
-                        .height
-            };
-
-
-            resizeHandle
-                .setPointerCapture(
-                    event.pointerId
-                );
-
-
-            panel.addClass(
-                "is-resizing"
-            );
-        }
-    );
-
-
-    resizeHandle.addEventListener(
-        "pointermove",
-        event => {
-
-            if (
-                !resizeSession ||
-                event.pointerId !==
-                    resizeSession.pointerId
-            ) {
-                return;
-            }
-
-
-            const delta =
-                event.clientY -
-                resizeSession.startY;
-
-
-            const nextHeight =
-                Math.max(
-                    state.autoFloor,
-
-                    Math.round(
-                        resizeSession.startHeight +
-                        delta
-                    )
-                );
-
-
-            state.manualHeight =
-                nextHeight;
-
-
-            panel.style.height =
-                `${nextHeight}px`;
-        }
-    );
-
-
-    function finishResize(
-        event
-    ) {
-
-        if (
-            !resizeSession ||
-            event.pointerId !==
-                resizeSession.pointerId
-        ) {
-            return;
-        }
-
-
-        resizeSession =
-            null;
-
-
-        panel.removeClass(
-            "is-resizing"
-        );
-
-
-        if (
-            resizeHandle.hasPointerCapture(
-                event.pointerId
-            )
-        ) {
-
-            resizeHandle
-                .releasePointerCapture(
-                    event.pointerId
-                );
-        }
-
-
-        saveFolderUiState(
-            descriptor.path,
-            state
-        );
-    }
-
-
-    resizeHandle.addEventListener(
-        "pointerup",
-        finishResize
-    );
-
-
-    resizeHandle.addEventListener(
-        "pointercancel",
-        finishResize
-    );
-
-    function navigateTo(
-        path
-    ) {
-
-        const folder =
-            app.vault
-                .getAbstractFileByPath(
-                    path
-                );
-
-
-        if (
-            !isFolder(folder)
-        ) {
-            return;
-        }
-
-
-        /*
-         * Entering another folder should
-         * not inherit a search query from
-         * the previous folder.
-         */
-        state.currentPath =
-            path;
-
-        state.search =
-            "";
-
-        search.value =
-            "";
-
-
-        saveFolderUiState(
-            descriptor.path,
-            state
-        );
-
-
-        renderContents();
-    }
-
-
-    function makeFolderNameEditable(
-        crumb,
-        part
-    ) {
-
-        /*
-        * Only the actual top-level folder
-        * square title is editable here.
-        *
-        * Project Root is not a real
-        * folder-square name.
-        */
-        if (
-            descriptor.isRoot ||
-            descriptor.sharedResource ||
-            part.path !==
-                descriptor.path
-        ) {
-            return;
-        }
-
-
-        crumb.classList.add(
-            "is-editable"
-        );
-
-
-        crumb.addEventListener(
-            "click",
-            event => {
-
-                event.stopPropagation();
-
-
-                if (
-                    crumb.isContentEditable
-                ) {
-                    return;
-                }
-
-
-                const oldName =
-                    part.name;
-
-                const oldPath =
-                    part.path;
-
-
-                let cancelled =
-                    false;
-
-
-                crumb.contentEditable =
-                    "true";
-
-                crumb.spellcheck =
-                    false;
-
-
-                crumb.classList.add(
-                    "is-editing"
-                );
-
-
-                crumb.focus();
-
-
-                /*
-                * Select the whole name so you
-                * can immediately type over it.
-                */
-                const selection =
-                    window.getSelection();
-
-                const range =
-                    document.createRange();
-
-
-                range.selectNodeContents(
-                    crumb
-                );
-
-
-                selection.removeAllRanges();
-                selection.addRange(
-                    range
-                );
-
-
-                const onKeyDown =
-                    event => {
-
-                        if (
-                            event.key === "Enter"
-                        ) {
-
-                            event.preventDefault();
-
-                            crumb.blur();
-
-                        } else if (
-                            event.key === "Escape"
-                        ) {
-
-                            event.preventDefault();
-
-                            cancelled =
-                                true;
-
-                            crumb.textContent =
-                                oldName;
-
-                            crumb.blur();
-                        }
-                    };
-
-
-                const onBlur =
-                    async () => {
-
-                        crumb.removeEventListener(
-                            "keydown",
-                            onKeyDown
-                        );
-
-
-                        crumb.contentEditable =
-                            "false";
-
-
-                        crumb.classList.remove(
-                            "is-editing"
-                        );
-
-
-                        if (cancelled) {
-                            return;
-                        }
-
-
-                        const newName =
-                            crumb.textContent
-                                .trim();
-
-
-                        if (
-                            !newName ||
-                            newName ===
-                                oldName
-                        ) {
-
-                            crumb.textContent =
-                                oldName;
-
-                            return;
-                        }
-
-
-                        try {
-
-                            await renameTopLevelProjectFolder(
-                                descriptor,
-                                newName
-                            );
-
-
-                        } catch (error) {
-
-                            crumb.textContent =
-                                oldName;
-
-
-                            crumb.title =
-                                error.message ??
-                                "Could not rename folder.";
-                        }
-                    };
-
-
-                crumb.addEventListener(
-                    "keydown",
-                    onKeyDown
-                );
-
-
-                crumb.addEventListener(
-                    "blur",
-                    onBlur,
-                    {
-                        once:
-                            true
-                    }
-                );
-            }
-        );
-    }
-
-    function renderBreadcrumb() {
-
-        breadcrumb.empty();
-
-
-        const parts =
-            breadcrumbParts(
-                descriptor,
-                state.currentPath
-            );
-
-
-        parts.forEach(
-            (
-                part,
-                index
-            ) => {
-
-                const isCurrent =
-                    index ===
-                    parts.length - 1;
-
-
-                if (isCurrent) {
-
-                    const crumb =
-                        breadcrumb.createSpan({
-                            cls:
-                                "project-folder-crumb is-current",
-
-                            text:
-                                part.name
-                        });
-
-
-                    makeExternalFileDropTarget(
-                        crumb,
-                        () =>
-                            part.path
-                    );
-
-
-                    makeFolderNameEditable(
-                        crumb,
-                        part
-                    );
-
-                } else {
-
-                    const crumb =
-                        breadcrumb.createSpan({
-                            cls:
-                                "project-folder-crumb is-clickable",
-
-                            text:
-                                part.name
-                        });
-
-                    makeProjectItemDropTarget(
-                        crumb,
-                        () =>
-                            part.path
-                    );
-
-                    makeExternalFileDropTarget(
-                        crumb,
-                        () =>
-                            part.path
-                    );
-
-
-                    crumb.addEventListener(
-                        "click",
-                        event => {
-
-                            event.stopPropagation();
-
-                            navigateTo(
-                                part.path
-                            );
-                        }
-                    );
-                }
-
-
-                if (
-                    !isCurrent
-                ) {
-
-                    const separator =
-                        breadcrumb.createSpan({
-                            cls:
-                                "project-folder-separator"
-                        });
-
-
-                    window.hubSetIcon?.(
-                        separator,
-                        "chevron-right"
-                    );
-                }
-            }
-        );
-    }
-
-    function renderCreateRow(
-        folder
-    ) {
-
-        if (
-            !state.createKind
-        ) {
-            return;
-        }
-
-
-        const kind =
-            state.createKind;
-
-
-        const row =
-            rows.createDiv({
-                cls:
-                    "project-create-row"
-            });
-
-
-        const icon =
-            row.createSpan({
-                cls:
-                    "project-create-row-icon"
-            });
-
-
-        window.hubSetIcon?.(
-            icon,
-            kind === "folder"
-                ? "folder-plus"
-                : "file-plus-2"
-        );
-
-
-        const input =
-            row.createEl(
-                "input",
-                {
-                    cls:
-                        "project-create-input"
-                }
-            );
-
-
-        input.placeholder =
-            kind === "folder"
-                ? "Subfolder name…"
-                : "Note name…";
-
-
-        const cancel =
-            row.createEl(
-                "button",
-                {
-                    cls:
-                        "project-create-cancel"
-                }
-            );
-
-
-        cancel.type =
-            "button";
-
-        cancel.title =
-            "Cancel";
-
-
-        window.hubSetIcon?.(
-            cancel,
-            "x"
-        );
-
-
-        function close() {
-
-            state.createKind =
-                null;
-
-            renderContents();
-        }
-
-
-        async function create() {
-            if (input.dataset.committing === "true") return;
-            if (!input.value.trim()) { close(); return; }
-            input.dataset.committing = "true";
-
-            try {
-
-                const path =
-                    await createProjectItem(
-                        folder.path,
-                        kind,
-                        input.value
-                    );
-
-
-                state.createKind =
-                    null;
-
-
-                if (
-                    kind === "folder"
-                ) {
-                    renderFolderPanels();
-
-                    return;
-                }
-
-                renderFolderPanels();
-
-            } catch (error) {
-
-                input.dataset.committing = "false";
-                input.classList.add("is-error");
-                input.title = error.message ?? "Could not create item.";
-
-                input.select();
-            }
-        }
-
-
-        input.addEventListener(
-            "input",
-            () => {
-
-                input.classList.remove(
-                    "is-error"
-                );
-            }
-        );
-
-
-        input.addEventListener(
-            "keydown",
-            event => {
-
-                if (
-                    event.key === "Enter"
-                ) {
-
-                    event.preventDefault();
-
-                    create();
-
-                } else if (
-                    event.key === "Escape"
-                ) {
-
-                    event.preventDefault();
-
-                    close();
-                }
-            }
-        );
-
-
-        cancel.addEventListener(
-            "click",
-            close
-        );
-        cancel.addEventListener("pointerdown", event => event.preventDefault());
-        input.addEventListener("blur", () => { if (input.isConnected) create(); });
-
-
-        input.focus();
-    }
-
-    function renderContents() {
-
-        renderBreadcrumb();
-
-        rows.empty();
-
-
-        let folder =
-            app.vault
-                .getAbstractFileByPath(
-                    state.currentPath
-                );
-
-
-        /*
-         * If navigation state became invalid
-         * after a rename/delete, return to the
-         * root of this panel.
-         */
-        if (
-            !isFolder(folder)
-        ) {
-
-            state.currentPath =
-                descriptor.path;
-
-
-            folder =
-                app.vault
-                    .getAbstractFileByPath(
-                        descriptor.path
-                    );
-
-
-            saveFolderUiState(
-                descriptor.path,
-                state
-            );
-
-
-            renderBreadcrumb();
-        }
-
-        if (
-            !isFolder(folder)
-        ) {
-            return;
-        }
-
-
-        updateAutoFloor(
-            folder
-        );
-
-
-        renderCreateRow(
-            folder
-        );
-
-
-        const query =
-            state.search
-                .trim()
-                .toLowerCase();
-
-
-        /*
-         * Top-level folders already have
-         * their own panels, so Project Root
-         * does not duplicate them as rows.
-         *
-         * Inside every normal folder,
-         * direct child folders are shown.
-         */
-        let folders =
-            descriptor.isRoot
-                ? []
-                : directFolders(
-                    folder
-                );
-
-
-        let files =
-            directFiles(
-                folder
-            );
-
-
-        if (
-            descriptor.isRoot
-        ) {
-
-            files =
-                files.filter(
-                    file =>
-                        file.path !==
-                        current.file.path
-                );
-        }
-
-
-        if (query) {
-
-            folders =
-                folders.filter(
-                    child =>
-                        child.name
-                            .toLowerCase()
-                            .includes(
-                                query
-                            )
-                );
-
-
-            files =
-                files.filter(
-                    file =>
-                        projectFileDisplayName(
-                            file
-                        )
-                            .toLowerCase()
-                            .includes(
-                                query
-                            )
-                );
-        }
-
-
-        const direction =
-            state.sortDirection ===
-                "asc"
-                ? 1
-                : -1;
-
-
-        /*
-        * Folders remain above notes.
-        *
-        * Name sorting applies to folders too.
-        * For date sorting, folders remain
-        * alphabetical because TFolder does
-        * not expose the same stat data.
-        */
-        folders.sort(
-            (a, b) => {
-
-                const result =
-                    compareNames(
-                        a.name,
-                        b.name
-                    );
-
-
-                return (
-                    state.sortKey === "name"
-                        ? result * direction
-                        : result
-                );
-            }
-        );
-
-
-        files.sort(
-            (a, b) => {
-
-                let result;
-
-
-                if (
-                    state.sortKey ===
-                    "name"
-                ) {
-
-                    result =
-                        compareNames(
-                            projectFileDisplayName(
-                                a
-                            ),
-                            projectFileDisplayName(
-                                b
-                            )
-                        );
-
-                } else if (
-                    state.sortKey ===
-                    "created"
-                ) {
-
-                    result =
-                        a.stat.ctime -
-                        b.stat.ctime;
-
-                } else {
-
-                    result =
-                        a.stat.mtime -
-                        b.stat.mtime;
-                }
-
-
-                if (
-                    result === 0
-                ) {
-
-                    return compareNames(
-                        projectFileDisplayName(
-                            a
-                        ),
-                        projectFileDisplayName(
-                            b
-                        )
-                    );
-                }
-
-
-                return (
-                    result *
-                    direction
-                );
-            }
-        );
-
-
-        if (
-            folders.length === 0 &&
-            files.length === 0 &&
-            !state.createKind
-        ) {
-
-            el(
-                rows,
-                "div",
-                "project-folder-empty",
-                query
-                    ? "No matching items."
-                    : "No items."
-            );
-
-            return;
-        }
-
-
-        // ---------- SUBFOLDERS ----------
-
-        for (
-            const childFolder
-            of folders
-        ) {
-
-            const row =
-                rows.createDiv({
-                    cls:
-                        "project-browser-row project-subfolder-row"
-                });
-
-
-            row.dataset.path =
-                childFolder.path;
-
-
-            row.toggleClass(
-                "is-selected",
-
-                selectedProjectItemPaths
-                    .has(
-                        childFolder.path
-                    )
-            );
-
-
-            makeProjectItemDraggable(
-                row,
-                childFolder.path
-            );
-
-            const info =
-                row.createDiv({
-                    cls:
-                        "project-browser-info"
-                });
-
-
-            const icon =
-                info.createSpan({
-                    cls:
-                        "project-browser-icon"
-                });
-
-
-            window.hubSetIcon?.(
-                icon,
-                "folder"
-            );
-
-
-            info.createSpan({
-                cls:
-                    "project-browser-name",
-
-                text:
-                    childFolder.name
-            });
-
-
-            const arrow =
-                info.createSpan({
-                    cls:
-                        "project-browser-arrow"
-                });
-
-
-            window.hubSetIcon?.(
-                arrow,
-                "chevron-right"
-            );
-
-            row.createDiv({
-                cls:
-                    "project-browser-time"
-            });
-
-
-            row.createDiv({
-                cls:
-                    "project-browser-time"
-            });
-
-            makeProjectItemDropTarget(
-                row,
-                () =>
-                    childFolder.path
-            );
-
-            makeExternalFileDropTarget(
-                row,
-                () =>
-                    childFolder.path
-            );
-            
-            row.addEventListener(
-                "contextmenu",
-                event => {
-
-                    handleProjectItemContextMenu(
-                        event,
-                        childFolder.path,
-
-                        () => {
-
-                            window
-                                .hubShowProjectFolderMenu?.(
-                                    event,
-                                    {
-                                        name:
-                                            childFolder.name,
-
-                                        path:
-                                            childFolder.path,
-
-
-                                        newNote:
-                                            () => {
-
-                                                beginCreate(
-                                                    "note",
-                                                    childFolder.path
-                                                );
-                                            },
-
-
-                                        newFolder:
-                                            () => {
-
-                                                beginCreate(
-                                                    "folder",
-                                                    childFolder.path
-                                                );
-                                            },
-
-
-                                        moveTo:
-                                            async targetPath => {
-
-                                                await moveProjectItemsTo(
-                                                    [
-                                                        childFolder.path
-                                                    ],
-                                                    targetPath
-                                                );
-
-
-                                                clearProjectItemSelection();
-
-                                                renderFolderPanels();
-                                            },
-
-
-                                        rename:
-                                            async newName => {
-
-                                                await renameProjectFolder(
-                                                    childFolder.path,
-                                                    newName
-                                                );
-
-
-                                                clearProjectItemSelection();
-
-
-                                                renderFolderPanels();
-                                            },
-
-
-                                        delete:
-                                            async () => {
-
-                                                const folder =
-                                                    app.vault
-                                                        .getAbstractFileByPath(
-                                                            childFolder.path
-                                                        );
-
-
-                                                if (
-                                                    !isFolder(
-                                                        folder
-                                                    )
-                                                ) {
-
-                                                    throw new Error(
-                                                        "Folder no longer exists."
-                                                    );
-                                                }
-
-
-                                                await app.fileManager
-                                                    .trashFile(
-                                                        folder
-                                                    );
-
-
-                                                clearProjectItemSelection();
-
-
-                                                renderFolderPanels();
-                                            }
-                                    }
-                                );
-                        }
-                    );
-                }
-            );
-        
-            row.addEventListener(
-                "click",
-                event => {
-
-                    if (
-                        handleProjectItemSelection(
-                            event,
-                            row,
-                            childFolder.path
-                        )
-                    ) {
-                        return;
-                    }
-
-
-                    clearProjectItemSelection();
-
-
-                    navigateTo(
-                        childFolder.path
-                    );
-                }
-            );
-        }
-
-
-        // ---------- NOTES ----------
-
-        for (
-            const file
-            of files
-        ) {
-
-            const row =
-                rows.createDiv({
-                    cls:
-                        "project-browser-row project-note-row"
-                });
-
-
-            row.dataset.path =
-                file.path;
-
-            row.toggleClass(
-                "is-selected",
-
-                selectedProjectItemPaths
-                    .has(
-                        file.path
-                    )
-            );
-            
-            makeProjectItemDraggable(
-                row,
-                file.path
-            );
-
-            const info =
-                row.createDiv({
-                    cls:
-                        "project-browser-info"
-                });
-
-
-            const icon =
-                info.createSpan({
-                    cls:
-                        "project-browser-icon"
-                });
-
-
-            window.hubSetIcon?.(
-                icon,
-                projectFileIcon(
-                    file
-                )
-            );
-
-
-            info.createSpan({
-                cls:
-                    "project-browser-name",
-
-                text:
-                    projectFileDisplayName(
-                        file
-                    )
-            });
-
-
-            const modified =
-                row.createDiv({
-                    cls:
-                        "project-browser-time",
-
-                    text:
-                        formatFileTime(
-                            file.stat.mtime
-                        )
-                });
-
-
-            modified.title =
-                moment(
-                    file.stat.mtime
-                ).format(
-                    "YYYY-MM-DD HH:mm:ss"
-                );
-
-
-            const created =
-                row.createDiv({
-                    cls:
-                        "project-browser-time",
-
-                    text:
-                        formatFileTime(
-                            file.stat.ctime
-                        )
-                });
-
-
-            created.title =
-                moment(
-                    file.stat.ctime
-                ).format(
-                    "YYYY-MM-DD HH:mm:ss"
-                );
-
-
-            modified.title =
-                moment(
-                    file.stat.mtime
-                ).format(
-                    "YYYY-MM-DD HH:mm"
-                );
-
-
-            row.addEventListener(
-                "click",
-                async event => {
-
-                    if (
-                        handleProjectItemSelection(
-                            event,
-                            row,
-                            row.dataset.path
-                        )
-                    ) {
-                        return;
-                    }
-
-
-                    clearProjectItemSelection();
-
-
-                    const currentFile =
-                        app.vault
-                            .getAbstractFileByPath(
-                                row.dataset.path
-                            );
-
-
-                    if (currentFile) {
-
-                        await openProjectNote(
-                            currentFile
-                        );
-                    }
-                }
-            );
-
-
-            row.addEventListener(
-                "contextmenu",
-                event => {
-
-                    handleProjectItemContextMenu(
-                        event,
-                        row.dataset.path,
-                        () => {
-
-                            window
-                                .hubShowProjectFileMenu?.(
-                                    event,
-                                    row.dataset.path,
-                                    {
-                                        moveTo:
-                                            async targetPath => {
-
-                                                await moveProjectItemsTo(
-                                                    [
-                                                        row.dataset.path
-                                                    ],
-                                                    targetPath
-                                                );
-
-
-                                                clearProjectItemSelection();
-
-                                                renderFolderPanels();
-                                            }
-                                    }
-                                );
-                        }
-                    );
-                }
-            );
-        }
-    }
-
-
-    search.addEventListener(
-        "input",
-        () => {
-
-            state.search =
-                search.value;
-
-
-            if (
-                state.search.trim() &&
-                state.collapsed
-            ) {
-
-                state.collapsed =
-                    false;
-
-                applyPanelGeometry();
-            }
-
-
-            saveFolderUiState(
-                descriptor.path,
-                state
-            );
-
-
-            renderContents();
-        }
-    );
-
-    renderContents();
-
-    applyPanelGeometry();
+    return actions;
 }
 
-function renderFolderSuggestion() {
-
-    const panel =
-        folderStack.createDiv({
-            cls:
-                "project-panel project-folder-panel project-folder-placeholder"
-        });
-
-
-    const header =
-        panel.createDiv({
-            cls:
-                "project-folder-header project-folder-placeholder-header"
-        });
-
-
-    const title =
-        header.createDiv({
-            cls:
-                "project-folder-title"
-        });
-
-
-    const icon =
-        title.createSpan({
-            cls:
-                "project-folder-icon"
-        });
-
-
-    window.hubSetIcon?.(
-        icon,
-        "folder-plus"
-    );
-
-
-    const input =
-        title.createEl(
-            "input",
-            {
-                cls:
-                    "project-folder-placeholder-input"
-            }
-        );
-
-
-    input.type =
-        "text";
-
-    input.placeholder =
-        "Folder name…";
-
-    input.spellcheck =
-        false;
-
-
-    input.addEventListener(
-        "input",
-        () => {
-
-            input.classList.remove(
-                "is-error"
-            );
-        }
-    );
-
-
-    async function commitFolder() {
-            if (!input.value.trim() || input.dataset.committing === "true") return;
-            input.dataset.committing = "true";
-            try {
-
-                /*
-                 * The first time an explicit
-                 * order is needed, preserve
-                 * exactly what is currently
-                 * visible.
-                 */
-                if (
-                    folderOrder.length === 0
-                ) {
-
-                    folderOrder =
-                        projectFolderDescriptors()
-                            .filter(
-                                descriptor =>
-                                    !descriptor.isRoot &&
-                                    !descriptor.sharedResource
-                            )
-                            .map(
-                                descriptor =>
-                                    descriptor.title
-                            );
-                }
-
-
-                const path =
-                    await createProjectItem(
-                        projectRoot,
-                        "folder",
-                        input.value
-                    );
-
-
-                const name =
-                    path
-                        .split("/")
-                        .pop();
-
-
-                /*
-                 * Newly created folders always
-                 * go after existing folders.
-                 */
-                folderOrder =
-                    folderOrder.filter(
-                        existing =>
-                            existing !== name
-                    );
-
-
-                folderOrder.push(
-                    name
-                );
-
-
-                await saveFolderOrder();
-
-
-                renderFolderPanels();
-
-
-            } catch (error) {
-
-                input.classList.add(
-                    "is-error"
-                );
-
-                input.title = error.message ?? "Could not create folder.";
-                input.value = "";
-            }
-            finally { input.dataset.committing = "false"; }
+function decorateExplorerRow(row, node, presentation) {
+    if (node.parent) makeProjectItemDraggable(row, node.path);
+    if (node.folder) {
+        makeProjectItemDropTarget(row, () => node.path);
+        makeExternalFileDropTarget(row, () => node.path);
     }
-    input.addEventListener("blur", commitFolder);
-    input.addEventListener("keydown", event => {
-        if (event.key === "Escape") { input.value = ""; input.blur(); }
-        if (event.key !== "Enter") return;
-        event.preventDefault();
-        commitFolder();
+    // Workspace roots retain their existing reorder behavior. Dragging a shared
+    // root must never move the underlying Resource folder into the Project.
+    if (node.parent || node.descriptor.isRoot || node.descriptor.sharedResource || presentation !== "tree") return;
+    if (node.name !== "Meta") {
+        row.draggable = true;
+        row.addEventListener("dragstart", event => {
+            draggedFolderPath = node.path;
+            event.dataTransfer.setData("text/plain", node.path);
+            event.dataTransfer.effectAllowed = "move";
+            row.classList.add("is-item-dragging");
+        });
+        row.addEventListener("dragend", () => {
+            draggedFolderPath = null; row.classList.remove("is-item-dragging"); clearFolderDropIndicators();
+        });
+    }
+    const after = event => node.name === "Meta" || event.clientY > row.getBoundingClientRect().top + row.getBoundingClientRect().height / 2;
+    row.addEventListener("dragover", event => {
+        if (!draggedFolderPath || draggedFolderPath === node.path) return;
+        event.preventDefault(); event.stopPropagation(); clearFolderDropIndicators();
+        row.classList.add(after(event) ? "is-drop-after" : "is-drop-before");
+    });
+    row.addEventListener("dragleave", event => {
+        if (!row.contains(event.relatedTarget)) clearFolderDropIndicators();
+    });
+    row.addEventListener("drop", async event => {
+        if (!draggedFolderPath || draggedFolderPath === node.path) return;
+        event.preventDefault(); event.stopPropagation();
+        const source = draggedFolderPath; draggedFolderPath = null; clearFolderDropIndicators();
+        await moveTopLevelFolder(source, node.path, after(event));
     });
 }
 
-function renderFolderPanels() {
-
-    folderStack.empty();
-
-
-    const descriptors =
-        projectFolderDescriptors();
-
-
-    if (
-        descriptors.length === 0
-    ) {
-
-        el(
-            folderStack,
-            "div",
-            "project-empty",
-            isResourceContext
-                ? "No Resource folders yet."
-                : "No project folders."
-        );
-
-        renderFolderSuggestion();
-        return;
+async function createExplorerItem(parentPath, kind, name) {
+    const isWorkspaceFolder = parentPath === projectRoot && kind === "folder";
+    if (isWorkspaceFolder && !folderOrder.length) folderOrder = projectFolderDescriptors()
+        .filter(descriptor => !descriptor.isRoot && !descriptor.sharedResource).map(descriptor => descriptor.title);
+    const path = await createProjectItem(parentPath, kind, name);
+    if (isWorkspaceFolder) {
+        const folderName = path.split("/").pop();
+        folderOrder = [...folderOrder.filter(value => value !== folderName), folderName];
+        await saveFolderOrder();
     }
-
-
-    for (
-        const descriptor
-        of descriptors
-    ) {
-
-        renderFolderPanel(
-            descriptor
-        );
-    }
-
-    renderFolderSuggestion();
+    return path;
 }
+
+function renderFolderPanels() {
+    if (workspaceExplorer) { workspaceExplorer.refresh(); return; }
+    workspaceExplorer = window.hubMountWorkspaceExplorer({
+        parent: folderStack,
+        workspacePath: projectRoot,
+        dashboardPath: current.file.path,
+        descriptors: projectFolderDescriptors,
+        getByPath: path => app.vault.getAbstractFileByPath(path),
+        states: () => savedFolderUiState,
+        isNoteView: () => !!root.closest(".hub-project-rail") ||
+            (!root.isConnected && dv.component.hubDestinationMode === "note"),
+        persist: persistFolderUiState,
+        setIcon: (element, icon) => window.hubSetIcon?.(element, icon),
+        openFile: openProjectNote,
+        createItem: createExplorerItem,
+        formatTime: formatFileTime,
+        selectedPaths: selectedProjectItemPaths,
+        selectItem: handleProjectItemSelection,
+        clearSelection: clearProjectItemSelection,
+        decorateRow: decorateExplorerRow,
+        decorateFolder: (element, path) => {
+            makeProjectItemDropTarget(element, path);
+            makeExternalFileDropTarget(element, path);
+        },
+        contextMenu: (event, node, beginCreate) => {
+            const single = () => {
+                if (node.folder) window.hubShowProjectFolderMenu?.(event, explorerFolderActions(node, beginCreate));
+                else window.hubShowProjectFileMenu?.(event, node.path, {
+                    moveTo: async target => {
+                        await moveProjectItemsTo([node.path], target);
+                        clearProjectItemSelection(); renderFolderPanels();
+                    }
+                });
+            };
+            if (!node.parent) { clearProjectItemSelection(); single(); }
+            else handleProjectItemContextMenu(event, node.path, single);
+        }
+    });
+    dv.component.register(() => workspaceExplorer?.destroy());
+    const syncActiveFile = file => workspaceExplorer.setActive(file?.path ?? "");
+    dv.component.registerEvent(app.workspace.on("file-open", syncActiveFile));
+    // Seed remounted views from existing scoped history without opening a file
+    // or changing the expansion restored by a preset.
+    workspaceExplorer.setActive(window.hubGetLastNavigation?.(root)?.file?.path ?? "", { revealFile: false });
+    const activeFile = app.workspace.getActiveFile?.();
+    if (activeFile) syncActiveFile(activeFile);
+    // Mode changes reuse this renderer; file-open alone does not signal them.
+    const syncExplorerMode = () => workspaceExplorer?.syncMode();
+    const modeObserver = new MutationObserver(syncExplorerMode);
+    modeObserver.observe(root.ownerDocument.body, { attributes: true, attributeFilter: ["class"] });
+    dv.component.registerEvent(app.workspace.on("layout-change", () => queueMicrotask(syncExplorerMode)));
+    dv.component.register(() => modeObserver.disconnect());
+}
+
 
 
 
@@ -5420,10 +2669,9 @@ root.hubRestoreFolders = snapshot => {
     for (const key of Object.keys(savedFolderUiState)) delete savedFolderUiState[key];
     Object.assign(savedFolderUiState, snapshot.folders);
     folderOrder = [...snapshot.order];
-    folderState.clear();
     selectedProjectItemPaths.clear();
     selectionAnchorPath = null;
-    renderFolderPanels();
+    workspaceExplorer.refresh({ restore: true });
 };
 dv.component.register(() => { delete root.hubCaptureFolders; delete root.hubRestoreFolders; });
 
@@ -5465,8 +2713,8 @@ root.addEventListener(
         if (
             belongsHere
         ) {
-
-            renderFolderPanels();
+            if (oldPath && path && oldPath !== path) workspaceExplorer.rename(oldPath, path);
+            else renderFolderPanels();
         }
     }
 );
@@ -5872,6 +3120,7 @@ function renderTaskRows() {
 
 
 function renderCurrentTasks() {
+    if (taskWorkspace?.active()) return;
 
     if (tasksBody.hubTaskUi?.defer(() => renderCurrentTasks())) return;
     currentProjectTasks =
@@ -7452,7 +4701,7 @@ function renderProjectTaskHistory() {
             activityBody,
             "div",
             "project-empty",
-            "No completed tasks have been cleared yet."
+            "No task progress recorded."
         );
 
         return;
@@ -7471,13 +4720,13 @@ function renderProjectTaskHistory() {
         const icon =
             row.createSpan({
                 cls:
-                    "project-activity-icon is-completed-task"
+                    "project-activity-icon " + (item.kind === "step" ? "is-step-progress" : "is-completed-task")
             });
 
 
         window.hubSetIcon?.(
             icon,
-            "square-check"
+            item.kind === "step" ? "circle-check" : "square-check"
         );
 
 
@@ -7488,8 +4737,9 @@ function renderProjectTaskHistory() {
             });
 
 
-        const title = el(info, "div", "project-activity-title", item.text);
-        void activityBody.hubMarkdown?.render(title, item.text, item.path || current.file.path);
+        const progressText = item.kind === "step" ? `${item.parentText} \u00b7 ${item.text}` : item.text;
+        const title = el(info, "div", "project-activity-title", progressText);
+        void activityBody.hubMarkdown?.render(title, progressText, item.path || current.file.path);
 
 
         const sourceRoot =
@@ -7972,6 +5222,16 @@ root.addEventListener(
 );
 
 
+taskWorkspace = window.hubMountTaskWorkspace?.({
+    component: dv.component, dv, root, toolbar: shortcutsBar, filesGrid: grid,
+    workspace: { root: projectRoot, projectId: contextId, name: current.file.name,
+        contextKind: isResourceContext ? "resource" : "project" },
+    onFiles: () => { renderCurrentTasks(); scheduleProgressHeightSync(); },
+    openSource: path => {
+        const file = app.vault.getAbstractFileByPath(path);
+        if (file) return openProjectNote(file);
+    }
+});
 frame.commit();
 if (window.hubEnterDashboard) {
     window.hubEnterDashboard(root);

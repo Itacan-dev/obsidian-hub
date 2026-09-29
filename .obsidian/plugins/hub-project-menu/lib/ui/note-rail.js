@@ -74,7 +74,12 @@ function mountNoteRail(pane, initialState = "full", onChange = () => {}) {
     edge.addEventListener("pointerup", end);
     edge.addEventListener("pointercancel", end);
     edge.addEventListener("lostpointercapture", () => { drag = null; edge.classList.remove("is-dragging"); });
+    // Native restored panes may still carry arbitrary split dimensions. Commit
+    // the canonical initial state before enabling interactive resize animation.
+    pane.classList.add("is-hub-rail-initializing");
     select(state);
+    pane.getBoundingClientRect();
+    pane.classList.remove("is-hub-rail-initializing");
     return { pane, destroy() { end(); controls.remove(); edge.remove(); delete pane.dataset.hubRailState; } };
 }
 

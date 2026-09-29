@@ -7,6 +7,7 @@ function taskMetadata(value = {}) {
         necessity: ["should", "must"].includes(value?.necessity) ? value.necessity : null,
         fromDate: parseLocalISODate(value?.fromDate) ? value.fromDate : null,
         dueDate: parseLocalISODate(value?.dueDate) ? value.dueDate : null,
+        ...(typeof value?.linkedProjectId === "string" && value.linkedProjectId.trim() ? { linkedProjectId: value.linkedProjectId.trim() } : {}),
         ...(parseLocalISODate(value?.fromDate) && validLocalTime(value?.fromTime) ? { fromTime: value.fromTime } : {}),
         ...(parseLocalISODate(value?.dueDate) && validLocalTime(value?.dueTime) ? { dueTime: value.dueTime } : {})
     };
@@ -107,7 +108,7 @@ function readTaskSnapshot(data, request) {
         const token = lines[i].trim().match(/^(`{3,}|~{3,})/);
         if (token) { if (!fence) fence = token[1][0]; else if (fence === token[1][0]) fence = null; continue; }
         const child = !fence && taskLineDetails(lines[i]);
-        if (child) steps.push({ line: i, text: taskDisplayText(child.text), completed: /^[xX]$/.test(child.marker),
+        if (child) steps.push({ line: i, text: taskDisplayText(child.text), hubTaskId: taskIdentity(child.text), completed: /^[xX]$/.test(child.marker),
             status: child.marker, indent: indent(lines[i]), end: taskBlockEnd(lines, i) });
     }
     return { path: request.path, line, end, text: taskDisplayText(details.text),
@@ -122,29 +123,46 @@ function singleTaskText(value) {
     return text;
 }
 
-// Resolve only inside the current parent block; never toggle a similarly named
-// checkbox elsewhere in the note. Steps do not trigger parent completion/history.
-function toggleTaskStep(data, request) {
+// Retain native block IDs at the end of the Markdown line.
+function withIdentity(line, id) {
+    if (taskIdentity(line)) return line;
+    const nativeId = line.match(/\s+\^[a-zA-Z0-9-]+$/)?.[0] ?? "";
+    return line.slice(0, line.length - nativeId.length) + " <!-- hub-task:" + id + " -->" + nativeId;
+}
+// Resolve only inside the current parent block. Step progress never completes the parent.
+function toggleTaskStep(data, request, createId = () => globalThis.crypto.randomUUID()) {
     const parent = readTaskSnapshot(data, request);
-    const matches = parent.steps.filter(step => normalizedTaskText(step.text) === normalizedTaskText(request.step.text));
+    const matches = parent.steps.filter(step => (!request.step.hubTaskId || step.hubTaskId === request.step.hubTaskId) &&
+        normalizedTaskText(step.text) === normalizedTaskText(request.step.text));
     const expectedLine = parent.line + request.step.line - request.line;
     const step = matches.find(step => step.line === expectedLine) ?? (matches.length === 1 ? matches[0] : null);
     if (!step) throw Error("This Step moved or changed. Refresh the task before checking it.");
+    if (step.hubTaskId && parent.steps.filter(item => item.hubTaskId === step.hubTaskId).length !== 1) {
+        throw Error("This Step was copied with its Hub ID. Resolve the copied identity before checking it.");
+    }
     const eol = data.includes("\r\n") ? "\r\n" : "\n";
     const lines = data.split(/\r?\n/);
     if (step.completed !== request.stepCompleted) {
         lines[step.line] = lines[step.line].replace(/^(\s*(?:[-*+]|\d+[.)])\s+\[)[^\]](\])/, (_all, prefix, suffix) =>
             prefix + (request.stepCompleted ? "x" : " ") + suffix);
+        if (request.stepCompleted) {
+            lines[parent.line] = withIdentity(lines[parent.line], parent.hubTaskId ?? createId());
+            lines[step.line] = withIdentity(lines[step.line], step.hubTaskId ?? createId());
+        }
     }
     const content = lines.join(eol);
     const saved = readTaskSnapshot(content, { ...request, line: parent.line });
     return { content, edit: { operation: "step", path: request.path, line: parent.line,
         requestLine: request.line, oldText: request.text, hubTaskId: parent.hubTaskId,
-        tasks: [{ line: saved.line, text: saved.text, status: saved.status, completed: saved.completed, steps: saved.steps }],
+        tasks: [{ line: saved.line, text: saved.text, hubTaskId: saved.hubTaskId, status: saved.status, completed: saved.completed, steps: saved.steps }],
+        progressTransitions: step.completed === request.stepCompleted ? [] : [{ kind: "step",
+            hubTaskId: saved.steps.find(item => item.line === step.line).hubTaskId,
+            parentTaskId: saved.hubTaskId, parentText: parent.text, text: step.text,
+            line: step.line, completed: request.stepCompleted }],
         lineDelta: 0, changed: content !== data, wasCompleted: parent.completed, completed: saved.completed } };
 }
 
-function saveTaskSnapshot(data, snapshot, values, id = snapshot.hubTaskId) {
+function saveTaskSnapshot(data, snapshot, values, id = snapshot.hubTaskId, createId = () => globalThis.crypto.randomUUID()) {
     const current = readTaskSnapshot(data, snapshot);
     if (current.block !== snapshot.block) throw Error("This task or its Steps changed in the note. Reopen the task before saving.");
     const eol = data.includes("\r\n") ? "\r\n" : "\n";
@@ -154,8 +172,14 @@ function saveTaskSnapshot(data, snapshot, values, id = snapshot.hubTaskId) {
     let replacement = [];
     if (!deleting) {
         const text = singleTaskText(values.text);
-        const requested = values.steps ?? snapshot.steps;
+        const requested = (values.steps ?? snapshot.steps).map(step => ({ ...step }));
         const existing = new Map(snapshot.steps.map(step => [step.line, step]));
+        for (const step of requested) {
+            if (step.completed && (!existing.get(step.line)?.completed || step.completedAt)) {
+                id ??= createId();
+                step.hubTaskId = existing.get(step.line)?.hubTaskId ?? createId();
+            }
+        }
         const seen = new Set();
         for (const step of requested) {
             singleTaskText(step.text);
@@ -177,9 +201,9 @@ function saveTaskSnapshot(data, snapshot, values, id = snapshot.hubTaskId) {
             const update = updates.get(originalLine);
             if (!update) return [value];
             const before = existing.get(originalLine);
-            if (update.completed === before.completed && update.text === before.text) return [value];
+            if (update.completed === before.completed && update.text === before.text && !update.completedAt) return [value];
             const marker = update.completed === before.completed ? before.status : update.completed ? "x" : " ";
-            const stepId = taskIdentity(value);
+            const stepId = taskIdentity(value) ?? update.hubTaskId;
             const stepText = singleTaskText(update.text);
             const nativeId = stepText.match(/\s+\^[a-zA-Z0-9-]+$/)?.[0] ?? "";
             const title = nativeId ? stepText.slice(0, -nativeId.length) : stepText;
@@ -188,16 +212,28 @@ function saveTaskSnapshot(data, snapshot, values, id = snapshot.hubTaskId) {
         });
         const whitespace = block[0].match(/^[ \t]*/)[0] + "    ";
         replacement.push(...requested.filter(step => step.line == null).map(step =>
-            `${whitespace}- [${step.completed ? "x" : " "}] ${singleTaskText(step.text)}`));
+            `${whitespace}- [${step.completed ? "x" : " "}] ${singleTaskText(step.text)}${step.hubTaskId ? ` <!-- hub-task:${step.hubTaskId} -->` : ""}`));
     }
     lines.splice(current.line, current.end - current.line, ...replacement);
     const content = lines.join(eol);
     const saved = deleting ? null : readTaskSnapshot(content, { path: snapshot.path, line: current.line, text: values.text, hubTaskId: id });
+    const progressTransitions = [];
+    if (saved) {
+        // Editor checkbox changes commit on Save, with the time of the action.
+        for (const [index, step] of [...(values.steps ?? snapshot.steps)].sort((a, b) => (a.line ?? Infinity) - (b.line ?? Infinity)).entries()) {
+            const before = snapshot.steps.find(item => item.line === step.line);
+            if (!!before?.completed === !!step.completed && !step.completedAt) continue;
+            const after = saved.steps[index];
+            progressTransitions.push({ kind: "step", hubTaskId: after.hubTaskId,
+                parentTaskId: saved.hubTaskId, parentText: saved.text, text: after.text,
+                line: after.line, completed: after.completed, ...(step.completedAt ? { timestamp: step.completedAt } : {}) });
+        }
+    }
     return { content, edit: { operation: deleting ? "delete" : "edit", path: snapshot.path,
         line: current.line, requestLine: snapshot.line, oldText: snapshot.text, hubTaskId: snapshot.hubTaskId,
         tasks: saved ? [{ ...saved, ...taskMetadata(values), lineCount: saved.end - saved.line }] : [],
         lineDelta: replacement.length - (current.end - current.line), removedLines: current.end - current.line,
-        changed: content !== data, wasCompleted: current.completed, completed: !!saved?.completed,
+        changed: content !== data, progressTransitions, wasCompleted: current.completed, completed: !!saved?.completed,
         preserveContinuation: false } };
 }
 

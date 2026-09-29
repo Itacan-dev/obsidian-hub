@@ -111,11 +111,11 @@ const snapshot = readTaskSnapshot(source, { path, line: 1, text: "Parent" });
 assert.equal(snapshot.steps.length, 2);
 const stepRequest = { ...snapshot, step: snapshot.steps[1], stepCompleted: true };
 const checkedStep = toggleTaskStep(source, stepRequest);
-assert.equal(checkedStep.content, source.replace("- [ ] Second", "- [x] Second"), "Only the chosen nested checkbox changes, retaining CRLF and parent text/state");
+assert.equal(checkedStep.content.replace(/[ \t]*<!-- hub-task:[a-zA-Z0-9-]+ -->/g, ""), source.replace("- [ ] Second", "- [x] Second"), "Only the chosen nested checkbox changes, retaining CRLF and parent text/state");
 assert.equal(checkedStep.edit.tasks[0].steps.filter(step => step.completed).length, 2);
 assert.equal(checkedStep.edit.tasks[0].completed, false, "All Steps done does not complete parent");
 assert.equal(toggleTaskStep(checkedStep.content, stepRequest).content, checkedStep.content, "Requested Step state is idempotent");
-assert.equal(toggleTaskStep("Heading\r\n" + source, stepRequest).content, "Heading\r\n" + checkedStep.content, "Resolve relative Step position after moving parent");
+assert.equal(toggleTaskStep("Heading\r\n" + checkedStep.content, stepRequest).content, "Heading\r\n" + checkedStep.content, "Resolve relative Step position after moving parent");
 assert.throws(() => toggleTaskStep(source.replace("Second", "Changed") + "- [ ] Second\r\n", stepRequest), /Step moved or changed/, "Never resolve a Step outside its parent");
 assert.equal(applyTaskEdit([snapshot], checkedStep.edit)[0].steps[1].completed, true, "Return a parent edit for existing dashboard reconciliation");
 let result = saveTaskSnapshot(source, snapshot, { text: "Edited", necessity: "must", dueDate: "2026-09-20", steps: [

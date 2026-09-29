@@ -21,6 +21,7 @@ HTMLElement.prototype.setText=function(t){this.textContent=t};
 let opened;
 class Modal{constructor(){this.modalEl=document.body.createDiv({cls:'modal'});this.contentEl=this.modalEl.createDiv()}open(){opened=this;this.onOpen()}close(){this.onClose();this.modalEl.remove()}}
 const fixtureIcons={
+ 'circle-check':'<circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/>',
  'square-check':'<rect x="3" y="3" width="18" height="18" rx="2"/><path d="m9 12 2 2 4-4"/>',
  'rotate-ccw-clock':'<path d="M2 12a10 10 0 1 0 2.93-7.07L2 8m0-6v6h6"/><path d="M12 7v5l4 2"/>',
  target:'<circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/>',
@@ -42,7 +43,7 @@ const code=source.slice(source.indexOf('class FocusListEditor'),source.indexOf('
 const Report=new Function('Modal','PROJECT_ADVANCEMENT_OPTIONS','progressRatingOptions','createImmediateHubTooltip','setIcon','Notice','normalizeFocusItems','renderReportEvidence','focusSection',code+';return ProjectAdvancementModal;')(
  Modal,config.PROJECT_ADVANCEMENT_OPTIONS,config.progressRatingOptions,tooltips.createImmediateHubTooltip,setIcon,class{constructor(message){throw Error(message)}},focus.normalizeFocusItems,ui.renderReportEvidence,ui.focusSection);
 const date='2026-09-14',timestamp=new Date(2026,8,14,10,23).getTime();
-const context={version:1,tasks:[{text:'Finish the historical report view',timestamp},{text:'Review completion records',timestamp:timestamp+600000}],activity:[{action:'created',title:'Daily reports',timestamp},{action:'edited',title:'Progress interface',timestamp}],focus:['Make completed reports useful as daily records.']};
+const context={version:1,tasks:[{kind:'step',parentText:'Assignment 5',text:'1a',timestamp:timestamp+300000},{text:'Finish the historical report view',timestamp},{text:'Review completion records',timestamp:timestamp+600000}],activity:[{action:'created',title:'Daily reports',timestamp},{action:'edited',title:'Progress interface',timestamp}],focus:['Make completed reports useful as daily records.']};
 const empty={version:1,tasks:[],activity:[],focus:[]};
 const reports=[{date,projectId:'p',projectName:'Itacan',score:3,summary:'Completed the daily report layout and checked historical task records.',context},
  {date,projectId:'q',projectName:'Research',score:2,summary:'Reviewed the approach and recorded next steps.',context:empty}];
@@ -88,7 +89,14 @@ try{
  assert(root.querySelectorAll('.hub-report-focus .hub-report-section-icon')[1].dataset.icon==='circle-arrow-right','Next focus uses CircleArrowRight');
  assert(root.querySelector('.hub-report-rating').textContent==='3/4','Rating shown');
  assert(!root.querySelector('input,textarea'),'Historical view is read only');
- assert(root.querySelectorAll('.hub-report-check').length===2,'Tasks visible without disclosure');
+ assert(root.querySelectorAll('.hub-report-check').length===3,'Task progress visible without disclosure');
+ const progress=root.querySelector('.hub-report-task-list');
+ assert(progress.getAttribute('aria-label')==='Task progress','Unified progress heading');
+ const progressRows=[...progress.children];
+ assert(progressRows.map(row=>row.querySelector('.hub-report-text').textContent).join('|')==='Finish the historical report view|Assignment 5 \u00b7 1a|Review completion records','Task and Step chronology, concise contextual labels');
+ assert(progressRows[1].querySelector('[data-icon=circle-check].is-step-progress'),'Steps use CircleCheck');
+ assert(progressRows[0].querySelector('[data-icon=square-check]:not(.is-step-progress)'),'Legacy whole tasks retain square check');
+ assert(getComputedStyle(progressRows[1].querySelector('.hub-report-check')).color==='rgb(137, 85, 237)'&&getComputedStyle(progressRows[0].querySelector('.hub-report-check')).color==='rgb(98, 180, 120)','Existing purple accent and whole-task green');
  assert(root.querySelector('time').dateTime===new Date(timestamp).toISOString(),'Uses completion timestamp');
  assert(root.textContent.includes('No focus set for this day.')&&root.textContent.includes('No next focus recorded.'),'Restrained empty focus states');
  assert(root.textContent.includes('Writing: Draft the introduction.'),'Next focus outside reported scope retained with label');
@@ -101,16 +109,25 @@ try{
 
  let saved;
  const project={projectId:'p',name:'Itacan'},resource={projectId:'resource:study',name:'Knowledge',resourceType:'study'};
- const many={...context,tasks:Array.from({length:20},(_,i)=>({text:'Completed task '+i,timestamp}))};
- const editor=new Report({}, {projects:[project],resources:[resource],reportContexts:{p:many,'resource:study':empty},
+ const many={...context,tasks:[...context.tasks,...Array.from({length:20},(_,i)=>({text:'Completed task '+i,timestamp:timestamp+900000+i}))]};
+ let liveContexts={p:many,'resource:study':empty};
+ const editor=new Report({}, {getReportContexts:()=>liveContexts,projects:[project],resources:[resource],reportContexts:{p:many,'resource:study':empty},
  currentScores:{p:3,'resource:study':1},currentSummaries:{p:'Keep summary'},showNextFocus:true,focusProjects:[project,resource],
  currentFocus:[nextFocus[0]],allowNoProgress:true,onSave:async value=>{saved=value}});editor.open();
  const row=editor.contentEl.querySelector('[data-project-id=p]');
  assert(row.querySelector('.hub-report-evidence').compareDocumentPosition(row.querySelector('.hub-project-advancement-choices')) & Node.DOCUMENT_POSITION_FOLLOWING,'Evidence precedes rating');
  const list=row.querySelector('.hub-report-task-list');assert(list.scrollHeight>list.clientHeight&&list.clientHeight<=132,'Many tasks stay compact and scroll');
- assert(editor.contentEl.textContent.includes('No completed tasks for this day.'),'Empty workspace context');
+ assert(editor.contentEl.textContent.includes('No task progress recorded for this day.'),'Empty workspace context');
+ assert(row.querySelector('[data-icon=circle-check]')&&row.querySelector('[data-icon=square-check]'),'Edit report includes both progress kinds');
  assert(editor.saveButton.textContent==='Save & close','Save workflow retained');
  assert(editor.contentEl.querySelector('textarea').placeholder==='Summarise progress on Itacan','Concise interpolated placeholder');
+ const draftSummary=editor.contentEl.querySelector('textarea');
+ draftSummary.value='Unsaved reflection';
+ liveContexts={p:{...many,tasks:many.tasks.filter(task=>task.kind!=='step')},'resource:study':empty};
+ document.dispatchEvent(new CustomEvent('hub-completed-tasks-changed'));
+ assert(!row.querySelector('[data-icon=circle-check]'),'Uncheck updates open unsaved progress evidence');
+ assert(draftSummary.value==='Unsaved reflection','Live evidence refresh preserves unsaved reflection');
+ draftSummary.value='Keep summary';
  await editor.save();assert(saved.scores.p===3&&saved.summaries.p==='Keep summary'&&saved.focus[0].text===nextFocus[0].text,'Rating summary and shared focus save unchanged');
 
  // Exercise the production calendar handlers with project, resource and workspace scopes.

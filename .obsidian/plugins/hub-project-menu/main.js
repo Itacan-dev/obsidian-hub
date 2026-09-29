@@ -849,6 +849,53 @@ module.exports = {
 };
 
 },
+"lib/domain/brief-recommendations.js": function (module, exports, __hubRequire) {
+"use strict";
+
+/** @typedef {{title:string, explanation:string, actionLabel:string, secondaryLabel?:string, target: import('./daily-brief').BriefTarget, reason:string}} BriefRecommendation */
+/** @typedef {{getRecommendation(context: import('./daily-brief').DailyBriefContext): BriefRecommendation|null|Promise<BriefRecommendation|null>}} BriefRecommendationProvider */
+
+// A future Athena provider can consume the same facts; the modal only sees this contract.
+class RulesRecommendationProvider {
+    getRecommendation(context) {
+        if (!context.lastWorkDate) return null;
+        const completed = context.workspaces.flatMap(workspace => workspace.taskProgress).find(event =>
+            event.kind !== "step" && !context.relevantTasks.some(task => !task.completed &&
+                (event.hubTaskId ? task.hubTaskId === event.hubTaskId : task.path === event.path && task.text === event.text)));
+        for (const workspace of context.workspaces) {
+            const focus = workspace.nextFocus.find(item => item.available && item.target);
+            if (!focus) continue;
+            const continuing = workspace.continuations.some(({ task }) => focus.target.taskId
+                ? focus.target.taskId === task.hubTaskId
+                : focus.target.path === task.path && focus.target.taskText === task.text);
+            const transition = completed && !continuing;
+            return { title: focus.text, explanation: transition
+                ? `You completed ${completed.text}. Your next recorded focus is ${focus.text}.`
+                : `${focus.text} was your recorded next focus.`,
+                actionLabel: `${transition ? "Start" : "Continue"} ${focus.text}`, secondaryLabel: workspace.workspaceName,
+                target: focus.target, continuation: !transition, reason: "recorded-focus" };
+        }
+        for (const workspace of context.workspaces) {
+            const continuation = workspace.continuations[0];
+            if (!continuation) continue;
+            const { task, nextStep } = continuation;
+            return { title: task.text, explanation: nextStep
+                ? `${task.text} is unfinished. ${nextStep.text} is the next remaining step.`
+                : `${task.text} is unfinished and received progress during your last work.`,
+                actionLabel: `Continue ${task.text}`, secondaryLabel: workspace.workspaceName,
+                target: { kind: "file", workspaceId: workspace.workspaceId, path: task.path, taskText: task.text, taskLine: task.line,
+                    ...(nextStep ? { stepText: nextStep.text } : {}),
+                    ...(task.hubTaskId ? { taskId: task.hubTaskId } : {}), ...(nextStep?.hubTaskId ? { stepId: nextStep.hubTaskId } : {}) },
+                continuation: true, reason: "unfinished-progress" };
+        }
+        return { title: "Today's tasks", explanation: "There isn't a clear next action from your recent work.",
+            actionLabel: context.oathState?.active ? "View Oath tasks" : "View today's tasks",
+            target: context.fallbackTarget, reason: "no-clear-action" };
+    }
+}
+module.exports = { RulesRecommendationProvider };
+
+},
 "lib/domain/contexts.js": function (module, exports, __hubRequire) {
 "use strict";
 
@@ -952,6 +999,192 @@ module.exports = {
 };
 
 },
+"lib/domain/daily-brief.js": function (module, exports, __hubRequire) {
+"use strict";
+const { localISODate, parseLocalISODate, itacanDay } = __hubRequire("lib/domain/dates.js");
+const { reportDay, captureReportContext } = __hubRequire("lib/domain/report-context.js");
+const { taskIsFuture, taskIsOverdue } = __hubRequire("lib/domain/task-planning.js");
+const { normalizedTaskText } = __hubRequire("lib/domain/tasks.js");
+
+/** @typedef {{kind: 'home'|'workspace'|'file'|'configuration', workspaceId?: string, path?: string, taskId?: string, stepId?: string, taskText?: string, taskLine?: number, stepText?: string}} BriefTarget */
+/**
+ * @typedef {Object} DailyBriefContext
+ * @property {string} briefDate Local 06:00 day key; report dates keep their existing midnight boundary.
+ * @property {string|null} lastWorkDate
+ * @property {Array} days Meaningful historical dates, newest first, with ranked workspace facts.
+ * @property {Array} workspaces Workspace facts for lastWorkDate.
+ * @property {Array} relevantTasks Task facts reconstructed from recorded completions at the day boundary where possible.
+ * @property {Array} overdueTasks
+ * @property {Object|null} oathState
+ * @property {BriefTarget} fallbackTarget
+ */
+
+const dailyBriefDay = itacanDay;
+function dailyBriefStart(now = new Date()) {
+    const date = parseLocalISODate(dailyBriefDay(now));
+    date.setHours(6, 0, 0, 0);
+    return date;
+}
+
+// Keep only the displayed recap, bounded to Last work and three earlier dates.
+// The resolved recommendation is part of this artifact; no raw activity or current task trees are copied.
+function dailyBriefSnapshot(context, recommendation) {
+    return JSON.parse(JSON.stringify({ version: 1, dayKey: context.briefDate, recommendation,
+        days: context.days.slice(0, 4).map(day => ({ ...day, workspaces: day.workspaces.map(workspace => ({
+            workspaceId: workspace.workspaceId, workspaceName: workspace.workspaceName, workspaceType: workspace.workspaceType,
+            significance: workspace.significance, progressSummary: workspace.progressSummary, taskProgress: workspace.taskProgress,
+            nextFocus: workspace.nextFocus.map(({ available, ...focus }) => focus), lastRelevantFile: workspace.lastRelevantFile,
+            lastActivityTime: workspace.lastActivityTime, fulfilledOaths: workspace.fulfilledOaths.map(({ id, timestamp }) => ({ id, timestamp }))
+        })) })) }));
+}
+function briefFromSnapshot(snapshot) {
+    const { dayKey, days, recommendation } = JSON.parse(JSON.stringify(snapshot));
+    return { context: { briefDate: dayKey, lastWorkDate: days[0]?.date ?? null,
+        days, workspaces: days[0]?.workspaces ?? [] }, recommendation };
+}
+const identity = value => value.projectId ?? (value.resourceType ? `resource:${value.resourceType}` : null);
+const titleKey = text => normalizedTaskText(text).trim().toLocaleLowerCase();
+const dateOf = value => Number(value) > 0 && Number.isFinite(new Date(Number(value)).getTime())
+    ? localISODate(new Date(Number(value))) : null;
+const byTime = (a, b) => Number(a.timestamp || 0) - Number(b.timestamp || 0);
+
+function meaningfulWorkspace(workspace) {
+    return !!(workspace.progressSummary?.trim() || workspace.significance > 0 ||
+        workspace.taskProgress?.length || workspace.nextFocus?.length || workspace.fulfilledOaths?.length);
+}
+function rankWorkspaces(workspaces) {
+    const relevance = workspace => workspace.nextFocus.some(focus => focus.available) ? 2 : workspace.continuations.length ? 1 : 0;
+    return [...workspaces].sort((a, b) => (b.significance ?? 0) - (a.significance ?? 0) ||
+        relevance(b) - relevance(a) || b.lastActivityTime - a.lastActivityTime || a.workspaceName.localeCompare(b.workspaceName));
+}
+function mergeProgress(records) {
+    const result = new Map();
+    for (const record of records) {
+        const key = `${record.kind ?? "task"}:${record.hubTaskId ?? record.id ??
+            JSON.stringify([record.timestamp, record.path, record.parentText, record.text])}`;
+        if (!result.has(key) || byTime(result.get(key), record) <= 0) result.set(key, { ...record });
+    }
+    return [...result.values()].sort(byTime);
+}
+function matchesProgress(task, event) {
+    const id = event.kind === "step" ? event.parentTaskId : event.hubTaskId;
+    return id ? task.hubTaskId === id : task.path === event.path &&
+        titleKey(task.text) === titleKey(event.kind === "step" ? event.parentText : event.text);
+}
+function fileTarget(task, step) {
+    return { kind: "file", workspaceId: task.workspaceId, path: task.path, taskText: task.text, taskLine: task.line,
+        ...(step ? { stepText: step.text } : {}),
+        ...(task.hubTaskId ? { taskId: task.hubTaskId } : {}), ...(step?.hubTaskId ? { stepId: step.hubTaskId } : {}) };
+}
+
+// Inputs are existing services/selectors; the output is structured factual data.
+// Availability is resolved here so providers never need vault or navigation APIs.
+function buildDailyBriefContext(service, {
+    now = new Date(), workspaces = [], tasks = [], workingConfigurations = [], oathState = null,
+    resolvePath = () => null, resolveLink = () => null, canOpen = () => true
+} = {}) {
+    const briefDate = dailyBriefDay(now), live = new Map(workspaces.map(workspace => [workspace.workspaceId, workspace]));
+    const boundary = dailyBriefStart(now), cutoff = boundary.getTime();
+    const history = service.completedTaskHistory ?? [];
+    const beforeStart = record => Number(record.timestamp) > 0 && Number(record.timestamp) < cutoff;
+    // A recorded completion after 06:00 must not erase the unfinished continuation
+    // when the first brief is opened late. Untimestamped edits cannot be reconstructed.
+    const completedAtBoundary = (item, parent = null) => {
+        const records = history.filter(event => parent ? event.kind === "step" && (item.hubTaskId
+            ? event.hubTaskId === item.hubTaskId : matchesProgress(parent, event) && titleKey(event.text) === titleKey(item.text))
+            : event.kind !== "step" && matchesProgress(item, event));
+        return records.some(event => Number(event.timestamp) >= cutoff && Number(event.timestamp) <= now.getTime())
+            ? records.some(beforeStart) : item.completed;
+    };
+    const relevantTasks = tasks.map(original => {
+        const task = { ...original, completed: completedAtBoundary(original),
+            steps: (original.steps ?? []).map(step => ({ ...step, completed: completedAtBoundary(step, original) })) };
+        const workspace = live.get(task.workspaceId), path = resolvePath(task.path);
+        return { ...task, path: path ?? task.path, steps: (task.steps ?? []).map(step => ({ ...step })),
+            available: !!workspace?.available && !!path && !task.completed && !task.identityConflict &&
+                !taskIsFuture(task, boundary) && canOpen(path),
+            future: taskIsFuture(task, boundary) };
+    });
+    const reports = [...service.getProgressReports(), ...service.getProgressReports({ kind: "resource" })];
+    const oaths = new Map();
+    for (const bucket of Object.values(service.data?.oathsByDevice ?? {})) {
+        for (const oath of [...(bucket.history ?? []), bucket.current].filter(Boolean)) {
+            if (!(oath.fulfilledAt > 0 || oath.state === "fulfilled") || !oath.workspace) continue;
+            const timestamp = oath.fulfilledAt || oath.completedAt;
+            if (!dateOf(timestamp)) continue;
+            oaths.set(oath.id, { ...oath, timestamp, projectId: oath.workspace.type === "resource"
+                ? `resource:${oath.workspace.id}` : oath.workspace.id });
+        }
+    }
+    const dates = new Set([...reports.map(report => report.date), ...history.map(event => dateOf(event.timestamp)),
+        ...Object.keys(service.data?.reportFocusByDate ?? {}), service.pendingFocus?.sourceDate,
+        ...[...oaths.values()].map(oath => dateOf(oath.timestamp))]);
+    const focusFact = (item, workspace) => {
+        const matches = relevantTasks.filter(task => task.workspaceId === item.projectId).flatMap(task => {
+            if (titleKey(task.text) === titleKey(item.text)) return [{ task, step: null }];
+            return task.steps.filter(step => titleKey(step.text) === titleKey(item.text)).map(step => ({ task, step }));
+        });
+        if (matches.length) {
+            const match = matches.length === 1 ? matches[0] : null;
+            return { ...item, available: !!match?.task.available && !match?.step?.completed,
+                target: match ? fileTarget(match.task, match.step) : null };
+        }
+        const link = item.text.match(/\[\[([^\]|#]+)(?:[^\]]*)\]\]/)?.[1];
+        const path = link ? resolveLink(link, workspace?.path) : null;
+        return { ...item, available: !!workspace?.available && (link ? !!path && canOpen(path) : canOpen(workspace.path)),
+            target: link ? (path ? { kind: "file", workspaceId: item.projectId, path } : null)
+                : workspace ? { kind: "workspace", workspaceId: item.projectId, path: workspace.path } : null };
+    };
+    const days = [...dates].filter(date => parseLocalISODate(date) && date <= briefDate).sort().reverse().map(date => {
+        const dayReports = reports.filter(report => report.date === date &&
+            (date < briefDate ? !Number(report.timestamp) || beforeStart(report) : beforeStart(report) && dateOf(report.timestamp) === date));
+        const dayHistory = history.filter(event => dateOf(event.timestamp) === date && beforeStart(event));
+        const source = { ...service, getProgressReports: () => dayReports, completedTaskHistory: dayHistory };
+        const day = reportDay(source, date);
+        const focusRecord = service.data?.reportFocusByDate?.[date] ??
+            (service.pendingFocus?.sourceDate === date ? service.pendingFocus : null);
+        if (Number(focusRecord?.timestamp) >= cutoff || date === briefDate && !dayReports.length && !beforeStart(focusRecord ?? {})) day.nextFocus = [];
+        const dayOaths = [...oaths.values()].filter(oath => dateOf(oath.timestamp) === date && beforeStart(oath));
+        const ids = new Set([...dayReports.map(identity), ...dayHistory.map(identity), ...day.nextFocus.map(identity), ...dayOaths.map(identity)]);
+        const facts = [...ids].filter(Boolean).map(id => {
+            const workspace = live.get(id), report = day.reports.find(report => identity(report) === id);
+            const events = dayHistory.filter(event => identity(event) === id);
+            const progress = mergeProgress([...(report?.context.tasks ?? []).filter(beforeStart), ...captureReportContext(source, date, id).tasks]);
+            const nextFocus = day.nextFocus.filter(item => item.projectId === id).map(item => focusFact(item, workspace));
+            const fulfilledOaths = dayOaths.filter(oath => oath.projectId === id);
+            const continuations = relevantTasks.filter(task => task.available && task.workspaceId === id &&
+                progress.some(event => event.kind === "step" && matchesProgress(task, event)))
+                .map(task => ({ task, nextStep: task.steps.find(step => !step.completed) ?? null,
+                    lastProgressAt: Math.max(...progress.filter(event => matchesProgress(task, event)).map(event => Number(event.timestamp) || 0)) }))
+                .sort((a, b) => b.lastProgressAt - a.lastProgressAt);
+            const activity = (service.activityLog ?? []).filter(event => identity(event) === id && dateOf(event.timestamp) === date && beforeStart(event));
+            const workingConfiguration = workingConfigurations.find(item => item.contextId === id) ?? null;
+            const leaves = [];
+            const visit = node => { if (node?.type === "leaf") leaves.push(node); for (const child of node?.children ?? []) visit(child); };
+            visit(workingConfiguration?.layout?.main);
+            const active = leaves.find(leaf => leaf.id === workingConfiguration?.layout?.active);
+            const lastRelevantFile = active?.state?.state?.file;
+            const focusRecord = service.data?.reportFocusByDate?.[date];
+            return { workspaceId: id, workspaceName: report?.projectName ?? events[0]?.projectName ??
+                nextFocus[0]?.projectName ?? fulfilledOaths[0]?.workspace.name ?? workspace?.name ?? "Unavailable workspace",
+                workspaceType: id.startsWith("resource:") ? "resource" : "project",
+                significance: report?.score ?? 0, progressSummary: report?.summary?.trim() ?? "",
+                taskProgress: progress, nextFocus, continuations, fulfilledOaths, workingConfiguration,
+                lastRelevantFile: lastRelevantFile && lastRelevantFile !== workingConfiguration.hubPath ? { kind: "file", workspaceId: id, path: lastRelevantFile } : null,
+                lastActivityTime: Math.max(0, Number(report?.timestamp) || 0, Number(focusRecord?.timestamp) || 0,
+                    ...progress.map(event => Number(event.timestamp) || 0), ...activity.map(event => Number(event.timestamp) || 0),
+                    ...fulfilledOaths.map(oath => oath.timestamp)) };
+        }).filter(meaningfulWorkspace);
+        return { date, workspaces: rankWorkspaces(facts), hasReport: !!day.reports.length };
+    }).filter(day => day.workspaces.length);
+    const oathWorkspace = oathState?.active && live.get(oathState.workspaceId);
+    const fallbackTarget = oathWorkspace?.available ? { kind: "workspace", workspaceId: oathWorkspace.workspaceId, path: oathWorkspace.path } : { kind: "home" };
+    return { briefDate, lastWorkDate: days[0]?.date ?? null, days, workspaces: days[0]?.workspaces ?? [],
+        relevantTasks, overdueTasks: relevantTasks.filter(task => task.available && taskIsOverdue(task, boundary)), oathState, fallbackTarget };
+}
+module.exports = { dailyBriefDay, dailyBriefStart, dailyBriefSnapshot, briefFromSnapshot, meaningfulWorkspace, rankWorkspaces, buildDailyBriefContext, matchesProgress };
+
+},
 "lib/domain/dates.js": function (module, exports, __hubRequire) {
 "use strict";
 
@@ -961,6 +1194,13 @@ function localISODate(date = new Date()) {
     const day = String(date.getDate()).padStart(2, "0");
 
     return `${year}-${month}-${day}`;
+}
+
+// Itacan's local work day starts at 06:00; calendar arithmetic preserves DST.
+function itacanDay(now = new Date()) {
+    const date = new Date(now);
+    if (date.getHours() < 6) date.setDate(date.getDate() - 1);
+    return localISODate(date);
 }
 
 function parseLocalISODate(value) {
@@ -1041,6 +1281,7 @@ function taskDateRangeLabel(fromDate, fromTime, dueDate, dueTime, now = new Date
 }
 
 module.exports = {
+    itacanDay,
     taskDateRangeLabel,
     validLocalTime,
     localDateTime,
@@ -1590,6 +1831,9 @@ function captureReportContext(service, date, id) {
         version: 1,
         tasks: select(service.completedTaskHistory).map(task => ({
             id: task.id ?? null, text: task.text, timestamp: task.timestamp,
+            ...(task.kind ? { kind: task.kind } : {}),
+            ...(task.hubTaskId ? { hubTaskId: task.hubTaskId } : {}),
+            ...(task.kind === "step" ? { parentTaskId: task.parentTaskId, parentText: task.parentText } : {}),
             ...(task.path ? { path: task.path } : {})
         })).sort((a, b) => a.timestamp - b.timestamp),
         activity: select(service.activityLog).map(item => ({
@@ -1633,6 +1877,160 @@ function activitySummary(entries) {
 module.exports = { captureReportContext, savedReportContext, reportDay, activitySummary };
 
 },
+"lib/domain/statistics.js": function (module, exports, __hubRequire) {
+"use strict";
+
+const { localISODate } = __hubRequire("lib/domain/dates.js");
+const { historyKind } = __hubRequire("lib/domain/history.js");
+
+const RANGES = [["7d", "7 days"], ["30d", "30 days"], ["3m", "3 months"], ["1y", "1 year"], ["all", "All time"]];
+const DAY = 86400000;
+const validTime = value => Number.isFinite(value) && value > 0 && value <= 8640000000000000;
+const dayStart = value => { const date = new Date(value); date.setHours(0, 0, 0, 0); return date; };
+const nextDay = value => { const date = dayStart(value); date.setDate(date.getDate() + 1); return +date; };
+const calendarDay = value => { const date = new Date(value); return Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) / DAY; };
+const list = value => Array.isArray(value) ? value.filter(Boolean) : [];
+
+function formatDuration(ms) {
+    if (!Number.isFinite(ms) || ms <= 0) return "0 m";
+    const minutes = Math.floor(ms / 60000);
+    if (!minutes) return "<1 m";
+    return minutes < 60 ? `${minutes} m` : `${Math.floor(minutes / 60)} h ${minutes % 60} m`;
+}
+
+// Notes are Markdown content in Itacan workspaces, excluding dashboard and
+// implementation metadata. Filesystem creation dates describe surviving notes;
+// they cannot reconstruct deleted notes or historical vault totals.
+function isStatisticsNote(path, { dashboardPaths = new Set(), frontmatter = {} } = {}) {
+    if (typeof path !== "string" || !/^(Projects|Resources)\/.+\.md$/i.test(path)) return false;
+    if (dashboardPaths.has(path) || ["project", "resource"].includes(frontmatter?.type)) return false;
+    const parts = path.split("/");
+    return !parts.some(part => part.startsWith(".") || part === "Meta") &&
+        !/^(AGENTS|SKILL|README)\.md$/i.test(parts[parts.length - 1]);
+}
+
+function statisticsRange(key, now, earliest) {
+    const today = dayStart(now), start = new Date(today);
+    if (key === "7d" || key === "30d") start.setDate(start.getDate() - (key === "7d" ? 6 : 29));
+    else if (key === "3m" || key === "1y") {
+        // Clamp calendar subtraction at month ends (including leap years).
+        const day = start.getDate(); start.setDate(1);
+        start.setMonth(start.getMonth() - (key === "3m" ? 3 : 12));
+        const last = new Date(start.getFullYear(), start.getMonth() + 1, 0).getDate();
+        start.setDate(Math.min(day, last)); start.setDate(start.getDate() + 1);
+    } else if (key === "all" && validTime(earliest)) start.setTime(+dayStart(Math.min(earliest, now)));
+    const days = Math.max(1, calendarDay(today) - calendarDay(start) + 1);
+    // All charts share these bounded, local-calendar bins. DST days need not be 24h.
+    const binDays = days <= 100 ? 1 : days <= 730 ? 7 : Math.ceil(days / 80);
+    const bins = [];
+    for (let cursor = +start; cursor < nextDay(today);) {
+        const date = new Date(cursor); date.setDate(date.getDate() + binDays);
+        const end = Math.min(+date, nextDay(today));
+        bins.push({ start: cursor, end, date: localISODate(new Date(cursor)) }); cursor = end;
+    }
+    return { key, start: +start, end: nextDay(today), now, days, binDays, bins };
+}
+
+function uniqueRecords(records) {
+    const seen = new Set();
+    return records.filter(record => {
+        if (!record.id) return true;
+        if (seen.has(record.id)) return false;
+        seen.add(record.id); return true;
+    });
+}
+
+function prepareStatistics({ workspaces = [], activity = [], completions = [], oaths = [], notes = [] } = {}, now = Date.now()) {
+    const registry = new Map();
+    for (const workspace of list(workspaces)) {
+        if (!workspace.projectId) continue;
+        const kind = historyKind(workspace), key = `${kind}:${workspace.projectId}`;
+        registry.set(key, { ...workspace, key, kind, name: workspace.name ?? workspace.label ?? "Unnamed workspace", deleted: false });
+    }
+    function identify(record) {
+        const kind = historyKind(record), id = record.projectId;
+        // Never associate a legacy record by display name/path with a newly
+        // created workspace. Stable IDs survive renaming and shelving.
+        const key = id ? `${kind}:${id}` : `${kind}:unassigned`;
+        if (!registry.has(key)) registry.set(key, {
+            key, kind, projectId: id ?? null, deleted: !!id,
+            name: id ? record.projectName ?? record.project ?? "Deleted workspace" : "Unassigned",
+            status: id ? "deleted" : "unassigned"
+        });
+        return key;
+    }
+    const completionRecords = uniqueRecords(list(completions)).filter(record => validTime(record.timestamp) && record.timestamp <= now)
+        .map(record => ({ ...record, key: identify(record), kind: record.kind === "step" ? "step" : "task" }));
+    const work = list(activity).filter(record => ["created", "edited"].includes(record.action) &&
+        isStatisticsNote(record.path) && validTime(record.timestamp) && record.timestamp <= now)
+        .map(record => ({ timestamp: record.timestamp, key: identify(record) }));
+    work.push(...completionRecords.map(record => ({ timestamp: record.timestamp, key: record.key })));
+    const sessions = uniqueRecords(list(oaths)).filter(record => ["fulfilled", "broken"].includes(record.state) &&
+        validTime(record.startedAt) && validTime(record.completedAt) && record.completedAt >= record.startedAt && record.completedAt <= now)
+        .map(record => {
+            const workspace = record.workspace, kind = workspace?.type === "resource" ? "resource" : "project";
+            const id = workspace?.id ? kind === "resource" ? `resource:${workspace.id.replace(/^resource:/, "")}` : workspace.id : record.projectId;
+            return { ...record, key: identify({ projectId: id, projectName: workspace?.name ?? record.projectName, contextKind: kind }) };
+        });
+    const currentNotes = list(notes);
+    const creations = currentNotes.filter(note => validTime(note.createdAt) && note.createdAt <= now);
+    let earliest = now;
+    for (const record of [...work, ...sessions, ...creations]) earliest = Math.min(earliest, record.timestamp ?? record.startedAt ?? record.createdAt);
+    const lastActive = new Map();
+    for (const record of work) lastActive.set(record.key, Math.max(lastActive.get(record.key) ?? 0, record.timestamp));
+    for (const record of sessions) lastActive.set(record.key, Math.max(lastActive.get(record.key) ?? 0, record.completedAt));
+    return { registry, work, completions: completionRecords, sessions, notes: creations, totalNotes: currentNotes.length, earliest, lastActive, now };
+}
+
+function aggregateStatistics(source, rangeKey = "3m") {
+    const range = statisticsRange(rangeKey, source.now, source.earliest);
+    const empty = () => range.bins.map(() => 0), inside = time => time >= range.start && time < range.end && time <= source.now;
+    const index = time => Math.min(range.bins.length - 1, Math.floor((calendarDay(time) - calendarDay(range.start)) / range.binDays));
+    const byWorkspace = new Map([...source.registry].map(([key, workspace]) => [key, {
+        ...workspace, time: 0, activity: empty(), tasks: empty(), steps: empty(), lastActive: source.lastActive.get(key) ?? null
+    }]));
+    const oath = { values: empty(), total: 0, taken: 0, fulfilled: 0 };
+    for (const record of source.work) if (inside(record.timestamp)) byWorkspace.get(record.key).activity[index(record.timestamp)]++;
+    for (const record of source.completions) if (inside(record.timestamp)) {
+        byWorkspace.get(record.key)[record.kind === "step" ? "steps" : "tasks"][index(record.timestamp)]++;
+    }
+    for (const session of source.sessions) {
+        if (inside(session.startedAt)) { oath.taken++; if (session.state === "fulfilled") oath.fulfilled++; }
+        const start = Math.max(session.startedAt, range.start), end = Math.min(session.completedAt, range.end, source.now);
+        if (end <= start) continue;
+        byWorkspace.get(session.key).time += end - start; oath.total += end - start;
+        for (let bin = index(start); bin < range.bins.length && range.bins[bin].start < end; bin++) {
+            oath.values[bin] += Math.max(0, Math.min(end, range.bins[bin].end) - Math.max(start, range.bins[bin].start));
+        }
+    }
+    const note = { values: empty(), total: source.totalNotes, created: 0, largest: 0, largestDate: null }, dailyNotes = new Map();
+    for (const item of source.notes) if (inside(item.createdAt)) {
+        note.values[index(item.createdAt)]++; note.created++;
+        const date = localISODate(new Date(item.createdAt)); dailyNotes.set(date, (dailyNotes.get(date) ?? 0) + 1);
+    }
+    for (const [date, count] of [...dailyNotes].sort(([a], [b]) => a.localeCompare(b))) if (count > note.largest) { note.largest = count; note.largestDate = date; }
+    note.average = note.created / range.days;
+    const rows = [...byWorkspace.values()];
+    const projects = rows.filter(row => row.kind === "project").sort((a, b) =>
+        (b.lastActive ?? 0) - (a.lastActive ?? 0) || b.time - a.time || a.name.localeCompare(b.name) || a.key.localeCompare(b.key));
+    const projectTime = rows.filter(row => row.kind === "project").reduce((sum, row) => sum + row.time, 0);
+    const resourceTime = rows.filter(row => row.kind === "resource").reduce((sum, row) => sum + row.time, 0);
+    const total = projectTime + resourceTime;
+    const projectPercent = total ? Math.round(projectTime / total * 100) : 0;
+    return { range, rows, projects, oath, note, comparison: { total, projects: projectPercent, resources: total ? 100 - projectPercent : 0 } };
+}
+
+function seriesFor(model, metric, scope) {
+    const values = model.range.bins.map(() => 0);
+    for (const row of model.rows) if (scope === "all" || scope === row.kind || scope === row.key) {
+        row[metric].forEach((value, index) => { values[index] += value; });
+    }
+    return values;
+}
+
+module.exports = { RANGES, formatDuration, isStatisticsNote, statisticsRange, prepareStatistics, aggregateStatistics, seriesFor };
+
+},
 "lib/domain/task-planning.js": function (module, exports, __hubRequire) {
 "use strict";
 const { parseLocalISODate, validLocalTime, localDateTime, taskDateLabel, taskDateRangeLabel } = __hubRequire("lib/domain/dates.js");
@@ -1643,6 +2041,7 @@ function taskMetadata(value = {}) {
         necessity: ["should", "must"].includes(value?.necessity) ? value.necessity : null,
         fromDate: parseLocalISODate(value?.fromDate) ? value.fromDate : null,
         dueDate: parseLocalISODate(value?.dueDate) ? value.dueDate : null,
+        ...(typeof value?.linkedProjectId === "string" && value.linkedProjectId.trim() ? { linkedProjectId: value.linkedProjectId.trim() } : {}),
         ...(parseLocalISODate(value?.fromDate) && validLocalTime(value?.fromTime) ? { fromTime: value.fromTime } : {}),
         ...(parseLocalISODate(value?.dueDate) && validLocalTime(value?.dueTime) ? { dueTime: value.dueTime } : {})
     };
@@ -1743,7 +2142,7 @@ function readTaskSnapshot(data, request) {
         const token = lines[i].trim().match(/^(`{3,}|~{3,})/);
         if (token) { if (!fence) fence = token[1][0]; else if (fence === token[1][0]) fence = null; continue; }
         const child = !fence && taskLineDetails(lines[i]);
-        if (child) steps.push({ line: i, text: taskDisplayText(child.text), completed: /^[xX]$/.test(child.marker),
+        if (child) steps.push({ line: i, text: taskDisplayText(child.text), hubTaskId: taskIdentity(child.text), completed: /^[xX]$/.test(child.marker),
             status: child.marker, indent: indent(lines[i]), end: taskBlockEnd(lines, i) });
     }
     return { path: request.path, line, end, text: taskDisplayText(details.text),
@@ -1758,29 +2157,46 @@ function singleTaskText(value) {
     return text;
 }
 
-// Resolve only inside the current parent block; never toggle a similarly named
-// checkbox elsewhere in the note. Steps do not trigger parent completion/history.
-function toggleTaskStep(data, request) {
+// Retain native block IDs at the end of the Markdown line.
+function withIdentity(line, id) {
+    if (taskIdentity(line)) return line;
+    const nativeId = line.match(/\s+\^[a-zA-Z0-9-]+$/)?.[0] ?? "";
+    return line.slice(0, line.length - nativeId.length) + " <!-- hub-task:" + id + " -->" + nativeId;
+}
+// Resolve only inside the current parent block. Step progress never completes the parent.
+function toggleTaskStep(data, request, createId = () => globalThis.crypto.randomUUID()) {
     const parent = readTaskSnapshot(data, request);
-    const matches = parent.steps.filter(step => normalizedTaskText(step.text) === normalizedTaskText(request.step.text));
+    const matches = parent.steps.filter(step => (!request.step.hubTaskId || step.hubTaskId === request.step.hubTaskId) &&
+        normalizedTaskText(step.text) === normalizedTaskText(request.step.text));
     const expectedLine = parent.line + request.step.line - request.line;
     const step = matches.find(step => step.line === expectedLine) ?? (matches.length === 1 ? matches[0] : null);
     if (!step) throw Error("This Step moved or changed. Refresh the task before checking it.");
+    if (step.hubTaskId && parent.steps.filter(item => item.hubTaskId === step.hubTaskId).length !== 1) {
+        throw Error("This Step was copied with its Hub ID. Resolve the copied identity before checking it.");
+    }
     const eol = data.includes("\r\n") ? "\r\n" : "\n";
     const lines = data.split(/\r?\n/);
     if (step.completed !== request.stepCompleted) {
         lines[step.line] = lines[step.line].replace(/^(\s*(?:[-*+]|\d+[.)])\s+\[)[^\]](\])/, (_all, prefix, suffix) =>
             prefix + (request.stepCompleted ? "x" : " ") + suffix);
+        if (request.stepCompleted) {
+            lines[parent.line] = withIdentity(lines[parent.line], parent.hubTaskId ?? createId());
+            lines[step.line] = withIdentity(lines[step.line], step.hubTaskId ?? createId());
+        }
     }
     const content = lines.join(eol);
     const saved = readTaskSnapshot(content, { ...request, line: parent.line });
     return { content, edit: { operation: "step", path: request.path, line: parent.line,
         requestLine: request.line, oldText: request.text, hubTaskId: parent.hubTaskId,
-        tasks: [{ line: saved.line, text: saved.text, status: saved.status, completed: saved.completed, steps: saved.steps }],
+        tasks: [{ line: saved.line, text: saved.text, hubTaskId: saved.hubTaskId, status: saved.status, completed: saved.completed, steps: saved.steps }],
+        progressTransitions: step.completed === request.stepCompleted ? [] : [{ kind: "step",
+            hubTaskId: saved.steps.find(item => item.line === step.line).hubTaskId,
+            parentTaskId: saved.hubTaskId, parentText: parent.text, text: step.text,
+            line: step.line, completed: request.stepCompleted }],
         lineDelta: 0, changed: content !== data, wasCompleted: parent.completed, completed: saved.completed } };
 }
 
-function saveTaskSnapshot(data, snapshot, values, id = snapshot.hubTaskId) {
+function saveTaskSnapshot(data, snapshot, values, id = snapshot.hubTaskId, createId = () => globalThis.crypto.randomUUID()) {
     const current = readTaskSnapshot(data, snapshot);
     if (current.block !== snapshot.block) throw Error("This task or its Steps changed in the note. Reopen the task before saving.");
     const eol = data.includes("\r\n") ? "\r\n" : "\n";
@@ -1790,8 +2206,14 @@ function saveTaskSnapshot(data, snapshot, values, id = snapshot.hubTaskId) {
     let replacement = [];
     if (!deleting) {
         const text = singleTaskText(values.text);
-        const requested = values.steps ?? snapshot.steps;
+        const requested = (values.steps ?? snapshot.steps).map(step => ({ ...step }));
         const existing = new Map(snapshot.steps.map(step => [step.line, step]));
+        for (const step of requested) {
+            if (step.completed && (!existing.get(step.line)?.completed || step.completedAt)) {
+                id ??= createId();
+                step.hubTaskId = existing.get(step.line)?.hubTaskId ?? createId();
+            }
+        }
         const seen = new Set();
         for (const step of requested) {
             singleTaskText(step.text);
@@ -1813,9 +2235,9 @@ function saveTaskSnapshot(data, snapshot, values, id = snapshot.hubTaskId) {
             const update = updates.get(originalLine);
             if (!update) return [value];
             const before = existing.get(originalLine);
-            if (update.completed === before.completed && update.text === before.text) return [value];
+            if (update.completed === before.completed && update.text === before.text && !update.completedAt) return [value];
             const marker = update.completed === before.completed ? before.status : update.completed ? "x" : " ";
-            const stepId = taskIdentity(value);
+            const stepId = taskIdentity(value) ?? update.hubTaskId;
             const stepText = singleTaskText(update.text);
             const nativeId = stepText.match(/\s+\^[a-zA-Z0-9-]+$/)?.[0] ?? "";
             const title = nativeId ? stepText.slice(0, -nativeId.length) : stepText;
@@ -1824,16 +2246,28 @@ function saveTaskSnapshot(data, snapshot, values, id = snapshot.hubTaskId) {
         });
         const whitespace = block[0].match(/^[ \t]*/)[0] + "    ";
         replacement.push(...requested.filter(step => step.line == null).map(step =>
-            `${whitespace}- [${step.completed ? "x" : " "}] ${singleTaskText(step.text)}`));
+            `${whitespace}- [${step.completed ? "x" : " "}] ${singleTaskText(step.text)}${step.hubTaskId ? ` <!-- hub-task:${step.hubTaskId} -->` : ""}`));
     }
     lines.splice(current.line, current.end - current.line, ...replacement);
     const content = lines.join(eol);
     const saved = deleting ? null : readTaskSnapshot(content, { path: snapshot.path, line: current.line, text: values.text, hubTaskId: id });
+    const progressTransitions = [];
+    if (saved) {
+        // Editor checkbox changes commit on Save, with the time of the action.
+        for (const [index, step] of [...(values.steps ?? snapshot.steps)].sort((a, b) => (a.line ?? Infinity) - (b.line ?? Infinity)).entries()) {
+            const before = snapshot.steps.find(item => item.line === step.line);
+            if (!!before?.completed === !!step.completed && !step.completedAt) continue;
+            const after = saved.steps[index];
+            progressTransitions.push({ kind: "step", hubTaskId: after.hubTaskId,
+                parentTaskId: saved.hubTaskId, parentText: saved.text, text: after.text,
+                line: after.line, completed: after.completed, ...(step.completedAt ? { timestamp: step.completedAt } : {}) });
+        }
+    }
     return { content, edit: { operation: deleting ? "delete" : "edit", path: snapshot.path,
         line: current.line, requestLine: snapshot.line, oldText: snapshot.text, hubTaskId: snapshot.hubTaskId,
         tasks: saved ? [{ ...saved, ...taskMetadata(values), lineCount: saved.end - saved.line }] : [],
         lineDelta: replacement.length - (current.end - current.line), removedLines: current.end - current.line,
-        changed: content !== data, wasCompleted: current.completed, completed: !!saved?.completed,
+        changed: content !== data, progressTransitions, wasCompleted: current.completed, completed: !!saved?.completed,
         preserveContinuation: false } };
 }
 
@@ -1863,6 +2297,207 @@ function insertTaskAtCursor(editor) {
 }
 
 module.exports = { taskStartDate, taskIsFuture, taskDatePresentation, taskIsOverdue, taskMetadata, validateTaskMetadata, taskGroups, taskBlockEnd, readTaskSnapshot, saveTaskSnapshot, appendTask, insertTaskAtCursor, toggleTaskStep };
+
+},
+"lib/domain/task-progress.js": function (module, exports, __hubRequire) {
+"use strict";
+
+const { normalizedTaskText } = __hubRequire("lib/domain/tasks.js");
+
+// Both kinds share the existing history and active-check collections. History
+// contains immutable display snapshots; checks only connect them to live source.
+function taskProgressMutation(previousChecks, previousHistory, edit, context, timestamp, createId) {
+    if (edit.movedTo) {
+        // Move live bindings, never historical display snapshots or timestamps.
+        const moving = previousChecks.filter(check => check.path === edit.path && check.line >= edit.line && check.line < edit.line + edit.removedLines);
+        const rest = taskProgressMutation(previousChecks.filter(check => !moving.includes(check)), previousHistory,
+            { ...edit, movedTo: null, operation: "delete", tasks: [], progressTransitions: [] }, context, timestamp, createId);
+        const saved = edit.tasks[0];
+        for (const check of moving) {
+            const after = check.kind === "step" ? saved.steps.find(step => check.hubTaskId ? step.hubTaskId === check.hubTaskId : step.line - saved.line === check.line - edit.line) : saved;
+            if (after) rest.checks.push({ ...check, path: saved.path, line: after.line, text: after.text,
+                hubTaskId: after.hubTaskId ?? check.hubTaskId, ...(check.kind === "step" ? { parentTaskId: saved.hubTaskId } : {}) });
+        }
+        return taskProgressMutation(rest.checks, rest.history, { ...edit, movedTo: null, path: saved.path, line: saved.line,
+            operation: "step", lineDelta: 0, removedLines: 0 }, context, timestamp, createId);
+    }
+    const parentId = edit.tasks[0]?.hubTaskId ?? edit.hubTaskId;
+    let checks = previousChecks.map(check => {
+        if (check.kind === "step" && parentId && check.parentTaskId === parentId) return { ...check, path: edit.path };
+        // A parent may first receive an ID when one of its Steps is checked.
+        if (edit.operation === "step" && check.kind !== "step" && parentId && check.path === edit.path &&
+            check.line === edit.line && normalizedTaskText(check.text) === normalizedTaskText(edit.oldText)) {
+            return { ...check, hubTaskId: parentId };
+        }
+        return check;
+    }), history = previousHistory;
+    const kindOf = item => item.kind === "step" ? "step" : "task";
+    const find = (kind, id, line, text) => {
+        const matches = checks.filter(check => kindOf(check) === kind && (id && check.hubTaskId
+            ? check.hubTaskId === id
+            : check.path === edit.path && normalizedTaskText(check.text) === normalizedTaskText(text)));
+        return matches.find(check => check.path === edit.path && check.line === line) ?? (matches.length === 1 ? matches[0] : null);
+    };
+    const transition = event => {
+        const target = find(event.kind, event.hubTaskId, event.lookupLine ?? event.line, event.oldText ?? event.text);
+        if (target) {
+            checks = checks.filter(check => check !== target);
+            if (target.historyId) history = history.filter(record => record.id !== target.historyId);
+        }
+        if (!event.completed || !context) return;
+        const id = createId(), at = event.timestamp ?? timestamp;
+        const identity = { kind: event.kind, hubTaskId: event.hubTaskId ?? null,
+            ...(event.kind === "step" ? { parentTaskId: event.parentTaskId, parentText: event.parentText } : {}) };
+        history = [{ ...identity, id, timestamp: at, text: event.text, path: edit.path, line: event.line,
+            projectId: context.projectId ?? `resource:${context.resourceType ?? context.id}`,
+            projectName: context.name ?? context.label, projectStatus: context.status ?? null,
+            projectPath: context.path, projectRoot: context.root,
+            contextKind: context.contextKind ?? "project", resourceType: context.resourceType ?? null }, ...history];
+        checks.unshift({ ...identity, path: edit.path, line: event.line, text: event.text,
+            timestamp: at, historyId: id });
+    };
+
+    let taskTransition = null;
+    if (edit.operation !== "step") {
+        const target = find("task", edit.hubTaskId, edit.line, edit.oldText);
+        const saved = edit.tasks.find(task => task.completed);
+        if (!edit.operation && edit.wasCompleted !== edit.completed) {
+            taskTransition = { kind: "task", hubTaskId: saved?.hubTaskId ?? edit.hubTaskId,
+                line: saved?.line ?? edit.line, lookupLine: edit.line,
+                oldText: edit.oldText, text: saved?.text ?? edit.oldText, completed: edit.completed };
+        } else if (target && edit.operation !== "add") {
+            // Editing or deleting is housekeeping: only update/detach the binding.
+            checks = checks.filter(check => check !== target);
+            if (saved) checks.unshift({ ...target, path: edit.path, line: saved.line,
+                text: saved.text, hubTaskId: saved.hubTaskId ?? target.hubTaskId });
+        }
+        checks = checks.flatMap(check => {
+            if (check.path !== edit.path) return [check];
+            if (edit.operation === "add") return [{ ...check,
+                line: check.line >= edit.insertionLine ? check.line + edit.lineDelta : check.line }];
+            if (kindOf(check) === "step" && edit.operation === "delete" && edit.hubTaskId && check.parentTaskId === edit.hubTaskId) return [];
+            if (kindOf(check) === "step" && edit.removedLines && check.line > edit.line && check.line < edit.line + edit.removedLines) {
+                const step = edit.tasks[0]?.steps?.find(step => step.hubTaskId === check.hubTaskId);
+                return step ? [{ ...check, line: step.line, text: step.text }] : [];
+            }
+            return [{ ...check, line: check.line > edit.line ? check.line + edit.lineDelta : check.line }];
+        });
+    }
+    if (taskTransition) transition(taskTransition);
+    for (const event of edit.progressTransitions ?? []) transition(event);
+    return { checks, history, changed: history !== previousHistory };
+}
+
+module.exports = { taskProgressMutation };
+
+},
+"lib/domain/task-views.js": function (module, exports, __hubRequire) {
+"use strict";
+const { localISODate, parseLocalISODate } = __hubRequire("lib/domain/dates.js");
+const { taskGroups, taskIsFuture } = __hubRequire("lib/domain/task-planning.js");
+
+const PROJECT_VIEWS = ["upcoming", "calendar", "timeline", "all"];
+const RESOURCE_VIEWS = ["location", "upcoming", "all"];
+const VIEW_LABELS = { upcoming: "Upcoming", calendar: "Calendar", timeline: "Timeline", all: "All tasks", location: "By location" };
+const BUCKETS = [["past", "Past due"], ["today", "Today"], ["tomorrow", "Tomorrow"], ["later", "Later"], ["unscheduled", "Unscheduled"]];
+const within = (path, root) => path === root || path.startsWith(root + "/");
+const shiftDay = (date, days) => { const next = new Date(date); next.setDate(next.getDate() + days); return next; };
+// Calendar-day ordinals avoid 23/25-hour DST days distorting timeline geometry.
+const dayNumber = value => { const date = parseLocalISODate(value); return date ? Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) / 86400000 : null; };
+
+function locationLabel(path, workspace, includeWorkspace = false) {
+    const relative = within(path, workspace.root) ? path.slice(workspace.root.length).replace(/^\//, "") : "";
+    const parts = relative.replace(/\.md$/i, "").split("/").filter(Boolean);
+    if (parts.at(-1) === "Tasks") parts.pop();
+    if (includeWorkspace || !parts.length) parts.unshift(workspace.name ?? workspace.label ?? workspace.root.split("/").at(-1));
+    return parts.join(" › ");
+}
+
+function validLocation(path, workspace) {
+    if (!workspace?.root || !within(path, workspace.root)) return false;
+    return !path.slice(workspace.root.length).split("/").some(part => part.startsWith(".") || /^(System|Templates)$/i.test(part) || part === ".." || part === ".");
+}
+
+function upcomingBucket(task, now = new Date()) {
+    if (!task.dueDate) return "unscheduled";
+    const today = localISODate(now), tomorrow = localISODate(shiftDay(now, 1));
+    return task.dueDate < today ? "past" : task.dueDate === today ? "today" : task.dueDate === tomorrow ? "tomorrow" : "later";
+}
+
+function upcomingGroups(tasks, now = new Date()) {
+    const groups = Object.fromEntries(BUCKETS.map(([id]) => [id, []]));
+    const ordered = taskGroups(tasks, now);
+    for (const task of [...ordered.active, ...ordered.future]) groups[upcomingBucket(task, now)].push(task);
+    return groups;
+}
+
+function filterTasks(tasks, state, now = new Date(), describe = task => task.path) {
+    const query = (state.search ?? "").trim().toLocaleLowerCase();
+    return tasks.filter(task => {
+        if (state.location && !within(task.path, state.location)) return false;
+        if (query && !(task.text + " " + describe(task)).toLocaleLowerCase().includes(query)) return false;
+        if (state.status === "open" && task.completed) return false;
+        if (state.status === "completed" && !task.completed) return false;
+        if (state.status === "active" && (task.completed || taskIsFuture(task, now))) return false;
+        if (state.status === "future" && !taskIsFuture(task, now)) return false;
+        if (state.necessity && (task.necessity ?? "neutral") !== state.necessity) return false;
+        if (state.date && upcomingBucket(task, now) !== state.date) return false;
+        return true;
+    });
+}
+
+function sortTasks(tasks, key = "due", direction = 1, describe = task => task.path, project = () => "") {
+    const value = task => ({ task: task.text, location: describe(task), project: project(task),
+        necessity: { must: 0, should: 1 }[task.necessity] ?? null,
+        start: task.fromDate ? task.fromDate + (task.fromTime ?? "00:00") : null,
+        due: task.dueDate ? task.dueDate + (task.dueTime ?? "24:00") : null,
+        steps: task.steps?.length ? task.steps.filter(step => step.completed).length / task.steps.length : null })[key];
+    return tasks.map((task, index) => ({ task, index })).sort((a, b) => {
+        const av = value(a.task), bv = value(b.task);
+        if (av == null || bv == null) return av == null && bv == null ? a.index - b.index : av == null ? 1 : -1;
+        const result = typeof av === "number" ? av - bv : String(av).localeCompare(String(bv), undefined, { numeric: true, sensitivity: "base" });
+        return direction * result || a.index - b.index;
+    }).map(item => item.task);
+}
+
+function calendarRange(anchor, mode) {
+    const first = mode === "week" ? new Date(anchor) : new Date(anchor.getFullYear(), anchor.getMonth(), 1);
+    first.setHours(0, 0, 0, 0); first.setDate(first.getDate() - (first.getDay() + 6) % 7);
+    const last = mode === "week" ? shiftDay(first, 6) : new Date(anchor.getFullYear(), anchor.getMonth() + 1, 0);
+    last.setDate(last.getDate() + (7 - last.getDay()) % 7);
+    return Array.from({ length: dayNumber(localISODate(last)) - dayNumber(localISODate(first)) + 1 }, (_, i) => shiftDay(first, i));
+}
+
+function timelinePlacement(task, start, end) {
+    const from = dayNumber(task.fromDate), due = dayNumber(task.dueDate);
+    if (from == null && due == null) return null;
+    const first = from ?? due, last = due ?? from, min = dayNumber(start), max = dayNumber(end);
+    if (last < min || first >= max) return null;
+    const length = max - min;
+    return { kind: from != null && due != null ? "range" : due != null ? "due" : "start",
+        left: Math.max(0, first - min) / length * 100,
+        width: Math.max(1, Math.min(max, last + 1) - Math.max(min, first)) / length * 100,
+        clippedStart: first < min, clippedEnd: last >= max };
+}
+
+function locationTree(tasks, workspace, folders = []) {
+    const root = { path: workspace.root, name: workspace.name ?? workspace.label, tasks: [], children: new Map(), count: 0 };
+    const ensure = path => {
+        let node = root;
+        for (const part of path.slice(workspace.root.length).split("/").filter(Boolean)) {
+            if (!node.children.has(part)) node.children.set(part, { path: node.path + "/" + part, name: part, tasks: [], children: new Map(), count: 0 });
+            node = node.children.get(part);
+        }
+        return node;
+    };
+    for (const folder of folders) if (validLocation(folder.path, workspace)) ensure(folder.path);
+    for (const task of tasks) if (validLocation(task.path, workspace)) ensure(task.path.slice(0, task.path.lastIndexOf("/"))).tasks.push(task);
+    const count = node => { node.count = node.tasks.length + [...node.children.values()].reduce((sum, child) => sum + count(child), 0); return node.count; };
+    count(root); return root;
+}
+
+module.exports = { PROJECT_VIEWS, RESOURCE_VIEWS, VIEW_LABELS, BUCKETS, within, shiftDay, dayNumber,
+    locationLabel, validLocation, upcomingBucket, upcomingGroups, filterTasks, sortTasks, calendarRange, timelinePlacement, locationTree };
 
 },
 "lib/domain/tasks.js": function (module, exports, __hubRequire) {
@@ -2015,6 +2650,12 @@ function mutateTaskContent(data, request) {
 // Reconcile against the current list, not the task/checkbox captured before await.
 // Both Home's {task, owner} entries and Project/Resource's plain task entries use this.
 function applyTaskEdit(items, edit, resolvePath = task => task.path) {
+    if (edit.movedTo) {
+        const remaining = applyTaskEdit(items, { ...edit, movedTo: null, tasks: [] }, resolvePath);
+        if (remaining.length === items.length) return items;
+        const wrapper = items.find(item => (item.task && typeof item.task === "object" ? item.task : item).path === edit.path);
+        return [...remaining, ...edit.tasks.map(task => wrapper?.task && typeof wrapper.task === "object" ? { ...wrapper, task } : task)];
+    }
     const taskOf = item => item.task && typeof item.task === "object" ? item.task : item;
     const candidates = items.filter(item => {
         const task = taskOf(item);
@@ -2080,6 +2721,75 @@ module.exports = {
 };
 
 },
+"lib/domain/workspace-explorer.js": function (module, exports, __hubRequire) {
+"use strict";
+
+const { isFolderLike } = __hubRequire("lib/domain/files.js");
+const displayName = file => file.extension === "md" ? file.basename : file.name;
+const compareNames = (a, b) => a.localeCompare(b, undefined, { sensitivity: "base" });
+
+// Nodes retain the original vault object and descriptor. Shared roots are views
+// of Resource paths, never copied files or a second store of their metadata.
+function workspaceTree(descriptors, getByPath, dashboardPath) {
+    const byPath = new Map();
+    function visit(item, descriptor, parent = null) {
+        const folder = isFolderLike(item);
+        const node = { path: item.path, name: parent ? displayName(item) : descriptor.title,
+            item, descriptor, parent, folder, children: [] };
+        byPath.set(node.path, node);
+        if (folder) node.children = item.children
+            .filter(child => child.path !== dashboardPath && !(descriptor.isRoot && !parent && isFolderLike(child)))
+            .map(child => visit(child, descriptor, node))
+            .sort((a, b) => Number(b.folder) - Number(a.folder) || compareNames(a.name, b.name));
+        return node;
+    }
+    const roots = descriptors.flatMap(descriptor => {
+        const item = getByPath(descriptor.path);
+        return isFolderLike(item) ? [visit(item, descriptor)] : [];
+    });
+    return { roots, byPath };
+}
+
+// Keep ancestors and the contents of matching folders visible. Search-driven
+// expansion is transient; clearing the query restores the user's disclosures.
+function filterWorkspaceTree(roots, query) {
+    const needle = query.trim().toLocaleLowerCase(), visible = new Set(), matches = new Set();
+    function visit(node, inherited = false) {
+        const match = !needle || node.name.toLocaleLowerCase().includes(needle);
+        if (needle && match) matches.add(node.path);
+        let descendant = false;
+        for (const child of node.children) descendant = visit(child, inherited || match) || descendant;
+        if (match || inherited || descendant) visible.add(node.path);
+        return match || inherited || descendant;
+    }
+    roots.forEach(node => visit(node));
+    return { visible, matches };
+}
+
+function sortExplorerChildren(children, state = {}) {
+    const key = ["name", "modified", "created"].includes(state.sortKey) ? state.sortKey : "modified";
+    const direction = state.sortDirection === "asc" ? 1 : -1;
+    return [...children].sort((a, b) => {
+        if (a.folder !== b.folder) return a.folder ? -1 : 1;
+        const name = compareNames(a.name, b.name);
+        if (key === "name") return name * direction;
+        if (a.folder) return name; // TFolder does not provide file timestamps.
+        const field = key === "created" ? "ctime" : "mtime";
+        return ((a.item.stat?.[field] ?? 0) - (b.item.stat?.[field] ?? 0)) * direction || name;
+    });
+}
+
+function rewriteExplorerPaths(states, oldPath, newPath) {
+    const rewrite = path => typeof path === "string" && (path === oldPath || path.startsWith(oldPath + "/"))
+        ? newPath + path.slice(oldPath.length) : path;
+    const entries = Object.entries(states);
+    for (const [path] of entries) delete states[path];
+    for (const [path, state] of entries) states[rewrite(path)] = { ...state, currentPath: rewrite(state.currentPath) };
+}
+
+module.exports = { workspaceTree, filterWorkspaceTree, sortExplorerChildren, rewriteExplorerPaths };
+
+},
 "lib/index.js": function (module, exports, __hubRequire) {
 "use strict";
 
@@ -2112,6 +2822,321 @@ module.exports = {
     ...__hubRequire("lib/ui/tooltips.js"),
     ...__hubRequire("lib/ui/header-image.js")
 };
+
+},
+"lib/services/daily-brief-trigger.js": function (module, exports, __hubRequire) {
+"use strict";
+const { dailyBriefDay } = __hubRequire("lib/domain/daily-brief.js");
+
+// Foreground activations arm one attempt. Hydration can finish that attempt;
+// ordinary data updates and the passage of 06:00 cannot arm another one.
+class DailyBriefTrigger {
+    constructor({ now = () => new Date(), ready, blocked, shownDay, load, open, persist, report = console.error }) {
+        Object.assign(this, { now, ready, blocked, shownDay, load, open, persist, report });
+        this.activation = 0; this.sessionShown = new Set(); this.foreground = false; this.pending = false; this.running = null; this.disposed = false;
+    }
+    activate() {
+        if (this.disposed || this.foreground) return this.running;
+        this.foreground = true; this.pending = true; this.activation++;
+        return this.resume();
+    }
+    background() { this.foreground = false; this.pending = false; this.activation++; }
+    resume() {
+        if (this.disposed || this.running || !this.foreground || !this.pending || !this.ready()) return this.running;
+        this.running = this.attempt().catch(error => { this.pending = false; this.report("Daily Brief could not open", error); })
+            .finally(() => { this.running = null; if (this.pending && this.foreground && this.ready()) void this.resume(); });
+        return this.running;
+    }
+    async attempt() {
+        const day = dailyBriefDay(this.now()), activation = this.activation;
+        if (this.blocked() || this.shownDay() === day || this.sessionShown.has(day)) { this.pending = false; return; }
+        const brief = await this.load(this.now());
+        if (this.disposed || !this.foreground || !this.pending || activation !== this.activation) return;
+        // A slow hydration/provider must never open the previous day's brief.
+        if (dailyBriefDay(this.now()) !== day || this.blocked()) { this.pending = false; return; }
+        if (!this.ready()) return;
+        this.pending = false;
+        if (!brief?.context.lastWorkDate || !await this.open(brief)) return;
+        this.sessionShown.add(day);
+        await this.persist(day);
+    }
+    destroy() { this.disposed = true; this.pending = false; }
+}
+module.exports = { DailyBriefTrigger };
+
+},
+"lib/services/daily-brief.js": function (module, exports, __hubRequire) {
+"use strict";
+const { buildDailyBriefContext, dailyBriefDay, dailyBriefStart, dailyBriefSnapshot, briefFromSnapshot } = __hubRequire("lib/domain/daily-brief.js");
+const { RulesRecommendationProvider } = __hubRequire("lib/domain/brief-recommendations.js");
+const { DailyBriefTrigger } = __hubRequire("lib/services/daily-brief-trigger.js");
+const { DailyBriefModal } = __hubRequire("lib/ui/daily-brief.js");
+const { DailyReportModal } = __hubRequire("lib/ui/daily-report.js");
+const { reportDay } = __hubRequire("lib/domain/report-context.js");
+const { taskIsFuture, readTaskSnapshot } = __hubRequire("lib/domain/task-planning.js");
+
+class DailyBriefService {
+    constructor(plugin, { provider = new RulesRecommendationProvider(), now = () => new Date() } = {}) {
+        this.plugin = plugin; this.app = plugin.app; this.provider = provider; this.now = now; this.disposed = false;
+        this.listeners = new Set(); this.manualOpening = false; this.resolving = null;
+        this.trigger = new DailyBriefTrigger({ now, ready: () => this.ready(), blocked: () => this.manualOpening || this.blocked(),
+            shownDay: () => plugin.projectWizard.data.lastDailyBriefAutoShownDay,
+            load: date => this.load(date), open: brief => this.open(brief), persist: day => this.persistShown(day) });
+    }
+    ready() { return !!this.started && this.plugin.oath.ready() && !this.plugin.dataStore.loadWarning; }
+    oathBlocked() {
+        const oath = this.plugin.oath;
+        return oath.active || oath.current?.state === "scheduled" && oath.current.scheduledAt <= this.now().getTime();
+    }
+    blocked() { return this.oathBlocked() || !!document.querySelector(".modal-container"); }
+    onChange(callback) { this.listeners.add(callback); return () => this.listeners.delete(callback); }
+    emit() { for (const callback of this.listeners) callback(); }
+    snapshot(now = this.now()) {
+        const value = this.plugin.projectWizard.data.dailyBriefSnapshot;
+        return value?.version === 1 && value.dayKey === dailyBriefDay(now) && Array.isArray(value.days) ? value : null;
+    }
+    availability() {
+        if (this.disposed || !this.ready()) return { available: false, reason: "Waiting for task history to load." };
+        if (this.oathBlocked()) return { available: false, reason: "Unavailable during an active Oath." };
+        if (this.manualOpening) return { available: false, reason: "Opening today's brief." };
+        const snapshot = this.snapshot(), useful = snapshot ? snapshot.days.length :
+            this.historyDay === dailyBriefDay(this.now()) && this.hasHistory;
+        return { available: !!useful, reason: useful ? "" : "No meaningful work recorded before this Itacan day." };
+    }
+    refreshAvailability() {
+        if (this.disposed) return;
+        if (this.ready() && !this.oathBlocked() && !this.snapshot()) {
+            try { this.hasHistory = !!this.context().lastWorkDate; this.historyDay = dailyBriefDay(this.now()); }
+            catch (error) { this.hasHistory = false; console.error("Daily Brief availability could not be read", error); }
+        }
+        this.emit();
+    }
+    async openManual() {
+        if (this.modal) { this.modal.contentEl.querySelector("h2")?.focus(); return true; }
+        if (this.disposed || this.manualOpening || !this.ready() || this.blocked()) return false;
+        this.manualOpening = true; this.emit();
+        try {
+            const brief = await this.load(this.now());
+            return !!brief && this.open(brief);
+        } catch (error) {
+            console.error("Daily Brief could not be opened", error);
+            new (require("obsidian").Notice)("The Daily Brief could not be saved or opened. Please try again.");
+            return false;
+        } finally { this.manualOpening = false; this.refreshAvailability(); }
+    }
+    async persistSnapshot(snapshot) {
+        // Let an already-saving wizard update publish its data before taking our copy.
+        await this.plugin.dataStore.writeQueue?.catch(() => {});
+        const data = this.plugin.projectWizard.data, previous = data.dailyBriefSnapshot;
+        data.dailyBriefSnapshot = snapshot;
+        try {
+            await this.plugin.dataStore.save(data);
+            // Another normal store writer may have replaced the wizard object while saving.
+            this.plugin.projectWizard.data.dailyBriefSnapshot = snapshot;
+        }
+        catch (error) {
+            if (data.dailyBriefSnapshot === snapshot) {
+                if (previous === undefined) delete data.dailyBriefSnapshot;
+                else data.dailyBriefSnapshot = previous;
+            }
+            throw error;
+        }
+    }
+    async persistShown(day) {
+        const data = this.plugin.projectWizard.data, previous = data.lastDailyBriefAutoShownDay;
+        data.lastDailyBriefAutoShownDay = day;
+        try { await this.plugin.dataStore.save(data); }
+        catch (error) {
+            if (previous === undefined) delete data.lastDailyBriefAutoShownDay;
+            else data.lastDailyBriefAutoShownDay = previous;
+            throw error;
+        }
+    }
+    start() {
+        if (this.disposed || this.started) return;
+        this.started = true;
+        const foreground = () => {
+            if (!document.hidden && document.hasFocus()) { this.refreshAvailability(); void this.trigger.activate(); }
+            else this.trigger.background();
+        };
+        this.plugin.registerDomEvent(window, "focus", foreground);
+        this.plugin.registerDomEvent(window, "blur", () => this.trigger.background());
+        this.plugin.registerDomEvent(document, "visibilitychange", foreground);
+        this.plugin.taskData.subscribe(this.plugin, () => { this.refreshAvailability(); void this.trigger.resume(); });
+        this.stopOath = this.plugin.oath.onChange(() => {
+            if (this.oathBlocked()) this.modal?.close();
+            this.refreshAvailability();
+        });
+        this.refreshAvailability();
+        foreground();
+    }
+    resolvePath(path) {
+        if (!path) return null;
+        const current = this.plugin.taskData.currentPath(path);
+        return this.app.vault.getAbstractFileByPath(current)?.extension === "md" ? current : null;
+    }
+    workspace(id) {
+        const wizard = this.plugin.projectWizard;
+        return id?.startsWith("resource:") ? wizard.getResourceById(id.slice(9)) : wizard.getProjectById(id);
+    }
+    eligible(workspace) {
+        return !!workspace && !!this.resolvePath(workspace.path) &&
+            (workspace.contextKind === "resource" || workspace.status === "active");
+    }
+    context(now = this.now()) {
+        const { projectWizard: wizard, oath, taskData } = this.plugin;
+        const workspaceId = workspace => workspace?.contextKind === "resource" ? `resource:${workspace.resourceType}` : workspace?.projectId;
+        const workspaces = [...wizard.getProjectRecords(), ...wizard.getResourceTypes()].map(workspace => ({
+            workspaceId: workspaceId(workspace), name: workspace.name ?? workspace.label, path: workspace.path,
+            type: workspace.contextKind, status: workspace.status, available: this.eligible(workspace) }));
+        const tasks = taskData.readPages(oath.api()).flatMap(page => page.file.tasks)
+            .map(task => ({ ...task, workspaceId: workspaceId(wizard.getContextForPath(task.path)) }));
+        const workingConfigurations = workspaces.map(workspace => this.plugin.workspaceModes?.navigationHistory?.configurationAt(
+            workspace.workspaceId, dailyBriefStart(now).getTime())).filter(Boolean);
+        return buildDailyBriefContext(wizard, { now, workspaces, tasks, workingConfigurations,
+            resolvePath: path => this.resolvePath(path),
+            canOpen: path => this.eligible(wizard.getContextForPath(path)) && oath.canOpen(path, false),
+            resolveLink: (link, source) => this.resolvePath(this.app.metadataCache.getFirstLinkpathDest(link, source ?? "Home.md")?.path),
+            oathState: { active: oath.active, workspaceId: workspaceId(oath.workspace), state: oath.current?.state ?? null } });
+    }
+    async load(now = this.now()) {
+        if (!this.ready() || this.disposed) return null;
+        // Wait for persistence as well as generation before exposing the artifact.
+        if (this.resolving) { await this.resolving; return this.load(now); }
+        const saved = this.snapshot(now);
+        if (saved) return briefFromSnapshot(saved);
+        this.resolving = (async () => {
+            const context = this.context(now);
+            if (!context.lastWorkDate) return null;
+            let recommendation = await this.provider.getRecommendation(context);
+            if (recommendation?.continuation) {
+                const workspace = context.workspaces.find(item => item.workspaceId === recommendation.target.workspaceId);
+                const configuration = workspace?.workingConfiguration;
+                if (configuration) recommendation = { ...recommendation, target: {
+                    kind: "configuration", workspaceId: workspace.workspaceId, configuration
+                } };
+                else if (recommendation.target.taskId || recommendation.target.taskText) {
+                    // Progress knows the task storage location, not where work took place.
+                    recommendation = { ...recommendation, target: { kind: "workspace", workspaceId: recommendation.target.workspaceId } };
+                }
+            }
+            if (this.disposed || !this.ready() || dailyBriefDay(this.now()) !== context.briefDate) return null;
+            const snapshot = dailyBriefSnapshot(context, recommendation);
+            await this.persistSnapshot(snapshot);
+            return briefFromSnapshot(snapshot);
+        })();
+        try { return await this.resolving; }
+        finally { this.resolving = null; this.refreshAvailability(); }
+    }
+    open(brief) {
+        if (this.disposed || this.blocked() || brief.context.briefDate !== dailyBriefDay(this.now())) return false;
+        const modal = new DailyBriefModal(this.app, { ...brief,
+            onAction: target => this.navigate(target), onReport: date => this.openReport(date),
+            onClose: () => { if (this.modal === modal) this.modal = null; this.emit(); } });
+        modal.open(); this.modal = modal; this.emit();
+        return modal.contentEl.isConnected;
+    }
+    openReport(date) {
+        if (this.plugin.oath.active) return;
+        const wizard = this.plugin.projectWizard;
+        const projects = reportDay(wizard, date), resources = reportDay(wizard, date, { kind: "resource" });
+        const day = { ...projects, reports: [...projects.reports, ...resources.reports] };
+        if (!day.reports.length) return;
+        this.modal?.close();
+        new DailyReportModal(this.app, { day, onEdit: () => this.plugin.openProgressEditor(date) }).open();
+    }
+    async validateTarget(target) {
+        if (target?.kind === "home") return this.plugin.oath.active ? null : target;
+        const workspace = this.workspace(target?.workspaceId);
+        if (!this.eligible(workspace)) return null;
+        if (target.kind === "workspace") return this.plugin.oath.canOpen(workspace, false)
+            ? { ...target, path: workspace.path, workspace } : null;
+        let path = this.resolvePath(target.path);
+        if (target.taskId || target.taskText) {
+            if (!this.plugin.oath.ready()) return null;
+            const matches = this.plugin.oath.tasks().filter(task => !task.identityConflict && (target.taskId
+                ? task.hubTaskId === target.taskId : task.path === path && task.text === target.taskText && task.line === target.taskLine));
+            if (matches.length !== 1) return null;
+            const task = matches[0]; path = this.resolvePath(task.path);
+            if (!path) return null;
+            try {
+                const current = readTaskSnapshot(await this.app.vault.read(this.app.vault.getAbstractFileByPath(path)), task);
+                const metadata = this.plugin.taskEditor.metadata(current.hubTaskId);
+                if (current.completed || taskIsFuture(metadata, this.now()) ||
+                    (target.stepId || target.stepText) && !current.steps.some(step =>
+                        (target.stepId ? step.hubTaskId === target.stepId : step.text === target.stepText) && !step.completed)) return null;
+            } catch (_) { return null; }
+        }
+        if (!path || !this.plugin.oath.canOpen(path, false)) return null;
+        const owner = this.plugin.projectWizard.getContextForPath(path);
+        if (!this.eligible(owner)) return null;
+        return { ...target, path };
+    }
+    historicalPath(path, since) {
+        if (!path) return path;
+        // Existing rename activity survives restarts; taskData handles in-session renames.
+        for (const event of [...(this.plugin.projectWizard.activityLog ?? [])].sort((a, b) => a.timestamp - b.timestamp)) {
+            if (event.timestamp < (since ?? 0) || !["renamed", "project-renamed"].includes(event.action) || !event.oldPath || !event.path) continue;
+            if (path === event.oldPath || path.startsWith(event.oldPath + "/")) path = event.path + path.slice(event.oldPath.length);
+        }
+        return this.plugin.taskData.currentPath(path);
+    }
+    async navigateConfiguration(target) {
+        const workspace = this.workspace(target.workspaceId), modes = this.plugin.workspaceModes;
+        if (!this.eligible(workspace) || !this.plugin.oath.canOpen(workspace, false)) return this.navigate(null);
+        this.modal?.close();
+        try {
+            if (await this.plugin.presets.restoreSnapshot(target.configuration, null, {
+                allowActivation: false,
+                resolvePath: path => this.historicalPath(path, target.configuration.capturedAt)
+            })) return true;
+        } catch (error) { console.warn("[Hub Daily Brief] Configuration could not be restored.", error); }
+        // Only after the entire historical layout is unavailable, use another
+        // existing Last File destination from the same workspace, then Full-view.
+        const alternate = modes.navigationHistory?.resolveFile?.(workspace.projectId);
+        if (alternate && this.eligible(workspace) && this.plugin.oath.canOpen(workspace, false)) {
+            try {
+                const restored = alternate.layout ? await modes.enqueue(() => modes.restoreNoteLayout(workspace, alternate.layout))
+                    : alternate.file ? await modes.openProjectNote(alternate.file.path) : false;
+                if (restored !== false) return true;
+            } catch (_) { /* Full-view remains available below */ }
+        }
+        // A wholly unavailable configuration stays within its historical workspace.
+        if (this.eligible(workspace) && this.plugin.oath.canOpen(workspace, false)) {
+            try { if (await modes.openProjectFull(workspace) !== false) return true; } catch (_) { /* existing safe fallback below */ }
+        }
+        return this.navigate(null);
+    }
+    async navigate(requested) {
+        if (requested?.kind === "configuration") return this.navigateConfiguration(requested);
+        let target = await this.validateTarget(requested);
+        if (!target) {
+            const oath = this.plugin.oath;
+            const workspace = oath.active ? oath.workspace : null;
+            target = oath.active ? this.eligible(workspace) ? { kind: "workspace", workspace } : null : { kind: "home" };
+        }
+        if (!target) return false;
+        const modes = this.plugin.workspaceModes;
+        this.modal?.close();
+        let result;
+        try {
+            result = target.kind === "home" ? await modes.openHome() : target.kind === "workspace"
+                ? await modes.openProjectFull(target.workspace ?? this.workspace(target.workspaceId))
+                : await modes.openProjectNote(target.path);
+        } catch (error) {
+            console.warn("[Hub Daily Brief] Target could not be opened; using the current task surface.", error);
+            result = false;
+        }
+        if (result === false) {
+            if (this.plugin.oath.active) await this.plugin.oath.enterWorkspace();
+            else await modes.openHome();
+        }
+        if (target.kind === "home") document.querySelector(".home-dashboard .home-upcoming")?.scrollIntoView({ block: "center" });
+        return true;
+    }
+    destroy() { this.disposed = true; this.trigger.destroy(); this.stopOath?.(); this.modal?.close(); this.listeners.clear(); }
+}
+module.exports = { DailyBriefService };
 
 },
 "lib/services/data-store.js": function (module, exports, __hubRequire) {
@@ -2594,6 +3619,7 @@ module.exports = { HOME_COVER_PERIODS, homeTimePeriod, HomeCovers };
 "lib/services/navigation-history.js": function (module, exports, __hubRequire) {
 "use strict";
 
+const { itacanDay } = __hubRequire("lib/domain/dates.js");
 const { TFile } = require("obsidian");
 const { prepareNoteLayout, browserViewState } = __hubRequire("lib/domain/navigation.js");
 const { fileHistoryKey, validFileHistoryEntry, uniqueHistory, rememberHistory, migrateNavigationHistory } = __hubRequire("lib/domain/navigation-history.js");
@@ -2624,6 +3650,32 @@ class HubNavigationHistory {
         this.initialize();
         this.state.fileHistory = rememberHistory(this.state.fileHistory.filter(validFileHistoryEntry),
             { contextId: context?.projectId ?? null, path: file?.path ?? null }, fileHistoryKey);
+    }
+    rememberConfiguration(context, configuration, now = Date.now(), worked = false) {
+        const saved = this.state.projects[context.projectId] ??= {};
+        const day = itacanDay(new Date(now));
+        const latest = saved.configurations?.[0];
+        if (latest && (!worked || latest.day === day)) {
+            const { capturedAt, day, ...previous } = latest;
+            if (JSON.stringify(previous) === JSON.stringify(configuration)) return;
+        }
+        // Latest configuration for this work day plus the previous worked day.
+        // Both use the existing Preset/Last File native layout format.
+        const legacy = !saved.configurations ? this.configurationAt(context.projectId, now) : null;
+        const previous = (saved.configurations ?? (legacy ? [{ ...legacy, capturedAt: 0, day: "legacy" }] : [])).filter(item => item.day !== day).slice(0, 1);
+        saved.configurations = JSON.parse(JSON.stringify([{ ...configuration, capturedAt: now, day }, ...previous]));
+    }
+    configurationAt(contextId, before) {
+        const saved = this.state.projects[contextId];
+        if (!saved) return null;
+        const found = saved.configurations?.find(item => item.capturedAt < before);
+        if (found) return JSON.parse(JSON.stringify(found));
+        // Legacy Last File layouts have no time evidence; never invent a date.
+        if (!saved.configurations && saved.layout) return JSON.parse(JSON.stringify({
+            contextId, hubPath: saved.hubPath ?? this.context(contextId)?.path,
+            root: this.context(contextId)?.root, layout: saved.layout, capturedAt: null
+        }));
+        return null;
     }
     prune() {
         this.initialize();
@@ -3245,9 +4297,11 @@ class HubPresets {
             if (root.dataset.hubContextId === pending.contextId) root.hubRestoreFolders?.(copy(pending.folderState));
         }
     }
-    open(id, source) {
+    open(id, source) { return this.restoreSnapshot(() => this.items.find(item => item.id === id), source); }
+    // Named presets and historical continuations restore the same configuration.
+    restoreSnapshot(snapshot, source = null, { allowActivation = true, resolvePath = path => path } = {}) {
         return this.modes.enqueue(async () => {
-            const m = this.modes, item = this.items.find(item => item.id === id);
+            const m = this.modes, item = typeof snapshot === "function" ? snapshot() : snapshot;
             if (!item) return false;
             const { Notice, TFile } = require("obsidian");
             const context = m.contextFor(item.contextId);
@@ -3255,16 +4309,18 @@ class HubPresets {
             if (!context || !(m.app.vault.getAbstractFileByPath(context.path) instanceof TFile)) {
                 new Notice("This preset's workspace no longer exists."); return false;
             }
+            if (!allowActivation && context.contextKind !== "resource" && context.status !== "active") return false;
             const layout = prepareNoteLayout(rewriteLayoutPaths(item.layout,
-                path => path === item.hubPath ? context.path : path), context.path,
-                path => m.app.vault.getAbstractFileByPath(path) instanceof TFile,
+                path => path === item.hubPath ? context.path : resolvePath(path)), context.path,
+                path => m.app.vault.getAbstractFileByPath(path) instanceof TFile &&
+                    (allowActivation || m.navigationHistory.eligiblePath(path)),
                 type => m.canRestoreLayoutView(type));
-            if (!layout) { new Notice("No saved tabs are available for this preset. The current workspace was left unchanged."); return false; }
+            if (!layout) { if (allowActivation) new Notice("No saved tabs are available for this preset. The current workspace was left unchanged."); return false; }
             if (!await m.plugin.ensureContextOpen(context, m.dashboardRoot(source)) ||
                 m.plugin.oathNavigation?.allowLayout(layout) === false) return false;
             const files = tree => tree?.type === "leaf" ? 1 : (tree?.children ?? []).reduce((n, child) => n + files(child), 0);
             const missing = files(item.layout.main) - files(layout.main);
-            const folders = Object.fromEntries(Object.entries(item.folderState?.folders ?? {}).filter(([path]) =>
+            const folders = Object.fromEntries(Object.entries(item.folderState?.folders ?? {}).map(([path, state]) => [resolvePath(path), { ...state, currentPath: resolvePath(state.currentPath) }]).filter(([path]) =>
                 !!m.app.vault.getAbstractFileByPath(path)).map(([path, state]) => [path, { ...state,
                     currentPath: m.app.vault.getAbstractFileByPath(state.currentPath ?? "") ? state.currentPath : path }]));
             const folderState = { folders, order: item.folderState?.order ?? [] };
@@ -3277,7 +4333,7 @@ class HubPresets {
                 }
                 m.noteRailState = ["full", "half", "closed"].includes(item.railState) ? item.railState : "full";
                 const restored = await m.applyNoteLayout(context, layout);
-                if (restored && missing > 0) new Notice(`Preset restored; ${missing} unavailable tab${missing === 1 ? " was" : "s were"} skipped.`);
+                if (allowActivation && restored && missing > 0) new Notice(`Preset restored; ${missing} unavailable tab${missing === 1 ? " was" : "s were"} skipped.`);
                 return restored;
             })).finally(() => { this.pending = null; });
         });
@@ -3353,6 +4409,28 @@ class ProjectDeletionGuard {
 }
 
 module.exports = { ProjectDeletionGuard, isProjectDeletionCancelled };
+
+},
+"lib/services/statistics.js": function (module, exports, __hubRequire) {
+"use strict";
+
+const { isStatisticsNote, prepareStatistics } = __hubRequire("lib/domain/statistics.js");
+
+// Snapshot once per opening. Range and local filter changes only query in-memory
+// aggregates; no Dataview parsing, file reads, or persistence is needed.
+function readStatistics(plugin, now = Date.now()) {
+    const wizard = plugin.projectWizard;
+    const workspaces = [...wizard.getProjectRecords(), ...wizard.getResourceTypes()];
+    const dashboardPaths = new Set(workspaces.map(workspace => workspace.path));
+    const notes = plugin.app.vault.getMarkdownFiles().filter(file => isStatisticsNote(file.path, {
+        dashboardPaths, frontmatter: plugin.app.metadataCache.getFileCache(file)?.frontmatter
+    })).map(file => ({ path: file.path, createdAt: file.stat?.ctime }));
+    const oaths = Object.values(wizard.data.oathsByDevice ?? {}).flatMap(bucket => Array.isArray(bucket?.history) ? bucket.history : []);
+    return prepareStatistics({ workspaces, notes, oaths, activity: wizard.activityLog,
+        completions: wizard.completedTaskHistory }, now);
+}
+
+module.exports = { readStatistics };
 
 },
 "lib/services/task-data.js": function (module, exports, __hubRequire) {
@@ -3452,6 +4530,15 @@ class HubTaskDataService {
         }));
     }
 
+    readWorkspace(dv, workspace, resources = []) {
+        const { validLocation } = __hubRequire("lib/domain/task-views.js");
+        const root = this.currentPath(workspace.root);
+        return this.readPages(dv).flatMap(page => page.file.tasks).filter(task =>
+            validLocation(task.path, { ...workspace, root }) ||
+            (workspace.contextKind !== "resource" && task.linkedProjectId === workspace.projectId &&
+                resources.some(resource => validLocation(task.path, resource))));
+    }
+
     subscribe(component, refresh, roots = () => null) {
         const subscription = { refresh, roots };
         this.subscribers.add(subscription);
@@ -3547,17 +4634,49 @@ module.exports = { HubTaskDataService, tasksForPage };
 },
 "lib/services/task-editor.js": function (module, exports, __hubRequire) {
 "use strict";
+const { processTaskWrite } = __hubRequire("lib/services/task-writes.js");
 const { randomUUID } = require("crypto");
 const { taskMetadata, validateTaskMetadata, readTaskSnapshot, saveTaskSnapshot, appendTask } = __hubRequire("lib/domain/task-planning.js");
+const { taskLocations, linkedProjects } = __hubRequire("lib/services/task-locations.js");
+const { validLocation } = __hubRequire("lib/domain/task-views.js");
 
 class HubTaskEditor {
     constructor(plugin) { this.plugin = plugin; this.app = plugin.app; }
     metadata(id) { return taskMetadata(id ? this.plugin.projectWizard.data.taskMetadata?.[id] : {}); }
+    context(path) { return this.plugin.projectWizard.getContextForPath(path); }
+    locations(root) { return taskLocations(this.plugin, root ? this.plugin.taskData?.currentPath(root) ?? root : root); }
+    projects() { return linkedProjects(this.plugin); }
     file(path) {
         const current = this.plugin.taskData?.currentPath(path) ?? path;
         const file = this.app.vault.getAbstractFileByPath(current);
         if (file?.extension !== "md") throw Error("The task's source note is no longer available.");
         return file;
+    }
+    async destination(path, workspace) {
+        const current = this.plugin.taskData?.currentPath(path) ?? path;
+        const target = this.app.vault.getAbstractFileByPath(current);
+        const owner = workspace ?? this.context(current);
+        if (!target || !validLocation(current, owner)) throw Error("Choose a location inside this workspace.");
+        if (target.extension === "md") return target;
+        if (!Array.isArray(target.children)) throw Error("Choose a note or folder.");
+        const taskPath = current + "/Tasks.md";
+        // Resolve again immediately before creation; never pre-create folder notes.
+        const existing = this.app.vault.getAbstractFileByPath(taskPath);
+        if (existing) return this.file(taskPath);
+        try { return await this.app.vault.create(taskPath, "# Tasks\n"); }
+        catch (error) {
+            if (this.app.vault.getAbstractFileByPath(taskPath)) return this.file(taskPath);
+            throw error;
+        }
+    }
+    checkedMetadata(values, workspace, previous = {}) {
+        const metadata = validateTaskMetadata(values);
+        if (workspace?.contextKind !== "resource") delete metadata.linkedProjectId;
+        if (metadata.linkedProjectId && metadata.linkedProjectId !== previous.linkedProjectId &&
+            !this.projects().some(project => project.projectId === metadata.linkedProjectId)) {
+            throw Error("Choose an active Project.");
+        }
+        return metadata;
     }
     async read(task) {
         const file = this.file(task.path);
@@ -3567,54 +4686,97 @@ class HubTaskEditor {
         }
         return { ...snapshot, ...this.metadata(snapshot.hubTaskId), file };
     }
+    async rollback(writes) {
+        for (const write of [...writes].reverse()) {
+            await processTaskWrite(this.plugin, write.file, current => {
+                if (current !== write.written) throw Error("The note also changed. Check the task's locations before retrying.");
+                return write.original;
+            });
+        }
+    }
+    async write(file, transform, writes) {
+        const write = { file };
+        await processTaskWrite(this.plugin, file, content => {
+            write.original = content; write.written = transform(content); return write.written;
+        });
+        writes.push(write);
+    }
+    async saveMetadata(id, metadata, deleting) {
+        if (!id) return;
+        const data = this.plugin.projectWizard.data, previous = data.taskMetadata;
+        data.taskMetadata = { ...previous };
+        if (deleting || !Object.values(metadata).some(Boolean)) delete data.taskMetadata[id];
+        else data.taskMetadata[id] = metadata;
+        try { await this.plugin.dataStore.save(data); }
+        catch (error) { data.taskMetadata = previous; throw error; }
+    }
+    async record(edit, context, timestamp) {
+        try {
+            if (await this.plugin.projectWizard.recordTaskMutation(edit, context, timestamp)) this.plugin.notifyCompletedTasksChanged?.();
+        } catch (error) {
+            console.error("Could not update task History", error);
+            new (require("obsidian").Notice)("Task saved, but its History could not be updated.");
+        }
+    }
     save(snapshot, values) {
+        const actionTimestamp = Date.now();
         return this.plugin.enqueueTaskMutation(async () => {
             const deleting = values.operation === "delete";
-            const metadata = deleting ? taskMetadata() : validateTaskMetadata(values);
-            const id = snapshot.hubTaskId ?? (!deleting && Object.values(metadata).some(Boolean) ? randomUUID() : null);
-            // Retain the vault object so an open editor follows a note rename.
-            const file = this.file(snapshot.file.path);
+            const file = this.file(snapshot.file.path), owner = this.context(file.path);
+            const metadata = deleting ? taskMetadata() : this.checkedMetadata(values, owner, snapshot);
+            const location = values.location ?? file.path;
+            const moving = !deleting && location !== file.path;
+            const id = snapshot.hubTaskId ?? (!deleting && (moving || Object.values(metadata).some(Boolean)) ? randomUUID() : null);
             const request = { ...snapshot, path: file.path };
-            const data = this.plugin.projectWizard.data;
-            const previous = data.taskMetadata;
             if (snapshot.hubTaskId && JSON.stringify(this.metadata(snapshot.hubTaskId)) !== JSON.stringify(taskMetadata(snapshot))) {
                 throw Error("This task's metadata changed in another editor. Reopen the task before saving.");
             }
-            let original, written, edit;
-            await this.app.vault.process(file, content => {
-                original = content;
-                const result = saveTaskSnapshot(content, request, values, id);
-                written = result.content; edit = result.edit;
-                return written;
-            });
-            if (id) {
-                data.taskMetadata = { ...previous };
-                if (deleting || !Object.values(metadata).some(Boolean)) delete data.taskMetadata[id];
-                else data.taskMetadata[id] = metadata;
-                try { await this.plugin.dataStore.save(data); }
-                catch (error) {
-                    data.taskMetadata = previous;
-                    // Metadata and Markdown cannot share one transaction. Undo
-                    // our source write only if nothing else has edited the note.
-                    try {
-                        await this.app.vault.process(file, current => {
-                            if (current !== written) throw Error("Source changed during metadata save.");
-                            return original;
-                        });
-                    } catch (_) {
-                        throw Error("Metadata could not be saved. The note also changed; check its task text and reopen the editor.");
-                    }
-                    throw error;
-                }
-            }
+            const writes = [];
+            let edit;
             try {
-                await this.plugin.projectWizard.recordTaskMutation(edit, this.plugin.projectWizard.getContextForPath(file.path));
+                const target = moving ? await this.destination(location, owner) : file;
+                if (target === file || target.path === file.path) {
+                    await this.write(file, content => {
+                        const result = saveTaskSnapshot(content, request, { ...values, ...metadata }, id, randomUUID);
+                        edit = result.edit; return result.content;
+                    }, writes);
+                } else {
+                    // Validate the whole original block before writing either note.
+                    const original = await this.app.vault.read(file);
+                    const result = saveTaskSnapshot(original, request, { ...values, ...metadata }, id, randomUUID);
+                    const updated = result.edit.tasks[0];
+                    const block = updated.block.split("\n");
+                    const indentation = block[0].match(/^[ \t]*/)[0];
+                    const movedBlock = block.map(line => line.startsWith(indentation) ? line.slice(indentation.length) : line).join("\n");
+                    let saved;
+                    await this.write(target, content => {
+                        // Reuse append validation for unfinished fences/Properties.
+                        appendTask(content, values.text);
+                        const eol = content.includes("\r\n") ? "\r\n" : "\n";
+                        const prefix = content + (content.endsWith("\n") || !content ? "" : eol) + eol;
+                        const next = prefix + movedBlock.replace(/\n/g, eol) + eol;
+                        saved = readTaskSnapshot(next, { path: target.path, line: prefix.split(/\r?\n/).length - 1, text: values.text, hubTaskId: id });
+                        return next;
+                    }, writes);
+                    await this.write(file, content => {
+                        const removed = saveTaskSnapshot(content, request, { operation: "delete" });
+                        edit = { ...removed.edit, operation: "edit", movedTo: { path: target.path, line: saved.line },
+                            tasks: [{ ...saved, ...metadata }], completed: saved.completed,
+                            progressTransitions: (result.edit.progressTransitions ?? []).map(event => ({ ...event, line: saved.line + event.line - updated.line })) };
+                        return removed.content;
+                    }, writes);
+                }
+                await this.saveMetadata(id, metadata, deleting);
             } catch (error) {
-                console.error("Could not update task History", error);
-                new (require("obsidian").Notice)("Task saved, but its History could not be updated.");
+                try { await this.rollback(writes); }
+                catch (_) { throw Error("The task could not be saved and a note also changed. Check its source and destination before retrying."); }
+                throw error;
             }
-            this.plugin.markProjectChangedByPath(file.path);
-            if (original === written) this.plugin.taskData?.invalidate(file.path);
+            await this.record(edit, owner, actionTimestamp);
+            for (const write of writes) {
+                this.plugin.markProjectChangedByPath(write.file.path);
+                if (write.original === write.written) this.plugin.taskData?.invalidate(write.file.path);
+            }
             this.plugin.oath?.changed(edit);
             return edit;
         });
@@ -3628,17 +4790,92 @@ class HubTaskEditor {
         try { await this.plugin.dataStore.save(data); }
         catch (error) { data.taskMetadata = previous; throw error; }
     }
-    create(path, text) {
+    create(path, text, values = {}) {
+        const actionTimestamp = Date.now();
         return this.plugin.enqueueTaskMutation(async () => {
-            const file = this.file(path);
-            await this.app.vault.process(file, data => appendTask(data, text));
+            const owner = this.context(path);
+            const metadata = this.checkedMetadata(values, owner);
+            // Keep legacy callers that supply an existing note working unchanged.
+            const file = this.app.vault.getAbstractFileByPath(path)?.extension === "md" ?
+                this.file(path) : await this.destination(path, owner);
+            if (owner?.root && !validLocation(file.path, owner)) throw Error("Choose a location inside this workspace.");
+            const id = Object.values(metadata).some(Boolean) ? randomUUID() : null;
+            const writes = [];
+            let edit;
+            try {
+                await this.write(file, content => {
+                    const appended = appendTask(content, text);
+                    const line = content.split(/\r?\n/).length + (content.endsWith("\n") || !content ? -1 : 0);
+                    const snapshot = readTaskSnapshot(appended, { path: file.path, line: line + 1, text });
+                    const result = saveTaskSnapshot(appended, snapshot, { ...values, ...metadata, text, steps: values.steps ?? [] }, id, randomUUID);
+                    edit = { ...result.edit, operation: "add", insertionLine: snapshot.line,
+                        removedLines: 0, lineDelta: result.content.split(/\r?\n/).length - content.split(/\r?\n/).length };
+                    return result.content;
+                }, writes);
+                await this.saveMetadata(edit.tasks[0].hubTaskId, metadata, false);
+            } catch (error) {
+                try { await this.rollback(writes); }
+                catch (_) { throw Error("The task could not be saved and the note also changed. Reopen its location before retrying."); }
+                throw error;
+            }
+            await this.record(edit, owner, actionTimestamp);
             this.plugin.markProjectChangedByPath(file.path);
-            // The shared index event supplies the created task after import.
             return file;
         });
     }
 }
 module.exports = { HubTaskEditor };
+
+},
+"lib/services/task-locations.js": function (module, exports, __hubRequire) {
+"use strict";
+const { locationLabel, validLocation } = __hubRequire("lib/domain/task-views.js");
+
+function taskWorkspaces(plugin) {
+    return [...(plugin.projectWizard.getProjectRecords?.() ?? []), ...(plugin.projectWizard.getResourceTypes?.() ?? [])];
+}
+function taskLocations(plugin, root) {
+    const workspaces = taskWorkspaces(plugin).filter(workspace => root ? workspace.root === root : workspace.contextKind === "resource" || workspace.status === "active");
+    const entries = plugin.app.vault.getAllLoadedFiles?.() ?? plugin.app.vault.getMarkdownFiles();
+    return workspaces.flatMap(workspace => entries.filter(file => (Array.isArray(file.children) || file.extension === "md") && validLocation(file.path, workspace))
+        .map(file => ({ path: file.path, file, workspace, folder: Array.isArray(file.children),
+            label: locationLabel(file.path, workspace, !root) })))
+        .sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true }));
+}
+function linkedProjects(plugin) { return (plugin.projectWizard.getProjectRecords?.() ?? []).filter(project => project.status === "active"); }
+
+module.exports = { taskWorkspaces, taskLocations, linkedProjects };
+
+},
+"lib/services/task-writes.js": function (module, exports, __hubRequire) {
+"use strict";
+
+// Source attribution, not filenames or modification times. Keep the written
+// value to recognize delayed editor notifications after vault.process resolves.
+const writes = new WeakMap();
+async function processTaskWrite(plugin, file, transform) {
+    let files = writes.get(plugin);
+    if (!files) writes.set(plugin, files = new WeakMap());
+    const previous = files.get(file), write = { pending: true };
+    files.set(file, write);
+    try {
+        return await plugin.app.vault.process(file, content => {
+            write.content = transform(content);
+            return write.content;
+        });
+    } catch (error) {
+        if (previous) files.set(file, previous); else files.delete(file);
+        throw error;
+    } finally { write.pending = false; }
+}
+function isTaskWrite(plugin, file, editor) {
+    const files = writes.get(plugin), write = files?.get(file);
+    if (!write) return false;
+    if (write.pending || editor?.getValue?.() === write.content) return true;
+    files.delete(file);
+    return false;
+}
+module.exports = { processTaskWrite, isTaskWrite };
 
 },
 "lib/services/transition-service.js": function (module, exports, __hubRequire) {
@@ -3878,6 +5115,78 @@ class HubWorkspaceState {
 }
 
 module.exports = { HubWorkspaceState, emptyWorkspaceState, migrateWorkspaceState };
+
+},
+"lib/ui/app-shortcuts.js": function (module, exports, __hubRequire) {
+"use strict";
+const { setIcon, Notice } = require("obsidian");
+const { APP_SHORTCUTS } = __hubRequire("lib/config.js");
+
+function mountAppShortcuts(plugin, left) {
+    const bar = left.parentElement;
+    const group = bar.createDiv({ cls: "hub-shell-shortcuts hub-button-scope", attr: { role: "group", "aria-label": "App shortcuts" } });
+    left.after(group);
+    let signature = "", disposed = false;
+    const render = () => {
+        if (disposed) return;
+        const leaf = plugin.app.workspace.activeLeaf;
+        const container = leaf?.view?.containerEl;
+        const dashboard = container?.matches?.(".project-dashboard") ? container : container?.querySelector(".project-dashboard");
+        const file = leaf?.view?.file ?? plugin.app.workspace.getActiveFile();
+        const owner = dashboard?.dataset.hubContextId ? plugin.projectWizard.getProjectById(dashboard.dataset.hubContextId) ??
+            plugin.projectWizard.getResourceById(dashboard.dataset.hubContextId) : file ? plugin.projectWizard.getContextForPath(file.path) : null;
+        const category = owner?.contextKind === "project" ? plugin.projectWizard.categories.find(item => item.id === owner.categoryId || item.name === owner.categoryId) : null;
+        // Home retains its global shortcuts; workspaces retain category configuration.
+        const selected = owner ? (category?.shortcuts ?? []) : APP_SHORTCUTS.map(item => item.id);
+        const shortcuts = selected.map(id => APP_SHORTCUTS.find(item => item.id === id)).filter(Boolean);
+        const next = shortcuts.map(item => item.id).join("|");
+        if (next === signature && group.childElementCount === shortcuts.length) return;
+        signature = next; group.empty(); group.hidden = !shortcuts.length;
+        for (const shortcut of shortcuts) {
+            const button = group.createEl("button", { cls: "hub-shell-shortcut", attr: { type: "button", title: shortcut.label, "aria-label": shortcut.label } });
+            const icon = button.createSpan({ cls: "hub-shell-shortcut-icon" });
+            const file = shortcut.icon && plugin.app.vault.getAbstractFileByPath(shortcut.icon);
+            if (file) icon.createEl("img", { attr: { src: plugin.app.vault.getResourcePath(file), alt: "" } });
+            else setIcon(icon, shortcut.type === "website" ? "globe" : "app-window");
+            button.createSpan({ cls: "hub-shell-shortcut-label", text: shortcut.label });
+            button.addEventListener("click", async () => {
+                button.disabled = true;
+                try { await plugin.openAppShortcut(shortcut.id); }
+                catch (error) { new Notice(error.message || "Could not open app shortcut."); }
+                finally { button.disabled = false; }
+            });
+        }
+        measure();
+    };
+    // Keep native status items in their original flex order. Only show centered
+    // shortcuts in the actual free span, never on top of shell controls/status.
+    const measure = () => {
+        if (disposed || group.hidden) return;
+        const bounds = bar.getBoundingClientRect(), leftEdge = left.getBoundingClientRect().right - bounds.left;
+        let rightEdge = bounds.width;
+        for (const item of bar.children) {
+            if (item === left || item === group || item.getBoundingClientRect().width === 0) continue;
+            rightEdge = Math.min(rightEdge, item.getBoundingClientRect().left - bounds.left);
+        }
+        const center = bounds.width / 2;
+        const centered = Math.max(0, Math.min(center - leftEdge - 12, rightEdge - center - 12) * 2);
+        group.classList.remove("is-compact");
+        group.classList.toggle("is-compact", centered < group.scrollWidth);
+        group.style.maxWidth = centered + "px";
+        group.style.visibility = centered < 26 ? "hidden" : "";
+    };
+    const resize = new ResizeObserver(measure); resize.observe(bar);
+    for (const item of bar.children) if (item !== group) resize.observe(item);
+    const mutation = new MutationObserver(() => { for (const item of bar.children) if (item !== group) resize.observe(item); measure(); });
+    mutation.observe(bar, { childList: true });
+    plugin.registerEvent(plugin.app.workspace.on("active-leaf-change", render));
+    plugin.registerEvent(plugin.app.workspace.on("file-open", render));
+    plugin.registerEvent(plugin.app.metadataCache.on("changed", render));
+    plugin.registerEvent(plugin.app.workspace.on("layout-change", render));
+    group.hidden = true; render();
+    return { refresh: render, destroy() { disposed = true; resize.disconnect(); mutation.disconnect(); group.remove(); } };
+}
+module.exports = { mountAppShortcuts };
 
 },
 "lib/ui/card-images.js": function (module, exports, __hubRequire) {
@@ -4121,6 +5430,219 @@ function createCardImageRenderer(root, component, placementStorage = null, share
 module.exports = { createCardImageRenderer, createCardImageCache };
 
 },
+"lib/ui/completion-audio.js": function (module, exports, __hubRequire) {
+"use strict";
+
+// Keep sound design and future volume/enabled preferences outside task logic.
+function createCompletionAudio({ createContext = () => new globalThis.AudioContext(), getOptions = () => ({}) } = {}) {
+    let context = null;
+    async function play(kind) {
+        try {
+            const { enabled = true, volume = 1 } = getOptions();
+            if (!enabled || !Number.isFinite(volume) || volume <= 0) return;
+            if (!context || context.state === "closed") context = createContext();
+            const current = context;
+            if (current.state !== "running") await current.resume();
+            if (context !== current || current.state !== "running") return;
+            const duration = kind === "task" ? 0.21 : 0.12;
+            const level = Math.min(volume, 1) * 0.035;
+            const start = current.currentTime;
+            const nodes = [];
+            try {
+                const tones = kind === "task" ? [[840, level * 0.94], [1260, level * 0.16]] : [[840, level]];
+                for (const [frequency, peak] of tones) {
+                    const oscillator = current.createOscillator();
+                    nodes.push(oscillator);
+                    const gain = current.createGain();
+                    nodes.push(gain);
+                    oscillator.type = "sine";
+                    oscillator.frequency.setValueAtTime(frequency, start);
+                    gain.gain.setValueAtTime(0, start);
+                    gain.gain.linearRampToValueAtTime(peak, start + 0.008);
+                    gain.gain.exponentialRampToValueAtTime(Math.max(peak * 0.001, 1e-9), start + duration - 0.015);
+                    gain.gain.linearRampToValueAtTime(0, start + duration);
+                    oscillator.connect(gain);
+                    gain.connect(current.destination);
+                    oscillator.onended = () => { oscillator.disconnect(); gain.disconnect(); };
+                    oscillator.start(start);
+                    oscillator.stop(start + duration + 0.005);
+                }
+            } catch (_) {
+                for (const node of nodes) {
+                    try { node.stop?.(); } catch (_) { /* May not have started. */ }
+                    try { node.disconnect(); } catch (_) { /* Audio is optional. */ }
+                }
+            }
+        } catch (_) { /* Unsupported/blocked audio must never affect completion. */ }
+    }
+    function dispose() {
+        const current = context;
+        context = null;
+        try { current?.close()?.catch(() => {}); } catch (_) { /* Already closed. */ }
+    }
+    return {
+        playStepCompletionSound: () => { void play("step"); },
+        playTaskCompletionSound: () => { void play("task"); },
+        dispose
+    };
+}
+
+// Native checkbox activation (including Space and label clicks) dispatches click
+// before change. Require both: even element.click() can emit a trusted change.
+function bindCompletionSound(checkbox, play) {
+    let userCompletion = false;
+    checkbox.addEventListener("click", event => {
+        userCompletion = event.isTrusted && checkbox.checked;
+    });
+    checkbox.addEventListener("change", event => {
+        const shouldPlay = userCompletion && event.isTrusted && checkbox.checked;
+        userCompletion = false;
+        if (shouldPlay) {
+            try { play(); } catch (_) { /* Audio must not block the checkbox. */ }
+        }
+    });
+}
+
+const completionAudio = createCompletionAudio();
+module.exports = { createCompletionAudio, bindCompletionSound, ...completionAudio };
+
+},
+"lib/ui/daily-brief-control.js": function (module, exports, __hubRequire) {
+"use strict";
+const { setIcon } = require("obsidian");
+const { setHubTooltip } = __hubRequire("lib/ui/tooltips.js");
+
+// This is part of the existing global footer, not any dashboard or workspace leaf.
+function mountDailyBriefControl(plugin, service, host) {
+    const button = host.createEl("button", { cls: "hub-oath-button hub-daily-brief-button",
+        attr: { type: "button", "aria-label": "Daily brief", "aria-haspopup": "dialog" } });
+    setIcon(button.createSpan({ cls: "hub-oath-icon", attr: { "aria-hidden": "true" } }), "newspaper"); // Lucide Newspaper
+    button.createSpan({ text: "Daily brief" });
+    const update = () => {
+        const { available, reason } = service.availability();
+        // aria-disabled retains keyboard focus so the unavailable reason is discoverable.
+        button.setAttribute("aria-disabled", String(!available));
+        setHubTooltip(button, reason ? `Daily brief: ${reason}` : "Daily brief", "top");
+    };
+    plugin.registerDomEvent(button, "click", () => {
+        service.refreshAvailability();
+        if (service.availability().available) void service.openManual();
+    });
+    plugin.registerDomEvent(button, "pointerenter", () => service.refreshAvailability());
+    plugin.registerDomEvent(button, "focus", () => service.refreshAvailability());
+    const stop = service.onChange(update);
+    update();
+    return { button, destroy() { stop(); button.remove(); } };
+}
+module.exports = { mountDailyBriefControl };
+
+},
+"lib/ui/daily-brief.js": function (module, exports, __hubRequire) {
+"use strict";
+const { Modal, Component, setIcon } = require("obsidian");
+const { parseLocalISODate } = __hubRequire("lib/domain/dates.js");
+const { createHubMarkdown } = __hubRequire("lib/ui/markdown.js");
+const { renderTaskProgress } = __hubRequire("lib/ui/daily-report.js");
+
+function briefDateLabel(date, includeYear = false) {
+    return parseLocalISODate(date)?.toLocaleDateString([], {
+        weekday: "long", day: "numeric", month: "long", ...(includeYear ? { year: "numeric" } : {})
+    }) ?? "";
+}
+
+// Presentation accepts provider results, never the concrete recommendation rules.
+class DailyBriefModal extends Modal {
+    constructor(app, { context, recommendation, onAction, onReport, onClose }) {
+        super(app); Object.assign(this, { context, recommendation, onAction, onReport, closed: onClose });
+        this.selectedDate = context.lastWorkDate; this.expanded = false;
+    }
+    onOpen() {
+        this.contentEl.classList.add("hub-project-advancement-modal", "hub-daily-brief-modal", "hub-button-scope");
+        this.component = new Component(); this.component.load();
+        this.markdown = createHubMarkdown({ app: this.app, component: this.component });
+        this.render();
+    }
+    action(parent, label, callback, cls = "") {
+        const button = parent.createEl("button", { cls, text: label, attr: { type: "button" } });
+        button.addEventListener("click", async () => {
+            if (button.disabled) return;
+            button.disabled = true;
+            try { await callback(); }
+            catch (error) {
+                console.error("Daily Brief action failed", error);
+                this.error.textContent = "That destination could not be opened. Close the brief to return to your workspace.";
+            } finally { button.disabled = false; }
+        });
+        return button;
+    }
+    showDate(date) {
+        this.selectedDate = date; this.expanded = false; this.render(); this.contentEl.scrollTop = 0;
+        this.contentEl.querySelector("h2")?.focus();
+    }
+    render() {
+        this.markdown.clear(); this.contentEl.empty();
+        const root = this.contentEl, historical = this.selectedDate !== this.context.lastWorkDate;
+        root.createEl("h2", { text: "Daily brief", attr: { tabindex: "-1" } });
+        root.createDiv({ cls: "hub-brief-date", text: briefDateLabel(this.context.briefDate, true) });
+        if (historical) this.action(root, "Back to today's brief", () => this.showDate(this.context.lastWorkDate), "hub-brief-back");
+        const day = this.context.days.find(day => day.date === this.selectedDate);
+        if (!day) return;
+        const heading = root.createDiv({ cls: "hub-brief-section-heading" });
+        heading.createEl("h3", { text: `${historical ? "Work" : "Last work"} \u00b7 ${briefDateLabel(day.date)}` });
+        if (day.hasReport) this.action(heading, "View full report", () => this.onReport(day.date));
+        const workspaces = root.createDiv({ cls: "hub-brief-workspaces" });
+        for (const workspace of day.workspaces.slice(0, this.expanded ? undefined : 3)) this.renderWorkspace(workspaces, workspace);
+        if (!this.expanded && day.workspaces.length > 3) {
+            this.action(root, `${day.workspaces.length - 3} more workspaces`, () => { this.expanded = true; this.render(); }, "hub-brief-more");
+        }
+        if (!historical && this.recommendation) {
+            const next = root.createEl("section", { cls: "hub-brief-next" });
+            next.createEl("h3", { text: "Next up" });
+            next.createDiv({ cls: "hub-report-text", text: this.recommendation.explanation });
+            const button = this.action(next, "", () => this.onAction(this.recommendation.target), "mod-cta hub-brief-primary");
+            button.createSpan({ cls: "hub-brief-action-label" }).createSpan({ text: this.recommendation.actionLabel });
+            if (this.recommendation.secondaryLabel) button.createSpan({ cls: "hub-brief-action-context", text: this.recommendation.secondaryLabel });
+        }
+        const earlier = this.context.days.slice(1, 4);
+        if (earlier.length) {
+            const section = root.createEl("section", { cls: "hub-brief-earlier" });
+            section.createEl("h3", { text: "Earlier days" });
+            for (const day of earlier) {
+                const button = this.action(section, "", () => this.showDate(day.date), "hub-button-plain hub-brief-day");
+                button.createSpan({ text: briefDateLabel(day.date) });
+                const icon = button.createSpan({ attr: { "aria-hidden": "true" } }); setIcon(icon, "chevron-right");
+                if (day.date === this.selectedDate) button.setAttribute("aria-current", "date");
+            }
+        }
+        this.error = root.createDiv({ cls: "hub-report-empty", attr: { role: "status" } });
+    }
+    renderWorkspace(parent, workspace) {
+        const card = parent.createEl("section", { cls: "hub-report-card" });
+        card.createEl("h3", { cls: "hub-project-advancement-name", text: workspace.workspaceName });
+        if (workspace.progressSummary) card.createDiv({ cls: "hub-report-text hub-report-summary", text: workspace.progressSummary });
+        else if (workspace.fulfilledOaths.length && !workspace.taskProgress.length) card.createDiv({ cls: "hub-report-text", text: "Fulfilled an Oath." });
+        if (workspace.taskProgress.length || workspace.nextFocus.length) {
+            const details = card.createDiv({ cls: "hub-brief-details" });
+            if (workspace.taskProgress.length) renderTaskProgress(details, workspace.taskProgress, this.markdown, { heading: "Progress on tasks", showTimes: false });
+            if (workspace.nextFocus.length) {
+                const focus = details.createDiv({ cls: "hub-report-section" });
+                focus.createEl("h3", { text: "Next focus" });
+                for (const item of workspace.nextFocus) focus.createDiv({ cls: "hub-report-text", text: item.text });
+            }
+        }
+        if (workspace.lastRelevantFile) {
+            const file = workspace.lastRelevantFile;
+            const button = this.action(card, "", () => this.onAction(file), "hub-button-plain hub-brief-file");
+            const icon = button.createSpan({ attr: { "aria-hidden": "true" } }); setIcon(icon, "file-text");
+            button.createSpan({ text: file.path.split("/").pop() });
+            button.setAttribute("title", file.path);
+        }
+    }
+    onClose() { this.component?.unload(); this.contentEl.empty(); this.closed?.(); }
+}
+module.exports = { DailyBriefModal, briefDateLabel };
+
+},
 "lib/ui/daily-report.js": function (module, exports, __hubRequire) {
 "use strict";
 
@@ -4159,21 +5681,28 @@ function focusSection(parent, heading, items, empty, markdown) {
     for (const text of items) reportText(section, text, markdown);
 }
 
-function renderReportEvidence(parent, context, markdown) {
-    const evidence = parent.createDiv({ cls: "hub-report-evidence" });
-    const tasks = evidence.createDiv({ cls: "hub-report-section" });
-    tasks.createEl("h3", { text: "Completed tasks" });
-    if (!context.tasks.length) tasks.createDiv({ cls: "hub-report-empty", text: "No completed tasks for this day." });
+function renderTaskProgress(parent, items, markdown, { heading = "Task progress", showTimes = true } = {}) {
+    const tasks = parent.createDiv({ cls: "hub-report-section" });
+    tasks.createEl("h3", { text: heading });
+    if (!items.length) tasks.createDiv({ cls: "hub-report-empty", text: "No task progress recorded for this day." });
     // Visible, bounded context uses the modal's native scrollbars; no active task controls.
-    const list = tasks.createDiv({ cls: "hub-report-task-list", attr: { role: "list", "aria-label": "Completed tasks" } });
-    if (context.tasks.length > 5) list.setAttribute("tabindex", "0");
-    for (const task of context.tasks) {
+    const list = tasks.createDiv({ cls: "hub-report-task-list", attr: { role: "list", "aria-label": heading } });
+    if (items.length > 5) list.setAttribute("tabindex", "0");
+    for (const task of [...items].sort((a, b) => a.timestamp - b.timestamp)) {
         const row = list.createDiv({ cls: "hub-report-evidence-row", attr: { role: "listitem" } });
         const icon = row.createSpan({ cls: "hub-report-check", attr: { "aria-hidden": "true" } });
-        setIcon(icon, "square-check");
-        reportText(row, task.text, markdown, "hub-report-text", task.path || "Home.md");
-        time(row, task.timestamp);
+        if (task.kind === "step") icon.classList.add("is-step-progress");
+        setIcon(icon, task.kind === "step" ? "circle-check" : "square-check");
+        reportText(row, task.kind === "step" ? `${task.parentText} \u00b7 ${task.text}` : task.text, markdown, "hub-report-text", task.path || "Home.md");
+        if (showTimes) time(row, task.timestamp);
     }
+
+    return tasks;
+}
+
+function renderReportEvidence(parent, context, markdown) {
+    const evidence = parent.createDiv({ cls: "hub-report-evidence" });
+    renderTaskProgress(evidence, context.tasks, markdown);
 
     if (!context.activity.length) {
         evidence.createDiv({ cls: "hub-report-empty hub-report-no-activity", text: "No activity recorded for this day." });
@@ -4256,7 +5785,7 @@ class DailyReportModal extends Modal {
     onClose() { this.renderComponent?.unload(); this.contentEl.empty(); }
 }
 
-module.exports = { reportTitle, DailyReportModal, renderDailyReport, renderReportEvidence, focusSection };
+module.exports = { reportTitle, DailyReportModal, renderDailyReport, renderReportEvidence, renderTaskProgress, focusSection };
 
 },
 "lib/ui/dashboard-frame.js": function (module, exports, __hubRequire) {
@@ -4990,6 +6519,28 @@ function openHomeCoverEditor(service, sourceCover) {
 module.exports = { openHomeCoverEditor };
 
 },
+"lib/ui/icons.js": function (module, exports, __hubRequire) {
+"use strict";
+
+const { getIcon, setIcon } = require("obsidian");
+
+// Obsidian's unprefixed names include legacy aliases (folder -> folder-open,
+// presentation -> monitor). Prefer canonical Lucide names at the Hub boundary,
+// while retaining registered custom icons and legacy-only names as a fallback.
+const resolvedNames = new Map();
+function setHubIcon(element, name) {
+    let resolved = resolvedNames.get(name);
+    if (!resolved) {
+        const canonical = name.startsWith("lucide-") ? name : "lucide-" + name;
+        resolved = getIcon(canonical) ? canonical : name;
+        resolvedNames.set(name, resolved);
+    }
+    setIcon(element, resolved);
+}
+
+module.exports = { setHubIcon };
+
+},
 "lib/ui/markdown.js": function (module, exports, __hubRequire) {
 "use strict";
 
@@ -5043,6 +6594,44 @@ function createHubMarkdown({ app, component }) {
 }
 
 module.exports = { createHubMarkdown };
+
+},
+"lib/ui/music.js": function (module, exports, __hubRequire) {
+"use strict";
+const { Modal, setIcon } = require("obsidian");
+const { setHubTooltip } = __hubRequire("lib/ui/tooltips.js");
+let instance = 0;
+
+class MusicModal extends Modal {
+    constructor(app, onClose) { super(app); this.closed = onClose; this.titleId = `hub-music-${++instance}-title`; }
+    onOpen() {
+        this.modalEl.classList.add("hub-oath-dialog", "hub-music-dialog");
+        this.contentEl.classList.add("hub-button-scope");
+        this.contentEl.tabIndex = -1;
+        this.contentEl.createEl("h2", { text: "Music", attr: { id: this.titleId } });
+        this.modalEl.setAttribute("aria-labelledby", this.titleId);
+        this.contentEl.focus();
+    }
+    onClose() { this.contentEl.empty(); this.closed?.(); }
+}
+
+function mountMusicControl(plugin, host) {
+    const button = host.createEl("button", { cls: "hub-oath-button hub-music-button",
+        attr: { type: "button", "aria-label": "Music", "aria-haspopup": "dialog" } });
+    setIcon(button.createSpan({ cls: "hub-oath-icon", attr: { "aria-hidden": "true" } }), "music");
+    button.createSpan({ text: "Music" }); setHubTooltip(button, "Music", "top");
+    let modal = null, destroyed = false;
+    const open = () => {
+        if (destroyed) return;
+        if (modal) { modal.contentEl.focus(); return; }
+        if (button.ownerDocument.querySelector(".modal-container")) return;
+        modal = new MusicModal(plugin.app, () => { modal = null; if (!destroyed && button.isConnected) button.focus(); });
+        modal.open();
+    };
+    plugin.registerDomEvent(button, "click", open);
+    return { button, open, destroy() { destroyed = true; modal?.close(); button.remove(); } };
+}
+module.exports = { MusicModal, mountMusicControl };
 
 },
 "lib/ui/note-rail.js": function (module, exports, __hubRequire) {
@@ -5122,7 +6711,12 @@ function mountNoteRail(pane, initialState = "full", onChange = () => {}) {
     edge.addEventListener("pointerup", end);
     edge.addEventListener("pointercancel", end);
     edge.addEventListener("lostpointercapture", () => { drag = null; edge.classList.remove("is-dragging"); });
+    // Native restored panes may still carry arbitrary split dimensions. Commit
+    // the canonical initial state before enabling interactive resize animation.
+    pane.classList.add("is-hub-rail-initializing");
     select(state);
+    pane.getBoundingClientRect();
+    pane.classList.remove("is-hub-rail-initializing");
     return { pane, destroy() { end(); controls.remove(); edge.remove(); delete pane.dataset.hubRailState; } };
 }
 
@@ -5776,7 +7370,7 @@ function mountOathControl(plugin, service) {
             `The Oath · ${shortOathTime(oathTime(oath, service.now()).remainingMs)}${oath.tasks.length ? ` · ${oathProgress(service.work).completed} / ${oath.tasks.length}` : ""}`;
     };
     const stop = service.onChange(update, true); update();
-    return { open, destroy() { stop(); service.fullscreen.onExitRequest?.(() => {}); exitUi.get(service)?.warning?.close(); modal?.close(); item.remove(); bar.classList.remove("hub-oath-statusbar"); if (fallback) bar.remove(); } };
+    return { item, open, destroy() { stop(); service.fullscreen.onExitRequest?.(() => {}); exitUi.get(service)?.warning?.close(); modal?.close(); item.remove(); bar.classList.remove("hub-oath-statusbar"); if (fallback) bar.remove(); } };
 }
 module.exports = { openOathPicker, openOathSetup, openOathStatus, mountOathControl, requestOathExit };
 
@@ -6545,17 +8139,485 @@ class ProjectDeletionModal extends Modal {
 module.exports = { ProjectDeletionModal };
 
 },
-"lib/ui/task-editor.js": function (module, exports, __hubRequire) {
+"lib/ui/settings-pages.js": function (module, exports, __hubRequire) {
 "use strict";
 
-function openTaskEditor(service, task, onEdit = () => {}) {
+// Page definitions and renderers are presentation only. A future settings store
+// can be wired to individual controls without replacing the window/navigation.
+const SETTINGS_PAGES = [
+    ["general", "General", "Core application preferences."],
+    ["appearance", "Appearance", "Customize the visual presentation of Itacan."],
+    ["homepage", "Homepage", "Your starting point in Itacan."],
+    ["workspaces", "Workspaces", "Workspace presentation and organization."],
+    ["notes", "Notes & Editor", "Your note-writing environment."],
+    ["tasks", "Tasks", "Task presentation and planning preferences."],
+    ["atlas", "Atlas", "Your browsing workspace."],
+    ["oath", "The Oath", "Preferences for focused work."],
+    ["daily-brief", "Daily brief", "Your daily orientation."],
+    ["history", "History", "Your work history and reports."],
+    ["integrations", "Integrations", "Connections to other tools."],
+    ["files", "Files & Data", "Files and application data."],
+    ["shortcuts", "Shortcuts", "Keyboard shortcuts and quick actions."],
+    ["advanced", "Advanced", "Additional application preferences."],
+    ["about", "About", "About Itacan."]
+].map(([id, title, description]) => ({ id, title, description }));
+
+function row(parent, label, description) {
+    const el = parent.createDiv({ cls: "hub-settings-row" });
+    const text = el.createDiv({ cls: "hub-settings-row-copy" });
+    text.createDiv({ cls: "hub-settings-label", text: label });
+    if (description) text.createDiv({ cls: "hub-settings-description", text: description });
+    return el.createDiv({ cls: "hub-settings-row-control", attr: { "aria-label": label } });
+}
+function select(parent, label, value) {
+    const control = parent.createEl("select", { cls: "dropdown", attr: { "aria-label": label, disabled: "" } });
+    control.createEl("option", { text: value });
+}
+function segments(parent, label, values, selected) {
+    const group = parent.createDiv({ cls: "hub-settings-segments", attr: { role: "group", "aria-label": label } });
+    for (const value of values) group.createEl("button", {
+        text: value, cls: value === selected ? "is-selected" : "",
+        attr: { type: "button", disabled: "", "aria-pressed": String(value === selected) }
+    });
+}
+function section(parent, title) {
+    const el = parent.createEl("section", { cls: "hub-settings-section" });
+    el.createEl("h3", { text: title });
+    return el;
+}
+function renderAppearance(parent) {
+    parent.createEl("p", { cls: "hub-settings-preview-note", text: "Preview only. Controls are not active yet." });
+    let group = section(parent, "Theme");
+    select(row(group, "Theme pack", "A coordinated visual style, with individual options below."), "Theme pack", "Default");
+    group = section(parent, "Color");
+    const colors = row(group, "Accent color");
+    const swatches = colors.createDiv({ cls: "hub-settings-swatches", attr: { role: "group", "aria-label": "Accent color preview" } });
+    for (const [name, color] of [["Purple", "#8B5CF6"], ["Blue", "#528DD7"], ["Green", "#549D7A"], ["Amber", "#BB914A"], ["Gray", "#90949C"]]) {
+        const swatch = swatches.createEl("button", { cls: "hub-settings-swatch" + (name === "Purple" ? " is-selected" : ""),
+            attr: { type: "button", disabled: "", "aria-label": name, "aria-pressed": String(name === "Purple") } });
+        swatch.style.backgroundColor = color;
+    }
+    swatches.createEl("button", { cls: "hub-settings-custom-color", text: "+", attr: { type: "button", disabled: "", "aria-label": "Custom color" } });
+    const defaults = row(group, "Interface colors", "Use theme pack defaults");
+    defaults.createDiv({ cls: "checkbox-container is-enabled hub-settings-toggle", attr: { role: "switch", "aria-label": "Use theme pack defaults", "aria-checked": "true", "aria-disabled": "true" } });
+    group = section(parent, "Theme mode");
+    segments(row(group, "Theme mode"), "Theme mode", ["System", "Light", "Dark"], "Dark");
+    group = section(parent, "Typography");
+    select(row(group, "Interface font"), "Interface font", "Default (system)");
+    select(row(group, "Editor font"), "Editor font", "Default (monospace)");
+    segments(row(group, "Interface text size"), "Interface text size", ["Small", "Default", "Large"], "Default");
+    group = section(parent, "Interface");
+    segments(row(group, "Interface density"), "Interface density", ["Comfortable", "Default", "Compact"], "Default");
+    select(row(group, "Corner style"), "Corner style", "Default");
+    segments(row(group, "Animations"), "Animations", ["Full", "Reduced"], "Full");
+}
+function renderSettingsPage(parent, page) {
+    parent.createEl("h2", { text: page.title });
+    parent.createEl("p", { cls: "hub-settings-description", text: page.description });
+    if (page.id === "appearance") return renderAppearance(parent);
+    parent.createEl("p", { cls: "hub-settings-preview-note", text: "No options available in this preview." });
+    for (let i = 0; i < 2; i++) parent.createDiv({ cls: "hub-settings-empty-section", attr: { "aria-hidden": "true" } });
+}
+module.exports = { SETTINGS_PAGES, renderSettingsPage };
+
+},
+"lib/ui/settings.js": function (module, exports, __hubRequire) {
+"use strict";
+const { Modal, setIcon } = require("obsidian");
+const { setHubTooltip } = __hubRequire("lib/ui/tooltips.js");
+const { SETTINGS_PAGES, renderSettingsPage } = __hubRequire("lib/ui/settings-pages.js");
+let instance = 0;
+
+class SettingsModal extends Modal {
+    constructor(app, onClose) { super(app); this.closed = onClose; this.prefix = `hub-settings-${++instance}`; }
+    onOpen() {
+        this.modalEl.classList.add("hub-settings-dialog");
+        this.contentEl.classList.add("hub-settings-content", "hub-button-scope");
+        const header = this.contentEl.createEl("header", { cls: "hub-settings-header" });
+        header.createEl("h2", { text: "Settings", attr: { id: `${this.prefix}-title` } });
+        this.modalEl.setAttribute("aria-labelledby", `${this.prefix}-title`);
+        header.createEl("p", { cls: "hub-settings-description", text: "Customize how Itacan looks and behaves." });
+        const body = this.contentEl.createDiv({ cls: "hub-settings-body" });
+        const sidebar = body.createEl("aside", { cls: "hub-settings-sidebar" });
+        const search = sidebar.createEl("input", { cls: "hub-settings-search", attr: {
+            type: "search", placeholder: "Search settings", "aria-label": "Search settings (preview only)",
+            title: "Search is not active in this preview."
+        } });
+        search.autocomplete = "off";
+        this.tabs = sidebar.createDiv({ cls: "hub-settings-categories", attr: { role: "tablist", "aria-label": "Settings categories", "aria-orientation": "vertical" } });
+        this.buttons = SETTINGS_PAGES.map(page => {
+            const button = this.tabs.createEl("button", { text: page.title, cls: "hub-settings-category" + (page.id === "about" ? " hub-settings-about" : ""),
+                attr: { type: "button", role: "tab", id: `${this.prefix}-${page.id}`, "aria-controls": `${this.prefix}-panel` } });
+            button.addEventListener("click", () => this.select(page.id));
+            return button;
+        });
+        this.tabs.addEventListener("keydown", event => {
+            const index = this.buttons.indexOf(event.target);
+            if (index < 0) return;
+            const next = event.key === "ArrowDown" ? (index + 1) % this.buttons.length : event.key === "ArrowUp" ?
+                (index + this.buttons.length - 1) % this.buttons.length : event.key === "Home" ? 0 : event.key === "End" ? this.buttons.length - 1 : null;
+            if (next === null) return;
+            event.preventDefault(); this.select(SETTINGS_PAGES[next].id); this.buttons[next].focus();
+        });
+        this.panel = body.createDiv({ cls: "hub-settings-panel", attr: { role: "tabpanel", id: `${this.prefix}-panel`, tabindex: "0" } });
+        this.select("appearance");
+    }
+    select(id) {
+        const page = SETTINGS_PAGES.find(page => page.id === id);
+        if (!page) return;
+        this.buttons.forEach((button, index) => {
+            const selected = SETTINGS_PAGES[index].id === id;
+            button.setAttribute("aria-selected", String(selected)); button.tabIndex = selected ? 0 : -1;
+        });
+        this.panel.setAttribute("aria-labelledby", `${this.prefix}-${id}`);
+        this.panel.empty(); renderSettingsPage(this.panel, page); this.panel.scrollTop = 0;
+    }
+    onClose() { this.contentEl.empty(); this.closed?.(); }
+}
+
+function mountSettingsControl(plugin, host) {
+    const button = host.createEl("button", { cls: "hub-oath-button hub-settings-button",
+        attr: { type: "button", "aria-label": "Settings", "aria-haspopup": "dialog" } });
+    setIcon(button.createSpan({ cls: "hub-oath-icon", attr: { "aria-hidden": "true" } }), "settings");
+    button.createSpan({ text: "Settings" }); setHubTooltip(button, "Settings", "top");
+    let modal = null, destroyed = false;
+    const open = () => {
+        if (destroyed) return;
+        if (modal) { modal.panel?.focus(); return; }
+        // Keep existing modal/Oath interactions in charge while another window is open.
+        if (button.ownerDocument.querySelector(".modal-container")) return;
+        modal = new SettingsModal(plugin.app, () => { modal = null; if (!destroyed && button.isConnected) button.focus(); });
+        modal.open();
+    };
+    plugin.registerDomEvent(button, "click", open);
+    return { button, open, destroy() { destroyed = true; modal?.close(); button.remove(); } };
+}
+module.exports = { SettingsModal, mountSettingsControl };
+
+},
+"lib/ui/statistics-charts.js": function (module, exports, __hubRequire) {
+"use strict";
+
+const { formatDuration } = __hubRequire("lib/domain/statistics.js");
+const SVG_NS = "http://www.w3.org/2000/svg";
+
+function svgElement(parent, tag, attrs = {}, text) {
+    const element = parent.ownerDocument.createElementNS(SVG_NS, tag);
+    for (const [name, value] of Object.entries(attrs)) element.setAttribute(name, String(value));
+    if (text != null) element.textContent = text;
+    parent.appendChild(element); return element;
+}
+
+function dateLabel(time, year = false) {
+    return new Date(time).toLocaleDateString([], { month: "short", day: "numeric", ...(year ? { year: "numeric" } : {}) });
+}
+
+function binLabel(bin) {
+    const end = new Date(bin.end); end.setDate(end.getDate() - 1);
+    return dateLabel(bin.start, true) + (+end > bin.start ? ` – ${dateLabel(+end, true)}` : "");
+}
+
+function emptyChart(parent, message) {
+    parent.createDiv({ cls: "hub-report-empty hub-statistics-empty", text: message });
+}
+
+// One SVG rectangle per aggregated bin, never per raw event. A single focusable
+// chart provides keyboard/pointer details, with a native table for all values.
+function renderBarChart(parent, { range, values, label, color = "accent", duration = false, compact = false, summary = false, empty }) {
+    if (!values.some(value => Number.isFinite(value) && value > 0)) { emptyChart(parent, empty); return; }
+    const wrap = parent.createDiv({ cls: `hub-statistics-chart hub-statistics-series-${color}` });
+    const format = duration ? formatDuration : value => value.toLocaleString();
+    const plotHeight = summary ? 88 : compact ? 96 : 112;
+    const plot = svgElement(wrap, "svg", { class: "hub-statistics-plot", viewBox: `0 0 400 ${plotHeight}`, preserveAspectRatio: "none",
+        tabindex: "0", role: "group", "aria-label": `${label}. Use Left and Right arrows for dates, a data table is available to screen readers.` });
+    plot.style.height = `${plotHeight}px`;
+    const left = 42, top = 8, width = 348, height = plotHeight - 32;
+    const max = Math.max(...values), scale = duration ? (max < 3600000 ? 60000 : 3600000) : 1;
+    const upper = Math.max(scale, Math.ceil(max / scale / 4) * scale * 4);
+    for (const fraction of [0, .5, 1]) {
+        const y = top + height * (1 - fraction);
+        svgElement(plot, "line", { x1: left, x2: left + width, y1: y, y2: y, class: "hub-statistics-gridline" });
+        const amount = upper * fraction;
+        svgElement(plot, "text", { x: left - 7, y: y + 4, "text-anchor": "end" }, duration ? `${amount / scale}${scale === 60000 ? "m" : "h"}` : amount.toLocaleString());
+    }
+    const bars = [], ticks = [];
+    let chartWidth = 400, stride = width / values.length;
+    values.forEach((value, index) => {
+        const bar = svgElement(plot, "rect", { x: left + index * stride + stride * .15,
+            y: top + height * (1 - value / upper), width: stride * .7, height: height * value / upper,
+            class: "hub-statistics-bar", "aria-hidden": "true" });
+        bars.push(bar);
+    });
+    for (const index of [...new Set([0, Math.floor((values.length - 1) / 2), values.length - 1])]) {
+        const tick = svgElement(plot, "text", { x: left + (index + .5) * stride, y: plotHeight - 8,
+            "text-anchor": index === 0 ? "start" : index === values.length - 1 ? "end" : "middle" }, dateLabel(range.bins[index].start, range.days > 366));
+        ticks.push({ tick, index });
+    }
+    const layout = () => {
+        chartWidth = plot.getBoundingClientRect().width || 400;
+        const plotWidth = Math.max(1, chartWidth - left - 10);
+        stride = plotWidth / values.length;
+        plot.setAttribute("viewBox", `0 0 ${chartWidth} ${plotHeight}`);
+        for (const line of plot.querySelectorAll("line")) line.setAttribute("x2", left + plotWidth);
+        bars.forEach((bar, index) => { bar.setAttribute("x", left + (index + .15) * stride); bar.setAttribute("width", stride * .7); });
+        ticks.forEach(({ tick, index }) => {
+            tick.setAttribute("x", left + (index + .5) * stride);
+            tick.style.display = chartWidth < 360 && index > 0 && index < values.length - 1 ? "none" : "";
+        });
+    };
+    layout();
+    const observer = typeof ResizeObserver === "function" ? new ResizeObserver(layout) : null;
+    observer?.observe(wrap);
+    const doc = wrap.ownerDocument, win = doc.defaultView;
+    const detail = doc.createElement("div");
+    detail.className = "tooltip hub-detail-tooltip hub-statistics-point-tooltip hub-button-scope";
+    detail.setAttribute("role", "tooltip");
+    detail.hidden = true;
+    doc.body.append(detail);
+    const hide = () => { detail.hidden = true; bars[selected]?.classList.remove("is-selected"); };
+    let selected = Math.max(0, values.findIndex(value => value > 0));
+    const show = index => {
+        bars[selected]?.classList.remove("is-selected"); selected = Math.max(0, Math.min(values.length - 1, index));
+        bars[selected].classList.add("is-selected");
+        detail.textContent = `${binLabel(range.bins[selected])}: ${format(values[selected])}`;
+        plot.setAttribute("aria-label", `${label}. ${detail.textContent}. Left and Right arrows change the date.`);
+        detail.hidden = false;
+        const rect = plot.getBoundingClientRect(), bounds = detail.getBoundingClientRect();
+        detail.style.left = Math.max(8, Math.min(rect.left + left + (selected + .5) * stride - bounds.width / 2, win.innerWidth - bounds.width - 8)) + "px";
+        detail.style.top = Math.max(8, rect.top >= bounds.height + 8 ? rect.top - bounds.height - 6 : rect.bottom + 6) + "px";
+    };
+    plot.addEventListener("pointermove", event => {
+        const bounds = plot.getBoundingClientRect();
+        show(Math.floor(((event.clientX - bounds.left) * chartWidth / bounds.width - left) / stride));
+    });
+    plot.addEventListener("focus", () => show(selected));
+    plot.addEventListener("keydown", event => {
+        if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+        event.preventDefault();
+        show(event.key === "Home" ? 0 : event.key === "End" ? values.length - 1 : selected + (event.key === "ArrowRight" ? 1 : -1));
+    });
+    plot.addEventListener("pointerleave", hide);
+    plot.addEventListener("blur", hide);
+    doc.addEventListener("scroll", hide, true);
+    win.addEventListener("resize", hide);
+    const scroll = wrap.createDiv({ cls: "hub-statistics-sr-only" });
+    const table = scroll.createEl("table"); table.createEl("caption", { text: label });
+    const header = table.createEl("thead").createEl("tr");
+    header.createEl("th", { text: "Date", attr: { scope: "col" } }); header.createEl("th", { text: duration ? "Time" : "Count", attr: { scope: "col" } });
+    const body = table.createEl("tbody");
+    values.forEach((value, index) => {
+        const row = body.createEl("tr"); row.createEl("th", { text: binLabel(range.bins[index]), attr: { scope: "row" } });
+        row.createEl("td", { text: format(value) });
+    });
+    return () => {
+        observer?.disconnect(); detail.remove();
+        doc.removeEventListener("scroll", hide, true); win.removeEventListener("resize", hide);
+    };
+}
+
+function renderDonut(parent, comparison) {
+    if (!comparison.total) { emptyChart(parent, "No Oathbound time in this period."); return; }
+    const root = parent.createDiv({ cls: "hub-statistics-comparison" });
+    const svg = svgElement(root, "svg", { viewBox: "0 0 100 100", role: "img",
+        "aria-label": `Projects ${comparison.projects}%. Resources ${comparison.resources}%. Based on Oathbound time.` });
+    svgElement(svg, "circle", { cx: 50, cy: 50, r: 36, class: "hub-statistics-donut-base" });
+    svgElement(svg, "circle", { cx: 50, cy: 50, r: 36, pathLength: 100, transform: "rotate(-90 50 50)",
+        "stroke-dasharray": `${comparison.projects} ${100 - comparison.projects}`, class: "hub-statistics-donut-projects" });
+    const legend = root.createDiv({ cls: "hub-statistics-legend" });
+    for (const [label, percent, cls] of [["Projects", comparison.projects, "accent"], ["Resources", comparison.resources, "blue"]]) {
+        const row = legend.createDiv({ cls: `hub-statistics-legend-row hub-statistics-series-${cls}` });
+        row.createSpan({ cls: "hub-statistics-dot", attr: { "aria-hidden": "true" } });
+        row.createSpan({ text: label }); row.createEl("strong", { text: `${percent}%` });
+    }
+}
+
+module.exports = { renderBarChart, renderDonut, emptyChart, dateLabel };
+
+},
+"lib/ui/statistics.js": function (module, exports, __hubRequire) {
+"use strict";
+
+const { Modal, setIcon } = require("obsidian");
+const { createImmediateHubTooltip } = __hubRequire("lib/ui/tooltips.js");
+const { RANGES, aggregateStatistics, seriesFor, formatDuration } = __hubRequire("lib/domain/statistics.js");
+const { readStatistics } = __hubRequire("lib/services/statistics.js");
+const { renderBarChart, renderDonut, emptyChart, dateLabel } = __hubRequire("lib/ui/statistics-charts.js");
+
+function workspaceLabel(row) {
+    const state = row.deleted ? "Deleted" : row.status === "future" ? "Future" : row.status === "shelved" ? "Shelved" : null;
+    return `${row.name}${state ? ` (${state})` : ""}`;
+}
+
+class StatisticsModal extends Modal {
+    constructor(app, plugin, { source, onClose } = {}) {
+        super(app); this.plugin = plugin; this.source = source; this.closed = onClose;
+        this.range = "3m"; this.filters = { distribution: "project", activity: "project", tasks: "project", steps: "project" };
+        this.cache = new Map(); this.chartCleanups = [];
+    }
+    onOpen() {
+        this.contentEl.classList.add("hub-project-advancement-modal", "hub-statistics-modal", "hub-button-scope");
+        this.modalEl.classList.add("hub-statistics-window");
+        this.source ??= readStatistics(this.plugin);
+        this.helpTooltips = createImmediateHubTooltip(this.contentEl);
+        const header = this.contentEl.createDiv({ cls: "hub-statistics-header" });
+        header.createEl("h2", { text: "Statistics" });
+        const ranges = header.createDiv({ cls: "hub-panel-selectors hub-statistics-ranges", attr: { role: "group", "aria-label": "Statistics time range" } });
+        this.rangeButtons = RANGES.map(([key, label]) => {
+            const button = ranges.createEl("button", { text: label, attr: { type: "button", "aria-pressed": String(key === this.range) } });
+            button.classList.toggle("is-active", key === this.range);
+            button.addEventListener("click", () => {
+                this.range = key;
+                this.rangeButtons.forEach(([value, item]) => { item.classList.toggle("is-active", value === key); item.setAttribute("aria-pressed", String(value === key)); });
+                this.render();
+            });
+            return [key, button];
+        });
+        this.grid = this.contentEl.createDiv({ cls: "hub-statistics-grid" });
+        this.render();
+    }
+    card(id, title, { wide = false, options } = {}) {
+        const card = this.grid.createEl("section", { cls: `hub-report-card hub-statistics-card${wide ? " hub-statistics-wide" : ""}`,
+            attr: { "aria-label": title, "data-statistic": id } });
+        const heading = card.createDiv({ cls: "hub-statistics-card-heading" });
+        heading.createEl("h3", { text: title });
+        if (options) {
+            const select = heading.createEl("select", { attr: { "aria-label": `${title} workspace`, "data-filter": id } });
+            options.forEach(([value, label]) => select.createEl("option", { text: label, attr: { value } }));
+            select.value = this.filters[id];
+            select.title = select.selectedOptions[0]?.textContent ?? "";
+            select.style.width = Math.min(20, select.title.length + 5) + "ch";
+            select.addEventListener("change", () => {
+                this.filters[id] = select.value; const scrollTop = this.contentEl.scrollTop;
+                this.render(); this.grid.querySelector(`[data-filter="${id}"]`)?.focus({ preventScroll: true }); this.contentEl.scrollTop = scrollTop;
+            });
+        }
+        return card;
+    }
+    hint(parent, text) {
+        const heading = parent.querySelector(".hub-statistics-card-heading");
+        if (["oaths", "notes"].includes(parent.dataset.statistic)) {
+            const help = heading.createEl("button", { cls: "hub-panel-action hub-panel-action-icon hub-statistics-help",
+                attr: { type: "button", "aria-label": "About " + heading.textContent } });
+            setIcon(help, "circle-help");
+            this.helpTooltips.bind(help, { title: heading.querySelector("h3").textContent, description: text });
+        } else {
+            heading.setAttribute("title", text);
+            heading.setAttribute("aria-description", text);
+        }
+    }
+    chart(parent, values, label, empty, extra = {}) {
+        const cleanup = renderBarChart(parent, { range: this.model.range, values, label, empty, ...extra });
+        if (cleanup) this.chartCleanups.push(cleanup);
+    }
+    render() {
+        this.helpTooltips?.dispose();
+        this.helpTooltips = createImmediateHubTooltip(this.contentEl);
+        if (!this.cache.has(this.range)) this.cache.set(this.range, aggregateStatistics(this.source, this.range));
+        this.chartCleanups.splice(0).forEach(cleanup => cleanup());
+        this.model = this.cache.get(this.range); this.grid.empty();
+        const model = this.model, kinds = [["project", "Projects"], ["resource", "Resources"]];
+        this.renderDistribution(kinds);
+        const activity = this.card("activity", "Activity over time", { options: kinds });
+        this.chart(activity, seriesFor(model, "activity", this.filters.activity), "Work records", "No work activity in this period.");
+        this.hint(activity, "Note creations, recorded edits, and task or step completions.");
+        const workspaceOptions = [["project", "All projects"], ["resource", "All resources"],
+            ...model.rows.slice().sort((a, b) => a.name.localeCompare(b.name)).map(row => [row.key, workspaceLabel(row)])];
+        for (const [id, title, color] of [["tasks", "Tasks completed", "green"], ["steps", "Steps completed", "blue"]]) {
+            const card = this.card(id, title, { options: workspaceOptions });
+            this.chart(card, seriesFor(model, id, this.filters[id]), title, `No completed ${id} in this period.`, { color, compact: true });
+        }
+        this.renderOaths(); this.renderNotes(); this.renderProjects();
+        const comparison = this.card("comparison", "Resources vs Projects"); renderDonut(comparison, model.comparison);
+        this.hint(comparison, "Share of recorded Oathbound time.");
+    }
+    renderDistribution(options) {
+        const card = this.card("distribution", "Work distribution (Oathbound time)", { options });
+        const rows = this.model.rows.filter(row => row.kind === this.filters.distribution && row.time > 0)
+            .sort((a, b) => b.time - a.time || a.name.localeCompare(b.name));
+        if (!rows.length) { emptyChart(card, "No Oathbound time in this period."); return; }
+        const total = rows.reduce((sum, row) => sum + row.time, 0);
+        const list = card.createDiv({ cls: "hub-statistics-ranking", attr: { tabindex: "0", role: "list", "aria-label": "Workspace time distribution" } });
+        for (const workspace of rows) {
+            const row = list.createDiv({ cls: "hub-statistics-rank-row", attr: { role: "listitem" } });
+            if (workspace.status === "unassigned") {
+                row.classList.add("is-unassigned");
+                row.setAttribute("title", "Historical work without workspace attribution");
+                row.setAttribute("aria-description", "Historical work without workspace attribution");
+            }
+            const label = workspaceLabel(workspace), percent = workspace.time / total * 100;
+            row.createSpan({ cls: "hub-statistics-name", text: label, attr: { title: label } });
+            const track = row.createDiv({ cls: "hub-statistics-track", attr: { "aria-hidden": "true" } });
+            track.createDiv({ cls: "hub-statistics-fill" }).style.width = `${workspace.time / rows[0].time * 100}%`;
+            row.createSpan({ cls: "hub-statistics-number", text: percent < 1 ? "<1%" : `${Math.round(percent)}%` });
+            row.createSpan({ cls: "hub-statistics-number", text: formatDuration(workspace.time) });
+        }
+    }
+    renderOaths() {
+        const card = this.card("oaths", "Oathbound time", { wide: true }), oath = this.model.oath;
+        const body = card.createDiv({ cls: "hub-statistics-split" });
+        this.chart(body.createDiv(), oath.values, "Oathbound time", "No Oaths recorded in this period.", { duration: true, compact: true, summary: true });
+        const metrics = body.createDiv({ cls: "hub-statistics-metrics" });
+        for (const [label, value] of [["Total Oathbound time", formatDuration(oath.total)], ["Oaths taken", oath.taken.toLocaleString()],
+            ["Oaths fulfilled", `${oath.fulfilled}${oath.taken ? ` (${Math.round(oath.fulfilled / oath.taken * 100)}%)` : ""}`]]) {
+            const metric = metrics.createDiv(); metric.createSpan({ text: label }); metric.createEl("strong", { text: value });
+        }
+        this.hint(card, "Ended sessions across devices. Time falls on the dates worked; Oaths are counted by start date.");
+    }
+    renderNotes() {
+        const card = this.card("notes", "Notes", { wide: true }), note = this.model.note;
+        const body = card.createDiv({ cls: "hub-statistics-split" });
+        this.chart(body.createDiv(), note.values, "Notes created", "No note activity in this period.", { color: "muted", compact: true, summary: true });
+        const metrics = body.createEl("dl", { cls: "hub-statistics-note-metrics" });
+        for (const [label, value] of [["Total notes", note.total.toLocaleString()], ["Notes created (selected period)", note.created.toLocaleString()],
+            ["Average per day", note.average.toFixed(1)], ["Largest day", `${note.largest} ${note.largest === 1 ? "note" : "notes"}${note.largestDate ? ` · ${dateLabel(new Date(note.largestDate + "T00:00:00"))}` : ""}`]]) {
+            metrics.createEl("dt", { text: label }); metrics.createEl("dd", { text: value });
+        }
+        this.hint(card, "Current workspace Markdown notes, by file creation date. Deleted notes and workspace dashboards are excluded.");
+    }
+    renderProjects() {
+        const card = this.card("projects", "Project activity"), projects = this.model.projects;
+        if (!projects.length) { emptyChart(card, "No project activity recorded yet."); return; }
+        const scroll = card.createDiv({ cls: "hub-statistics-project-list", attr: { tabindex: "0", "aria-label": "Project activity", role: "region" } });
+        const table = scroll.createEl("table");
+        const heading = table.createEl("thead").createEl("tr");
+        for (const label of ["Project", "Last active", "Oathbound time"]) heading.createEl("th", { text: label, attr: { scope: "col" } });
+        const body = table.createEl("tbody");
+        for (const project of projects) {
+            const row = body.createEl("tr"), name = workspaceLabel(project);
+            row.createEl("th", { attr: { scope: "row" } }).createSpan({ cls: "hub-statistics-name", text: name, attr: { title: name } });
+            row.createEl("td", { text: project.lastActive ? dateLabel(project.lastActive, new Date(project.lastActive).getFullYear() !== new Date(this.source.now).getFullYear()) : "No activity",
+                attr: { title: project.lastActive ? new Date(project.lastActive).toLocaleString() : "No recorded work activity" } });
+            row.createEl("td", { text: formatDuration(project.time) });
+        }
+        this.hint(card, "All project states. Last active is all-time; time follows the selected period.");
+    }
+    onClose() { this.helpTooltips?.dispose(); this.chartCleanups.splice(0).forEach(cleanup => cleanup()); this.cache.clear(); this.contentEl.empty(); this.closed?.(); }
+}
+
+module.exports = { StatisticsModal };
+
+},
+"lib/ui/task-editor.js": function (module, exports, __hubRequire) {
+"use strict";
+const { bindCompletionSound, playStepCompletionSound } = __hubRequire("lib/ui/completion-audio.js");
+
+function openTaskEditor(service, task, onEdit = () => {}, creation = null) {
     const { Modal, Notice, setIcon } = require("obsidian");
     class TaskModal extends Modal {
         async onOpen() {
             this.closed = false;
             this.modalEl.classList.add("hub-task-dialog");
             this.contentEl.classList.add("hub-button-scope", "hub-task-form");
-            this.contentEl.createEl("h2", { cls: "hub-task-dialog-title", text: "Edit task" });
+            this.contentEl.createEl("h2", { cls: "hub-task-dialog-title", text: creation ? "Add task" : "Edit task" });
+            if (creation) {
+                const locations = availableLocations(service, creation.root);
+                const activePath = service.app.workspace.getActiveFile()?.path;
+                const location = locations.find(item => item.path === (creation.location ?? creation.path)) ??
+                    locations.find(item => item.path === creation.root) ??
+                    locations.find(item => item.path === activePath) ?? locations[0];
+                this.snapshot = { text: "", steps: [], necessity: null, ...creation, path: location?.path ?? "" };
+                this.render(); return;
+            }
             const loading = this.contentEl.createEl("p", { text: "Loading task…" });
             try {
                 this.snapshot = await service.read(task);
@@ -6575,6 +8637,7 @@ function openTaskEditor(service, task, onEdit = () => {}) {
             const title = section("Task");
             const input = title.createEl("input", { type: "text", cls: "hub-task-title-input", attr: { "aria-label": "Task", required: "" } });
             input.value = snapshot.text;
+            if (creation) input.placeholder = "What needs doing?";
             const necessity = section("Necessity");
             const necessityHeading = necessity.createDiv({ cls: "hub-task-necessity-heading" });
             necessityHeading.appendChild(necessity.querySelector("h3"));
@@ -6629,6 +8692,8 @@ function openTaskEditor(service, task, onEdit = () => {}) {
                 text.value = step.text ?? "";
                 const remove = row.createEl("button", { attr: { type: "button", "aria-label": "Remove step" } }); setIcon(remove, "x");
                 const state = { ...step, row, checkbox, input: text, removed: false }; stepRows.push(state);
+                bindCompletionSound(checkbox, playStepCompletionSound);
+                checkbox.addEventListener("change", () => { state.completedAt = checkbox.checked ? Date.now() : null; });
                 remove.addEventListener("click", () => {
                     for (const child of stepRows) {
                         if (child === state || (state.line != null && child.line > state.line && child.line < state.end)) {
@@ -6643,12 +8708,26 @@ function openTaskEditor(service, task, onEdit = () => {}) {
             setIcon(add.createSpan(), "plus"); add.createSpan({ text: "Add step" });
             add.addEventListener("click", () => addStep({}).focus());
             const location = section("Location");
-            location.createDiv({ cls: "hub-task-source", text: snapshot.path.replace(/\.md$/i, "").split("/").join(" › ") });
+            const owner = service.context?.(snapshot.path);
+            const fieldsLocation = locationFields(service, location, snapshot, creation?.root ?? owner?.root);
+            const project = section("Project");
+            project.querySelector("h3").append(" (optional)");
+            const association = project.createEl("select", { attr: { "aria-label": "Project (optional)" } });
+            association.createEl("option", { text: "No project", attr: { value: "" } });
+            for (const item of service.projects?.() ?? []) association.createEl("option", { text: item.name, attr: { value: item.projectId } });
+            if (snapshot.linkedProjectId && ![...association.options].some(option => option.value === snapshot.linkedProjectId)) {
+                const previous = service.plugin?.projectWizard.getProjectById?.(snapshot.linkedProjectId);
+                association.createEl("option", { text: previous ? previous.name + " (" + previous.status + ")" : "Unavailable project", attr: { value: snapshot.linkedProjectId } });
+            }
+            association.value = snapshot.linkedProjectId ?? "";
+            const syncProject = () => { project.hidden = service.context?.(fieldsLocation.value())?.contextKind !== "resource"; };
+            fieldsLocation.onChange(syncProject); syncProject();
             const errorEl = form.createDiv({ cls: "hub-task-error", attr: { role: "alert" } });
             const actions = form.createDiv({ cls: "hub-task-dialog-actions" });
             const remove = actions.createEl("button", { text: "Delete task", cls: "hub-task-remove", attr: { type: "button" } });
             const cancel = actions.createEl("button", { text: "Cancel", attr: { type: "button" } });
-            const save = actions.createEl("button", { text: "Save", cls: "mod-cta", attr: { type: "submit" } });
+            const save = actions.createEl("button", { text: creation ? "Add task" : "Save", cls: "mod-cta", attr: { type: "submit" } });
+            if (creation) remove.hidden = true;
             cancel.addEventListener("click", () => this.close());
             const commit = async deleting => {
                 if (this.saving) return;
@@ -6656,14 +8735,20 @@ function openTaskEditor(service, task, onEdit = () => {}) {
                 this.saving = true; errorEl.textContent = "";
                 // Disable every control while persistence is pending, including
                 // Cancel/Escape, so closing cannot misleadingly cancel a save.
-                const controls = [...form.querySelectorAll("button,input")];
+                const controls = [...form.querySelectorAll("button,input,select")];
                 const states = controls.map(control => control.disabled); controls.forEach(control => control.disabled = true);
                 try {
-                    const edit = await service.save(snapshot, { operation: deleting ? "delete" : "edit",
+                    const values = { operation: deleting ? "delete" : "edit",
+                        location: fieldsLocation.value(), linkedProjectId: project.hidden ? null : association.value,
                         text: input.value, necessity: selected, fromDate: from.value, dueDate: due.value,
                         fromTime: from.timeInput.value, dueTime: due.timeInput.value,
-                        steps: stepRows.filter(step => !step.removed).map(step => ({ line: step.line, text: step.input.value, completed: step.checkbox.checked })) });
-                    this.saving = false; onEdit(edit); this.close();
+                        steps: stepRows.filter(step => !step.removed).map(step => ({ line: step.line, text: step.input.value, completed: step.checkbox.checked, completedAt: step.completedAt })) };
+                    if (creation) {
+                        if (!values.location) throw Error("Choose a Location.");
+                        await service.create(values.location, values.text, values);
+                        creation.onCreated?.();
+                    } else onEdit(await service.save(snapshot, values));
+                    this.saving = false; this.close();
                 } catch (error) {
                     this.saving = false; controls.forEach((control, i) => control.disabled = states[i]);
                     errorEl.textContent = error.message; sync();
@@ -6684,54 +8769,35 @@ function openTaskEditor(service, task, onEdit = () => {}) {
     const modal = new TaskModal(service.app); modal.open(); return modal;
 }
 
-function openTaskCreator(service, options = {}) {
-    const { Modal, FuzzySuggestModal, Notice } = require("obsidian");
-    class Creator extends Modal {
-        onOpen() {
-            this.modalEl.classList.add("hub-task-dialog", "hub-task-create-dialog");
-            this.contentEl.classList.add("hub-button-scope", "hub-task-form");
-            this.contentEl.createEl("h2", { text: "Add task" });
-            const form = this.contentEl.createEl("form");
-            const label = form.createEl("label", { cls: "hub-task-create-label", text: "Task" });
-            const input = label.createEl("input", { type: "text", attr: { required: "", placeholder: "What needs doing?" } });
-            const destination = form.createDiv({ cls: "hub-task-section" });
-            destination.createEl("h3", { text: "Source note" });
-            const files = service.app.vault.getMarkdownFiles().filter(file => !options.root || file.path.startsWith(options.root + "/"));
-            const eligible = files.filter(file => {
-                if (options.root) return true;
-                const context = service.plugin?.projectWizard.getContextForPath(file.path);
-                return context && (context.contextKind === "resource" || context.status === "active");
-            });
-            let file = files.find(file => file.path === options.path) ?? files.find(file => file.path === service.app.workspace.getActiveFile()?.path) ?? eligible.find(file => /\/Tasks\.md$/i.test(file.path)) ?? eligible[0] ?? files[0];
-            const source = destination.createDiv({ cls: "hub-task-source" });
-            const sync = () => { source.textContent = file?.path ?? "Choose a Markdown note"; };
-            sync();
-            const choose = destination.createEl("button", { text: "Choose note…", attr: { type: "button" } });
-            choose.addEventListener("click", () => {
-                class Picker extends FuzzySuggestModal {
-                    getItems() { return files; }
-                    getItemText(item) { return item.path; }
-                    onChooseItem(item) { file = item; sync(); }
-                }
-                new Picker(service.app).open();
-            });
-            const actions = form.createDiv({ cls: "hub-task-dialog-actions" });
-            const cancel = actions.createEl("button", { text: "Cancel", attr: { type: "button" } });
-            const add = actions.createEl("button", { text: "Add task", cls: "mod-cta", attr: { type: "submit" } });
-            cancel.addEventListener("click", () => this.close());
-            form.addEventListener("submit", async event => {
-                event.preventDefault(); if (this.saving || !form.reportValidity()) return;
-                if (!file) { new Notice("Choose an existing Markdown note."); return; }
-                this.saving = true; add.disabled = true; cancel.disabled = true;
-                try { await service.create(file.path, input.value); this.saving = false; this.close(); }
-                catch (error) { new Notice(error.message); this.saving = false; add.disabled = false; cancel.disabled = false; }
-            });
-            input.focus();
+function availableLocations(service, root) {
+    if (service.locations) return service.locations(root);
+    return service.app.vault.getMarkdownFiles().filter(file => !root || file.path.startsWith(root + "/"))
+        .map(file => ({ path: file.path, file, label: file.path.replace(/\.md$/i, "").split("/").slice(-2).join(" › ") }));
+}
+
+function locationFields(service, host, snapshot, root) {
+    const { FuzzySuggestModal } = require("obsidian");
+    let path = snapshot.path, changed = () => {};
+    const source = host.createDiv({ cls: "hub-task-source" });
+    const sync = () => {
+        const location = availableLocations(service, root).find(item => item.path === path);
+        source.textContent = location ? location.label + (location.folder ? " · Folder" : "") : path ? path.split("/").pop().replace(/\.md$/i, "") : "Choose a Location";
+    };
+    sync();
+    const choose = host.createEl("button", { text: "Choose location…", attr: { type: "button" } });
+    choose.addEventListener("click", () => {
+        class Picker extends FuzzySuggestModal {
+            getItems() { return availableLocations(service, root); }
+            getItemText(item) { return item.label + (item.folder ? " · Folder" : ""); }
+            onChooseItem(item) { path = item.path; sync(); changed(); }
         }
-        close() { if (!this.saving) super.close(); }
-        onClose() { this.contentEl.empty(); }
-    }
-    const modal = new Creator(service.app); modal.open(); return modal;
+        new Picker(service.app).open();
+    });
+    return { value: () => path, onChange: callback => { changed = callback; } };
+}
+
+function openTaskCreator(service, options = {}) {
+    return openTaskEditor(service, null, () => {}, options);
 }
 
 module.exports = { openTaskEditor, openTaskCreator };
@@ -6739,6 +8805,7 @@ module.exports = { openTaskEditor, openTaskCreator };
 },
 "lib/ui/task-steps.js": function (module, exports, __hubRequire) {
 "use strict";
+const { bindCompletionSound, playStepCompletionSound } = __hubRequire("lib/ui/completion-audio.js");
 
 // Panel-local disclosure and pending state; reusable wherever a parent task is
 // rendered. Receives existing Markdown rendering and source-mutation boundaries.
@@ -6746,8 +8813,11 @@ function createTaskSteps({ markdown, mutate, onEdit, report, setIcon }) {
     const states = new Map();
     function bind(info, task, getPath) {
         if (!task.steps?.length) return;
-        const key = task.hubTaskId ?? `${getPath()}\0${task.line}\0${task.text}`;
-        let state = states.get(key);
+        const sourceKey = `${getPath()}\0${task.line}\0${task.text}`;
+        const key = task.hubTaskId ?? sourceKey;
+        let state = states.get(key) ?? states.get(sourceKey);
+        // First completion can assign an ID; retain the open/pending disclosure.
+        if (state && key !== sourceKey) { states.set(key, state); states.delete(sourceKey); }
         if (!state) states.set(key, state = { open: false, pending: null });
         const host = info.createDiv({ cls: "hub-task-steps" });
         // Neither disclosure nor Step interactions bubble into parent editing,
@@ -6763,6 +8833,7 @@ function createTaskSteps({ markdown, mutate, onEdit, report, setIcon }) {
             const checkbox = row.createEl("input", { type: "checkbox", attr: { "aria-label": `Complete Step: ${step.text}` } });
             const text = row.createSpan({ cls: "hub-task-step-text" });
             void markdown.render(text, step.text, getPath);
+            bindCompletionSound(checkbox, playStepCompletionSound);
             checkbox.addEventListener("change", async () => {
                 if (state.pending) { refresh(); return; }
                 const pending = state.pending = { line: step.line, completed: checkbox.checked };
@@ -6803,8 +8874,511 @@ function createTaskSteps({ markdown, mutate, onEdit, report, setIcon }) {
 module.exports = { createTaskSteps };
 
 },
+"lib/ui/task-view-calendar.js": function (module, exports, __hubRequire) {
+"use strict";
+const { calendarRange, shiftDay } = __hubRequire("lib/domain/task-views.js");
+const { localISODate } = __hubRequire("lib/domain/dates.js");
+const { button, iconButton, taskCard } = __hubRequire("lib/ui/task-view-primitives.js");
+
+function renderTaskCalendar(host, tasks, context, state) {
+    const panel = host.createDiv({ cls: "hub-task-calendar-panel" });
+    const toolbar = panel.createDiv({ cls: "hub-task-date-toolbar" });
+    const move = direction => {
+        state.anchor = state.calendarMode === "week" ? shiftDay(state.anchor, 7 * direction) :
+            new Date(state.anchor.getFullYear(), state.anchor.getMonth() + direction, 1);
+        context.render();
+    };
+    iconButton(toolbar, "Previous " + state.calendarMode, "chevron-left", () => move(-1));
+    iconButton(toolbar, "Next " + state.calendarMode, "chevron-right", () => move(1));
+    button(toolbar, "Today", () => { state.anchor = new Date(); context.render(); });
+    const days = calendarRange(state.anchor, state.calendarMode);
+    const format = date => date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+    toolbar.createEl("h3", { text: state.calendarMode === "month" ? state.anchor.toLocaleDateString("en-US", { month: "long", year: "numeric" }) :
+        format(days[0]) + " – " + format(days.at(-1)) });
+    const modes = toolbar.createDiv({ cls: "hub-panel-selectors" });
+    for (const mode of ["month", "week"]) {
+        const choice = button(modes, mode === "month" ? "Month" : "Week", () => { state.calendarMode = mode; context.render(); }, state.calendarMode === mode ? "is-active" : "");
+        choice.setAttribute("aria-pressed", String(state.calendarMode === mode));
+    }
+    const scroll = panel.createDiv({ cls: "hub-task-local-scroll" });
+    const grid = scroll.createDiv({ cls: "hub-task-calendar is-" + state.calendarMode });
+    for (const day of ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]) grid.createDiv({ cls: "hub-task-weekday", text: day });
+    const byDate = new Map();
+    for (const task of tasks) {
+        const scheduled = task.dueDate ?? task.fromDate;
+        if (!scheduled) continue;
+        if (!byDate.has(scheduled)) byDate.set(scheduled, []);
+        byDate.get(scheduled).push(task);
+    }
+    for (const day of days) {
+        const iso = localISODate(day);
+        const cell = grid.createEl("section", { cls: "hub-task-calendar-day", attr: { "aria-label": format(day) } });
+        cell.classList.toggle("is-today", iso === localISODate(context.now));
+        cell.classList.toggle("is-other-month", state.calendarMode === "month" && day.getMonth() !== state.anchor.getMonth());
+        const heading = cell.createDiv({ cls: "hub-task-calendar-day-heading" });
+        heading.createSpan({ text: String(day.getDate()) });
+        iconButton(heading, "Add task on " + format(day), "plus", () => context.create({ dueDate: iso }));
+        for (const task of byDate.get(iso) ?? []) taskCard(cell, task, context, true);
+    }
+    const count = tasks.filter(task => !task.dueDate && !task.fromDate).length;
+    if (count) panel.createDiv({ cls: "hub-task-view-note", text: count + " undated " + (count === 1 ? "task" : "tasks") + " · Available in Upcoming and All tasks" });
+}
+module.exports = { renderTaskCalendar };
+
+},
+"lib/ui/task-view-location.js": function (module, exports, __hubRequire) {
+"use strict";
+const { locationTree } = __hubRequire("lib/domain/task-views.js");
+const { button, compactRow, empty } = __hubRequire("lib/ui/task-view-primitives.js");
+const { setIcon } = require("obsidian");
+
+function renderByLocation(host, tasks, context, state) {
+    const tree = locationTree(tasks, context.workspace, context.folders);
+    const content = host.createDiv({ cls: "hub-task-location-tree" });
+    const firstPopulated = [...tree.children.values()].sort((a, b) => a.name.localeCompare(b.name)).find(node => node.count)?.path;
+    const render = (node, parent, depth) => {
+        const panel = parent.createEl("section", { cls: "hub-task-location-group" });
+        const open = state.expanded.has(node.path) || (!state.collapsed.has(node.path) && (!!state.search || !!state.location || firstPopulated && (node.path === firstPopulated || node.path.startsWith(firstPopulated + "/"))));
+        const heading = button(panel, "", () => {
+            if (open) { state.expanded.delete(node.path); state.collapsed.add(node.path); }
+            else { state.expanded.add(node.path); state.collapsed.delete(node.path); }
+            context.render();
+        }, "hub-button-plain hub-task-location-heading");
+        heading.setAttribute("aria-expanded", String(open));
+        setIcon(heading.createSpan({ attr: { "aria-hidden": "true" } }), open ? "chevron-down" : "chevron-right");
+        setIcon(heading.createSpan({ attr: { "aria-hidden": "true" } }), "folder");
+        heading.createSpan({ cls: "hub-task-folder-name", text: node.name, attr: { title: node.name } });
+        heading.createSpan({ cls: "hub-task-count", text: node.count + (node.count === 1 ? " task" : " tasks") });
+        if (!open) return;
+        const inner = panel.createDiv({ cls: "hub-task-location-children" });
+        node.tasks.forEach(task => compactRow(inner, task, context));
+        for (const child of [...node.children.values()].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))) {
+            if (state.search && !child.count) continue;
+            if (state.location && !child.count && !state.location.startsWith(child.path + "/") && child.path !== state.location) continue;
+            render(child, inner, depth + 1);
+        }
+        if (!node.count && !node.children.size) {
+            empty(inner, "No tasks in this location.");
+            button(inner, "Add task", () => context.create({ location: node.path }), "hub-task-column-add", "plus");
+        }
+    };
+    tree.tasks.forEach(task => compactRow(content, task, context));
+    for (const child of [...tree.children.values()].sort((a, b) => a.name.localeCompare(b.name))) {
+        if ((state.search || state.location) && !child.count && !(state.location === child.path || state.location?.startsWith(child.path + "/"))) continue;
+        render(child, content, 0);
+    }
+    if (!content.childElementCount) {
+        empty(content, tasks.length ? "No tasks match these filters." : "No tasks in this workspace.");
+        button(content, "Add task", () => context.create({}), "hub-task-column-add", "plus");
+    }
+}
+module.exports = { renderByLocation };
+
+},
+"lib/ui/task-view-primitives.js": function (module, exports, __hubRequire) {
+"use strict";
+const { setIcon, Notice } = require("obsidian");
+const { createTaskRow } = __hubRequire("lib/ui/tasks.js");
+const { taskDateLabel } = __hubRequire("lib/domain/dates.js");
+const { taskIsOverdue } = __hubRequire("lib/domain/task-planning.js");
+
+function button(host, label, action, cls = "", icon = null) {
+    const el = host.createEl("button", { cls, attr: { type: "button" } });
+    if (icon) setIcon(el.createSpan({ attr: { "aria-hidden": "true" } }), icon);
+    if (label) el.createSpan({ text: label });
+    el.addEventListener("click", action); return el;
+}
+function iconButton(host, label, icon, action) {
+    const el = button(host, "", action, "hub-task-icon-button", icon);
+    el.setAttribute("aria-label", label); el.title = label; return el;
+}
+function empty(host, text = "No tasks match these filters.") {
+    host.createDiv({ cls: "hub-task-view-empty", text });
+}
+function stepsSummary(host, task, edit) {
+    if (!task.steps?.length) return;
+    const completed = task.steps.filter(step => step.completed).length;
+    const el = button(host, completed + " / " + task.steps.length + " steps", () => edit(task), "hub-button-plain hub-full-steps");
+    el.title = "Edit task and Steps"; el.setAttribute("aria-label", task.text + ": " + completed + " of " + task.steps.length + " Steps complete");
+    const progress = el.createEl("progress", { attr: { max: String(task.steps.length), value: String(completed), "aria-hidden": "true" } });
+    return progress;
+}
+function projectBadge(host, task, context) {
+    const label = context.projectLabel(task);
+    if (context.resource && label) host.createSpan({ cls: "hub-task-project-link", text: label, attr: { title: label } });
+}
+function date(host, task, key = "dueDate", now = new Date()) {
+    if (!task[key]) return;
+    const time = key === "fromDate" ? task.fromTime : task.dueTime;
+    const el = host.createEl("time", { cls: "hub-full-date", text: taskDateLabel(task[key], time, true, now),
+        attr: { datetime: task[key] + (time ? "T" + time : ""), title: taskDateLabel(task[key], time, false, now, true) } });
+    if (key === "dueDate" && !task.completed && taskIsOverdue(task, now)) el.classList.add("is-overdue");
+}
+function source(host, task, context) {
+    const label = context.locationLabel(task);
+    const el = button(host, label, async event => {
+        event.stopPropagation();
+        try { await context.openSource(task); }
+        catch (error) { new Notice(error.message || "Could not open task location."); }
+    }, "hub-button-plain hub-full-location");
+    el.title = label; el.setAttribute("aria-label", "Open location: " + label);
+}
+function bindTask(row, title, checkbox, task, context, options = {}) {
+    context.ui.bind(row, title, task, () => context.currentPath(task.path), { dates: false, steps: false, ...options });
+    row.classList.toggle("is-completed", !!task.completed);
+    const key = task.hubTaskId ?? task.path + ":" + task.line;
+    checkbox.checked = !!task.completed; checkbox.disabled = context.pending.has(key);
+    checkbox.addEventListener("click", event => event.stopPropagation());
+    checkbox.addEventListener("change", async () => {
+        if (context.pending.has(key)) return;
+        const completed = checkbox.checked;
+        context.pending.add(key); checkbox.disabled = true;
+        try { context.apply(await context.toggle({ ...task, path: context.currentPath(task.path), completed })); }
+        catch (error) { checkbox.checked = !!task.completed; new Notice(error.message || "Could not update task."); }
+        finally { context.pending.delete(key); checkbox.disabled = false; context.render(); }
+    });
+}
+function taskCard(host, task, context, compact = false) {
+    const { row, checkbox, textEl, info } = createTaskRow(host, task);
+    row.classList.add("hub-full-task-card");
+    if (compact) row.classList.add("is-calendar-task");
+    info.querySelector(".project-task-location").remove();
+    bindTask(row, textEl, checkbox, task, context, { steps: !compact });
+    textEl.title = task.text;
+    if (!compact) {
+        const metadata = info.createDiv({ cls: "hub-full-card-context" });
+        source(metadata, task, context);
+        projectBadge(metadata, task, context);
+        const schedule = info.createDiv({ cls: "hub-full-card-date" }); date(schedule, task, "dueDate", context.now);
+        if (!task.dueDate && task.fromDate) {
+            schedule.createSpan({ text: "Starts " }); date(schedule, task, "fromDate", context.now);
+        }
+    } else if (task.dueTime || (!task.dueDate && task.fromTime)) {
+        info.createSpan({ cls: "hub-full-task-time", text: task.dueTime ?? task.fromTime });
+    }
+    return row;
+}
+function compactRow(host, task, context) {
+    const row = host.createDiv({ cls: "hub-location-task" });
+    const checkbox = row.createEl("input", { type: "checkbox" });
+    const title = row.createDiv({ cls: "hub-full-task-title", text: task.text, attr: { title: task.text } });
+    bindTask(row, title, checkbox, task, context);
+    const location = row.createDiv(); source(location, task, context);
+    const due = row.createDiv(); date(due, task, "dueDate", context.now);
+    const steps = row.createDiv(); stepsSummary(steps, task, context.edit);
+    const project = row.createDiv(); projectBadge(project, task, context);
+}
+module.exports = { button, iconButton, empty, stepsSummary, projectBadge, date, source, bindTask, taskCard, compactRow };
+
+},
+"lib/ui/task-view-table.js": function (module, exports, __hubRequire) {
+"use strict";
+const { sortTasks } = __hubRequire("lib/domain/task-views.js");
+const { button, date, source, stepsSummary, projectBadge, bindTask, empty } = __hubRequire("lib/ui/task-view-primitives.js");
+
+function renderTaskTable(host, tasks, context, state) {
+    const scroll = host.createDiv({ cls: "hub-task-local-scroll hub-task-table-panel" });
+    const table = scroll.createEl("table", { cls: "hub-full-task-table" });
+    const columns = [["task", "Task"], ["location", "Location"],
+        ...(context.resource ? [["project", "Project"]] : []),
+        ["necessity", "Necessity"], ["start", "Start"], ["due", "Due"], ["steps", "Steps"]];
+    const header = table.createEl("thead").createEl("tr");
+    header.createEl("th", { cls: "hub-full-check-cell", attr: { "aria-label": "Complete" } });
+    for (const [id, label] of columns) {
+        const cell = header.createEl("th", { cls: "hub-full-col-" + id,
+            attr: { scope: "col", "aria-sort": state.sort === id ? state.direction === 1 ? "ascending" : "descending" : "none" } });
+        const sort = button(cell, label, () => {
+            state.direction = state.sort === id ? -state.direction : 1; state.sort = id; context.render();
+        }, "hub-button-plain hub-task-sort");
+        if (state.sort === id) sort.createSpan({ text: state.direction === 1 ? " ↑" : " ↓", attr: { "aria-hidden": "true" } });
+    }
+    const body = table.createEl("tbody");
+    for (const task of sortTasks(tasks, state.sort, state.direction, context.locationLabel, context.projectLabel)) {
+        const row = body.createEl("tr");
+        const check = row.createEl("td", { cls: "hub-full-check-cell" });
+        const checkbox = check.createEl("input", { type: "checkbox" });
+        const cell = row.createEl("td", { cls: "hub-full-col-task" });
+        const title = cell.createDiv({ cls: "hub-full-task-title", text: task.text, attr: { title: task.text } });
+        bindTask(row, title, checkbox, task, context);
+        source(row.createEl("td", { cls: "hub-full-col-location" }), task, context);
+        if (context.resource) projectBadge(row.createEl("td"), task, context);
+        const necessity = row.createEl("td");
+        if (task.necessity) necessity.createSpan({ cls: "hub-full-necessity is-" + task.necessity, text: task.necessity === "must" ? "Must do" : "Should do" });
+        date(row.createEl("td"), task, "fromDate", context.now);
+        date(row.createEl("td"), task, "dueDate", context.now);
+        stepsSummary(row.createEl("td"), task, context.edit);
+    }
+    if (!tasks.length) empty(scroll);
+}
+module.exports = { renderTaskTable };
+
+},
+"lib/ui/task-view-timeline.js": function (module, exports, __hubRequire) {
+"use strict";
+const { timelinePlacement, dayNumber, shiftDay } = __hubRequire("lib/domain/task-views.js");
+const { localISODate, taskDateLabel } = __hubRequire("lib/domain/dates.js");
+const { button, iconButton, bindTask, empty } = __hubRequire("lib/ui/task-view-primitives.js");
+
+function renderTaskTimeline(host, tasks, context, state) {
+    const panel = host.createDiv({ cls: "hub-task-timeline-panel" });
+    const toolbar = panel.createDiv({ cls: "hub-task-date-toolbar" });
+    const move = amount => { state.timelineAnchor = new Date(state.timelineAnchor.getFullYear(), state.timelineAnchor.getMonth() + amount, 1); context.render(); };
+    iconButton(toolbar, "Previous range", "chevron-left", () => move(-state.months));
+    iconButton(toolbar, "Next range", "chevron-right", () => move(state.months));
+    button(toolbar, "Today", () => { state.timelineAnchor = new Date(context.now.getFullYear(), context.now.getMonth(), 1); context.render(); });
+    const start = new Date(state.timelineAnchor.getFullYear(), state.timelineAnchor.getMonth(), 1);
+    const end = new Date(start.getFullYear(), start.getMonth() + state.months, 1);
+    const monthLabel = date => date.toLocaleDateString("en-US", { month: "short", year: "numeric" });
+    toolbar.createEl("h3", { text: monthLabel(start) + " – " + monthLabel(shiftDay(end, -1)) });
+    const scale = toolbar.createEl("select", { attr: { "aria-label": "Timeline range" } });
+    for (const months of [3, 6, 12]) scale.createEl("option", { attr: { value: String(months) }, text: months + " months" });
+    scale.value = String(state.months); scale.addEventListener("change", () => { state.months = Number(scale.value); context.render(); });
+    const scroll = panel.createDiv({ cls: "hub-task-local-scroll" });
+    const grid = scroll.createDiv({ cls: "hub-task-timeline" });
+    grid.style.setProperty("--hub-timeline-width", Math.max(700, state.months * 150) + "px");
+    const total = dayNumber(localISODate(end)) - dayNumber(localISODate(start));
+    grid.style.setProperty("--hub-timeline-week-size", 7 / total * 100 + "%");
+    grid.style.setProperty("--hub-timeline-week-offset", (8 - start.getDay()) % 7 / total * 100 + "%");
+    const position = date => (dayNumber(localISODate(date)) - dayNumber(localISODate(start))) / total * 100;
+    const heading = grid.createDiv({ cls: "hub-task-timeline-row hub-task-timeline-heading" });
+    heading.createDiv({ cls: "hub-task-timeline-name", text: "Task" });
+    const axis = heading.createDiv({ cls: "hub-task-timeline-axis" });
+    for (let i = 0; i < state.months; i++) {
+        const date = new Date(start.getFullYear(), start.getMonth() + i, 1);
+        const next = new Date(start.getFullYear(), start.getMonth() + i + 1, 1);
+        const label = axis.createSpan({ cls: "hub-task-timeline-month", text: monthLabel(date) });
+        label.style.left = position(date) + "%"; label.style.width = position(next) - position(date) + "%";
+    }
+    for (let date = shiftDay(start, (8 - start.getDay()) % 7); date < end; date = shiftDay(date, 7)) {
+        const label = axis.createSpan({ cls: "hub-task-timeline-week", text: String(date.getDate()) });
+        label.style.left = position(date) + "%";
+    }
+    let visible = 0;
+    for (const task of tasks) {
+        const placement = timelinePlacement(task, localISODate(start), localISODate(end));
+        if (!placement) continue;
+        visible++;
+        const row = grid.createDiv({ cls: "hub-task-timeline-row" });
+        const name = row.createDiv({ cls: "hub-task-timeline-name" });
+        const checkbox = name.createEl("input", { type: "checkbox" });
+        const title = name.createDiv({ cls: "hub-full-task-title", text: task.text, attr: { title: task.text } });
+        bindTask(name, title, checkbox, task, context);
+        const track = row.createDiv({ cls: "hub-task-timeline-track" });
+        const schedule = (task.fromDate ? "Start: " + taskDateLabel(task.fromDate, task.fromTime, false, context.now, true) : "") +
+            (task.fromDate && task.dueDate ? "; " : "") + (task.dueDate ? "Due: " + taskDateLabel(task.dueDate, task.dueTime, false, context.now, true) : "");
+        const bar = button(track, "", () => context.edit(task), "hub-button-plain hub-task-timeline-bar is-" + placement.kind + (task.necessity ? " is-" + task.necessity : ""));
+        bar.style.left = placement.left + "%"; bar.style.width = placement.kind === "range" ? placement.width + "%" : "10px";
+        bar.title = task.text + " · " + schedule; bar.setAttribute("aria-label", bar.title);
+        if (placement.kind === "start") bar.textContent = "›";
+        row.classList.toggle("is-completed", !!task.completed);
+    }
+    const today = position(context.now);
+    if (today >= 0 && today < 100) {
+        const line = grid.createDiv({ cls: "hub-task-timeline-today", attr: { "aria-label": "Today" } });
+        line.style.left = "calc(240px + (100% - 240px) * " + today / 100 + ")";
+    }
+    if (!visible) empty(panel, "No dated tasks in this range.");
+    const undated = tasks.filter(task => !task.fromDate && !task.dueDate).length;
+    if (undated) panel.createDiv({ cls: "hub-task-view-note", text: undated + " undated " + (undated === 1 ? "task" : "tasks") + " · Available in Upcoming and All tasks" });
+}
+module.exports = { renderTaskTimeline };
+
+},
+"lib/ui/task-view-upcoming.js": function (module, exports, __hubRequire) {
+"use strict";
+const { BUCKETS, upcomingGroups, shiftDay } = __hubRequire("lib/domain/task-views.js");
+const { localISODate } = __hubRequire("lib/domain/dates.js");
+const { button, taskCard } = __hubRequire("lib/ui/task-view-primitives.js");
+
+function renderUpcoming(host, tasks, context) {
+    const scroll = host.createDiv({ cls: "hub-task-local-scroll" });
+    const board = scroll.createDiv({ cls: "hub-task-board" });
+    const groups = upcomingGroups(tasks, context.now);
+    for (const [id, label] of BUCKETS) {
+        const column = board.createEl("section", { cls: "hub-task-column is-" + id, attr: { "aria-label": label } });
+        const heading = column.createDiv({ cls: "hub-task-column-heading" });
+        heading.createEl("h3", { text: label });
+        heading.createSpan({ cls: "hub-task-count", text: String(groups[id].length) });
+        for (const task of groups[id]) taskCard(column, task, context);
+        if (!groups[id].length) column.createDiv({ cls: "hub-task-column-empty", text: "No tasks" });
+        const dueDate = id === "today" ? localISODate(context.now) : id === "tomorrow" ? localISODate(shiftDay(context.now, 1)) : null;
+        button(column, "Add task", () => context.create({ dueDate }), "hub-task-column-add", "plus");
+    }
+}
+module.exports = { renderUpcoming };
+
+},
+"lib/ui/task-workspace.js": function (module, exports, __hubRequire) {
+"use strict";
+const { createTaskUi } = __hubRequire("lib/ui/tasks.js");
+const { openTaskEditor, openTaskCreator } = __hubRequire("lib/ui/task-editor.js");
+const { applyTaskEdit } = __hubRequire("lib/domain/tasks.js");
+const { PROJECT_VIEWS, RESOURCE_VIEWS, VIEW_LABELS, BUCKETS, filterTasks, locationLabel, validLocation } = __hubRequire("lib/domain/task-views.js");
+const { taskWorkspaces } = __hubRequire("lib/services/task-locations.js");
+const { button } = __hubRequire("lib/ui/task-view-primitives.js");
+const { renderUpcoming } = __hubRequire("lib/ui/task-view-upcoming.js");
+const { renderTaskTable } = __hubRequire("lib/ui/task-view-table.js");
+const { renderByLocation } = __hubRequire("lib/ui/task-view-location.js");
+const { renderTaskCalendar } = __hubRequire("lib/ui/task-view-calendar.js");
+const { renderTaskTimeline } = __hubRequire("lib/ui/task-view-timeline.js");
+const { setIcon } = require("obsidian");
+
+// Weakly scoped to the owning Dataview container, including warm frame rebuilds.
+const states = new WeakMap();
+function mountTaskWorkspace({ plugin, component, dv, root, toolbar, filesGrid, workspace, onFiles, openSource }) {
+    let byWorkspace = states.get(dv.container);
+    if (!byWorkspace) states.set(dv.container, byWorkspace = new Map());
+    const resource = workspace.contextKind === "resource";
+    const key = workspace.projectId ?? workspace.root;
+    let state = byWorkspace.get(key);
+    if (!state) byWorkspace.set(key, state = { mode: "files", view: resource ? "location" : "upcoming",
+        search: "", location: "", status: "open", necessity: "", date: "", sort: "due", direction: 1,
+        calendarMode: "month", anchor: new Date(), timelineAnchor: new Date(), months: 6,
+        expanded: new Set(), collapsed: new Set() });
+    const views = resource ? RESOURCE_VIEWS : PROJECT_VIEWS;
+    if (!views.includes(state.view)) state.view = views[0];
+    toolbar.classList.add("hub-task-workspace-nav");
+    const primary = toolbar.createDiv({ cls: "hub-task-primary-modes", attr: { role: "group", "aria-label": "Workspace mode" } });
+    const filesButton = button(primary, "Files", () => mode("files"), "hub-task-mode", "folder");
+    const tasksButton = button(primary, "Tasks", () => mode("tasks"), "hub-task-mode", "list-todo");
+    const secondary = toolbar.createDiv({ cls: "hub-task-secondary-nav" });
+    const separator = secondary.createDiv({ cls: "hub-task-nav-separator", attr: { "aria-hidden": "true" } });
+    const tabs = secondary.createDiv({ cls: "hub-task-view-tabs", attr: { role: "tablist", "aria-label": "Task views" } });
+    const tabButtons = new Map();
+    for (const view of views) {
+        const tab = button(tabs, VIEW_LABELS[view], () => { state.view = view; render(); }, "hub-button-plain hub-task-view-tab");
+        tab.setAttribute("role", "tab"); tab.dataset.taskView = view; tabButtons.set(view, tab);
+        tab.addEventListener("keydown", event => {
+            if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+            event.preventDefault();
+            const index = event.key === "Home" ? 0 : event.key === "End" ? views.length - 1 :
+                (views.indexOf(view) + (event.key === "ArrowRight" ? 1 : -1) + views.length) % views.length;
+            state.view = views[index]; render(); tabButtons.get(state.view).focus();
+        });
+    }
+    const actions = toolbar.createDiv({ cls: "hub-task-nav-actions" });
+    const searchHost = actions.createEl("label", { cls: "hub-task-search" });
+    setIcon(searchHost.createSpan({ attr: { "aria-hidden": "true" } }), "search");
+    const search = searchHost.createEl("input", { type: "search", attr: { placeholder: "Search tasks…", "aria-label": "Search tasks" } });
+    search.value = state.search;
+    search.addEventListener("input", () => { state.search = search.value; render(); });
+    button(actions, "Add task", () => create({}), "mod-cta hub-full-add-task", "plus");
+    const host = root.createDiv({ cls: "hub-task-workspace hub-dashboard-enter-row" });
+    toolbar.after(host);
+    const filters = host.createDiv({ cls: "hub-task-filter-row" });
+    const content = host.createDiv({ cls: "hub-task-view-content", attr: { role: "tabpanel" } });
+    let tasks = [], locations = [], workspaces = [], dirty = true, disposed = false;
+    const pending = new Set();
+    const inNoteRail = () => !!root.closest(".hub-project-rail");
+    const currentPath = path => plugin.taskData.currentPath(path);
+    const owner = task => workspaces.find(item => validLocation(currentPath(task.path), item)) ?? workspace;
+    const describe = task => locationLabel(currentPath(task.path), owner(task), owner(task).root !== workspace.root);
+    const projectLabel = task => {
+        if (!task.linkedProjectId) return "";
+        const project = workspaces.find(item => item.contextKind !== "resource" && item.projectId === task.linkedProjectId);
+        return project ? project.name + (project.status === "shelved" ? " (shelved)" : "") : "";
+    };
+    const belongs = task => validLocation(task.path, workspace) || (!resource && task.linkedProjectId === workspace.projectId &&
+        workspaces.some(item => item.contextKind === "resource" && validLocation(task.path, item)));
+    const apply = edit => { tasks = applyTaskEdit(tasks, edit).filter(belongs); render(); };
+    const edit = task => openTaskEditor(plugin.taskEditor, { ...task, path: currentPath(task.path) }, apply);
+    const ui = createTaskUi({ app: plugin.app, component, body: content, mutate: request => plugin.mutateTask(request),
+        onEdit: apply, editTask: (task, saved) => openTaskEditor(plugin.taskEditor, task, saved),
+        createTask: options => create(options) });
+    function create(options) {
+        openTaskCreator(plugin.taskEditor, { root: workspace.root, location: state.location || workspace.root, ...options });
+    }
+    function refresh() {
+        dirty = true;
+        if (disposed || state.mode !== "tasks" || inNoteRail()) return;
+        workspace = { ...workspace, root: currentPath(workspace.root) };
+        workspaces = taskWorkspaces(plugin).sort((a, b) => b.root.length - a.root.length);
+        tasks = plugin.taskData.readWorkspace(dv, workspace, workspaces.filter(item => item.contextKind === "resource"));
+        locations = plugin.taskEditor.locations(workspace.root);
+        if (state.location) {
+            state.location = currentPath(state.location);
+            if (!locations.some(item => item.path === state.location)) state.location = "";
+        }
+        dirty = false; render();
+    }
+    function selectFilter(label, value, options, changed) {
+        const select = filters.createEl("select", { attr: { "aria-label": label } });
+        for (const [key, text] of options) select.createEl("option", { attr: { value: key }, text });
+        select.value = value;
+        select.addEventListener("change", () => { changed(select.value); render(); });
+        return select;
+    }
+    function render() {
+        if (disposed || state.mode !== "tasks" || inNoteRail()) return;
+        if (!ui.beginRender(render)) return;
+        // Schedules existing start-time boundaries without changing panel semantics.
+        ui.groups(tasks);
+        tabButtons.forEach((tab, view) => {
+            tab.classList.toggle("is-active", view === state.view);
+            tab.setAttribute("aria-selected", String(view === state.view)); tab.tabIndex = view === state.view ? 0 : -1;
+        });
+        content.setAttribute("aria-label", VIEW_LABELS[state.view]);
+        filters.empty();
+        selectFilter("Location", state.location, [["", "All locations"], ...locations.map(item => [item.path, item.label + (item.folder ? " · Folder" : "")])], value => { state.location = value; });
+        if (state.view === "all") {
+            selectFilter("Status", state.status, [["all", "All status"], ["open", "Incomplete"], ["active", "Current"], ["future", "Future"], ["completed", "Completed"]], value => { state.status = value; });
+            selectFilter("Necessity", state.necessity, [["", "All necessity"], ["must", "Must do"], ["should", "Should do"], ["neutral", "Unassigned"]], value => { state.necessity = value; });
+            selectFilter("Date", state.date, [["", "All dates"], ...BUCKETS], value => { state.date = value; });
+        }
+        const selection = { ...state, ...(state.view === "all" ? {} : { status: "open", necessity: "", date: "" }) };
+        const now = new Date();
+        const visible = filterTasks(tasks, selection, now, task => describe(task) + " " + projectLabel(task));
+        content.empty();
+        const context = { workspace, resource, folders: locations.filter(item => item.folder), now,
+            ui, pending, currentPath, locationLabel: describe, projectLabel, apply, edit, create, render,
+            toggle: request => plugin.mutateTask(request),
+            openSource: task => openSource(currentPath(task.path)) };
+        if (state.view === "upcoming") renderUpcoming(content, visible, context);
+        else if (state.view === "calendar") renderTaskCalendar(content, visible, context, state);
+        else if (state.view === "timeline") renderTaskTimeline(content, visible, context, state);
+        else if (state.view === "location") renderByLocation(content, visible, context, state);
+        else renderTaskTable(content, visible, context, state);
+    }
+    function mode(value, initial = false) {
+        state.mode = value;
+        const active = value === "tasks";
+        root.classList.toggle("is-task-workspace", active);
+        filesGrid.hidden = active; host.hidden = !active;
+        for (const el of [secondary, actions]) el.hidden = !active;
+        filesButton.classList.toggle("is-active", !active); tasksButton.classList.toggle("is-active", active);
+        filesButton.setAttribute("aria-pressed", String(!active)); tasksButton.setAttribute("aria-pressed", String(active));
+        if (active) { if (dirty) refresh(); else render(); }
+        else if (!initial) onFiles?.();
+    }
+    plugin.taskData.subscribe(component, refresh);
+    // Project state/name changes can alter association labels without a task edit.
+    const update = () => refresh();
+    if (plugin.app.metadataCache?.on) component.registerEvent(plugin.app.metadataCache.on("changed", file => {
+        if (workspaces.some(item => item.path === file.path)) update();
+    }));
+    // Native note mode keeps this workspace mounted in a compact Files rail.
+    // Follow the existing body/layout signals instead of resetting task view state.
+    let wasRail = inNoteRail();
+    const layoutChanged = () => {
+        const rail = inNoteRail();
+        if (disposed || wasRail === rail) return;
+        wasRail = rail;
+        if (rail) onFiles?.();
+        else if (state.mode === "tasks") { if (dirty) refresh(); else render(); }
+    };
+    const railObserver = new MutationObserver(layoutChanged);
+    railObserver.observe(root.ownerDocument.body, { attributes: true, attributeFilter: ["class"] });
+    if (plugin.app.workspace?.on) component.registerEvent(plugin.app.workspace.on("layout-change", () => queueMicrotask(layoutChanged)));
+    component.register(() => { disposed = true; railObserver.disconnect(); });
+    mode(state.mode, true);
+    return { active: () => state.mode === "tasks" && !inNoteRail(), refresh, render, state };
+}
+module.exports = { mountTaskWorkspace };
+
+},
 "lib/ui/tasks.js": function (module, exports, __hubRequire) {
 "use strict";
+const { bindCompletionSound, playTaskCompletionSound } = __hubRequire("lib/ui/completion-audio.js");
 const { createHubMarkdown } = __hubRequire("lib/ui/markdown.js");
 const { taskGroups, taskIsOverdue, taskIsFuture, taskStartDate, taskDatePresentation } = __hubRequire("lib/domain/task-planning.js");
 const { createTaskSteps } = __hubRequire("lib/ui/task-steps.js");
@@ -6988,6 +9562,7 @@ function createTaskUi({ app, component, body, mutate, onEdit, editTask, createTa
         row.classList.add("hub-planned-task-row");
         const checkbox = row.querySelector('input[type="checkbox"]');
         checkbox?.setAttribute("aria-label", `Complete task: ${task.text}`);
+        if (checkbox && !options.selection) bindCompletionSound(checkbox, playTaskCompletionSound);
         if (task.necessity === "must" || task.necessity === "should") {
             const indicator = document.createElement("span");
             indicator.className = `hub-task-necessity-bar is-${task.necessity}`;
@@ -6999,7 +9574,7 @@ function createTaskUi({ app, component, body, mutate, onEdit, editTask, createTa
         const future = taskIsFuture(task, renderNow);
         if (future) scheduleRefresh(taskStartDate(task).getTime());
         const presentation = taskDatePresentation(task, renderNow);
-        if (presentation?.label) {
+        if (options.dates !== false && presentation?.label) {
             const dates = document.createElement("div"); dates.className = "hub-task-dates";
             const overdue = taskIsOverdue(task, renderNow) && !task.completed && !future;
             const span = document.createElement("span"); span.className = overdue ? "is-overdue" : "";
@@ -7011,12 +9586,12 @@ function createTaskUi({ app, component, body, mutate, onEdit, editTask, createTa
             dates.appendChild(span); info.appendChild(dates);
         }
         const source = info.querySelector(".home-task-location, .project-task-location");
-        if (source) source.textContent = options.selection && !options.normalSource ? getPath().replace(/\.md$/i, "").split("/").join(" › ") : taskSourceLabel(getPath());
-        if (!options.selection) steps.bind(info, task, getPath);
+        if (source) source.textContent = options.sourceLabel ?? (options.selection && !options.normalSource ? getPath().replace(/\.md$/i, "").split("/").join(" › ") : taskSourceLabel(getPath()));
+        if (!options.selection && options.steps !== false) steps.bind(info, task, getPath);
         if (editTask) {
             textEl.tabIndex = 0; textEl.setAttribute("role", "button"); textEl.setAttribute("aria-label", `Edit task: ${task.text}`);
             const open = event => {
-                if (event.target.closest("a, input, textarea, button")) return;
+                if (event.target.closest("a, input, textarea, button, .home-task-location, .project-task-location")) return;
                 event.preventDefault(); event.stopImmediatePropagation();
                 editTask({ ...task, path: getPath() }, onEdit);
             };
@@ -7313,7 +9888,431 @@ function createWorkspaceCards({ app, root, component, renderImage, categories = 
 module.exports = { createWorkspaceCards };
 
 },
+"lib/ui/workspace-explorer.js": function (module, exports, __hubRequire) {
+"use strict";
+
+const { workspaceTree, filterWorkspaceTree, sortExplorerChildren, rewriteExplorerPaths } = __hubRequire("lib/domain/workspace-explorer.js");
+const { fileIcon } = __hubRequire("lib/ui/file-icons.js");
+
+function mountWorkspaceExplorer({ parent, workspacePath, dashboardPath, descriptors, getByPath,
+    states, persist, setIcon, openFile, createItem, contextMenu, decorateRow = () => {},
+    selectItem = () => false, clearSelection = () => {}, selectedPaths = new Set(),
+    decorateFolder = () => {}, isNoteView = () => !!parent.closest(".hub-project-rail"), formatTime = value => new Date(value).toLocaleString() }) {
+    const doc = parent.ownerDocument;
+    function el(parent, tag, cls, text) {
+        const element = doc.createElement(tag);
+        element.className = cls;
+        if (text) element.textContent = text;
+        parent.append(element);
+        return element;
+    }
+    function icon(parent, name, cls = "hub-explorer-icon") {
+        const span = el(parent, "span", cls);
+        span.setAttribute("aria-hidden", "true");
+        setIcon(span, name);
+        return span;
+    }
+    function button(parent, cls, label, name) {
+        const result = el(parent, "button", "hub-button-plain " + cls);
+        result.type = "button";
+        result.setAttribute("aria-label", label);
+        result.title = label;
+        if (name) icon(result, name);
+        return result;
+    }
+    const shell = el(parent, "section", "project-panel hub-workspace-explorer");
+    shell.setAttribute("aria-label", "Workspace files");
+    const searchBox = el(shell, "div", "hub-explorer-search");
+    icon(searchBox, "search");
+    const search = el(searchBox, "input", "hub-explorer-search-input");
+    search.type = "search";
+    search.placeholder = "Search files...";
+    search.setAttribute("aria-label", "Search files in this workspace");
+    const body = el(shell, "div", "hub-explorer-body");
+    const tree = el(body, "div", "hub-explorer-tree");
+    tree.setAttribute("role", "tree");
+    tree.setAttribute("aria-label", "Workspace folders and files");
+    tree.setAttribute("aria-multiselectable", "true");
+    const details = el(body, "div", "hub-explorer-details");
+    const location = el(details, "div", "hub-explorer-location");
+    const breadcrumb = el(location, "nav", "hub-explorer-breadcrumb");
+    breadcrumb.setAttribute("aria-label", "Selected folder");
+    const columns = el(details, "div", "hub-explorer-columns");
+    const contents = el(details, "div", "hub-explorer-contents");
+    contents.setAttribute("role", "listbox");
+    contents.setAttribute("aria-multiselectable", "true");
+    const footer = el(shell, "div", "hub-explorer-footer");
+    const newFolder = button(footer, "hub-explorer-new-folder", "New workspace folder", "folder-plus");
+    el(newFolder, "span", "", "New folder");
+    const status = el(footer, "span", "hub-explorer-status");
+    status.setAttribute("role", "status");
+    const editor = el(shell, "div", "hub-explorer-editor");
+    editor.hidden = true;
+    let model, filtered, currentPath = null, activePath = null, focusPath = null;
+    let query = "", editing = null, disposed = false;
+    // currentPath belongs to Full-view; activePath only describes the open Note file.
+    let noteView = isNoteView(), rememberedFolder = false;
+    const searchCollapsed = new Set();
+    const ui = path => states()[path] ?? {};
+    function save(path, changes) {
+        states()[path] = { ...ui(path), ...changes };
+        persist();
+    }
+    function selectedFolder() { return model.byPath.get(currentPath); }
+    function isExpanded(node) {
+        return node.children.length > 0 && (query ? !searchCollapsed.has(node.path) : ui(node.path).collapsed === false);
+    }
+    function lineage(node) {
+        const result = [];
+        for (let cursor = node; cursor; cursor = cursor.parent) result.unshift(cursor);
+        return result;
+    }
+    function reveal(node) {
+        for (const ancestor of lineage(node).slice(0, -1)) {
+            states()[ancestor.path] = { ...ui(ancestor.path), collapsed: false };
+        }
+    }
+    function selectFolder(node, expandAncestors = false) {
+        if (currentPath !== node.path) contents.scrollTop = 0;
+        currentPath = node.path;
+        rememberedFolder = true;
+        if (expandAncestors) reveal(node);
+        save(workspacePath, { currentPath });
+        render();
+    }
+    function activate(node, event, row) {
+        if (node.parent && selectItem(event, row, node.path)) { syncSelection(); return; }
+        clearSelection();
+        if (node.folder) {
+            const fromContents = row.closest(".hub-explorer-contents");
+            if (!fromContents) toggle(node, false);
+            if (!isNoteView()) selectFolder(node, true);
+            else renderTree(true);
+            if (fromContents) focusNode(node.path);
+        } else {
+            activePath = node.path;
+            reveal(node); persist();
+            contextualFolder(); render();
+            const file = getByPath(node.path);
+            if (file) Promise.resolve(openFile(file)).catch(showError);
+        }
+    }
+    function toggle(node, repaint = true) {
+        if (!node.children.length) return;
+        if (query) {
+            if (searchCollapsed.has(node.path)) searchCollapsed.delete(node.path);
+            else searchCollapsed.add(node.path);
+        } else save(node.path, { collapsed: isExpanded(node) });
+        focusPath = node.path;
+        if (repaint) renderTree(true);
+    }
+    function nameContent(row, node, treeRow = false) {
+        const folderIcon = !node.parent && node.descriptor.sharedResource ? "folder-symlink"
+            : treeRow && isExpanded(node) ? "folder-open" : "folder";
+        icon(row, node.folder ? folderIcon : fileIcon(node.item));
+        const text = el(row, "span", "hub-explorer-label");
+        const name = el(text, "span", "hub-explorer-name", node.name);
+        name.title = node.name;
+        if (!node.parent && node.descriptor.sharedResource) {
+            const origin = `Shared resource · ${node.descriptor.resourceLabel}`;
+            el(text, "span", "hub-explorer-origin", origin);
+            row.title = `${node.name}\n${origin}`;
+        } else row.title = node.path;
+    }
+    function bindRow(row, node, kind) {
+        row.dataset.path = node.path;
+        decorateRow(row, node, kind);
+        row.addEventListener("click", event => activate(node, event, row));
+        row.addEventListener("contextmenu", event => {
+            event.preventDefault(); event.stopPropagation();
+            contextMenu(event, node, beginCreate);
+        });
+    }
+    function focusNode(path) {
+        focusPath = path;
+        for (const item of tree.querySelectorAll("[role=treeitem]")) {
+            item.tabIndex = item.dataset.treePath === path ? 0 : -1;
+            if (item.tabIndex === 0) item.focus({ preventScroll: true });
+        }
+        const focused = doc.activeElement;
+        if (tree.contains(focused)) focused.scrollIntoView({ block: "nearest", inline: "nearest" });
+    }
+    function renderTree(restoreFocus = false) {
+        const scrollTop = tree.scrollTop;
+        tree.replaceChildren();
+        const visiblePaths = [];
+        function branch(parent, node, depth, index, count) {
+            if (!filtered.visible.has(node.path)) return;
+            visiblePaths.push(node.path);
+            const item = el(parent, "div", "hub-explorer-item");
+            item.dataset.treePath = node.path;
+            item.setAttribute("role", "treeitem");
+            item.setAttribute("aria-label", node.name + (!node.parent && node.descriptor.sharedResource
+                ? `, Shared resource · ${node.descriptor.resourceLabel}` : ""));
+            item.setAttribute("aria-level", String(depth + 1));
+            item.setAttribute("aria-posinset", String(index + 1));
+            item.setAttribute("aria-setsize", String(count));
+            if (node.children.length) item.setAttribute("aria-expanded", String(isExpanded(node)));
+            const row = el(item, "div", "hub-explorer-tree-row" + (node.parent ? " project-browser-row" : ""));
+            row.style.setProperty("--hub-tree-depth", depth);
+            if (node.children.length) {
+                const disclosure = button(row, "hub-explorer-disclosure", `${isExpanded(node) ? "Collapse" : "Expand"} ${node.name}`,
+                    isExpanded(node) ? "chevron-down" : "chevron-right");
+                disclosure.tabIndex = -1;
+                disclosure.setAttribute("aria-expanded", String(isExpanded(node)));
+                disclosure.addEventListener("click", event => {
+                    event.stopPropagation(); toggle(node);
+                });
+            } else el(row, "span", "hub-explorer-disclosure-space").setAttribute("aria-hidden", "true");
+            nameContent(row, node, true);
+            bindRow(row, node, "tree");
+            row.removeAttribute("tabindex");
+            row.setAttribute("role", "presentation");
+            row.addEventListener("click", () => focusNode(node.path));
+            if (isExpanded(node)) {
+                const group = el(item, "div", "hub-explorer-group");
+                group.setAttribute("role", "group");
+                group.style.setProperty("--hub-tree-depth", depth);
+                const children = node.children.filter(child => filtered.visible.has(child.path));
+                children.forEach((child, i) => branch(group, child, depth + 1, i, children.length));
+            }
+        }
+        const roots = model.roots.filter(node => filtered.visible.has(node.path));
+        roots.forEach((node, index) => branch(tree, node, 0, index, roots.length));
+        if (!roots.length) el(tree, "div", "hub-explorer-empty", query ? "No matching files or folders." : "No workspace folders yet.");
+        if (!visiblePaths.includes(focusPath)) focusPath = visiblePaths.includes(currentPath) ? currentPath : visiblePaths[0];
+        for (const item of tree.querySelectorAll("[role=treeitem]")) item.tabIndex = item.dataset.treePath === focusPath ? 0 : -1;
+        syncSelection();
+        tree.scrollTop = scrollTop;
+        if (restoreFocus && focusPath) focusNode(focusPath);
+    }
+    function renderDetails() {
+        const scrollTop = contents.scrollTop;
+        breadcrumb.replaceChildren(); columns.replaceChildren(); contents.replaceChildren();
+        const node = selectedFolder();
+        if (!node) { el(contents, "div", "hub-explorer-empty", "Create a folder to get started."); return; }
+        icon(breadcrumb, !node.parent && node.descriptor.sharedResource ? "folder-symlink" : "folder-open");
+        for (const [index, ancestor] of lineage(node).entries()) {
+            if (index) icon(breadcrumb, "chevron-right", "hub-explorer-crumb-separator");
+            const crumb = button(breadcrumb, "hub-explorer-crumb", ancestor.name);
+            crumb.textContent = ancestor.name;
+            if (ancestor === node) crumb.setAttribute("aria-current", "location");
+            crumb.addEventListener("click", () => selectFolder(ancestor, true));
+        }
+        contents.setAttribute("aria-label", `Contents of ${node.name}`);
+        const sort = { ...ui(node.descriptor.path), ...ui(node.path) };
+        for (const [key, label] of [["name", "Name"], ["modified", "Modified"], ["created", "Created"]]) {
+            const heading = button(columns, "hub-explorer-column", `Sort by ${label.toLowerCase()}`);
+            heading.dataset.sortKey = key;
+            el(heading, "span", "", label);
+            const active = (sort.sortKey ?? "modified") === key;
+            if (active) {
+                const ascending = sort.sortDirection === "asc";
+                heading.setAttribute("aria-label", `Sort by ${label.toLowerCase()}, currently ${ascending ? "ascending" : "descending"}`);
+                icon(heading, ascending ? "chevron-up" : "chevron-down");
+            }
+            heading.addEventListener("click", () => {
+                save(node.path, { sortKey: key, sortDirection: active ? (sort.sortDirection === "asc" ? "desc" : "asc") : key === "name" ? "asc" : "desc" });
+                renderDetails();
+                columns.querySelector(`[data-sort-key="${key}"]`)?.focus();
+            });
+        }
+        const children = sortExplorerChildren(node.children.filter(child => filtered.visible.has(child.path)), sort);
+        for (const child of children) {
+            const row = el(contents, "div", "project-browser-row hub-explorer-detail-row");
+            const info = el(row, "div", "hub-explorer-detail-name");
+            nameContent(info, child);
+            for (const field of ["mtime", "ctime"]) {
+                const value = child.folder ? null : child.item.stat?.[field];
+                const cell = el(row, "span", "hub-explorer-time", value ? formatTime(value) : "—");
+                cell.title = value ? new Date(value).toLocaleString() : "Folder timestamps are not available";
+            }
+            bindRow(row, child, "details");
+            row.setAttribute("role", "option");
+            row.tabIndex = 0;
+        }
+        if (!children.length) el(contents, "div", "hub-explorer-empty", query ? "No matching items in this folder." : "This folder is empty.");
+        syncSelection(); contents.scrollTop = scrollTop;
+    }
+    function contextualFolder() {
+        const active = model.byPath.get(activePath);
+        if (!rememberedFolder && active && !active.folder) currentPath = active.parent.path;
+    }
+    function syncMode() {
+        if (disposed || noteView === isNoteView()) return;
+        noteView = isNoteView();
+        contextualFolder(); render();
+    }
+    function syncSelection() {
+        const inNoteView = isNoteView();
+        for (const row of shell.querySelectorAll("[data-path]")) {
+            const selected = selectedPaths.has(row.dataset.path);
+            row.classList.toggle("is-selected", selected);
+            const currentFolder = !inNoteView && row.dataset.path === currentPath;
+            const activeFile = inNoteView && row.dataset.path === activePath;
+            row.classList.toggle("is-current-folder", currentFolder);
+            row.classList.toggle("is-active-file", activeFile);
+            const semantic = row.closest("[role=treeitem]") ?? row;
+            semantic.setAttribute("aria-selected", String(selected || currentFolder || activeFile));
+            if (activeFile) semantic.setAttribute("aria-current", "true");
+            else semantic.removeAttribute("aria-current");
+        }
+    }
+    function render() {
+        const hadFocus = tree.contains(doc.activeElement);
+        filtered = filterWorkspaceTree(model.roots, query);
+        renderTree(hadFocus); renderDetails();
+        status.textContent = query ? `${filtered.matches.size} matches` : "";
+    }
+    function refresh({ restore = false } = {}) {
+        if (disposed) return;
+        model = workspaceTree(descriptors(), getByPath, dashboardPath);
+        if (restore || currentPath === null) {
+            query = ui(workspacePath).search ?? "";
+            search.value = query;
+            currentPath = ui(workspacePath).currentPath;
+            // Read legacy panel locations without a persistence migration.
+            if (!model.byPath.has(currentPath)) {
+                currentPath = model.roots.map(node => ui(node.path).currentPath).find(path => model.byPath.has(path));
+                if (model.byPath.has(currentPath)) reveal(model.byPath.get(currentPath));
+            }
+            rememberedFolder = !!model.byPath.get(currentPath)?.folder;
+        }
+        while (currentPath && !model.byPath.get(currentPath)?.folder) currentPath = currentPath.includes("/") ? currentPath.slice(0, currentPath.lastIndexOf("/")) : null;
+        contextualFolder();
+        currentPath ??= model.roots[0]?.path ?? null;
+        render();
+    }
+    function showError(error) { status.textContent = error?.message ?? "Could not open this file."; }
+    function beginCreate(kind, path = currentPath ?? workspacePath) {
+        editing = { kind, path };
+        editor.replaceChildren(); editor.hidden = false;
+        const label = el(editor, "label", "hub-explorer-create-label", `${kind === "folder" ? "New folder" : "New note"} in ${model.byPath.get(path)?.name ?? "workspace"}`);
+        const input = el(label, "input", "project-create-input");
+        input.placeholder = kind === "folder" ? "Folder name..." : "Note name...";
+        input.spellcheck = false;
+        const cancel = button(editor, "project-create-cancel", "Cancel creation", "x");
+        const errorText = el(editor, "span", "hub-explorer-create-error");
+        errorText.setAttribute("role", "alert");
+        let committing = false;
+        function close() { editing = null; editor.hidden = true; editor.replaceChildren(); }
+        async function commit() {
+            if (!editing || committing) return;
+            if (!input.value.trim()) { close(); return; }
+            committing = true;
+            try {
+                const createdPath = await createItem(path, kind, input.value);
+                states()[path] = { ...ui(path), collapsed: false };
+                close(); refresh();
+                const node = model.byPath.get(createdPath);
+                if (node) {
+                    reveal(node);
+                    if (!isNoteView()) { currentPath = node.folder ? node.path : node.parent.path; rememberedFolder = true; }
+                }
+                save(workspacePath, { ...(!isNoteView() ? { currentPath } : {}), search: "" });
+                query = ""; search.value = ""; render();
+                if (node) focusNode(node.path);
+            } catch (error) {
+                errorText.textContent = error.message ?? "Could not create item.";
+                input.setAttribute("aria-invalid", "true"); input.focus();
+            } finally { committing = false; }
+        }
+        input.addEventListener("keydown", event => {
+            if (event.key === "Enter") { event.preventDefault(); void commit(); }
+            if (event.key === "Escape") { event.preventDefault(); close(); newFolder.focus(); }
+        });
+        input.addEventListener("blur", () => { if (input.isConnected) void commit(); });
+        cancel.addEventListener("pointerdown", event => event.preventDefault());
+        cancel.addEventListener("click", close);
+        input.focus();
+    }
+    search.addEventListener("input", () => {
+        query = search.value; searchCollapsed.clear();
+        save(workspacePath, { search: query }); render();
+    });
+    search.addEventListener("keydown", event => {
+        if (event.key === "Escape") { search.value = ""; search.dispatchEvent(new Event("input")); }
+        if (event.key === "ArrowDown" && focusPath) { event.preventDefault(); focusNode(focusPath); }
+    });
+    newFolder.addEventListener("click", () => beginCreate("folder", workspacePath));
+    tree.addEventListener("keydown", event => {
+        const item = event.target.closest("[role=treeitem]");
+        if (!item) return;
+        const node = model.byPath.get(item.dataset.treePath), row = item.firstElementChild;
+        const items = [...tree.querySelectorAll("[role=treeitem]")], index = items.indexOf(item);
+        let target = null;
+        if (event.key === "ArrowDown") target = items[Math.min(items.length - 1, index + 1)];
+        else if (event.key === "ArrowUp") target = items[Math.max(0, index - 1)];
+        else if (event.key === "Home") target = items[0];
+        else if (event.key === "End") target = items.at(-1);
+        else if (event.key === "ArrowRight" && node.children.length) {
+            if (!isExpanded(node)) toggle(node); else target = items[index + 1];
+        } else if (event.key === "ArrowLeft") {
+            if (isExpanded(node)) toggle(node); else if (node.parent) focusNode(node.parent.path);
+        } else if (event.key === "Enter") activate(node, event, row);
+        else if (event.key === " " && node.parent) {
+            selectItem({ ctrlKey: true, preventDefault() {}, stopPropagation() {} }, row, node.path); syncSelection();
+        } else if (event.key === "F10" && event.shiftKey) {
+            const bounds = row.getBoundingClientRect();
+            contextMenu(new doc.defaultView.MouseEvent("contextmenu", {
+                clientX: bounds.left + 20, clientY: bounds.top + bounds.height / 2
+            }), node, beginCreate);
+        }
+        else return;
+        if (target) {
+            if (event.shiftKey && model.byPath.get(target.dataset.treePath).parent) {
+                if (!selectedPaths.size && node.parent) selectItem({ ctrlKey: true, preventDefault() {}, stopPropagation() {} }, row, node.path);
+                selectItem(event, target.firstElementChild, target.dataset.treePath);
+            }
+            focusNode(target.dataset.treePath); syncSelection();
+        }
+        event.preventDefault(); event.stopPropagation();
+    });
+    for (const element of [location, contents]) {
+        decorateFolder(element, () => currentPath ?? workspacePath);
+        element.addEventListener("contextmenu", event => {
+            if (event.target.closest("[data-path], button") || !selectedFolder()) return;
+            event.preventDefault(); event.stopPropagation();
+            contextMenu(event, selectedFolder(), beginCreate);
+        });
+    }
+    refresh({ restore: true });
+    return { refresh, beginCreate, syncSelection, syncMode,
+        rename(oldPath, newPath) {
+            rewriteExplorerPaths(states(), oldPath, newPath);
+            const rewrite = path => path && (path === oldPath || path.startsWith(oldPath + "/")) ? newPath + path.slice(oldPath.length) : path;
+            activePath = rewrite(activePath); focusPath = rewrite(focusPath);
+            currentPath = rewrite(currentPath);
+            for (const path of [...selectedPaths]) {
+                selectedPaths.delete(path); selectedPaths.add(rewrite(path));
+            }
+            persist(); refresh();
+        },
+        setActive(path, { revealFile = true } = {}) {
+            if (path === dashboardPath || path === activePath) return;
+            activePath = model.byPath.has(path) ? path : null;
+            const node = model.byPath.get(activePath);
+            if (node && !node.folder) {
+                if (revealFile) { reveal(node); persist(); }
+                contextualFolder(); render();
+            }
+            else syncSelection();
+        },
+        destroy() { disposed = true; shell.remove(); }
+    };
+}
+
+module.exports = { mountWorkspaceExplorer };
+
+},
 "plugin.js": function (module, exports, __hubRequire) {
+const { dispose: disposeCompletionAudio } = __hubRequire("lib/ui/completion-audio.js");
+const { mountMusicControl } = __hubRequire("lib/ui/music.js");
+const { mountSettingsControl } = __hubRequire("lib/ui/settings.js");
+const { processTaskWrite, isTaskWrite } = __hubRequire("lib/services/task-writes.js");
+const { DailyBriefService } = __hubRequire("lib/services/daily-brief.js");
+const { mountDailyBriefControl } = __hubRequire("lib/ui/daily-brief-control.js");
+const { StatisticsModal } = __hubRequire("lib/ui/statistics.js");
 const { OathNavigationGuard } = __hubRequire("lib/services/oath-navigation.js");
 const { createWorkspaceCards } = __hubRequire("lib/ui/workspace-cards.js");
 /*
@@ -7333,6 +10332,7 @@ const {
     TFolder
 } = require("obsidian");
 
+const { taskProgressMutation } = __hubRequire("lib/domain/task-progress.js");
 const { queryHistory } = __hubRequire("lib/domain/history.js");
 const { savedReportContext, reportDay } = __hubRequire("lib/domain/report-context.js");
 const { reportTitle, DailyReportModal, renderReportEvidence, focusSection } = __hubRequire("lib/ui/daily-report.js");
@@ -8205,6 +11205,7 @@ class ProjectAdvancementModal
             currentScores,
             currentSummaries = {},
             reportContexts = {},
+            getReportContexts = null,
             showNextFocus = false,
             currentFocus = [],
             focusProjects = [],
@@ -8247,7 +11248,8 @@ class ProjectAdvancementModal
 
         this.currentSummaries =
             currentSummaries ?? {};
-        this.reportContexts = reportContexts;
+        this.getReportContexts = getReportContexts;
+        this.reportContexts = getReportContexts?.() ?? reportContexts;
 
 
         this.showNextFocus =
@@ -8341,6 +11343,21 @@ class ProjectAdvancementModal
 
 
     onOpen() {
+        this.evidenceRows = new Map();
+        this.refreshEvidence = () => {
+            if (!this.getReportContexts) return;
+            this.reportContexts = this.getReportContexts();
+            for (const [id, previous] of this.evidenceRows) {
+                const context = this.reportContexts[id];
+                if (!context) continue;
+                const evidence = renderReportEvidence(previous.parentElement, context);
+                if (context.focus.length) focusSection(evidence, "Focus for this day", context.focus, "");
+                previous.replaceWith(evidence);
+                this.evidenceRows.set(id, evidence);
+            }
+        };
+        if (this.getReportContexts) document.addEventListener("hub-completed-tasks-changed", this.refreshEvidence);
+
 
         this.contentEl.addClass(
             "hub-project-advancement-modal", "hub-button-scope"
@@ -8429,6 +11446,7 @@ class ProjectAdvancementModal
             const context = this.reportContexts[project.projectId];
             if (context) {
                 const evidence = renderReportEvidence(row, context);
+                this.evidenceRows.set(project.projectId, evidence);
                 if (context.focus.length) focusSection(evidence, "Focus for this day", context.focus, "");
             }
 
@@ -8890,6 +11908,7 @@ class ProjectAdvancementModal
 
 
     onClose() {
+        if (this.refreshEvidence) document.removeEventListener("hub-completed-tasks-changed", this.refreshEvidence);
 
         this.ratingTooltips?.dispose();
         this.contentEl.empty();
@@ -12849,84 +15868,36 @@ class ProjectWizardService {
     }
 
 
-    getCompletedTaskTimestamp(
-        path,
-        line,
-        text
-    ) {
-
-        const exact =
-            this.completedTaskChecks.find(
-                item =>
-                    item.path === path &&
-                    item.line === line &&
-                    item.text === text
-            );
-
-
-        if (exact) {
-            return exact.timestamp;
-        }
-
-
-        const textMatches =
-            this.completedTaskChecks.filter(
-                item =>
-                    item.path === path &&
-                    item.text === text
-            );
-
-
-        return textMatches.length === 1
-            ? textMatches[0].timestamp
-            : null;
+    getCompletedTaskCheck(path, line, text, hubTaskId) {
+        const checks = this.completedTaskChecks.filter(item => item.kind !== "step");
+        const identified = hubTaskId ? checks.filter(item => item.hubTaskId === hubTaskId) : [];
+        if (identified.length) return identified.length === 1 ? identified[0] : null;
+        const matches = checks.filter(item => item.path === path && normalizedTaskText(item.text) === normalizedTaskText(text));
+        return matches.find(item => item.line === line) ?? (matches.length === 1 ? matches[0] : null);
     }
 
+    getCompletedTaskTimestamp(path, line, text, hubTaskId) {
+        return this.getCompletedTaskCheck(path, line, text, hubTaskId)?.timestamp ?? null;
+    }
 
-    async recordTaskMutation(edit, context) {
-        if (!edit.changed) return false;
+    async recordTaskMutation(edit, context, timestamp = Date.now()) {
+        if (!edit.changed && !edit.progressTransitions?.length) return false;
         const previousChecks = this.completedTaskChecks;
         const previousHistory = this.completedTaskHistory;
-        const saved = edit.tasks.find(task => task.completed);
-        const matches = previousChecks.filter(check => check.path === edit.path &&
-            normalizedTaskText(check.text) === normalizedTaskText(edit.oldText));
-        const target = matches.find(check => check.line === edit.line) ?? (matches.length === 1 ? matches[0] : null);
-        let checks = previousChecks.flatMap(check => {
-            if (check.path !== edit.path) return [check];
-            if (edit.operation === "add") return [{ ...check,
-                line: check.line >= edit.insertionLine ? check.line + edit.lineDelta : check.line }];
-            if (check === target) return [];
-            return [{ ...check, line: check.line > edit.line ? check.line + edit.lineDelta : check.line }];
-        });
-        const transition = !edit.operation && !edit.wasCompleted && edit.completed;
-        const timestamp = transition ? Date.now() : target?.timestamp ?? Date.now();
-        const historyId = transition && context ? randomUUID() : target?.historyId;
-        if (saved && edit.operation !== "add") checks.unshift({
-            path: edit.path, line: saved.line, text: saved.text,
-            timestamp, ...(historyId ? { historyId } : {})
-        });
-        const record = transition && context ? {
-            id: historyId, timestamp, text: saved.text, path: edit.path, line: saved.line,
-            projectId: context.projectId ?? `resource:${context.resourceType ?? context.id}`,
-            projectName: context.name ?? context.label,
-            projectStatus: context.status ?? null, projectPath: context.path, projectRoot: context.root,
-            contextKind: context.contextKind ?? "project", resourceType: context.resourceType ?? null
-        } : null;
-        this.completedTaskChecks = this.data.completedTaskChecks = checks;
-        this.completedTaskHistory = this.data.completedTaskHistory = record ? [record, ...previousHistory] : previousHistory;
+        const next = taskProgressMutation(previousChecks, previousHistory, edit, context, timestamp, randomUUID);
+        this.completedTaskChecks = this.data.completedTaskChecks = next.checks;
+        this.completedTaskHistory = this.data.completedTaskHistory = next.history;
         try { await this.store.save(this.data); }
         catch (error) {
             this.completedTaskChecks = this.data.completedTaskChecks = previousChecks;
             this.completedTaskHistory = this.data.completedTaskHistory = previousHistory;
             throw error;
         }
-        return Boolean(record);
+        return next.changed;
     }
 
-    getCompletedTaskHistoryId(path, line, text) {
-        const matches = this.completedTaskChecks.filter(check => check.path === path &&
-            normalizedTaskText(check.text) === normalizedTaskText(text));
-        const check = matches.find(check => check.line === line) ?? (matches.length === 1 ? matches[0] : null);
+    getCompletedTaskHistoryId(path, line, text, hubTaskId) {
+        const check = this.getCompletedTaskCheck(path, line, text, hubTaskId);
         return check?.historyId && this.completedTaskHistory.some(record => record.id === check.historyId)
             ? check.historyId : null;
     }
@@ -12999,7 +15970,8 @@ class ProjectWizardService {
             previous
                 .filter(
                     item =>
-                        !checksToRemove.has(item)
+                        !checksToRemove.has(item) && !clearedTasks.some(task => task.hubTaskId && (item.hubTaskId === task.hubTaskId || item.parentTaskId === task.hubTaskId)) && !(clearedByPath.get(item.path) ?? []).some(task =>
+                            item.line >= task.line && item.line < task.line + (task.removedLines ?? 1))
                 )
                 .map(item => {
 
@@ -14036,6 +17008,7 @@ class ProjectWizardService {
 
 
         await this.saveCategories();
+        this.plugin.appShortcutsControl?.refresh();
     }
 
 
@@ -14833,14 +17806,19 @@ class HubWorkspaceModeService {
             this.leafDocument(leaf) === mode.ownerDocument ? mode.project : null;
     }
 
-    captureNoteLayout() {
+    captureNoteLayout(worked = false) {
         if (!this.mode || !this.usableContentLeaves().length) return;
         const layout = this.app.workspace.getLayout();
         const snapshot = prepareNoteLayout(layout, this.mode.project.path,
             path => this.app.vault.getAbstractFileByPath(path) instanceof TFile);
         if (!snapshot) return;
         const id = this.mode.project.projectId;
-        this.state.projects[id] = { ...this.state.projects[id], layout: snapshot };
+        const configuration = this.plugin.presets?.snapshot() ?? {
+            contextId: id, hubPath: this.mode.project.path, root: this.mode.project.root,
+            layout: snapshot, railState: this.noteRailState ?? "full"
+        };
+        this.navigationHistory.rememberConfiguration(this.mode.project, configuration, Date.now(), worked);
+        this.state.projects[id] = { ...this.state.projects[id], hubPath: this.mode.project.path, layout: snapshot };
         const hasFile = node => node?.type === "leaf"
             ? !!node.state?.state?.file && node.state.state.file !== this.mode.project.path
             : (node?.children ?? []).some(hasFile);
@@ -15727,6 +18705,7 @@ class HubWorkspaceModeService {
                             file
                         );
                     }
+                    this.captureNoteLayout(true);
                 }
             )
         );
@@ -18093,6 +21072,16 @@ class HubWorkspaceModeService {
                 this.state.projects
             )
         ) {
+            if (entry?.configurations) {
+                entry.configurations = entry.configurations.map(item => ({ ...item,
+                    hubPath: rewritePath(item.hubPath), root: rewritePath(item.root),
+                    layout: rewriteLayoutPaths(item.layout, rewritePath),
+                    folderState: item.folderState ? { ...item.folderState,
+                        folders: Object.fromEntries(Object.entries(item.folderState.folders ?? {}).map(([path, state]) =>
+                            [rewritePath(path), { ...state, currentPath: rewritePath(state.currentPath) }])) } : undefined
+                }));
+                changed = true;
+            }
             if (entry?.layout) {
                 entry.layout = rewriteLayoutPaths(entry.layout, rewritePath);
                 changed = true;
@@ -19840,7 +22829,14 @@ module.exports = class HubProjectMenu extends Plugin {
                 );
 
 
-        window.hubSetIcon = setIcon;
+        window.hubOpenStatistics = () => {
+            if (this.statisticsModal) return;
+            this.statisticsModal = new StatisticsModal(this.app, this, {
+                onClose: () => { this.statisticsModal = null; }
+            });
+            this.statisticsModal.open();
+        };
+        window.hubSetIcon = __hubRequire("lib/ui/icons.js").setHubIcon;
         this.homeCovers = new HomeCovers(this);
         window.hubGetHomeTimePeriod = homeTimePeriod;
         window.hubGetHomeCover = name => this.homeCovers.config(name);
@@ -19882,6 +22878,8 @@ module.exports = class HubProjectMenu extends Plugin {
         window.hubCreateDashboardUi =
             createDashboardUi;
 
+        window.hubMountWorkspaceExplorer = __hubRequire("lib/ui/workspace-explorer.js").mountWorkspaceExplorer;
+
         window.hubCreateFileDomain =
             createFileDomain;
 
@@ -19917,10 +22915,16 @@ module.exports = class HubProjectMenu extends Plugin {
         window.hubCreateMarkdown = component => createHubMarkdown({ app: this.app, component });
         this.taskData = new HubTaskDataService(this.app, { metadata: id => this.taskEditor.metadata(id) });
         window.hubTaskData = this.taskData;
+        window.hubMountTaskWorkspace = options => __hubRequire("lib/ui/task-workspace.js").mountTaskWorkspace({ plugin: this, ...options });
+        this.dailyBrief = new DailyBriefService(this);
         this.app.workspace.onLayoutReady(() => {
             if (this.oath.disposed) return;
             this.oathControl = mountOathControl(this, this.oath);
-            void this.oath.start().catch(error => this.oath.error(error));
+            this.dailyBriefControl = mountDailyBriefControl(this, this.dailyBrief, this.oathControl.item);
+            this.musicControl = mountMusicControl(this, this.oathControl.item);
+            this.settingsControl = mountSettingsControl(this, this.oathControl.item);
+            this.appShortcutsControl = __hubRequire("lib/ui/app-shortcuts.js").mountAppShortcuts(this, this.oathControl.item);
+            void this.oath.start().then(() => this.dailyBrief.start()).catch(error => this.oath.error(error));
         });
         this.addCommand({ id: "the-oath", name: "The Oath", callback: () => this.oathControl?.open() });
         this.addCommand({ id: "insert-markdown-task", name: "Insert task at cursor", editorCallback: insertTaskAtCursor });
@@ -20042,7 +23046,16 @@ module.exports = class HubProjectMenu extends Plugin {
         );
     }
     onunload() {
+        disposeCompletionAudio();
+        this.statisticsModal?.close();
+        delete window.hubOpenStatistics;
 
+        this.appShortcutsControl?.destroy();
+        delete window.hubMountTaskWorkspace;
+        this.musicControl?.destroy();
+        this.settingsControl?.destroy();
+        this.dailyBriefControl?.destroy();
+        this.dailyBrief?.destroy();
         this.preparedNoteRails?.destroy();
         this.cardImageCache?.destroy();
         this.transitions?.destroy();
@@ -20084,6 +23097,7 @@ module.exports = class HubProjectMenu extends Plugin {
         delete window.hubGetHomeTimePeriod;
         delete window.hubGetHomeCover;
         delete window.hubMountHomeCover;
+        delete window.hubMountWorkspaceExplorer;
         delete window.hubCreateFileDomain;
         delete window.hubToggleTask;
         delete window.hubApplyTaskEdit;
@@ -20458,9 +23472,7 @@ module.exports = class HubProjectMenu extends Plugin {
                         file.path
                     );
 
-                    this.scheduleEditedActivity(
-                        file
-                    );
+                    this.recordEditorActivity(file, _editor);
                 }
             )
         );
@@ -20886,6 +23898,12 @@ module.exports = class HubProjectMenu extends Plugin {
     }
 
 
+    recordEditorActivity(file, editor) {
+        if (isTaskWrite(this, file, editor)) return;
+        if (this.workspaceModes?.mode && this.app.workspace.getActiveFile() === file) this.workspaceModes.captureNoteLayout(true);
+        this.scheduleEditedActivity(file);
+    }
+
     scheduleEditedActivity(file) {
 
         const details =
@@ -21051,7 +24069,7 @@ module.exports = class HubProjectMenu extends Plugin {
         new ProjectAdvancementModal(
             this.app,
             {
-                reportContexts: Object.fromEntries([...projects, ...resources].map(workspace => {
+                getReportContexts: () => Object.fromEntries([...projects, ...resources].map(workspace => {
                     const id = workspace.projectId ?? `resource:${workspace.resourceType}`;
                     const previous = id.startsWith("resource:")
                         ? this.projectWizard.resourceWorkLogs[id.slice(9)]?.[date]
@@ -21197,15 +24215,16 @@ module.exports = class HubProjectMenu extends Plugin {
     }
 
     mutateTask(request) {
+        const actionTimestamp = Date.now();
         return this.enqueueTaskMutation(async () => {
             const path = this.taskData?.currentPath(request.path) ?? request.path;
             const file = this.app.vault.getAbstractFileByPath(path);
             if (!file) throw new Error(`Task file not found: ${path}`);
             const tasksApi = this.app.plugins.plugins["obsidian-tasks-plugin"]?.apiV1;
             let edit;
-            await this.app.vault.process(file, data => {
+            await processTaskWrite(this, file, data => {
                 const args = { ...request, path };
-                const result = request.operation === "step" ? toggleTaskStep(data, args) : request.operation ? mutateTaskContent(data, args)
+                const result = request.operation === "step" ? toggleTaskStep(data, args, randomUUID) : request.operation ? mutateTaskContent(data, args)
                     : editTaskContent(data, args, (line, taskPath) => tasksApi?.executeToggleTaskDoneCommand
                         ? tasksApi.executeToggleTaskDoneCommand(line, taskPath)
                         : line.replace(/^(\s*(?:[-*+]|\d+[.)])\s+\[)([^\]])(\])/, (_all, prefix, mark, end) => prefix + (/^[xX]$/.test(mark) ? " " : "x") + end));
@@ -21214,7 +24233,7 @@ module.exports = class HubProjectMenu extends Plugin {
             });
             try {
                 const context = this.projectWizard.getContextForPath(path);
-                if (edit.operation !== "step" && await this.projectWizard.recordTaskMutation(edit, context)) this.notifyCompletedTasksChanged();
+                if (await this.projectWizard.recordTaskMutation(edit, context, actionTimestamp)) this.notifyCompletedTasksChanged();
             } catch (error) {
                 console.error("Could not save task History:", error);
                 new Notice("The task changed, but its History could not be saved.");
@@ -21439,7 +24458,7 @@ module.exports = class HubProjectMenu extends Plugin {
 
                 const records =
                     resolved.filter(request => !this.projectWizard.getCompletedTaskHistoryId(
-                        request.path, request.line, request.text
+                        request.path, request.line, request.text, request.hubTaskId
                     )).map(
                         (request, index) => ({
                             id:
@@ -21482,7 +24501,7 @@ module.exports = class HubProjectMenu extends Plugin {
                                     .getCompletedTaskTimestamp(
                                         request.path,
                                         request.line,
-                                        request.text
+                                        request.text, request.hubTaskId
                                     ) ?? archivedAt,
 
                             archivedAt
@@ -21498,8 +24517,7 @@ module.exports = class HubProjectMenu extends Plugin {
 
                 try {
 
-                    await this.app.vault
-                        .process(
+                    await processTaskWrite(this,
                             file,
                             currentData => {
 
@@ -22805,6 +25823,7 @@ module.exports = class HubProjectMenu extends Plugin {
                     )
                 );
             });
+        document.dispatchEvent(new CustomEvent("hub-completed-tasks-changed", { detail }));
     }
 
 
@@ -23163,7 +26182,7 @@ module.exports = class HubProjectMenu extends Plugin {
         new ProjectAdvancementModal(
             this.app,
             {
-                reportContexts: Object.fromEntries([...projects, ...resources].map(workspace => {
+                getReportContexts: () => Object.fromEntries([...projects, ...resources].map(workspace => {
                     const id = workspace.projectId ?? `resource:${workspace.resourceType}`;
                     const previous = id.startsWith("resource:")
                         ? this.projectWizard.resourceWorkLogs[id.slice(9)]?.[date]

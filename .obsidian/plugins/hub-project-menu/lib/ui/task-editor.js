@@ -1,13 +1,23 @@
 "use strict";
+const { bindCompletionSound, playStepCompletionSound } = require("./completion-audio");
 
-function openTaskEditor(service, task, onEdit = () => {}) {
+function openTaskEditor(service, task, onEdit = () => {}, creation = null) {
     const { Modal, Notice, setIcon } = require("obsidian");
     class TaskModal extends Modal {
         async onOpen() {
             this.closed = false;
             this.modalEl.classList.add("hub-task-dialog");
             this.contentEl.classList.add("hub-button-scope", "hub-task-form");
-            this.contentEl.createEl("h2", { cls: "hub-task-dialog-title", text: "Edit task" });
+            this.contentEl.createEl("h2", { cls: "hub-task-dialog-title", text: creation ? "Add task" : "Edit task" });
+            if (creation) {
+                const locations = availableLocations(service, creation.root);
+                const activePath = service.app.workspace.getActiveFile()?.path;
+                const location = locations.find(item => item.path === (creation.location ?? creation.path)) ??
+                    locations.find(item => item.path === creation.root) ??
+                    locations.find(item => item.path === activePath) ?? locations[0];
+                this.snapshot = { text: "", steps: [], necessity: null, ...creation, path: location?.path ?? "" };
+                this.render(); return;
+            }
             const loading = this.contentEl.createEl("p", { text: "Loading task…" });
             try {
                 this.snapshot = await service.read(task);
@@ -27,6 +37,7 @@ function openTaskEditor(service, task, onEdit = () => {}) {
             const title = section("Task");
             const input = title.createEl("input", { type: "text", cls: "hub-task-title-input", attr: { "aria-label": "Task", required: "" } });
             input.value = snapshot.text;
+            if (creation) input.placeholder = "What needs doing?";
             const necessity = section("Necessity");
             const necessityHeading = necessity.createDiv({ cls: "hub-task-necessity-heading" });
             necessityHeading.appendChild(necessity.querySelector("h3"));
@@ -81,6 +92,8 @@ function openTaskEditor(service, task, onEdit = () => {}) {
                 text.value = step.text ?? "";
                 const remove = row.createEl("button", { attr: { type: "button", "aria-label": "Remove step" } }); setIcon(remove, "x");
                 const state = { ...step, row, checkbox, input: text, removed: false }; stepRows.push(state);
+                bindCompletionSound(checkbox, playStepCompletionSound);
+                checkbox.addEventListener("change", () => { state.completedAt = checkbox.checked ? Date.now() : null; });
                 remove.addEventListener("click", () => {
                     for (const child of stepRows) {
                         if (child === state || (state.line != null && child.line > state.line && child.line < state.end)) {
@@ -95,12 +108,26 @@ function openTaskEditor(service, task, onEdit = () => {}) {
             setIcon(add.createSpan(), "plus"); add.createSpan({ text: "Add step" });
             add.addEventListener("click", () => addStep({}).focus());
             const location = section("Location");
-            location.createDiv({ cls: "hub-task-source", text: snapshot.path.replace(/\.md$/i, "").split("/").join(" › ") });
+            const owner = service.context?.(snapshot.path);
+            const fieldsLocation = locationFields(service, location, snapshot, creation?.root ?? owner?.root);
+            const project = section("Project");
+            project.querySelector("h3").append(" (optional)");
+            const association = project.createEl("select", { attr: { "aria-label": "Project (optional)" } });
+            association.createEl("option", { text: "No project", attr: { value: "" } });
+            for (const item of service.projects?.() ?? []) association.createEl("option", { text: item.name, attr: { value: item.projectId } });
+            if (snapshot.linkedProjectId && ![...association.options].some(option => option.value === snapshot.linkedProjectId)) {
+                const previous = service.plugin?.projectWizard.getProjectById?.(snapshot.linkedProjectId);
+                association.createEl("option", { text: previous ? previous.name + " (" + previous.status + ")" : "Unavailable project", attr: { value: snapshot.linkedProjectId } });
+            }
+            association.value = snapshot.linkedProjectId ?? "";
+            const syncProject = () => { project.hidden = service.context?.(fieldsLocation.value())?.contextKind !== "resource"; };
+            fieldsLocation.onChange(syncProject); syncProject();
             const errorEl = form.createDiv({ cls: "hub-task-error", attr: { role: "alert" } });
             const actions = form.createDiv({ cls: "hub-task-dialog-actions" });
             const remove = actions.createEl("button", { text: "Delete task", cls: "hub-task-remove", attr: { type: "button" } });
             const cancel = actions.createEl("button", { text: "Cancel", attr: { type: "button" } });
-            const save = actions.createEl("button", { text: "Save", cls: "mod-cta", attr: { type: "submit" } });
+            const save = actions.createEl("button", { text: creation ? "Add task" : "Save", cls: "mod-cta", attr: { type: "submit" } });
+            if (creation) remove.hidden = true;
             cancel.addEventListener("click", () => this.close());
             const commit = async deleting => {
                 if (this.saving) return;
@@ -108,14 +135,20 @@ function openTaskEditor(service, task, onEdit = () => {}) {
                 this.saving = true; errorEl.textContent = "";
                 // Disable every control while persistence is pending, including
                 // Cancel/Escape, so closing cannot misleadingly cancel a save.
-                const controls = [...form.querySelectorAll("button,input")];
+                const controls = [...form.querySelectorAll("button,input,select")];
                 const states = controls.map(control => control.disabled); controls.forEach(control => control.disabled = true);
                 try {
-                    const edit = await service.save(snapshot, { operation: deleting ? "delete" : "edit",
+                    const values = { operation: deleting ? "delete" : "edit",
+                        location: fieldsLocation.value(), linkedProjectId: project.hidden ? null : association.value,
                         text: input.value, necessity: selected, fromDate: from.value, dueDate: due.value,
                         fromTime: from.timeInput.value, dueTime: due.timeInput.value,
-                        steps: stepRows.filter(step => !step.removed).map(step => ({ line: step.line, text: step.input.value, completed: step.checkbox.checked })) });
-                    this.saving = false; onEdit(edit); this.close();
+                        steps: stepRows.filter(step => !step.removed).map(step => ({ line: step.line, text: step.input.value, completed: step.checkbox.checked, completedAt: step.completedAt })) };
+                    if (creation) {
+                        if (!values.location) throw Error("Choose a Location.");
+                        await service.create(values.location, values.text, values);
+                        creation.onCreated?.();
+                    } else onEdit(await service.save(snapshot, values));
+                    this.saving = false; this.close();
                 } catch (error) {
                     this.saving = false; controls.forEach((control, i) => control.disabled = states[i]);
                     errorEl.textContent = error.message; sync();
@@ -136,54 +169,35 @@ function openTaskEditor(service, task, onEdit = () => {}) {
     const modal = new TaskModal(service.app); modal.open(); return modal;
 }
 
-function openTaskCreator(service, options = {}) {
-    const { Modal, FuzzySuggestModal, Notice } = require("obsidian");
-    class Creator extends Modal {
-        onOpen() {
-            this.modalEl.classList.add("hub-task-dialog", "hub-task-create-dialog");
-            this.contentEl.classList.add("hub-button-scope", "hub-task-form");
-            this.contentEl.createEl("h2", { text: "Add task" });
-            const form = this.contentEl.createEl("form");
-            const label = form.createEl("label", { cls: "hub-task-create-label", text: "Task" });
-            const input = label.createEl("input", { type: "text", attr: { required: "", placeholder: "What needs doing?" } });
-            const destination = form.createDiv({ cls: "hub-task-section" });
-            destination.createEl("h3", { text: "Source note" });
-            const files = service.app.vault.getMarkdownFiles().filter(file => !options.root || file.path.startsWith(options.root + "/"));
-            const eligible = files.filter(file => {
-                if (options.root) return true;
-                const context = service.plugin?.projectWizard.getContextForPath(file.path);
-                return context && (context.contextKind === "resource" || context.status === "active");
-            });
-            let file = files.find(file => file.path === options.path) ?? files.find(file => file.path === service.app.workspace.getActiveFile()?.path) ?? eligible.find(file => /\/Tasks\.md$/i.test(file.path)) ?? eligible[0] ?? files[0];
-            const source = destination.createDiv({ cls: "hub-task-source" });
-            const sync = () => { source.textContent = file?.path ?? "Choose a Markdown note"; };
-            sync();
-            const choose = destination.createEl("button", { text: "Choose note…", attr: { type: "button" } });
-            choose.addEventListener("click", () => {
-                class Picker extends FuzzySuggestModal {
-                    getItems() { return files; }
-                    getItemText(item) { return item.path; }
-                    onChooseItem(item) { file = item; sync(); }
-                }
-                new Picker(service.app).open();
-            });
-            const actions = form.createDiv({ cls: "hub-task-dialog-actions" });
-            const cancel = actions.createEl("button", { text: "Cancel", attr: { type: "button" } });
-            const add = actions.createEl("button", { text: "Add task", cls: "mod-cta", attr: { type: "submit" } });
-            cancel.addEventListener("click", () => this.close());
-            form.addEventListener("submit", async event => {
-                event.preventDefault(); if (this.saving || !form.reportValidity()) return;
-                if (!file) { new Notice("Choose an existing Markdown note."); return; }
-                this.saving = true; add.disabled = true; cancel.disabled = true;
-                try { await service.create(file.path, input.value); this.saving = false; this.close(); }
-                catch (error) { new Notice(error.message); this.saving = false; add.disabled = false; cancel.disabled = false; }
-            });
-            input.focus();
+function availableLocations(service, root) {
+    if (service.locations) return service.locations(root);
+    return service.app.vault.getMarkdownFiles().filter(file => !root || file.path.startsWith(root + "/"))
+        .map(file => ({ path: file.path, file, label: file.path.replace(/\.md$/i, "").split("/").slice(-2).join(" › ") }));
+}
+
+function locationFields(service, host, snapshot, root) {
+    const { FuzzySuggestModal } = require("obsidian");
+    let path = snapshot.path, changed = () => {};
+    const source = host.createDiv({ cls: "hub-task-source" });
+    const sync = () => {
+        const location = availableLocations(service, root).find(item => item.path === path);
+        source.textContent = location ? location.label + (location.folder ? " · Folder" : "") : path ? path.split("/").pop().replace(/\.md$/i, "") : "Choose a Location";
+    };
+    sync();
+    const choose = host.createEl("button", { text: "Choose location…", attr: { type: "button" } });
+    choose.addEventListener("click", () => {
+        class Picker extends FuzzySuggestModal {
+            getItems() { return availableLocations(service, root); }
+            getItemText(item) { return item.label + (item.folder ? " · Folder" : ""); }
+            onChooseItem(item) { path = item.path; sync(); changed(); }
         }
-        close() { if (!this.saving) super.close(); }
-        onClose() { this.contentEl.empty(); }
-    }
-    const modal = new Creator(service.app); modal.open(); return modal;
+        new Picker(service.app).open();
+    });
+    return { value: () => path, onChange: callback => { changed = callback; } };
+}
+
+function openTaskCreator(service, options = {}) {
+    return openTaskEditor(service, null, () => {}, options);
 }
 
 module.exports = { openTaskEditor, openTaskCreator };

@@ -94,6 +94,15 @@ class HubTaskDataService {
         }));
     }
 
+    readWorkspace(dv, workspace, resources = []) {
+        const { validLocation } = require("../domain/task-views");
+        const root = this.currentPath(workspace.root);
+        return this.readPages(dv).flatMap(page => page.file.tasks).filter(task =>
+            validLocation(task.path, { ...workspace, root }) ||
+            (workspace.contextKind !== "resource" && task.linkedProjectId === workspace.projectId &&
+                resources.some(resource => validLocation(task.path, resource))));
+    }
+
     subscribe(component, refresh, roots = () => null) {
         const subscription = { refresh, roots };
         this.subscribers.add(subscription);

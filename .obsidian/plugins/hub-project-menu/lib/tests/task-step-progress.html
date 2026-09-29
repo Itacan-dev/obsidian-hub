@@ -1,0 +1,52 @@
+<!doctype html><meta charset="utf-8"><title>Step progress interaction</title>
+<link rel="stylesheet" href="../../styles.css">
+<link rel="stylesheet" href="../../../../../System/Dashboards/Project/view.css">
+<style>body{background:#202329;color:#ddd;font:16px system-ui;--text-normal:#ddd;--text-muted:#aaa;--text-faint:#888;--background-modifier-border:#444;--interactive-accent:#8955ed}*{box-sizing:border-box}#fixture{width:430px}#result{white-space:pre-wrap}</style>
+<div id="fixture" class="hub-button-scope project-dashboard"></div><pre id="result">RUNNING</pre>
+<script type="module">
+HTMLElement.prototype.createEl=function(tag,o={}){const e=document.createElement(tag);e.className=o.cls||'';e.textContent=o.text||'';if(o.type)e.type=o.type;for(const[k,v]of Object.entries(o.attr||{}))e.setAttribute(k,v);this.append(e);return e};
+HTMLElement.prototype.createDiv=function(o){return this.createEl('div',o)};HTMLElement.prototype.createSpan=function(o){return this.createEl('span',o)};
+const assert=(v,m)=>{if(!v)throw Error(m)},settle=async()=>{for(let i=0;i<20;i++)await Promise.resolve()};
+const sources={},cache={};
+for(const name of ['domain/tasks','domain/dates','domain/task-planning','domain/task-progress','ui/completion-audio','ui/task-steps'])sources[name]=await(await fetch('../'+name+'.js')).text();
+function load(name){if(cache[name])return cache[name].exports;const m=cache[name]={exports:{}};new Function('module','require',sources[name])(m,n=>load(name.slice(0,name.lastIndexOf('/'))+'/'+n.replace('./','')));return m.exports}
+try{
+ const {readTaskSnapshot,toggleTaskStep}=load('domain/task-planning'),{taskProgressMutation}=load('domain/task-progress');
+ const path='Projects/Math/Tasks.md',workspace={projectId:'math',name:'Mathematics'};
+ let content='- [ ] Assignment 5\n    - [ ] 1a\n    - [ ] 1b\n',history=[],checks=[],release,failed=false,parentClicks=0;
+ const snapshot=()=>readTaskSnapshot(content,{path,line:0,text:'Assignment 5'});
+ const steps=load('ui/task-steps').createTaskSteps({markdown:{render:async(el,text)=>el.textContent=text},
+  setIcon:(el,name)=>{el.dataset.icon=name},report:error=>{failed=error.message==='Write failed'},onEdit:()=>render(),
+  mutate:request=>{const timestamp=Date.now();return new Promise((resolve,reject)=>{release=fail=>{
+   if(fail){reject(Error('Write failed'));return}
+   const result=toggleTaskStep(content,request);content=result.content;
+   const next=taskProgressMutation(checks,history,result.edit,workspace,timestamp,()=>crypto.randomUUID());
+   checks=next.checks;history=next.history;resolve(result.edit);
+  }})}});
+ function render(){fixture.replaceChildren();const row=fixture.createDiv({cls:'project-task-row hub-planned-task-row'});
+  row.addEventListener('click',()=>parentClicks++);row.createEl('input',{type:'checkbox'});
+  const info=row.createDiv({cls:'project-task-info'});info.createDiv({cls:'project-task-text',text:'Assignment 5'});
+  info.createDiv({cls:'project-task-location',text:'MM5022 HT26, Complex Analysis'});steps.bind(info,snapshot(),()=>path);
+ }
+ const host=()=>fixture.querySelector('.hub-task-steps'),boxes=()=>host().querySelectorAll('input');
+ render();host().querySelector('button').click();boxes()[0].click();
+ assert(boxes()[0].checked&&boxes()[0].disabled&&host().querySelector('.hub-task-step-progress').textContent==='1/2','Immediate existing checkbox feedback');
+ render();assert(host().querySelector('button').getAttribute('aria-expanded')==='true','Pending rerender preserves expansion');
+ release();await settle();
+ assert(snapshot().hubTaskId&&snapshot().steps[0].hubTaskId,'First completion assigns stable identities');
+ assert(!host().querySelector('.hub-task-step-items').hidden&&boxes()[0].checked,'Disclosure remains open when the parent gains its ID');
+ assert(history.length===1&&history[0].kind==='step'&&!snapshot().completed,'One Step event, parent unchanged');
+ boxes()[0].click();release();await settle();assert(history.length===0,'Uncheck removes active progress');
+ boxes()[0].click();release();await settle();assert(history.length===1,'Recheck produces one active event');
+ boxes()[1].click();release(true);await settle();assert(failed&&!boxes()[1].checked&&history.length===1,'Failed write rolls back UI without progress');
+ for(const width of [430,300]){fixture.style.width=width+'px';
+  const title=fixture.querySelector('.project-task-text').getBoundingClientRect(),chevron=host().querySelector('.hub-task-steps-chevron').getBoundingClientRect();
+  assert(Math.abs(title.left-chevron.left)<1,'Disclosure stays in parent content column');
+  assert(Math.abs(boxes()[0].getBoundingClientRect().left-chevron.left-20)<1,'Single 20px child indent unchanged');
+ }
+ host().querySelector('button').click();assert(host().querySelector('.hub-task-step-items').hidden,'Collapse still works');
+ assert(parentClicks===0,'Step actions never trigger parent actions');
+ host().querySelector('button').click();
+ result.textContent='PASS: actual Steps component, first-ID disclosure continuity, pending rerender, immediate progress, check/uncheck/recheck, save failure, parent isolation and unchanged wide/narrow alignment.';
+}catch(e){result.textContent='FAIL: '+e.stack}
+</script>

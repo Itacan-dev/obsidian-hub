@@ -1,0 +1,69 @@
+<!doctype html><meta charset="utf-8"><title>Daily Brief browser checks</title>
+<link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../../../../../System/Dashboards/Home/view.css">
+<style>
+body{margin:0;background:#1e1e1e;color:#ddd;font:16px Arial;--text-normal:#ddd;--text-muted:#aaa;--text-faint:#777;--background-primary:#1e1e1e;--background-secondary:#262626;--background-modifier-border:#444;--background-modifier-hover:#333;--interactive-accent:#8955ed;--text-on-accent:#fff;--color-green:#62b478;--input-shadow:none}
+.modal-container{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:#0008}.modal{position:relative;box-sizing:border-box;padding:24px;background:#262626;border:1px solid #444;border-radius:12px;max-height:94vh}.modal-close-button{position:absolute;right:12px;top:10px}button{background:#282828;color:#ddd;padding:6px 12px;height:32px;cursor:pointer}#result{position:fixed;bottom:0;font-size:10px;z-index:9;pointer-events:none;background:#1e1e1e;margin:0}
+</style><pre id="result">RUNNING</pre>
+<script type="module">
+HTMLElement.prototype.createEl=function(tag,o={}){const e=document.createElement(tag);e.className=o.cls||'';e.textContent=o.text||'';for(const[k,v]of Object.entries(o.attr||{}))e.setAttribute(k,v);this.append(e);return e};
+HTMLElement.prototype.createDiv=function(o){return this.createEl('div',o)};HTMLElement.prototype.createSpan=function(o){return this.createEl('span',o)};HTMLElement.prototype.empty=function(){this.replaceChildren()};
+class Component{constructor(){this.children=new Set();this.cleanups=[]}load(){}register(fn){this.cleanups.push(fn)}addChild(c){this.children.add(c)}removeChild(c){c.unload();this.children.delete(c)}unload(){this.children.forEach(c=>c.unload());this.cleanups.forEach(fn=>fn())}}
+class Modal{constructor(app){this.app=app;this.containerEl=document.body.createDiv({cls:'modal-container'});this.modalEl=this.containerEl.createDiv({cls:'modal'});this.contentEl=this.modalEl.createDiv();this.modalEl.createEl('button',{cls:'modal-close-button',text:'×'}).onclick=()=>this.close()}open(){this.onOpen()}close(){this.onClose();this.containerEl.remove()}}
+const icons={'square-check':'<rect x="3" y="3" width="18" height="18" rx="2"/><path d="m9 12 2 2 4-4"/>','circle-check':'<circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/>','chevron-right':'<path d="m9 5 7 7-7 7"/>','file-text':'<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z M14 2v6h6 M8 13h8 M8 17h8"/>'};
+const native={Modal,Component,setIcon:(el,name)=>{el.dataset.icon=name;el.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">'+(icons[name]||'')+'</svg>'},MarkdownRenderer:{render:async(app,text,el)=>{el.textContent=text}}};
+const names=['domain/dates','domain/focus','domain/tasks','domain/task-planning','domain/report-context','domain/daily-brief','domain/brief-recommendations','ui/render-readiness','ui/markdown','ui/dashboard-ui','ui/daily-report','ui/daily-brief'],sources={},cache={};
+for(const name of names)sources[name]=await(await fetch('../'+name+'.js')).text();
+function load(name){if(name==='obsidian')return native;if(cache[name])return cache[name].exports;const m=cache[name]={exports:{}};new Function('module','require',sources[name])(m,n=>{if(n==='obsidian')return native;const path=(name.slice(0,name.lastIndexOf('/'))+'/'+n).split('/'),out=[];for(const p of path){if(p==='..')out.pop();else if(p!=='.')out.push(p)}return load(out.join('/'))});return m.exports}
+const assert=(v,m)=>{if(!v)throw Error(m)},settle=async()=>{for(let i=0;i<20;i++)await Promise.resolve()};
+try{
+ const {buildDailyBriefContext}=load('domain/daily-brief'),{RulesRecommendationProvider}=load('domain/brief-recommendations'),{DailyBriefModal}=load('ui/daily-brief');
+ const timestamp=new Date(2026,8,25,14).getTime(),names=['Complex Analysis','Itacan','Knowledge','Topology','Research'];
+ const reports=names.map((name,i)=>({date:'2026-09-25',projectId:'w'+i,projectName:name,score:4-i*.5,summary:i===0?'Did questions 1a–2a of Assignment 5.':i===1?'Refined task progress reporting and Oath navigation.':'Reviewed the next part of the work.',timestamp}));
+ reports.push(...['24','23','22'].map(date=>({date:'2026-09-'+date,projectId:'w0',projectName:names[0],score:2,summary:'Earlier meaningful work.',timestamp:timestamp-86400000})));
+ const service={getProgressReports:scope=>scope?.kind==='resource'?[]:reports,completedTaskHistory:[
+ {kind:'step',id:'s1',hubTaskId:'1a',parentTaskId:'parent',parentText:'Assignment 5',text:'1a',projectId:'w0',timestamp},
+ {kind:'step',id:'s2',hubTaskId:'1b',parentTaskId:'parent',parentText:'Assignment 5',text:'1b',projectId:'w0',timestamp:timestamp+60000},
+ {id:'t',text:'Review lecture 7',projectId:'w1',timestamp}],activityLog:[],data:{reportFocusByDate:{'2026-09-25':{items:[{projectId:'w0',text:'2b'}]}}}};
+ const context=buildDailyBriefContext(service,{now:new Date(2026,8,26,10),workspaces:names.map((name,i)=>({workspaceId:'w'+i,name,path:'w'+i+'/Home.md',available:true})),
+ tasks:[{workspaceId:'w0',hubTaskId:'parent',text:'Assignment 5',path:'w0/Assignment.md',completed:false,steps:[{hubTaskId:'1a',text:'1a',completed:true},{hubTaskId:'1b',text:'1b',completed:true},{text:'2b',completed:false}]}],resolvePath:path=>path});
+ let action,report,closed=0;const modal=new DailyBriefModal({}, {context,recommendation:new RulesRecommendationProvider().getRecommendation(context),onAction:target=>{action=target},onReport:date=>{report=date},onClose:()=>closed++});modal.open();await settle();
+ const root=modal.contentEl;
+ assert(root.querySelectorAll('.hub-report-card').length===3,'Initially at most three workspaces');
+ assert(root.querySelector('.hub-brief-more').textContent==='2 more workspaces','Restrained expansion control');
+ assert(!root.querySelector('input,textarea')&&!root.textContent.includes('No next focus'),'Read-only progress with no empty filler');
+ assert(root.querySelector('[data-icon=circle-check]')&&root.querySelector('[data-icon=square-check]'),'Reuse both historical indicator types');
+ assert(!/Athena|AI|files edited/.test(root.textContent),'No invented branding or raw activity statistics');
+ assert(root.querySelector('.hub-brief-section-heading').compareDocumentPosition(root.querySelector('.hub-brief-next'))&Node.DOCUMENT_POSITION_FOLLOWING,'Last work precedes Next up');
+ assert(!root.querySelector('.hub-brief-subtitle')&&!root.textContent.includes('A quick summary'),'No explanatory subtitle');
+ const oath=document.body.createDiv({cls:'hub-button-scope hub-oath-setup'});oath.style.cssText='position:absolute;left:-2000px';
+ const oathHeading=oath.createEl('section',{cls:'hub-oath-section'}).createEl('h3',{text:'When will your Oath begin?'});
+ const typography=el=>{const c=getComputedStyle(el);return [c.fontSize,c.fontWeight,c.lineHeight].join('|')};
+ for(const h of root.querySelectorAll('.hub-brief-section-heading h3,.hub-brief-next > h3,.hub-brief-earlier > h3'))assert(typography(h)===typography(oathHeading),'Exact Oath section typography: '+typography(h)+' vs '+typography(oathHeading));
+ const originalRecommendation=modal.recommendation;
+ for(const [label,secondary] of [['Continue Assignment 5','Knowledge'],['Continue Exercise 2b','Complex Analysis'],['Start Exercise Sheet 3','Topology'],["View today's tasks",null],['Go to Home',null]]){
+  modal.recommendation={...originalRecommendation,actionLabel:label,secondaryLabel:secondary};modal.render();
+  const button=root.querySelector('.hub-brief-primary'),main=button.querySelector('.hub-brief-action-label');
+  const old=button.cloneNode(true);old.style.cssText='position:absolute;visibility:hidden;width:'+button.getBoundingClientRect().width+'px';
+  for(const span of old.children)span.style.lineHeight='inherit';old.querySelector('.hub-brief-action-label > span').style.cssText='font-size:inherit;line-height:inherit';root.append(old);
+  const height=button.getBoundingClientRect().height,oldHeight=old.getBoundingClientRect().height;
+  assert(Math.abs(height-oldHeight)<1,'Existing CTA height: '+label+' '+height+' vs '+oldHeight);
+  assert(parseFloat(getComputedStyle(main.firstElementChild).fontSize)>parseFloat(getComputedStyle(button).fontSize),'Larger main label in every state');
+  const last=button.lastElementChild.getBoundingClientRect(),first=main.getBoundingClientRect(),rect=button.getBoundingClientRect();
+  assert(first.top-rect.top>=10&&rect.bottom-last.bottom>=10,'CTA breathing room');
+  assert(Math.abs((first.top-rect.top)-(rect.bottom-last.bottom))<2,'CTA vertical centering');old.remove();
+ }
+ modal.recommendation=originalRecommendation;modal.render();oath.remove();
+ const primary=root.querySelector('.hub-brief-primary');assert(getComputedStyle(primary).backgroundImage==='none'&&getComputedStyle(primary).backgroundColor==='rgb(137, 85, 237)','Existing primary purple without gradient');
+ primary.click();await settle();assert(action.path==='w0/Assignment.md','Contextual action targets the actual source');
+ root.querySelector('.hub-brief-section-heading button').click();await settle();assert(report==='2026-09-25','Full report receives the displayed date');
+ root.querySelector('.hub-brief-more').click();await settle();assert(root.querySelectorAll('.hub-report-card').length===5,'Expand remaining workspaces');
+ root.querySelector('.hub-brief-day').click();await settle();assert(!root.querySelector('.hub-brief-next'),'Historical browsing hides current recommendation');
+ assert(root.textContent.includes('Earlier meaningful work.'),'Earlier date renders its own factual summary');
+ root.querySelector('.hub-brief-back').click();await settle();assert(root.querySelector('.hub-brief-next'),'Return restores current recommendation');
+ assert(Math.abs(modal.modalEl.getBoundingClientRect().width-720)<1,'Same 720px modal width as reports');
+ modal.modalEl.style.width='310px';await settle();assert(root.scrollWidth<=root.clientWidth+1,'Narrow content wraps without horizontal overflow');
+ modal.modalEl.style.width='';
+ assert(root.querySelectorAll('.hub-brief-day').length===3,'Earlier days limited to three');
+ result.textContent='PASS: native report-card reuse, 3+N workspaces, read-only historical indicators, provider action, report date, earlier browsing/back, no fillers/branding/gradient, modal width and narrow wrapping.';
+}catch(e){result.textContent='FAIL: '+e.stack}
+</script>

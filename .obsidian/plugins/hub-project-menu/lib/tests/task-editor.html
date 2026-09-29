@@ -7,7 +7,7 @@
 <script>window.module={exports:{}};</script><script src="../domain/tasks.js"></script>
 <script>
 const domain=module.exports;
-HTMLElement.prototype.createEl=function(tag,o={}){const e=document.createElement(tag);e.className=o.cls||"";e.textContent=o.text||"";this.append(e);return e;};
+HTMLElement.prototype.createEl=function(tag,o={}){const e=document.createElement(tag);e.className=o.cls||"";e.textContent=o.text||"";if(o.type)e.type=o.type;for(const[k,v]of Object.entries(o.attr||{}))e.setAttribute(k,v);this.append(e);return e;};
 HTMLElement.prototype.createDiv=function(o){return this.createEl("div",o);};
 HTMLElement.prototype.createSpan=function(o){return this.createEl("span",o);};
 HTMLElement.prototype.empty=function(){this.replaceChildren();};
@@ -28,6 +28,8 @@ const settle=async()=>{for(let i=0;i<16;i++)await Promise.resolve();};
 <script>const markdownModule=module.exports,obsidianRequire=window.require;window.require=name=>name==='./markdown'?markdownModule:obsidianRequire(name);</script>
 <script>
 window.onload=async()=>{try{
+ const audioModule={exports:{}};new Function('module',await(await fetch('../ui/completion-audio.js')).text())(audioModule);
+ const audioRequire=window.require;window.require=name=>name==='./completion-audio'?audioModule.exports:audioRequire(name);
  const stepModule={exports:{}};new Function('module',await(await fetch('../ui/task-steps.js')).text())(stepModule);
  const oathDomain={exports:{}};new Function('module',await(await fetch('../domain/oath.js')).text())(oathDomain);
  const oathModule={exports:{}};new Function('module','require',await(await fetch('../ui/oath-tasks.js')).text())(oathModule,name=>name==='../domain/oath'?oathDomain.exports:domain);
@@ -35,7 +37,7 @@ window.onload=async()=>{try{
  const planningModule={exports:{}};new Function('module','require',await(await fetch('../domain/task-planning.js')).text())(planningModule,name=>name==='./dates'?dateModule.exports:domain);
  const previousRequire=window.require;window.require=name=>name==='../domain/task-planning'?planningModule.exports:name==='./task-steps'?stepModule.exports:name==='./oath-tasks'?oathModule.exports:previousRequire(name);
  new Function('module','require',await(await fetch('../ui/tasks.js')).text())(module,window.require);
- const uiFactory=module.exports.createTaskUi;
+ const uiFactory=module.exports.createTaskUi; window.hubCreateTaskRow=module.exports.createTaskRow;
  const home=await(await fetch("../../../../../System/Dashboards/Home/view.js")).text();
  const project=await(await fetch("../../../../../System/Dashboards/Project/view.js")).text();
  const homeRender=home.slice(home.indexOf("function renderTasksToDo("),home.indexOf("function completedTaskRequest("));

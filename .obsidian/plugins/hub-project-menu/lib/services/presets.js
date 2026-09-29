@@ -72,9 +72,11 @@ class HubPresets {
             if (root.dataset.hubContextId === pending.contextId) root.hubRestoreFolders?.(copy(pending.folderState));
         }
     }
-    open(id, source) {
+    open(id, source) { return this.restoreSnapshot(() => this.items.find(item => item.id === id), source); }
+    // Named presets and historical continuations restore the same configuration.
+    restoreSnapshot(snapshot, source = null, { allowActivation = true, resolvePath = path => path } = {}) {
         return this.modes.enqueue(async () => {
-            const m = this.modes, item = this.items.find(item => item.id === id);
+            const m = this.modes, item = typeof snapshot === "function" ? snapshot() : snapshot;
             if (!item) return false;
             const { Notice, TFile } = require("obsidian");
             const context = m.contextFor(item.contextId);
@@ -82,16 +84,18 @@ class HubPresets {
             if (!context || !(m.app.vault.getAbstractFileByPath(context.path) instanceof TFile)) {
                 new Notice("This preset's workspace no longer exists."); return false;
             }
+            if (!allowActivation && context.contextKind !== "resource" && context.status !== "active") return false;
             const layout = prepareNoteLayout(rewriteLayoutPaths(item.layout,
-                path => path === item.hubPath ? context.path : path), context.path,
-                path => m.app.vault.getAbstractFileByPath(path) instanceof TFile,
+                path => path === item.hubPath ? context.path : resolvePath(path)), context.path,
+                path => m.app.vault.getAbstractFileByPath(path) instanceof TFile &&
+                    (allowActivation || m.navigationHistory.eligiblePath(path)),
                 type => m.canRestoreLayoutView(type));
-            if (!layout) { new Notice("No saved tabs are available for this preset. The current workspace was left unchanged."); return false; }
+            if (!layout) { if (allowActivation) new Notice("No saved tabs are available for this preset. The current workspace was left unchanged."); return false; }
             if (!await m.plugin.ensureContextOpen(context, m.dashboardRoot(source)) ||
                 m.plugin.oathNavigation?.allowLayout(layout) === false) return false;
             const files = tree => tree?.type === "leaf" ? 1 : (tree?.children ?? []).reduce((n, child) => n + files(child), 0);
             const missing = files(item.layout.main) - files(layout.main);
-            const folders = Object.fromEntries(Object.entries(item.folderState?.folders ?? {}).filter(([path]) =>
+            const folders = Object.fromEntries(Object.entries(item.folderState?.folders ?? {}).map(([path, state]) => [resolvePath(path), { ...state, currentPath: resolvePath(state.currentPath) }]).filter(([path]) =>
                 !!m.app.vault.getAbstractFileByPath(path)).map(([path, state]) => [path, { ...state,
                     currentPath: m.app.vault.getAbstractFileByPath(state.currentPath ?? "") ? state.currentPath : path }]));
             const folderState = { folders, order: item.folderState?.order ?? [] };
@@ -104,7 +108,7 @@ class HubPresets {
                 }
                 m.noteRailState = ["full", "half", "closed"].includes(item.railState) ? item.railState : "full";
                 const restored = await m.applyNoteLayout(context, layout);
-                if (restored && missing > 0) new Notice(`Preset restored; ${missing} unavailable tab${missing === 1 ? " was" : "s were"} skipped.`);
+                if (allowActivation && restored && missing > 0) new Notice(`Preset restored; ${missing} unavailable tab${missing === 1 ? " was" : "s were"} skipped.`);
                 return restored;
             })).finally(() => { this.pending = null; });
         });

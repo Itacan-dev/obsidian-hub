@@ -1,0 +1,77 @@
+<!doctype html><meta charset="utf-8"><title>Daily Brief global shell checks</title>
+<link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../../../../../System/Dashboards/Home/view.css">
+<style>
+body{margin:0;background:#1e1e1e;color:#ddd;font:16px Arial;--text-normal:#ddd;--text-muted:#aaa;--text-faint:#777;--background-primary:#1e1e1e;--background-secondary:#262626;--background-modifier-border:#444;--background-modifier-hover:#333;--interactive-accent:#8955ed;--text-on-accent:#fff;--color-green:#62b478;--input-shadow:none}
+.modal-container{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:#0008}.modal{position:relative;box-sizing:border-box;padding:24px;background:#262626;border:1px solid #444;border-radius:12px;max-height:94vh}.modal-close-button{position:absolute;right:12px;top:10px}button{background:#282828;color:#ddd;padding:6px 12px;height:32px;cursor:pointer}#result{position:fixed;bottom:0;font-size:10px;z-index:9;pointer-events:none;background:#1e1e1e;margin:0}
+.app-container{height:100vh;display:flex;flex-direction:column}.workspace{flex:1;padding:24px;box-sizing:border-box}.status-bar-item{white-space:nowrap;flex-shrink:0}.status-bar{display:flex;align-items:center;justify-content:flex-end}#result{top:0;bottom:auto}</style><pre id="result">RUNNING</pre>
+<script type="module">
+HTMLElement.prototype.createEl=function(tag,o={}){const e=document.createElement(tag);e.className=o.cls||'';e.textContent=o.text||'';for(const[k,v]of Object.entries(o.attr||{}))e.setAttribute(k,v);this.append(e);return e};
+HTMLElement.prototype.createDiv=function(o){return this.createEl('div',o)};HTMLElement.prototype.createSpan=function(o){return this.createEl('span',o)};HTMLElement.prototype.empty=function(){this.replaceChildren()};
+class Component{constructor(){this.children=new Set();this.cleanups=[]}load(){}register(fn){this.cleanups.push(fn)}addChild(c){this.children.add(c)}removeChild(c){c.unload();this.children.delete(c)}unload(){this.children.forEach(c=>c.unload());this.cleanups.forEach(fn=>fn())}}
+class Modal{constructor(app){this.app=app;this.containerEl=document.body.createDiv({cls:'modal-container'});this.modalEl=this.containerEl.createDiv({cls:'modal'});this.contentEl=this.modalEl.createDiv();this.modalEl.createEl('button',{cls:'modal-close-button',text:'×'}).onclick=()=>this.close()}open(){this.onOpen()}close(){this.onClose();this.containerEl.remove()}}
+const icons={'square-check':'<rect x="3" y="3" width="18" height="18" rx="2"/><path d="m9 12 2 2 4-4"/>','circle-check':'<circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/>','chevron-right':'<path d="m9 5 7 7-7 7"/>','file-text':'<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z M14 2v6h6 M8 13h8 M8 17h8"/>'};
+icons.shield='<path d="M12 22s8-4 8-11V5l-8-3-8 3v6c0 7 8 11 8 11"/>';icons.newspaper='<path d="M4 22h16a2 2 0 0 0 2-2V2H6v18a2 2 0 0 1-4 0V8h4 M10 6h8 M10 10h8 M10 14h3 M16 14h2 M10 18h3 M16 18h2"/>';
+const native={Modal,Component,setIcon:(el,name)=>{el.dataset.icon=name;el.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">'+(icons[name]||'')+'</svg>'},MarkdownRenderer:{render:async(app,text,el)=>{el.textContent=text}}};
+const names=['ui/daily-brief-control','ui/tooltips','services/daily-brief','services/daily-brief-trigger','domain/dates','domain/focus','domain/tasks','domain/task-planning','domain/report-context','domain/daily-brief','domain/brief-recommendations','ui/render-readiness','ui/markdown','ui/dashboard-ui','ui/daily-report','ui/daily-brief'],sources={},cache={};
+for(const name of names)sources[name]=await(await fetch('../'+name+'.js')).text();
+function load(name){if(name==='obsidian')return native;if(cache[name])return cache[name].exports;const m=cache[name]={exports:{}};new Function('module','require',sources[name])(m,n=>{if(n==='obsidian')return native;const path=(name.slice(0,name.lastIndexOf('/'))+'/'+n).split('/'),out=[];for(const p of path){if(p==='..')out.pop();else if(p!=='.')out.push(p)}return load(out.join('/'))});return m.exports}
+const assert=(v,m)=>{if(!v)throw Error(m)},settle=async()=>{for(let i=0;i<20;i++)await Promise.resolve()};
+try {
+ const {DailyBriefService}=load('services/daily-brief'),{mountDailyBriefControl}=load('ui/daily-brief-control');
+ const oathSource=await(await fetch('../ui/oath.js')).text(),mountCode=oathSource.slice(oathSource.indexOf('function mountOathControl('),oathSource.indexOf('module.exports = { openOathPicker'));
+ const mountOathControl=new Function('require','isCommitted','openOathStatus','openOathSetup','requestOathExit','shortOathTime','oathTime','oathProgress','exitUi',mountCode+';return mountOathControl;')(()=>native,()=>false,()=>{},()=>{},()=>{},()=>'',()=>({}),()=>({}),new WeakMap());
+ const appRoot=document.body.createDiv({cls:'app-container'}),view=appRoot.createDiv({cls:'workspace'}),bar=appRoot.createDiv({cls:'status-bar'});
+ const status=bar.createSpan({cls:'status-bar-item',text:'2 backlinks  |  180 words'});
+ const navigation={view:'home',lastFile:'P/Assignment.md',preset:'Study'},initialNavigation=JSON.stringify(navigation);
+ let now=new Date(2026,8,26,9),providerCalls=0,writes=0;
+ const project={projectId:'p',name:'Complex Analysis',path:'P/Home.md',root:'P',contextKind:'project',status:'active'};
+ const task={path:'P/Assignment.md',text:'Assignment 5',hubTaskId:'parent',line:0,completed:false,steps:[{text:'1a',hubTaskId:'s1',completed:true},{text:'2b',hubTaskId:'s2',completed:false}]};
+ const history=[{kind:'step',id:'e1',hubTaskId:'s1',parentTaskId:'parent',parentText:'Assignment 5',text:'1a',projectId:'p',projectName:project.name,path:task.path,timestamp:new Date(2026,8,25,12).getTime()}];
+ let reports=[{projectId:'p',projectName:project.name,date:'2026-09-25',summary:'Completed 1a.',score:3},{projectId:'p',projectName:project.name,date:'2026-09-23',summary:'Earlier work.',score:2}];
+ const wizard={data:{lastDailyBriefAutoShownDay:'2026-09-25',reportFocusByDate:{'2026-09-25':{items:[{projectId:'p',text:'2b'}]}}},
+  getProgressReports:scope=>scope?.kind==='resource'?[]:reports,completedTaskHistory:history,activityLog:[],getProjectRecords:()=>[project],getResourceTypes:()=>[],
+  getProjectById:()=>project,getContextForPath:()=>project};
+ const oath={active:false,current:null,ready:()=>true,api:()=>({}),canOpen:()=>true,tasks:()=>[task],fullscreen:{onExitRequest(){}},onChange:()=>()=>{}};
+ const cleanups=[],plugin={oath,projectWizard:wizard,app:{vault:{getAbstractFileByPath:path=>({path,extension:'md'})},metadataCache:{}},
+  taskData:{currentPath:path=>path,readPages:()=>[{file:{tasks:[task]}}]},dataStore:{save:async()=>{writes++}},taskEditor:{metadata:()=>({})},
+  registerDomEvent(el,type,fn){el.addEventListener(type,fn);cleanups.push(()=>el.removeEventListener(type,fn))},addStatusBarItem:()=>bar.createDiv({cls:'status-bar-item'}),
+  workspaceModes:{openHome:async()=>{navigation.view='changed'},openProjectNote:async()=>{navigation.lastFile='changed'}}};
+ const old=mountOathControl(plugin,oath),oathButton=old.item.querySelector('button'),baseHeight=bar.getBoundingClientRect().height,baseRight=status.getBoundingClientRect().right;
+ const service=new DailyBriefService(plugin,{now:()=>now,provider:{getRecommendation:context=>{providerCalls++;return new(load('domain/brief-recommendations').RulesRecommendationProvider)().getRecommendation(context)}}});service.started=true;service.refreshAvailability();
+ const control=mountDailyBriefControl(plugin,service,old.item),button=control.button;
+ assert(button.previousElementSibling===oathButton,'Daily brief immediately follows The Oath in the shared footer');
+ assert(button.querySelector('[data-icon=newspaper]'),'Exact Lucide Newspaper');
+ assert(Math.abs(bar.getBoundingClientRect().height-baseHeight)<1,'Unchanged bar height');
+ assert(Math.abs(status.getBoundingClientRect().right-baseRight)<1,'Right status elements stay anchored');
+ assert(getComputedStyle(button).fontSize===getComputedStyle(oathButton).fontSize,'Shared type size');
+ assert(button.querySelector('svg').getBoundingClientRect().width===17,'Shared icon size');
+ assert(Math.abs(button.getBoundingClientRect().top-oathButton.getBoundingClientRect().top)<1,'Same baseline and vertical alignment');
+ assert(getComputedStyle(button).backgroundColor==='rgba(0, 0, 0, 0)','Restrained idle treatment');
+ button.focus();assert(document.activeElement===button,'Keyboard focusable');assert(getComputedStyle(button).outlineStyle==='solid','Visible keyboard focus');
+ await service.trigger.activate();await settle();const original=service.modal.contentEl.textContent,stored=JSON.stringify(wizard.data.dailyBriefSnapshot);
+ assert(wizard.data.lastDailyBriefAutoShownDay==='2026-09-26','Automatic opening marked separately');service.modal.close();
+ task.completed=true;task.steps[1].completed=true;history.push({...history[0],id:'today',text:'2b',hubTaskId:'s2',timestamp:new Date(2026,8,26,11).getTime()});
+ wizard.data.reportFocusByDate['2026-09-25'].items=[{projectId:'p',text:'New plan'}];reports[0].summary='Edited summary';now=new Date(2026,8,26,15);
+ for(const mode of ['home','project-full','project-note']){
+  document.body.className='hub-'+mode+'-mode';view.textContent='Current '+mode+' view';const underlying=view.innerHTML;
+  button.click();await settle();assert(service.modal.contentEl.textContent===original,'Same complete briefing in '+mode);
+  service.modal.contentEl.querySelector('.hub-brief-day').click();await settle();assert(!service.modal.contentEl.querySelector('.hub-brief-next'),'Historical browsing hides recommendation');
+  service.modal.contentEl.querySelector('.hub-brief-back').click();await settle();assert(service.modal.contentEl.textContent===original,'Returning restores exactly the same artifact');
+  service.modal.close();assert(view.innerHTML===underlying&&JSON.stringify(navigation)===initialNavigation,'Opening/closing preserves primary view, Last File and Presets');
+ }
+ assert(providerCalls===1&&writes===2,'Manual reopening neither regenerates nor changes auto-show state');
+ assert(JSON.stringify(wizard.data.dailyBriefSnapshot)===stored,'UI/history browsing cannot mutate storage');
+ oath.active=true;service.refreshAvailability();assert(button.getAttribute('aria-disabled')==='true'&&button.getAttribute('aria-label').includes('Oath'),'Oath unavailable tooltip');button.click();await settle();assert(!service.modal,'No Oath loophole');
+ oath.active=false;service.refreshAvailability();
+ const label=oathButton.querySelector('span:last-child');label.textContent='The Oath ? 120 minutes ? 20 / 100';
+ bar.style.width='380px';assert(bar.scrollWidth<=bar.clientWidth+1,'Narrow footer has no overflow');assert(bar.getBoundingClientRect().height===baseHeight,'Narrow footer retains height');
+ bar.style.width='';label.textContent='The Oath';
+ now=new Date(2026,8,27,6);service.trigger.background();await service.trigger.activate();await settle();assert(providerCalls===2,'New Itacan day creates a new artifact');service.modal.close();
+ now=new Date(2026,8,28,6);reports=[];history.length=0;wizard.data.reportFocusByDate={};service.refreshAvailability();
+ assert(button.getAttribute('aria-disabled')==='true'&&button.getAttribute('aria-label').includes('No meaningful work'),'No-history state uses a disabled control and tooltip');button.click();await settle();assert(!service.modal,'No empty modal');
+ // Leave a normal shell in the screenshot after checking disposal with a second control.
+ now=new Date(2026,8,27,10);service.refreshAvailability();document.body.className='hub-home-mode';view.textContent='Home';
+ const extra=mountDailyBriefControl(plugin,service,old.item);extra.destroy();assert(old.item.querySelectorAll('.hub-daily-brief-button').length===1,'No duplicate controls after disposal');
+ result.textContent='PASS: shared global footer placement/geometry, Newspaper, keyboard/focus, narrow width, same artifact across Home/Full/Note, no navigation writes, auto/manual separation, Earlier days, Oath, no history and next-day refresh.';
+}catch(e){result.textContent='FAIL: '+e.stack}
+</script>

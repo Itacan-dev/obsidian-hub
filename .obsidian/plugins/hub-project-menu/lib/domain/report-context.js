@@ -20,6 +20,9 @@ function captureReportContext(service, date, id) {
         version: 1,
         tasks: select(service.completedTaskHistory).map(task => ({
             id: task.id ?? null, text: task.text, timestamp: task.timestamp,
+            ...(task.kind ? { kind: task.kind } : {}),
+            ...(task.hubTaskId ? { hubTaskId: task.hubTaskId } : {}),
+            ...(task.kind === "step" ? { parentTaskId: task.parentTaskId, parentText: task.parentText } : {}),
             ...(task.path ? { path: task.path } : {})
         })).sort((a, b) => a.timestamp - b.timestamp),
         activity: select(service.activityLog).map(item => ({

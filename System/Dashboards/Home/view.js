@@ -624,161 +624,6 @@ frame.defer(async () => {
     renderTodayFocus();
 });
 
-// ---------- APP SHORTCUTS ----------
-
-const shortcutsBar =
-    root.createDiv({
-        cls:
-            "home-shortcuts"
-    });
-
-
-markDashboardRow(
-    shortcutsBar,
-    3
-);
-
-
-const shortcutsTitle =
-    shortcutsBar.createDiv({
-        cls:
-            "home-shortcuts-title"
-    });
-
-
-const shortcutsTitleIcon =
-    shortcutsTitle.createSpan({
-        cls:
-            "home-shortcuts-title-icon"
-    });
-
-
-window.hubSetIcon?.(
-    shortcutsTitleIcon,
-    "app-window"
-);
-
-
-shortcutsTitle.createSpan({
-    text:
-        "App Shortcuts"
-});
-
-
-const shortcutButtons =
-    shortcutsBar.createDiv({
-        cls:
-            "home-shortcut-buttons"
-    });
-
-
-const appShortcuts =
-    window.hubGetAppShortcuts?.()
-    ?? [];
-
-
-for (
-    const shortcut
-    of appShortcuts
-) {
-
-    const button =
-        shortcutButtons.createEl(
-            "button",
-            {
-                cls:
-                    "home-shortcut-button"
-            }
-        );
-
-
-    const icon =
-        button.createSpan({
-            cls:
-                "home-shortcut-icon"
-        });
-
-
-    const iconFile =
-        shortcut.icon
-            ? app.vault
-                .getAbstractFileByPath(
-                    shortcut.icon
-                )
-            : null;
-
-
-    if (iconFile) {
-
-        const image =
-            icon.createEl(
-                "img"
-            );
-
-
-        image.src =
-            app.vault
-                .getResourcePath(
-                    iconFile
-                );
-
-        image.alt = "";
-
-    } else {
-
-        /*
-         * Graceful fallback if a logo
-         * asset is missing.
-         */
-        window.hubSetIcon?.(
-            icon,
-
-            shortcut.type ===
-                "website"
-                ? "globe-2"
-                : "app-window"
-        );
-    }
-
-
-    button.createSpan({
-        text:
-            shortcut.label
-    });
-
-
-    button.addEventListener(
-        "click",
-        async () => {
-
-            if (
-                !window
-                    .hubOpenAppShortcut
-            ) {
-                return;
-            }
-
-
-            button.disabled =
-                true;
-
-
-            try {
-
-                await window
-                    .hubOpenAppShortcut(
-                        shortcut.id
-                    );
-
-            } finally {
-
-                button.disabled =
-                    false;
-            }
-        }
-    );
-}
-
 // ---------- MAIN GRID ----------
 
 const grid = root.createDiv({
@@ -3897,6 +3742,13 @@ function updateProgressScopeButtons() {
 }
 updateProgressScopeButtons();
 
+const statisticsButton = progressHeader.createEl('button', {
+    cls: 'hub-panel-action hub-panel-action-icon hub-statistics-trigger',
+    attr: { type: 'button', 'aria-label': 'Open Statistics', title: 'Statistics' }
+});
+window.hubSetIcon?.(statisticsButton, 'chart-no-axes-column');
+statisticsButton.addEventListener('click', () => window.hubOpenStatistics?.());
+
 const progressToolbar = root.ownerDocument.createElement("div");
 
 
@@ -4997,8 +4849,8 @@ function renderCompletedTaskHistory() {
             "div",
             "home-empty",
             progressScope === "resources"
-                ? "No completed Resource tasks have been cleared yet."
-                : "No completed project tasks have been cleared yet."
+                ? "No task progress recorded for Resources."
+                : "No task progress recorded for projects."
         );
 
         return;
@@ -5031,18 +4883,19 @@ function renderCompletedTaskHistory() {
         const icon =
             titleRow.createSpan({
                 cls:
-                    "home-recent-action-icon is-completed-task"
+                    "home-recent-action-icon " + (item.kind === "step" ? "is-step-progress" : "is-completed-task")
             });
 
 
         window.hubSetIcon?.(
             icon,
-            "square-check"
+            item.kind === "step" ? "circle-check" : "square-check"
         );
 
 
-        const title = el(titleRow, "div", "home-recent-title", item.text);
-        void recentBody.hubMarkdown?.render(title, item.text, item.path || item.projectPath || "Home.md");
+        const progressText = item.kind === "step" ? `${item.parentText} \u00b7 ${item.text}` : item.text;
+        const title = el(titleRow, "div", "home-recent-title", progressText);
+        void recentBody.hubMarkdown?.render(title, progressText, item.path || item.projectPath || "Home.md");
 
 
         const resourceId =

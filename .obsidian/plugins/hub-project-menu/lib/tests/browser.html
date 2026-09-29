@@ -108,7 +108,7 @@ window.onload = async () => {
  const removed=[];
  const selectionSource=projectSource.slice(projectSource.indexOf('function clearProjectItemSelection()'),projectSource.indexOf('function handleProjectItemContextMenu('));
  const selection=new Function('dv','root','folderStack','app',
-   'const selectedProjectItemPaths=new Set(); let selectionAnchorPath=null; const selectedRootPaths=p=>p; function renderFolderPanels(){syncProjectItemSelection();}'+selectionSource+';return {handleProjectItemSelection,selectedProjectItemPaths};')(
+   'const workspaceExplorer=null; const selectedProjectItemPaths=new Set(); let selectionAnchorPath=null; const selectedRootPaths=p=>p; function renderFolderPanels(){syncProjectItemSelection();}'+selectionSource+';return {handleProjectItemSelection,selectedProjectItemPaths};')(
    {component:owner},folderStack,folderStack,{vault:{getAbstractFileByPath:path=>({path})},fileManager:{trashFile:async file=>removed.push(file.path)}});
  fileRows.forEach(row=>row.addEventListener('click',event=>selection.handleProjectItemSelection(event,row,row.dataset.path)));
  fileRows[0].dispatchEvent(new MouseEvent('click',{button:0,ctrlKey:true,bubbles:true}));

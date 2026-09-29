@@ -1,0 +1,114 @@
+<!doctype html><meta charset="utf-8"><title>Statistics browser checks</title>
+<link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../../../../../System/Dashboards/Home/view.css">
+<style>
+body{margin:0;background:#1e1e1e;color:#ddd;font:16px Arial;--text-normal:#ddd;--text-muted:#aaa;--text-faint:#777;--background-primary:#1e1e1e;--background-secondary:#262626;--background-modifier-border:#3c3c3c;--background-modifier-hover:#333;--interactive-accent:#8955ed;--text-on-accent:#fff;--color-green:#62b478;--color-blue:#65a9df;--input-shadow:none}
+.modal-container{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:#0008}.modal{position:relative;box-sizing:border-box;padding:24px;background:#262626;border:1px solid #444;border-radius:12px;max-height:94vh}.modal-close-button{position:absolute;right:8px;top:4px;border:0;background:none;font-size:20px}.modal-content{margin-top:12px}h2{font-size:24px}button{background:#282828;color:#ddd;padding:6px 12px;height:32px;cursor:pointer}select{background:#282828;color:#ddd;border:1px solid #555;border-radius:6px;padding:0 6px}#result{position:fixed;bottom:0;font-size:10px;z-index:9;pointer-events:none;background:#1e1e1e;margin:0;max-width:100vw;white-space:normal}*{scrollbar-width:thin}
+</style><pre id="result">RUNNING</pre>
+<script type="module">
+HTMLElement.prototype.createEl=function(tag,o={}){const e=document.createElement(tag);e.className=o.cls||'';e.textContent=o.text??'';for(const[k,v]of Object.entries(o.attr||{}))e.setAttribute(k,v);this.append(e);return e};
+HTMLElement.prototype.createDiv=function(o){return this.createEl('div',o)};HTMLElement.prototype.createSpan=function(o){return this.createEl('span',o)};HTMLElement.prototype.empty=function(){this.replaceChildren()};
+class Modal{constructor(app){this.app=app;this.containerEl=document.body.createDiv({cls:'modal-container'});this.modalEl=this.containerEl.createDiv({cls:'modal'});this.contentEl=this.modalEl.createDiv({cls:'modal-content'});this.modalEl.createEl('button',{cls:'modal-close-button',text:'×',attr:{'aria-label':'Close'}}).onclick=()=>this.close();this.escape=e=>{if(e.key==='Escape')this.close()}}open(){this.onOpen();document.addEventListener('keydown',this.escape)}close(){this.onClose();document.removeEventListener('keydown',this.escape);this.containerEl.remove()}}
+const native={Modal,setIcon:(el,name)=>{el.dataset.icon=name;el.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="10"/><path d="M12 10v7M12 7v1"/></svg>'}};
+const names=['domain/dates','domain/history','domain/statistics','services/statistics','ui/statistics-charts','ui/tooltips','ui/statistics'],sources={},cache={};
+for(const name of names)sources[name]=await(await fetch('../'+name+'.js')).text();
+function load(name){if(name==='obsidian')return native;if(cache[name])return cache[name].exports;const m=cache[name]={exports:{}};new Function('module','require',sources[name])(m,n=>{if(n==='obsidian')return native;const path=(name.slice(0,name.lastIndexOf('/'))+'/'+n).split('/'),out=[];for(const p of path){if(p==='..')out.pop();else if(p!=='.')out.push(p)}return load(out.join('/'))});return m.exports}
+const assert=(v,m)=>{if(!v)throw Error(m)},settle=()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+try{
+ const {prepareStatistics,RANGES,seriesFor}=load('domain/statistics'),{StatisticsModal}=load('ui/statistics');
+ const now=+new Date(2026,8,27,18),hour=3600000;
+ const labels=['Obsidian Hub','Pulsed Optomechanics','Quantum Gravitational Phenomena','Complex Analysis','Spanish'];
+ const workspaces=Array.from({length:32},(_,i)=>({projectId:'p'+i,name:labels[i]??(i===5?'A project with a very long descriptive name that must never displace its time columns':'Project '+(i+1)),status:i===7?'future':i===8?'shelved':'active'}));
+ workspaces.push({projectId:'resource:study',name:'Knowledge',contextKind:'resource'},{projectId:'resource:literature',name:'Research',contextKind:'resource'});
+ const activity=[],completions=[],oaths=[],notes=[];
+ for(let day=0;day<500;day++){
+  const date=new Date(now);date.setDate(date.getDate()-day);date.setHours(10,0,0,0);const timestamp=+date;
+  const resource=day%4===0,projectId=resource?'resource:study':'p'+day%32;
+  for(let i=0;i<(day*7)%19;i++)completions.push({id:'c'+day+'-'+i,projectId,kind:i%3===0?'step':'task',timestamp});
+  for(let i=0;i<(day*13)%7;i++)activity.push({action:'edited',path:resource?'Resources/Knowledge/Algebra.md':'Projects/A/Research.md',projectId,timestamp});
+  for(let i=0;i<day%6;i++)notes.push({createdAt:timestamp});
+  if(day%3!==0)oaths.push({id:'o'+day,workspace:resource?{type:'resource',id:'study'}:{type:'project',id:'p'+day%32},state:day%8===0?'broken':'fulfilled',startedAt:timestamp,completedAt:timestamp+(1+day%4)*hour});
+ }
+ completions.push({id:'deleted',projectId:'deleted',projectName:'An archived historical project',timestamp:now-hour});
+ const source=prepareStatistics({workspaces,activity,completions,oaths,notes},now);
+ const homeSource=await(await fetch('../../../../../System/Dashboards/Home/view.js')).text();
+ const entrySource=homeSource.slice(homeSource.indexOf('const statisticsButton ='),homeSource.indexOf('const progressToolbar ='));
+ const header=document.body.createDiv({cls:'hub-button-scope home-panel-title'});header.style.cssText='position:absolute;left:-2000px;width:470px';
+ let entryModal;window.hubSetIcon=(element,name)=>element.dataset.icon=name;window.hubOpenStatistics=()=>{entryModal=new StatisticsModal({},null,{source});entryModal.open()};
+ new Function('progressHeader',entrySource)(header);
+ const trigger=header.querySelector('button');assert(trigger?.getAttribute('aria-label')==='Open Statistics'&&trigger.dataset.icon==='chart-no-axes-column','Real Progress action uses verified Lucide icon and accessible label');
+ trigger.click();assert(entryModal?.contentEl.querySelector('h2').textContent==='Statistics','Real Progress action opens the modal');entryModal.close();header.remove();
+ let closed=0;const modal=new StatisticsModal({},null,{source,onClose:()=>closed++});modal.open();window.statisticsModal=modal;
+ await settle();const root=modal.contentEl,grid=modal.grid;
+ assert(grid.children.length===8,'All eight analytics sections');
+ assert([...grid.children].map(e=>e.dataset.statistic).join(',')==='distribution,activity,tasks,steps,oaths,notes,projects,comparison','Mockup section order');
+ assert(root.querySelectorAll('.hub-statistics-ranges button').length===5,'Five real range buttons');
+ assert(root.querySelector('.hub-statistics-ranges .is-active').textContent==='3 months','Default range');
+ const initialTaskCount=seriesFor(modal.model,'tasks','project').reduce((a,b)=>a+b,0);
+ for(const [range]of RANGES){modal.rangeButtons.find(([key])=>key===range)[1].click();assert(modal.range===range,'Range state');assert(root.querySelectorAll('.hub-statistics-ranges [aria-pressed=true]').length===1,'Range accessible state');assert(!/NaN|Infinity/.test(root.textContent+root.innerHTML),'Finite chart geometry');}
+ modal.rangeButtons.find(([key])=>key==='7d')[1].click();assert(seriesFor(modal.model,'tasks','project').reduce((a,b)=>a+b,0)<initialTaskCount,'Period actually updates values');
+ const choose=(id,value)=>{const control=root.querySelector('[data-filter='+id+']');control.value=value;control.dispatchEvent(new Event('change'));assert(document.activeElement.dataset.filter===id,'Filter focus retained');};
+ choose('distribution','resource');assert(root.querySelector('.hub-statistics-ranking').textContent.includes('Knowledge'),'Resource distribution');
+ choose('activity','resource');assert(root.querySelector('[data-statistic=activity] .hub-statistics-plot'),'Resource work activity');
+ choose('tasks','project:p1');assert(modal.filters.tasks==='project:p1','Individual workspace filter');
+ choose('steps','resource');assert(modal.filters.steps==='resource','Step resource filter');
+ choose('distribution','project');choose('activity','project');choose('tasks','project');choose('steps','project');
+ modal.rangeButtons.find(([key])=>key==='3m')[1].click();
+ const ranking=root.querySelector('.hub-statistics-ranking'),projects=root.querySelector('.hub-statistics-project-list');
+ assert(ranking.scrollHeight>ranking.clientHeight&&getComputedStyle(ranking).overflowY==='auto','Many workspaces scroll inside ranking');
+ assert(projects.scrollHeight>projects.clientHeight&&getComputedStyle(projects).overflowY==='auto','Many projects scroll inside list');
+ ranking.scrollTop=80;assert(ranking.scrollTop===80,'Ranking scroll works');ranking.scrollTop=0;
+ assert(root.querySelector('[title^="A project with a very long"]').scrollWidth>root.querySelector('[title^="A project with a very long"]').clientWidth,'Long names truncate and expose title');
+ assert(root.textContent.includes('(Future)')&&root.textContent.includes('(Shelved)')&&root.textContent.includes('(Deleted)'),'Historical/state distinctions');
+ assert(root.scrollHeight>root.clientHeight,'Native content scrolls vertically');
+ const chart=root.querySelector('.hub-statistics-plot');chart.focus();const before=chart.getAttribute('aria-label');chart.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowRight',bubbles:true}));assert(chart.getAttribute('aria-label')!==before,'Keyboard chart details');
+ assert(!root.querySelector('details,summary,.hub-statistics-hint'),'No visible disclosure or permanent methodology');
+ assert(root.querySelector('.hub-statistics-sr-only table').querySelectorAll('tbody tr').length===modal.model.range.bins.length,'Accessible aggregated chart data');
+ const point=document.querySelector('.hub-statistics-point-tooltip:not([hidden])');assert(point&&chart.getAttribute('aria-label').includes(point.textContent),'Focus tooltip exposes exact accessible value');
+ chart.blur();assert(!document.querySelector('.hub-statistics-point-tooltip:not([hidden])'),'Blur hides point tooltip');
+ const rect=chart.getBoundingClientRect();chart.dispatchEvent(new PointerEvent('pointermove',{clientX:rect.left+rect.width/2,bubbles:true}));
+ assert(document.querySelector('.hub-statistics-point-tooltip:not([hidden])'),'Hover exposes exact value');
+ chart.dispatchEvent(new PointerEvent('pointerleave'));assert(!document.querySelector('.hub-statistics-point-tooltip:not([hidden])'),'Leaving hides tooltip');
+ assert(root.querySelectorAll('.hub-statistics-metrics > div').length===3&&root.querySelector('.hub-statistics-note-metrics'),'Summary metric presentations retained');
+ assert(root.querySelectorAll('.hub-statistics-help').length===2,'Only ambiguous session/note methodology gets help buttons');
+ assert(getComputedStyle(root.querySelector('.hub-statistics-metrics > div')).backgroundColor==='rgb(30, 30, 30)','Dark metric tiles preserved');
+ assert(root.querySelector('[data-statistic=tasks] select').getBoundingClientRect().width<150,'Content-sized compact filters');
+ const denseHeight=grid.getBoundingClientRect().height;
+ assert(root.clientWidth<=720||denseHeight<1050,'Compact desktop content height: '+denseHeight);
+ const fewSource=prepareStatistics({workspaces:workspaces.slice(0,2),oaths:[{id:'few',workspace:{type:'project',id:'p0'},state:'fulfilled',startedAt:now-hour,completedAt:now},{id:'unassigned',state:'fulfilled',startedAt:now-2*hour,completedAt:now}]},now);
+ const few=new StatisticsModal({},null,{source:fewSource});few.open();await settle();
+ assert(few.contentEl.querySelector('.hub-statistics-ranking').clientHeight<100,'Short ranking sizes naturally');
+ const unassigned=few.contentEl.querySelector('.is-unassigned');assert(unassigned&&unassigned.textContent.includes('67%'),'Unassigned remains sorted and in denominator');
+ assert(getComputedStyle(unassigned.querySelector('.hub-statistics-fill')).backgroundColor==='rgb(119, 119, 119)','Unassigned has muted bar');
+ few.close();
+
+
+ const mixed=new StatisticsModal({},null,{source:prepareStatistics({workspaces:[workspaces[0]],completions:[{id:'one',projectId:'p0',timestamp:now-hour}]},now)});mixed.open();await settle();
+ const filled=mixed.contentEl.querySelector('[data-statistic=tasks]'),blank=mixed.contentEl.querySelector('[data-statistic=steps]');
+ assert(Math.abs(filled.getBoundingClientRect().height-blank.getBoundingClientRect().height)<1,'Populated and empty completion cards remain matched');
+ assert(blank.getBoundingClientRect().height<170,'Empty completion stays compact');mixed.close();
+ const help=root.querySelector('.hub-statistics-help');
+ help.dispatchEvent(new PointerEvent('pointermove',{bubbles:true}));
+ assert(document.querySelector('.hub-detail-tooltip:not(.hub-statistics-point-tooltip)')?.textContent.includes('Ended sessions'),'Methodology appears only on interaction');
+ help.dispatchEvent(new PointerEvent('pointerout',{bubbles:true}));
+
+ const initialWidth=modal.modalEl.getBoundingClientRect().width;
+ for(const width of [1000,680,420,310]){
+  modal.modalEl.style.width=width+'px';await settle();
+  assert(root.scrollWidth<=root.clientWidth+1,'No horizontal overflow at '+width);
+  for(const plot of root.querySelectorAll('.hub-statistics-plot'))assert(Math.abs(plot.viewBox.baseVal.width-plot.getBoundingClientRect().width)<1,'Chart text keeps native proportions at '+width);
+  const cols=getComputedStyle(grid).gridTemplateColumns.split(' ').length;
+  assert(cols===(root.clientWidth>720?2:1),'Responsive column count at '+width);
+  const t=root.querySelector('[data-statistic=tasks]'),s=root.querySelector('[data-statistic=steps]');
+  assert(Math.abs(t.getBoundingClientRect().width-s.getBoundingClientRect().width)<1,'Matched completion card widths');
+  assert(t.querySelector('svg').getBoundingClientRect().height===s.querySelector('svg').getBoundingClientRect().height,'Matched chart geometry');
+ }
+ modal.modalEl.style.width='';await settle();assert(Math.abs(modal.modalEl.getBoundingClientRect().width-initialWidth)<1,'Restore width');
+ const empty=new StatisticsModal({},null,{source:prepareStatistics({},now)});empty.open();
+ assert(empty.grid.children.length===8,'Empty sections independent');assert(!empty.contentEl.querySelector('.hub-statistics-plot,.hub-statistics-comparison svg'),'No misleading empty charts');assert(!/NaN|Infinity/.test(empty.contentEl.innerHTML),'Finite empty state');empty.modalEl.querySelector('.modal-close-button').click();
+ const partial=new StatisticsModal({},null,{source:prepareStatistics({notes:[{createdAt:now-hour}]},now)});partial.open();assert(partial.contentEl.querySelectorAll('.hub-statistics-plot').length===1,'One populated section survives seven empty sections');partial.close();
+ root.scrollTop=0;document.activeElement.blur();
+ document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape'}));assert(closed===1,'Native Escape closes and disposes the modal');
+ const reopened=new StatisticsModal({},null,{source});reopened.open();window.statisticsModal=reopened;await settle();
+ result.textContent='PASS: content height '+Math.round(denseHeight)+'px; eight sections, five ranges, local filters, keyboard chart details/data tables, finite empty/populated states, historical states, long names, bounded scroll and 1000/680/420/310px responsive layouts.';
+}catch(error){result.textContent='FAIL: '+error.stack}
+</script>

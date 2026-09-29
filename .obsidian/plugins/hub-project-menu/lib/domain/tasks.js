@@ -147,6 +147,12 @@ function mutateTaskContent(data, request) {
 // Reconcile against the current list, not the task/checkbox captured before await.
 // Both Home's {task, owner} entries and Project/Resource's plain task entries use this.
 function applyTaskEdit(items, edit, resolvePath = task => task.path) {
+    if (edit.movedTo) {
+        const remaining = applyTaskEdit(items, { ...edit, movedTo: null, tasks: [] }, resolvePath);
+        if (remaining.length === items.length) return items;
+        const wrapper = items.find(item => (item.task && typeof item.task === "object" ? item.task : item).path === edit.path);
+        return [...remaining, ...edit.tasks.map(task => wrapper?.task && typeof wrapper.task === "object" ? { ...wrapper, task } : task)];
+    }
     const taskOf = item => item.task && typeof item.task === "object" ? item.task : item;
     const candidates = items.filter(item => {
         const task = taskOf(item);
