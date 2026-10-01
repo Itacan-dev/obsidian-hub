@@ -12600,14 +12600,20 @@ module.exports = class HubProjectMenu extends Plugin {
         window.hubTaskGroups = taskGroups;
         window.hubTaskOwner = path => this.projectWizard.getContextForPath(path);
         window.hubCreateTaskUi = (component, body, onEdit) => createTaskUi({
-            app: this.app, component, body, onEdit, oath: this.oath, mutate: request => this.mutateTask(request),
+            app: this.app, component, body, onEdit, oath: this.oath, phaseLabel: task => this.planning?.phaseFor(task)?.name, mutate: request => this.mutateTask(request),
             editTask: (task, saved) => openTaskEditor(this.taskEditor, task, saved),
             createTask: options => openTaskCreator(this.taskEditor, options)
         });
         window.hubCreateMarkdown = component => createHubMarkdown({ app: this.app, component });
         this.taskData = new HubTaskDataService(this.app, { metadata: id => this.taskEditor.metadata(id) });
         window.hubTaskData = this.taskData;
+        this.planning = new (require("./lib/services/project-planning").ProjectPlanningService)(this);
+        window.hubMountFullViewLayout = (root, component) => require("./lib/ui/full-view-layout").mountFullViewLayout({ root, component, app: this.app });
         window.hubMountTaskWorkspace = options => require("./lib/ui/task-workspace").mountTaskWorkspace({ plugin: this, ...options });
+        this.contextSearch = new (require("./lib/services/context-search").ContextSearchService)(this);
+        window.hubMountContextSearch = options => require("./lib/ui/context-search").mountContextSearch({ service: this.contextSearch, ...options });
+        window.hubRegisterSearchWorkspace = (...args) => this.contextSearch.registerWorkspace(...args);
+        window.hubApplySearchFolder = root => this.contextSearch.applyFolder(root);
         this.dailyBrief = new DailyBriefService(this);
         this.app.workspace.onLayoutReady(() => {
             if (this.oath.disposed) return;
@@ -12743,7 +12749,11 @@ module.exports = class HubProjectMenu extends Plugin {
         delete window.hubOpenStatistics;
 
         this.appShortcutsControl?.destroy();
+        delete window.hubMountFullViewLayout;
         delete window.hubMountTaskWorkspace;
+        delete window.hubMountContextSearch;
+        delete window.hubRegisterSearchWorkspace;
+        delete window.hubApplySearchFolder;
         this.musicControl?.destroy();
         this.settingsControl?.destroy();
         this.dailyBriefControl?.destroy();

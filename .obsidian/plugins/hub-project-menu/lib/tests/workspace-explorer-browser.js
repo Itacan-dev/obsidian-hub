@@ -12,7 +12,7 @@ HTMLElement.prototype.removeClass = function(...names) { this.classList.remove(.
 HTMLElement.prototype.toggleClass = function(name, value) { this.classList.toggle(name, value); };
 const assert = (value, message) => { if (!value) throw Error(message); };
 const settle = async () => { for (let i = 0; i < 20; i++) await Promise.resolve(); await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))); };
-const icons = { "folder-symlink": "M3 7h6l2-3h9v16H3zM7 15h9m-3-3 3 3-3 3", folder: "M3 7h6l2-3h9v16H3z", "folder-open": "M3 7h6l2-3h9v5H5l-2 11V7m2 2h17l-3 11H3", "chevron-right": "m9 5 7 7-7 7", "chevron-down": "m5 9 7 7 7-7", "chevron-up": "m5 15 7-7 7 7", search: "M10 3a7 7 0 1 0 0 14 7 7 0 0 0 0-14m5 12 6 6", "file-text": "M5 3h9l5 5v13H5zM9 12h6M9 16h6", "file-type": "M5 3h9l5 5v13H5zM9 12h6m-3 0v5", "folder-plus": "M3 7h6l2-3h9v16H3zM8 13h8m-4-4v8" };
+const icons = { "folder-tree": "M3 3h6l2 2h10v6H3zM3 11v10h6m-6-5h6M9 14h8v5H9z", "notebook-text": "M4 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H4zM8 3v18M2 7h4M2 12h4M2 17h4M12 8h4M12 12h4", "folder-symlink": "M3 7h6l2-3h9v16H3zM7 15h9m-3-3 3 3-3 3", folder: "M3 7h6l2-3h9v16H3z", "folder-open": "M3 7h6l2-3h9v5H5l-2 11V7m2 2h17l-3 11H3", "chevron-right": "m9 5 7 7-7 7", "chevron-down": "m5 9 7 7 7-7", "chevron-up": "m5 15 7-7 7 7", search: "M10 3a7 7 0 1 0 0 14 7 7 0 0 0 0-14m5 12 6 6", "file-text": "M5 3h9l5 5v13H5zM9 12h6M9 16h6", "file-type": "M5 3h9l5 5v13H5zM9 12h6m-3 0v5", "folder-plus": "M3 7h6l2-3h9v16H3zM8 13h8m-4-4v8" };
 function getIcon(name) {
     const canonical = name.replace(/^lucide-/, "");
     return icons[canonical] ? { name: canonical } : null;
@@ -178,16 +178,27 @@ window.onload = async () => { try {
     assert(getComputedStyle(row(course).querySelector(".hub-explorer-disclosure .hub-explorer-icon")).color === "rgb(119, 119, 119)", "Chevrons remain subdued even on selected rows");
     assert([...root.querySelectorAll(".hub-explorer-detail-name > .hub-explorer-icon")].every(icon => getComputedStyle(icon).color === "rgb(170, 170, 170)"), "Unselected contents icons are neutral");
     const details = root.querySelector(".hub-explorer-contents");
+    for (const [path, icon] of [[course + "/Course literature.pdf", "file-text"], [course + "/Tasks.md", "notebook-text"]]) {
+        const tableRow = [...details.querySelectorAll("[data-path]")].find(element => element.dataset.path === path);
+        assert(objectIcon(path).dataset.icon === icon && tableRow.querySelector(".hub-explorer-icon").dataset.icon === icon, "Tree and contents table share the PDF/note semantic mapping");
+        row(path).dispatchEvent(new MouseEvent("click", { ctrlKey: true, bubbles: true }));
+        assert(getComputedStyle(objectIcon(path)).color === "rgb(170, 170, 170)" && getComputedStyle(tableRow.querySelector(".hub-explorer-icon")).color === "rgb(170, 170, 170)", "PDF/note icons remain neutral when selected in both panes");
+        key(treeItem(path), "Escape");
+    }
     assert([...details.querySelectorAll("[data-path]")].some(item => item.dataset.path === assignments), "Selected folder contents shown");
     const nameSort = root.querySelector(".hub-explorer-column");
     assert(nameSort.querySelector('[data-icon="chevron-down"]'), "Legacy root-panel sort applies to its selected descendant");
     nameSort.click();
     assert(stored["resource:study"][course].sortKey === "name", "Existing sort state persisted by folder path");
     const savedExpansion = stored["resource:study"][math].collapsed;
+    assert(getComputedStyle(root.querySelector(".hub-explorer-search")).display === "none", "Full-view replaces local search with heading");
+    assert(root.querySelector(".hub-explorer-heading [data-icon=folder-tree]"), "Files panel uses folder-tree title icon");
+    await setMode(true);
     search("Homework"); assert(row(assignments + "/Homework.md") && row(math) && row(course), "Search finds deep files and keeps ancestors");
     assert(!row(resourcePath + "/Physics"), "Search omits unrelated branches");
     search("missing query"); assert(root.textContent.includes("No matching files or folders"), "No matches state");
     search(""); assert(stored["resource:study"][math].collapsed === savedExpansion && !row(assignments + "/Homework.md"), "Clearing search restores saved expansion");
+    await setMode(false);
     const before = opens.length; toggle(assignments); assert(opens.length === before, "Disclosure does not open a file");
     row(assignments + "/Homework.md").click(); await settle();
     assert(opens.at(-1).file === objects.get(assignments + "/Homework.md"), "Open passes canonical vault file through existing handler");
@@ -261,6 +272,7 @@ window.onload = async () => { try {
     root.querySelector(".hub-explorer-new-folder").click(); input = root.querySelector(".project-create-input"); input.value = "Chemistry"; key(input, "Enter"); await settle();
     assert(row(resourcePath + "/Chemistry"), "Workspace folder creation retained");
     // Restore and refresh are independent of the rail's existing width state.
+    await setMode(true);
     host.classList.add("hub-project-rail", "hub-project-rail-pane"); host.style.width = "460px";
     const visibleSearch = root.querySelector(".hub-explorer-search-input");
     const rail = load("ui/note-rail").mountNoteRail(host, "full"); await settle();
@@ -342,6 +354,14 @@ window.onload = async () => { try {
     lastFilePath = null; await setMode(false);
     stored["resource:study"] = savedResource;
     window.hubGetProjectResourceFolders = () => [shared]; mount("resource"); row(course).click(); await settle();
+    assert(controller.selectFolderPath(assignments), "Finder folder navigation resolves a canonical tree folder");
+    assert(row(assignments).classList.contains("is-current-folder") && document.activeElement === treeItem(assignments), "Finder reveals, selects and focuses its folder");
+    await setMode(true); search("Homework");
+    await setMode(false);
+    assert(row(resourcePath + "/Physics"), "Returning Full ignores the retained Note filter");
+    await setMode(true);
+    assert(root.querySelector(".hub-explorer-search-input").value === "Homework" && !row(resourcePath + "/Physics"), "Note local query survives Full-view navigation");
+    search(""); await setMode(false);
     window.explorerPreview = async (kind, mode, width) => {
         host.classList.toggle("hub-project-rail", mode !== "workspace"); host.classList.toggle("hub-project-rail-pane", mode !== "workspace");
         host.dataset.hubRailState = mode === "half" ? "half" : "full"; host.style.width = width + "px";

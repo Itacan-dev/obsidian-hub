@@ -150,6 +150,7 @@ class HubTaskDataService {
         this.dayTimer.unref?.();
     }
 
+    invalidateAll() { this.all = true; this.invalidate(); }
     invalidate(...paths) {
         for (const path of paths) if (path) this.paths.add(path);
         if (this.frame != null) return;

@@ -63,6 +63,6 @@ function renderTaskTimeline(host, tasks, context, state) {
     }
     if (!visible) empty(panel, "No dated tasks in this range.");
     const undated = tasks.filter(task => !task.fromDate && !task.dueDate).length;
-    if (undated) panel.createDiv({ cls: "hub-task-view-note", text: undated + " undated " + (undated === 1 ? "task" : "tasks") + " · Available in Upcoming and All tasks" });
+    if (undated) panel.createDiv({ cls: "hub-task-view-note", text: undated + " undated " + (undated === 1 ? "task" : "tasks") });
 }
 module.exports = { renderTaskTimeline };

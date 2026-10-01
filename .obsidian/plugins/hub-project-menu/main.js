@@ -896,6 +896,54 @@ class RulesRecommendationProvider {
 module.exports = { RulesRecommendationProvider };
 
 },
+"lib/domain/context-search.js": function (module, exports, __hubRequire) {
+"use strict";
+const { validLocation } = __hubRequire("lib/domain/task-views.js");
+
+const normalize = value => String(value ?? "").normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase();
+function nameScore(value, query) {
+    const text = normalize(value), term = normalize(query).trim();
+    if (!term) return null;
+    if (text === term) return 0;
+    if (text.startsWith(term)) return 1;
+    if (text.includes(term)) return 2;
+    if (term.split(/\s+/).every(word => text.includes(word))) return 3;
+    if (term.length < 3) return null;
+    let position = -1, first = -1;
+    for (const character of term) {
+        position = text.indexOf(character, position + 1);
+        if (position < 0) return null;
+        if (first < 0) first = position;
+    }
+    // Prefer tight subsequences; avoid noisy matches across long prose.
+    return position - first < term.length * 3 ? 4 + (position - first) / Math.max(1, text.length) : null;
+}
+function ownerOf(path, workspaces) {
+    return workspaces.filter(workspace => validLocation(path, workspace)).sort((a, b) => b.root.length - a.root.length)[0];
+}
+function inScope(entry, scope, workspaces) {
+    if (!scope) return !!ownerOf(entry.path, workspaces);
+    if (validLocation(entry.path, scope)) return true;
+    return entry.kind === "tasks" && scope.contextKind !== "resource" && entry.task.linkedProjectId === scope.projectId &&
+        workspaces.some(workspace => workspace.contextKind === "resource" && validLocation(entry.path, workspace));
+}
+function contextLabel(path, owner) {
+    const relative = path.slice(owner.root.length).replace(/^\//, "").replace(/\.md$/i, "");
+    return [owner.name ?? owner.label ?? owner.root.split("/").at(-1), ...relative.split("/").filter(Boolean)].join(" › ");
+}
+function groupResults(results, limit = 8) {
+    const groups = new Map();
+    results.sort((a, b) => a.score - b.score || a.title.localeCompare(b.title, undefined, { numeric: true }) || a.path.localeCompare(b.path));
+    for (const result of results) {
+        if (!groups.has(result.kind)) groups.set(result.kind, []);
+        const group = groups.get(result.kind);
+        if (group.length < limit) group.push(result);
+    }
+    return [...groups].map(([kind, items]) => ({ kind, items }));
+}
+module.exports = { normalize, nameScore, ownerOf, inScope, contextLabel, groupResults };
+
+},
 "lib/domain/contexts.js": function (module, exports, __hubRequire) {
 "use strict";
 
@@ -1808,6 +1856,43 @@ module.exports = {
 };
 
 },
+"lib/domain/project-planning.js": function (module, exports, __hubRequire) {
+"use strict";
+const { parseLocalISODate, localISODate } = __hubRequire("lib/domain/dates.js");
+const { dayNumber } = __hubRequire("lib/domain/task-views.js");
+const copy = value => JSON.parse(JSON.stringify(value));
+function planningState(value) {
+    return { version: 1, revision: value?.revision ?? 0,
+        phases: copy(value?.phases ?? []).sort((a, b) => (a.order ?? Infinity) - (b.order ?? Infinity) || a.start.localeCompare(b.start)),
+        milestones: copy(value?.milestones ?? []) };
+}
+function phaseValues(value) {
+    const name = String(value.name ?? "").trim();
+    if (!name) throw Error("Enter a phase name.");
+    if (!parseLocalISODate(value.start) || !parseLocalISODate(value.end)) throw Error("Choose valid phase dates.");
+    if (value.end < value.start) throw Error("End must be on or after Start.");
+    return { name, start: value.start, end: value.end, description: String(value.description ?? "").trim() };
+}
+function milestoneValues(value) {
+    const name = String(value.name ?? "").trim();
+    if (!name) throw Error("Enter a milestone name.");
+    if (!parseLocalISODate(value.date)) throw Error("Choose a valid milestone date.");
+    return { name, date: value.date, achieved: !!value.achieved };
+}
+function roadmapRange(anchor, months) {
+    const start = new Date(anchor.getFullYear(), anchor.getMonth(), 1);
+    const end = new Date(start.getFullYear(), start.getMonth() + months, 1);
+    const first = dayNumber(localISODate(start)), total = dayNumber(localISODate(end)) - first;
+    return { start, end, total, position: iso => (dayNumber(iso) - first) / total * 100 };
+}
+function phasePlacement(phase, range) {
+    const start = range.position(phase.start), end = range.position(phase.end) + 100 / range.total;
+    if (end <= 0 || start >= 100) return null;
+    return { left: Math.max(0, start), width: Math.min(100, end) - Math.max(0, start) };
+}
+module.exports = { planningState, phaseValues, milestoneValues, roadmapRange, phasePlacement };
+
+},
 "lib/domain/report-context.js": function (module, exports, __hubRequire) {
 "use strict";
 
@@ -1880,7 +1965,7 @@ module.exports = { captureReportContext, savedReportContext, reportDay, activity
 "lib/domain/statistics.js": function (module, exports, __hubRequire) {
 "use strict";
 
-const { localISODate } = __hubRequire("lib/domain/dates.js");
+const { localISODate, parseLocalISODate } = __hubRequire("lib/domain/dates.js");
 const { historyKind } = __hubRequire("lib/domain/history.js");
 
 const RANGES = [["7d", "7 days"], ["30d", "30 days"], ["3m", "3 months"], ["1y", "1 year"], ["all", "All time"]];
@@ -1940,7 +2025,7 @@ function uniqueRecords(records) {
     });
 }
 
-function prepareStatistics({ workspaces = [], activity = [], completions = [], oaths = [], notes = [] } = {}, now = Date.now()) {
+function prepareStatistics({ workspaces = [], activity = [], completions = [], oaths = [], notes = [], reports = [] } = {}, now = Date.now()) {
     const registry = new Map();
     for (const workspace of list(workspaces)) {
         if (!workspace.projectId) continue;
@@ -1972,14 +2057,22 @@ function prepareStatistics({ workspaces = [], activity = [], completions = [], o
             const id = workspace?.id ? kind === "resource" ? `resource:${workspace.id.replace(/^resource:/, "")}` : workspace.id : record.projectId;
             return { ...record, key: identify({ projectId: id, projectName: workspace?.name ?? record.projectName, contextKind: kind }) };
         });
+    // Reports use the recorded work date, not the time a reflection was edited.
+    // Preserve the existing Project activity cohort independently of report-only history.
+    const activityKeys = new Set(registry.keys());
+    const progress = list(reports).flatMap(record => {
+        const date = parseLocalISODate(record.date);
+        if (!date || +date > now || !Number.isInteger(record.score) || record.score < 0 || record.score > 4) return [];
+        return [{ timestamp: +date, score: record.score, key: identify(record) }];
+    });
     const currentNotes = list(notes);
     const creations = currentNotes.filter(note => validTime(note.createdAt) && note.createdAt <= now);
     let earliest = now;
-    for (const record of [...work, ...sessions, ...creations]) earliest = Math.min(earliest, record.timestamp ?? record.startedAt ?? record.createdAt);
+    for (const record of [...work, ...sessions, ...creations, ...progress]) earliest = Math.min(earliest, record.timestamp ?? record.startedAt ?? record.createdAt);
     const lastActive = new Map();
     for (const record of work) lastActive.set(record.key, Math.max(lastActive.get(record.key) ?? 0, record.timestamp));
     for (const record of sessions) lastActive.set(record.key, Math.max(lastActive.get(record.key) ?? 0, record.completedAt));
-    return { registry, work, completions: completionRecords, sessions, notes: creations, totalNotes: currentNotes.length, earliest, lastActive, now };
+    return { registry, activityKeys, progress, work, completions: completionRecords, sessions, notes: creations, totalNotes: currentNotes.length, earliest, lastActive, now };
 }
 
 function aggregateStatistics(source, rangeKey = "3m") {
@@ -1987,8 +2080,9 @@ function aggregateStatistics(source, rangeKey = "3m") {
     const empty = () => range.bins.map(() => 0), inside = time => time >= range.start && time < range.end && time <= source.now;
     const index = time => Math.min(range.bins.length - 1, Math.floor((calendarDay(time) - calendarDay(range.start)) / range.binDays));
     const byWorkspace = new Map([...source.registry].map(([key, workspace]) => [key, {
-        ...workspace, time: 0, activity: empty(), tasks: empty(), steps: empty(), lastActive: source.lastActive.get(key) ?? null
+        ...workspace, time: 0, progressPoints: 0, activity: empty(), tasks: empty(), steps: empty(), lastActive: source.lastActive.get(key) ?? null
     }]));
+    for (const report of source.progress) if (inside(report.timestamp)) byWorkspace.get(report.key).progressPoints += report.score;
     const oath = { values: empty(), total: 0, taken: 0, fulfilled: 0 };
     for (const record of source.work) if (inside(record.timestamp)) byWorkspace.get(record.key).activity[index(record.timestamp)]++;
     for (const record of source.completions) if (inside(record.timestamp)) {
@@ -2011,12 +2105,12 @@ function aggregateStatistics(source, rangeKey = "3m") {
     for (const [date, count] of [...dailyNotes].sort(([a], [b]) => a.localeCompare(b))) if (count > note.largest) { note.largest = count; note.largestDate = date; }
     note.average = note.created / range.days;
     const rows = [...byWorkspace.values()];
-    const projects = rows.filter(row => row.kind === "project").sort((a, b) =>
+    const projects = rows.filter(row => row.kind === "project" && source.activityKeys.has(row.key)).sort((a, b) =>
         (b.lastActive ?? 0) - (a.lastActive ?? 0) || b.time - a.time || a.name.localeCompare(b.name) || a.key.localeCompare(b.key));
-    const projectTime = rows.filter(row => row.kind === "project").reduce((sum, row) => sum + row.time, 0);
-    const resourceTime = rows.filter(row => row.kind === "resource").reduce((sum, row) => sum + row.time, 0);
-    const total = projectTime + resourceTime;
-    const projectPercent = total ? Math.round(projectTime / total * 100) : 0;
+    const projectPoints = rows.filter(row => row.kind === "project").reduce((sum, row) => sum + row.progressPoints, 0);
+    const resourcePoints = rows.filter(row => row.kind === "resource").reduce((sum, row) => sum + row.progressPoints, 0);
+    const total = projectPoints + resourcePoints;
+    const projectPercent = total ? Math.round(projectPoints / total * 100) : 0;
     return { range, rows, projects, oath, note, comparison: { total, projects: projectPercent, resources: total ? 100 - projectPercent : 0 } };
 }
 
@@ -2038,6 +2132,7 @@ const { taskLineDetails, taskDisplayText, taskIdentity, locateTaskLine, normaliz
 
 function taskMetadata(value = {}) {
     return {
+        ...(typeof value?.phaseId === "string" && value.phaseId.trim() ? { phaseId: value.phaseId.trim() } : {}),
         necessity: ["should", "must"].includes(value?.necessity) ? value.necessity : null,
         fromDate: parseLocalISODate(value?.fromDate) ? value.fromDate : null,
         dueDate: parseLocalISODate(value?.dueDate) ? value.dueDate : null,
@@ -2296,7 +2391,7 @@ function insertTaskAtCursor(editor) {
     editor.setCursor({ line: cursor.line, ch: Math.max(marker.length + 4, cursor.ch + marker.length + 4 - prefix.length) });
 }
 
-module.exports = { taskStartDate, taskIsFuture, taskDatePresentation, taskIsOverdue, taskMetadata, validateTaskMetadata, taskGroups, taskBlockEnd, readTaskSnapshot, saveTaskSnapshot, appendTask, insertTaskAtCursor, toggleTaskStep };
+module.exports = { withIdentity, taskStartDate, taskIsFuture, taskDatePresentation, taskIsOverdue, taskMetadata, validateTaskMetadata, taskGroups, taskBlockEnd, readTaskSnapshot, saveTaskSnapshot, appendTask, insertTaskAtCursor, toggleTaskStep };
 
 },
 "lib/domain/task-progress.js": function (module, exports, __hubRequire) {
@@ -2419,15 +2514,19 @@ function validLocation(path, workspace) {
 }
 
 function upcomingBucket(task, now = new Date()) {
-    if (!task.dueDate) return "unscheduled";
+    if (!task.dueDate && !task.fromDate) return "unscheduled";
     const today = localISODate(now), tomorrow = localISODate(shiftDay(now, 1));
-    return task.dueDate < today ? "past" : task.dueDate === today ? "today" : task.dueDate === tomorrow ? "tomorrow" : "later";
+    if (task.dueDate && task.dueDate < today) return "past";
+    const date = task.dueDate ?? task.fromDate;
+    return date <= today ? "today" : date === tomorrow ? "tomorrow" : "later";
 }
 
 function upcomingGroups(tasks, now = new Date()) {
     const groups = Object.fromEntries(BUCKETS.map(([id]) => [id, []]));
     const ordered = taskGroups(tasks, now);
     for (const task of [...ordered.active, ...ordered.future]) groups[upcomingBucket(task, now)].push(task);
+    const rank = task => task.necessity === "must" ? 0 : task.necessity === "should" ? 1 : 2;
+    for (const group of Object.values(groups)) group.sort((a, b) => rank(a) - rank(b));
     return groups;
 }
 
@@ -2822,6 +2921,155 @@ module.exports = {
     ...__hubRequire("lib/ui/tooltips.js"),
     ...__hubRequire("lib/ui/header-image.js")
 };
+
+},
+"lib/services/context-search.js": function (module, exports, __hubRequire) {
+"use strict";
+const { taskWorkspaces } = __hubRequire("lib/services/task-locations.js");
+const { normalize, nameScore, ownerOf, inScope, contextLabel, groupResults } = __hubRequire("lib/domain/context-search.js");
+
+class ContextSearchService {
+    constructor(plugin) {
+        this.plugin = plugin;
+        this.files = null;
+        this.tasks = null;
+        this.notes = new Map();
+        this.listeners = new Set();
+        this.registrations = new Set();
+        this.pendingFolder = null;
+        this.disposed = false;
+        const invalidate = () => {
+            this.files = null; this.tasks = null;
+            for (const listener of this.listeners) listener();
+        };
+        for (const event of ["create", "delete", "rename", "modify"]) {
+            plugin.registerEvent(plugin.app.vault.on(event, (file, oldPath) => {
+                for (const path of this.notes.keys()) if (path === file.path || path === oldPath ||
+                    path.startsWith(file.path + "/") || oldPath && path.startsWith(oldPath + "/")) this.notes.delete(path);
+                invalidate();
+            }));
+        }
+        plugin.registerEvent(plugin.app.metadataCache.on("changed", invalidate));
+        plugin.taskData.subscribe(plugin, () => { this.tasks = null; for (const listener of this.listeners) listener(); });
+        plugin.planning?.subscribe(plugin, () => { for (const listener of this.listeners) listener(); });
+        plugin.register(() => { this.disposed = true; this.notes.clear(); this.listeners.clear(); this.registrations.clear(); });
+    }
+    subscribe(component, listener) { this.listeners.add(listener); component.register(() => this.listeners.delete(listener)); }
+    snapshot(dv) {
+        if (!this.files) {
+            this.workspaces = taskWorkspaces(this.plugin);
+            const dashboards = new Set(this.workspaces.map(workspace => workspace.path));
+            this.files = this.plugin.app.vault.getAllLoadedFiles().flatMap(file => {
+                const owner = ownerOf(file.path, this.workspaces);
+                if (!owner || file.path === owner.root || dashboards.has(file.path)) return [];
+                const folder = Array.isArray(file.children);
+                const aliases = !folder && this.plugin.app.metadataCache.getFileCache?.(file)?.frontmatter?.aliases;
+                return [{ kind: folder ? "folders" : "files", path: file.path, file, owner,
+                    title: folder ? file.name : file.extension?.toLowerCase() === "md" ? file.basename : file.name,
+                    aliases: Array.isArray(aliases) ? aliases : typeof aliases === "string" ? [aliases] : [],
+                    context: contextLabel(file.parent?.path ?? file.path.slice(0, file.path.lastIndexOf("/")), owner) }];
+            });
+        }
+        if (!this.tasks) this.tasks = this.plugin.taskData.readPages(dv).flatMap(page => page.file.tasks).flatMap(task => {
+            const owner = ownerOf(task.path, this.workspaces);
+            return owner ? [{ kind: "tasks", title: task.text, path: task.path, task, owner, context: contextLabel(task.path, owner) }] : [];
+        });
+        return { workspaces: this.workspaces, files: this.files, tasks: this.tasks };
+    }
+    async note(file) {
+        const key = file.path, stamp = file.stat?.mtime;
+        const cached = this.notes.get(key);
+        if (cached && cached.stamp === stamp) return cached.promise;
+        const promise = this.plugin.app.vault.cachedRead(file).then(text => {
+            // Index readable note text, excluding frontmatter/internal task markers.
+            const plain = text.replace(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/, "").replace(/<!--[\s\S]*?-->/g, "").replace(/\s+/g, " ").trim();
+            return { plain, normalized: normalize(plain) };
+        }).catch(() => { if (this.notes.get(key)?.promise === promise) this.notes.delete(key); return null; });
+        this.notes.set(key, { stamp, promise });
+        return promise;
+    }
+    async search(query, scope, dv, { onNames = () => {}, cancelled = () => false } = {}) {
+        const term = normalize(query).trim();
+        if (!term) return [];
+        const snapshot = this.snapshot(dv), { workspaces } = snapshot;
+        // Follow renamed workspace roots via the existing canonical context IDs.
+        scope = scope ? workspaces.find(item => item.projectId === scope.projectId) ?? scope : null;
+        const files = snapshot.files.filter(entry => inScope(entry, scope, workspaces));
+        const candidates = [...files, ...snapshot.tasks.filter(entry => inScope(entry, scope, workspaces))];
+        if (!scope) candidates.push(...workspaces.map(owner => ({ kind: owner.contextKind === "resource" ? "resources" : "projects",
+            title: owner.name ?? owner.label, path: owner.path, owner, context: owner.root })));
+        if (scope?.contextKind === "project" && this.plugin.planning) {
+            const planning = this.plugin.planning.read(scope.projectId);
+            for (const kind of ["phases", "milestones"]) candidates.push(...planning[kind].map(item => ({
+                kind, id: item.id, title: item.name, path: scope.path, owner: scope,
+                context: kind === "phases" ? item.start + " \u2013 " + item.end : item.date + (item.achieved ? " \u00b7 Achieved" : "")
+            })));
+        }
+        const results = [], namedPaths = new Set();
+        for (const entry of candidates) {
+            const scores = [entry.title, ...(entry.aliases ?? [])].map(value => nameScore(value, term)).filter(value => value != null);
+            // A path qualifier can disambiguate identically named notes/folders.
+            const contextual = term.includes(" ") ? nameScore(entry.context + " " + entry.title, term) : null;
+            if (contextual != null) scores.push(6 + contextual / 10);
+            if (!scores.length) continue;
+            results.push({ ...entry, score: Math.min(...scores) + (entry.kind === "tasks" ? 10 : 0) });
+            if (entry.kind === "files") namedPaths.add(entry.path);
+        }
+        onNames(groupResults([...results]));
+        const notes = files.filter(entry => entry.file.extension?.toLowerCase() === "md" && !namedPaths.has(entry.path));
+        let cursor = 0;
+        // Bounded concurrent cached reads, cancelled between files when typing/navigation changes.
+        await Promise.all(Array.from({ length: 4 }, async () => {
+            while (cursor < notes.length && !cancelled() && !this.disposed) {
+                const entry = notes[cursor++], text = await this.note(entry.file);
+                if (!text) continue;
+                const words = term.split(/\s+/);
+                if (!words.every(word => text.normalized.includes(word))) continue;
+                const position = text.normalized.indexOf(words[0]);
+                const start = Math.max(0, position - 35);
+                const snippet = (start ? "…" : "") + text.plain.slice(start, start + 160) + (start + 160 < text.plain.length ? "…" : "");
+                results.push({ ...entry, kind: "notes", snippet, score: 20 });
+            }
+        }));
+        return groupResults(results);
+    }
+    registerWorkspace(component, root, workspace, selectFolder, selectPlanning) {
+        const registration = { root, workspace, selectFolder, selectPlanning };
+        this.registrations.add(registration);
+        component.register(() => this.registrations.delete(registration));
+    }
+    applyFolder(root) {
+        const request = this.pendingFolder;
+        if (!request?.ready) return;
+        const registration = [...this.registrations].find(item => item.root === root && root.isConnected &&
+            !root.closest(".hub-project-rail") && item.workspace.projectId === request.workspace.projectId);
+        if (registration && (!request.document || root.ownerDocument === request.document)) {
+            if (request.kind) registration.selectPlanning?.(request.kind, request.id);
+            else registration.selectFolder(request.path);
+            this.pendingFolder = null;
+        }
+    }
+    async open(result, source) {
+        const modes = this.plugin.workspaceModes;
+        const path = this.plugin.taskData.currentPath(result.path);
+        if (!this.plugin.app.vault.getAbstractFileByPath(path)) throw Error("This item no longer exists.");
+        if (["projects", "resources"].includes(result.kind)) return modes.openProjectFull(result.owner, source);
+        const planning = ["phases", "milestones"].includes(result.kind);
+        if (planning && !this.plugin.planning.read(result.owner.projectId)[result.kind].some(item => item.id === result.id)) throw Error("This planning item no longer exists.");
+        if (!planning && result.kind !== "folders") return modes.openProjectNote(path, "replace", source);
+        const request = this.pendingFolder = { path, kind: planning ? result.kind : null, id: result.id, workspace: result.owner, document: source?.ownerDocument, ready: false };
+        try {
+            const opened = await modes.openProjectFull(result.owner, source);
+            if (opened === false) { if (this.pendingFolder === request) this.pendingFolder = null; return false; }
+            request.ready = true;
+            const targetRoot = modes.dashboardRoot?.(modes.activeMainLeaf?.());
+            if (targetRoot) this.applyFolder(targetRoot);
+            if (this.pendingFolder === request) for (const { root } of this.registrations) this.applyFolder(root);
+            return true;
+        } catch (error) { if (this.pendingFolder === request) this.pendingFolder = null; throw error; }
+    }
+}
+module.exports = { ContextSearchService };
 
 },
 "lib/services/daily-brief-trigger.js": function (module, exports, __hubRequire) {
@@ -4411,6 +4659,121 @@ class ProjectDeletionGuard {
 module.exports = { ProjectDeletionGuard, isProjectDeletionCancelled };
 
 },
+"lib/services/project-planning.js": function (module, exports, __hubRequire) {
+"use strict";
+const { randomUUID } = require("crypto");
+const { planningState, phaseValues, milestoneValues } = __hubRequire("lib/domain/project-planning.js");
+const { withIdentity, readTaskSnapshot } = __hubRequire("lib/domain/task-planning.js");
+
+class ProjectPlanningService {
+    constructor(plugin) { this.plugin = plugin; this.listeners = new Set(); plugin.register?.(() => this.listeners.clear()); }
+    project(id) {
+        const project = this.plugin.projectWizard.getProjectById(id);
+        if (!project || project.contextKind === "resource") throw Error("This Project is no longer available.");
+        return project;
+    }
+    read(id) { return planningState(this.plugin.projectWizard.data.projectPlanning?.[id]); }
+    phases(id) { return this.read(id).phases; }
+    phaseFor(task) {
+        if (!task.phaseId) return null;
+        const owner = this.plugin.projectWizard.getContextForPath(this.plugin.taskData.currentPath(task.path));
+        return owner?.contextKind !== "resource" && owner?.projectId ? this.phases(owner.projectId).find(phase => phase.id === task.phaseId) : null;
+    }
+    tasks(dv, id) {
+        const project = this.project(id);
+        // Reuse canonical indexed tasks; no task copies are stored on a Phase.
+        return this.plugin.taskData.readWorkspace(dv, project).filter(task =>
+            this.plugin.projectWizard.getContextForPath(task.path)?.projectId === id);
+    }
+    subscribe(component, callback) { this.listeners.add(callback); component.register(() => this.listeners.delete(callback)); }
+    changed(id) { this.plugin.taskData.invalidateAll(); for (const listener of this.listeners) listener(id); }
+    transaction(id, revision, update) {
+        return this.plugin.enqueueTaskMutation(async () => {
+            this.project(id);
+            const data = this.plugin.projectWizard.data, state = this.read(id);
+            if (revision != null && revision !== state.revision) throw Error("This Roadmap changed in another editor. Reopen it before saving.");
+            const previous = { planning: data.projectPlanning, metadata: data.taskMetadata }, writes = [];
+            const metadata = { ...data.taskMetadata };
+            let result;
+            try {
+                result = await update(state, metadata, writes);
+                state.revision++;
+                data.projectPlanning = { ...data.projectPlanning, [id]: state };
+                data.taskMetadata = metadata;
+                await this.plugin.dataStore.save(data);
+            } catch (error) {
+                data.projectPlanning = previous.planning; data.taskMetadata = previous.metadata;
+                await this.plugin.taskEditor.rollback(writes);
+                throw error;
+            }
+            this.changed(id);
+            return result;
+        });
+    }
+    async link(task, phaseId, projectId, metadata, writes) {
+        if (task.identityConflict) throw Error("Resolve this task's copied identity before assigning a phase.");
+        const snapshot = await this.plugin.taskEditor.read(task);
+        const owner = this.plugin.projectWizard.getContextForPath(snapshot.file.path);
+        if (owner?.contextKind === "resource" || owner?.projectId !== projectId) throw Error("Choose a task inside this Project.");
+        if ((snapshot.phaseId ?? null) !== (task.phaseId ?? null)) throw Error("This task's phase changed. Reopen the phase before saving.");
+        if ((snapshot.phaseId ?? null) === (phaseId ?? null)) return;
+        const id = snapshot.hubTaskId ?? randomUUID();
+        const next = { ...this.plugin.taskEditor.metadata(snapshot.hubTaskId) };
+        if (phaseId) next.phaseId = phaseId; else delete next.phaseId;
+        if (!snapshot.hubTaskId) {
+            // Attribute the identity-only Markdown write to the task system, never file activity.
+            await this.plugin.taskEditor.write(snapshot.file, content => {
+                const current = readTaskSnapshot(content, snapshot);
+                if (current.block !== snapshot.block) throw Error("This task changed. Reopen the phase before saving.");
+                const eol = content.includes("\r\n") ? "\r\n" : "\n", lines = content.split(/\r?\n/);
+                lines[current.line] = withIdentity(lines[current.line], id);
+                return lines.join(eol);
+            }, writes);
+        }
+        metadata[id] = next;
+    }
+    savePhase(id, value, assignments = [], revision) {
+        const values = phaseValues(value);
+        return this.transaction(id, revision, async (state, metadata, writes) => {
+            const existing = value.id && state.phases.find(phase => phase.id === value.id);
+            if (value.id && !existing) throw Error("This phase no longer exists.");
+            const phase = { id: existing?.id ?? randomUUID(), ...values, order: existing?.order ?? Math.max(-1, ...state.phases.map(item => item.order ?? -1)) + 1 };
+            if (existing) state.phases[state.phases.indexOf(existing)] = phase; else state.phases.push(phase);
+            for (const { task, included } of assignments) await this.link(task, included ? phase.id : null, id, metadata, writes);
+            return phase;
+        });
+    }
+    saveMilestone(id, value, revision) {
+        const values = milestoneValues(value);
+        return this.transaction(id, revision, state => {
+            const existing = value.id && state.milestones.find(item => item.id === value.id);
+            if (value.id && !existing) throw Error("This milestone no longer exists.");
+            const milestone = { id: existing?.id ?? randomUUID(), ...values };
+            if (existing) state.milestones[state.milestones.indexOf(existing)] = milestone; else state.milestones.push(milestone);
+            return milestone;
+        });
+    }
+    remove(id, kind, objectId, revision) {
+        return this.transaction(id, revision, (state, metadata) => {
+            if (!["phases", "milestones"].includes(kind)) throw Error("Unknown planning object.");
+            state[kind] = state[kind].filter(item => item.id !== objectId);
+            if (kind === "phases") for (const [taskId, value] of Object.entries(metadata)) {
+                if (value.phaseId === objectId) { metadata[taskId] = { ...value }; delete metadata[taskId].phaseId; }
+            }
+        });
+    }
+    reorder(id, phaseId, direction, revision) {
+        return this.transaction(id, revision, state => {
+            const index = state.phases.findIndex(phase => phase.id === phaseId), target = index + direction;
+            if (index < 0 || target < 0 || target >= state.phases.length || ![-1, 1].includes(direction)) return;
+            [state.phases[index], state.phases[target]] = [state.phases[target], state.phases[index]];
+            state.phases.forEach((phase, order) => { phase.order = order; });
+        });
+    }
+}
+module.exports = { ProjectPlanningService };
+
+},
 "lib/services/statistics.js": function (module, exports, __hubRequire) {
 "use strict";
 
@@ -4427,7 +4790,8 @@ function readStatistics(plugin, now = Date.now()) {
     })).map(file => ({ path: file.path, createdAt: file.stat?.ctime }));
     const oaths = Object.values(wizard.data.oathsByDevice ?? {}).flatMap(bucket => Array.isArray(bucket?.history) ? bucket.history : []);
     return prepareStatistics({ workspaces, notes, oaths, activity: wizard.activityLog,
-        completions: wizard.completedTaskHistory }, now);
+        completions: wizard.completedTaskHistory,
+        reports: [...wizard.getProgressReports(), ...wizard.getProgressReports({ kind: "resource" })] }, now);
 }
 
 module.exports = { readStatistics };
@@ -4586,6 +4950,7 @@ class HubTaskDataService {
         this.dayTimer.unref?.();
     }
 
+    invalidateAll() { this.all = true; this.invalidate(); }
     invalidate(...paths) {
         for (const path of paths) if (path) this.paths.add(path);
         if (this.frame != null) return;
@@ -4645,6 +5010,10 @@ class HubTaskEditor {
     metadata(id) { return taskMetadata(id ? this.plugin.projectWizard.data.taskMetadata?.[id] : {}); }
     context(path) { return this.plugin.projectWizard.getContextForPath(path); }
     locations(root) { return taskLocations(this.plugin, root ? this.plugin.taskData?.currentPath(root) ?? root : root); }
+    phases(path) {
+        const owner = this.context(path);
+        return owner && owner.contextKind !== "resource" ? this.plugin.planning?.phases(owner.projectId) ?? [] : [];
+    }
     projects() { return linkedProjects(this.plugin); }
     file(path) {
         const current = this.plugin.taskData?.currentPath(path) ?? path;
@@ -4675,6 +5044,10 @@ class HubTaskEditor {
         if (metadata.linkedProjectId && metadata.linkedProjectId !== previous.linkedProjectId &&
             !this.projects().some(project => project.projectId === metadata.linkedProjectId)) {
             throw Error("Choose an active Project.");
+        }
+        if (workspace?.contextKind === "resource") delete metadata.phaseId;
+        if (metadata.phaseId && !this.phases(workspace?.root).some(phase => phase.id === metadata.phaseId)) {
+            throw Error("This phase is no longer available in the task's Project.");
         }
         return metadata;
     }
@@ -4731,6 +5104,12 @@ class HubTaskEditor {
             if (snapshot.hubTaskId && JSON.stringify(this.metadata(snapshot.hubTaskId)) !== JSON.stringify(taskMetadata(snapshot))) {
                 throw Error("This task's metadata changed in another editor. Reopen the task before saving.");
             }
+            const withoutPhase = value => { const { phaseId, ...other } = taskMetadata(value); return other; };
+            const phaseOnly = !deleting && !moving && (metadata.phaseId ?? null) !== (snapshot.phaseId ?? null) &&
+                values.text === snapshot.text && JSON.stringify(withoutPhase(metadata)) === JSON.stringify(withoutPhase(snapshot)) &&
+                (values.steps ?? snapshot.steps).length === snapshot.steps.length &&
+                (values.steps ?? snapshot.steps).every((step, index) => step.line === snapshot.steps[index].line &&
+                    step.text === snapshot.steps[index].text && step.completed === snapshot.steps[index].completed && !step.completedAt);
             const writes = [];
             let edit;
             try {
@@ -4772,12 +5151,12 @@ class HubTaskEditor {
                 catch (_) { throw Error("The task could not be saved and a note also changed. Check its source and destination before retrying."); }
                 throw error;
             }
-            await this.record(edit, owner, actionTimestamp);
+            if (!phaseOnly) await this.record(edit, owner, actionTimestamp);
             for (const write of writes) {
-                this.plugin.markProjectChangedByPath(write.file.path);
+                if (!phaseOnly) this.plugin.markProjectChangedByPath(write.file.path);
                 if (write.original === write.written) this.plugin.taskData?.invalidate(write.file.path);
             }
-            this.plugin.oath?.changed(edit);
+            if (!phaseOnly) this.plugin.oath?.changed(edit);
             return edit;
         });
     }
@@ -5507,6 +5886,116 @@ const completionAudio = createCompletionAudio();
 module.exports = { createCompletionAudio, bindCompletionSound, ...completionAudio };
 
 },
+"lib/ui/context-search.js": function (module, exports, __hubRequire) {
+"use strict";
+const { setHubIcon: setIcon } = __hubRequire("lib/ui/icons.js");
+const { taskDateLabel } = __hubRequire("lib/domain/dates.js");
+let sequence = 0;
+const labels = { projects: "Projects", resources: "Resources", folders: "Folders", files: "Files", tasks: "Tasks", notes: "Note matches", phases: "Phases", milestones: "Milestones" };
+
+function mountContextSearch({ service, component, dv, root, toolbar, scope = null }) {
+    const doc = root.ownerDocument;
+    toolbar.classList.add("hub-context-bar");
+    const region = toolbar.createDiv({ cls: "hub-context-search" });
+    const icon = region.createSpan({ cls: "hub-context-search-icon", attr: { "aria-hidden": "true" } });
+    setIcon(icon, "search");
+    const placeholder = !scope ? "Search Itacan…" : scope.contextKind === "resource" ? `Search ${scope.name}…` : "Search this project…";
+    const id = `hub-context-results-${++sequence}`;
+    const input = region.createEl("input", { type: "search", cls: "hub-context-search-input", attr: {
+        placeholder, "aria-label": placeholder.replace(/…$/, ""), role: "combobox", "aria-autocomplete": "list",
+        "aria-controls": id, "aria-expanded": "false", autocomplete: "off", spellcheck: "false"
+    } });
+    const popup = region.createDiv({ cls: "hub-context-results", attr: { id, role: "listbox", "aria-label": "Search results" } });
+    popup.hidden = true;
+    const status = region.createDiv({ cls: "hub-context-status", attr: { role: "status", "aria-live": "polite" } });
+    let timer, generation = 0, disposed = false, rows = [], active = -1, opening = false;
+    function close() {
+        generation++; clearTimeout(timer); popup.hidden = true;
+        input.setAttribute("aria-expanded", "false"); input.removeAttribute("aria-activedescendant");
+        popup.removeAttribute("aria-busy");
+    }
+    function highlight(index) {
+        active = index;
+        rows.forEach(({ element }, i) => { element.classList.toggle("is-active", i === active); element.setAttribute("aria-selected", String(i === active)); });
+        if (rows[active]) {
+            input.setAttribute("aria-activedescendant", rows[active].element.id);
+            rows[active].element.scrollIntoView({ block: "nearest" });
+        } else input.removeAttribute("aria-activedescendant");
+    }
+    async function open(result) {
+        if (opening) return;
+        opening = true; close();
+        try { await service.open(result, root); }
+        catch (error) { status.textContent = error.message ?? "Could not open this result."; }
+        finally { opening = false; }
+    }
+    function render(groups, busy) {
+        const selected = rows[active]?.result;
+        popup.replaceChildren(); rows = []; active = -1;
+        for (const group of groups) {
+            const headingId = `${id}-${group.kind}`;
+            const section = popup.createDiv({ cls: "hub-context-result-group", attr: { role: "group", "aria-labelledby": headingId } });
+            section.createDiv({ cls: "hub-context-result-heading", text: labels[group.kind], attr: { id: headingId, role: "presentation" } });
+            for (const result of group.items) {
+                const element = section.createDiv({ cls: "hub-context-result", attr: { role: "option", id: `${id}-${rows.length}`, "aria-selected": "false" } });
+                element.createDiv({ cls: "hub-context-result-title", text: result.title });
+                element.createDiv({ cls: "hub-context-result-path", text: result.context });
+                if (result.kind === "tasks") {
+                    const date = result.task.dueDate ? taskDateLabel(result.task.dueDate, result.task.dueTime, true) : "";
+                    if (date || result.task.completed) element.createSpan({ cls: "hub-context-result-date", text: [result.task.completed ? "Completed" : "", date].filter(Boolean).join(" · ") });
+                }
+                if (result.snippet) element.createDiv({ cls: "hub-context-result-snippet", text: result.snippet });
+                const index = rows.length;
+                element.addEventListener("pointerdown", event => event.preventDefault());
+                element.addEventListener("pointermove", () => highlight(index));
+                element.addEventListener("click", () => void open(result));
+                rows.push({ element, result });
+            }
+        }
+        if (!rows.length) popup.createDiv({ cls: "hub-context-empty", text: busy ? "Searching…" : "No matches in this scope." });
+        const selectedIndex = rows.findIndex(row => selected && row.result.kind === selected.kind && row.result.path === selected.path && row.result.id === selected.id && row.result.task?.line === selected.task?.line);
+        highlight(selectedIndex);
+        popup.hidden = false; input.setAttribute("aria-expanded", "true"); popup.setAttribute("aria-busy", String(busy));
+        status.textContent = busy ? "Searching" : `${rows.length} results`;
+    }
+    async function search(token) {
+        const cancelled = () => disposed || generation !== token || root.closest(".hub-project-rail") || doc.activeElement !== input;
+        try {
+            const groups = await service.search(input.value, scope, dv, {
+                cancelled, onNames: groups => { if (!cancelled()) render(groups, true); }
+            });
+            if (!cancelled()) render(groups, false);
+        } catch (error) {
+            if (!cancelled()) { render([], false); popup.firstElementChild.textContent = "Search is temporarily unavailable."; status.textContent = error.message; }
+        }
+    }
+    function schedule() {
+        clearTimeout(timer);
+        const token = ++generation;
+        if (!input.value.trim()) { close(); status.textContent = ""; return; }
+        timer = setTimeout(() => void search(token), 100);
+    }
+    input.addEventListener("input", schedule);
+    input.addEventListener("focus", schedule);
+    input.addEventListener("keydown", event => {
+        if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); close(); }
+        else if (["ArrowDown", "ArrowUp"].includes(event.key)) {
+            event.preventDefault();
+            if (popup.hidden) { schedule(); return; }
+            if (rows.length) highlight(active < 0 ? event.key === "ArrowDown" ? 0 : rows.length - 1 : (active + (event.key === "ArrowDown" ? 1 : -1) + rows.length) % rows.length);
+        } else if (event.key === "Enter" && !popup.hidden && rows[active < 0 ? 0 : active]) { event.preventDefault(); void open(rows[active < 0 ? 0 : active].result); }
+        else if (event.key === "Tab") close();
+    });
+    const outside = event => { if (!region.contains(event.target)) close(); };
+    doc.addEventListener("pointerdown", outside);
+    input.addEventListener("blur", close);
+    service.subscribe(component, () => { if (!popup.hidden) schedule(); });
+    component.register(() => { disposed = true; close(); doc.removeEventListener("pointerdown", outside); });
+    return { input, close };
+}
+module.exports = { mountContextSearch };
+
+},
 "lib/ui/daily-brief-control.js": function (module, exports, __hubRequire) {
 "use strict";
 const { setIcon } = require("obsidian");
@@ -6115,8 +6604,8 @@ module.exports = {
 "use strict";
 
 const FILE_ICONS = Object.freeze(Object.fromEntries([
-    ["file-text", "md txt rtf doc docx odt"],
-    ["file-type", "pdf"],
+    ["file-text", "pdf txt rtf doc docx odt"],
+    ["notebook-text", "md"],
     ["file-image", "png jpg jpeg gif webp svg bmp avif"],
     ["file-music", "mp3 wav m4a flac ogg aac"],
     ["file-play", "mp4 mov mkv webm avi"],
@@ -6133,6 +6622,73 @@ function fileIcon(file) {
 }
 
 module.exports = { fileIcon };
+
+},
+"lib/ui/full-view-layout.js": function (module, exports, __hubRequire) {
+"use strict";
+
+// One measured boundary for every Workspace mode. Header sizes and panel
+// allocation remain CSS-owned; no banner/status-bar heights are duplicated here.
+function mountFullViewLayout({ root, component, app }) {
+    const doc = root.ownerDocument, win = doc.defaultView;
+    let frame = null, disposed = false;
+    const layoutTop = element => {
+        let top = 0;
+        for (let node = element; node; node = node.offsetParent) top += node.offsetTop;
+        return top;
+    };
+    function update() {
+        frame = null;
+        if (disposed || !root.isConnected) return;
+        const full = !root.closest(".hub-project-rail");
+        root.classList.toggle("hub-full-view", full);
+        if (!full) { root.style.removeProperty("--hub-full-view-height"); return; }
+        const content = [...root.children].find(el => el.matches(".project-main-grid, .hub-task-workspace, .hub-roadmap-host") && !el.hidden);
+        if (!content) return;
+        const viewport = root.closest(".markdown-preview-view") ?? root.closest(".view-content");
+        const status = doc.querySelector(".status-bar");
+        let bottom = Math.min(win.innerHeight, viewport?.getBoundingClientRect().bottom ?? win.innerHeight);
+        if (status?.getClientRects().length) bottom = Math.min(bottom, status.getBoundingClientRect().top);
+        const style = win.getComputedStyle(root);
+        const gutter = parseFloat(style.getPropertyValue("--hub-full-view-gutter")) || 0;
+        const origin = root.getBoundingClientRect().top + (viewport?.scrollTop ?? win.scrollY);
+        const headerHeight = layoutTop(content) - layoutTop(root);
+        const minimum = headerHeight + (parseFloat(win.getComputedStyle(content).minHeight) || 0);
+        // Home's rows have natural fixed sizes, not a viewport-fill rule. Cap
+        // the shared Workspace surface at that same extent while preserving
+        // the existing viewport/minimum fallback on shorter windows.
+        const homeContentHeight = parseFloat(style.getPropertyValue("--hub-full-view-top-row-height"))
+            + parseFloat(style.getPropertyValue("--hub-panel-gap"))
+            + parseFloat(style.getPropertyValue("--hub-full-view-bottom-row-height"));
+        const homeBoundary = Number.isFinite(homeContentHeight) ? headerHeight + homeContentHeight : Infinity;
+        const height = Math.ceil(Math.max(minimum, Math.min(homeBoundary, bottom - origin - gutter)));
+        const value = height + "px";
+        if (root.style.getPropertyValue("--hub-full-view-height") !== value) root.style.setProperty("--hub-full-view-height", value);
+    }
+    function schedule() { if (!disposed && frame == null) frame = win.requestAnimationFrame(update); }
+    const resize = new win.ResizeObserver(schedule);
+    resize.observe(root);
+    for (const child of root.children) resize.observe(child);
+    const viewport = root.closest(".markdown-preview-view") ?? root.closest(".view-content");
+    if (viewport) resize.observe(viewport);
+    const status = doc.querySelector(".status-bar");
+    if (status) resize.observe(status);
+    const mutation = new win.MutationObserver(records => {
+        if (records.some(record => record.target === root || record.target.parentElement === root || record.target.contains(root))) schedule();
+    });
+    mutation.observe(root, { childList: true, subtree: true, attributes: true, attributeFilter: ["class", "hidden"] });
+    for (let parent = root.parentElement; parent; parent = parent.parentElement) mutation.observe(parent, { attributes: true, attributeFilter: ["class"] });
+    win.addEventListener("resize", schedule);
+    if (app?.workspace?.on) component.registerEvent(app.workspace.on("layout-change", schedule));
+    component.register(() => {
+        disposed = true; if (frame != null) win.cancelAnimationFrame(frame);
+        resize.disconnect(); mutation.disconnect(); win.removeEventListener("resize", schedule);
+        root.classList.remove("hub-full-view"); root.style.removeProperty("--hub-full-view-height");
+    });
+    update();
+    return { update };
+}
+module.exports = { mountFullViewLayout };
 
 },
 "lib/ui/header-image.js": function (module, exports, __hubRequire) {
@@ -7375,6 +7931,100 @@ function mountOathControl(plugin, service) {
 module.exports = { openOathPicker, openOathSetup, openOathStatus, mountOathControl, requestOathExit };
 
 },
+"lib/ui/planning-editor.js": function (module, exports, __hubRequire) {
+"use strict";
+const { Modal, FuzzySuggestModal } = require("obsidian");
+const { localISODate } = __hubRequire("lib/domain/dates.js");
+
+function openPlanningEditor(service, projectId, kind, value = null, dv) {
+    const phase = kind === "phases", noun = phase ? "phase" : "milestone";
+    class PlanningModal extends Modal {
+        onOpen() {
+            this.modalEl.classList.add("hub-task-dialog");
+            this.contentEl.classList.add("hub-button-scope", "hub-task-form", "hub-planning-form");
+            const state = service.read(projectId), revision = state.revision;
+            this.contentEl.createEl("h2", { cls: "hub-task-dialog-title", text: (value ? "Edit " : "Add ") + noun });
+            const form = this.contentEl.createEl("form");
+            function section(text) { const section = form.createEl("section", { cls: "hub-task-section" }); section.createEl("h3", { text }); return section; }
+            function field(host, text, type, initial) {
+                const label = host.createEl("label"); label.createSpan({ text });
+                const input = label.createEl("input", { type, attr: { required: "", "aria-label": text } }); input.value = initial ?? ""; return input;
+            }
+            const name = field(section(phase ? "Phase" : "Milestone"), "Name", "text", value?.name);
+            const dates = section(phase ? "Dates" : "Date").createDiv({ cls: "hub-task-date-fields" });
+            const start = field(dates, phase ? "Start" : "Date", "date", (phase ? value?.start : value?.date) ?? localISODate());
+            let end, description, achieved, tasks = [], selected = new Map();
+            const key = task => task.hubTaskId ?? task.path + ":" + task.line;
+            if (phase) {
+                end = field(dates, "End", "date", value?.end ?? start.value);
+                start.addEventListener("change", () => { end.min = start.value; }); end.min = start.value;
+                const label = section("Description").createEl("label");
+                label.createSpan({ text: "Description (optional)", cls: "hub-task-help" });
+                description = label.createEl("textarea", { attr: { rows: "3", "aria-label": "Description (optional)" } }); description.value = value?.description ?? "";
+                const taskSection = section("Tasks"), list = taskSection.createDiv({ cls: "hub-phase-task-list" });
+                tasks = service.tasks(dv, projectId);
+                selected = new Map(tasks.filter(task => value?.id && task.phaseId === value.id).map(task => [key(task), task]));
+                const renderTasks = () => {
+                    list.replaceChildren();
+                    if (!selected.size) list.createDiv({ cls: "hub-task-help", text: "No associated tasks." });
+                    for (const [id, task] of selected) {
+                        const row = list.createDiv({ cls: "hub-phase-task-item" });
+                        const info = row.createDiv(); info.createDiv({ text: task.text });
+                        info.createDiv({ cls: "hub-task-help", text: task.path.replace(/\.md$/i, "").split("/").slice(2).join(" › ") });
+                        const remove = row.createEl("button", { text: "Remove", attr: { type: "button", "aria-label": "Remove phase from " + task.text } });
+                        remove.addEventListener("click", () => { selected.delete(id); renderTasks(); });
+                    }
+                };
+                renderTasks();
+                const add = taskSection.createEl("button", { text: "Add tasks", attr: { type: "button" } });
+                add.addEventListener("click", () => {
+                    class TaskPicker extends FuzzySuggestModal {
+                        getItems() { return tasks.filter(task => !task.identityConflict && !selected.has(key(task))); }
+                        getItemText(task) { const current = state.phases.find(item => item.id === task.phaseId); return task.text + " · " + task.path + (current ? " · " + current.name : ""); }
+                        onChooseItem(task) { if (!add.isConnected) return; selected.set(key(task), task); renderTasks(); }
+                    }
+                    new TaskPicker(service.plugin.app).open();
+                });
+            } else {
+                const label = section("Status").createEl("label", { cls: "hub-milestone-achieved-label" });
+                achieved = label.createEl("input", { type: "checkbox" }); achieved.checked = !!value?.achieved;
+                label.createSpan({ text: "Achieved" });
+            }
+            const error = form.createDiv({ cls: "hub-task-error", attr: { role: "alert" } });
+            const actions = form.createDiv({ cls: "hub-task-dialog-actions" });
+            const remove = actions.createEl("button", { cls: "hub-task-remove", text: "Delete " + noun, attr: { type: "button" } }); remove.hidden = !value;
+            const cancel = actions.createEl("button", { text: "Cancel", attr: { type: "button" } }); cancel.addEventListener("click", () => this.close());
+            actions.createEl("button", { text: value ? "Save" : "Add " + noun, cls: "mod-cta", attr: { type: "submit" } });
+            const commit = async deleting => {
+                if (this.saving || !deleting && !form.reportValidity()) return;
+                this.saving = true; error.textContent = "";
+                const controls = [...form.querySelectorAll("input,textarea,button")]; controls.forEach(control => { control.disabled = true; });
+                try {
+                    if (deleting) await service.remove(projectId, kind, value.id, revision);
+                    else if (phase) {
+                        const assignments = tasks.filter(task => selected.has(key(task)) !== !!(value?.id && task.phaseId === value.id))
+                            .map(task => ({ task, included: selected.has(key(task)) }));
+                        await service.savePhase(projectId, { id: value?.id, name: name.value, start: start.value, end: end.value, description: description.value }, assignments, revision);
+                    } else await service.saveMilestone(projectId, { id: value?.id, name: name.value, date: start.value, achieved: achieved.checked }, revision);
+                    this.saving = false; this.close();
+                } catch (reason) { error.textContent = reason.message; this.saving = false; controls.forEach(control => { control.disabled = false; }); }
+            };
+            form.addEventListener("submit", event => { event.preventDefault(); void commit(false); });
+            let armed = false;
+            remove.addEventListener("click", () => {
+                if (!armed) { armed = true; remove.textContent = "Confirm delete"; error.textContent = phase ? "Delete this phase? Its tasks will be kept with no phase." : "Delete this milestone?"; }
+                else void commit(true);
+            });
+            name.focus();
+        }
+        close() { if (!this.saving) super.close(); }
+        onClose() { this.contentEl.empty(); }
+    }
+    const modal = new PlanningModal(service.plugin.app); modal.open(); return modal;
+}
+module.exports = { openPlanningEditor };
+
+},
 "lib/ui/prepared-note-rail.js": function (module, exports, __hubRequire) {
 "use strict";
 
@@ -8139,6 +8789,164 @@ class ProjectDeletionModal extends Modal {
 module.exports = { ProjectDeletionModal };
 
 },
+"lib/ui/project-roadmap.js": function (module, exports, __hubRequire) {
+"use strict";
+const { Notice } = require("obsidian");
+const { localISODate } = __hubRequire("lib/domain/dates.js");
+const { roadmapRange, phasePlacement } = __hubRequire("lib/domain/project-planning.js");
+const { button, iconButton } = __hubRequire("lib/ui/task-view-primitives.js");
+const { openPlanningEditor } = __hubRequire("lib/ui/planning-editor.js");
+
+function mountProjectRoadmap({ plugin, component, dv, host, workspace, state }) {
+    const service = plugin.planning;
+    state.roadmapAnchor ??= new Date(); state.roadmapMonths ??= 6;
+    const panel = host.createDiv({ cls: "project-panel hub-roadmap-panel" });
+    let disposed = false;
+    const edit = (kind, value) => openPlanningEditor(service, workspace.projectId, kind, value, dv);
+    const month = date => date.toLocaleDateString("en-US", { month: "short", year: "numeric" });
+    const dateLabel = iso => new Date(iso + "T12:00:00").toLocaleDateString("en-US", { day: "numeric", month: "short", year: "numeric" });
+    function render() {
+        if (disposed) return;
+        const previous = panel.querySelector(".hub-roadmap-scroll"), scroll = { left: previous?.scrollLeft ?? 0, top: previous?.scrollTop ?? 0 };
+        panel.replaceChildren();
+        const data = service.read(workspace.projectId), range = roadmapRange(state.roadmapAnchor, state.roadmapMonths);
+        const toolbar = panel.createDiv({ cls: "hub-planning-toolbar" });
+        const navigation = toolbar.createDiv({ cls: "hub-planning-navigation" });
+        const move = amount => { state.roadmapAnchor = new Date(range.start.getFullYear(), range.start.getMonth() + amount * state.roadmapMonths, 1); render(); };
+        iconButton(navigation, "Previous range", "chevron-left", () => move(-1));
+        iconButton(navigation, "Next range", "chevron-right", () => move(1));
+        button(navigation, "Today", () => { state.roadmapAnchor = new Date(); render(); }, "hub-panel-action");
+        navigation.createEl("h3", { text: month(range.start) + " – " + month(new Date(range.end.getFullYear(), range.end.getMonth(), 0)) });
+        const actions = toolbar.createDiv({ cls: "hub-planning-actions" });
+        const select = actions.createEl("select", { attr: { "aria-label": "Roadmap range" } });
+        for (const [value, label] of [[3, "3 months"], [6, "6 months"], [12, "1 year"]]) select.createEl("option", { text: label, attr: { value: String(value) } });
+        select.value = String(state.roadmapMonths); select.addEventListener("change", () => { state.roadmapMonths = Number(select.value); render(); });
+        const additions = actions.createDiv({ cls: "hub-planning-additions" });
+        button(additions, "Phase", () => edit("phases"), "hub-panel-action", "plus");
+        button(additions, "Milestone", () => edit("milestones"), "hub-panel-action", "plus");
+        if (!data.phases.length && !data.milestones.length) { panel.createDiv({ cls: "hub-task-view-empty", text: "No phases or milestones yet." }); return; }
+        const scroller = panel.createDiv({ cls: "hub-roadmap-scroll" });
+        const timeline = scroller.createDiv({ cls: "hub-roadmap-timeline" });
+        const scaleWidth = Math.max(530, state.roadmapMonths * 85);
+        timeline.style.setProperty("--hub-roadmap-scale-width", scaleWidth + "px");
+        const makeRow = cls => {
+            const row = timeline.createDiv({ cls: "hub-roadmap-row " + cls });
+            const label = row.createDiv({ cls: "hub-roadmap-label" }), track = row.createDiv({ cls: "hub-roadmap-track" });
+            return { row, label, track };
+        };
+        const axis = makeRow("hub-roadmap-axis");
+        for (let i = 0; i < state.roadmapMonths; i++) {
+            const start = new Date(range.start.getFullYear(), range.start.getMonth() + i, 1), end = new Date(start.getFullYear(), start.getMonth() + 1, 1);
+            const heading = axis.track.createSpan({ cls: "hub-roadmap-month", text: month(start) });
+            heading.style.left = range.position(localISODate(start)) + "%";
+            heading.style.width = range.position(localISODate(end)) - range.position(localISODate(start)) + "%";
+        }
+        const monday = new Date(range.start); monday.setDate(monday.getDate() + (8 - monday.getDay()) % 7);
+        const weeks = [];
+        for (let date = monday; date < range.end; date = new Date(date.getFullYear(), date.getMonth(), date.getDate() + 7)) {
+            const left = range.position(localISODate(date)); weeks.push(left);
+            const marker = axis.track.createSpan({ cls: "hub-roadmap-week", text: String(date.getDate()) }); marker.style.left = left + "%";
+        }
+        const milestones = makeRow("hub-roadmap-milestones"); milestones.label.createSpan({ text: "Milestones" });
+        const visibleMilestones = data.milestones.filter(item => range.position(item.date) >= 0 && range.position(item.date) < 100).sort((a, b) => a.date.localeCompare(b.date));
+        for (const [index, item] of visibleMilestones.entries()) {
+            const position = range.position(item.date);
+            const marker = button(milestones.track, "", () => edit("milestones", item), "hub-button-plain hub-roadmap-milestone" + (item.achieved ? " is-achieved" : ""));
+            marker.dataset.planningId = item.id; marker.style.left = position + "%";
+            marker.setAttribute("aria-label", item.name + ", " + dateLabel(item.date) + (item.achieved ? ", achieved" : "")); marker.title = marker.getAttribute("aria-label");
+            marker.createSpan({ cls: "hub-roadmap-diamond", attr: { "aria-hidden": "true" } });
+            const label = marker.createSpan({ cls: "hub-roadmap-milestone-caption" });
+            label.createSpan({ text: item.name }); label.createSpan({ cls: "hub-roadmap-milestone-date", text: dateLabel(item.date) });
+            // Give captions the space halfway to adjacent markers; never move a diamond.
+            const trackWidth = milestones.track.getBoundingClientRect().width || scaleWidth;
+            const previous = index ? range.position(visibleMilestones[index - 1].date) : -position;
+            const next = index + 1 < visibleMilestones.length ? range.position(visibleMilestones[index + 1].date) : 200 - position;
+            const left = Math.max(0, (previous + position) / 2), right = Math.min(100, (next + position) / 2);
+            const width = Math.max(0, Math.min(145, (right - left) / 100 * trackWidth - 8));
+            const offset = Math.max((left - position) / 100 * trackWidth + 4, Math.min(-width / 2, (right - position) / 100 * trackWidth - width - 4));
+            label.style.width = width + "px"; label.style.left = offset + "px";
+            label.style.textAlign = offset < -width * .75 ? "right" : offset > -width * .25 ? "left" : "center";
+
+        }
+        const heading = makeRow("hub-roadmap-phase-heading"); heading.label.createSpan({ text: "Phases" });
+        data.phases.forEach((phase, index) => {
+            const { row, label, track } = makeRow("hub-roadmap-phase");
+            row.style.setProperty("--hub-phase-color", `var(--hub-phase-${index % 4})`);
+            const title = button(label, phase.name, () => edit("phases", phase), "hub-button-plain hub-roadmap-phase-name"); title.title = phase.name;
+            title.dataset.planningId = phase.id;
+            const reorder = label.createDiv({ cls: "hub-roadmap-reorder" });
+            for (const direction of [-1, 1]) {
+                const control = iconButton(reorder, `Move ${phase.name} ${direction < 0 ? "up" : "down"}`, direction < 0 ? "chevron-up" : "chevron-down", async () => {
+                    control.disabled = true;
+                    try { await service.reorder(workspace.projectId, phase.id, direction, data.revision); }
+                    catch (error) { new Notice(error.message); control.disabled = false; }
+                });
+                control.disabled = direction < 0 ? index === 0 : index === data.phases.length - 1;
+            }
+            const position = phasePlacement(phase, range);
+            if (position) {
+                const bar = button(track, "", () => edit("phases", phase), "hub-roadmap-phase-bar");
+                bar.dataset.planningId = phase.id; bar.style.left = position.left + "%"; bar.style.width = position.width + "%";
+                bar.setAttribute("aria-label", `${phase.name}, ${dateLabel(phase.start)} to ${dateLabel(phase.end)}`); bar.title = bar.getAttribute("aria-label");
+            }
+        });
+        const grid = timeline.createDiv({ cls: "hub-roadmap-grid", attr: { "aria-hidden": "true" } });
+        for (const position of weeks) { const line = grid.createSpan(); line.style.left = position + "%"; }
+        const today = range.position(localISODate());
+        if (today >= 0 && today < 100) { const line = grid.createDiv({ cls: "hub-roadmap-today" }); line.style.left = today + "%"; line.setAttribute("aria-label", "Today"); }
+        scroller.scrollLeft = scroll.left; scroller.scrollTop = scroll.top;
+    }
+    service.subscribe(component, id => { if (id === workspace.projectId) render(); });
+    let panelWidth = 0;
+    const observer = new ResizeObserver(() => {
+        const width = panel.getBoundingClientRect().width;
+        if (width && width !== panelWidth) { panelWidth = width; render(); }
+    });
+    observer.observe(panel);
+    component.register(() => { disposed = true; observer.disconnect(); }); render();
+    return { render, focus(kind, id) {
+        const data = service.read(workspace.projectId), item = data[kind]?.find(item => item.id === id);
+        if (!item) return false;
+        state.roadmapAnchor = new Date((item.start ?? item.date) + "T12:00:00"); render();
+        const target = [...panel.querySelectorAll("[data-planning-id]")].find(element => element.dataset.planningId === id);
+        target?.focus({ preventScroll: true }); target?.scrollIntoView({ block: "nearest", inline: "nearest" }); return !!target;
+    } };
+}
+module.exports = { mountProjectRoadmap };
+
+},
+"lib/ui/schedule-toolbar.js": function (module, exports, __hubRequire) {
+"use strict";
+const { calendarRange, shiftDay } = __hubRequire("lib/domain/task-views.js");
+const { button, iconButton } = __hubRequire("lib/ui/task-view-primitives.js");
+
+function renderScheduleToolbar(panel, context, state) {
+    const toolbar = panel.createDiv({ cls: "hub-planning-toolbar hub-schedule-toolbar" });
+    const navigation = toolbar.createDiv({ cls: "hub-planning-navigation" });
+    const view = state.scheduleView;
+    if (view !== "upcoming") {
+        const move = direction => {
+            state.anchor = view === "week" ? shiftDay(state.anchor, 7 * direction) : new Date(state.anchor.getFullYear(), state.anchor.getMonth() + direction, 1);
+            context.render();
+        };
+        iconButton(navigation, "Previous " + view, "chevron-left", () => move(-1));
+        iconButton(navigation, "Next " + view, "chevron-right", () => move(1));
+        button(navigation, "Today", () => { state.anchor = new Date(); context.render(); }, "hub-panel-action");
+        const days = calendarRange(state.anchor, view);
+        const format = date => date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+        navigation.createEl("h3", { text: view === "month" ? state.anchor.toLocaleDateString("en-US", { month: "long", year: "numeric" }) : format(days[0]) + " \u2013 " + format(days.at(-1)) });
+    }
+    const actions = toolbar.createDiv({ cls: "hub-planning-actions" });
+    const modes = actions.createDiv({ cls: "hub-panel-selectors hub-equal-selectors", attr: { role: "group", "aria-label": "Schedule view" } });
+    for (const [value, label] of [["upcoming", "Upcoming"], ["month", "Month"], ["week", "Week"]]) {
+        const choice = button(modes, label, () => { state.scheduleView = value; context.render(); }, view === value ? "is-active" : "");
+        choice.setAttribute("aria-pressed", String(view === value));
+    }
+    button(actions, "Add task", () => context.create({}), "hub-full-add-task hub-panel-action", "plus");
+}
+module.exports = { renderScheduleToolbar };
+
+},
 "lib/ui/settings-pages.js": function (module, exports, __hubRequire) {
 "use strict";
 
@@ -8416,10 +9224,10 @@ function renderBarChart(parent, { range, values, label, color = "accent", durati
 }
 
 function renderDonut(parent, comparison) {
-    if (!comparison.total) { emptyChart(parent, "No Oathbound time in this period."); return; }
+    if (!comparison.total) { emptyChart(parent, "No progress report data in this period."); return; }
     const root = parent.createDiv({ cls: "hub-statistics-comparison" });
     const svg = svgElement(root, "svg", { viewBox: "0 0 100 100", role: "img",
-        "aria-label": `Projects ${comparison.projects}%. Resources ${comparison.resources}%. Based on Oathbound time.` });
+        "aria-label": `Projects ${comparison.projects}%. Resources ${comparison.resources}%. Based on progress report points.` });
     svgElement(svg, "circle", { cx: 50, cy: 50, r: 36, class: "hub-statistics-donut-base" });
     svgElement(svg, "circle", { cx: 50, cy: 50, r: 36, pathLength: 100, transform: "rotate(-90 50 50)",
         "stroke-dasharray": `${comparison.projects} ${100 - comparison.projects}`, class: "hub-statistics-donut-projects" });
@@ -8461,7 +9269,7 @@ class StatisticsModal extends Modal {
         this.helpTooltips = createImmediateHubTooltip(this.contentEl);
         const header = this.contentEl.createDiv({ cls: "hub-statistics-header" });
         header.createEl("h2", { text: "Statistics" });
-        const ranges = header.createDiv({ cls: "hub-panel-selectors hub-statistics-ranges", attr: { role: "group", "aria-label": "Statistics time range" } });
+        const ranges = header.createDiv({ cls: "hub-panel-selectors hub-equal-selectors hub-statistics-ranges", attr: { role: "group", "aria-label": "Statistics time range" } });
         this.rangeButtons = RANGES.map(([key, label]) => {
             const button = ranges.createEl("button", { text: label, attr: { type: "button", "aria-pressed": String(key === this.range) } });
             button.classList.toggle("is-active", key === this.range);
@@ -8527,16 +9335,18 @@ class StatisticsModal extends Modal {
             this.chart(card, seriesFor(model, id, this.filters[id]), title, `No completed ${id} in this period.`, { color, compact: true });
         }
         this.renderOaths(); this.renderNotes(); this.renderProjects();
-        const comparison = this.card("comparison", "Resources vs Projects"); renderDonut(comparison, model.comparison);
-        this.hint(comparison, "Share of recorded Oathbound time.");
+        const comparison = this.card("comparison", "Resources vs Projects");
+        comparison.createDiv({ cls: "hub-statistics-caption", text: "Share of progress report points" });
+        renderDonut(comparison, model.comparison);
+        this.hint(comparison, "Raw Progress Report evaluations (0?4), summed by workspace for the selected period.");
     }
     renderDistribution(options) {
-        const card = this.card("distribution", "Work distribution (Oathbound time)", { options });
-        const rows = this.model.rows.filter(row => row.kind === this.filters.distribution && row.time > 0)
-            .sort((a, b) => b.time - a.time || a.name.localeCompare(b.name));
-        if (!rows.length) { emptyChart(card, "No Oathbound time in this period."); return; }
-        const total = rows.reduce((sum, row) => sum + row.time, 0);
-        const list = card.createDiv({ cls: "hub-statistics-ranking", attr: { tabindex: "0", role: "list", "aria-label": "Workspace time distribution" } });
+        const card = this.card("distribution", "Work distribution", { options });
+        const rows = this.model.rows.filter(row => row.kind === this.filters.distribution && row.progressPoints > 0)
+            .sort((a, b) => b.progressPoints - a.progressPoints || a.name.localeCompare(b.name));
+        if (!rows.length) { emptyChart(card, "No progress report data in this period."); return; }
+        const total = rows.reduce((sum, row) => sum + row.progressPoints, 0);
+        const list = card.createDiv({ cls: "hub-statistics-ranking", attr: { tabindex: "0", role: "list", "aria-label": "Workspace progress report points" } });
         for (const workspace of rows) {
             const row = list.createDiv({ cls: "hub-statistics-rank-row", attr: { role: "listitem" } });
             if (workspace.status === "unassigned") {
@@ -8544,12 +9354,12 @@ class StatisticsModal extends Modal {
                 row.setAttribute("title", "Historical work without workspace attribution");
                 row.setAttribute("aria-description", "Historical work without workspace attribution");
             }
-            const label = workspaceLabel(workspace), percent = workspace.time / total * 100;
+            const label = workspaceLabel(workspace), percent = workspace.progressPoints / total * 100;
             row.createSpan({ cls: "hub-statistics-name", text: label, attr: { title: label } });
             const track = row.createDiv({ cls: "hub-statistics-track", attr: { "aria-hidden": "true" } });
-            track.createDiv({ cls: "hub-statistics-fill" }).style.width = `${workspace.time / rows[0].time * 100}%`;
+            track.createDiv({ cls: "hub-statistics-fill" }).style.width = `${workspace.progressPoints / rows[0].progressPoints * 100}%`;
             row.createSpan({ cls: "hub-statistics-number", text: percent < 1 ? "<1%" : `${Math.round(percent)}%` });
-            row.createSpan({ cls: "hub-statistics-number", text: formatDuration(workspace.time) });
+            row.createSpan({ cls: "hub-statistics-number", text: `${workspace.progressPoints.toLocaleString()} pts` });
         }
     }
     renderOaths() {
@@ -8722,6 +9532,21 @@ function openTaskEditor(service, task, onEdit = () => {}, creation = null) {
             association.value = snapshot.linkedProjectId ?? "";
             const syncProject = () => { project.hidden = service.context?.(fieldsLocation.value())?.contextKind !== "resource"; };
             fieldsLocation.onChange(syncProject); syncProject();
+            const phaseSection = section("Phase");
+            const phaseLabel = phaseSection.createEl("label");
+            phaseLabel.createSpan({ text: "Project phase (optional)", cls: "hub-task-help" });
+            const phase = phaseLabel.createEl("select", { attr: { "aria-label": "Project phase (optional)" } });
+            let initialPhase = true;
+            const syncPhase = () => {
+                const previous = initialPhase ? snapshot.phaseId ?? "" : phase.value;
+                initialPhase = false;
+                phase.replaceChildren();
+                phase.createEl("option", { text: "No phase", attr: { value: "" } });
+                for (const item of service.phases?.(fieldsLocation.value()) ?? []) phase.createEl("option", { text: item.name, attr: { value: item.id } });
+                phase.value = [...phase.options].some(item => item.value === previous) ? previous : "";
+                phaseSection.hidden = service.context?.(fieldsLocation.value())?.contextKind !== "project";
+            };
+            fieldsLocation.onChange(() => { syncProject(); syncPhase(); }); syncPhase();
             const errorEl = form.createDiv({ cls: "hub-task-error", attr: { role: "alert" } });
             const actions = form.createDiv({ cls: "hub-task-dialog-actions" });
             const remove = actions.createEl("button", { text: "Delete task", cls: "hub-task-remove", attr: { type: "button" } });
@@ -8739,7 +9564,7 @@ function openTaskEditor(service, task, onEdit = () => {}, creation = null) {
                 const states = controls.map(control => control.disabled); controls.forEach(control => control.disabled = true);
                 try {
                     const values = { operation: deleting ? "delete" : "edit",
-                        location: fieldsLocation.value(), linkedProjectId: project.hidden ? null : association.value,
+                        location: fieldsLocation.value(), phaseId: phaseSection.hidden ? null : phase.value, linkedProjectId: project.hidden ? null : association.value,
                         text: input.value, necessity: selected, fromDate: from.value, dueDate: due.value,
                         fromTime: from.timeInput.value, dueTime: due.timeInput.value,
                         steps: stepRows.filter(step => !step.removed).map(step => ({ line: step.line, text: step.input.value, completed: step.checkbox.checked, completedAt: step.completedAt })) };
@@ -8876,32 +9701,21 @@ module.exports = { createTaskSteps };
 },
 "lib/ui/task-view-calendar.js": function (module, exports, __hubRequire) {
 "use strict";
-const { calendarRange, shiftDay } = __hubRequire("lib/domain/task-views.js");
+const { calendarRange } = __hubRequire("lib/domain/task-views.js");
 const { localISODate } = __hubRequire("lib/domain/dates.js");
-const { button, iconButton, taskCard } = __hubRequire("lib/ui/task-view-primitives.js");
+const { iconButton, taskCard } = __hubRequire("lib/ui/task-view-primitives.js");
+
+const { renderScheduleToolbar } = __hubRequire("lib/ui/schedule-toolbar.js");
 
 function renderTaskCalendar(host, tasks, context, state) {
     const panel = host.createDiv({ cls: "hub-task-calendar-panel" });
-    const toolbar = panel.createDiv({ cls: "hub-task-date-toolbar" });
-    const move = direction => {
-        state.anchor = state.calendarMode === "week" ? shiftDay(state.anchor, 7 * direction) :
-            new Date(state.anchor.getFullYear(), state.anchor.getMonth() + direction, 1);
-        context.render();
-    };
-    iconButton(toolbar, "Previous " + state.calendarMode, "chevron-left", () => move(-1));
-    iconButton(toolbar, "Next " + state.calendarMode, "chevron-right", () => move(1));
-    button(toolbar, "Today", () => { state.anchor = new Date(); context.render(); });
+    state.calendarMode = state.scheduleView;
+    renderScheduleToolbar(panel, context, state);
     const days = calendarRange(state.anchor, state.calendarMode);
     const format = date => date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-    toolbar.createEl("h3", { text: state.calendarMode === "month" ? state.anchor.toLocaleDateString("en-US", { month: "long", year: "numeric" }) :
-        format(days[0]) + " – " + format(days.at(-1)) });
-    const modes = toolbar.createDiv({ cls: "hub-panel-selectors" });
-    for (const mode of ["month", "week"]) {
-        const choice = button(modes, mode === "month" ? "Month" : "Week", () => { state.calendarMode = mode; context.render(); }, state.calendarMode === mode ? "is-active" : "");
-        choice.setAttribute("aria-pressed", String(state.calendarMode === mode));
-    }
     const scroll = panel.createDiv({ cls: "hub-task-local-scroll" });
     const grid = scroll.createDiv({ cls: "hub-task-calendar is-" + state.calendarMode });
+    grid.style.setProperty("--hub-calendar-weeks", String(days.length / 7));
     for (const day of ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]) grid.createDiv({ cls: "hub-task-weekday", text: day });
     const byDate = new Map();
     for (const task of tasks) {
@@ -8918,61 +9732,13 @@ function renderTaskCalendar(host, tasks, context, state) {
         const heading = cell.createDiv({ cls: "hub-task-calendar-day-heading" });
         heading.createSpan({ text: String(day.getDate()) });
         iconButton(heading, "Add task on " + format(day), "plus", () => context.create({ dueDate: iso }));
-        for (const task of byDate.get(iso) ?? []) taskCard(cell, task, context, true);
+        const body = cell.createDiv({ cls: "hub-task-calendar-day-body" });
+        for (const task of byDate.get(iso) ?? []) taskCard(body, task, context, true);
     }
     const count = tasks.filter(task => !task.dueDate && !task.fromDate).length;
-    if (count) panel.createDiv({ cls: "hub-task-view-note", text: count + " undated " + (count === 1 ? "task" : "tasks") + " · Available in Upcoming and All tasks" });
+    if (count) panel.createDiv({ cls: "hub-task-view-note", text: count + " undated " + (count === 1 ? "task" : "tasks") });
 }
 module.exports = { renderTaskCalendar };
-
-},
-"lib/ui/task-view-location.js": function (module, exports, __hubRequire) {
-"use strict";
-const { locationTree } = __hubRequire("lib/domain/task-views.js");
-const { button, compactRow, empty } = __hubRequire("lib/ui/task-view-primitives.js");
-const { setIcon } = require("obsidian");
-
-function renderByLocation(host, tasks, context, state) {
-    const tree = locationTree(tasks, context.workspace, context.folders);
-    const content = host.createDiv({ cls: "hub-task-location-tree" });
-    const firstPopulated = [...tree.children.values()].sort((a, b) => a.name.localeCompare(b.name)).find(node => node.count)?.path;
-    const render = (node, parent, depth) => {
-        const panel = parent.createEl("section", { cls: "hub-task-location-group" });
-        const open = state.expanded.has(node.path) || (!state.collapsed.has(node.path) && (!!state.search || !!state.location || firstPopulated && (node.path === firstPopulated || node.path.startsWith(firstPopulated + "/"))));
-        const heading = button(panel, "", () => {
-            if (open) { state.expanded.delete(node.path); state.collapsed.add(node.path); }
-            else { state.expanded.add(node.path); state.collapsed.delete(node.path); }
-            context.render();
-        }, "hub-button-plain hub-task-location-heading");
-        heading.setAttribute("aria-expanded", String(open));
-        setIcon(heading.createSpan({ attr: { "aria-hidden": "true" } }), open ? "chevron-down" : "chevron-right");
-        setIcon(heading.createSpan({ attr: { "aria-hidden": "true" } }), "folder");
-        heading.createSpan({ cls: "hub-task-folder-name", text: node.name, attr: { title: node.name } });
-        heading.createSpan({ cls: "hub-task-count", text: node.count + (node.count === 1 ? " task" : " tasks") });
-        if (!open) return;
-        const inner = panel.createDiv({ cls: "hub-task-location-children" });
-        node.tasks.forEach(task => compactRow(inner, task, context));
-        for (const child of [...node.children.values()].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))) {
-            if (state.search && !child.count) continue;
-            if (state.location && !child.count && !state.location.startsWith(child.path + "/") && child.path !== state.location) continue;
-            render(child, inner, depth + 1);
-        }
-        if (!node.count && !node.children.size) {
-            empty(inner, "No tasks in this location.");
-            button(inner, "Add task", () => context.create({ location: node.path }), "hub-task-column-add", "plus");
-        }
-    };
-    tree.tasks.forEach(task => compactRow(content, task, context));
-    for (const child of [...tree.children.values()].sort((a, b) => a.name.localeCompare(b.name))) {
-        if ((state.search || state.location) && !child.count && !(state.location === child.path || state.location?.startsWith(child.path + "/"))) continue;
-        render(child, content, 0);
-    }
-    if (!content.childElementCount) {
-        empty(content, tasks.length ? "No tasks match these filters." : "No tasks in this workspace.");
-        button(content, "Add task", () => context.create({}), "hub-task-column-add", "plus");
-    }
-}
-module.exports = { renderByLocation };
 
 },
 "lib/ui/task-view-primitives.js": function (module, exports, __hubRequire) {
@@ -9049,6 +9815,8 @@ function taskCard(host, task, context, compact = false) {
         const metadata = info.createDiv({ cls: "hub-full-card-context" });
         source(metadata, task, context);
         projectBadge(metadata, task, context);
+        const phase = context.phaseLabel?.(task);
+        if (phase) metadata.createSpan({ cls: "hub-task-phase", text: phase, attr: { title: "Phase: " + phase } });
         const schedule = info.createDiv({ cls: "hub-full-card-date" }); date(schedule, task, "dueDate", context.now);
         if (!task.dueDate && task.fromDate) {
             schedule.createSpan({ text: "Starts " }); date(schedule, task, "fromDate", context.now);
@@ -9071,124 +9839,10 @@ function compactRow(host, task, context) {
 module.exports = { button, iconButton, empty, stepsSummary, projectBadge, date, source, bindTask, taskCard, compactRow };
 
 },
-"lib/ui/task-view-table.js": function (module, exports, __hubRequire) {
-"use strict";
-const { sortTasks } = __hubRequire("lib/domain/task-views.js");
-const { button, date, source, stepsSummary, projectBadge, bindTask, empty } = __hubRequire("lib/ui/task-view-primitives.js");
-
-function renderTaskTable(host, tasks, context, state) {
-    const scroll = host.createDiv({ cls: "hub-task-local-scroll hub-task-table-panel" });
-    const table = scroll.createEl("table", { cls: "hub-full-task-table" });
-    const columns = [["task", "Task"], ["location", "Location"],
-        ...(context.resource ? [["project", "Project"]] : []),
-        ["necessity", "Necessity"], ["start", "Start"], ["due", "Due"], ["steps", "Steps"]];
-    const header = table.createEl("thead").createEl("tr");
-    header.createEl("th", { cls: "hub-full-check-cell", attr: { "aria-label": "Complete" } });
-    for (const [id, label] of columns) {
-        const cell = header.createEl("th", { cls: "hub-full-col-" + id,
-            attr: { scope: "col", "aria-sort": state.sort === id ? state.direction === 1 ? "ascending" : "descending" : "none" } });
-        const sort = button(cell, label, () => {
-            state.direction = state.sort === id ? -state.direction : 1; state.sort = id; context.render();
-        }, "hub-button-plain hub-task-sort");
-        if (state.sort === id) sort.createSpan({ text: state.direction === 1 ? " ↑" : " ↓", attr: { "aria-hidden": "true" } });
-    }
-    const body = table.createEl("tbody");
-    for (const task of sortTasks(tasks, state.sort, state.direction, context.locationLabel, context.projectLabel)) {
-        const row = body.createEl("tr");
-        const check = row.createEl("td", { cls: "hub-full-check-cell" });
-        const checkbox = check.createEl("input", { type: "checkbox" });
-        const cell = row.createEl("td", { cls: "hub-full-col-task" });
-        const title = cell.createDiv({ cls: "hub-full-task-title", text: task.text, attr: { title: task.text } });
-        bindTask(row, title, checkbox, task, context);
-        source(row.createEl("td", { cls: "hub-full-col-location" }), task, context);
-        if (context.resource) projectBadge(row.createEl("td"), task, context);
-        const necessity = row.createEl("td");
-        if (task.necessity) necessity.createSpan({ cls: "hub-full-necessity is-" + task.necessity, text: task.necessity === "must" ? "Must do" : "Should do" });
-        date(row.createEl("td"), task, "fromDate", context.now);
-        date(row.createEl("td"), task, "dueDate", context.now);
-        stepsSummary(row.createEl("td"), task, context.edit);
-    }
-    if (!tasks.length) empty(scroll);
-}
-module.exports = { renderTaskTable };
-
-},
-"lib/ui/task-view-timeline.js": function (module, exports, __hubRequire) {
-"use strict";
-const { timelinePlacement, dayNumber, shiftDay } = __hubRequire("lib/domain/task-views.js");
-const { localISODate, taskDateLabel } = __hubRequire("lib/domain/dates.js");
-const { button, iconButton, bindTask, empty } = __hubRequire("lib/ui/task-view-primitives.js");
-
-function renderTaskTimeline(host, tasks, context, state) {
-    const panel = host.createDiv({ cls: "hub-task-timeline-panel" });
-    const toolbar = panel.createDiv({ cls: "hub-task-date-toolbar" });
-    const move = amount => { state.timelineAnchor = new Date(state.timelineAnchor.getFullYear(), state.timelineAnchor.getMonth() + amount, 1); context.render(); };
-    iconButton(toolbar, "Previous range", "chevron-left", () => move(-state.months));
-    iconButton(toolbar, "Next range", "chevron-right", () => move(state.months));
-    button(toolbar, "Today", () => { state.timelineAnchor = new Date(context.now.getFullYear(), context.now.getMonth(), 1); context.render(); });
-    const start = new Date(state.timelineAnchor.getFullYear(), state.timelineAnchor.getMonth(), 1);
-    const end = new Date(start.getFullYear(), start.getMonth() + state.months, 1);
-    const monthLabel = date => date.toLocaleDateString("en-US", { month: "short", year: "numeric" });
-    toolbar.createEl("h3", { text: monthLabel(start) + " – " + monthLabel(shiftDay(end, -1)) });
-    const scale = toolbar.createEl("select", { attr: { "aria-label": "Timeline range" } });
-    for (const months of [3, 6, 12]) scale.createEl("option", { attr: { value: String(months) }, text: months + " months" });
-    scale.value = String(state.months); scale.addEventListener("change", () => { state.months = Number(scale.value); context.render(); });
-    const scroll = panel.createDiv({ cls: "hub-task-local-scroll" });
-    const grid = scroll.createDiv({ cls: "hub-task-timeline" });
-    grid.style.setProperty("--hub-timeline-width", Math.max(700, state.months * 150) + "px");
-    const total = dayNumber(localISODate(end)) - dayNumber(localISODate(start));
-    grid.style.setProperty("--hub-timeline-week-size", 7 / total * 100 + "%");
-    grid.style.setProperty("--hub-timeline-week-offset", (8 - start.getDay()) % 7 / total * 100 + "%");
-    const position = date => (dayNumber(localISODate(date)) - dayNumber(localISODate(start))) / total * 100;
-    const heading = grid.createDiv({ cls: "hub-task-timeline-row hub-task-timeline-heading" });
-    heading.createDiv({ cls: "hub-task-timeline-name", text: "Task" });
-    const axis = heading.createDiv({ cls: "hub-task-timeline-axis" });
-    for (let i = 0; i < state.months; i++) {
-        const date = new Date(start.getFullYear(), start.getMonth() + i, 1);
-        const next = new Date(start.getFullYear(), start.getMonth() + i + 1, 1);
-        const label = axis.createSpan({ cls: "hub-task-timeline-month", text: monthLabel(date) });
-        label.style.left = position(date) + "%"; label.style.width = position(next) - position(date) + "%";
-    }
-    for (let date = shiftDay(start, (8 - start.getDay()) % 7); date < end; date = shiftDay(date, 7)) {
-        const label = axis.createSpan({ cls: "hub-task-timeline-week", text: String(date.getDate()) });
-        label.style.left = position(date) + "%";
-    }
-    let visible = 0;
-    for (const task of tasks) {
-        const placement = timelinePlacement(task, localISODate(start), localISODate(end));
-        if (!placement) continue;
-        visible++;
-        const row = grid.createDiv({ cls: "hub-task-timeline-row" });
-        const name = row.createDiv({ cls: "hub-task-timeline-name" });
-        const checkbox = name.createEl("input", { type: "checkbox" });
-        const title = name.createDiv({ cls: "hub-full-task-title", text: task.text, attr: { title: task.text } });
-        bindTask(name, title, checkbox, task, context);
-        const track = row.createDiv({ cls: "hub-task-timeline-track" });
-        const schedule = (task.fromDate ? "Start: " + taskDateLabel(task.fromDate, task.fromTime, false, context.now, true) : "") +
-            (task.fromDate && task.dueDate ? "; " : "") + (task.dueDate ? "Due: " + taskDateLabel(task.dueDate, task.dueTime, false, context.now, true) : "");
-        const bar = button(track, "", () => context.edit(task), "hub-button-plain hub-task-timeline-bar is-" + placement.kind + (task.necessity ? " is-" + task.necessity : ""));
-        bar.style.left = placement.left + "%"; bar.style.width = placement.kind === "range" ? placement.width + "%" : "10px";
-        bar.title = task.text + " · " + schedule; bar.setAttribute("aria-label", bar.title);
-        if (placement.kind === "start") bar.textContent = "›";
-        row.classList.toggle("is-completed", !!task.completed);
-    }
-    const today = position(context.now);
-    if (today >= 0 && today < 100) {
-        const line = grid.createDiv({ cls: "hub-task-timeline-today", attr: { "aria-label": "Today" } });
-        line.style.left = "calc(240px + (100% - 240px) * " + today / 100 + ")";
-    }
-    if (!visible) empty(panel, "No dated tasks in this range.");
-    const undated = tasks.filter(task => !task.fromDate && !task.dueDate).length;
-    if (undated) panel.createDiv({ cls: "hub-task-view-note", text: undated + " undated " + (undated === 1 ? "task" : "tasks") + " · Available in Upcoming and All tasks" });
-}
-module.exports = { renderTaskTimeline };
-
-},
 "lib/ui/task-view-upcoming.js": function (module, exports, __hubRequire) {
 "use strict";
-const { BUCKETS, upcomingGroups, shiftDay } = __hubRequire("lib/domain/task-views.js");
-const { localISODate } = __hubRequire("lib/domain/dates.js");
-const { button, taskCard } = __hubRequire("lib/ui/task-view-primitives.js");
+const { BUCKETS, upcomingGroups } = __hubRequire("lib/domain/task-views.js");
+const { taskCard } = __hubRequire("lib/ui/task-view-primitives.js");
 
 function renderUpcoming(host, tasks, context) {
     const scroll = host.createDiv({ cls: "hub-task-local-scroll" });
@@ -9199,10 +9853,9 @@ function renderUpcoming(host, tasks, context) {
         const heading = column.createDiv({ cls: "hub-task-column-heading" });
         heading.createEl("h3", { text: label });
         heading.createSpan({ cls: "hub-task-count", text: String(groups[id].length) });
-        for (const task of groups[id]) taskCard(column, task, context);
-        if (!groups[id].length) column.createDiv({ cls: "hub-task-column-empty", text: "No tasks" });
-        const dueDate = id === "today" ? localISODate(context.now) : id === "tomorrow" ? localISODate(shiftDay(context.now, 1)) : null;
-        button(column, "Add task", () => context.create({ dueDate }), "hub-task-column-add", "plus");
+        const body = column.createDiv({ cls: "hub-task-column-body" });
+        for (const task of groups[id]) taskCard(body, task, context);
+        if (!groups[id].length) body.createDiv({ cls: "hub-task-column-empty", text: "No tasks" });
     }
 }
 module.exports = { renderUpcoming };
@@ -9213,63 +9866,85 @@ module.exports = { renderUpcoming };
 const { createTaskUi } = __hubRequire("lib/ui/tasks.js");
 const { openTaskEditor, openTaskCreator } = __hubRequire("lib/ui/task-editor.js");
 const { applyTaskEdit } = __hubRequire("lib/domain/tasks.js");
-const { PROJECT_VIEWS, RESOURCE_VIEWS, VIEW_LABELS, BUCKETS, filterTasks, locationLabel, validLocation } = __hubRequire("lib/domain/task-views.js");
+const { filterTasks, locationLabel, validLocation } = __hubRequire("lib/domain/task-views.js");
 const { taskWorkspaces } = __hubRequire("lib/services/task-locations.js");
 const { button } = __hubRequire("lib/ui/task-view-primitives.js");
-const { renderUpcoming } = __hubRequire("lib/ui/task-view-upcoming.js");
-const { renderTaskTable } = __hubRequire("lib/ui/task-view-table.js");
-const { renderByLocation } = __hubRequire("lib/ui/task-view-location.js");
 const { renderTaskCalendar } = __hubRequire("lib/ui/task-view-calendar.js");
-const { renderTaskTimeline } = __hubRequire("lib/ui/task-view-timeline.js");
-const { setIcon } = require("obsidian");
+const { renderUpcoming } = __hubRequire("lib/ui/task-view-upcoming.js");
+const { renderScheduleToolbar } = __hubRequire("lib/ui/schedule-toolbar.js");
+const { mountProjectRoadmap } = __hubRequire("lib/ui/project-roadmap.js");
 
 // Weakly scoped to the owning Dataview container, including warm frame rebuilds.
 const states = new WeakMap();
-function mountTaskWorkspace({ plugin, component, dv, root, toolbar, filesGrid, workspace, onFiles, openSource }) {
+function mountTaskWorkspace({ plugin, component, dv, root, toolbar, filesGrid, filesPanel, roadmapParent, workspace, onFiles, openSource }) {
+    if (workspace.contextKind === "resource") return { active: () => false, showFiles: () => onFiles?.() };
     let byWorkspace = states.get(dv.container);
     if (!byWorkspace) states.set(dv.container, byWorkspace = new Map());
     const resource = workspace.contextKind === "resource";
     const key = workspace.projectId ?? workspace.root;
     let state = byWorkspace.get(key);
-    if (!state) byWorkspace.set(key, state = { mode: "files", view: resource ? "location" : "upcoming",
+    if (!state) byWorkspace.set(key, state = { mode: "work", scheduleView: "upcoming",
         search: "", location: "", status: "open", necessity: "", date: "", sort: "due", direction: 1,
         calendarMode: "month", anchor: new Date(), timelineAnchor: new Date(), months: 6,
         expanded: new Set(), collapsed: new Set() });
-    const views = resource ? RESOURCE_VIEWS : PROJECT_VIEWS;
-    if (!views.includes(state.view)) state.view = views[0];
+    if (!["work", "roadmap", "schedule"].includes(state.mode)) state.mode = "work";
+    state.scheduleView ??= "upcoming";
+    state.location = "";
+    state.search = "";
+    root.classList.add("has-project-modes");
     toolbar.classList.add("hub-task-workspace-nav");
     const primary = toolbar.createDiv({ cls: "hub-task-primary-modes", attr: { role: "group", "aria-label": "Workspace mode" } });
-    const filesButton = button(primary, "Files", () => mode("files"), "hub-task-mode", "folder");
-    const tasksButton = button(primary, "Tasks", () => mode("tasks"), "hub-task-mode", "list-todo");
-    const secondary = toolbar.createDiv({ cls: "hub-task-secondary-nav" });
-    const separator = secondary.createDiv({ cls: "hub-task-nav-separator", attr: { "aria-hidden": "true" } });
-    const tabs = secondary.createDiv({ cls: "hub-task-view-tabs", attr: { role: "tablist", "aria-label": "Task views" } });
-    const tabButtons = new Map();
-    for (const view of views) {
-        const tab = button(tabs, VIEW_LABELS[view], () => { state.view = view; render(); }, "hub-button-plain hub-task-view-tab");
-        tab.setAttribute("role", "tab"); tab.dataset.taskView = view; tabButtons.set(view, tab);
-        tab.addEventListener("keydown", event => {
+    if (state.modeWidth) primary.style.setProperty("--hub-project-mode-width", state.modeWidth);
+    toolbar.prepend(primary);
+    const modeGroup = primary.createDiv({ cls: "hub-equal-selectors hub-task-mode-buttons" });
+    const modeButtons = new Map();
+    for (const [value, label] of [["work", "Work"], ["schedule", "Schedule"], ["roadmap", "Roadmap"]]) {
+        const control = button(modeGroup, label, () => mode(value), "hub-task-mode");
+        control.dataset.workspaceMode = value;
+        modeButtons.set(value, control);
+        control.addEventListener("keydown", event => {
             if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
             event.preventDefault();
-            const index = event.key === "Home" ? 0 : event.key === "End" ? views.length - 1 :
-                (views.indexOf(view) + (event.key === "ArrowRight" ? 1 : -1) + views.length) % views.length;
-            state.view = views[index]; render(); tabButtons.get(state.view).focus();
+            const keys = [...modeButtons.keys()];
+            const index = event.key === "Home" ? 0 : event.key === "End" ? 2 : (keys.indexOf(value) + (event.key === "ArrowRight" ? 1 : 2)) % 3;
+            mode(keys[index]); modeButtons.get(keys[index]).focus();
         });
     }
-    const actions = toolbar.createDiv({ cls: "hub-task-nav-actions" });
-    const searchHost = actions.createEl("label", { cls: "hub-task-search" });
-    setIcon(searchHost.createSpan({ attr: { "aria-hidden": "true" } }), "search");
-    const search = searchHost.createEl("input", { type: "search", attr: { placeholder: "Search tasks…", "aria-label": "Search tasks" } });
-    search.value = state.search;
-    search.addEventListener("input", () => { state.search = search.value; render(); });
-    button(actions, "Add task", () => create({}), "mod-cta hub-full-add-task", "plus");
     const host = root.createDiv({ cls: "hub-task-workspace hub-dashboard-enter-row" });
     toolbar.after(host);
-    const filters = host.createDiv({ cls: "hub-task-filter-row" });
-    const content = host.createDiv({ cls: "hub-task-view-content", attr: { role: "tabpanel" } });
+    roadmapParent ??= filesGrid.querySelector(".project-left-column") ?? filesGrid;
+    filesPanel ??= roadmapParent.querySelector(".project-folder-stack");
+    filesPanel?.classList.add("hub-work-files");
+    // Planning surfaces are siblings of Work, so neither inherits its sidebar.
+    const roadmapHost = root.createDiv({ cls: "hub-roadmap-host hub-dashboard-enter-row" });
+    host.after(roadmapHost);
+    let roadmap;
+    const content = host.createDiv({ cls: "hub-task-view-content", attr: { role: "region" } });
     let tasks = [], locations = [], workspaces = [], dirty = true, disposed = false;
     const pending = new Set();
     const inNoteRail = () => !!root.closest(".hub-project-rail");
+    // Derive the mode boundary from the rendered Files grid, including its
+    // responsive split and borders. Never change the explorer to fit the modes.
+    const syncModeWidth = () => {
+        if (disposed || inNoteRail() || filesGrid.hidden) return;
+        const details = filesPanel?.querySelector(".hub-explorer-details");
+        if (!details?.getClientRects().length) return;
+        const divider = details.getBoundingClientRect().left;
+        const width = divider - primary.getBoundingClientRect().left + parseFloat(getComputedStyle(primary).borderRightWidth);
+        const barStyle = getComputedStyle(toolbar);
+        const available = toolbar.getBoundingClientRect().width - ["paddingLeft", "paddingRight", "borderLeftWidth", "borderRightWidth"]
+            .reduce((sum, key) => sum + parseFloat(barStyle[key]), 0);
+        if (width > 0 && available > 0) {
+            // Retain the proportion across warm frame rebuilds and resizing in
+            // planning modes; Work always refreshes it from the actual split.
+            state.modeWidth = `${width / available * 100}%`;
+            primary.style.setProperty("--hub-project-mode-width", state.modeWidth);
+        }
+    };
+    const modeWidthObserver = new ResizeObserver(syncModeWidth);
+    modeWidthObserver.observe(toolbar);
+    if (filesPanel) modeWidthObserver.observe(filesPanel);
+    component.register(() => modeWidthObserver.disconnect());
     const currentPath = path => plugin.taskData.currentPath(path);
     const owner = task => workspaces.find(item => validLocation(currentPath(task.path), item)) ?? workspace;
     const describe = task => locationLabel(currentPath(task.path), owner(task), owner(task).root !== workspace.root);
@@ -9284,13 +9959,13 @@ function mountTaskWorkspace({ plugin, component, dv, root, toolbar, filesGrid, w
     const edit = task => openTaskEditor(plugin.taskEditor, { ...task, path: currentPath(task.path) }, apply);
     const ui = createTaskUi({ app: plugin.app, component, body: content, mutate: request => plugin.mutateTask(request),
         onEdit: apply, editTask: (task, saved) => openTaskEditor(plugin.taskEditor, task, saved),
-        createTask: options => create(options) });
+        createTask: options => create(options), phaseLabel: task => plugin.planning?.phaseFor(task)?.name });
     function create(options) {
         openTaskCreator(plugin.taskEditor, { root: workspace.root, location: state.location || workspace.root, ...options });
     }
     function refresh() {
         dirty = true;
-        if (disposed || state.mode !== "tasks" || inNoteRail()) return;
+        if (disposed || state.mode !== "schedule" || inNoteRail()) return;
         workspace = { ...workspace, root: currentPath(workspace.root) };
         workspaces = taskWorkspaces(plugin).sort((a, b) => b.root.length - a.root.length);
         tasks = plugin.taskData.readWorkspace(dv, workspace, workspaces.filter(item => item.contextKind === "resource"));
@@ -9301,54 +9976,46 @@ function mountTaskWorkspace({ plugin, component, dv, root, toolbar, filesGrid, w
         }
         dirty = false; render();
     }
-    function selectFilter(label, value, options, changed) {
-        const select = filters.createEl("select", { attr: { "aria-label": label } });
-        for (const [key, text] of options) select.createEl("option", { attr: { value: key }, text });
-        select.value = value;
-        select.addEventListener("change", () => { changed(select.value); render(); });
-        return select;
-    }
     function render() {
-        if (disposed || state.mode !== "tasks" || inNoteRail()) return;
+        if (disposed || state.mode !== "schedule" || inNoteRail()) return;
         if (!ui.beginRender(render)) return;
         // Schedules existing start-time boundaries without changing panel semantics.
         ui.groups(tasks);
-        tabButtons.forEach((tab, view) => {
-            tab.classList.toggle("is-active", view === state.view);
-            tab.setAttribute("aria-selected", String(view === state.view)); tab.tabIndex = view === state.view ? 0 : -1;
-        });
-        content.setAttribute("aria-label", VIEW_LABELS[state.view]);
-        filters.empty();
-        selectFilter("Location", state.location, [["", "All locations"], ...locations.map(item => [item.path, item.label + (item.folder ? " · Folder" : "")])], value => { state.location = value; });
-        if (state.view === "all") {
-            selectFilter("Status", state.status, [["all", "All status"], ["open", "Incomplete"], ["active", "Current"], ["future", "Future"], ["completed", "Completed"]], value => { state.status = value; });
-            selectFilter("Necessity", state.necessity, [["", "All necessity"], ["must", "Must do"], ["should", "Should do"], ["neutral", "Unassigned"]], value => { state.necessity = value; });
-            selectFilter("Date", state.date, [["", "All dates"], ...BUCKETS], value => { state.date = value; });
-        }
-        const selection = { ...state, ...(state.view === "all" ? {} : { status: "open", necessity: "", date: "" }) };
+        content.setAttribute("aria-label", "Schedule");
+        const selection = { ...state, status: "open", necessity: "", date: "" };
         const now = new Date();
         const visible = filterTasks(tasks, selection, now, task => describe(task) + " " + projectLabel(task));
         content.empty();
         const context = { workspace, resource, folders: locations.filter(item => item.folder), now,
-            ui, pending, currentPath, locationLabel: describe, projectLabel, apply, edit, create, render,
+            ui, pending, currentPath, locationLabel: describe, projectLabel, phaseLabel: task => plugin.planning?.phaseFor(task)?.name, apply, edit, create, render,
             toggle: request => plugin.mutateTask(request),
             openSource: task => openSource(currentPath(task.path)) };
-        if (state.view === "upcoming") renderUpcoming(content, visible, context);
-        else if (state.view === "calendar") renderTaskCalendar(content, visible, context, state);
-        else if (state.view === "timeline") renderTaskTimeline(content, visible, context, state);
-        else if (state.view === "location") renderByLocation(content, visible, context, state);
-        else renderTaskTable(content, visible, context, state);
+        if (state.scheduleView !== "upcoming") renderTaskCalendar(content, visible, context, state);
+        else {
+            const panel = content.createDiv({ cls: "hub-task-calendar-panel hub-schedule-upcoming" });
+            renderScheduleToolbar(panel, context, state);
+            renderUpcoming(panel, visible, context);
+        }
     }
     function mode(value, initial = false) {
         state.mode = value;
-        const active = value === "tasks";
+        const active = value === "schedule";
         root.classList.toggle("is-task-workspace", active);
-        filesGrid.hidden = active; host.hidden = !active;
-        for (const el of [secondary, actions]) el.hidden = !active;
-        filesButton.classList.toggle("is-active", !active); tasksButton.classList.toggle("is-active", active);
-        filesButton.setAttribute("aria-pressed", String(!active)); tasksButton.setAttribute("aria-pressed", String(active));
+        root.classList.toggle("is-roadmap-workspace", value === "roadmap");
+        filesGrid.hidden = value !== "work"; host.hidden = !active;
+        if (filesPanel) filesPanel.hidden = value === "roadmap";
+        roadmapHost.hidden = value !== "roadmap";
+        if (value === "roadmap") {
+            roadmap ??= mountProjectRoadmap({ plugin, component, dv, host: roadmapHost, workspace, state });
+            roadmap.render();
+        }
+        modeButtons.forEach((control, key) => {
+            control.classList.toggle("is-active", value === key);
+            control.setAttribute("aria-pressed", String(value === key));
+        });
         if (active) { if (dirty) refresh(); else render(); }
         else if (!initial) onFiles?.();
+        if (value === "work") syncModeWidth();
     }
     plugin.taskData.subscribe(component, refresh);
     // Project state/name changes can alter association labels without a task edit.
@@ -9364,14 +10031,15 @@ function mountTaskWorkspace({ plugin, component, dv, root, toolbar, filesGrid, w
         if (disposed || wasRail === rail) return;
         wasRail = rail;
         if (rail) onFiles?.();
-        else if (state.mode === "tasks") { if (dirty) refresh(); else render(); }
+        else if (state.mode === "schedule") { if (dirty) refresh(); else render(); }
     };
     const railObserver = new MutationObserver(layoutChanged);
     railObserver.observe(root.ownerDocument.body, { attributes: true, attributeFilter: ["class"] });
     if (plugin.app.workspace?.on) component.registerEvent(plugin.app.workspace.on("layout-change", () => queueMicrotask(layoutChanged)));
     component.register(() => { disposed = true; railObserver.disconnect(); });
     mode(state.mode, true);
-    return { active: () => state.mode === "tasks" && !inNoteRail(), refresh, render, state };
+    return { active: () => state.mode === "schedule" && !inNoteRail(), refresh, render, state,
+        showFiles: () => mode("work"), focusPlanning: (kind, id) => { mode("roadmap"); return roadmap.focus(kind, id); } };
 }
 module.exports = { mountTaskWorkspace };
 
@@ -9399,7 +10067,7 @@ function createTaskRow(parent, task, completed = task.completed) {
     return { row, checkbox, info, textEl };
 }
 
-function createTaskUi({ app, component, body, mutate, onEdit, editTask, createTask, oath }) {
+function createTaskUi({ app, component, body, mutate, onEdit, editTask, createTask, oath, phaseLabel }) {
     const { Menu, Notice, setIcon } = require("obsidian");
     const document = body.ownerDocument;
     let active = null, deferred = null, lastRender = null, disposed = false;
@@ -9587,6 +10255,8 @@ function createTaskUi({ app, component, body, mutate, onEdit, editTask, createTa
         }
         const source = info.querySelector(".home-task-location, .project-task-location");
         if (source) source.textContent = options.sourceLabel ?? (options.selection && !options.normalSource ? getPath().replace(/\.md$/i, "").split("/").join(" › ") : taskSourceLabel(getPath()));
+        const phase = !options.selection && phaseLabel?.(task);
+        if (source && phase) source.createSpan({ cls: "hub-task-phase", text: phase, attr: { title: "Phase: " + phase } });
         if (!options.selection && options.steps !== false) steps.bind(info, task, getPath);
         if (editTask) {
             textEl.tabIndex = 0; textEl.setAttribute("role", "button"); textEl.setAttribute("aria-label", `Edit task: ${task.text}`);
@@ -9649,7 +10319,9 @@ function createTaskUi({ app, component, body, mutate, onEdit, editTask, createTa
     }
     function addButton(header, options = {}) {
         if (!createTask) return;
-        const button = header.createEl("button", { text: "+ Add task", cls: "hub-panel-action hub-task-add", attr: { type: "button" } });
+        const button = header.createEl("button", { cls: "hub-panel-action hub-panel-action-icon hub-panel-add hub-task-add",
+            attr: { type: "button", "aria-label": "Add task", title: "Add task" } });
+        setIcon(button.createSpan({ attr: { "aria-hidden": "true" } }), "plus");
         button.addEventListener("click", () => createTask(options));
     }
     return { bind, beginRender, defer, groups, group, addButton, partitionOath: oathSection.partition, renderOath: oathSection.render };
@@ -9922,6 +10594,9 @@ function mountWorkspaceExplorer({ parent, workspacePath, dashboardPath, descript
     }
     const shell = el(parent, "section", "project-panel hub-workspace-explorer");
     shell.setAttribute("aria-label", "Workspace files");
+    const heading = el(shell, "div", "project-panel-title hub-explorer-heading");
+    icon(heading, "folder-tree");
+    el(heading, "span", "", "Files");
     const searchBox = el(shell, "div", "hub-explorer-search");
     icon(searchBox, "search");
     const search = el(searchBox, "input", "hub-explorer-search-input");
@@ -9953,6 +10628,7 @@ function mountWorkspaceExplorer({ parent, workspacePath, dashboardPath, descript
     // currentPath belongs to Full-view; activePath only describes the open Note file.
     let noteView = isNoteView(), rememberedFolder = false;
     const searchCollapsed = new Set();
+    const activeQuery = () => isNoteView() ? query : "";
     const ui = path => states()[path] ?? {};
     function save(path, changes) {
         states()[path] = { ...ui(path), ...changes };
@@ -9960,7 +10636,7 @@ function mountWorkspaceExplorer({ parent, workspacePath, dashboardPath, descript
     }
     function selectedFolder() { return model.byPath.get(currentPath); }
     function isExpanded(node) {
-        return node.children.length > 0 && (query ? !searchCollapsed.has(node.path) : ui(node.path).collapsed === false);
+        return node.children.length > 0 && (activeQuery() ? !searchCollapsed.has(node.path) : ui(node.path).collapsed === false);
     }
     function lineage(node) {
         const result = [];
@@ -9999,7 +10675,7 @@ function mountWorkspaceExplorer({ parent, workspacePath, dashboardPath, descript
     }
     function toggle(node, repaint = true) {
         if (!node.children.length) return;
-        if (query) {
+        if (activeQuery()) {
             if (searchCollapsed.has(node.path)) searchCollapsed.delete(node.path);
             else searchCollapsed.add(node.path);
         } else save(node.path, { collapsed: isExpanded(node) });
@@ -10079,7 +10755,7 @@ function mountWorkspaceExplorer({ parent, workspacePath, dashboardPath, descript
         }
         const roots = model.roots.filter(node => filtered.visible.has(node.path));
         roots.forEach((node, index) => branch(tree, node, 0, index, roots.length));
-        if (!roots.length) el(tree, "div", "hub-explorer-empty", query ? "No matching files or folders." : "No workspace folders yet.");
+        if (!roots.length) el(tree, "div", "hub-explorer-empty", activeQuery() ? "No matching files or folders." : "No workspace folders yet.");
         if (!visiblePaths.includes(focusPath)) focusPath = visiblePaths.includes(currentPath) ? currentPath : visiblePaths[0];
         for (const item of tree.querySelectorAll("[role=treeitem]")) item.tabIndex = item.dataset.treePath === focusPath ? 0 : -1;
         syncSelection();
@@ -10131,7 +10807,7 @@ function mountWorkspaceExplorer({ parent, workspacePath, dashboardPath, descript
             row.setAttribute("role", "option");
             row.tabIndex = 0;
         }
-        if (!children.length) el(contents, "div", "hub-explorer-empty", query ? "No matching items in this folder." : "This folder is empty.");
+        if (!children.length) el(contents, "div", "hub-explorer-empty", activeQuery() ? "No matching items in this folder." : "This folder is empty.");
         syncSelection(); contents.scrollTop = scrollTop;
     }
     function contextualFolder() {
@@ -10160,9 +10836,10 @@ function mountWorkspaceExplorer({ parent, workspacePath, dashboardPath, descript
     }
     function render() {
         const hadFocus = tree.contains(doc.activeElement);
-        filtered = filterWorkspaceTree(model.roots, query);
+        filtered = filterWorkspaceTree(model.roots, activeQuery());
         renderTree(hadFocus); renderDetails();
-        status.textContent = query ? `${filtered.matches.size} matches` : "";
+        shell.classList.toggle("is-note-explorer", isNoteView());
+        status.textContent = activeQuery() ? `${filtered.matches.size} matches` : "";
     }
     function refresh({ restore = false } = {}) {
         if (disposed) return;
@@ -10278,6 +10955,12 @@ function mountWorkspaceExplorer({ parent, workspacePath, dashboardPath, descript
     }
     refresh({ restore: true });
     return { refresh, beginCreate, syncSelection, syncMode,
+        selectFolderPath(path) {
+            const node = model.byPath.get(path);
+            if (!node?.folder) return false;
+            clearSelection(); selectFolder(node, true); focusNode(path);
+            return true;
+        },
         rename(oldPath, newPath) {
             rewriteExplorerPaths(states(), oldPath, newPath);
             const rewrite = path => path && (path === oldPath || path.startsWith(oldPath + "/")) ? newPath + path.slice(oldPath.length) : path;
@@ -22908,14 +23591,20 @@ module.exports = class HubProjectMenu extends Plugin {
         window.hubTaskGroups = taskGroups;
         window.hubTaskOwner = path => this.projectWizard.getContextForPath(path);
         window.hubCreateTaskUi = (component, body, onEdit) => createTaskUi({
-            app: this.app, component, body, onEdit, oath: this.oath, mutate: request => this.mutateTask(request),
+            app: this.app, component, body, onEdit, oath: this.oath, phaseLabel: task => this.planning?.phaseFor(task)?.name, mutate: request => this.mutateTask(request),
             editTask: (task, saved) => openTaskEditor(this.taskEditor, task, saved),
             createTask: options => openTaskCreator(this.taskEditor, options)
         });
         window.hubCreateMarkdown = component => createHubMarkdown({ app: this.app, component });
         this.taskData = new HubTaskDataService(this.app, { metadata: id => this.taskEditor.metadata(id) });
         window.hubTaskData = this.taskData;
+        this.planning = new (__hubRequire("lib/services/project-planning.js").ProjectPlanningService)(this);
+        window.hubMountFullViewLayout = (root, component) => __hubRequire("lib/ui/full-view-layout.js").mountFullViewLayout({ root, component, app: this.app });
         window.hubMountTaskWorkspace = options => __hubRequire("lib/ui/task-workspace.js").mountTaskWorkspace({ plugin: this, ...options });
+        this.contextSearch = new (__hubRequire("lib/services/context-search.js").ContextSearchService)(this);
+        window.hubMountContextSearch = options => __hubRequire("lib/ui/context-search.js").mountContextSearch({ service: this.contextSearch, ...options });
+        window.hubRegisterSearchWorkspace = (...args) => this.contextSearch.registerWorkspace(...args);
+        window.hubApplySearchFolder = root => this.contextSearch.applyFolder(root);
         this.dailyBrief = new DailyBriefService(this);
         this.app.workspace.onLayoutReady(() => {
             if (this.oath.disposed) return;
@@ -23051,7 +23740,11 @@ module.exports = class HubProjectMenu extends Plugin {
         delete window.hubOpenStatistics;
 
         this.appShortcutsControl?.destroy();
+        delete window.hubMountFullViewLayout;
         delete window.hubMountTaskWorkspace;
+        delete window.hubMountContextSearch;
+        delete window.hubRegisterSearchWorkspace;
+        delete window.hubApplySearchFolder;
         this.musicControl?.destroy();
         this.settingsControl?.destroy();
         this.dailyBriefControl?.destroy();

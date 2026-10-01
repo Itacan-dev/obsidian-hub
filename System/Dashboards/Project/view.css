@@ -14,7 +14,7 @@
     display: flex;
     flex-direction: column;
 
-    gap: 14px;
+    gap: var(--hub-dashboard-gap, 14px);
 }
 
 
@@ -279,7 +279,7 @@
         minmax(280px, 1.2fr)
         minmax(300px, 1.1fr);
 
-    gap: 12px;
+    gap: var(--hub-panel-gap, 12px);
 
     align-items: start;
 }
@@ -299,7 +299,23 @@
     display: flex;
     flex-direction: column;
 
-    gap: 12px;
+    gap: var(--hub-panel-gap, 12px);
+}
+
+/* Project Work fills the height established by Tasks and Progress/History.
+   Resource and native Note-view retain their existing sizing. */
+.project-dashboard.has-project-modes:not(.hub-project-rail *) > .project-main-grid > .project-left-column {
+    align-self: stretch;
+    min-height: 0;
+}
+.project-dashboard.has-project-modes:not(.hub-project-rail *) .hub-work-files {
+    flex: 1 1 0;
+    min-height: 0;
+}
+.project-dashboard.has-project-modes:not(.hub-project-rail *) .hub-work-files > .hub-workspace-explorer {
+    flex: 1 1 0;
+    height: 0;
+    min-height: 0;
 }
 
 
@@ -1747,6 +1763,11 @@
 
 @media (max-width: 700px) {
 
+    .project-dashboard.has-project-modes:not(.hub-project-rail *) .hub-work-files > .hub-workspace-explorer {
+        flex: auto;
+        height: clamp(430px, 58vh, 660px);
+    }
+
     .project-right-column {
         --hub-enter-order: 5 !important;
     }
@@ -2155,8 +2176,13 @@
     overflow: hidden;
     font-size: var(--hub-font-body);
 }
+/* Full-view panel title; Note-view keeps the existing search row. */
+.hub-explorer-heading { display: flex; flex: 0 0 auto; align-items: center; gap: 7px; margin: 0; padding: 14px; border-bottom: 1px solid var(--background-modifier-border); }
+.hub-explorer-heading .hub-explorer-icon { width: 16px; height: 16px; }
+.hub-workspace-explorer.is-note-explorer .hub-explorer-heading, .hub-project-rail .hub-explorer-heading { display: none; }
+.hub-workspace-explorer.is-note-explorer .hub-explorer-search, .hub-project-rail .hub-explorer-search { display: flex; }
 .hub-explorer-search {
-    display: flex;
+    display: none;
     align-items: center;
     gap: 8px;
     flex: 0 0 auto;
@@ -2303,3 +2329,70 @@
 @container hub-explorer (max-width: 360px) {
     .hub-explorer-tree { --hub-tree-indent: 14px; }
 }
+
+/* Full-view vertical contract: one viewport boundary, natural header sizes.
+   The explicit rail exclusion also protects the transition before JS runs. */
+.project-dashboard.hub-full-view:not(.hub-project-rail *) {
+    --hub-full-view-gutter: var(--hub-dashboard-gap, 14px);
+    height: var(--hub-full-view-height);
+    min-height: 0;
+}
+.project-dashboard.hub-full-view:not(.hub-project-rail *) > * { flex: 0 0 auto; }
+.project-dashboard.hub-full-view:not(.hub-project-rail *) > :is(.project-main-grid, .hub-task-workspace, .hub-roadmap-host) {
+    flex: 1 1 0;
+    min-height: 460px;
+}
+.project-dashboard.hub-full-view:not(.hub-project-rail *) > .project-main-grid {
+    min-height: calc(245px + 320px + var(--hub-panel-gap, 12px));
+    grid-template-rows: minmax(0, 1fr);
+    align-items: stretch;
+}
+.project-dashboard.hub-full-view:not(.hub-project-rail *) :is(.project-left-column, .project-right-column, .project-folder-stack) { min-height: 0; }
+.project-dashboard.hub-full-view:not(.hub-project-rail *) .project-folder-stack { flex: 1 1 0; }
+.project-dashboard.hub-full-view:not(.hub-project-rail *) .project-folder-stack > .hub-workspace-explorer {
+    flex: 1 1 0; height: 0; min-height: 0;
+}
+.project-dashboard.hub-full-view:not(.hub-project-rail *) .project-tasks { flex: 0 0 245px; }
+.project-dashboard.hub-full-view:not(.hub-project-rail *) .project-progress {
+    display: flex; flex-direction: column; flex: 1 1 0; height: auto;
+}
+.project-dashboard.hub-full-view:not(.hub-project-rail *) .project-progress > * { flex: 0 0 auto; }
+.project-dashboard.hub-full-view:not(.hub-project-rail *) .project-progress > .project-progress-activity {
+    flex: 1 1 0; min-height: 0; height: auto;
+}
+.project-dashboard.hub-full-view:not(.hub-project-rail *) :is(.hub-task-workspace, .hub-task-view-content, .hub-task-calendar-panel, .hub-roadmap-host, .hub-roadmap-panel) {
+    display: flex; flex-direction: column; min-height: 0;
+}
+.project-dashboard.hub-full-view:not(.hub-project-rail *) :is(.hub-task-view-content, .hub-task-calendar-panel, .hub-roadmap-panel) { flex: 1 1 0; }
+.project-dashboard.hub-full-view:not(.hub-project-rail *) :is(.hub-planning-toolbar, .hub-task-view-note) { flex: 0 0 auto; }
+.project-dashboard.hub-full-view:not(.hub-project-rail *) :is(.hub-task-local-scroll, .hub-roadmap-scroll) {
+    flex: 1 1 0; min-height: 0; max-height: none;
+}
+.project-dashboard.hub-full-view:not(.hub-project-rail *) .hub-task-board { height: 100%; min-height: 0; }
+.project-dashboard.hub-full-view:not(.hub-project-rail *) .hub-task-column { display: flex; flex-direction: column; min-height: 0; }
+.project-dashboard.hub-full-view:not(.hub-project-rail *) .hub-task-column-heading { flex: 0 0 auto; }
+.project-dashboard.hub-full-view:not(.hub-project-rail *) .hub-task-column-body { flex: 1 1 0; min-height: 0; overflow-y: auto; }
+.project-dashboard.hub-full-view:not(.hub-project-rail *) .hub-task-calendar {
+    height: 100%; grid-template-rows: auto repeat(var(--hub-calendar-weeks), minmax(0, 1fr));
+}
+.project-dashboard.hub-full-view:not(.hub-project-rail *) .hub-task-calendar-day { display: flex; flex-direction: column; min-height: 0; }
+.project-dashboard.hub-full-view:not(.hub-project-rail *) .hub-task-calendar-day-heading { flex: 0 0 auto; }
+.project-dashboard.hub-full-view:not(.hub-project-rail *) .hub-task-calendar-day-body { flex: 1 1 0; min-height: 0; overflow-y: auto; }
+.project-dashboard.hub-full-view:not(.hub-project-rail *) .hub-roadmap-timeline { min-height: 100%; box-sizing: border-box; }
+.project-dashboard.hub-full-view:not(.hub-project-rail *) .hub-roadmap-axis { position: sticky; top: 0; z-index: 3; background: var(--background-secondary); }
+.project-dashboard.hub-full-view:not(.hub-project-rail *) :is(.hub-task-column-body, .hub-task-calendar-day-body, .hub-task-local-scroll, .hub-roadmap-scroll) {
+    scrollbar-width: thin;
+    scrollbar-color: var(--scrollbar-thumb-bg, var(--background-modifier-border)) transparent;
+    overscroll-behavior: contain;
+}
+/* Prevent the old dashboard document padding adding another blank screen tail. */
+.markdown-preview-sizer:has(.project-dashboard.hub-full-view):not(.hub-project-rail *) { padding-bottom: var(--hub-dashboard-gap, 14px) !important; }
+@media (max-width: 700px) {
+    .project-dashboard.hub-full-view:not(.hub-project-rail *) > .project-main-grid {
+        min-height: calc(460px + 245px + 320px + 2 * var(--hub-panel-gap, 12px));
+        grid-template-rows: minmax(460px, 1fr) minmax(calc(245px + 320px + var(--hub-panel-gap, 12px)), 1fr);
+    }
+}
+
+.project-dashboard.hub-full-view:not(.hub-project-rail *) > :is(.hub-task-workspace, .hub-roadmap-host) { min-height: 460px; }
+.project-dashboard.hub-full-view:not(.hub-project-rail *) > [hidden] { display: none !important; }

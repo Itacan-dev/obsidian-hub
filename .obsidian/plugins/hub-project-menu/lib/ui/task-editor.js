@@ -122,6 +122,21 @@ function openTaskEditor(service, task, onEdit = () => {}, creation = null) {
             association.value = snapshot.linkedProjectId ?? "";
             const syncProject = () => { project.hidden = service.context?.(fieldsLocation.value())?.contextKind !== "resource"; };
             fieldsLocation.onChange(syncProject); syncProject();
+            const phaseSection = section("Phase");
+            const phaseLabel = phaseSection.createEl("label");
+            phaseLabel.createSpan({ text: "Project phase (optional)", cls: "hub-task-help" });
+            const phase = phaseLabel.createEl("select", { attr: { "aria-label": "Project phase (optional)" } });
+            let initialPhase = true;
+            const syncPhase = () => {
+                const previous = initialPhase ? snapshot.phaseId ?? "" : phase.value;
+                initialPhase = false;
+                phase.replaceChildren();
+                phase.createEl("option", { text: "No phase", attr: { value: "" } });
+                for (const item of service.phases?.(fieldsLocation.value()) ?? []) phase.createEl("option", { text: item.name, attr: { value: item.id } });
+                phase.value = [...phase.options].some(item => item.value === previous) ? previous : "";
+                phaseSection.hidden = service.context?.(fieldsLocation.value())?.contextKind !== "project";
+            };
+            fieldsLocation.onChange(() => { syncProject(); syncPhase(); }); syncPhase();
             const errorEl = form.createDiv({ cls: "hub-task-error", attr: { role: "alert" } });
             const actions = form.createDiv({ cls: "hub-task-dialog-actions" });
             const remove = actions.createEl("button", { text: "Delete task", cls: "hub-task-remove", attr: { type: "button" } });
@@ -139,7 +154,7 @@ function openTaskEditor(service, task, onEdit = () => {}, creation = null) {
                 const states = controls.map(control => control.disabled); controls.forEach(control => control.disabled = true);
                 try {
                     const values = { operation: deleting ? "delete" : "edit",
-                        location: fieldsLocation.value(), linkedProjectId: project.hidden ? null : association.value,
+                        location: fieldsLocation.value(), phaseId: phaseSection.hidden ? null : phase.value, linkedProjectId: project.hidden ? null : association.value,
                         text: input.value, necessity: selected, fromDate: from.value, dueDate: due.value,
                         fromTime: from.timeInput.value, dueTime: due.timeInput.value,
                         steps: stepRows.filter(step => !step.removed).map(step => ({ line: step.line, text: step.input.value, completed: step.checkbox.checked, completedAt: step.completedAt })) };

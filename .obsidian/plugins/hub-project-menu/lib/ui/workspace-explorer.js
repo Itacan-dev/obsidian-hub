@@ -31,6 +31,9 @@ function mountWorkspaceExplorer({ parent, workspacePath, dashboardPath, descript
     }
     const shell = el(parent, "section", "project-panel hub-workspace-explorer");
     shell.setAttribute("aria-label", "Workspace files");
+    const heading = el(shell, "div", "project-panel-title hub-explorer-heading");
+    icon(heading, "folder-tree");
+    el(heading, "span", "", "Files");
     const searchBox = el(shell, "div", "hub-explorer-search");
     icon(searchBox, "search");
     const search = el(searchBox, "input", "hub-explorer-search-input");
@@ -62,6 +65,7 @@ function mountWorkspaceExplorer({ parent, workspacePath, dashboardPath, descript
     // currentPath belongs to Full-view; activePath only describes the open Note file.
     let noteView = isNoteView(), rememberedFolder = false;
     const searchCollapsed = new Set();
+    const activeQuery = () => isNoteView() ? query : "";
     const ui = path => states()[path] ?? {};
     function save(path, changes) {
         states()[path] = { ...ui(path), ...changes };
@@ -69,7 +73,7 @@ function mountWorkspaceExplorer({ parent, workspacePath, dashboardPath, descript
     }
     function selectedFolder() { return model.byPath.get(currentPath); }
     function isExpanded(node) {
-        return node.children.length > 0 && (query ? !searchCollapsed.has(node.path) : ui(node.path).collapsed === false);
+        return node.children.length > 0 && (activeQuery() ? !searchCollapsed.has(node.path) : ui(node.path).collapsed === false);
     }
     function lineage(node) {
         const result = [];
@@ -108,7 +112,7 @@ function mountWorkspaceExplorer({ parent, workspacePath, dashboardPath, descript
     }
     function toggle(node, repaint = true) {
         if (!node.children.length) return;
-        if (query) {
+        if (activeQuery()) {
             if (searchCollapsed.has(node.path)) searchCollapsed.delete(node.path);
             else searchCollapsed.add(node.path);
         } else save(node.path, { collapsed: isExpanded(node) });
@@ -188,7 +192,7 @@ function mountWorkspaceExplorer({ parent, workspacePath, dashboardPath, descript
         }
         const roots = model.roots.filter(node => filtered.visible.has(node.path));
         roots.forEach((node, index) => branch(tree, node, 0, index, roots.length));
-        if (!roots.length) el(tree, "div", "hub-explorer-empty", query ? "No matching files or folders." : "No workspace folders yet.");
+        if (!roots.length) el(tree, "div", "hub-explorer-empty", activeQuery() ? "No matching files or folders." : "No workspace folders yet.");
         if (!visiblePaths.includes(focusPath)) focusPath = visiblePaths.includes(currentPath) ? currentPath : visiblePaths[0];
         for (const item of tree.querySelectorAll("[role=treeitem]")) item.tabIndex = item.dataset.treePath === focusPath ? 0 : -1;
         syncSelection();
@@ -240,7 +244,7 @@ function mountWorkspaceExplorer({ parent, workspacePath, dashboardPath, descript
             row.setAttribute("role", "option");
             row.tabIndex = 0;
         }
-        if (!children.length) el(contents, "div", "hub-explorer-empty", query ? "No matching items in this folder." : "This folder is empty.");
+        if (!children.length) el(contents, "div", "hub-explorer-empty", activeQuery() ? "No matching items in this folder." : "This folder is empty.");
         syncSelection(); contents.scrollTop = scrollTop;
     }
     function contextualFolder() {
@@ -269,9 +273,10 @@ function mountWorkspaceExplorer({ parent, workspacePath, dashboardPath, descript
     }
     function render() {
         const hadFocus = tree.contains(doc.activeElement);
-        filtered = filterWorkspaceTree(model.roots, query);
+        filtered = filterWorkspaceTree(model.roots, activeQuery());
         renderTree(hadFocus); renderDetails();
-        status.textContent = query ? `${filtered.matches.size} matches` : "";
+        shell.classList.toggle("is-note-explorer", isNoteView());
+        status.textContent = activeQuery() ? `${filtered.matches.size} matches` : "";
     }
     function refresh({ restore = false } = {}) {
         if (disposed) return;
@@ -387,6 +392,12 @@ function mountWorkspaceExplorer({ parent, workspacePath, dashboardPath, descript
     }
     refresh({ restore: true });
     return { refresh, beginCreate, syncSelection, syncMode,
+        selectFolderPath(path) {
+            const node = model.byPath.get(path);
+            if (!node?.folder) return false;
+            clearSelection(); selectFolder(node, true); focusNode(path);
+            return true;
+        },
         rename(oldPath, newPath) {
             rewriteExplorerPaths(states(), oldPath, newPath);
             const rewrite = path => path && (path === oldPath || path.startsWith(oldPath + "/")) ? newPath + path.slice(oldPath.length) : path;

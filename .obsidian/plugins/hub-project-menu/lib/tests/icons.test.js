@@ -2,7 +2,7 @@
 const assert = require("assert/strict");
 const Module = require("module");
 const { fileIcon } = require("../ui/file-icons");
-const canonical = new Set(["folder", "folder-open", "folder-symlink", "presentation", "monitor", "file", "file-type", "file-text"]);
+const canonical = new Set(["folder", "folder-open", "folder-symlink", "presentation", "monitor", "file", "file-type", "file-text", "notebook-text"]);
 const aliases = { folder: "folder-open", presentation: "monitor" };
 const lookups = [], rendered = [];
 const nativeGetIcon = name => {

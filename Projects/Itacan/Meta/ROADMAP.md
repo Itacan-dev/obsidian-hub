@@ -1,3 +1,4 @@
+
 | Roadmap    | Key milestones                                                                                                                 |
 | ---------- | ------------------------------------------------------------------------------------------------------------------------------ |
 | **Sep 26** | Complete Obsidian prototype with Hub and Atlas · Begin product validation and market research · Move the prototype to Github   |

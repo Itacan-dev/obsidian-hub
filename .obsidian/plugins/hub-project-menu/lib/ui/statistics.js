@@ -24,7 +24,7 @@ class StatisticsModal extends Modal {
         this.helpTooltips = createImmediateHubTooltip(this.contentEl);
         const header = this.contentEl.createDiv({ cls: "hub-statistics-header" });
         header.createEl("h2", { text: "Statistics" });
-        const ranges = header.createDiv({ cls: "hub-panel-selectors hub-statistics-ranges", attr: { role: "group", "aria-label": "Statistics time range" } });
+        const ranges = header.createDiv({ cls: "hub-panel-selectors hub-equal-selectors hub-statistics-ranges", attr: { role: "group", "aria-label": "Statistics time range" } });
         this.rangeButtons = RANGES.map(([key, label]) => {
             const button = ranges.createEl("button", { text: label, attr: { type: "button", "aria-pressed": String(key === this.range) } });
             button.classList.toggle("is-active", key === this.range);
@@ -90,16 +90,18 @@ class StatisticsModal extends Modal {
             this.chart(card, seriesFor(model, id, this.filters[id]), title, `No completed ${id} in this period.`, { color, compact: true });
         }
         this.renderOaths(); this.renderNotes(); this.renderProjects();
-        const comparison = this.card("comparison", "Resources vs Projects"); renderDonut(comparison, model.comparison);
-        this.hint(comparison, "Share of recorded Oathbound time.");
+        const comparison = this.card("comparison", "Resources vs Projects");
+        comparison.createDiv({ cls: "hub-statistics-caption", text: "Share of progress report points" });
+        renderDonut(comparison, model.comparison);
+        this.hint(comparison, "Raw Progress Report evaluations (0?4), summed by workspace for the selected period.");
     }
     renderDistribution(options) {
-        const card = this.card("distribution", "Work distribution (Oathbound time)", { options });
-        const rows = this.model.rows.filter(row => row.kind === this.filters.distribution && row.time > 0)
-            .sort((a, b) => b.time - a.time || a.name.localeCompare(b.name));
-        if (!rows.length) { emptyChart(card, "No Oathbound time in this period."); return; }
-        const total = rows.reduce((sum, row) => sum + row.time, 0);
-        const list = card.createDiv({ cls: "hub-statistics-ranking", attr: { tabindex: "0", role: "list", "aria-label": "Workspace time distribution" } });
+        const card = this.card("distribution", "Work distribution", { options });
+        const rows = this.model.rows.filter(row => row.kind === this.filters.distribution && row.progressPoints > 0)
+            .sort((a, b) => b.progressPoints - a.progressPoints || a.name.localeCompare(b.name));
+        if (!rows.length) { emptyChart(card, "No progress report data in this period."); return; }
+        const total = rows.reduce((sum, row) => sum + row.progressPoints, 0);
+        const list = card.createDiv({ cls: "hub-statistics-ranking", attr: { tabindex: "0", role: "list", "aria-label": "Workspace progress report points" } });
         for (const workspace of rows) {
             const row = list.createDiv({ cls: "hub-statistics-rank-row", attr: { role: "listitem" } });
             if (workspace.status === "unassigned") {
@@ -107,12 +109,12 @@ class StatisticsModal extends Modal {
                 row.setAttribute("title", "Historical work without workspace attribution");
                 row.setAttribute("aria-description", "Historical work without workspace attribution");
             }
-            const label = workspaceLabel(workspace), percent = workspace.time / total * 100;
+            const label = workspaceLabel(workspace), percent = workspace.progressPoints / total * 100;
             row.createSpan({ cls: "hub-statistics-name", text: label, attr: { title: label } });
             const track = row.createDiv({ cls: "hub-statistics-track", attr: { "aria-hidden": "true" } });
-            track.createDiv({ cls: "hub-statistics-fill" }).style.width = `${workspace.time / rows[0].time * 100}%`;
+            track.createDiv({ cls: "hub-statistics-fill" }).style.width = `${workspace.progressPoints / rows[0].progressPoints * 100}%`;
             row.createSpan({ cls: "hub-statistics-number", text: percent < 1 ? "<1%" : `${Math.round(percent)}%` });
-            row.createSpan({ cls: "hub-statistics-number", text: formatDuration(workspace.time) });
+            row.createSpan({ cls: "hub-statistics-number", text: `${workspace.progressPoints.toLocaleString()} pts` });
         }
     }
     renderOaths() {

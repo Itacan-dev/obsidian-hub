@@ -12,7 +12,7 @@
     width: 100%;
     display: flex;
     flex-direction: column;
-    gap: 14px;
+    gap: var(--hub-dashboard-gap, 14px);
 }
 
 
@@ -74,7 +74,7 @@
         minmax(280px, 1.2fr)
         minmax(300px, 1.1fr);
 
-    gap: 12px;
+    gap: var(--hub-panel-gap, 12px);
     align-items: start;
 }
 
@@ -213,6 +213,8 @@
 }
 
 .home-panel.home-recent > .home-panel-title {
+    box-sizing: content-box;
+    min-height: var(--hub-panel-control-height);
     padding-bottom: var(--hub-progress-header-gap);
 }
 
@@ -387,7 +389,6 @@
 }
 
 
-.home-project-create,
 .home-progress-nav {
     width: 30px;
     height: 30px;
@@ -409,44 +410,6 @@
 
 .home-progress-nav:hover:not(:disabled) {
     color: var(--text-normal);
-}
-
-/* Preserve the reference + control's subtle raised/pressed edge. */
-.home-dashboard button.home-project-create {
-    border-top-color: rgba(255, 255, 255, 0.10);
-    border-left-color: rgba(255, 255, 255, 0.10);
-    border-right-color: rgba(255, 255, 255, 0.10);
-    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.30);
-}
-
-.home-dashboard button.home-project-create:hover:not(:disabled) {
-    color: var(--text-normal);
-    border-top-color: rgba(255, 255, 255, 0.14);
-    border-left-color: rgba(255, 255, 255, 0.14);
-    border-right-color: rgba(255, 255, 255, 0.10);
-
-    box-shadow:
-        0 1px 3px rgba(0, 0, 0, 0.35);
-}
-
-.home-dashboard button.home-project-create:active:not(:disabled) {
-    border-top-color: rgba(0, 0, 0, 0.45);
-    border-left-color: rgba(0, 0, 0, 0.45);
-    border-right-color: rgba(255, 255, 255, 0.1);
-    border-bottom-color: rgba(255, 255, 255, 0.1);
-
-    box-shadow: none;
-}
-
-.home-project-create-icon {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-}
-
-.home-project-create-icon svg {
-    width: 15px;
-    height: 15px;
 }
 
 /* CARD */
@@ -1180,7 +1143,7 @@
 /* Top row */
 .home-glance,
 .home-calendar {
-    height: 245px;
+    height: var(--hub-full-view-top-row-height, 245px);
 
     overflow-y: auto;
     overflow-x: hidden;
@@ -1190,7 +1153,7 @@
 
 
 .home-upcoming {
-    height: 245px;
+    height: var(--hub-full-view-top-row-height, 245px);
 
     display: flex;
     flex-direction: column;
@@ -1203,7 +1166,7 @@
 /* Bottom row */
 
 .home-projects {
-    height: 429px;
+    height: var(--hub-full-view-bottom-row-height, 429px);
 
     overflow-y: auto;
     overflow-x: hidden;
@@ -1213,7 +1176,7 @@
 
 
 .home-recent {
-    height: 429px;
+    height: var(--hub-full-view-bottom-row-height, 429px);
 
     overflow: hidden;
 
@@ -1697,10 +1660,18 @@
     padding-top: 9px;
 }
 
-.home-progress-scope-controls {
+/* Keep the header rhythm while both controls share one full-height grid row. */
+.home-progress-header-controls {
+    display: grid;
+    grid-auto-flow: column;
+    align-items: center;
+    gap: 7px;
     margin-left: auto;
-    min-height: 0;
     height: var(--hub-progress-header-line-height);
+}
+
+.home-progress-scope-controls {
+    height: var(--hub-panel-control-height);
 }
 
 

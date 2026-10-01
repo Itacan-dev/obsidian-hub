@@ -10,6 +10,10 @@ class HubTaskEditor {
     metadata(id) { return taskMetadata(id ? this.plugin.projectWizard.data.taskMetadata?.[id] : {}); }
     context(path) { return this.plugin.projectWizard.getContextForPath(path); }
     locations(root) { return taskLocations(this.plugin, root ? this.plugin.taskData?.currentPath(root) ?? root : root); }
+    phases(path) {
+        const owner = this.context(path);
+        return owner && owner.contextKind !== "resource" ? this.plugin.planning?.phases(owner.projectId) ?? [] : [];
+    }
     projects() { return linkedProjects(this.plugin); }
     file(path) {
         const current = this.plugin.taskData?.currentPath(path) ?? path;
@@ -40,6 +44,10 @@ class HubTaskEditor {
         if (metadata.linkedProjectId && metadata.linkedProjectId !== previous.linkedProjectId &&
             !this.projects().some(project => project.projectId === metadata.linkedProjectId)) {
             throw Error("Choose an active Project.");
+        }
+        if (workspace?.contextKind === "resource") delete metadata.phaseId;
+        if (metadata.phaseId && !this.phases(workspace?.root).some(phase => phase.id === metadata.phaseId)) {
+            throw Error("This phase is no longer available in the task's Project.");
         }
         return metadata;
     }
@@ -96,6 +104,12 @@ class HubTaskEditor {
             if (snapshot.hubTaskId && JSON.stringify(this.metadata(snapshot.hubTaskId)) !== JSON.stringify(taskMetadata(snapshot))) {
                 throw Error("This task's metadata changed in another editor. Reopen the task before saving.");
             }
+            const withoutPhase = value => { const { phaseId, ...other } = taskMetadata(value); return other; };
+            const phaseOnly = !deleting && !moving && (metadata.phaseId ?? null) !== (snapshot.phaseId ?? null) &&
+                values.text === snapshot.text && JSON.stringify(withoutPhase(metadata)) === JSON.stringify(withoutPhase(snapshot)) &&
+                (values.steps ?? snapshot.steps).length === snapshot.steps.length &&
+                (values.steps ?? snapshot.steps).every((step, index) => step.line === snapshot.steps[index].line &&
+                    step.text === snapshot.steps[index].text && step.completed === snapshot.steps[index].completed && !step.completedAt);
             const writes = [];
             let edit;
             try {
@@ -137,12 +151,12 @@ class HubTaskEditor {
                 catch (_) { throw Error("The task could not be saved and a note also changed. Check its source and destination before retrying."); }
                 throw error;
             }
-            await this.record(edit, owner, actionTimestamp);
+            if (!phaseOnly) await this.record(edit, owner, actionTimestamp);
             for (const write of writes) {
-                this.plugin.markProjectChangedByPath(write.file.path);
+                if (!phaseOnly) this.plugin.markProjectChangedByPath(write.file.path);
                 if (write.original === write.written) this.plugin.taskData?.invalidate(write.file.path);
             }
-            this.plugin.oath?.changed(edit);
+            if (!phaseOnly) this.plugin.oath?.changed(edit);
             return edit;
         });
     }

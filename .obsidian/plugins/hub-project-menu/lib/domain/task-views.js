@@ -25,15 +25,19 @@ function validLocation(path, workspace) {
 }
 
 function upcomingBucket(task, now = new Date()) {
-    if (!task.dueDate) return "unscheduled";
+    if (!task.dueDate && !task.fromDate) return "unscheduled";
     const today = localISODate(now), tomorrow = localISODate(shiftDay(now, 1));
-    return task.dueDate < today ? "past" : task.dueDate === today ? "today" : task.dueDate === tomorrow ? "tomorrow" : "later";
+    if (task.dueDate && task.dueDate < today) return "past";
+    const date = task.dueDate ?? task.fromDate;
+    return date <= today ? "today" : date === tomorrow ? "tomorrow" : "later";
 }
 
 function upcomingGroups(tasks, now = new Date()) {
     const groups = Object.fromEntries(BUCKETS.map(([id]) => [id, []]));
     const ordered = taskGroups(tasks, now);
     for (const task of [...ordered.active, ...ordered.future]) groups[upcomingBucket(task, now)].push(task);
+    const rank = task => task.necessity === "must" ? 0 : task.necessity === "should" ? 1 : 2;
+    for (const group of Object.values(groups)) group.sort((a, b) => rank(a) - rank(b));
     return groups;
 }
 

@@ -518,6 +518,9 @@ el(
 
 // ---------- WORKSPACE MODES ----------
 const shortcutsBar = root.createDiv({ cls: "project-shortcuts" });
+const searchWorkspace = { root: projectRoot, projectId: contextId, name: current.file.name,
+    contextKind: isResourceContext ? "resource" : "project" };
+window.hubMountContextSearch?.({ component: dv.component, dv, root, toolbar: shortcutsBar, scope: searchWorkspace });
 markDashboardRow(shortcutsBar, 3);
 let taskWorkspace = null;
 
@@ -3321,6 +3324,17 @@ function syncProgressHeight() {
         return;
     }
 
+    if (root.classList.contains("hub-full-view") && !root.closest(".hub-project-rail")) {
+        progressPanel.style.removeProperty("height");
+        return;
+    }
+
+    // Project Work now stretches Files to this stack. Do not feed the stretched
+    // height back into Progress on resize; Resources keep their existing sync.
+    if (!isResourceContext && !root.closest(".hub-project-rail")) {
+        progressPanel.style.height = `${MIN_PROGRESS_HEIGHT}px`;
+        return;
+    }
 
     const leftRect =
         left.getBoundingClientRect();
@@ -3353,9 +3367,7 @@ function syncProgressHeight() {
     }
 
 
-    const folderRect =
-        folderStack
-            .getBoundingClientRect();
+    const folderRect = folderStack.getBoundingClientRect();
 
 
     const progressRect =
@@ -4040,6 +4052,11 @@ function syncProjectActivityHeight() {
         return;
     }
 
+
+    if (root.classList.contains("hub-full-view") && !root.closest(".hub-project-rail")) {
+        activitySection.style.removeProperty("height");
+        return;
+    }
 
     const panelRect =
         progressPanel
@@ -5223,7 +5240,7 @@ root.addEventListener(
 
 
 taskWorkspace = window.hubMountTaskWorkspace?.({
-    component: dv.component, dv, root, toolbar: shortcutsBar, filesGrid: grid,
+    component: dv.component, dv, root, toolbar: shortcutsBar, filesGrid: grid, filesPanel: folderStack, roadmapParent: left,
     workspace: { root: projectRoot, projectId: contextId, name: current.file.name,
         contextKind: isResourceContext ? "resource" : "project" },
     onFiles: () => { renderCurrentTasks(); scheduleProgressHeightSync(); },
@@ -5232,7 +5249,13 @@ taskWorkspace = window.hubMountTaskWorkspace?.({
         if (file) return openProjectNote(file);
     }
 });
+window.hubRegisterSearchWorkspace?.(dv.component, root, searchWorkspace, path => {
+    taskWorkspace?.showFiles();
+    workspaceExplorer?.selectFolderPath(path);
+}, (kind, id) => taskWorkspace?.focusPlanning(kind, id));
+frame.defer(() => window.hubApplySearchFolder?.(root));
 frame.commit();
+window.hubMountFullViewLayout?.(root, dv.component);
 if (window.hubEnterDashboard) {
     window.hubEnterDashboard(root);
 } else {

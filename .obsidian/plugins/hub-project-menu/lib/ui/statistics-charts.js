@@ -118,10 +118,10 @@ function renderBarChart(parent, { range, values, label, color = "accent", durati
 }
 
 function renderDonut(parent, comparison) {
-    if (!comparison.total) { emptyChart(parent, "No Oathbound time in this period."); return; }
+    if (!comparison.total) { emptyChart(parent, "No progress report data in this period."); return; }
     const root = parent.createDiv({ cls: "hub-statistics-comparison" });
     const svg = svgElement(root, "svg", { viewBox: "0 0 100 100", role: "img",
-        "aria-label": `Projects ${comparison.projects}%. Resources ${comparison.resources}%. Based on Oathbound time.` });
+        "aria-label": `Projects ${comparison.projects}%. Resources ${comparison.resources}%. Based on progress report points.` });
     svgElement(svg, "circle", { cx: 50, cy: 50, r: 36, class: "hub-statistics-donut-base" });
     svgElement(svg, "circle", { cx: 50, cy: 50, r: 36, pathLength: 100, transform: "rotate(-90 50 50)",
         "stroke-dasharray": `${comparison.projects} ${100 - comparison.projects}`, class: "hub-statistics-donut-projects" });

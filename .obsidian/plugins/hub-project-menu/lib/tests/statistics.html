@@ -19,22 +19,23 @@ try{
  const labels=['Obsidian Hub','Pulsed Optomechanics','Quantum Gravitational Phenomena','Complex Analysis','Spanish'];
  const workspaces=Array.from({length:32},(_,i)=>({projectId:'p'+i,name:labels[i]??(i===5?'A project with a very long descriptive name that must never displace its time columns':'Project '+(i+1)),status:i===7?'future':i===8?'shelved':'active'}));
  workspaces.push({projectId:'resource:study',name:'Knowledge',contextKind:'resource'},{projectId:'resource:literature',name:'Research',contextKind:'resource'});
- const activity=[],completions=[],oaths=[],notes=[];
+ const activity=[],completions=[],oaths=[],notes=[],reports=[];
  for(let day=0;day<500;day++){
   const date=new Date(now);date.setDate(date.getDate()-day);date.setHours(10,0,0,0);const timestamp=+date;
   const resource=day%4===0,projectId=resource?'resource:study':'p'+day%32;
+  reports.push({projectId,date:load('domain/dates').localISODate(date),score:1+day%4});
   for(let i=0;i<(day*7)%19;i++)completions.push({id:'c'+day+'-'+i,projectId,kind:i%3===0?'step':'task',timestamp});
   for(let i=0;i<(day*13)%7;i++)activity.push({action:'edited',path:resource?'Resources/Knowledge/Algebra.md':'Projects/A/Research.md',projectId,timestamp});
   for(let i=0;i<day%6;i++)notes.push({createdAt:timestamp});
   if(day%3!==0)oaths.push({id:'o'+day,workspace:resource?{type:'resource',id:'study'}:{type:'project',id:'p'+day%32},state:day%8===0?'broken':'fulfilled',startedAt:timestamp,completedAt:timestamp+(1+day%4)*hour});
  }
  completions.push({id:'deleted',projectId:'deleted',projectName:'An archived historical project',timestamp:now-hour});
- const source=prepareStatistics({workspaces,activity,completions,oaths,notes},now);
+ const source=prepareStatistics({workspaces,activity,completions,oaths,notes,reports},now);
  const homeSource=await(await fetch('../../../../../System/Dashboards/Home/view.js')).text();
  const entrySource=homeSource.slice(homeSource.indexOf('const statisticsButton ='),homeSource.indexOf('const progressToolbar ='));
  const header=document.body.createDiv({cls:'hub-button-scope home-panel-title'});header.style.cssText='position:absolute;left:-2000px;width:470px';
  let entryModal;window.hubSetIcon=(element,name)=>element.dataset.icon=name;window.hubOpenStatistics=()=>{entryModal=new StatisticsModal({},null,{source});entryModal.open()};
- new Function('progressHeader',entrySource)(header);
+ new Function('progressHeaderControls',entrySource)(header);
  const trigger=header.querySelector('button');assert(trigger?.getAttribute('aria-label')==='Open Statistics'&&trigger.dataset.icon==='chart-no-axes-column','Real Progress action uses verified Lucide icon and accessible label');
  trigger.click();assert(entryModal?.contentEl.querySelector('h2').textContent==='Statistics','Real Progress action opens the modal');entryModal.close();header.remove();
  let closed=0;const modal=new StatisticsModal({},null,{source,onClose:()=>closed++});modal.open();window.statisticsModal=modal;
@@ -43,11 +44,24 @@ try{
  assert([...grid.children].map(e=>e.dataset.statistic).join(',')==='distribution,activity,tasks,steps,oaths,notes,projects,comparison','Mockup section order');
  assert(root.querySelectorAll('.hub-statistics-ranges button').length===5,'Five real range buttons');
  assert(root.querySelector('.hub-statistics-ranges .is-active').textContent==='3 months','Default range');
+ const rangeButtons=[...root.querySelectorAll('.hub-statistics-ranges button')],rangeWidth=rangeButtons[2].getBoundingClientRect().width;
+ rangeButtons.forEach(button=>assert(Math.abs(button.getBoundingClientRect().width-rangeWidth)<.1,'Exactly equal range widths'));
+ const probe=rangeButtons[2].cloneNode(true);probe.style.cssText='position:absolute;width:max-content;visibility:hidden';rangeButtons[2].parentElement.append(probe);
+ assert(Math.abs(probe.getBoundingClientRect().width-rangeWidth)<1,'Range width follows 3 months label');probe.remove();
+ assert(root.querySelector('[data-statistic=distribution] h3').textContent==='Work distribution','Exact distribution title');
+ assert(root.querySelector('[data-statistic=comparison]').textContent.includes('Share of progress report points'),'Visible comparison metric');
+ const rowHeight=id=>root.querySelector('[data-statistic='+id+']').getBoundingClientRect().height;
+ const distributionHeight=rowHeight('distribution');
+ assert(Math.abs(rowHeight('distribution')-rowHeight('activity'))<1,'Full top-row card height');
+ assert(Math.abs(rowHeight('comparison')-rowHeight('projects'))<1,'Full comparison card height');
  const initialTaskCount=seriesFor(modal.model,'tasks','project').reduce((a,b)=>a+b,0);
  for(const [range]of RANGES){modal.rangeButtons.find(([key])=>key===range)[1].click();assert(modal.range===range,'Range state');assert(root.querySelectorAll('.hub-statistics-ranges [aria-pressed=true]').length===1,'Range accessible state');assert(!/NaN|Infinity/.test(root.textContent+root.innerHTML),'Finite chart geometry');}
  modal.rangeButtons.find(([key])=>key==='7d')[1].click();assert(seriesFor(modal.model,'tasks','project').reduce((a,b)=>a+b,0)<initialTaskCount,'Period actually updates values');
  const choose=(id,value)=>{const control=root.querySelector('[data-filter='+id+']');control.value=value;control.dispatchEvent(new Event('change'));assert(document.activeElement.dataset.filter===id,'Filter focus retained');};
  choose('distribution','resource');assert(root.querySelector('.hub-statistics-ranking').textContent.includes('Knowledge'),'Resource distribution');
+ await settle();assert(Math.abs(rowHeight('distribution')-rowHeight('activity'))<1,'One resource fills the top row');
+ assert(Math.abs(rowHeight('distribution')-distributionHeight)<1,'One item and many items retain the same card size');
+ const resourceRow=root.querySelector('.hub-statistics-rank-row');assert(resourceRow.textContent.includes('100%')&&resourceRow.textContent.includes('pts'),'Resource-only denominator and point unit');
  choose('activity','resource');assert(root.querySelector('[data-statistic=activity] .hub-statistics-plot'),'Resource work activity');
  choose('tasks','project:p1');assert(modal.filters.tasks==='project:p1','Individual workspace filter');
  choose('steps','resource');assert(modal.filters.steps==='resource','Step resource filter');
@@ -59,7 +73,7 @@ try{
  ranking.scrollTop=80;assert(ranking.scrollTop===80,'Ranking scroll works');ranking.scrollTop=0;
  assert(root.querySelector('[title^="A project with a very long"]').scrollWidth>root.querySelector('[title^="A project with a very long"]').clientWidth,'Long names truncate and expose title');
  assert(root.textContent.includes('(Future)')&&root.textContent.includes('(Shelved)')&&root.textContent.includes('(Deleted)'),'Historical/state distinctions');
- assert(root.scrollHeight>root.clientHeight,'Native content scrolls vertically');
+ assert(getComputedStyle(root).overflowY==='auto','Native content retains vertical scrolling when needed');
  const chart=root.querySelector('.hub-statistics-plot');chart.focus();const before=chart.getAttribute('aria-label');chart.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowRight',bubbles:true}));assert(chart.getAttribute('aria-label')!==before,'Keyboard chart details');
  assert(!root.querySelector('details,summary,.hub-statistics-hint'),'No visible disclosure or permanent methodology');
  assert(root.querySelector('.hub-statistics-sr-only table').querySelectorAll('tbody tr').length===modal.model.range.bins.length,'Accessible aggregated chart data');
@@ -74,13 +88,11 @@ try{
  assert(root.querySelector('[data-statistic=tasks] select').getBoundingClientRect().width<150,'Content-sized compact filters');
  const denseHeight=grid.getBoundingClientRect().height;
  assert(root.clientWidth<=720||denseHeight<1050,'Compact desktop content height: '+denseHeight);
- const fewSource=prepareStatistics({workspaces:workspaces.slice(0,2),oaths:[{id:'few',workspace:{type:'project',id:'p0'},state:'fulfilled',startedAt:now-hour,completedAt:now},{id:'unassigned',state:'fulfilled',startedAt:now-2*hour,completedAt:now}]},now);
+ const fewSource=prepareStatistics({workspaces:workspaces.slice(0,2),reports:[{projectId:'p0',date:'2026-09-27',score:1},{date:'2026-09-27',score:2}]},now);
  const few=new StatisticsModal({},null,{source:fewSource});few.open();await settle();
- assert(few.contentEl.querySelector('.hub-statistics-ranking').clientHeight<100,'Short ranking sizes naturally');
  const unassigned=few.contentEl.querySelector('.is-unassigned');assert(unassigned&&unassigned.textContent.includes('67%'),'Unassigned remains sorted and in denominator');
  assert(getComputedStyle(unassigned.querySelector('.hub-statistics-fill')).backgroundColor==='rgb(119, 119, 119)','Unassigned has muted bar');
- few.close();
-
+ assert(Math.abs(few.grid.querySelector('[data-statistic=distribution]').getBoundingClientRect().height-few.grid.querySelector('[data-statistic=activity]').getBoundingClientRect().height)<1,'Sparse cards fill row');few.close();
 
  const mixed=new StatisticsModal({},null,{source:prepareStatistics({workspaces:[workspaces[0]],completions:[{id:'one',projectId:'p0',timestamp:now-hour}]},now)});mixed.open();await settle();
  const filled=mixed.contentEl.querySelector('[data-statistic=tasks]'),blank=mixed.contentEl.querySelector('[data-statistic=steps]');

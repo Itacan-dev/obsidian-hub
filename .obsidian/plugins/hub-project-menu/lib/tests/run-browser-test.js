@@ -6,6 +6,8 @@ const { spawn } = require("child_process"), { pathToFileURL } = require("url");
 async function run() {
     const fixture = process.argv[2] || "card-placement";
     if (!/^[a-z-]+$/.test(fixture)) throw Error("Invalid fixture name");
+    const [width, height] = (process.argv[3] || "1100x850").split("x").map(Number);
+    if (![width, height].every(value => Number.isInteger(value) && value >= 300 && value <= 4000)) throw Error("Invalid fixture viewport");
     const profile = fs.mkdtempSync(path.join(os.tmpdir(), "hub-browser-test-"));
     const child = spawn(process.env.HUB_TEST_BROWSER || "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe", [
         "--headless=new", "--disable-gpu", "--no-first-run", "--disable-background-networking",
@@ -35,7 +37,7 @@ async function run() {
     try {
         const { targetId } = await send("Target.createTarget", { url: "about:blank" });
         const { sessionId } = await send("Target.attachToTarget", { targetId, flatten: true });
-        await send("Emulation.setDeviceMetricsOverride", { width: 1100, height: 850, deviceScaleFactor: 1, mobile: false }, sessionId);
+        await send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile: false }, sessionId);
         await send("Page.navigate", { url: pathToFileURL(path.join(__dirname, fixture + ".html")).href }, sessionId);
         let text = "";
         for (let attempt = 0; attempt < 200; attempt++) {

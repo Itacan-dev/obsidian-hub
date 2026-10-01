@@ -74,7 +74,10 @@ only for Oaths and Notes. Unassigned bars are muted without changing totals. Res
 
 `services/statistics.js` reads one metadata/history snapshot per opening.
 `domain/statistics.js` owns identities, local-calendar ranges and aggregation:
-- Distribution, project time and the donut use elapsed time from ended, actually
+- Distribution and the donut sum raw Progress Report evaluations (0?4) by stable
+  workspace ID and local report date. No Home Momentum normalization or Oath
+  weighting applies. Reports are read through the canonical historical API.
+- Project time and the Oath section use elapsed time from ended, actually
   started Oaths across devices, deduplicated by session ID. Broken sessions retain
   elapsed time. No time is inferred from edits. Active/scheduled sessions are not
   historical completed sessions. Durations are split at local range/bin boundaries.
@@ -96,7 +99,7 @@ only for Oaths and Notes. Unassigned bars are muted without changing totals. Res
 Ranges share local-calendar bins, capped at 105 bars (80 for long histories).
 Three months is the default. Range results are cached within the modal; changing
 filters does not reread the vault. All-time begins at the earliest available
-work, ended Oath or surviving note creation record.
+work, Progress Report, ended Oath or surviving note creation record.
 
 Run `node lib/tests/statistics.test.js` and
 `node lib/tests/run-browser-test.js statistics` from the plugin folder, then

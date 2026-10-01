@@ -13,7 +13,8 @@ function readStatistics(plugin, now = Date.now()) {
     })).map(file => ({ path: file.path, createdAt: file.stat?.ctime }));
     const oaths = Object.values(wizard.data.oathsByDevice ?? {}).flatMap(bucket => Array.isArray(bucket?.history) ? bucket.history : []);
     return prepareStatistics({ workspaces, notes, oaths, activity: wizard.activityLog,
-        completions: wizard.completedTaskHistory }, now);
+        completions: wizard.completedTaskHistory,
+        reports: [...wizard.getProgressReports(), ...wizard.getProgressReports({ kind: "resource" })] }, now);
 }
 
 module.exports = { readStatistics };

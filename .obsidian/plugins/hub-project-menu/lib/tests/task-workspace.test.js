@@ -17,7 +17,11 @@ const sample = [
  { text: "Tomorrow", dueDate: "2026-09-29" }, { text: "Later", fromDate: "2026-10-01", dueDate: "2026-10-03" },
  { text: "Start only", fromDate: "2026-10-01" }, { text: "Done", dueDate: "2026-09-27", completed: true }
 ];
-assert.deepEqual(Object.values(upcomingGroups(sample, now)).map(tasks => tasks.length), [1,1,1,1,1]);
+assert.deepEqual(Object.values(upcomingGroups(sample, now)).map(tasks => tasks.length), [1,1,1,2,0]);
+assert.equal(upcomingBucket({fromDate:"2026-09-26"},now), "today", "Started tasks remain current, not overdue");
+assert.equal(upcomingBucket({fromDate:"2026-09-29"},now), "tomorrow");
+assert.equal(upcomingBucket({},now), "unscheduled");
+assert.deepEqual(upcomingGroups([{text:"Neutral",dueDate:"2026-09-28"},{text:"Should",necessity:"should",dueDate:"2026-09-28"},{text:"Must",necessity:"must",dueDate:"2026-09-28"}],now).today.map(t=>t.text),["Must","Should","Neutral"]);
 assert.equal(upcomingBucket(sample[1], now), "today", "Buckets use local due day even if a due time has elapsed");
 assert.equal(upcomingBucket({ dueDate: "2027-01-01" }, new Date(2026, 11, 31)), "tomorrow");
 assert.equal(filterTasks(sample, { status: "active" }, now).length, 3);

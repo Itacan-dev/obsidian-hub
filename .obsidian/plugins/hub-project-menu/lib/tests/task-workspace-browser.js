@@ -10,12 +10,12 @@ class FuzzySuggestModal extends Modal{onOpen(){for(const item of this.getItems()
 class Menu{addItem(fn){const item={setTitle(){return this},setIcon(){return this},setWarning(){return this},onClick(){return this}};fn(item)}showAtMouseEvent(){}}
 const notices=[],assert=(condition,message)=>{if(!condition)throw Error(message)};
 const settle=async()=>{for(let i=0;i<25;i++)await Promise.resolve();await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))};
-const icons={folder:"M3 7h6l2-3h9v16H3z","list-todo":"M9 6h11M9 12h11M9 18h11M3 6h2M3 12h2M3 18h2",search:"M10 3a7 7 0 1 0 0 14 7 7 0 0 0 0-14m5 12 6 6",plus:"M12 5v14M5 12h14","chevron-right":"m9 5 7 7-7 7","chevron-left":"m15 5-7 7 7 7","chevron-down":"m5 9 7 7 7-7",x:"m5 5 14 14M5 19 19 5"};
-const obsidian={Component,Modal,FuzzySuggestModal,Menu,Notice:class{constructor(text){notices.push(text)}},setIcon(el,name){el.replaceChildren();el.dataset.icon=name;const svg=document.createElementNS("http://www.w3.org/2000/svg","svg");for(const[k,v]of Object.entries({viewBox:"0 0 24 24",fill:"none",stroke:"currentColor","stroke-width":"1.7","stroke-linecap":"round","stroke-linejoin":"round"}))svg.setAttribute(k,v);const p=document.createElementNS(svg.namespaceURI,"path");p.setAttribute("d",icons[name]||icons.folder);svg.append(p);el.append(svg)},MarkdownRenderer:{render:async(app,text,el)=>el.createEl("p",{text})}};
+const icons={"chevron-up":"m5 15 7-7 7 7",folder:"M3 7h6l2-3h9v16H3z","list-todo":"M9 6h11M9 12h11M9 18h11M3 6h2M3 12h2M3 18h2",search:"M10 3a7 7 0 1 0 0 14 7 7 0 0 0 0-14m5 12 6 6",plus:"M12 5v14M5 12h14","chevron-right":"m9 5 7 7-7 7","chevron-left":"m15 5-7 7 7 7","chevron-down":"m5 9 7 7 7-7",x:"m5 5 14 14M5 19 19 5"};
+const obsidian={getIcon:()=>null,Component,Modal,FuzzySuggestModal,Menu,Notice:class{constructor(text){notices.push(text)}},setIcon(el,name){el.replaceChildren();el.dataset.icon=name;const svg=document.createElementNS("http://www.w3.org/2000/svg","svg");for(const[k,v]of Object.entries({viewBox:"0 0 24 24",fill:"none",stroke:"currentColor","stroke-width":"1.7","stroke-linecap":"round","stroke-linejoin":"round"}))svg.setAttribute(k,v);const p=document.createElementNS(svg.namespaceURI,"path");p.setAttribute("d",icons[name]||icons.folder);svg.append(p);el.append(svg)},MarkdownRenderer:{render:async(app,text,el)=>el.createEl("p",{text})}};
 window.onerror=(message,source,line,col,error)=>document.getElementById("result").textContent="FAIL: "+(error?.stack||message);
 window.onload=async()=>{try{
- const names=["config","domain/tasks","domain/dates","domain/task-planning","domain/task-views","domain/task-progress","domain/oath","domain/oath-workspace",
- "services/task-writes","services/task-locations","services/task-data","services/task-editor","ui/markdown","ui/completion-audio","ui/task-steps","ui/oath-tasks","ui/tasks","ui/task-editor","ui/task-view-primitives","ui/task-view-upcoming","ui/task-view-table","ui/task-view-location","ui/task-view-calendar","ui/task-view-timeline","ui/task-workspace","ui/app-shortcuts"];
+ const names=["config","domain/files","domain/workspace-explorer","ui/file-icons","ui/workspace-explorer","domain/tasks","domain/dates","domain/task-planning","domain/task-views","domain/task-progress","domain/oath","domain/oath-workspace",
+ "domain/project-planning","services/project-planning","ui/planning-editor","ui/project-roadmap","ui/schedule-toolbar","ui/full-view-layout","domain/context-search","services/context-search","ui/context-search","ui/icons","services/task-writes","services/task-locations","services/task-data","services/task-editor","ui/markdown","ui/completion-audio","ui/task-steps","ui/oath-tasks","ui/tasks","ui/task-editor","ui/task-view-primitives","ui/task-view-upcoming","ui/task-view-table","ui/task-view-location","ui/task-view-calendar","ui/task-view-timeline","ui/task-workspace","ui/app-shortcuts"];
  const sources=Object.fromEntries(await Promise.all(names.map(async name=>[name,await(await fetch("../"+name+".js")).text()]))),cache={};
  const load=name=>{if(name==="obsidian")return obsidian;if(name==="crypto")return{randomUUID:()=>crypto.randomUUID()};if(cache[name])return cache[name].exports;const module=cache[name]={exports:{}};if(!sources[name])throw Error("Missing module "+name);new Function("module","require","process",sources[name])(module,request=>{if(["obsidian","crypto"].includes(request))return load(request);const parts=(name.slice(0,name.lastIndexOf("/"))+"/"+request).split("/"),out=[];for(const part of parts){if(part==="..")out.pop();else if(part!==".")out.push(part)}return load(out.join("/"))},{env:{}});return module.exports};
  const domain=load("domain/tasks"),planning=load("domain/task-planning"),dates=load("domain/dates"),progress=load("domain/task-progress");
@@ -24,8 +24,8 @@ window.onload=async()=>{try{
  const resource={root:"Resources/Knowledge",projectId:"resource:study",name:"Knowledge",contextKind:"resource"};
  const shelved={...project,root:"Projects/Old",projectId:"p2",name:"Old project",status:"shelved"};
  const vault=new Emitter(),metadataCache=new Emitter(),workspace=new Emitter(),objects=new Map(),contents=new Map();
- const folder=path=>objects.set(path,{path,children:[]});
- const note=(path,text)=>{const file={path,extension:"md",parent:objects.get(path.slice(0,path.lastIndexOf("/")))};objects.set(path,file);contents.set(path,text);return file};
+ const folder=path=>objects.set(path,{path,name:path.split("/").at(-1),children:[]});
+ const note=(path,text)=>{const file={path,name:path.split("/").at(-1),basename:path.split("/").at(-1).replace(/\.md$/,""),extension:"md",parent:objects.get(path.slice(0,path.lastIndexOf("/")))};objects.set(path,file);contents.set(path,text);return file};
  for(const path of [project.root,resource.root,resource.root+"/Mathematics",resource.root+"/Mathematics/Topology",resource.root+"/Mathematics/Topology/Assignments",resource.root+"/Mathematics/Topology/Lectures",resource.root+"/Physics",resource.root+"/Empty",resource.root+"/System",resource.root+"/System/Templates"])folder(path);
  const today=dates.localISODate(),shift=n=>{const date=new Date();date.setDate(date.getDate()+n);return dates.localISODate(date)};
  const wizard={data:{taskMetadata:{}},categories:[{id:"research",shortcuts:["overleaf","chatgpt"]}],getProjectRecords:()=>[project,shelved],getResourceTypes:()=>[resource],
@@ -53,13 +53,13 @@ window.onload=async()=>{try{
  seed(resource.root+"/System/Templates/Example.md",[{text:"Hidden template task"}]);
  let reads=0,checks=[],history=[],oathChanges=0,filesVisits=0;
  Object.assign(vault,{getAbstractFileByPath:path=>objects.get(path),getAllLoadedFiles:()=>[...objects.values()],getMarkdownFiles:()=>[...objects.values()].filter(f=>f.extension==="md"),
- read:async file=>contents.get(file.path),create:async(path,text)=>{const file=note(path,text);queueMicrotask(()=>metadataCache.emit("dataview:metadata-change","update",file));return file},
+ cachedRead:async file=>contents.get(file.path),read:async file=>contents.get(file.path),create:async(path,text)=>{const file=note(path,text);queueMicrotask(()=>metadataCache.emit("dataview:metadata-change","update",file));return file},
  process:async(file,transform)=>{contents.set(file.path,transform(contents.get(file.path)));queueMicrotask(()=>metadataCache.emit("dataview:metadata-change","update",file))},getResourcePath:()=>""});
  workspace.getActiveFile=()=>objects.get(project.root+"/Tasks.md");workspace.openLinkText=()=>{};
  const plugin={app:{vault,metadataCache,workspace},projectWizard:wizard,dataStore:{save:async()=>{}},
  enqueueTaskMutation:fn=>{const result=(plugin.queue??Promise.resolve()).then(fn);plugin.queue=result.catch(()=>{});return result},
  markProjectChangedByPath(){},notifyCompletedTasksChanged(){},oath:{changed(){oathChanges++}},
- registerEvent:ref=>cleanup.registerEvent(ref),registerDomEvent:(el,event,fn)=>{el.addEventListener(event,fn);cleanup.register(()=>el.removeEventListener(event,fn))},openAppShortcut:async id=>{plugin.lastShortcut=id}};
+ register:fn=>cleanup.register(fn),registerEvent:ref=>cleanup.registerEvent(ref),registerDomEvent:(el,event,fn)=>{el.addEventListener(event,fn);cleanup.register(()=>el.removeEventListener(event,fn))},openAppShortcut:async id=>{plugin.lastShortcut=id}};
  wizard.recordTaskMutation=async(edit,owner,time)=>{const result=progress.taskProgressMutation(checks,history,edit,owner,time,()=>crypto.randomUUID());checks=result.checks;history=result.history;return result.changed};
  plugin.taskEditor=new HubTaskEditor(plugin);plugin.taskData=new HubTaskDataService(plugin.app,{metadata:id=>plugin.taskEditor.metadata(id)});
  plugin.mutateTask=request=>plugin.enqueueTaskMutation(async()=>{const file=objects.get(request.path);const content=contents.get(file.path);
@@ -68,96 +68,226 @@ window.onload=async()=>{try{
  const pages=()=>[...contents].map(([path,text])=>{const tasks=[],lines=text.split(/\r?\n/);lines.forEach((line,i)=>{const details=domain.taskLineDetails(line);if(!details||/^\s/.test(line))return;const snapshot=planning.readTaskSnapshot(text,{path,line:i,text:details.text});const children=snapshot.steps.map(step=>({...step,path,task:true,parent:i,children:[]}));tasks.push({...snapshot,text:details.text,children},...children)});return{file:{path,tasks}}});
  const container=document.getElementById("fixture"),cleanup=new Component();
  const dv={container,pages:()=>({array:()=>{reads++;return pages()}})};
- let component,controller,root,grid,toolbar;
+ note(project.root+"/Analyze initial results.md","Notes on measurements");
+ plugin.planning=new (load("services/project-planning").ProjectPlanningService)(plugin);
+ project.path=project.root+"/Thesis.md";note(project.path,"Project dashboard");
+ const firstTask=plugin.taskData.readWorkspace(dv,project)[0];
+ const phase=await plugin.planning.savePhase("p1",{name:"Research",start:today,end:shift(30)},[{task:firstTask,included:true}]);
+ await plugin.planning.savePhase("p1",{name:"Prototype",start:shift(15),end:shift(90)});
+ const milestone=await plugin.planning.saveMilestone("p1",{name:"Internal demo",date:shift(21),achieved:false});
+ const finderService = new (load("services/context-search").ContextSearchService)(plugin);
+ plugin.workspaceModes={openProjectNote:async(path)=>{plugin.opened=path;return true},openProjectFull:async()=>true};
+ let component,controller,root,grid,toolbar,finder;
  const mount=owner=>{component?.unload();container.empty();component=new Component();
  root=container.createDiv({cls:"project-dashboard hub-button-scope",attr:{"data-hub-context-id":owner.projectId}});
  const cover=root.createDiv({cls:"project-cover"});cover.createEl("img",{cls:"project-cover-image",attr:{src:"../../../../../Assets/ResourceCards/study.jpg",alt:""}});
  const header=root.createDiv({cls:"project-header"}),title=header.createDiv();title.createEl("h1",{cls:"project-title",text:owner.name});title.createDiv({cls:"project-category",text:owner===resource?"Concepts and material from established knowledge":"Research, writing and finalizing my master’s thesis."});
  header.createDiv({cls:"project-date",text:new Date().toLocaleDateString("en-US",{weekday:"long",day:"numeric",month:"long",year:"numeric"})});
  toolbar=root.createDiv({cls:"project-shortcuts"});grid=root.createDiv({cls:"project-main-grid"});
- grid.createDiv({cls:"project-left-column project-panel",text:"Existing Files workspace"});grid.createDiv({cls:"project-right-column project-panel",text:"Tasks · Progress · History"});
- controller=mountTaskWorkspace({plugin,component,dv,root,toolbar,filesGrid:grid,workspace:owner,onFiles:()=>filesVisits++,openSource:path=>{plugin.opened=path}});
+ const left=grid.createDiv({cls:"project-left-column"}),filesPanel=left.createDiv({cls:"project-folder-stack"});
+ const right=grid.createDiv({cls:"project-right-column"});
+ right.createDiv({cls:"project-panel project-tasks",text:"Tasks"});right.createDiv({cls:"project-panel project-progress",text:"Progress / History"});
+ const folderStates={};
+ for(const item of objects.values())if(item.children)item.children=[...objects.values()].filter(child=>child.path.slice(0,child.path.lastIndexOf("/"))===item.path);
+ const explorer=load("ui/workspace-explorer").mountWorkspaceExplorer({parent:filesPanel,workspacePath:owner.root,dashboardPath:owner.path,
+  descriptors:()=>[{path:owner.root,title:"Meta",isRoot:true}],getByPath:path=>objects.get(path),states:()=>folderStates,persist:()=>{},
+  setIcon:obsidian.setIcon,openFile:()=>{},createItem:()=>{},contextMenu:()=>{}});
+ component.register(()=>explorer.destroy());
+ finder=load("ui/context-search").mountContextSearch({service:finderService,component,dv,root,toolbar,scope:owner});
+ controller=mountTaskWorkspace({plugin,component,dv,root,toolbar,filesGrid:grid,filesPanel,roadmapParent:left,workspace:owner,onFiles:()=>filesVisits++,openSource:path=>{plugin.opened=path}});
+ finderService.registerWorkspace(component,root,owner,()=>controller.showFiles(),(kind,id)=>controller.focusPlanning(kind,id));
  workspace.activeLeaf={view:{containerEl:root,file:objects.get(owner.root+"/Tasks.md")}};
  return controller};
  const click=label=>{const el=[...root.querySelectorAll("button")].find(button=>button.textContent===label&&!button.closest("[hidden]"));assert(el,"Button "+label);el.click();return el};
- const tab=view=>{const el=root.querySelector('[data-task-view="'+view+'"]');assert(el,"Tab "+view);el.click()};
  const select=(label,value)=>{const el=root.querySelector('select[aria-label="'+label+'"]');el.value=value;el.dispatchEvent(new Event("change",{bubbles:true}))};
- const titles=()=>[...root.querySelectorAll(".hub-full-task-title,.project-task-text")].map(el=>el.textContent);
- mount(project);assert(!grid.hidden&&!controller.active(),"Project starts in existing Files");click("Tasks");await settle();
- assert(grid.hidden&&controller.state.view==="upcoming","Project defaults to Upcoming with sidebar hidden");
- assert([...root.querySelectorAll("[role=tab]")].map(x=>x.textContent).join("|")==="Upcoming|Calendar|Timeline|All tasks","Project tabs exact");
- assert([...root.querySelectorAll(".hub-task-column h3")].map(x=>x.textContent).join("|")==="Past due|Today|Tomorrow|Later|Unscheduled","Five buckets exact");
- assert(root.textContent.includes("Solve problem set 4"),"Project includes canonical Resource association");
- const readCount=reads;const search=root.querySelector("input[type=search]");search.value="research questions";search.dispatchEvent(new Event("input"));assert(titles().length===1,"Search scopes board");search.value="";search.dispatchEvent(new Event("input"));assert(reads===readCount,"Search does not reparse tasks");
- select("Location",project.root+"/Tasks.md");assert(!root.textContent.includes("Solve problem set"),"Location scopes linked board");select("Location","");
- root.querySelector(".hub-full-card-context .hub-full-location").click();assert(plugin.opened,"Source breadcrumb opens location");
- root.querySelector(".is-today .hub-task-column-add").click();await settle();
- let form=lastModal.contentEl;assert(lastModal.contentEl.querySelectorAll("input[type=date]")[1].value===today,"Today creation prefills existing due metadata");
- form.querySelector(".hub-task-title-input").value="Create from Today";form.querySelector("button[type=submit]").click();await settle();
- assert(contents.get(project.root+"/Tasks.md").includes("Create from Today"),"New task is Markdown in current workspace");
- assert(plugin.taskData.readWorkspace(dv,project,[resource]).find(t=>t.text==="Create from Today").dueDate===today,"Creator persists contextual metadata");
- tab("calendar");await settle();assert(root.querySelectorAll(".hub-task-weekday").length===7,"Month calendar renders weekdays");
- click("Week");assert(root.querySelectorAll(".hub-task-calendar-day").length===7,"Week calendar supported");click("Month");
- const dayButton=root.querySelector(".hub-task-calendar-day .hub-task-icon-button");dayButton.click();await settle();assert(lastModal.contentEl.querySelectorAll("input[type=date]")[1].value,"Day creation prefills date");lastModal.close();
- root.querySelector(".project-task-text").click();await settle();assert(lastModal.contentEl.querySelector("h2").textContent==="Edit task","Calendar opens shared editor");lastModal.close();
- tab("timeline");await settle();assert(root.querySelector(".is-start")&&root.querySelector(".is-due")&&root.querySelector(".is-range"),"Timeline honors start-only, due-only, range");
- assert(root.querySelector(".hub-task-timeline-today"),"Timeline has current-date line");assert(root.textContent.includes("undated"),"No position fabricated for undated tasks");
- tab("all");await settle();assert(![...root.querySelectorAll("th")].some(th=>th.textContent==="Project"),"Project table omits Project");
- select("Status","all");assert(titles().includes("Completed task"),"All status reveals completed tasks");
- select("Status","open");select("Necessity","must");assert(root.querySelectorAll("tbody tr").length>=2,"Necessity filters");select("Necessity","");
- const sort=[...root.querySelectorAll(".hub-task-sort")].find(el=>el.textContent.startsWith("Task"));sort.click();assert(root.querySelector('[aria-sort="ascending"]'),"Table sortable");
- const before=history.length;let check=root.querySelector("tbody input[type=checkbox]");check.click();await settle();assert(history.length===before+1,"Check records canonical completion");
- select("Status","completed");check=root.querySelector("tbody input[type=checkbox]");assert(check,"Completed task available to uncheck");check.click();await settle();assert(history.length===before,"Uncheck removes completion");
- select("Status","open");
- const firstTitle=root.querySelector(".hub-full-task-title");firstTitle.click();await settle();form=lastModal.contentEl;form.querySelector(".hub-task-title-input").value="Edited in full view";form.querySelector("button[type=submit]").click();await settle();
- assert([...contents.values()].some(text=>text.includes("Edited in full view")),"Edit writes canonical task text");
- assert(oathChanges>0,"Mutations notify existing Oath integration");
- click("Files");assert(!grid.hidden&&filesVisits===1,"Project returns to unchanged Files");click("Tasks");assert(controller.state.view==="all","Task subview stays warm");
+ const type=async text=>{finder.input.focus();finder.input.value=text;finder.input.dispatchEvent(new Event("input"));await new Promise(resolve=>setTimeout(resolve,130));await settle()};
+ const rect=selector=>root.querySelector(selector).getBoundingClientRect();
+ const checkGap=surface=>assert(Math.abs(surface.getBoundingClientRect().top-toolbar.getBoundingClientRect().bottom-12)<.1,"Shared panel gutter below search");
+ const checkWork=()=>{
+  const modes=root.querySelector(".hub-task-primary-modes"),border=parseFloat(getComputedStyle(modes).borderRightWidth);
+  assert(Math.abs(modes.getBoundingClientRect().right-border-rect(".hub-explorer-details").left)<.1,"Mode separator aligns with Files divider");
+  assert(Math.abs(rect(".hub-workspace-explorer").bottom-rect(".project-right-column").bottom)<.1,"Files bottom aligns with complete sidebar");
+  assert(Math.abs(rect(".hub-explorer-footer").bottom-rect(".hub-workspace-explorer").bottom+1)<.1,"New folder stays at panel bottom");
+  assert(getComputedStyle(root.querySelector(".hub-explorer-tree")).overflowY==="auto","Files retain internal scrolling");
+  checkGap(grid);
+ };
+ mount(project);await settle();assert(!grid.hidden&&!controller.active(),"Project starts in existing Files");
+ checkWork();
+ assert([...toolbar.querySelectorAll("button")].map(x=>x.textContent).join("|")==="Work|Schedule|Roadmap","Exactly three Project modes");
+ assert(!toolbar.querySelector("button svg"),"Mode buttons have no icons");
+ const widths=[...toolbar.querySelectorAll("button")].map(x=>x.getBoundingClientRect().width);
+ assert(Math.max(...widths)-Math.min(...widths)<1,"Mode buttons have equal widths");
+ const barHeight=toolbar.getBoundingClientRect().height;
+ await type("Analyze initial results");
+ assert(!grid.hidden,"Typing does not mutate Files mode");
+ const headings=[...root.querySelectorAll(".hub-context-result-heading")].map(x=>x.textContent);
+ assert(headings.includes("Files")&&headings.includes("Tasks"),"Similar file/task results clearly grouped");
+ finder.input.dispatchEvent(new KeyboardEvent("keydown",{key:"ArrowDown",bubbles:true}));
+ assert(finder.input.getAttribute("aria-activedescendant"),"Keyboard result selection");
+ finder.input.dispatchEvent(new KeyboardEvent("keydown",{key:"Enter",bubbles:true}));await settle();
+ assert(plugin.opened===project.root+"/Analyze initial results.md","File result opens canonical Note source");
+ assert(root.querySelector(".hub-context-results").hidden,"Result navigation closes dropdown");
+ click("Roadmap");await settle();
+ assert(grid.hidden&&!controller.active()&&root.querySelector(".hub-roadmap-panel"),"Roadmap removes Work and its sidebar from layout");
+ assert(Math.abs(rect(".hub-roadmap-panel").width-toolbar.getBoundingClientRect().width)<.1,"Roadmap spans full Project width");
+ checkGap(root.querySelector(".hub-roadmap-host"));
+ assert(root.querySelector(".hub-work-files").hidden&&!root.querySelector(".hub-task-timeline"),"Phases replace task Gantt");
+ assert(root.querySelectorAll(".hub-roadmap-phase-bar").length===2&&root.querySelectorAll(".hub-roadmap-milestone").length===1,"Independent phase/milestone models");
+ assert(root.querySelector(".hub-roadmap-today"),"Real-date Today guide");
+ const roadmapRange=load("domain/project-planning").roadmapRange(controller.state.roadmapAnchor,6);
+ const initialMarker=root.querySelector(".hub-roadmap-milestone");
+ assert(Math.abs(parseFloat(initialMarker.style.left)-roadmapRange.position(milestone.date))<.0001,"Milestone sits at its actual calendar-day position");
+ const secondMilestone=await plugin.planning.saveMilestone("p1",{name:"Another event on a crowded date",date:shift(22),achieved:false});await settle();
+ const markers=[...root.querySelectorAll(".hub-roadmap-diamond")];
+ assert(Math.abs(markers[0].getBoundingClientRect().top-markers[1].getBoundingClientRect().top)<.1,"Crowded diamonds share a baseline");
+ const captions=[...root.querySelectorAll(".hub-roadmap-milestone-caption")].map(e=>e.getBoundingClientRect());
+ assert(captions[0].right<=captions[1].left,"Crowded milestone labels truncate without overlap");
+ const phaseBar=root.querySelector(".hub-roadmap-phase-bar");
+ assert(parseFloat(phaseBar.style.width)>0&&parseFloat(phaseBar.style.width)<100,"Phase duration derived from dates");
+ select("Roadmap range","12");assert(root.querySelectorAll(".hub-roadmap-month").length===12,"Year scale");select("Roadmap range","3");assert(root.querySelectorAll(".hub-roadmap-month").length===3,"Three-month scale");select("Roadmap range","6");
+ const timelineBefore=root.querySelector(".hub-roadmap-timeline");
+ await type("Research");assert(root.querySelector(".hub-roadmap-timeline")===timelineBefore,"Finder does not filter Roadmap");
+ assert(root.querySelector(".hub-context-result-group[aria-labelledby$=phases]"),"Search groups phases");
+ root.querySelector(".hub-context-result-group[aria-labelledby$=phases] .hub-context-result").click();await settle();
+ assert(document.activeElement.dataset.planningId===phase.id,"Phase search focuses actual roadmap object");
+ const dateBefore=plugin.planning.read("p1").phases[0].start;
+ root.querySelector('button[aria-label="Move Research down"]').click();await settle();
+ assert(plugin.planning.read("p1").phases[1].id===phase.id&&plugin.planning.read("p1").phases[1].start===dateBefore,"Manual order keeps dates");
+ click("Phase");await settle();let phaseModal=lastModal;
+ phaseModal.contentEl.querySelector('input[aria-label="Name"]').value="Testing";
+ phaseModal.contentEl.querySelector('button[type="submit"]').click();await settle();
+ assert(plugin.planning.read("p1").phases.length===3,"Phase modal creation persists");
+ click("Testing");await settle();phaseModal=lastModal;
+ assert(phaseModal.contentEl.textContent.includes("No associated tasks"),"Phase details derive associations");
+ [...phaseModal.contentEl.querySelectorAll("button")].find(b=>b.textContent==="Add tasks").click();await settle();
+ lastModal.contentEl.querySelector("button").click();await settle();
+ phaseModal.contentEl.querySelector('button[type="submit"]').click();await settle();
+ assert(plugin.planning.tasks(dv,"p1").some(t=>t.phaseId===plugin.planning.read("p1").phases[2].id),"Phase picker writes canonical membership");
+ root.querySelector(".hub-roadmap-milestone").click();await settle();
+ lastModal.contentEl.querySelector('input[type="checkbox"]').click();lastModal.contentEl.querySelector('button[type="submit"]').click();await settle();
+ assert(root.querySelector(".hub-roadmap-milestone.is-achieved"),"Achieved milestone stays visible");
+ assert(history.length===0&&oathChanges===0,"Planning edits do not produce completion events");
+ click("Schedule");await settle();
+ assert(grid.hidden&&Math.abs(rect(".hub-task-workspace").width-toolbar.getBoundingClientRect().width)<.1,"Schedule remains full width without sidebar");
+ checkGap(root.querySelector(".hub-task-workspace"));
+ assert(controller.state.scheduleView==="upcoming"&&root.querySelectorAll(".hub-task-column").length===5,"Upcoming is Schedule default");
+ assert(root.querySelectorAll(".hub-full-add-task").length===1&&!root.querySelector(".hub-task-column-add"),"Single Add task in shared toolbar");
+ assert(!root.querySelector('select[aria-label="Location"]')&&!root.querySelector(".hub-task-planning-controls"),"No standalone locations row");
+ assert(root.querySelector(".hub-task-phase"),"Upcoming shows neutral phase chip");
+ assert(root.textContent.includes("Solve problem set 4"),"Schedule includes canonical linked Resource tasks");
+ const scheduleHeight=root.querySelector(".hub-schedule-toolbar").getBoundingClientRect().height;
+ assert(toolbar.getBoundingClientRect().height===barHeight,"Context bar stable across modes");
+ click("Week");assert(root.querySelectorAll(".hub-task-calendar-day").length===7,"Week calendar supported");
+ assert(root.querySelector(".hub-schedule-toolbar").getBoundingClientRect().height===scheduleHeight,"Schedule toolbar keeps height");
+ click("Work");click("Schedule");assert(controller.state.scheduleView==="week","Schedule preserves warm selection");click("Month");
+ const dayButton=root.querySelector(".hub-task-calendar-day .hub-task-icon-button");dayButton.click();await settle();
+ let form=lastModal.contentEl;assert(form.querySelectorAll("input[type=date]")[1].value,"Day creation prefills date");
+ form.querySelector(".hub-task-title-input").value="Create from Schedule";form.querySelector("button[type=submit]").click();await settle();
+ assert(contents.get(project.root+"/Tasks.md").includes("Create from Schedule"),"New task writes canonical Markdown");
+ root.querySelector(".project-task-text").click();await settle();form=lastModal.contentEl;
+ assert(form.querySelector("h2").textContent==="Edit task","Calendar opens shared editor");
+ const phaseField=form.querySelector('select[aria-label="Project phase (optional)"]');
+ assert(phaseField&&!phaseField.closest("section").hidden&&phaseField.options.length===4,"Project task editor lists local phases plus No phase");phaseField.value=phase.id;
+ form.querySelector(".hub-task-title-input").value="Edited in Schedule";form.querySelector("button[type=submit]").click();await settle();
+ assert([...contents.values()].some(text=>text.includes("Edited in Schedule")),"Editing preserves canonical task writes");
+ assert(plugin.planning.tasks(dv,"p1").find(t=>t.text==="Edited in Schedule").phaseId===phase.id,"Task editor writes the same canonical phase link");
+ root.querySelector(".project-task-text").click();await settle();
+ const clearModal=lastModal,clearForm=clearModal.contentEl;
+ clearForm.querySelector('select[aria-label="Project phase (optional)"]').value="";
+ [...clearForm.querySelectorAll("button")].find(b=>b.textContent.startsWith("Choose location")).click();await settle();
+ const locationPicker=lastModal;locationPicker.onChooseItem(locationPicker.getItems().find(item=>item.path===project.root+"/Tasks.md"));locationPicker.close();
+ assert(clearForm.querySelector('select[aria-label="Project phase (optional)"]').value==="","No phase remains selected after choosing location");
+ const phaseHistory=history.length,phaseOath=oathChanges;
+ clearForm.querySelector('button[type="submit"]').click();await settle();
+ assert(!plugin.planning.tasks(dv,"p1").find(t=>t.text==="Edited in Schedule").phaseId,"Task editor clears membership");
+ assert(history.length===phaseHistory&&oathChanges===phaseOath,"Removing phase has no completion/Oath effects");
+ const resourceTask=plugin.taskData.readWorkspace(dv,resource)[0];
+ load("ui/task-editor").openTaskEditor(plugin.taskEditor,resourceTask);await settle();
+ assert(lastModal.contentEl.querySelector('select[aria-label="Project phase (optional)"]').closest("section").hidden,"Resource task editor hides Phase");lastModal.close();
+ const before=history.length;root.querySelector(".hub-task-calendar input[type=checkbox]").click();await settle();
+ assert(history.length===before+1&&oathChanges>0,"Completion updates Progress history and Oath");
+ click("Work");assert(!grid.hidden&&filesVisits>0,"Returning Files restores existing panels");
+ click("Roadmap");
+ click("Testing");await settle();const deletionModal=lastModal;
+ const countBeforeDelete=plugin.planning.tasks(dv,"p1").length;
+ deletionModal.contentEl.querySelector(".hub-task-remove").click();deletionModal.contentEl.querySelector(".hub-task-remove").click();await settle();
+ assert(!plugin.planning.read("p1").phases.some(p=>p.name==="Testing")&&plugin.planning.tasks(dv,"p1").length===countBeforeDelete,"Phase modal deletion keeps tasks");
+ click("Milestone");await settle();lastModal.contentEl.querySelector('input[aria-label="Name"]').value="Release";
+ lastModal.contentEl.querySelector('button[type="submit"]').click();await settle();
+ const release=plugin.planning.read("p1").milestones.find(m=>m.name==="Release");assert(release,"Milestone modal creation persists");
+ root.querySelector('[data-planning-id="'+release.id+'"]').click();await settle();
+ lastModal.contentEl.querySelector(".hub-task-remove").click();lastModal.contentEl.querySelector(".hub-task-remove").click();await settle();
+ assert(!plugin.planning.read("p1").milestones.some(m=>m.id===release.id),"Milestone modal deletion persists");
  const beforeRail=filesVisits;
  container.classList.add("hub-project-rail");document.body.classList.add("hub-project-note-mode");await settle();
- assert(!controller.active()&&filesVisits>beforeRail,"Entering note rail refreshes the existing Files task panel");
- assert(getComputedStyle(root.querySelector(".hub-task-workspace")).display==="none"&&getComputedStyle(grid).display==="grid","Rail keeps Files visible and hides full Tasks");
+ assert(!controller.active()&&filesVisits>beforeRail,"Note rail refreshes existing Files panel");
+ assert(getComputedStyle(toolbar).display==="none"&&getComputedStyle(grid).display==="grid","Note hides context bar and keeps Files");
  container.classList.remove("hub-project-rail");document.body.classList.remove("hub-project-note-mode");await settle();
- assert(controller.active()&&controller.state.view==="all","Returning from note rail preserves full Tasks state");
- mount(resource);click("Tasks");await settle();assert(controller.state.view==="location","Resource defaults By location");
- assert([...root.querySelectorAll("[role=tab]")].map(x=>x.textContent).join("|")==="By location|Upcoming|All tasks","Resource tabs exact regardless dates");
- assert(!root.querySelector('[data-task-view="calendar"],[data-task-view="timeline"]'),"No Resource Calendar/Timeline");
- assert(root.textContent.includes("Mathematics")&&root.textContent.includes("Physics")&&!root.textContent.includes("System"),"Real hierarchy without system locations");
- const heading=[...root.querySelectorAll(".hub-task-location-heading")].find(el=>el.textContent.startsWith("Mathematics"));heading.click();assert([...root.querySelectorAll(".hub-task-location-heading")].find(el=>el.textContent.startsWith("Mathematics")).getAttribute("aria-expanded")==="false","Hierarchy can collapse");
- tab("upcoming");await settle();assert(root.querySelector(".hub-task-project-link"),"Linked project shown on Resource card");
- tab("all");await settle();assert([...root.querySelectorAll("th")].some(th=>th.textContent==="Project"),"Resource table includes Project");
- assert(!root.textContent.match(/High|Medium|Low|No project/),"No invented priorities or empty project labels");
- root.querySelector(".hub-full-add-task").click();await settle();form=lastModal.contentEl;
- const association=form.querySelector('select[aria-label="Project (optional)"]');assert(!association.closest("section").hidden,"Resource creator offers Project");
- assert([...association.options].map(x=>x.value).join("|")==="|p1","Only active Project selectable");
- assert(form.querySelector(".hub-task-source").textContent==="Knowledge · Folder","Current workspace Location prefilled");
- form.querySelector(".hub-task-title-input").value="Linked resource task";association.value="p1";form.querySelector("button[type=submit]").click();await settle();
- assert(contents.get(resource.root+"/Tasks.md").includes("Linked resource task"),"Folder creation lazily uses Tasks.md");
- assert(plugin.taskData.readWorkspace(dv,project,[resource]).some(t=>t.text==="Linked resource task"),"One newly linked task appears in both workspaces");
- // Move the new task through the real shared editor picker.
- const created=[...root.querySelectorAll(".hub-full-task-title")].find(el=>el.textContent==="Linked resource task");created.click();await settle();
- const editModal=lastModal;[...editModal.contentEl.querySelectorAll("button")].find(el=>el.textContent==="Choose location…").click();await settle();
- const picker=lastModal;[...picker.contentEl.querySelectorAll("button")].find(el=>el.textContent==="Physics › Notes").click();
- editModal.contentEl.querySelector("button[type=submit]").click();await settle();
- assert(!contents.get(resource.root+"/Tasks.md").includes("Linked resource task")&&contents.get(resource.root+"/Physics/Notes.md").includes("Linked resource task"),"Location picker moves canonical task");
+ assert(!controller.active()&&controller.state.mode==="roadmap"&&grid.hidden,"Return from Note retains full-width Roadmap");
+ mount(resource);await settle();
+ assert(!toolbar.querySelector("button")&&!root.querySelector(".hub-task-workspace")&&!grid.hidden,"Resource has Files workspace without mode selector");
+ assert(finder.input.placeholder==="Search Knowledge\u2026","Resource has contextual placeholder");
+ assert(toolbar.getBoundingClientRect().height===barHeight,"Resource/Project shared bar height");
+ checkGap(grid);
+ assert(root.querySelector(".hub-explorer-heading [data-icon='folder-tree']"),"Resource Files keeps folder-tree heading");
+ await type("research questions");assert(root.querySelector(".hub-context-empty"),"Resource finder excludes unrelated Project tasks");
+ await type("Solve problem");assert(root.querySelector(".hub-context-result"),"Resource retains structurally owned linked task");
+ finder.input.dispatchEvent(new KeyboardEvent("keydown",{key:"Escape",bubbles:true}));assert(root.querySelector(".hub-context-results").hidden,"Escape closes finder");
+ for(const width of [1800,1440,1040]) {
+  container.style.maxWidth="none";container.style.width=width+"px";mount(project);click("Work");await settle();checkWork();
+  container.style.width=(width+80)+"px";await settle();checkWork();
+  click("Roadmap");container.style.width=width+"px";await settle();click("Work");await settle();checkWork();
+ }
+ container.style.maxWidth="100%";
+ for(const width of [1040,760,420,300]) {
+  container.style.width=width+"px";mount(project);await settle();
+  for(const label of ["Work","Roadmap","Schedule"]) { click(label);await settle();assert(label === "Work" ? toolbar.scrollWidth <= toolbar.clientWidth + 1 : root.scrollWidth <= root.clientWidth + 1,"Workspace controls fit at "+width+" "+label); }
+  const region=root.querySelector(".hub-context-search").getBoundingClientRect(),bar=toolbar.getBoundingClientRect();
+  assert(region.right<=bar.right&&region.width>30,"Search fills available width without overflow at "+width);
+ }
+ container.style.width="1040px";mount(resource);await settle();
+ const home=document.body.createDiv({cls:"home-dashboard hub-button-scope"});home.style.width="1040px";
+ const homeBar=home.createDiv();const homeFinder=load("ui/context-search").mountContextSearch({service:finderService,component,dv,root:home,toolbar:homeBar});
+ assert(homeFinder.input.placeholder==="Search Itacan\u2026"&&homeBar.getBoundingClientRect().height===barHeight,"Home uses full-width shared row");
+ assert(!homeBar.querySelector("button"),"Home search has no workspace modes");
+ const homeGrid=home.createDiv({cls:"home-main-grid"});homeGrid.style.height="450px";
+ assert(Math.abs(homeGrid.getBoundingClientRect().top-homeBar.getBoundingClientRect().bottom-12)<.1,"Home content uses panel gutter without moving search");
+ const homePanel=homeGrid.createDiv({cls:"home-panel"});
+ const piercing=homePanel.createDiv({cls:"home-panel-title",text:"Projects"});piercing.style.cssText="position:relative;z-index:10;height:40px";
+ piercing.createEl("button",{text:"Active"});
+ const floaty=homePanel.createDiv({cls:"home-project-card",text:"Project card"});floaty.style.cssText="position:relative;z-index:20;transform:translateZ(0);height:120px";
+ home.scrollIntoView();homeFinder.input.focus();homeFinder.input.value="task";homeFinder.input.dispatchEvent(new Event("input"));await new Promise(r=>setTimeout(r,130));await settle();
+ const popup=home.querySelector(".hub-context-results"),bounds=popup.getBoundingClientRect();
+ assert(!popup.hidden&&bounds.height>80,"Home results open across panels");
+ for(const offset of [20,55,85]) { const hit=document.elementFromPoint(bounds.left+35,bounds.top+offset);assert(popup.contains(hit),"Search covers underlying z-index headings/cards at "+offset); }
+ const modal=new Modal(plugin.app);modal.open();await settle();
+ assert(modal.containerEl.contains(document.elementFromPoint(bounds.left+35,bounds.top+20)),"Native modal remains above search");modal.close();
+ const homePreview=home.cloneNode(true);homePreview.querySelector(".hub-context-results").hidden=true;
+ home.remove();
  const bar=document.querySelector(".status-bar"),left=bar.createDiv({cls:"hub-oath-control hub-button-scope"});
  for(const label of ["The Oath","Daily brief","Music","Settings"])left.createEl("button",{cls:"hub-oath-button",text:label});
  bar.createDiv({cls:"status-bar-item",text:"0 backlinks   4 properties"});
  const shortcuts=load("ui/app-shortcuts").mountAppShortcuts(plugin,left);await settle();assert(shortcuts&&!bar.querySelector(".hub-shell-shortcut"),"Resource with no shortcuts has no placeholder");
  mount(project);workspace.emit("active-leaf-change");await settle();assert(bar.querySelectorAll(".hub-shell-shortcut").length===2,"Configured project shortcuts in bottom shell");bar.querySelector(".hub-shell-shortcut").click();await settle();assert(plugin.lastShortcut==="overleaf","Shortcut preserves launcher");
  const group=bar.querySelector(".hub-shell-shortcuts").getBoundingClientRect(),leftRect=left.getBoundingClientRect();assert(group.left>=leftRect.right,"Centered shortcuts do not overlap global controls");
- mount(resource);click("Tasks");tab("all");await settle();workspace.emit("active-leaf-change");
- for(const width of [1040,760,420]){container.style.width=width+"px";await settle();
-  assert(document.documentElement.scrollWidth<=window.innerWidth,"No whole-page overflow at "+width);
-  for(const view of ["location","upcoming","all"]){tab(view);await settle();assert(root.scrollWidth<=root.clientWidth+1,"Resource local overflow at "+width+" "+view)}
- }
- container.style.width="1040px";mount(project);click("Tasks");for(const width of [1040,760,420]){container.style.width=width+"px";for(const view of ["upcoming","calendar","timeline","all"]){tab(view);await settle();assert(root.scrollWidth<=root.clientWidth+1,"Project local overflow at "+width+" "+view)}}
- container.style.width="1040px";mount(resource);click("Tasks");tab("all");await settle();
  assert(notices.length===0,"No runtime notices: "+notices.join(";"));
- window.hubShowTaskPreview=async(kind,view,width=1240)=>{
-  container.style.maxWidth="none";container.style.width=width+"px";mount(kind==="project"?project:resource);
-  if(!controller.active())click("Tasks");tab(view);await settle();
+ mount({...project,projectId:"empty"});click("Roadmap");await settle();
+ assert(grid.hidden&&root.querySelector(".hub-task-view-empty")&&Math.abs(rect(".hub-roadmap-panel").width-toolbar.getBoundingClientRect().width)<.1,"Empty Roadmap also uses full width without sidebar");
+ mount(project);
+ click("Roadmap");
+ window.layoutPreview=async view=>{
+  container.style.width="1400px";
+  mount(view==="Resource"?resource:view==="Empty Roadmap"?{...project,projectId:"empty"}:project);
+  if(view==="Home"){container.replaceChildren(homePreview);homePreview.style.width="100%";window.scrollTo(0,0);await settle();return;}
+  if(view.includes("Roadmap"))click("Roadmap");
+  else if(["Upcoming","Month","Week"].includes(view)){click("Schedule");click(view);}
+  else if(view==="Work")click("Work");
+  await settle();root.querySelector(".project-cover").style.display="none";window.scrollTo(0,0);await settle();
  };
- shortcuts.destroy();cleanup.unload();component.unload();plugin.taskData.destroy();
- document.getElementById("result").textContent="PASS: Project and Resource Files/Tasks flows, exact tabs/defaults, linked canonical tasks, search/location/status/necessity/sort, month/week/date creation, timeline semantics, add/edit/check/uncheck/move, Oath notification, lazy folder notes, active Project picker, shortcuts, and local overflow at 1040/760/420px.";
+ if(window.hubTestFullView) await window.hubTestFullView({mount,click,plugin,load,project,resource,dv,container,settle,assert,objects,contents,
+  get root(){return root},get component(){return component},get controller(){return controller}});
+ if(window.hubTestWorkspaceControls) await window.hubTestWorkspaceControls({mount,click,plugin,load,project,resource,container,settle,assert,
+  get root(){return root},get component(){return component}});
+ shortcuts.destroy();cleanup.unload();plugin.taskData.destroy();
+ document.getElementById("result").textContent=(window.hubTestWorkspaceControls ? "PASS: equal primary/secondary controls, compact planning navigation/actions, Project/Tasks shared plus and unchanged Add workflows. " : "") + (window.hubTestFullView ? "PASS: Home-aligned Full-view boundaries, local search/button focus, sparse/overflowing Work and all Resources, Upcoming/Month/Week, empty/overflowing Roadmap, resizing, short windows and Note isolation. " : "") + "PASS: shared 12px search gutters; Files/mode-divider and bottom alignment at 1040/1440/1800px plus resizing; full-width empty/populated Roadmap and Schedule; Home overlay/modal hit testing; phases/milestones CRUD and search focus; Schedule creation/edit/completion; linked tasks; Oath/Progress integration; warm Note mode; shortcuts and overflow at 1040/760/420/300px.";
 }catch(error){document.getElementById("result").textContent="FAIL: "+error.stack}};

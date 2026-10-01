@@ -624,6 +624,11 @@ frame.defer(async () => {
     renderTodayFocus();
 });
 
+// ---------- CONTEXT SEARCH ----------
+const contextBar = root.createDiv({ cls: "home-context-bar" });
+markDashboardRow(contextBar, 3);
+window.hubMountContextSearch?.({ component: dv.component, dv, root, toolbar: contextBar });
+
 // ---------- MAIN GRID ----------
 
 const grid = root.createDiv({
@@ -3541,7 +3546,7 @@ const newProjectButton =
     projectTabButtons.createEl(
         "button",
         {
-            cls: "home-project-create hub-panel-action hub-panel-action-icon"
+            cls: "home-project-create hub-panel-action hub-panel-action-icon hub-panel-add"
         }
     );
 
@@ -3725,7 +3730,8 @@ const progressHeader =
     );
 
 
-const progressScopeControls = progressHeader.createDiv({ cls: 'home-progress-scope-controls hub-panel-selectors' });
+const progressHeaderControls = progressHeader.createDiv({ cls: 'home-progress-header-controls' });
+const progressScopeControls = progressHeaderControls.createDiv({ cls: 'home-progress-scope-controls hub-panel-selectors' });
 progressScopeControls.setAttribute('role', 'group');
 progressScopeControls.setAttribute('aria-label', 'Progress view');
 for (const [scope, label] of [['projects', 'Projects'], ['resources', 'Resources']]) {
@@ -3742,7 +3748,7 @@ function updateProgressScopeButtons() {
 }
 updateProgressScopeButtons();
 
-const statisticsButton = progressHeader.createEl('button', {
+const statisticsButton = progressHeaderControls.createEl('button', {
     cls: 'hub-panel-action hub-panel-action-icon hub-statistics-trigger',
     attr: { type: 'button', 'aria-label': 'Open Statistics', title: 'Statistics' }
 });

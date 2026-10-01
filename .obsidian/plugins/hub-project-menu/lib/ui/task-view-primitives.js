@@ -71,6 +71,8 @@ function taskCard(host, task, context, compact = false) {
         const metadata = info.createDiv({ cls: "hub-full-card-context" });
         source(metadata, task, context);
         projectBadge(metadata, task, context);
+        const phase = context.phaseLabel?.(task);
+        if (phase) metadata.createSpan({ cls: "hub-task-phase", text: phase, attr: { title: "Phase: " + phase } });
         const schedule = info.createDiv({ cls: "hub-full-card-date" }); date(schedule, task, "dueDate", context.now);
         if (!task.dueDate && task.fromDate) {
             schedule.createSpan({ text: "Starts " }); date(schedule, task, "fromDate", context.now);

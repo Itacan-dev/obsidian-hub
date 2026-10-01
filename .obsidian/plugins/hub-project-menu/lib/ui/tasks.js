@@ -20,7 +20,7 @@ function createTaskRow(parent, task, completed = task.completed) {
     return { row, checkbox, info, textEl };
 }
 
-function createTaskUi({ app, component, body, mutate, onEdit, editTask, createTask, oath }) {
+function createTaskUi({ app, component, body, mutate, onEdit, editTask, createTask, oath, phaseLabel }) {
     const { Menu, Notice, setIcon } = require("obsidian");
     const document = body.ownerDocument;
     let active = null, deferred = null, lastRender = null, disposed = false;
@@ -208,6 +208,8 @@ function createTaskUi({ app, component, body, mutate, onEdit, editTask, createTa
         }
         const source = info.querySelector(".home-task-location, .project-task-location");
         if (source) source.textContent = options.sourceLabel ?? (options.selection && !options.normalSource ? getPath().replace(/\.md$/i, "").split("/").join(" › ") : taskSourceLabel(getPath()));
+        const phase = !options.selection && phaseLabel?.(task);
+        if (source && phase) source.createSpan({ cls: "hub-task-phase", text: phase, attr: { title: "Phase: " + phase } });
         if (!options.selection && options.steps !== false) steps.bind(info, task, getPath);
         if (editTask) {
             textEl.tabIndex = 0; textEl.setAttribute("role", "button"); textEl.setAttribute("aria-label", `Edit task: ${task.text}`);
@@ -270,7 +272,9 @@ function createTaskUi({ app, component, body, mutate, onEdit, editTask, createTa
     }
     function addButton(header, options = {}) {
         if (!createTask) return;
-        const button = header.createEl("button", { text: "+ Add task", cls: "hub-panel-action hub-task-add", attr: { type: "button" } });
+        const button = header.createEl("button", { cls: "hub-panel-action hub-panel-action-icon hub-panel-add hub-task-add",
+            attr: { type: "button", "aria-label": "Add task", title: "Add task" } });
+        setIcon(button.createSpan({ attr: { "aria-hidden": "true" } }), "plus");
         button.addEventListener("click", () => createTask(options));
     }
     return { bind, beginRender, defer, groups, group, addButton, partitionOath: oathSection.partition, renderOath: oathSection.render };

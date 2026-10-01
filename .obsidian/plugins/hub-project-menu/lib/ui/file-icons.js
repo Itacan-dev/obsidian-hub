@@ -1,8 +1,8 @@
 "use strict";
 
 const FILE_ICONS = Object.freeze(Object.fromEntries([
-    ["file-text", "md txt rtf doc docx odt"],
-    ["file-type", "pdf"],
+    ["file-text", "pdf txt rtf doc docx odt"],
+    ["notebook-text", "md"],
     ["file-image", "png jpg jpeg gif webp svg bmp avif"],
     ["file-music", "mp3 wav m4a flac ogg aac"],
     ["file-play", "mp4 mov mkv webm avi"],

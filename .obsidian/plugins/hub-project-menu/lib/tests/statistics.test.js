@@ -27,12 +27,49 @@ const input = {
         session("multi-day", at(25, 0), at(26, 4)),
         { id: "scheduled", state: "fulfilled", startedAt: null, completedAt: at(25), durationMs: HOUR },
         session("bad", at(25), at(24)), session("pending", at(27), at(28)), null],
+    reports: [
+        ...[4, 3, 2, 4].map((score, i) => ({ projectId: "p", projectName: "Old name", date: `2026-09-${21 + i}`, score })),
+        ...[2, 1, 1].map((score, i) => ({ projectId: "future", date: `2026-09-${21 + i}`, score })),
+        { projectId: "resource:study", date: "2026-09-22", score: 4 },
+        { projectId: "resource:study", date: "2026-09-23", score: 1 },
+        { projectId: "shelved", date: "2026-09-21", score: 2 },
+        { projectId: "deleted-report", projectName: "Former project", date: "2026-09-22", score: 3 },
+        { projectName: "Renamed project", date: "2026-09-22", score: 1 },
+        { projectId: "p", date: "2026-09-20", score: 4, timestamp: at(26) },
+        { projectId: "p", date: "2025-01-01", score: 2 },
+        { projectId: "p", date: "2026-09-27", score: 0 },
+        { projectId: "p", date: "2026-09-28", score: 4 },
+        ...[null, undefined, NaN, Infinity, -1, 5, 1.5, "4"].map(score => ({ projectId: "p", date: "2026-09-22", score })),
+        { projectId: "p", date: "2026-02-30", score: 4 }
+    ],
     notes: [{ createdAt: at(25) }, { createdAt: at(25) }, { createdAt: at(26) }, { createdAt: at(1) }, { createdAt: NaN }]
 };
 input.oaths.push(input.oaths[0]); // Synced duplicate, counted once.
 input.completions.push(input.completions[0]);
 const source = prepareStatistics(input, now), model = aggregateStatistics(source, "7d");
 assert.equal(model.range.days, 7);
+const points = (data, id) => data.rows.find(row => row.projectId === id)?.progressPoints ?? 0;
+assert.equal(points(model, "p"), 13, "Sum raw evaluations, not averages, duration or Home Momentum");
+assert.equal(points(model, "future"), 4);
+assert.equal(points(model, "shelved"), 2);
+assert.equal(points(model, "resource:study"), 5);
+assert.equal(points(model, "deleted-report"), 3);
+assert.equal(model.rows.find(row => row.projectId === "deleted-report").name, "Former project");
+assert.equal(model.rows.find(row => row.projectId === "deleted-report").deleted, true);
+assert.equal(model.rows.find(row => row.key === "project:unassigned").progressPoints, 1, "No legacy name reassignment");
+assert.equal(points(aggregateStatistics(source, "30d"), "p"), 17, "Use report date, not edited timestamp");
+assert.equal(points(aggregateStatistics(source, "all"), "p"), 19, "All-time includes report-only early history");
+assert.equal(model.comparison.total, 28);
+assert.equal(model.comparison.projects, 82);
+assert.equal(model.comparison.resources, 18);
+const noReports = aggregateStatistics(prepareStatistics({ ...input, reports: [] }, now), "7d");
+assert.equal(noReports.comparison.total, 0, "Oaths alone never create point shares");
+assert.deepEqual(model.projects.map(({ progressPoints, ...row }) => row), noReports.projects.map(({ progressPoints, ...row }) => row), "Project activity metrics and cohort stay unchanged");
+assert.deepEqual(model.oath, noReports.oath);
+assert.deepEqual(model.note, noReports.note);
+for (const metric of ["activity", "tasks", "steps"]) assert.deepEqual(seriesFor(model, metric, "all"), seriesFor(noReports, metric, "all"));
+const zeroPoints = aggregateStatistics(prepareStatistics({ reports: [{ date: "2026-09-27", score: 0 }] }, now), "7d");
+assert.deepEqual(zeroPoints.comparison, { total: 0, projects: 0, resources: 0 });
 assert.equal(localISODate(new Date(model.range.start)), "2026-09-21");
 assert.equal(model.oath.total, 33 * HOUR, "Clip the pre-period portion of a crossing session");
 assert.equal(sum(model.oath.values), model.oath.total);
@@ -98,13 +135,17 @@ assert.equal(isStatisticsNote("Resources/Knowledge/Knowledge.md", { frontmatter:
 assert.equal(isStatisticsNote("Projects/X/Tasks/Tasks.md"), true);
 assert.equal(isStatisticsNote("Resources/Knowledge/Algebra.md"), true);
 
-let metadataReads = 0;
+let metadataReads = 0; const reportScopes = [];
 const files = ["Projects/New/New.md", "Projects/New/Note.md", "System/state.md"].map(path => ({ path, stat: { ctime: at(26) } }));
 const plugin = { projectWizard: { getProjectRecords: () => [project], getResourceTypes: () => [resource],
+    getProgressReports: scope => { reportScopes.push(scope); return input.reports.filter(report => String(report.projectId).startsWith("resource:") === (scope?.kind === "resource")); },
     data: { oathsByDevice: { desktop: { history: input.oaths }, laptop: { history: [input.oaths[0]] } } }, activityLog: input.activity, completedTaskHistory: input.completions },
     app: { vault: { getMarkdownFiles: () => files }, metadataCache: { getFileCache: () => { metadataReads++; return {}; } } } };
 const snapshot = readStatistics(plugin, now);
 assert.equal(snapshot.totalNotes, 1);
+assert.equal(points(aggregateStatistics(snapshot, "7d"), "p"), 13);
+assert.equal(points(aggregateStatistics(snapshot, "7d"), "resource:study"), 5);
+assert.deepEqual(reportScopes, [undefined, { kind: "resource" }], "Read canonical project and resource reports once");
 for (const [range] of RANGES) aggregateStatistics(snapshot, range);
 assert.equal(metadataReads, files.length, "No vault access on range changes");
 

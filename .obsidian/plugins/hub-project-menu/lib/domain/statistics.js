@@ -1,6 +1,6 @@
 "use strict";
 
-const { localISODate } = require("./dates");
+const { localISODate, parseLocalISODate } = require("./dates");
 const { historyKind } = require("./history");
 
 const RANGES = [["7d", "7 days"], ["30d", "30 days"], ["3m", "3 months"], ["1y", "1 year"], ["all", "All time"]];
@@ -60,7 +60,7 @@ function uniqueRecords(records) {
     });
 }
 
-function prepareStatistics({ workspaces = [], activity = [], completions = [], oaths = [], notes = [] } = {}, now = Date.now()) {
+function prepareStatistics({ workspaces = [], activity = [], completions = [], oaths = [], notes = [], reports = [] } = {}, now = Date.now()) {
     const registry = new Map();
     for (const workspace of list(workspaces)) {
         if (!workspace.projectId) continue;
@@ -92,14 +92,22 @@ function prepareStatistics({ workspaces = [], activity = [], completions = [], o
             const id = workspace?.id ? kind === "resource" ? `resource:${workspace.id.replace(/^resource:/, "")}` : workspace.id : record.projectId;
             return { ...record, key: identify({ projectId: id, projectName: workspace?.name ?? record.projectName, contextKind: kind }) };
         });
+    // Reports use the recorded work date, not the time a reflection was edited.
+    // Preserve the existing Project activity cohort independently of report-only history.
+    const activityKeys = new Set(registry.keys());
+    const progress = list(reports).flatMap(record => {
+        const date = parseLocalISODate(record.date);
+        if (!date || +date > now || !Number.isInteger(record.score) || record.score < 0 || record.score > 4) return [];
+        return [{ timestamp: +date, score: record.score, key: identify(record) }];
+    });
     const currentNotes = list(notes);
     const creations = currentNotes.filter(note => validTime(note.createdAt) && note.createdAt <= now);
     let earliest = now;
-    for (const record of [...work, ...sessions, ...creations]) earliest = Math.min(earliest, record.timestamp ?? record.startedAt ?? record.createdAt);
+    for (const record of [...work, ...sessions, ...creations, ...progress]) earliest = Math.min(earliest, record.timestamp ?? record.startedAt ?? record.createdAt);
     const lastActive = new Map();
     for (const record of work) lastActive.set(record.key, Math.max(lastActive.get(record.key) ?? 0, record.timestamp));
     for (const record of sessions) lastActive.set(record.key, Math.max(lastActive.get(record.key) ?? 0, record.completedAt));
-    return { registry, work, completions: completionRecords, sessions, notes: creations, totalNotes: currentNotes.length, earliest, lastActive, now };
+    return { registry, activityKeys, progress, work, completions: completionRecords, sessions, notes: creations, totalNotes: currentNotes.length, earliest, lastActive, now };
 }
 
 function aggregateStatistics(source, rangeKey = "3m") {
@@ -107,8 +115,9 @@ function aggregateStatistics(source, rangeKey = "3m") {
     const empty = () => range.bins.map(() => 0), inside = time => time >= range.start && time < range.end && time <= source.now;
     const index = time => Math.min(range.bins.length - 1, Math.floor((calendarDay(time) - calendarDay(range.start)) / range.binDays));
     const byWorkspace = new Map([...source.registry].map(([key, workspace]) => [key, {
-        ...workspace, time: 0, activity: empty(), tasks: empty(), steps: empty(), lastActive: source.lastActive.get(key) ?? null
+        ...workspace, time: 0, progressPoints: 0, activity: empty(), tasks: empty(), steps: empty(), lastActive: source.lastActive.get(key) ?? null
     }]));
+    for (const report of source.progress) if (inside(report.timestamp)) byWorkspace.get(report.key).progressPoints += report.score;
     const oath = { values: empty(), total: 0, taken: 0, fulfilled: 0 };
     for (const record of source.work) if (inside(record.timestamp)) byWorkspace.get(record.key).activity[index(record.timestamp)]++;
     for (const record of source.completions) if (inside(record.timestamp)) {
@@ -131,12 +140,12 @@ function aggregateStatistics(source, rangeKey = "3m") {
     for (const [date, count] of [...dailyNotes].sort(([a], [b]) => a.localeCompare(b))) if (count > note.largest) { note.largest = count; note.largestDate = date; }
     note.average = note.created / range.days;
     const rows = [...byWorkspace.values()];
-    const projects = rows.filter(row => row.kind === "project").sort((a, b) =>
+    const projects = rows.filter(row => row.kind === "project" && source.activityKeys.has(row.key)).sort((a, b) =>
         (b.lastActive ?? 0) - (a.lastActive ?? 0) || b.time - a.time || a.name.localeCompare(b.name) || a.key.localeCompare(b.key));
-    const projectTime = rows.filter(row => row.kind === "project").reduce((sum, row) => sum + row.time, 0);
-    const resourceTime = rows.filter(row => row.kind === "resource").reduce((sum, row) => sum + row.time, 0);
-    const total = projectTime + resourceTime;
-    const projectPercent = total ? Math.round(projectTime / total * 100) : 0;
+    const projectPoints = rows.filter(row => row.kind === "project").reduce((sum, row) => sum + row.progressPoints, 0);
+    const resourcePoints = rows.filter(row => row.kind === "resource").reduce((sum, row) => sum + row.progressPoints, 0);
+    const total = projectPoints + resourcePoints;
+    const projectPercent = total ? Math.round(projectPoints / total * 100) : 0;
     return { range, rows, projects, oath, note, comparison: { total, projects: projectPercent, resources: total ? 100 - projectPercent : 0 } };
 }
 
