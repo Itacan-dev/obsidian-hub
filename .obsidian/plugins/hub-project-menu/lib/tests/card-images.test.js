@@ -7,6 +7,7 @@ async function run() {
     let encodes = 0;
     const win = {
         devicePixelRatio: 1,
+        addEventListener() {}, removeEventListener() {},
         Image: class {
             constructor() {
                 this.naturalWidth = 1200; this.naturalHeight = 675;
@@ -38,9 +39,10 @@ async function run() {
         }, toDataURL(format) { assert.equal(format, "image/png"); return `data:image/png;base64,${++encodes}`; } };
         return canvas;
     } };
-    const setImage = createCardImageRenderer({ ownerDocument: doc }, { register: fn => cleanup.push(fn) },
+    const owned = new Set();
+    const setImage = createCardImageRenderer({ ownerDocument: doc, contains: element => owned.has(element) }, { register: fn => cleanup.push(fn) },
         () => ({ initial: { x: 0, y: 100, zoom: 2 } }));
-    const element = () => ({ isConnected: true, style: {} });
+    const element = () => { const node = { isConnected: true, style: {} }; owned.add(node); return node; };
     const flush = async () => { await Promise.resolve(); await Promise.resolve(); await Promise.resolve(); };
     async function size(el, width, height) {
         observers[0].callback([{ target: el, contentRect: { width, height } }]);
@@ -94,7 +96,10 @@ async function run() {
     assert.equal(failed.style.backgroundImage, 'url("missing.jpg")');
     const animated = element(); setImage(animated, "animated.gif?mtime=1");
     assert.equal(observers[0].targets.has(animated), true, "Animated backgrounds can still have placement");
-    first.isConnected = false; await size(second, 76, 76);
+    placed.isConnected = false; await size(second, 76, 76);
+    assert.equal(observers[0].targets.has(placed), true, "A detached but owned card is retained");
+    placed.isConnected = true;
+    first.isConnected = false; owned.delete(first); await size(second, 76, 76);
     assert.equal(observers[0].targets.has(first), false);
     const pending = element(); setImage(pending, "pending.jpg"); await size(pending, 76, 76);
     cleanup[0](); images[4].resolve(); await flush();

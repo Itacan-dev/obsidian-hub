@@ -1,0 +1,18 @@
+{
+  "compilerOptions": {
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true,
+    "strict": false,
+    "target": "ES2022",
+    "module": "commonjs",
+    "moduleResolution": "node10",
+    "ignoreDeprecations": "6.0",
+    "skipLibCheck": true,
+    "lib": ["ES2022", "DOM"],
+    "types": ["node"],
+    "typeRoots": ["tests/native/node_modules/@types"],
+    "paths": { "electron": ["./tests/native/node_modules/electron/electron.d.ts"] }
+  },
+  "include": ["obsidian/clock.js", "obsidian/persistence.js", "obsidian/runtime.js", "obsidian/webviewer.js", "obsidian/native.js", "obsidian/ui.js"]
+}

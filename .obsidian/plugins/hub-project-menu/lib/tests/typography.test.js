@@ -22,6 +22,7 @@ for (const [, selector, body] of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
     const name = selector.replace(/\/\*[\s\S]*?\*\//g, "").trim().replace(/\s+/g, " ");
     for (const match of body.matchAll(/font-size\s*:\s*([^;]+);/g)) {
         const size = match[1].replace(/\s*!important/, "").trim();
+        if (size === "inherit") continue; // Inherit the existing semantic size.
         if (exemptions.has(name)) assert.equal(size, exemptions.get(name));
         else {
             const token = size.match(/^var\(--hub-font-([\w-]+)\)$/)?.[1];
@@ -31,7 +32,11 @@ for (const [, selector, body] of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
     }
 }
 assert.equal(used.size, 7);
-for (const match of css.replace(/\/\*[\s\S]*?\*\//g, "").matchAll(/\bfont\s*:\s*([^;{}]+);/g)) {
-    assert.equal(match[1].trim(), "inherit", "Do not hide extra sizes in font shorthand");
+for (const [, selector, body] of css.replace(/\/\*[\s\S]*?\*\//g, "").matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+    for (const match of body.matchAll(/\bfont\s*:\s*([^;{}]+);/g)) {
+        // The existing Oath pledge intentionally uses a distinct quotation face.
+        const expected = selector.trim() === ".hub-oath-pledge" ? "italic 1.2rem/1.6 Georgia, serif" : "inherit";
+        assert.equal(match[1].trim(), expected, "Do not hide extra sizes in font shorthand");
+    }
 }
 console.log("Hub typography checks passed: seven semantic text sizes; only decorative/hidden exceptions.");

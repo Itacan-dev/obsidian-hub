@@ -7,6 +7,7 @@
 !/System/
 !/Assets/
 !/Projects/
+!/AtlasCore/
 
 # Share the Hub implementation, not installed third-party plugins or settings.
 /.obsidian/*
@@ -16,6 +17,8 @@
 !/.obsidian/plugins/hub-project-menu/
 /.obsidian/plugins/hub-project-menu/*
 !/.obsidian/plugins/hub-project-menu/build.js
+!/.obsidian/plugins/hub-project-menu/build-atlas.js
+!/.obsidian/plugins/hub-project-menu/atlas-native.cjs
 !/.obsidian/plugins/hub-project-menu/plugin.js
 !/.obsidian/plugins/hub-project-menu/main.js
 !/.obsidian/plugins/hub-project-menu/manifest.json
@@ -90,3 +93,10 @@
 **/.env
 **/.env.*
 **/node_modules/
+
+# Core's source is shared; its ESM output is reproducible. The plugin includes
+# its generated CommonJS Core and both runnable desktop bundles.
+/AtlasCore/packages/core/dist/
+/.obsidian/plugins/hub-project-menu/lib/atlas/tests/.npm-cache/
+/.obsidian/plugins/hub-project-menu/lib/atlas/tests/.*.log
+/.obsidian/plugins/hub-project-menu/atlas-state/

@@ -1,6 +1,7 @@
 const { dispose: disposeCompletionAudio } = require("./lib/ui/completion-audio");
 const { mountMusicControl } = require("./lib/ui/music");
 const { mountSettingsControl } = require("./lib/ui/settings");
+const { installAtlasIntegration } = require("./lib/atlas/obsidian/integration");
 const { processTaskWrite, isTaskWrite } = require("./lib/services/task-writes");
 const { DailyBriefService } = require("./lib/services/daily-brief");
 const { mountDailyBriefControl } = require("./lib/ui/daily-brief-control");
@@ -11896,7 +11897,9 @@ module.exports = class HubProjectMenu extends Plugin {
     }
 
 
-    async onload() { 
+    async onload() {
+
+        this.atlas = installAtlasIntegration(this);
 
         this.dataStore =
             new HubDataStore(this);
@@ -12744,6 +12747,7 @@ module.exports = class HubProjectMenu extends Plugin {
         );
     }
     onunload() {
+        this.atlas?.destroy();
         disposeCompletionAudio();
         this.statisticsModal?.close();
         delete window.hubOpenStatistics;

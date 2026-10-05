@@ -2,6 +2,15 @@
 
 ## Persistence
 
+Atlas authorization has a separate private repository at
+`.obsidian/plugins/hub-project-menu/atlas-state/`, excluded from Git and Hub
+presets/backups. Its policy, protected settings, Access/Vault/Journey state and
+time/revision guards require exclusive ownership and verified atomic commits.
+Hub normalization/recovery below must never reset or import Atlas authority.
+Concurrent independent OneDrive writers are unsupported; see
+[the Atlas architecture](Hub-atlas-architecture.md) and
+[storage limitations](Hub-atlas-security.md).
+
 The old workspace store was the Electron/browser `localStorage` key
 `obsidian-hub::workspace-mode::<vault name>`. It contained presets, workspace
 layouts, Last File and Last Workspace. Folder preferences used
