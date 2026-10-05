@@ -10,7 +10,8 @@ execFileSync(process.execPath, [path.join(core, "node_modules/typescript/bin/tsc
     "--moduleResolution", "node10", "--ignoreDeprecations", "6.0",
     "--verbatimModuleSyntax", "false", "--declaration", "true",
     "--outDir", path.join(__dirname, "lib/atlas/core")], { stdio: "inherit", windowsHide: true });
-const hash = file => createHash("sha256").update(fs.readFileSync(file)).digest("hex");
+// Keep manifest verification stable across Git's LF/CRLF text checkouts.
+const hash = file => createHash("sha256").update(fs.readFileSync(file, "utf8").replace(/\r\n/g, "\n")).digest("hex");
 const output = path.join(__dirname, "lib/atlas/core");
 const sources = fs.readdirSync(path.join(core, "src")).filter(name => name.endsWith(".ts")).sort();
 const artifacts = fs.readdirSync(output).filter(name => /\.(?:js|d\.ts)$/.test(name)).sort();

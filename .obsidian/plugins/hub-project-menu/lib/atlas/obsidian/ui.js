@@ -107,6 +107,7 @@ function describeConfiguration(parent, config, title) {
 }
 
 function mountAtlasOverview(parent, bridge) {
+    const hadOverviewClass = parent.classList.contains("hub-atlas-overview");
     parent.classList.add("hub-atlas-overview");
     el(parent, "h2", "Atlas access and Vault");
     el(parent, "p", "Atlas governs top-level webviewer destinations by exact hostname. Waiting only makes explicit confirmation available.");
@@ -204,7 +205,10 @@ function mountAtlasOverview(parent, bridge) {
         updateCountdowns(vault);
     }
     const unsubscribe = bridge.subscribe(refresh); refresh();
-    return () => { disposed = true; unsubscribe(); };
+    return () => {
+        disposed = true; unsubscribe();
+        if (!hadOverviewClass) parent.classList.remove("hub-atlas-overview");
+    };
 }
 
 module.exports = { mountAtlasOverview, renderNavigation, configurationInput, formatMilliseconds };

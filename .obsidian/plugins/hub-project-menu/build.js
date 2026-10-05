@@ -11,7 +11,9 @@ const modules = new Map();
 // only Node; modifying Core first requires its normal TypeScript compiler.
 const atlasCore = path.join(pluginRoot, "lib/atlas/core"), coreSource = path.resolve(pluginRoot, "../../../AtlasCore/packages/core");
 const atlasManifest = JSON.parse(fs.readFileSync(path.join(atlasCore, "build-manifest.json"), "utf8"));
-const atlasHash = file => require("crypto").createHash("sha256").update(fs.readFileSync(file)).digest("hex");
+// Git may check these text files out as CRLF on Windows. Match the compiler's
+// canonical LF hashes without treating checkout line endings as source edits.
+const atlasHash = file => require("crypto").createHash("sha256").update(fs.readFileSync(file, "utf8").replace(/\r\n/g, "\n")).digest("hex");
 const atlasStale = atlasManifest.schemaVersion !== 1 || atlasManifest.builder !== atlasHash(path.join(pluginRoot, "build-atlas.js")) ||
     atlasManifest.configuration !== atlasHash(path.join(coreSource, "tsconfig.json")) ||
     JSON.stringify(Object.keys(atlasManifest.sources)) !== JSON.stringify(fs.readdirSync(path.join(coreSource, "src")).filter(name => name.endsWith(".ts")).sort()) ||

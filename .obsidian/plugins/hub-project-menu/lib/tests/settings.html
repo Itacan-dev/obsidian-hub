@@ -12,7 +12,7 @@ class Modal{constructor(app){this.app=app;this.containerEl=document.body.createD
 const icons={'square-check':'<rect x="3" y="3" width="18" height="18" rx="2"/><path d="m9 12 2 2 4-4"/>','circle-check':'<circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/>','chevron-right':'<path d="m9 5 7 7-7 7"/>','file-text':'<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z M14 2v6h6 M8 13h8 M8 17h8"/>'};
 icons.shield='<path d="M12 22s8-4 8-11V5l-8-3-8 3v6c0 7 8 11 8 11"/>';icons.newspaper='<path d="M4 22h16a2 2 0 0 0 2-2V2H6v18a2 2 0 0 1-4 0V8h4 M10 6h8 M10 10h8 M10 14h3 M16 14h2 M10 18h3 M16 18h2"/>';
 const native={Modal,Component,setIcon:(el,name)=>{el.dataset.icon=name;el.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">'+(icons[name]||'')+'</svg>'},MarkdownRenderer:{render:async(app,text,el)=>{el.textContent=text}}};
-const names=['ui/settings','ui/settings-pages','ui/tooltips'],sources={},cache={};
+const names=['ui/settings','ui/settings-pages','ui/tooltips','atlas/obsidian/ui'],sources={},cache={};
 for(const name of names)sources[name]=await(await fetch('../'+name+'.js')).text();
 function load(name){if(name==='obsidian')return native;if(cache[name])return cache[name].exports;const m=cache[name]={exports:{}};new Function('module','require',sources[name])(m,n=>{if(n==='obsidian')return native;const path=(name.slice(0,name.lastIndexOf('/'))+'/'+n).split('/'),out=[];for(const p of path){if(p==='..')out.pop();else if(p!=='.')out.push(p)}return load(out.join('/'))});return m.exports}
 const assert=(v,m)=>{if(!v)throw Error(m)},settle=async()=>{for(let i=0;i<20;i++)await Promise.resolve()};
@@ -68,7 +68,23 @@ try {
  button.click();await settle();const dialog=document.querySelector('.hub-settings-dialog'),panel=dialog.querySelector('.hub-settings-panel');
  for(const width of [600,380,304]){dialog.style.width=width+'px';await settle();assert(panel.scrollWidth<=panel.clientWidth+1,'No narrow content overlap at '+width);assert(dialog.scrollWidth<=dialog.clientWidth+1,'Modal fits at '+width)}dialog.style.width='';
  const before=dialog.querySelector('.hub-settings-sidebar').getBoundingClientRect().top;panel.scrollTop=100;assert(dialog.querySelector('.hub-settings-sidebar').getBoundingClientRect().top===before,'Fixed navigation');panel.scrollTop=0;
- result.textContent='PASS: shared footer, all 14 shipped categories, developer-only Daily brief hidden, keyboard navigation, initial Appearance, inert controls/search, zero store/navigation access, stable underlying views, independent scrolling and narrow layouts.';
+ const listeners=new Set();let subscriptions=0,disposals=0,commands=0;
+ plugin.atlas={view:()=>({status:'UNAVAILABLE',reason:'TEST_UNAVAILABLE',snapshot:null,contexts:[]}),
+  subscribe:fn=>{listeners.add(fn);subscriptions++;return()=>{assert(listeners.delete(fn),'Dispose each Atlas subscription once');disposals++}},
+  command:async()=>{commands++;return {type:'BLOCKED',reason:'TEST_UNAVAILABLE'}}};
+ const atlasTab=[...dialog.querySelectorAll('[role=tab]')].find(tab=>tab.textContent==='Atlas');
+ const appearanceTab=[...dialog.querySelectorAll('[role=tab]')].find(tab=>tab.textContent==='Appearance');
+ atlasTab.click();assert(panel.classList.contains('hub-atlas-overview')&&panel.textContent.includes('Atlas: unavailable'),'Atlas receives the live plugin bridge');
+ assert(listeners.size===1,'One live Atlas page subscription');
+ const recover=[...panel.querySelectorAll('button')].find(button=>button.textContent==='Recover saved state');recover.click();await settle();
+ assert(commands===1,'Atlas settings actions reach the bridge');
+ appearanceTab.click();assert(listeners.size===0&&!panel.classList.contains('hub-atlas-overview'),'Leaving Atlas disposes its subscription and scoped styling');
+ assert(panel.querySelector('.hub-settings-section h3').textContent==='Theme','Newer Appearance page survives Atlas navigation');
+ atlasTab.click();assert(listeners.size===1,'Atlas can be reopened without duplicate subscriptions');
+ dialog.querySelector('.modal-close-button').click();assert(listeners.size===0&&subscriptions===disposals,'Closing Settings cleans up Atlas');
+ assert(JSON.stringify(state)===initial,'Atlas settings leave workspace, presets and Oath state intact');
+ button.click();await settle();
+ result.textContent='PASS: shared footer, all 14 shipped categories, developer-only Daily brief hidden, keyboard navigation, initial Appearance, inert controls/search, zero store/navigation access, stable underlying views, independent scrolling, narrow layouts and Atlas bridge/subscription/style cleanup.';
  // Leave the preview visible for the rendered inspection.
 }catch(e){result.textContent='FAIL: '+e.stack}
 </script>
