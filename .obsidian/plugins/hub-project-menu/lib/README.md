@@ -193,6 +193,16 @@ reload the plugin in Obsidian. The builder has no package dependencies and only
 bundles local modules reachable from `plugin.js`; built-in and `obsidian`
 imports remain external.
 
+`atlas/obsidian/` adapts the unchanged `AtlasCore/packages/core` engine. Its main
+entry `native.js` owns one controller and exclusive repository per vault; it is
+bundled as `atlas-native.cjs` for `electron.remote.require`. `webviewer.js` holds
+native Document requests, `runtime.js` supplies trusted Core operations and
+executes saved decisions, and `integration.js`/`ui.js` hold only descriptions,
+drafts and native view associations. Core's CommonJS/declaration copy is generated
+by `build-atlas.js`; source/artifact hashes prevent stale copies. Adapter/native
+tests live under `atlas/tests`. See `System/Hub-atlas-architecture.md` and
+`System/Hub-atlas-security.md` for the ownership and threat maps.
+
 `tests/domain.test.js` covers pure rules, audit repairs, and persistence
 ordering. `tests/data-store.integration.test.js` exercises atomic replacement,
 external-write detection, and conflict-file discovery on the filesystem.

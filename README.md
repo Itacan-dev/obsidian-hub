@@ -10,7 +10,7 @@ the entire working vault, including those excluded files, between your computers
 2. Install and enable **Dataview** and **Heatmap Calendar** from Community plugins.
    Enable JavaScript queries in Dataview's settings.
 3. Enable the bundled **Hub Project Menu** community plugin. Its generated
-   `main.js` is included; no build is required for first use.
+   `main.js` and `atlas-native.cjs` are included; no build is required for first use.
 4. Enable the included `dashbboard` and `heatmap-fix` CSS snippets in Appearance.
    The optional `math-callouts` snippet supports the note templates.
 5. Open `Home.md` in Reading view.
@@ -22,6 +22,16 @@ and the four empty Resource dashboards. Project folders are created as needed.
 For optional template/script workflows, install Templater or QuickAdd and select
 the relevant files under `System/Templates` or `System/Scripts` in their settings.
 Each developer's vault has independent personal state.
+
+Webviewer browsing is governed by Atlas. Enable Obsidian's native Web viewer,
+then open **Atlas** from the ribbon, command palette, or Settings → Atlas.
+Choose an initial exact-host policy and review timing terms before explicitly
+initializing. Browsing stays blocked until setup succeeds. The initial displayed
+terms are the copied development defaults; all later policy/timing changes use
+Vault. Unknown destinations use Request access → wait → explicit confirmation.
+Confirmation opens a fresh homepage, preserving no login request or POST body.
+See [the architecture](System/Hub-atlas-architecture.md) and
+[navigation/security review](System/Hub-atlas-security.md) for compatibility limits.
 
 ## Development
 
@@ -47,12 +57,47 @@ Reload Obsidian after rebuilding the plugin. The browser fixtures can be run wit
 `lib/tests/run-browser-test.js`; set `HUB_TEST_BROWSER` to a Chromium executable
 when it is not installed at the runner's default Windows Chrome location.
 
+AtlasCore is unchanged framework-independent TypeScript in `AtlasCore/packages/core`.
+After changing Core, rebuild its CommonJS copy before rebuilding Hub. The bundler
+checks source/artifact hashes and refuses stale Core code. From PowerShell:
+
+```powershell
+npm.cmd --prefix AtlasCore/packages/core ci --ignore-scripts --no-audit --no-fund
+npm.cmd --prefix AtlasCore/packages/core run typecheck
+npm.cmd --prefix AtlasCore/packages/core test
+node .obsidian/plugins/hub-project-menu/build-atlas.js
+node .obsidian/plugins/hub-project-menu/build.js
+node --test .obsidian/plugins/hub-project-menu/lib/tests/*.test.js
+node --test .obsidian/plugins/hub-project-menu/lib/atlas/tests/*.test.js
+```
+
+Native tests require the development-only pinned Electron and remote packages:
+
+```powershell
+npm.cmd --prefix .obsidian/plugins/hub-project-menu/lib/atlas/tests/native ci --ignore-scripts --no-audit --no-fund
+node .obsidian/plugins/hub-project-menu/lib/atlas/tests/native/node_modules/electron/install.js
+node AtlasCore/packages/core/node_modules/typescript/bin/tsc -p .obsidian/plugins/hub-project-menu/lib/atlas/tsconfig.json
+npm.cmd --prefix .obsidian/plugins/hub-project-menu/lib/atlas/tests/native test
+```
+
+The native launcher clears `ELECTRON_RUN_AS_NODE`, hides its windows, uses only
+synthetic local hosts and a temporary profile, and requires a complete passing
+report plus a clean process exit. It never opens your vault. Restricted execution
+environments may need permission for the Electron download and Chromium child
+processes. Electron and remote are not production plugin dependencies.
+
 ## Personal data and synchronization
 
 See [the persistence and Git boundary](System/Hub-personal-data.md) for exact
 locations, migration behavior, Git checks, and OneDrive conflict handling.
 New top-level vault folders are private by default. Add explicit exceptions to
 `.gitignore` when introducing a new shareable source location.
+
+Atlas authority is private under `.obsidian/plugins/hub-project-menu/atlas-state/`.
+Do not manually edit/reset it or restore it through Hub presets/backups. Atlas
+uses exclusive local ownership; simultaneous use of the same OneDrive authority
+from independent machines is not supported. An unavailable repository stays
+blocked and offers explicit reconciliation, rather than resetting policy.
 
 The vault-root repository tracks both collaborative Projects as ordinary files.
 The former nested `Projects/Itacan/Meta/.git` metadata, including its history and

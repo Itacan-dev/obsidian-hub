@@ -225,7 +225,7 @@ async function run() {
     }).map(context => context.projectId), ["a", "resource:study"]);
 
     const historyHost = { completedTaskHistory: ["a", "future", "deleted", "resource:study"].map(projectId => ({projectId})), getProjectRecords: () => [project, { projectId:"future", status:"future" }] };
-    assert.deepEqual(ProjectWizardService.prototype.getCompletedTaskHistory.call(historyHost).map(t => t.projectId), ["a", "resource:study"]);
+    assert.deepEqual(ProjectWizardService.prototype.getCompletedTaskHistory.call(historyHost).map(t => t.projectId), ["a", "future", "deleted", "resource:study"], "Stored history survives later workspace deletion or status changes");
     const rating = { summaryInputs: new Map([["a", { value: "Old summary" }]]), currentSummaries:{a:"Old summary"}, selectedScores:new Map(), updateSaveButton(){} };
     ProjectAdvancementModal.prototype.selectScore.call(rating, { querySelectorAll: () => [] }, "a", 0);
     assert.equal(rating.summaryInputs.get("a").value, "");

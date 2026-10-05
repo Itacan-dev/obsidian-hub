@@ -5,7 +5,7 @@ const { SETTINGS_PAGES, renderSettingsPage } = require("./settings-pages");
 let instance = 0;
 
 class SettingsModal extends Modal {
-    constructor(app, onClose) { super(app); this.closed = onClose; this.prefix = `hub-settings-${++instance}`; }
+    constructor(app, onClose, plugin) { super(app); this.closed = onClose; this.plugin = plugin; this.prefix = `hub-settings-${++instance}`; }
     onOpen() {
         this.modalEl.classList.add("hub-settings-dialog");
         this.contentEl.classList.add("hub-settings-content", "hub-button-scope");
@@ -46,9 +46,9 @@ class SettingsModal extends Modal {
             button.setAttribute("aria-selected", String(selected)); button.tabIndex = selected ? 0 : -1;
         });
         this.panel.setAttribute("aria-labelledby", `${this.prefix}-${id}`);
-        this.panel.empty(); renderSettingsPage(this.panel, page); this.panel.scrollTop = 0;
+        this.disposePage?.(); this.panel.empty(); this.disposePage = renderSettingsPage(this.panel, page, this.plugin); this.panel.scrollTop = 0;
     }
-    onClose() { this.contentEl.empty(); this.closed?.(); }
+    onClose() { this.disposePage?.(); this.contentEl.empty(); this.closed?.(); }
 }
 
 function mountSettingsControl(plugin, host) {
@@ -62,7 +62,7 @@ function mountSettingsControl(plugin, host) {
         if (modal) { modal.panel?.focus(); return; }
         // Keep existing modal/Oath interactions in charge while another window is open.
         if (button.ownerDocument.querySelector(".modal-container")) return;
-        modal = new SettingsModal(plugin.app, () => { modal = null; if (!destroyed && button.isConnected) button.focus(); });
+        modal = new SettingsModal(plugin.app, () => { modal = null; if (!destroyed && button.isConnected) button.focus(); }, plugin);
         modal.open();
     };
     plugin.registerDomEvent(button, "click", open);

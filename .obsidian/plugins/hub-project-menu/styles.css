@@ -2643,6 +2643,16 @@ body.hub-project-note-mode
 .hub-phase-task-item > div { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .hub-planning-form .hub-milestone-achieved-label { display: flex; align-items: center; gap: 8px; }
 .hub-planning-form .hub-milestone-achieved-label > span { margin-bottom: 0; }
+/* Atlas panels live in the trusted Obsidian parent, never inside web content. */
+.hub-atlas-blocked > :not(.hub-atlas-panel):not(.hub-atlas-navigation-status) { display: none !important; }
+.hub-atlas-panel { padding: 24px; max-width: 640px; margin: auto; }
+.hub-atlas-panel[hidden] { display: none; }
+.hub-atlas-panel button, .hub-atlas-overview button { margin: 4px 8px 4px 0; }
+.hub-atlas-navigation-status { font-size: var(--hub-font-meta); color: var(--text-muted); padding: 4px 12px; }
+.hub-atlas-overview label { display: block; margin: 12px 0; }
+.hub-atlas-overview textarea { display: block; width: 100%; margin-top: 4px; }
+.hub-atlas-overview input { display: block; margin-top: 4px; max-width: 180px; }
+.hub-atlas-overview h3 { margin-top: 24px; }
 
 /* Project Full-view controls inherit the measured Work Files header band.
    Only internal rows change; the mode/search bar and total surface stay fixed. */
