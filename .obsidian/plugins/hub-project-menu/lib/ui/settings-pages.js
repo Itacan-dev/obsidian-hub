@@ -18,7 +18,9 @@ const SETTINGS_PAGES = [
     ["shortcuts", "Shortcuts", "Keyboard shortcuts and quick actions."],
     ["advanced", "Advanced", "Additional application preferences."],
     ["about", "About", "About Itacan."]
-].map(([id, title, description]) => ({ id, title, description }));
+].filter(([id]) => id !== "daily-brief" ||
+    typeof process !== "undefined" && process.env?.ITACAN_DEVELOPMENT === "1")
+    .map(([id, title, description]) => ({ id, title, description }));
 
 function row(parent, label, description) {
     const el = parent.createDiv({ cls: "hub-settings-row" });

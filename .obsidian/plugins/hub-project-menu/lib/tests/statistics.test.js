@@ -6,7 +6,7 @@ const { taskProgressMutation } = require("../domain/task-progress");
 const { localISODate } = require("../domain/dates");
 const at = (day, hour = 12) => +new Date(2026, 8, day, hour), now = at(27), HOUR = 3600000;
 const project = { projectId: "p", name: "Renamed project", root: "Projects/New", path: "Projects/New/New.md", status: "active" };
-const resource = { projectId: "resource:study", name: "Knowledge", contextKind: "resource" };
+const resource = { projectId: "resource:study", name: "Knowledge", contextKind: "resource", root: "Resources/Knowledge", legacyRoots: [{ root: "Resources/Study", hubName: "Study.md" }] };
 const session = (id, start, end, state = "fulfilled", workspace = { type: "project", id: "p", name: "Old name" }) =>
     ({ id, startedAt: start, completedAt: end, state, workspace });
 const sum = values => values.reduce((a, b) => a + b, 0);
@@ -87,7 +87,7 @@ assert.equal(sum(seriesFor(model, "tasks", "project")), 3);
 assert.equal(sum(seriesFor(model, "steps", "project:p")), 1);
 assert.equal(sum(seriesFor(model, "activity", "project")), 5, "No lifecycle, attachment, or metadata events");
 assert.equal(sum(seriesFor(model, "activity", "resource")), 1);
-assert.equal(model.note.total, 5);
+assert.equal(model.note.total, 3);
 assert.equal(model.note.created, 3);
 assert.equal(model.note.average, 3 / 7);
 assert.equal(model.note.largest, 2);
@@ -98,7 +98,7 @@ for (const [key] of RANGES) {
     const data = aggregateStatistics(source, key);
     assert.ok(data.range.bins.length <= 105);
     assert.equal(sum(data.oath.values), data.oath.total);
-    assert.equal(data.note.total, 5);
+    assert.equal(data.note.total, data.note.created, "Period-dependent notes with no recorded edits");
     assert.ok(!JSON.stringify(data).includes("NaN"));
 }
 assert.equal(aggregateStatistics(source, "30d").oath.total, 34 * HOUR);
@@ -136,18 +136,76 @@ assert.equal(isStatisticsNote("Projects/X/Tasks/Tasks.md"), true);
 assert.equal(isStatisticsNote("Resources/Knowledge/Algebra.md"), true);
 
 let metadataReads = 0; const reportScopes = [];
-const files = ["Projects/New/New.md", "Projects/New/Note.md", "System/state.md"].map(path => ({ path, stat: { ctime: at(26) } }));
+const files = ["Projects/New/New.md", "Projects/New/Note.md", "System/state.md", "Resources/Knowledge/Note.md", "Resources/Study/Old.md"].map(path => ({ path, stat: { ctime: at(26) } }));
 const plugin = { projectWizard: { getProjectRecords: () => [project], getResourceTypes: () => [resource],
     getProgressReports: scope => { reportScopes.push(scope); return input.reports.filter(report => String(report.projectId).startsWith("resource:") === (scope?.kind === "resource")); },
     data: { oathsByDevice: { desktop: { history: input.oaths }, laptop: { history: [input.oaths[0]] } } }, activityLog: input.activity, completedTaskHistory: input.completions },
     app: { vault: { getMarkdownFiles: () => files }, metadataCache: { getFileCache: () => { metadataReads++; return {}; } } } };
 const snapshot = readStatistics(plugin, now);
-assert.equal(snapshot.totalNotes, 1);
+assert.equal(snapshot.totalNotes, 3);
+assert.equal(snapshot.notes[0].key, "project:p", "Current notes use their real owning workspace");
+assert.equal(aggregateStatistics(snapshot, "7d", "resource:resource:study").note.total, 2, "Current and legacy Resource paths share the canonical owner");
 assert.equal(points(aggregateStatistics(snapshot, "7d"), "p"), 13);
 assert.equal(points(aggregateStatistics(snapshot, "7d"), "resource:study"), 5);
 assert.deepEqual(reportScopes, [undefined, { kind: "resource" }], "Read canonical project and resource reports once");
 for (const [range] of RANGES) aggregateStatistics(snapshot, range);
 assert.equal(metadataReads, files.length, "No vault access on range changes");
+
+
+// One workspace selection affects every dependent metric; comparisons/activity table remain global.
+const filteredInput = {
+    workspaces: [project, resource],
+    reports: [{ projectId: "p", date: "2026-09-25", score: 4 }, { projectId: "resource:study", date: "2026-09-25", score: 2 }],
+    notes: [
+        { path: "Projects/New/Old.md", projectId: "p", createdAt: at(1) },
+        { path: "Projects/New/New.md", projectId: "p", createdAt: at(25) },
+        { path: "Projects/New/Untouched.md", projectId: "p", createdAt: at(1) },
+        { path: "Resources/Knowledge/Note.md", projectId: "resource:study", createdAt: at(26) }
+    ],
+    activity: [
+        ...[22, 23, 23].map(day => ({ path: "Projects/New/Old.md", projectId: "p", action: "edited", timestamp: at(day) })),
+        { path: "Projects/New/New.md", projectId: "p", action: "edited", timestamp: at(26) },
+        { path: "Resources/Knowledge/Note.md", projectId: "resource:study", action: "edited", timestamp: at(26) },
+        { path: "Projects/New/Deleted.md", projectId: "p", action: "edited", timestamp: at(25) },
+        { path: "Projects/New/Old.md", projectId: "other", action: "edited", timestamp: at(24) },
+        { path: "Projects/New/Untouched.md", projectId: "p", action: "edited", timestamp: at(28) }
+    ],
+    completions: [{ id: "project-task", projectId: "p", timestamp: at(25) },
+        { id: "resource-step", projectId: "resource:study", kind: "step", timestamp: at(26) }],
+    oaths: [session("project", at(20, 23), at(21, 2)), session("resource", at(26), at(26, 14), "fulfilled", { type: "resource", id: "study" })]
+};
+const filteredSource = prepareStatistics(filteredInput, now);
+const globalModel = aggregateStatistics(filteredSource, "7d");
+const projectModel = aggregateStatistics(filteredSource, "7d", "project:p");
+const resourceModel = aggregateStatistics(filteredSource, "7d", "resource:resource:study");
+assert.equal(globalModel.note.total, 3, "Union of surviving notes created/edited during the period");
+assert.equal(globalModel.note.edited, 3, "Repeated edits count once; future/deleted/wrong-owner edits do not count");
+assert.equal(projectModel.note.total, 2);
+assert.equal(projectModel.note.edited, 2);
+assert.equal(sum(projectModel.note.values), 1, "Notes chart keeps creation dates");
+assert.equal(resourceModel.note.total, 1);
+assert.equal(resourceModel.note.edited, 1);
+assert.equal(sum(resourceModel.note.values), 1);
+assert.equal(projectModel.oath.total, 2 * HOUR, "Scoped cross-period Oath still clips correctly");
+assert.equal(projectModel.oath.taken, 0);
+assert.equal(resourceModel.oath.total, 2 * HOUR);
+assert.equal(resourceModel.oath.taken, 1);
+assert.equal(sum(seriesFor(projectModel, "tasks", "project:p")), 1);
+assert.equal(sum(seriesFor(resourceModel, "steps", "resource:resource:study")), 1);
+assert.equal(sum(seriesFor(resourceModel, "activity", "resource:resource:study")), 2);
+assert.deepEqual(projectModel.comparison, globalModel.comparison);
+assert.deepEqual(resourceModel.comparison, globalModel.comparison);
+assert.deepEqual(projectModel.projects, globalModel.projects);
+assert.equal(aggregateStatistics(filteredSource, "30d", "project:p").note.total, 3);
+assert.equal(aggregateStatistics(filteredSource, "30d", "project:p").oath.total, 3 * HOUR);
+for (const [range] of RANGES) {
+    const all = aggregateStatistics(filteredSource, range), p = aggregateStatistics(filteredSource, range, "project:p"), r = aggregateStatistics(filteredSource, range, "resource:resource:study");
+    assert.deepEqual(p.comparison, all.comparison); assert.deepEqual(r.comparison, all.comparison);
+    assert.equal(p.oath.total + r.oath.total, all.oath.total);
+    assert.equal(p.note.total + r.note.total, all.note.total);
+}
+assert.equal(aggregateStatistics(filteredSource, "7d", "project:missing").note.total, 0);
+assert.equal(aggregateStatistics(filteredSource, "7d", "project:missing").oath.total, 0);
 
 // A realistic large event history still produces a bounded chart dataset.
 const large = prepareStatistics({ workspaces: Array.from({ length: 250 }, (_, i) => ({ projectId: `p${i}`, name: `Project ${i}` })),

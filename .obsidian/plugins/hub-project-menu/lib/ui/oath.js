@@ -1,12 +1,15 @@
 "use strict";
 const { createTaskUi, createTaskRow } = require("./tasks");
 const { parseLocalISODate } = require("../domain/dates");
+const { disclosureIcons } = require("./disclosure");
+const { mountTransientEffects } = require("./attention");
+const { bindMenuToggle, mountDisclosure } = require("./menu-toggle");
 const { setHubTooltip } = require("./tooltips");
 const { openTaskCreator } = require("./task-editor");
 const { createWorkspaceCards } = require("./workspace-cards");
 const { createCardImageRenderer } = require("./card-images");
 const { workspaceRef, sameWorkspace, taskKey } = require("../domain/oath-workspace");
-const { isCommitted, validateOath, oathTime, oathProgress, shortOathTime, fulfilmentLabel, oathDuration } = require("../domain/oath");
+const { isCommitted, oathTime, oathProgress, shortOathTime, fulfilmentLabel, oathDuration } = require("../domain/oath");
 
 const dateLabel = time => new Date(time).toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
 const OATH_COPY = Object.freeze({
@@ -188,15 +191,14 @@ function openOathSetup(service) {
         selectWorkspace(ref) {
             if (!service.resolveWorkspace(ref) || sameWorkspace(this.draft.workspace, ref)) return;
             this.draft.workspace = ref;
-            this.draft.tasks = service.workspaceTasks(ref).slice(0, 3);
-            this.suggestWhenReady = !service.ready();
+            this.draft.tasks = [];
         }
         section(title) {
             const el = this.contentEl.createEl("section", { cls: "hub-oath-section" });
             el.createEl("h3", { text: title }); return el;
         }
         choices(parent, name, choices, value, changed) {
-            const group = parent.createDiv({ cls: "hub-oath-choices", attr: { role: "radiogroup", "aria-label": parent.querySelector("h3").textContent } });
+            const group = parent.createDiv({ cls: "hub-oath-choices hub-equal-selectors hub-option-group", attr: { role: "radiogroup", "aria-label": parent.querySelector("h3").textContent } });
             if (name === "duration") group.classList.add("hub-oath-duration-choices");
             if (name === "start") group.classList.add("hub-oath-start-choices");
             if (name === "workspace") group.classList.add("hub-oath-workspace-choices");
@@ -247,61 +249,72 @@ function openOathSetup(service) {
             return value.trim() ? Number(value) * (unit === "hours" ? 3600000 : 60000) : null;
         }
         setup() {
-            const draft = this.draft; this.unitMenu?.hide(); this.taskOwner?.unload(); this.contentEl.empty();
+            const draft = this.draft;
+            this.clearSetupEffects(); this.taskOwner?.unload(); this.updateNext = null; this.contentEl.empty();
+            this.effects = mountTransientEffects(this.contentEl);
             this.contentEl.classList.remove("hub-oath-review");
             this.contentEl.classList.add("hub-oath-setup");
             this.contentEl.createEl("h2", { text: "Make an Oath" });
             this.contentEl.createEl("p", { cls: "hub-oath-muted", text: "Set the terms of your commitment." });
             const start = this.section(OATH_COPY.start);
-            const startChoices = this.choices(start, "start", [["now", "Now"], ["scheduled", "Select date and time"]], draft.start, value => { draft.start = value; this.setup(); if (value === "scheduled") this.openScheduledPicker?.(); });
-            this.openScheduledPicker = null;
-            if (draft.start === "scheduled") {
-                const controls = this.inlineEditor(startChoices, "scheduled", "hub-oath-start");
-                if (draft.scheduledAt) {
-                    const date = new Date(draft.scheduledAt);
-                    const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString();
-                    this.scheduledDate = local.slice(0, 10); this.scheduledTime = local.slice(11, 16);
-                }
-                const card = controls.closest(".hub-oath-choice");
-                card.classList.add("hub-oath-scheduled-card");
-                const radio = card.querySelector('input[type="radio"]');
-                radio.tabIndex = -1;
-                const display = controls.createSpan({ cls: "hub-oath-start-value", attr: { "aria-hidden": "true" } });
-                // One native date-time picker replaces the two separate hit areas.
-                // The draft still stores the same local timestamp as before.
-                const input = card.createEl("input", { type: "datetime-local", cls: "hub-oath-start-input",
-                    attr: { lang: "en", "aria-label": "Scheduled Oath start", "data-oath-autofocus": "" } });
-                input.value = this.scheduledDate && this.scheduledTime ? `${this.scheduledDate}T${this.scheduledTime}` : "";
-                const update = () => {
-                    const [date = "", time = ""] = input.value.split("T");
-                    this.scheduledDate = date; this.scheduledTime = time;
-                    draft.scheduledAt = date && time && input.validity.valid ? new Date(input.value).getTime() : null;
-                    const local = parseLocalISODate(date);
-                    const label = local && time ? `${local.getDate()} ${local.toLocaleDateString("en-US", { month: "short" })} ${local.getFullYear()}, ${time}` : "Select date and time";
-                    display.textContent = label;
-                    input.setAttribute("aria-label", `Scheduled Oath start: ${label}`);
-                    this.updateNext?.();
-                };
-                this.openScheduledPicker = () => {
-                    card.classList.remove("is-typing"); input.focus();
-                    try {
-                        if (input.showPicker) input.showPicker();
-                        else card.classList.add("is-typing");
-                    } catch (_) { card.classList.add("is-typing"); }
-                };
-                input.addEventListener("click", this.openScheduledPicker);
-                radio.addEventListener("click", this.openScheduledPicker);
-                input.addEventListener("keydown", event => {
-                    if (event.key === "Enter" || event.key === " " || (event.altKey && event.key === "ArrowDown")) {
-                        event.preventDefault(); this.openScheduledPicker();
-                    } else if (!["Tab", "Escape", "Shift", "Alt", "Control", "Meta"].includes(event.key)) card.classList.add("is-typing");
-                });
-                input.addEventListener("blur", () => card.classList.remove("is-typing"));
-                input.addEventListener("input", update); input.addEventListener("change", update); update();
+            const startChoices = this.choices(start, "start", [["now", "Now"], ["scheduled", "Select date and time"]], draft.start, value => {
+                if (value === "now") { draft.start = "now"; this.setup(); }
+                else this.dateDisclosure.open();
+            });
+            const nowRadio = startChoices.querySelector('input[value="now"]');
+            const scheduledRadio = startChoices.querySelector('input[value="scheduled"]');
+            const scheduledCard = scheduledRadio.closest(".hub-oath-choice");
+            scheduledCard.classList.add("hub-oath-start-disclosure");
+            disclosureIcons(scheduledCard);
+            const datePanel = start.createDiv({ cls: "hub-oath-schedule-editor", attr: {
+                id: `hub-oath-date-${this.choiceGroupId}`, role: "group", "aria-label": "Scheduled Oath start"
+            } });
+            scheduledCard.setAttribute("aria-controls", datePanel.id);
+            scheduledRadio.setAttribute("aria-controls", datePanel.id);
+            datePanel.createEl("label", { text: "Date and time", attr: { for: `${datePanel.id}-input` } });
+            const dateInput = datePanel.createEl("input", { type: "datetime-local", cls: "hub-oath-start-input", attr: {
+                id: `${datePanel.id}-input`, lang: "en", "aria-label": "Scheduled Oath start"
+            } });
+            if (draft.scheduledAt) {
+                const date = new Date(draft.scheduledAt);
+                this.scheduledValue = new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
             }
-
+            dateInput.value = this.scheduledValue ?? "";
+            const startValid = () => service.setupRequirements(draft).find(item => item.key === "Start").complete;
+            const syncStart = () => {
+                const opened = this.dateDisclosure?.isOpen ?? false;
+                nowRadio.checked = draft.start === "now";
+                scheduledRadio.checked = opened || draft.start === "scheduled" && startValid();
+                scheduledRadio.setAttribute("aria-expanded", String(opened));
+                const [date = "", time = ""] = dateInput.value.split("T"), local = parseLocalISODate(date);
+                const label = local && time ? `${local.getDate()} ${local.toLocaleDateString("en-US", { month: "short" })} ${local.getFullYear()}, ${time}` : "Select date and time";
+                scheduledCard.querySelector(".hub-oath-choice-title").textContent = label;
+                dateInput.setAttribute("aria-label", `Scheduled Oath start: ${label}`);
+            };
+            this.dateDisclosure = mountDisclosure({ trigger: scheduledCard, panel: datePanel,
+                onOpen: () => { draft.start = "scheduled"; syncStart(); this.updateNext?.(); dateInput.focus(); },
+                onClose: () => {
+                    syncStart(); this.updateNext?.();
+                    if (datePanel.contains(datePanel.ownerDocument.activeElement)) scheduledRadio.focus({ preventScroll: true });
+                }
+            });
+            // A label's cancelled native activation can restore its radio after click.
+            scheduledCard.addEventListener("click", () => queueMicrotask(syncStart));
+            const updateDate = () => {
+                this.scheduledValue = dateInput.value;
+                draft.start = "scheduled";
+                draft.scheduledAt = dateInput.value && dateInput.validity.valid ? new Date(dateInput.value).getTime() : null;
+                syncStart(); this.updateNext?.();
+            };
+            dateInput.addEventListener("input", updateDate);
+            dateInput.addEventListener("change", () => { updateDate(); if (startValid()) this.dateDisclosure.close(); });
+            dateInput.addEventListener("keydown", event => {
+                if (event.key === "Enter") { event.preventDefault(); updateDate(); if (startValid()) this.dateDisclosure.close(); }
+            });
+            syncStart();
             const work = this.section(OATH_COPY.work);
             const choose = type => {
+                this.dateDisclosure.close(); this.unitMenu?.hide();
                 this.picker = openOathWorkspacePicker(service, type, ref => {
                     this.selectWorkspace(ref);
                     this.setup();
@@ -314,12 +327,9 @@ function openOathSetup(service) {
             ], draft.workspace?.type, choose);
             this.renderSelected = null;
             if (draft.workspace) {
-                const heading = work.createDiv({ cls: "hub-oath-tasks-heading" });
-                heading.createEl("h4", { cls: "hub-oath-suggestions-title", text: `Selected tasks from ${workspaceName}` });
-                const taskAction = heading.createEl("button", { cls: "hub-panel-action hub-oath-add-tasks", attr: { type: "button" } });
+                const body = work.createDiv({ cls: "hub-oath-selected-tasks hub-oath-task-options project-tasks-body" });
+                const taskAction = work.createEl("button", { cls: "hub-oath-add-tasks", attr: { type: "button", "aria-label": "Add tasks" } });
                 oathIcon(taskAction, "plus");
-                const taskActionLabel = taskAction.createSpan();
-                const body = work.createDiv({ cls: "hub-oath-selected-tasks project-tasks-body" });
                 this.taskOwner = new Component(); this.taskOwner.load();
                 const ui = createTaskUi({ app: service.app, component: this.taskOwner, body });
                 let noOpenTasks = false;
@@ -328,31 +338,40 @@ function openOathSetup(service) {
                     const ready = service.ready(), tasks = ready ? service.workspaceTasks(draft.workspace) : [];
                     noOpenTasks = ready && !tasks.length;
                     if (ready) {
-                        if (this.suggestWhenReady) { draft.tasks = tasks.slice(0, 3); this.suggestWhenReady = false; }
                         const available = new Map(tasks.map(task => [taskKey(task), task]));
                         draft.tasks = draft.tasks.map(task => available.get(taskKey(task))).filter(Boolean);
                     }
-                    for (const task of draft.tasks) {
+                    // Suggest only the first Task-panel task; selection is always explicit.
+                    const rows = [...new Map([...(tasks.length ? [tasks[0]] : []), ...draft.tasks].map(task => [taskKey(task), task])).values()];
+                    const selected = new Set(draft.tasks.map(taskKey));
+                    for (const task of rows) {
                         const row = selectionRow(ui, body, task);
-                        row.classList.add("is-selected");
-                        const remove = row.createEl("button", { cls: "hub-oath-remove-task hub-button-plain",
-                            attr: { type: "button", "aria-label": `Remove from Oath: ${task.text}`, title: "Remove from Oath" } });
-                        oathIcon(remove, "x");
-                        remove.addEventListener("click", () => {
-                            draft.tasks = draft.tasks.filter(item => taskKey(item) !== taskKey(task));
+                        const key = taskKey(task);
+                        row.classList.add("hub-oath-task-option");
+                        row.classList.toggle("is-selected", selected.has(key));
+                        row.dataset.taskKey = key;
+                        row.setAttribute("role", "button"); row.tabIndex = 0;
+                        row.setAttribute("aria-pressed", String(selected.has(key)));
+                        row.setAttribute("aria-label", `Select for Oath: ${task.text}`);
+                        const toggle = () => {
+                            draft.tasks = selected.has(key) ? draft.tasks.filter(item => taskKey(item) !== key) : [...draft.tasks, task];
                             this.renderSelected();
-                            body.querySelector(".hub-oath-remove-task")?.focus();
+                            [...body.children].find(item => item.dataset.taskKey === key)?.focus();
+                        };
+                        row.addEventListener("click", toggle);
+                        row.addEventListener("keydown", event => {
+                            if (event.target === row && ["Enter", " "].includes(event.key)) { event.preventDefault(); toggle(); }
                         });
                     }
-                    if (!draft.tasks.length) body.createEl("p", { cls: "hub-oath-muted", text: !ready ? "Loading tasks..." :
-                        noOpenTasks ? `${workspaceName} has no open tasks. Create a task before making an Oath, or choose another ${draft.workspace.type}.` :
-                        "No tasks selected. Add at least one task to continue." });
-                    taskActionLabel.textContent = noOpenTasks ? "Create task" : "Add tasks";
+                    if (!rows.length) body.createEl("p", { cls: "hub-oath-muted", text: !ready ? "Loading tasks..." :
+                        `${workspaceName} has no open tasks. Create a task before making an Oath, or choose another ${draft.workspace.type}.` });
+                    taskAction.setAttribute("aria-label", noOpenTasks ? "Create task" : "Add tasks");
                     taskAction.disabled = !ready || !service.resolveWorkspace(draft.workspace);
                     this.updateNext?.();
                 };
                 this.renderSelected();
                 taskAction.addEventListener("click", () => {
+                    this.dateDisclosure.close(); this.unitMenu?.hide();
                     if (noOpenTasks) {
                         const context = service.resolveWorkspace(draft.workspace);
                         if (context) this.creator = openTaskCreator(service.plugin.taskEditor, { root: context.root });
@@ -383,7 +402,7 @@ function openOathSetup(service) {
                 const unit = editor.createEl("button", { cls: "hub-oath-duration-unit", attr: {
                     type: "button", "aria-haspopup": "menu", "aria-expanded": "false"
                 } });
-                const unitLabel = unit.createSpan(); oathIcon(unit, "chevron-down");
+                const unitLabel = unit.createSpan({ cls: "hub-oath-duration-unit-label" }).createSpan(); disclosureIcons(unit);
                 const update = () => {
                     this.customValue.value = input.value;
                     draft.durationMs = this.customDuration();
@@ -393,14 +412,16 @@ function openOathSetup(service) {
                     this.updateNext?.();
                 };
                 const showUnits = () => {
-                    this.unitMenu?.hide();
+                    if (this.unitMenu) { this.unitMenu.hide(); return; }
+                    this.dateDisclosure.close();
                     const menu = this.unitMenu = new Menu();
                     for (const value of ["minutes", "hours"]) menu.addItem(item => item.setTitle(value)
                         .setChecked(this.customValue.unit === value).onClick(() => {
                             this.customValue.unit = value; update();
                         }));
                     menu.onHide(() => {
-                        if (this.unitMenu === menu) this.unitMenu = null;
+                        if (this.unitMenu !== menu) return;
+                        this.unitMenu = null;
                         unit.setAttribute("aria-expanded", "false");
                         if (unit.isConnected) unit.focus();
                     });
@@ -408,6 +429,7 @@ function openOathSetup(service) {
                     const rect = unit.getBoundingClientRect();
                     menu.showAtPosition({ x: rect.left, y: rect.bottom });
                 };
+                this.stopUnitToggle = bindMenuToggle(unit, { isOpen: () => !!this.unitMenu, close: () => this.unitMenu?.hide() });
                 unit.addEventListener("click", showUnits);
                 unit.addEventListener("keydown", event => {
                     if (event.key === "ArrowDown") { event.preventDefault(); showUnits(); }
@@ -417,19 +439,40 @@ function openOathSetup(service) {
             const error = this.contentEl.createDiv({ cls: "hub-task-error", attr: { role: "alert" } });
             const actions = this.contentEl.createDiv({ cls: "hub-oath-actions" });
             actions.createEl("button", { text: "Cancel" }).addEventListener("click", () => this.close());
-            const next = actions.createEl("button", { text: "Review Oath", cls: "mod-cta" });
+            const next = actions.createEl("button", { text: "Review Oath", cls: "mod-cta hub-guided-submit" });
+            this.requirementGroups = { Start: start, Workspace: work, Tasks: work, Duration: duration };
             this.updateNext = () => {
-                try { validateOath(draft, service.now()); next.disabled = !service.ready() || !service.resolveWorkspace(draft.workspace); }
-                catch (_) { next.disabled = true; }
+                const missing = service.setupRequirements(draft).find(item => !item.complete);
+                next.setAttribute("aria-disabled", String(!!missing));
+                if (!missing) error.textContent = "";
+                if (this.guidedGroup && this.requirementGroups[missing?.key] !== this.guidedGroup) {
+                    this.effects.cancel(this.guidedGroup); this.guidedGroup = null;
+                }
+                syncStart();
             };
             this.updateNext();
             next.addEventListener("click", () => {
-                try { this.review(); } catch (problem) { error.textContent = problem.message; }
+                try { this.review(); } catch (problem) {
+                    const missing = service.setupRequirements(draft).find(item => !item.complete);
+                    error.textContent = missing?.error ?? problem.message;
+                    if (missing) {
+                        this.effects.cancel(this.guidedGroup);
+                        this.guidedGroup = this.requirementGroups[missing.key];
+                        this.effects.pulse(this.guidedGroup);
+                    }
+                }
             });
+        }
+        clearSetupEffects() {
+            this.dateDisclosure?.destroy(); this.dateDisclosure = null;
+            this.unitMenu?.hide(); this.stopUnitToggle?.(); this.stopUnitToggle = null;
+            this.effects?.destroy();
+            this.guidedGroup = null;
         }
         review() {
             const draft = this.draft;
             service.validateDraft(draft);
+            this.clearSetupEffects();
             this.taskOwner?.unload(); this.updateNext = null;
             this.contentEl.empty();
             this.contentEl.classList.remove("hub-oath-setup");
@@ -465,7 +508,7 @@ function openOathSetup(service) {
             });
         }
         close() { if (!this.saving) super.close(); }
-        onClose() { this.unitMenu?.hide(); this.picker?.close(); this.creator?.close(); this.taskOwner?.unload(); this.owner?.unload(); this.contentEl.empty(); }
+        onClose() { this.clearSetupEffects(); this.picker?.close(); this.creator?.close(); this.taskOwner?.unload(); this.owner?.unload(); this.contentEl.empty(); }
     }
     const modal = new Setup(service.app); modal.open(); return modal;
 }

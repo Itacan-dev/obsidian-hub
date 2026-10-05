@@ -4,6 +4,7 @@ const { randomUUID } = require("crypto");
 const { taskMetadata, validateTaskMetadata, readTaskSnapshot, saveTaskSnapshot, appendTask } = require("../domain/task-planning");
 const { taskLocations, linkedProjects } = require("./task-locations");
 const { validLocation } = require("../domain/task-views");
+const { taskIdentity, taskLineDetails, normalizedTaskText } = require("../domain/tasks");
 
 class HubTaskEditor {
     constructor(plugin) { this.plugin = plugin; this.app = plugin.app; }
@@ -39,7 +40,8 @@ class HubTaskEditor {
         }
     }
     checkedMetadata(values, workspace, previous = {}) {
-        const metadata = validateTaskMetadata(values);
+        const metadata = validateTaskMetadata({ ...values,
+            ...(values.captureSource === undefined && previous.captureSource ? { captureSource: previous.captureSource } : {}) });
         if (workspace?.contextKind !== "resource") delete metadata.linkedProjectId;
         if (metadata.linkedProjectId && metadata.linkedProjectId !== previous.linkedProjectId &&
             !this.projects().some(project => project.projectId === metadata.linkedProjectId)) {
@@ -169,16 +171,50 @@ class HubTaskEditor {
         try { await this.plugin.dataStore.save(data); }
         catch (error) { data.taskMetadata = previous; throw error; }
     }
+    async createdWithIdentity(id, text, owner) {
+        const files = this.app.vault.getMarkdownFiles?.() ??
+            this.app.vault.getAllLoadedFiles().filter(file => file.extension === "md");
+        const matches = [];
+        for (const file of files) {
+            const content = await this.app.vault.read(file);
+            if (!content.includes("<!-- hub-task:" + id + " -->")) continue;
+            let fence = null;
+            for (const line of content.split(/\r?\n/)) {
+                const token = line.trim().match(/^(`{3,}|~{3,})/);
+                if (token) { if (!fence) fence = token[1][0]; else if (fence === token[1][0]) fence = null; continue; }
+                if (fence) continue;
+                if (taskLineDetails(line) && taskIdentity(line) === id) matches.push({ file, line });
+            }
+        }
+        if (!matches.length) return null;
+        if (matches.length !== 1 || normalizedTaskText(taskLineDetails(matches[0].line).text) !== normalizedTaskText(text) ||
+            !validLocation(matches[0].file.path, owner)) {
+            throw Error("This task's saved identity changed or was copied. Check its existing task before retrying.");
+        }
+        return matches[0].file;
+    }
     create(path, text, values = {}) {
         const actionTimestamp = Date.now();
         return this.plugin.enqueueTaskMutation(async () => {
             const owner = this.context(path);
+            // Inbox receipts supply their persisted ID so a destination write
+            // followed by a failed receipt save can be retried without adding a
+            // second ordinary task. Existing callers retain their normal IDs.
+            const requestedId = values.hubTaskId;
+            if (requestedId != null && (typeof requestedId !== "string" || !/^[a-zA-Z0-9-]+$/.test(requestedId))) {
+                throw Error("Choose a valid task identity.");
+            }
+            if (requestedId) {
+                appendTask("", text); // Validate retries through the ordinary title rule too.
+                const existing = await this.createdWithIdentity(requestedId, text, owner);
+                if (existing) return existing;
+            }
             const metadata = this.checkedMetadata(values, owner);
             // Keep legacy callers that supply an existing note working unchanged.
             const file = this.app.vault.getAbstractFileByPath(path)?.extension === "md" ?
                 this.file(path) : await this.destination(path, owner);
             if (owner?.root && !validLocation(file.path, owner)) throw Error("Choose a location inside this workspace.");
-            const id = Object.values(metadata).some(Boolean) ? randomUUID() : null;
+            const id = requestedId ?? (Object.values(metadata).some(Boolean) ? randomUUID() : null);
             const writes = [];
             let edit;
             try {

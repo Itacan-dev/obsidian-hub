@@ -5,7 +5,7 @@ const { HubTaskEditor } = require("../services/task-editor");
 const { HubTaskDataService } = require("../services/task-data");
 const { readTaskSnapshot } = require("../domain/task-planning");
 const { taskLineDetails } = require("../domain/tasks");
-const { roadmapRange, phasePlacement, phaseValues, milestoneValues } = require("../domain/project-planning");
+const { roadmapRange, roadmapExtent, roadmapViewport, roadmapZoom, panRoadmap, roadmapToday, phasePlacement, phaseValues, milestoneValues } = require("../domain/project-planning");
 
 (async () => {
     const project = { root: "Projects/App", projectId: "p1", contextKind: "project" };
@@ -61,9 +61,16 @@ const { roadmapRange, phasePlacement, phaseValues, milestoneValues } = require("
     wizard.data = JSON.parse(JSON.stringify(disk));
     assert.equal(new ProjectPlanningService(plugin).read("p1").phases[0].id, phase.id, "Stable planning identities survive reload");
     const overlap = await service.savePhase("p1", { ...values, name: "Architecture", start: "2026-09-10" });
-    await service.reorder("p1", overlap.id, -1);
+    await service.reorder("p1", [overlap.id, phase.id]);
     assert.deepEqual(service.read("p1").phases.map(p => p.id), [overlap.id, phase.id]);
     assert.equal(service.read("p1").phases[0].start, "2026-09-10", "Reordering preserves dates and overlaps");
+    const ordered = service.read("p1"), revision = ordered.revision;
+    await assert.rejects(service.reorder("p1", [phase.id, phase.id], revision), /phase list changed/);
+    await assert.rejects(service.reorder("p1", [phase.id], revision), /phase list changed/);
+    await assert.rejects(service.reorder("p1", ["unknown", phase.id], revision), /phase list changed/);
+    await assert.rejects(service.reorder("p1", [phase.id, overlap.id], revision - 1), /changed in another editor/);
+    assert.deepEqual(service.read("p1"), ordered, "Invalid ordering never loses phases or advances revision");
+    assert.deepEqual(disk.projectPlanning.p1.phases.map(item => item.id), [overlap.id, phase.id], "New order is saved through the existing store");
     const milestone = await service.saveMilestone("p1", { name: "Release", date: "2026-10-20", achieved: false });
     await service.saveMilestone("p1", { ...milestone, achieved: true });
     assert.equal(service.read("p1").milestones[0].achieved, true);
@@ -95,6 +102,42 @@ const { roadmapRange, phasePlacement, phaseValues, milestoneValues } = require("
     assert.equal(range.total, 181); assert.equal(range.position("2026-09-01"), 0); assert.equal(range.position("2027-03-01"), 100);
     assert.deepEqual(phasePlacement({ start: "2026-08-01", end: "2026-09-01" }, range), { left: 0, width: 100 / range.total });
     assert.equal(phasePlacement({ start: "2027-03-01", end: "2027-03-10" }, range), null);
+    const plan = { phases: [{ start: "2026-09-15", end: "2027-02-28" }, { start: "2026-10-01", end: "2026-11-15" }],
+        milestones: [{ date: "2026-09-01" }, { date: "2027-03-15" }] };
+    const today = new Date(2026, 9, 1), iso = date => require("../domain/dates").localISODate(date);
+    assert.deepEqual(roadmapExtent(plan), { start: "2026-09-01", end: "2027-03-15" }, "All phase endpoints and milestone dates contribute equally");
+    assert.deepEqual(roadmapExtent({ phases: [{ start: "2026-09-15", end: "2027-02-28" }] }), { start: "2026-09-15", end: "2027-02-28" });
+    assert.deepEqual(roadmapExtent({ milestones: [{ date: "2026-09-15" }, { date: "2027-02-28" }] }), { start: "2026-09-15", end: "2027-02-28" });
+    assert.equal(roadmapExtent({ phases: [{ start: "bad" }] }), null);
+    const state = { roadmapZoom: "all" }, fit = roadmapViewport(plan, state, today);
+    assert(fit.position("2026-09-01") > 0 && fit.position("2027-03-15") < 100, "Entire project has modest padding on both sides");
+    assert(fit.position("2026-10-01") > 0 && fit.position("2026-10-01") < 50, "Today has a chronological position after earlier project dates");
+    assert.equal(iso(roadmapViewport(plan, state, new Date(2027, 10, 1)).start), iso(fit.start), "Fit never moves because Today changes");
+    for (const zoom of ["3", "6", "12"]) {
+        Object.assign(state, roadmapZoom(plan, state, zoom, today));
+        let viewport = roadmapViewport(plan, state, today);
+        assert.equal((viewport.end.getFullYear() - viewport.start.getFullYear()) * 12 + viewport.end.getMonth() - viewport.start.getMonth(), Number(zoom));
+        const initial = iso(viewport.start);
+        Object.assign(state, panRoadmap(plan, state, 1, today));
+        assert.equal(state.roadmapZoom, zoom, "Panning preserves zoom");
+        Object.assign(state, panRoadmap(plan, state, -1, today));
+        assert.equal(iso(roadmapViewport(plan, state, today).start), initial, "Previous/next return to original viewport");
+        Object.assign(state, roadmapToday(plan, state, today)); viewport = roadmapViewport(plan, state, today);
+        assert.equal(state.roadmapZoom, zoom, "Today preserves zoom");
+        assert(viewport.position("2026-10-01") > 15 && viewport.position("2026-10-01") < 70, "Today is reasonably centered");
+        assert.deepEqual(roadmapExtent(plan), { start: "2026-09-01", end: "2027-03-15" });
+    }
+    Object.assign(state, roadmapZoom(plan, state, "all", today), panRoadmap(plan, { roadmapZoom: "all" }, 1, today));
+    assert.equal(roadmapViewport(plan, state, today).total, fit.total, "Entire-project pan preserves its span");
+    Object.assign(state, roadmapToday(plan, state, today));
+    assert.equal(state.roadmapViewport, null, "Today within full plan restores the fit without changing scale");
+    const outside = new Date(2028, 5, 10);
+    Object.assign(state, roadmapToday(plan, state, outside));
+    assert.equal(roadmapViewport(plan, state, outside).total, fit.total);
+    assert(Math.abs(roadmapViewport(plan, state, outside).position("2028-06-10") - 50) < 1, "Outside Today pans the same Entire-project span");
+    assert.equal(roadmapExtent({}), null); assert(roadmapViewport({}, { roadmapZoom: "all" }, today).total > 0);
+    const oneDay = roadmapViewport({ milestones: [{ date: "2026-10-01" }] }, { roadmapZoom: "all" }, today);
+    assert.equal(oneDay.total, 7); assert(oneDay.position("2026-10-01") > 0);
     data.destroy();
     console.log("PASS: Project planning CRUD/reload/validation/overlaps/manual order, canonical phase links, no task events, stale guards, unlink deletion and rollback.");
 })().catch(error => { console.error(error); process.exitCode = 1; });

@@ -2,7 +2,7 @@
 const { randomUUID } = require("crypto");
 const { taskGroups, readTaskSnapshot } = require("../domain/task-planning");
 const { taskLineDetails, taskIdentity, applyTaskEdit, normalizedTaskText } = require("../domain/tasks");
-const { isCommitted, validateOath, oathTime, normalizeOath, fulfilmentTime } = require("../domain/oath");
+const { isCommitted, validateOath, oathRequirements, oathTime, normalizeOath, fulfilmentTime } = require("../domain/oath");
 
 const { workspaceRef, validWorkspace, sameWorkspace, taskKey } = require("../domain/oath-workspace");
 
@@ -50,14 +50,21 @@ class HubOathService {
             (task.path === context.path || task.path?.startsWith(context.root + "/"))), new Date(this.now()));
         return [...groups.active, ...groups.future];
     }
+    setupRequirements(draft) {
+        const available = new Set(this.workspaceTasks(draft.workspace).map(taskKey));
+        return oathRequirements(draft, this.now()).map(field => {
+            if (field.key === "Workspace" && field.complete && !this.resolveWorkspace(draft.workspace))
+                return { ...field, complete: false, error: "Choose an available Active Project or Resource." };
+            if (field.key === "Tasks" && !this.ready()) return { ...field, complete: false, error: "Wait for the task index to finish loading." };
+            if (field.key === "Tasks" && field.complete && draft.tasks.some(task => !available.has(taskKey(task))))
+                return { ...field, complete: false, error: "Selected tasks must be open tasks from this workspace. Update your selection." };
+            return field;
+        });
+    }
     validateDraft(draft) {
         validateOath(draft, this.now());
-        if (!this.resolveWorkspace(draft.workspace)) throw Error("Choose an available Active Project or Resource.");
-        if (!this.ready()) throw Error("Wait for the task index to finish loading.");
-        const available = new Set(this.workspaceTasks(draft.workspace).map(taskKey));
-        if (draft.tasks.some(task => !available.has(taskKey(task)))) {
-            throw Error("Selected tasks must be open tasks from this workspace. Update your selection.");
-        }
+        const missing = this.setupRequirements(draft).find(field => !field.complete);
+        if (missing) throw Error(missing.error);
     }
     projectWorkspaceForPath(path) {
         if (!this.active || this.current.workspace?.type !== "project" || typeof path !== "string") return null;

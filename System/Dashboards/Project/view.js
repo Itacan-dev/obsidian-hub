@@ -2748,7 +2748,7 @@ const tasksTitleIcon =
 
 window.hubSetIcon?.(
     tasksTitleIcon,
-    "list-checks"
+    "list-todo"
 );
 
 

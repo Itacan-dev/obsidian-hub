@@ -1,8 +1,9 @@
 "use strict";
-const { bindCompletionSound, playStepCompletionSound } = require("./completion-audio");
+const { taskFormValues } = require("../domain/task-form");
+const { taskSection, mountTaskText, mountTaskFields, mountTaskRelationshipFields } = require("./task-form");
 
 function openTaskEditor(service, task, onEdit = () => {}, creation = null) {
-    const { Modal, Notice, setIcon } = require("obsidian");
+    const { Modal, Notice } = require("obsidian");
     class TaskModal extends Modal {
         async onOpen() {
             this.closed = false;
@@ -28,115 +29,15 @@ function openTaskEditor(service, task, onEdit = () => {}, creation = null) {
         render() {
             const snapshot = this.snapshot;
             const form = this.contentEl.createEl("form");
-            const section = (title, help) => {
-                const el = form.createEl("section", { cls: "hub-task-section" });
-                el.createEl("h3", { text: title });
-                if (help) el.createEl("p", { cls: "hub-task-help", text: help });
-                return el;
-            };
-            const title = section("Task");
-            const input = title.createEl("input", { type: "text", cls: "hub-task-title-input", attr: { "aria-label": "Task", required: "" } });
-            input.value = snapshot.text;
-            if (creation) input.placeholder = "What needs doing?";
-            const necessity = section("Necessity");
-            const necessityHeading = necessity.createDiv({ cls: "hub-task-necessity-heading" });
-            necessityHeading.appendChild(necessity.querySelector("h3"));
-            const choices = necessity.createDiv({ cls: "hub-task-necessity-choices", attr: { role: "group", "aria-label": "Necessity" } });
-            let selected = snapshot.necessity;
-            const buttons = ["should", "must"].map(value => {
-                const button = choices.createEl("button", { text: value === "should" ? "Should do" : "Must do",
-                    cls: `hub-task-necessity-choice is-${value}`, attr: { type: "button" } });
-                button.addEventListener("click", () => { selected = selected === value ? null : value; sync(); });
-                return { button, value };
-            });
-            const clear = necessityHeading.createEl("button", { text: "Clear", cls: "hub-button-plain hub-task-clear-necessity", attr: { type: "button" } });
-            const sync = () => {
-                for (const { button, value } of buttons) button.setAttribute("aria-pressed", String(selected === value));
-                clear.disabled = selected === null;
-            };
-            clear.addEventListener("click", () => { selected = null; sync(); }); sync();
-            const dates = section("Dates");
-            const fields = dates.createDiv({ cls: "hub-task-date-fields" });
-            const dateInput = (text, key) => {
-                const label = fields.createEl("label"); label.createSpan({ text });
-                const input = label.createEl("input", { type: "date" }); input.value = snapshot[key] ?? "";
-                // Native local controls, as in Oath; a separate time permits date-only values.
-                const timeKey = key.replace("Date", "Time");
-                const timeRow = label.createDiv({ cls: "hub-task-time-field" });
-                const time = timeRow.createEl("input", { type: "time", attr: { "aria-label": text + " time (optional)" } });
-                time.value = snapshot[timeKey] ?? "";
-                const clearTime = timeRow.createEl("button", { text: "Clear time", attr: { type: "button" } });
-                const syncTime = () => {
-                    time.disabled = !input.value;
-                    if (!input.value) time.value = "";
-                    clearTime.disabled = !time.value;
-                };
-                input.addEventListener("change", syncTime);
-                time.addEventListener("input", syncTime);
-                clearTime.addEventListener("click", () => { time.value = ""; syncTime(); });
-                syncTime();
-                input.timeInput = time;
-                return input;
-            };
-            const from = dateInput("Start", "fromDate");
-            const due = dateInput("Due", "dueDate");
-            from.addEventListener("change", () => { due.min = from.value; }); due.min = from.value;
-            const steps = section("Steps", "Break the task into smaller actions (optional).");
-            const list = steps.createDiv({ cls: "hub-task-step-list" });
-            const stepRows = [];
-            const addStep = step => {
-                const row = list.createDiv({ cls: "hub-task-step" });
-                const checkbox = row.createEl("input", { type: "checkbox", attr: { "aria-label": "Step complete" } });
-                checkbox.checked = !!step.completed;
-                const text = row.createEl("input", { type: "text", attr: { "aria-label": "Step text", required: "" } });
-                text.value = step.text ?? "";
-                const remove = row.createEl("button", { attr: { type: "button", "aria-label": "Remove step" } }); setIcon(remove, "x");
-                const state = { ...step, row, checkbox, input: text, removed: false }; stepRows.push(state);
-                bindCompletionSound(checkbox, playStepCompletionSound);
-                checkbox.addEventListener("change", () => { state.completedAt = checkbox.checked ? Date.now() : null; });
-                remove.addEventListener("click", () => {
-                    for (const child of stepRows) {
-                        if (child === state || (state.line != null && child.line > state.line && child.line < state.end)) {
-                            child.removed = true; child.row.remove();
-                        }
-                    }
-                });
-                return text;
-            };
-            snapshot.steps.forEach(addStep);
-            const add = steps.createEl("button", { cls: "hub-task-add-step", attr: { type: "button" } });
-            setIcon(add.createSpan(), "plus"); add.createSpan({ text: "Add step" });
-            add.addEventListener("click", () => addStep({}).focus());
+            const state = { ...snapshot, steps: snapshot.steps.map(step => ({ ...step })) };
+            const section = (title, help) => taskSection(form, title, help);
+            const input = mountTaskText(section("Task"), state, () => {}, { placeholder: creation ? "What needs doing?" : "" });
+            this.taskFields = mountTaskFields({ app: service.app, host: form, state, section });
             const location = section("Location");
             const owner = service.context?.(snapshot.path);
             const fieldsLocation = locationFields(service, location, snapshot, creation?.root ?? owner?.root);
-            const project = section("Project");
-            project.querySelector("h3").append(" (optional)");
-            const association = project.createEl("select", { attr: { "aria-label": "Project (optional)" } });
-            association.createEl("option", { text: "No project", attr: { value: "" } });
-            for (const item of service.projects?.() ?? []) association.createEl("option", { text: item.name, attr: { value: item.projectId } });
-            if (snapshot.linkedProjectId && ![...association.options].some(option => option.value === snapshot.linkedProjectId)) {
-                const previous = service.plugin?.projectWizard.getProjectById?.(snapshot.linkedProjectId);
-                association.createEl("option", { text: previous ? previous.name + " (" + previous.status + ")" : "Unavailable project", attr: { value: snapshot.linkedProjectId } });
-            }
-            association.value = snapshot.linkedProjectId ?? "";
-            const syncProject = () => { project.hidden = service.context?.(fieldsLocation.value())?.contextKind !== "resource"; };
-            fieldsLocation.onChange(syncProject); syncProject();
-            const phaseSection = section("Phase");
-            const phaseLabel = phaseSection.createEl("label");
-            phaseLabel.createSpan({ text: "Project phase (optional)", cls: "hub-task-help" });
-            const phase = phaseLabel.createEl("select", { attr: { "aria-label": "Project phase (optional)" } });
-            let initialPhase = true;
-            const syncPhase = () => {
-                const previous = initialPhase ? snapshot.phaseId ?? "" : phase.value;
-                initialPhase = false;
-                phase.replaceChildren();
-                phase.createEl("option", { text: "No phase", attr: { value: "" } });
-                for (const item of service.phases?.(fieldsLocation.value()) ?? []) phase.createEl("option", { text: item.name, attr: { value: item.id } });
-                phase.value = [...phase.options].some(item => item.value === previous) ? previous : "";
-                phaseSection.hidden = service.context?.(fieldsLocation.value())?.contextKind !== "project";
-            };
-            fieldsLocation.onChange(() => { syncProject(); syncPhase(); }); syncPhase();
+            const relationships = mountTaskRelationshipFields({ host: form, state, service, location: () => fieldsLocation.value(), section });
+            fieldsLocation.onChange(() => relationships.refresh());
             const errorEl = form.createDiv({ cls: "hub-task-error", attr: { role: "alert" } });
             const actions = form.createDiv({ cls: "hub-task-dialog-actions" });
             const remove = actions.createEl("button", { text: "Delete task", cls: "hub-task-remove", attr: { type: "button" } });
@@ -153,11 +54,9 @@ function openTaskEditor(service, task, onEdit = () => {}, creation = null) {
                 const controls = [...form.querySelectorAll("button,input,select")];
                 const states = controls.map(control => control.disabled); controls.forEach(control => control.disabled = true);
                 try {
-                    const values = { operation: deleting ? "delete" : "edit",
-                        location: fieldsLocation.value(), phaseId: phaseSection.hidden ? null : phase.value, linkedProjectId: project.hidden ? null : association.value,
-                        text: input.value, necessity: selected, fromDate: from.value, dueDate: due.value,
-                        fromTime: from.timeInput.value, dueTime: due.timeInput.value,
-                        steps: stepRows.filter(step => !step.removed).map(step => ({ line: step.line, text: step.input.value, completed: step.checkbox.checked, completedAt: step.completedAt })) };
+                    const values = { ...state, ...relationships.value(), text: input.value,
+                        operation: deleting ? "delete" : "edit", location: fieldsLocation.value() };
+                    if (!deleting) Object.assign(values, taskFormValues(values));
                     if (creation) {
                         if (!values.location) throw Error("Choose a Location.");
                         await service.create(values.location, values.text, values);
@@ -166,7 +65,7 @@ function openTaskEditor(service, task, onEdit = () => {}, creation = null) {
                     this.saving = false; this.close();
                 } catch (error) {
                     this.saving = false; controls.forEach((control, i) => control.disabled = states[i]);
-                    errorEl.textContent = error.message; sync();
+                    errorEl.textContent = error.message;
                 }
             };
             form.addEventListener("submit", event => { event.preventDefault(); void commit(false); });
@@ -179,7 +78,7 @@ function openTaskEditor(service, task, onEdit = () => {}, creation = null) {
             input.focus(); input.setSelectionRange(input.value.length, input.value.length);
         }
         close() { if (!this.saving) super.close(); }
-        onClose() { this.closed = true; this.contentEl.empty(); }
+        onClose() { this.closed = true; this.taskFields?.destroy(); this.contentEl.empty(); }
     }
     const modal = new TaskModal(service.app); modal.open(); return modal;
 }

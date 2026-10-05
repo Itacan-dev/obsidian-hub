@@ -57,7 +57,8 @@ try {
   assert([...panel.querySelectorAll('select,button')].map(x=>x.outerHTML).join('')===originals,'Preview clicks do not change local selection');
   assert(panel.querySelector('[role=switch]').getAttribute('aria-disabled')==='true','Toggle is a disabled preview');
   const y=sidebar.getBoundingClientRect().top;panel.scrollTop=200;assert(panel.scrollTop>0&&sidebar.getBoundingClientRect().top===y,'Independent content scrolling');
-  const search=dialog.querySelector('input[type=search]');search.value='font';search.dispatchEvent(new Event('input',{bubbles:true}));assert(tabs.length===15&&tabs.every(x=>x.getClientRects().length),'Search does not filter');
+  const search=dialog.querySelector('input[type=search]');search.value='font';search.dispatchEvent(new Event('input',{bubbles:true}));assert(tabs.length===14&&tabs.every(x=>x.getClientRects().length),'Search does not filter');
+  assert(!tabs.some(tab=>tab.textContent.includes('Daily brief')),'Developer Daily brief is absent from shipped Settings');
   for(let i=0;i<tabs.length;i++){tabs[i].click();assert(panel.querySelector('h2').textContent===SETTINGS_PAGES[i].title,'Navigable category '+i);assert(panel.scrollTop===0,'Page scroll resets');if(i!==1)assert(!panel.querySelector('input,button,select')&&panel.querySelectorAll('.hub-settings-empty-section').length===2,'Sparse intentional shell')}
   tabs[0].focus();tabs[0].dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true}));assert(document.activeElement===tabs[1]&&tabs[1].getAttribute('aria-selected')==='true','Keyboard categories');
   control.open();assert(document.querySelectorAll('.hub-settings-dialog').length===1,'One Settings window');
@@ -67,7 +68,7 @@ try {
  button.click();await settle();const dialog=document.querySelector('.hub-settings-dialog'),panel=dialog.querySelector('.hub-settings-panel');
  for(const width of [600,380,304]){dialog.style.width=width+'px';await settle();assert(panel.scrollWidth<=panel.clientWidth+1,'No narrow content overlap at '+width);assert(dialog.scrollWidth<=dialog.clientWidth+1,'Modal fits at '+width)}dialog.style.width='';
  const before=dialog.querySelector('.hub-settings-sidebar').getBoundingClientRect().top;panel.scrollTop=100;assert(dialog.querySelector('.hub-settings-sidebar').getBoundingClientRect().top===before,'Fixed navigation');panel.scrollTop=0;
- result.textContent='PASS: shared footer, all 15 categories, keyboard navigation, initial Appearance, inert controls/search, zero store/navigation access, stable underlying views, independent scrolling and narrow layouts.';
+ result.textContent='PASS: shared footer, all 14 shipped categories, developer-only Daily brief hidden, keyboard navigation, initial Appearance, inert controls/search, zero store/navigation access, stable underlying views, independent scrolling and narrow layouts.';
  // Leave the preview visible for the rendered inspection.
 }catch(e){result.textContent='FAIL: '+e.stack}
 </script>

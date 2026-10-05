@@ -77,16 +77,16 @@ window.hubTestFullView = async f => {
     near(rect(search).width, searchBox.width, "Focus preserves search width");
     near(rect(bar).height, barBox.height, "Search focus preserves toolbar height");
     input.blur();
-    f.click("Schedule"); f.click("Upcoming"); await settle();
-    const upcomingBottom = checkBoundary("Upcoming");
+    f.click("Schedule"); f.click("Overview"); await settle();
+    const upcomingBottom = checkBoundary("Overview");
     const columns = [...f.root.querySelectorAll(".hub-task-column")];
-    assert(columns.length === 5, "Five Upcoming columns");
+    assert(columns.length === 5, "Five Overview columns");
     columns.forEach(column => near(rect(column).bottom, upcomingBottom - 11, "Columns fill the panel body"));
     const body = columns[0].querySelector(".hub-task-column-body"), heading = columns[0].querySelector(".hub-task-column-heading");
     const headingTop = rect(heading).top;
     for (let i = 0; i < 100; i++) body.createDiv({ text: "More work " + i }).style.height = "45px";
     await settle(); body.scrollTop = 200;
-    assert(body.scrollTop > 0, "Upcoming task region scrolls"); near(rect(heading).top, headingTop, "Upcoming header stays in place");
+    assert(body.scrollTop > 0, "Overview task region scrolls"); near(rect(heading).top, headingTop, "Overview header stays in place");
     for (const view of ["Month", "Week"]) {
         f.click(view); await settle(); near(checkBoundary(view), upcomingBottom, "Schedule bottom is stable across views");
         const days = [...f.root.querySelectorAll(".hub-task-calendar-day")];
@@ -100,14 +100,14 @@ window.hubTestFullView = async f => {
     f.click("Roadmap"); await settle(); const roadmapBottom = checkBoundary("Empty Roadmap");
     near(roadmapBottom, upcomingBottom, "Empty Roadmap keeps planning boundary");
     const empty = f.root.querySelector(".hub-task-view-empty"), panel = f.root.querySelector(".hub-roadmap-panel");
-    assert(rect(empty).top - rect(panel).top < 90, "Empty text stays near the top");
+    near(rect(empty).top, rect(panel.querySelector(".hub-roadmap-axis")).bottom, "Empty text starts immediately beneath the time axis");
     assert(f.root.querySelector(".project-main-grid").hidden, "Roadmap remains full-width without sidebar");
     plugin.projectWizard.data.projectPlanning[project.projectId] = { phases: Array.from({ length: 45 }, (_, i) => ({ id: "layout-phase-" + i, name: "Phase " + i, start: "2026-09-01", end: "2026-12-01", order: i })), milestones: [] };
     f.click("Roadmap"); await settle(); checkBoundary("Long Roadmap");
     const roadmapScroll = f.root.querySelector(".hub-roadmap-scroll");
     const axis = f.root.querySelector(".hub-roadmap-axis"), axisTop = rect(axis).top;
     roadmapScroll.scrollTop = 350; await settle(); assert(roadmapScroll.scrollTop > 0, "Roadmap rows scroll internally"); near(rect(axis).top, axisTop, "Roadmap axis stays visible");
-    const range = f.root.querySelector('select[aria-label="Roadmap range"]'); range.value = "12"; range.dispatchEvent(new Event("change")); await settle();
+    f.root.querySelector('button[aria-label="Roadmap range"]').click(); [...document.querySelectorAll(".hub-fixture-menu button")].find(button => button.textContent === "1 year").click(); await settle();
     const horizontal = f.root.querySelector(".hub-roadmap-scroll"); horizontal.scrollLeft = 250;
     assert(horizontal.scrollLeft > 0 || horizontal.scrollWidth === horizontal.clientWidth, "Wide roadmap remains horizontally scrollable when needed");
     container.classList.add("hub-project-rail"); document.body.classList.add("hub-project-note-mode"); await settle();
@@ -139,7 +139,7 @@ window.hubTestFullView = async f => {
         }
         if (view === "Empty Roadmap") plugin.projectWizard.data.projectPlanning[project.projectId] = { phases: [], milestones: [] };
         if (view.includes("Roadmap")) f.click("Roadmap");
-        else if (["Upcoming", "Month", "Week"].includes(view)) { f.click("Schedule"); f.click(view); }
+        else if (["Overview", "Month", "Week"].includes(view)) { f.click("Schedule"); f.click(view); }
         else f.click("Work");
         await settle(); layout.update(); await settle();
     };

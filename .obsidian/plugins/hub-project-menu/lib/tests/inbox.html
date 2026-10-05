@@ -1,0 +1,28 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Itacan Quick Add and Inbox verification</title>
+<link rel="stylesheet" href="../../styles.css">
+<style>
+body{margin:20px;background:#1e1e1e;color:#dadada;font:16px system-ui;--background-primary:#1e1e1e;--background-secondary:#262626;--background-secondary-alt:#222;--text-normal:#dadada;--text-muted:#aaa;--text-faint:#777;--background-modifier-border:#343434;--background-modifier-border-focus:#555;--input-border-width-focus:1px;--background-modifier-hover:#ffffff08;--interactive-accent:#8b5cf6;--interactive-accent-hover:#986cff;--text-accent:#ad88ff;--text-on-accent:white;--color-red:#f16d73;--color-yellow:#e6b84d;--size-4-1:4px;--size-4-2:8px;--size-4-3:12px;--size-4-4:16px;--font-ui-small:13px;--font-ui-medium:14px;--font-ui-large:16px}
+*{box-sizing:border-box;scrollbar-width:thin;scrollbar-color:#484848 transparent}button,input,select,textarea{font:inherit;color:inherit;border:1px solid var(--background-modifier-border);border-radius:6px;background:var(--background-primary);padding:5px}button{cursor:pointer}button.mod-cta{background:var(--interactive-accent);color:var(--text-on-accent)}button:disabled{opacity:.45;cursor:default}input[type=checkbox]{width:14px;height:14px;accent-color:var(--interactive-accent)}input[type=date],input[type=time]{color-scheme:dark}textarea{resize:vertical}svg{width:18px;height:18px}.modal-container{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:#0008;z-index:99}.modal{position:relative;background:var(--background-primary);border:1px solid var(--background-modifier-border);border-radius:12px;padding:20px;max-height:94vh;overflow:auto;width:680px;max-width:calc(100vw - 28px);box-shadow:0 6px 24px #0005}.modal-close-button{position:absolute;right:12px;top:12px;border:0;padding:2px;background:transparent}.modal-content{min-width:0}#fixture{max-width:100%;min-height:140px;padding:20px;border:1px solid #343434;border-radius:8px}#result{white-space:pre-wrap;font-size:11px;max-width:1000px}.app-container{position:fixed;bottom:0;left:0;right:0;z-index:5}.status-bar{display:flex;gap:10px;align-items:center;padding:3px 10px;background:#262626;min-height:35px;border-top:1px solid #343434;position:relative}.hub-task-markdown p{margin:0}
+</style>
+<style>
+/* Simulate native accent focus so the shared neutral capture scope is exercised. */
+button:focus,input:focus,select:focus,textarea:focus{border-color:var(--interactive-accent);outline:1px solid var(--interactive-accent);box-shadow:0 0 0 1px var(--interactive-accent)}
+</style>
+<style>
+/* Isolated native Menu mock; production uses Obsidian's own menu rendering. */
+.hub-fixture-menu{position:fixed;z-index:200;min-width:150px;padding:4px;background:var(--background-secondary);border:1px solid var(--background-modifier-border);border-radius:6px;box-shadow:0 4px 14px #0005}.hub-fixture-menu .menu-item{display:block;width:100%;border:0;text-align:left;padding:6px 10px;background:transparent;font-size:13px}.hub-fixture-menu .menu-item:focus,.hub-fixture-menu .menu-item:hover{outline:0;background:var(--background-modifier-hover)}.hub-fixture-menu .menu-item[aria-checked=true]::after{content:"\2713";float:right;margin-left:12px;color:var(--text-muted)}
+</style>
+<style>
+.hub-fixture-menu .menu-item{display:flex;align-items:center;gap:8px}.hub-fixture-menu .menu-item-icon{display:flex}.hub-fixture-menu .menu-item-icon svg{width:16px;height:16px}.hub-fixture-menu .menu-separator{border-top:1px solid var(--background-modifier-border);margin:4px}.hub-fixture-menu .is-warning{color:var(--color-red)}
+</style>
+<div id="fixture">
+  <h2>Current project context</h2>
+  <p>Quick Add and Inbox use isolated in-memory files. This fixture never reads or writes live vault data.</p>
+  <button id="quick-trigger">Quick Add</button>
+  <button id="inbox-trigger">Inbox</button>
+</div>
+<pre id="result">RUNNING</pre>
+<div class="app-container"><div class="status-bar hub-oath-statusbar"></div></div>
+<script src="inbox-browser.js"></script>

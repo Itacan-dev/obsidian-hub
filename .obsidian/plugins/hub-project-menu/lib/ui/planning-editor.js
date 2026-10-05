@@ -2,7 +2,7 @@
 const { Modal, FuzzySuggestModal } = require("obsidian");
 const { localISODate } = require("../domain/dates");
 
-function openPlanningEditor(service, projectId, kind, value = null, dv) {
+function openPlanningEditor(service, projectId, kind, value = null, dv, defaults = {}) {
     const phase = kind === "phases", noun = phase ? "phase" : "milestone";
     class PlanningModal extends Modal {
         onOpen() {
@@ -16,9 +16,9 @@ function openPlanningEditor(service, projectId, kind, value = null, dv) {
                 const label = host.createEl("label"); label.createSpan({ text });
                 const input = label.createEl("input", { type, attr: { required: "", "aria-label": text } }); input.value = initial ?? ""; return input;
             }
-            const name = field(section(phase ? "Phase" : "Milestone"), "Name", "text", value?.name);
+            const name = field(section(phase ? "Phase" : "Milestone"), "Title", "text", value?.name);
             const dates = section(phase ? "Dates" : "Date").createDiv({ cls: "hub-task-date-fields" });
-            const start = field(dates, phase ? "Start" : "Date", "date", (phase ? value?.start : value?.date) ?? localISODate());
+            const start = field(dates, phase ? "Start" : "Date", "date", (phase ? value?.start ?? defaults.start : value?.date ?? defaults.date) ?? localISODate());
             let end, description, achieved, tasks = [], selected = new Map();
             const key = task => task.hubTaskId ?? task.path + ":" + task.line;
             if (phase) {

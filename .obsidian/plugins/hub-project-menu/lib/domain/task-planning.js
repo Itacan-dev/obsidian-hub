@@ -2,7 +2,18 @@
 const { parseLocalISODate, validLocalTime, localDateTime, taskDateLabel, taskDateRangeLabel } = require("./dates");
 const { taskLineDetails, taskDisplayText, taskIdentity, locateTaskLine, normalizedTaskText } = require("./tasks");
 
+function taskCaptureSource(value) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+    const source = {};
+    for (const key of ["origin", "workspaceId", "workspaceName", "path", "title", "url"]) {
+        const text = value[key] ?? (key === "title" ? value.pageTitle : key === "url" ? value.pageUrl : key === "workspaceName" ? value.name : null);
+        if (typeof text === "string" && text.trim()) source[key] = text.trim().slice(0, key === "url" || key === "path" ? 4096 : 512);
+    }
+    return Object.keys(source).length ? source : null;
+}
+
 function taskMetadata(value = {}) {
+    const captureSource = taskCaptureSource(value?.captureSource);
     return {
         ...(typeof value?.phaseId === "string" && value.phaseId.trim() ? { phaseId: value.phaseId.trim() } : {}),
         necessity: ["should", "must"].includes(value?.necessity) ? value.necessity : null,
@@ -10,7 +21,8 @@ function taskMetadata(value = {}) {
         dueDate: parseLocalISODate(value?.dueDate) ? value.dueDate : null,
         ...(typeof value?.linkedProjectId === "string" && value.linkedProjectId.trim() ? { linkedProjectId: value.linkedProjectId.trim() } : {}),
         ...(parseLocalISODate(value?.fromDate) && validLocalTime(value?.fromTime) ? { fromTime: value.fromTime } : {}),
-        ...(parseLocalISODate(value?.dueDate) && validLocalTime(value?.dueTime) ? { dueTime: value.dueTime } : {})
+        ...(parseLocalISODate(value?.dueDate) && validLocalTime(value?.dueTime) ? { dueTime: value.dueTime } : {}),
+        ...(captureSource ? { captureSource } : {})
     };
 }
 

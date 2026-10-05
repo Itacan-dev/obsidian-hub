@@ -11,6 +11,9 @@ async function run() {
     const profile = fs.mkdtempSync(path.join(os.tmpdir(), "hub-browser-test-"));
     const child = spawn(process.env.HUB_TEST_BROWSER || "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe", [
         "--headless=new", "--disable-gpu", "--no-first-run", "--disable-background-networking",
+        // These fixtures use only local files and a fresh temporary profile.
+        // Windows sandbox sessions cannot initialize Chromium's GPU sandbox.
+        "--no-sandbox", "--disable-software-rasterizer", "--disable-features=RendererCodeIntegrity", "--disable-extensions",
         "--allow-file-access-from-files", "--remote-debugging-pipe", `--user-data-dir=${profile}`
     ], { windowsHide: true, stdio: ["ignore", "ignore", "pipe", "pipe", "pipe"] });
     let seq = 0, buffer = "";
@@ -38,9 +41,14 @@ async function run() {
         const { targetId } = await send("Target.createTarget", { url: "about:blank" });
         const { sessionId } = await send("Target.attachToTarget", { targetId, flatten: true });
         await send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile: false }, sessionId);
-        await send("Page.navigate", { url: pathToFileURL(path.join(__dirname, fixture + ".html")).href }, sessionId);
+        if (process.env.HUB_TEST_REDUCED_MOTION !== undefined) await send("Emulation.setEmulatedMedia", { features: [
+            { name: "prefers-reduced-motion", value: process.env.HUB_TEST_REDUCED_MOTION === "1" ? "reduce" : "no-preference" }
+        ] }, sessionId);
+        const fixtureUrl = pathToFileURL(path.join(__dirname, fixture + ".html"));
+        if (process.env.HUB_TEST_PREVIEW) fixtureUrl.searchParams.set("preview", process.env.HUB_TEST_PREVIEW);
+        await send("Page.navigate", { url: fixtureUrl.href }, sessionId);
         let text = "";
-        for (let attempt = 0; attempt < 200; attempt++) {
+        for (let attempt = 0; attempt < 360; attempt++) {
             await new Promise(resolve => setTimeout(resolve, 75));
             const result = await send("Runtime.evaluate", { expression: "document.getElementById('result')?.textContent || ''", returnByValue: true }, sessionId);
             text = result.result?.value || "";

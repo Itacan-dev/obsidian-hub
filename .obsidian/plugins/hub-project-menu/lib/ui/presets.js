@@ -10,19 +10,22 @@ function showPresetsMenu(anchor, presets) {
     let closed = false;
     let nameModal = null;
     let contextMenu = null;
-    let drag = null;
-    let suppressClick = false;
+    const reorder = require("./pointer-list-reorder").createPointerListReorder({
+        container: menu, canStart: event => !event.target.closest("button") && !contextMenu,
+        commit: rows => presets.reorder(rows.map(row => row.dataset.presetId)),
+        onError: error => new Notice(error.message || "Could not reorder presets.")
+    });
     const run = action => Promise.resolve().then(action).catch(error => new Notice(error.message || "Could not update preset."));
     function close() {
         if (closed) return;
-        finishDrag(false);
+        reorder.cancel();
         closed = true; menu.remove(); anchor.setAttribute("aria-expanded", "false");
         contextMenu?.hide();
         doc.removeEventListener("pointerdown", outside, true);
         doc.defaultView.removeEventListener("resize", close);
     }
     function outside(event) {
-        if (drag) return;
+        if (reorder.busy) return;
         // Native menus/modals are portalled to body, but still belong to this
         // dropdown. Only a genuinely external click dismisses the parent menu.
         if (contextMenu?.dom?.contains(event.target) ||
@@ -82,7 +85,7 @@ function showPresetsMenu(anchor, presets) {
     }
     function render() {
     if (closed) return;
-    finishDrag(false);
+    reorder.cancel();
     menu.replaceChildren();
     if (presets.canSave) {
         const action = row("Save as new preset", () => namePrompt("Save preset", "", name => presets.create(name)));
@@ -99,11 +102,11 @@ function showPresetsMenu(anchor, presets) {
     for (const preset of presets.items) {
         const item = row(preset.name, () => { close(); void run(() => presets.open(preset.id, anchor)); }, list, "panels-top-left");
         item.dataset.presetId = preset.id;
-        item.addEventListener("pointerdown", event => beginDrag(event, item, list));
+        item.addEventListener("pointerdown", event => reorder.begin(event, item, list));
         const showContextMenu = event => {
             event.preventDefault(); event.stopPropagation();
-            if (drag?.active) return;
-            finishDrag(false);
+            if (reorder.active) return;
+            reorder.cancel();
             contextMenu?.hide();
             const context = new Menu();
             contextMenu = context;
@@ -134,110 +137,6 @@ function showPresetsMenu(anchor, presets) {
     }
     position();
     }
-    function beginDrag(event, item, list) {
-        if (event.button !== 0 || event.isPrimary === false || event.target.closest("button") || contextMenu || drag) return;
-        const rows = [...list.children];
-        if (rows.length < 2) return;
-        drag = { item, list, rows, pointerId: event.pointerId, startX: event.clientX, startY: event.clientY,
-            x: event.clientX, y: event.clientY, index: rows.indexOf(item), active: false };
-        doc.addEventListener("pointermove", moveDrag, { passive: false });
-        doc.addEventListener("pointerup", dropDrag);
-        doc.addEventListener("pointercancel", cancelDrag);
-        doc.addEventListener("keydown", dragKey, true);
-        doc.defaultView.addEventListener("blur", cancelDrag);
-    }
-    function moveDrag(event) {
-        const d = drag;
-        if (!d || event.pointerId !== d.pointerId) return;
-        d.x = event.clientX; d.y = event.clientY;
-        if (!d.active) {
-            if (Math.hypot(d.x - d.startX, d.y - d.startY) < 6) return;
-            d.active = true;
-            d.menuWidth = menu.style.width;
-            menu.style.width = `${menu.getBoundingClientRect().width}px`;
-            const rect = d.item.getBoundingClientRect(), listRect = d.list.getBoundingClientRect();
-            d.offsetY = d.startY - rect.top; d.height = rect.height;
-            // Frozen slot centers avoid feedback from rows moving around the placeholder.
-            d.centers = d.rows.map(row => { const r = row.getBoundingClientRect(); return r.top - listRect.top + r.height / 2; });
-            d.placeholder = doc.createElement("div"); d.placeholder.className = "hub-preset-placeholder";
-            d.placeholder.style.height = `${rect.height}px`; d.placeholder.setAttribute("aria-hidden", "true");
-            d.item.before(d.placeholder);
-            d.item.classList.add("is-dragging");
-            d.item.style.width = `${rect.width}px`; d.item.style.left = `${rect.left - listRect.left}px`;
-            menu.classList.add("is-sorting-presets");
-            if (event.isTrusted) menu.setPointerCapture?.(d.pointerId);
-            d.frame = doc.defaultView.requestAnimationFrame(scrollDrag);
-        }
-        event.preventDefault(); positionDrag();
-    }
-    function positionDrag() {
-        const d = drag;
-        if (!d?.active) return;
-        const rect = d.list.getBoundingClientRect();
-        const top = Math.max(0, Math.min(rect.height - d.height, d.y - rect.top - d.offsetY));
-        d.item.style.top = `${top}px`;
-        const center = top + d.height / 2;
-        let index = d.index;
-        // A small dead band keeps a pointer near a boundary from toggling slots.
-        while (index < d.rows.length - 1 && center > (d.centers[index] + d.centers[index + 1]) / 2 + 3) index++;
-        while (index > 0 && center < (d.centers[index - 1] + d.centers[index]) / 2 - 3) index--;
-        if (index !== d.index) {
-            d.index = index;
-            const others = d.rows.filter(row => row !== d.item);
-            d.list.insertBefore(d.placeholder, others[index] ?? null);
-        }
-    }
-    function scrollDrag() {
-        const d = drag;
-        if (!d?.active) return;
-        const rect = menu.getBoundingClientRect(), edge = 28;
-        const speed = d.y < rect.top + edge ? -8 : d.y > rect.bottom - edge ? 8 : 0;
-        if (speed) { menu.scrollTop += speed; positionDrag(); }
-        d.frame = doc.defaultView.requestAnimationFrame(scrollDrag);
-    }
-    function dropDrag(event) {
-        if (!drag || event.pointerId !== drag.pointerId) return;
-        const rect = menu.getBoundingClientRect(), listRect = drag.list.getBoundingClientRect();
-        finishDrag(event.clientX >= rect.left && event.clientX <= rect.right &&
-            event.clientY >= Math.max(rect.top, listRect.top) && event.clientY <= Math.min(rect.bottom, listRect.bottom));
-    }
-    function cancelDrag() { finishDrag(false); }
-    function dragKey(event) {
-        if (event.key === "Escape") { event.preventDefault(); event.stopImmediatePropagation(); finishDrag(false); }
-    }
-    function finishDrag(commit) {
-        const d = drag;
-        if (!d) return;
-        drag = null;
-        doc.removeEventListener("pointermove", moveDrag);
-        doc.removeEventListener("pointerup", dropDrag);
-        doc.removeEventListener("pointercancel", cancelDrag);
-        doc.removeEventListener("keydown", dragKey, true);
-        doc.defaultView.removeEventListener("blur", cancelDrag);
-        if (!d.active) return;
-        doc.defaultView.cancelAnimationFrame(d.frame);
-        if (menu.hasPointerCapture?.(d.pointerId)) menu.releasePointerCapture(d.pointerId);
-        const ordered = d.rows.filter(row => row !== d.item); ordered.splice(d.index, 0, d.item);
-        if (commit) {
-            try { presets.reorder(ordered.map(row => row.dataset.presetId)); }
-            catch (error) { commit = false; new Notice(error.message || "Could not reorder presets."); }
-        }
-        d.placeholder.remove(); d.item.classList.remove("is-dragging");
-        for (const property of ["width", "left", "top"]) d.item.style.removeProperty(property);
-        d.list.append(...(commit ? ordered : d.rows));
-        menu.style.width = d.menuWidth;
-        menu.classList.remove("is-sorting-presets");
-        suppressClick = true;
-        doc.defaultView.setTimeout(() => { suppressClick = false; }, 0);
-        d.item.focus({ preventScroll: true });
-    }
-    menu.addEventListener("click", event => {
-        if (suppressClick || drag?.active) { event.preventDefault(); event.stopImmediatePropagation(); }
-    }, true);
-    menu.addEventListener("dragstart", event => event.preventDefault());
-    menu.addEventListener("lostpointercapture", event => {
-        if (drag?.pointerId === event.pointerId) finishDrag(false);
-    });
     menu.addEventListener("keydown", event => {
         const items = [...menu.querySelectorAll('[role="menuitem"]:not([aria-disabled=true])')];
         const index = items.indexOf(doc.activeElement?.closest('[role="menuitem"]'));

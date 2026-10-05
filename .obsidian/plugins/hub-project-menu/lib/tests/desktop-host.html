@@ -1,0 +1,83 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Itacan native and prepared desktop hosts</title>
+<style>
+/* Relevant native Obsidian 1.13.7 host defaults. The investigation also runs
+ * this fixture with the installed app.css via ?hostCss=file:///... . */
+* { box-sizing: border-box; }
+html { font-size: 17px; }
+body { margin: 0; --file-margins: 32px; --file-line-width: 700px; }
+.workspace-leaf-content { width: 100%; height: 100%; display: flex; flex-direction: column; overflow: hidden; }
+.view-content { width: 100%; height: 100%; }
+.workspace-leaf-content .view-content { padding: 12px 12px 32px; overflow: auto; }
+.workspace-leaf-content[data-type="markdown"] .view-content { padding: 0; overflow: hidden; }
+.markdown-reading-view { display: flex; flex-direction: column; height: 100%; }
+.markdown-preview-view { width: 100%; height: 100%; padding: var(--file-margins); overflow-y: auto; scrollbar-gutter: stable; }
+.markdown-preview-view.is-readable-line-width .markdown-preview-sizer { max-width: var(--file-line-width); margin-inline: auto; }
+</style>
+<link id="native-host-css" rel="stylesheet">
+<link rel="stylesheet" href="../../../../snippets/dashbboard.css">
+<link rel="stylesheet" href="../../styles.css">
+<link rel="stylesheet" href="../../../../../System/Dashboards/Home/view.css">
+<link rel="stylesheet" href="../../../../../System/Dashboards/Project/view.css">
+<style>
+#fixture { width: 100%; height: 850px; }
+#result { position: fixed; bottom: 0; font: 12px monospace; }
+</style>
+<body class="theme-dark is-win">
+<div id="fixture"></div><pre id="result">RUNNING</pre>
+<script>
+"use strict";
+const hostCss = new URLSearchParams(location.search).get("hostCss");
+if (hostCss) document.querySelector("#native-host-css").href = hostCss;
+const near = (a, b, message) => {
+    if (Math.abs(a - b) > .05) throw Error(`${message}: ${a} / ${b}`);
+};
+const bounds = element => element.getBoundingClientRect();
+window.runDesktopHostChecks = () => {
+    const fixture = document.querySelector("#fixture");
+    let cases = 0;
+    for (const width of [...new Set([Math.floor(innerWidth), Math.min(1366, Math.floor(innerWidth))])]) {
+        fixture.style.width = width + "px";
+        let reference;
+        for (const readable of [false, true]) {
+            for (const [kind, host] of [["home", "markdown"], ["home", "hub-prepared-home"], ["project", "markdown"], ["resource", "markdown"]]) {
+                const prefix = kind === "home" ? "home" : "project";
+                const native = host === "markdown";
+                fixture.innerHTML = `<div class="workspace-leaf-content" data-type="${host}"><div class="view-content">
+                    ${native ? '<div class="markdown-reading-view">' : ''}
+                    <div class="markdown-preview-view markdown-rendered ${prefix === "home" ? "dashboard" : ""} ${readable ? "is-readable-line-width" : ""}">
+                    <div class="markdown-preview-sizer"><div class="block-language-dataviewjs">
+                    <div class="${prefix}-dashboard ${kind === "resource" ? "resource-dashboard" : ""}">
+                    <div class="${prefix}-cover"></div><div class="hub-context-bar">Search</div>
+                    <div class="${prefix}-main-grid">${prefix === "home"
+                        ? '<div class="home-panel">Calendar</div><div class="home-panel">Focus</div><div class="home-panel">Tasks</div>'
+                        : '<div class="project-left-column">Files</div><div class="project-right-column">Tasks / Progress</div>'}
+                    </div></div></div></div></div>${native ? '</div>' : ''}</div></div>`;
+                const root = fixture.querySelector(`.${prefix}-dashboard`);
+                const preview = fixture.querySelector(".markdown-preview-view");
+                const style = getComputedStyle(preview), rect = bounds(root);
+                const available = preview.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+                const label = `${width}px ${kind}/${host} readable=${readable}`;
+                near(rect.width, Math.min(1500, available), label + " canvas cap");
+                if (!reference) reference = rect;
+                near(rect.width, reference.width, label + " host width parity");
+                near(rect.x, reference.x, label + " host horizontal inset parity");
+                near(rect.y, reference.y, label + " host vertical inset parity");
+                near(bounds(fixture.querySelector(`.${prefix}-cover`)).height, 325, label + " banner height");
+                for (const selector of [`.${prefix}-cover`, ".hub-context-bar", `.${prefix}-main-grid`]) {
+                    const child = fixture.querySelector(selector);
+                    near(bounds(child).width, rect.width, label + " aligned " + selector);
+                    if (child.scrollWidth > child.clientWidth + 1) throw Error(label + " horizontal overflow " + selector);
+                }
+                cases++;
+            }
+        }
+    }
+    return `PASS: ${cases} host cases at ${innerWidth}px / DPR ${devicePixelRatio}; native/prepared Home, Project/Resource, readable width on/off, canvas cap, insets, banner/search/grid alignment, no horizontal overflow.`;
+};
+window.onload = () => {
+    try { document.querySelector("#result").textContent = runDesktopHostChecks(); }
+    catch (error) { document.querySelector("#result").textContent = "FAIL: " + error.stack; }
+};
+</script>

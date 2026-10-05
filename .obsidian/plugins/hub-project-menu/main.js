@@ -1538,6 +1538,160 @@ function queryHistory(records, { kind = null, workspaceId = null } = {}) {
 module.exports = { historyKind, queryHistory };
 
 },
+"lib/domain/inbox.js": function (module, exports, __hubRequire) {
+"use strict";
+const { projectItemPath } = __hubRequire("lib/domain/files.js");
+const { noteLocation } = __hubRequire("lib/domain/note-insertion.js");
+
+const INBOX_VERSION = 1;
+const INBOX_ATTACHMENT_ROOT = "Inbox/Attachments";
+const INBOX_SORTS = [
+    ["most-complete", "Most complete"], ["least-complete", "Least complete"],
+    ["newest", "Newest first"], ["oldest", "Oldest first"], ["type", "Type"]
+];
+function inboxSort(value) { return INBOX_SORTS.some(([key]) => key === value) ? value : "most-complete"; }
+
+function inboxCounts(captures) {
+    const files = captures.filter(item => item.attachments?.length).length;
+    return { all: captures.length, text: captures.length - files, files };
+}
+
+function inboxItemType(capture) {
+    const type = captureDraft(capture).type;
+    return capture.operation?.state === "done" && type === "task" ? null : type ?? null;
+}
+
+function linkFromText(text) {
+    const match = String(text ?? "").trim().match(/^https?:\/\/[^\s]+$/i);
+    if (!match) return null;
+    try { return new URL(match[0]).href; } catch (_) { return null; }
+}
+
+function isInboxOwned(attachment) {
+    return attachment?.ownership === "inbox" &&
+        /^Inbox\/Attachments\/[0-9a-f-]{36}\/[^/]+$/i.test(attachment.path ?? "") &&
+        !String(attachment.path).split("/").some(part => part === "." || part === "..");
+}
+
+function captureKind(text, attachments = []) {
+    if (attachments.length) return attachments.every(item => /^image\//i.test(item.mime ?? "") ||
+        /\.(png|jpe?g|gif|webp|avif|bmp|svg|ico)$/i.test(item.name ?? "")) ? "image" : "file";
+    return linkFromText(text) ? "link" : "text";
+}
+
+function capturePreview(capture) {
+    return String(capture?.text ?? "").trim().split(/\r?\n/).find(Boolean) ||
+        capture?.attachments?.map(item => item.name).join(", ") || "Capture";
+}
+
+function sourceMetadata(value = {}) {
+    const result = {};
+    for (const key of ["origin", "context", "workspaceId", "workspaceName", "path", "title", "url", "pageTitle", "pageUrl"]) {
+        if (typeof value?.[key] === "string" && value[key].trim()) result[key] = value[key];
+    }
+    return result;
+}
+
+function attachmentReference(value) {
+    if (!value || typeof value.path !== "string" || !value.path.trim() || !value.id) {
+        throw Error("An attachment reference is missing its file path.");
+    }
+    const path = value.path.replace(/\\/g, "/");
+    if (path.startsWith("/") || path.split("/").some(part => !part || part === "." || part === "..") || /^[a-z]:/i.test(path)) {
+        throw Error("Choose a file inside Itacan or import a copy.");
+    }
+    const attachment = { id: String(value.id), path, name: String(value.name || path.split("/").at(-1)),
+        ownership: value.ownership === "inbox" ? "inbox" : "reference",
+        size: Math.max(0, Number(value.size) || 0), mime: String(value.mime ?? "") };
+    if (typeof value.originalPath === "string") attachment.originalPath = value.originalPath;
+    if (attachment.ownership === "inbox" && !isInboxOwned(attachment)) {
+        throw Error("An Inbox attachment has an invalid staging path.");
+    }
+    return attachment;
+}
+
+function sortedCaptures(captures, { filter = "all", sort = "newest", completion } = {}) {
+    const rows = captures.filter(capture => filter === "all" ||
+        (filter === "files" ? capture.attachments?.length : !capture.attachments?.length));
+    const byCompletion = sort === "most-complete" || sort === "least-complete";
+    const ratios = byCompletion ? new Map(rows.map(item => [item.id, completion?.(item).ratio ?? 0])) : null;
+    const types = sort === "type" ? new Map(rows.map(item => [item.id, ({ task: 1, note: 2, file: 3 }[inboxItemType(item)] ?? 0)])) : null;
+    return rows.sort((a, b) => {
+        const oldest = Number(a.createdAt) - Number(b.createdAt);
+        const primary = byCompletion ? (sort === "most-complete" ? -1 : 1) * (ratios.get(a.id) - ratios.get(b.id)) :
+            types ? types.get(a.id) - types.get(b.id) : sort === "newest" ? -oldest : oldest;
+        return primary || oldest || a.id.localeCompare(b.id);
+    });
+}
+
+function taskTitle(text) { return String(text ?? "").trim().split(/\r?\n/).find(line => line.trim())?.trim() ?? ""; }
+
+function captureNoteTitle(value) {
+    const raw = String(value ?? ""), title = raw.trim();
+    if (!title) throw Error("Enter a note title.");
+    if (/[\r\n\u0000-\u001f]/.test(raw) || /^\.{1,2}(?:\.md)?$/i.test(title)) {
+        throw Error("Enter a valid note title.");
+    }
+    projectItemPath("", "note", title);
+    return title;
+}
+
+// The content and file references remain canonical Capture fields. Intent only
+// keeps the decisions that can be resumed in the existing creation forms.
+function captureIntent(values = {}, attachments = []) {
+    const input = { ...(values.intent ?? {}), ...values };
+    const type = attachments.length ? "file" : ["task", "note"].includes(input.type) ? input.type : null;
+    if (!type) return null;
+    const intent = { inputPath: attachments.length ? "file" : "text", type };
+    const keys = type === "task" ? ["workspaceId", "location", "necessity", "fromDate", "dueDate", "fromTime", "dueTime", "phaseId", "linkedProjectId"] :
+        type === "note" ? ["workspaceId", "folder", "title"] : ["workspaceId", "folder"];
+    for (const key of keys) {
+        if (typeof input[key] === "string" || input[key] === null) intent[key] = input[key];
+    }
+    if (type === "note") {
+        intent.noteAction = input.noteAction === "existing" ? "existing" : "new";
+        const location = noteLocation(input.noteLocation);
+        if (location || input.noteLocation === null) intent.noteLocation = location;
+    }
+    if (type === "task" && Array.isArray(input.steps)) {
+        intent.steps = input.steps.map(step => {
+            const result = {};
+            for (const key of ["text", "completed", "completedAt", "hubTaskId", "line", "path", "status", "indent", "end"]) {
+                if (["string", "number", "boolean"].includes(typeof step?.[key]) || step?.[key] === null) result[key] = step[key];
+            }
+            return result;
+        });
+    }
+    return intent;
+}
+
+function captureDraft(capture = {}) {
+    const operation = capture.operation?.state !== "done" ? capture.operation : null;
+    const draft = { text: String(capture.text ?? capture.taskTitle ?? ""), attachments: (capture.attachments ?? []).map(ref => ({ ...ref })),
+        source: sourceMetadata(capture.source), ...(capture.intent ?? {}) };
+    if (operation) {
+        const insertion = operation.kind === "note-insertion";
+        Object.assign(draft, operation.kind === "task" ? operation.values : insertion ? {} : { folder: operation.folder, title: operation.title },
+            { type: operation.kind === "files" ? "file" : insertion ? "note" : operation.kind, workspaceId: operation.workspaceId },
+            insertion ? { noteAction: "existing", noteLocation: noteLocation(operation.noteLocation) } : {});
+        if (operation.kind === "task") Object.assign(draft, { text: operation.input?.text ?? operation.text, location: operation.location });
+        else if (operation.input?.text !== undefined) draft.text = operation.input.text;
+        // A rolled-back file/note attempt may retain an edited destination.
+        // Ready receipts always retain their already-created destination.
+        if (operation.state === "prepared" && operation.kind !== "task" && !insertion && capture.intent) Object.assign(draft, capture.intent);
+    }
+    if (draft.attachments.length && !operation) draft.type = "file";
+    draft.inputPath = draft.attachments.length ? "file" : "text";
+    if (Array.isArray(draft.steps)) draft.steps = draft.steps.map(step => ({ ...step }));
+    delete draft.taskTitle;
+    return draft;
+}
+
+module.exports = { INBOX_VERSION, INBOX_ATTACHMENT_ROOT, linkFromText, isInboxOwned, captureKind,
+    capturePreview, sourceMetadata, attachmentReference, sortedCaptures, taskTitle, captureIntent, captureDraft, captureNoteTitle,
+    INBOX_SORTS, inboxSort, inboxCounts, inboxItemType };
+
+},
 "lib/domain/naming.js": function (module, exports, __hubRequire) {
 "use strict";
 
@@ -1732,6 +1886,176 @@ function rewriteLayoutPaths(snapshot, rewrite) {
 module.exports = { prepareNoteLayout, rewriteLayoutPaths, browserViewState };
 
 },
+"lib/domain/note-insertion.js": function (module, exports, __hubRequire) {
+"use strict";
+const { createHash } = require("crypto");
+
+const hash = value => createHash("sha256").update(value).digest("hex");
+const normalized = value => value.replace(/\r\n?|\n/g, "\n");
+const short = value => value.length > 64 ? value.slice(0, 61) + "…" : value;
+
+class NoteLocationError extends Error {
+    constructor() {
+        super("This note position changed or is no longer available. Choose note and position again.");
+        this.code = "NOTE_LOCATION_INVALID";
+    }
+}
+
+// Only a complete, committed selection belongs in Capture intent. Offsets are
+// deliberately not persisted: each write resolves the structural anchor anew.
+function noteLocation(value) {
+    if (!value || typeof value.path !== "string" || !/\.md$/i.test(value.path) ||
+        value.path.startsWith("/") || /[\\\u0000-\u001f]/.test(value.path) || /^[a-z]:/i.test(value.path) ||
+        value.path.split("/").some(part => !part || part === "." || part === "..")) return null;
+    const positions = { note: ["end", "start"], heading: ["end", "top"], list: ["last", "first"] };
+    if (!positions[value.targetType]?.includes(value.position)) return null;
+    const result = { path: value.path, targetType: value.targetType, position: value.position };
+    if (value.targetType !== "note") {
+        if (typeof value.anchor !== "string" || !/^[0-9a-f]{64}$/i.test(value.anchor)) return null;
+        result.anchor = value.anchor;
+        if (typeof value.label === "string") result.label = value.label.slice(0, 240);
+    }
+    return result;
+}
+
+function sourceLines(text) {
+    const lines = [];
+    for (const match of text.matchAll(/([^\r\n]*)(\r\n|\r|\n|$)/g)) {
+        if (!match[0] && match.index === text.length) break;
+        lines.push({ text: match[1], from: match.index, to: match.index + match[0].length });
+    }
+    return lines;
+}
+const listItem = line => {
+    const match = line.match(/^( {0,3})([-*+]|\d{1,9}[.)])([ \t]+)(.*)$/);
+    if (!match || /^([-*_])(?:\s*\1){2,}\s*$/.test(line.trim())) return null;
+    return { indent: match[1].length, marker: match[2], ordered: /^\d/.test(match[2]),
+        delimiter: match[2].at(-1), content: match[4] };
+};
+
+// Small source scanner for the supported Markdown subset. YAML, fenced/indented
+// code, comments and nested list items cannot become insertion targets. Keeping
+// source offsets lets insertion preserve every unrelated byte of the note.
+function parseNotePositions(text) {
+    text = String(text);
+    const lines = sourceLines(text), newline = text.match(/\r\n|\r|\n/)?.[0] ?? "\n";
+    let bodyStart = text.startsWith("\ufeff") ? 1 : 0, first = 0, unclosedFrontmatter = false;
+    if (lines[0]?.text.replace(/^\ufeff/, "").trim() === "---") {
+        const end = lines.findIndex((line, i) => i > 0 && /^(---|\.\.\.)\s*$/.test(line.text));
+        unclosedFrontmatter = end < 0;
+        bodyStart = end < 0 ? text.length : lines[end].to; first = end < 0 ? lines.length : end + 1;
+    }
+    const headings = [], lists = [], stack = [];
+    let fence = null, comment = false;
+    for (let i = first; i < lines.length; i++) {
+        const line = lines[i], source = line.text;
+        if (comment) { if (source.includes("-->")) comment = false; continue; }
+        if (fence) {
+            const closing = source.match(/^ {0,3}(`{3,}|~{3,})\s*$/);
+            if (closing && closing[1][0] === fence[0] && closing[1].length >= fence.length) fence = null;
+            continue;
+        }
+        const opening = source.match(/^ {0,3}(`{3,}|~{3,})/);
+        if (opening) { fence = opening[1]; continue; }
+        if (/^\s*<!--/.test(source)) { comment = !source.includes("-->"); continue; }
+        const heading = source.match(/^ {0,3}(#{1,6})(?:[ \t]+(.*?)\s*|\s*)$/);
+        if (heading) {
+            const level = heading[1].length, title = (heading[2] ?? "").replace(/[ \t]+#+[ \t]*$/, "").trim();
+            while (stack.length && stack.at(-1).level >= level) stack.pop();
+            const trail = [...stack.map(item => [item.level, item.title]), [level, title]];
+            const item = { level, title, trail, from: line.from, top: line.to, end: text.length };
+            headings.push(item); stack.push(item); continue;
+        }
+        const item = listItem(source); if (!item) continue;
+        const items = [{ ...item, from: line.from }];
+        let end = i + 1;
+        for (; end < lines.length; end++) {
+            const next = lines[end].text;
+            if (!next.trim()) break;
+            const candidate = listItem(next), indent = next.match(/^ */)[0].length;
+            // Nested items and indented continuation lines belong to the item,
+            // never to an independently selectable nested-list destination.
+            if (next.startsWith("\t") || indent >= item.indent + 2) continue;
+            if (!candidate || candidate.indent !== item.indent || candidate.ordered !== item.ordered ||
+                candidate.ordered && candidate.delimiter !== item.delimiter) break;
+            items.push({ ...candidate, from: lines[end].from });
+        }
+        lists.push({ from: line.from, to: lines[end - 1].to, items, trail: stack.map(item => [item.level, item.title]),
+            label: stack.at(-1)?.title || "“" + short(item.content.replace(/^\[[ xX]\]\s*/, "").trim()) + "”" });
+        i = end - 1;
+    }
+    for (let i = 0; i < headings.length; i++) {
+        const item = headings[i];
+        item.end = headings.slice(i + 1).find(next => next.level <= item.level)?.from ?? text.length;
+    }
+    for (const item of headings) {
+        const peers = headings.filter(other => JSON.stringify(other.trail) === JSON.stringify(item.trail));
+        const identity = ["heading", item.trail, ...(peers.length > 1 ? [normalized(text.slice(item.top, item.end)).trim()] : [])];
+        const identical = peers.filter(other => normalized(text.slice(other.top, other.end)).trim() === normalized(text.slice(item.top, item.end)).trim());
+        if (identical.length > 1) identity.push(hash(normalized(text)), item.from);
+        item.anchor = hash(JSON.stringify(identity));
+        const duplicateName = headings.filter(other => other.title === item.title).length > 1;
+        item.label = short(duplicateName ? item.trail.map(part => part[1] || "Untitled heading").join(" · ") : item.title || "Untitled heading");
+        if (peers.length > 1) item.label += " · " + (peers.indexOf(item) + 1);
+    }
+    const listLabels = lists.map(list => list.label);
+    for (const list of lists) {
+        const block = normalized(text.slice(list.from, list.to)).trimEnd();
+        const identity = ["list", list.trail, block];
+        const peers = lists.filter(other => JSON.stringify(other.trail) === JSON.stringify(list.trail) && normalized(text.slice(other.from, other.to)).trimEnd() === block);
+        if (peers.length > 1) identity.push(hash(normalized(text)), list.from);
+        list.anchor = hash(JSON.stringify(identity));
+        const labels = lists.filter((other, i) => listLabels[i] === list.label);
+        if (labels.length > 1) list.label = short(list.label + " · “" + short(list.items[0].content) + "”") + (peers.length > 1 ? " · " + (peers.indexOf(list) + 1) : "");
+    }
+    return { newline, bodyStart, unclosedFrontmatter, headings, lists };
+}
+
+function resolveNoteLocation(parsed, value) {
+    const location = noteLocation(value); if (!location || !parsed) return null;
+    if (location.targetType === "note") return location.position === "start" && parsed.unclosedFrontmatter ? null : { location };
+    const candidates = (location.targetType === "heading" ? parsed.headings : parsed.lists).filter(item => item.anchor === location.anchor);
+    return candidates.length === 1 ? { location, target: candidates[0] } : null;
+}
+
+function insertNoteText(text, value, content) {
+    const parsed = parseNotePositions(text), resolved = resolveNoteLocation(parsed, value);
+    if (!resolved) throw new NoteLocationError();
+    content = normalized(String(content ?? "")).replace(/^(?:[ \t]*\n)+/, "").trimEnd();
+    if (!content.trim()) throw Error("Write the note content.");
+    const { location, target } = resolved, eol = parsed.newline;
+    let offset;
+    if (location.targetType === "list") {
+        const first = location.position === "first", model = first ? target.items[0] : target.items.at(-1);
+        const marker = model.ordered ? (first ? parseInt(model.marker, 10) : parseInt(model.marker, 10) + 1) + model.delimiter : model.marker;
+        const prefix = " ".repeat(model.indent) + marker + " ", indent = " ".repeat(prefix.length);
+        content = content.split("\n").map((line, i) => (i ? indent : prefix) + line).join(eol);
+        offset = first ? target.from : target.to;
+        const before = text.slice(0, offset), after = text.slice(offset);
+        const leading = before && !/[\r\n]$/.test(before) ? eol : "";
+        const trailing = !first && after && !/^[\r\n]/.test(after) ? eol + eol : eol;
+        return before + leading + content + trailing + after;
+    }
+    offset = location.targetType === "note" ? location.position === "start" ? parsed.bodyStart : text.length :
+        location.position === "top" ? target.top : target.end;
+    content = content.replace(/\n/g, eol);
+    const before = text.slice(0, offset), after = text.slice(offset);
+    const count = value => (normalized(value).match(/\n/g) ?? []).length;
+    const leading = !before || before === "\ufeff" ? "" : eol.repeat(Math.max(0, 2 - count(before.match(/[\r\n]*$/)[0])));
+    const trailing = after ? eol.repeat(Math.max(0, 2 - count(after.match(/^[\r\n]*/)[0]))) : eol;
+    return before + leading + content + trailing + after;
+}
+
+function noteLocationSummary(value) {
+    const location = noteLocation(value); if (!location) return "Choose note and position...";
+    const note = location.path.split("/").at(-1).replace(/\.md$/i, "");
+    const positions = { note: { end: "End of note", start: "Start of note" }, heading: { end: "End of section", top: "Top of section" }, list: { last: "Last item", first: "First item" } };
+    return [note, location.targetType !== "note" ? location.label : null, positions[location.targetType][location.position]].filter(Boolean).join(" · ");
+}
+
+module.exports = { NoteLocationError, noteLocation, parseNotePositions, resolveNoteLocation, insertNoteText, noteLocationSummary };
+
+},
 "lib/domain/oath-workspace.js": function (module, exports, __hubRequire) {
 "use strict";
 
@@ -1762,18 +2086,22 @@ function normalizeOath(oath) {
     return { ...current, durationMs: validDuration(oath.durationMs) ? oath.durationMs : DEFAULT_DURATION_MS,
         tasks: Array.isArray(oath.tasks) ? oath.tasks : [], fulfilledAt: Number.isFinite(oath.fulfilledAt) ? oath.fulfilledAt : null };
 }
+function oathRequirements(draft, now = Date.now()) {
+    return [
+        { key: "Start", complete: draft.start === "now" || draft.start === "scheduled" && Number.isFinite(draft.scheduledAt) && draft.scheduledAt > now,
+            error: draft.start === "scheduled" ? "Choose a start date and time in the future." : "Choose when the Oath should begin." },
+        { key: "Workspace", complete: validWorkspace(draft.workspace), error: "Select a Project or Resource for your Oath." },
+        { key: "Tasks", complete: Array.isArray(draft.tasks) && draft.tasks.length > 0, error: "Select at least one task for your Oath." },
+        { key: "Duration", complete: validDuration(draft.durationMs), error: "Choose a duration in whole minutes, at least one minute." }
+    ];
+}
 function validateOath(draft, now = Date.now()) {
-    if (!["now", "scheduled"].includes(draft.start)) throw Error("Choose when the Oath should begin.");
-    if (draft.start === "scheduled" && (!Number.isFinite(draft.scheduledAt) || draft.scheduledAt <= now)) {
-        throw Error("Choose a start date and time in the future.");
+    const requirements = oathRequirements(draft, now);
+    // Preserve the service's established error precedence; guidance uses form order.
+    for (const key of ["Start", "Duration", "Tasks", "Workspace"]) {
+        const field = requirements.find(field => field.key === key);
+        if (!field.complete) throw Error(field.error);
     }
-    if (!validDuration(draft.durationMs)) {
-        throw Error("Choose a duration in whole minutes, at least one minute.");
-    }
-    if (!Array.isArray(draft.tasks) || !draft.tasks.length) {
-        throw Error("Select at least one task for your Oath.");
-    }
-    if (!validWorkspace(draft.workspace)) throw Error("Select a Project or Resource for your Oath.");
 }
 function oathTime(oath, now = Date.now()) {
     const elapsedMs = oath?.startedAt == null ? 0 : Math.max(0, (oath.completedAt ?? now) - oath.startedAt);
@@ -1807,7 +2135,7 @@ function oathDuration(ms) {
     const hours = Math.floor(minutes / 60), remainder = minutes % 60;
     return `${hours} hours${remainder ? ` ${remainder} ${remainder === 1 ? "minute" : "minutes"}` : ""}`;
 }
-module.exports = { isCommitted, validateOath, oathTime, oathProgress, shortOathTime, fulfilmentLabel, oathDuration, DEFAULT_DURATION_MS, validDuration, normalizeOath, fulfilmentTime };
+module.exports = { isCommitted, validateOath, oathRequirements, oathTime, oathProgress, shortOathTime, fulfilmentLabel, oathDuration, DEFAULT_DURATION_MS, validDuration, normalizeOath, fulfilmentTime };
 
 },
 "lib/domain/progress.js": function (module, exports, __hubRequire) {
@@ -1879,18 +2207,59 @@ function milestoneValues(value) {
     if (!parseLocalISODate(value.date)) throw Error("Choose a valid milestone date.");
     return { name, date: value.date, achieved: !!value.achieved };
 }
-function roadmapRange(anchor, months) {
-    const start = new Date(anchor.getFullYear(), anchor.getMonth(), 1);
-    const end = new Date(start.getFullYear(), start.getMonth() + months, 1);
+// Intrinsic dates are independent of both Today and the user's viewport.
+function roadmapExtent(data) {
+    const dates = [...(data.phases ?? []).flatMap(phase => [phase.start, phase.end]),
+        ...(data.milestones ?? []).map(item => item.date)].filter(date => parseLocalISODate(date)).sort();
+    return dates.length ? { start: dates[0], end: dates[dates.length - 1] } : null;
+}
+function addDays(date, amount) { return new Date(date.getFullYear(), date.getMonth(), date.getDate() + amount); }
+function dateRange(start, end) {
     const first = dayNumber(localISODate(start)), total = dayNumber(localISODate(end)) - first;
     return { start, end, total, position: iso => (dayNumber(iso) - first) / total * 100 };
+}
+function roadmapRange(anchor, months) {
+    const start = new Date(anchor.getFullYear(), anchor.getMonth(), 1);
+    return dateRange(start, new Date(start.getFullYear(), start.getMonth() + months, 1));
+}
+function roadmapViewport(data, state, today = new Date()) {
+    const extent = roadmapExtent(data), zoom = state.roadmapZoom ?? "all";
+    if (zoom !== "all") return roadmapRange(parseLocalISODate(state.roadmapViewport) ??
+        (extent ? parseLocalISODate(extent.start) : today), Number(zoom));
+    // Empty plans retain a sensible calendar viewport without inventing project bounds.
+    if (!extent) return roadmapRange(parseLocalISODate(state.roadmapViewport) ?? today, 6);
+    const first = parseLocalISODate(extent.start);
+    const days = dayNumber(extent.end) - dayNumber(extent.start) + 1;
+    const padding = Math.max(3, Math.min(14, Math.ceil(days * .04)));
+    const start = parseLocalISODate(state.roadmapViewport) ?? addDays(first, -padding);
+    return dateRange(start, addDays(start, days + padding * 2));
+}
+function roadmapZoom(data, state, zoom, today = new Date()) {
+    if (zoom === "all") return { roadmapZoom: "all", roadmapViewport: null };
+    const range = roadmapViewport(data, state, today), center = addDays(range.start, Math.floor(range.total / 2));
+    const start = new Date(center.getFullYear(), center.getMonth() - Math.floor(Number(zoom) / 2), 1);
+    return { roadmapZoom: zoom, roadmapViewport: localISODate(start) };
+}
+function panRoadmap(data, state, direction, today = new Date()) {
+    const range = roadmapViewport(data, state, today);
+    const start = (state.roadmapZoom ?? "all") === "all" ? addDays(range.start, direction * range.total) :
+        new Date(range.start.getFullYear(), range.start.getMonth() + direction * Number(state.roadmapZoom), 1);
+    return { roadmapViewport: localISODate(start) };
+}
+function roadmapToday(data, state, today = new Date()) {
+    if ((state.roadmapZoom ?? "all") === "all") {
+        const fit = roadmapViewport(data, { roadmapZoom: "all" }, today), position = fit.position(localISODate(today));
+        if (position >= 0 && position < 100) return { roadmapViewport: null };
+        return { roadmapViewport: localISODate(addDays(today, -Math.floor(fit.total / 2))) };
+    }
+    return { roadmapViewport: localISODate(new Date(today.getFullYear(), today.getMonth() - Math.floor(Number(state.roadmapZoom) / 2), 1)) };
 }
 function phasePlacement(phase, range) {
     const start = range.position(phase.start), end = range.position(phase.end) + 100 / range.total;
     if (end <= 0 || start >= 100) return null;
     return { left: Math.max(0, start), width: Math.min(100, end) - Math.max(0, start) };
 }
-module.exports = { planningState, phaseValues, milestoneValues, roadmapRange, phasePlacement };
+module.exports = { planningState, phaseValues, milestoneValues, roadmapRange, roadmapExtent, roadmapViewport, roadmapZoom, panRoadmap, roadmapToday, phasePlacement };
 
 },
 "lib/domain/report-context.js": function (module, exports, __hubRequire) {
@@ -1960,6 +2329,121 @@ function activitySummary(entries) {
 }
 
 module.exports = { captureReportContext, savedReportContext, reportDay, activitySummary };
+
+},
+"lib/domain/roadmap-milestones.js": function (module, exports, __hubRequire) {
+"use strict";
+
+const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
+const overlaps = (a, b, gap) => a.left < b.left + b.width + gap && b.left < a.left + a.width + gap;
+
+// Preserve the former 12px CSS square, 2px inset border and 25px top.
+// Explicit outer/inner polygons reproduce the rotated border without an SVG
+// stroke extending beyond the authoritative vertex used by the connector.
+function milestoneDiamond(x, { side = 12, border = 2, top = 25 } = {}) {
+    const y = top + side / 2, radius = side / Math.SQRT2;
+    const vertices = r => ({ top: [x, y - r], right: [x + r, y], bottom: [x, y + r], left: [x - r, y] });
+    return { x, y, radius, anchors: vertices(radius), interior: vertices(Math.max(0, side - 2 * border) / Math.SQRT2) };
+}
+
+// Pixel coordinates are local to the date track. Only cards are displaced;
+// the caller retains authoritative date positions for every diamond.
+function placeMilestoneCards(items, { left = 0, right, width = 145, top = 52, gap = 12, lanes = 3 } = {}) {
+    left += gap / 2; right -= gap / 2;
+    width = Math.max(1, Math.min(width, right - left));
+    const pitch = Math.max(1, ...items.map(item => item.height)) + gap;
+    const occupied = Array.from({ length: lanes }, () => []), cards = [], overflow = [];
+    for (const item of items) {
+        const preferred = clamp(item.x - width / 2, left, right - width);
+        let placement;
+        // Center/clamp first, moving down before introducing a horizontal shift.
+        for (let lane = 0; lane < lanes; lane++) {
+            if (!occupied[lane].some(other => overlaps({ left: preferred, width }, other, gap))) {
+                placement = { left: preferred, lane }; break;
+            }
+        }
+        if (!placement) {
+            const candidates = occupied.flatMap((row, lane) => [left, right - width,
+                ...row.flatMap(card => [card.left - width - gap, card.left + card.width + gap])]
+                .filter(x => x >= left && x + width <= right && !row.some(card => overlaps({ left: x, width }, card, gap)))
+                .map(x => ({ left: x, lane, distance: Math.abs(x - preferred) })));
+            candidates.sort((a, b) => a.distance - b.distance || a.lane - b.lane || a.left - b.left);
+            placement = candidates[0];
+        }
+        if (!placement) { overflow.push(item); continue; }
+        const card = { ...item, ...placement, width, top: top + placement.lane * pitch };
+        occupied[placement.lane].push(card); cards.push(card);
+    }
+    // When the physical three-lane capacity is exhausted, reserve one slot for
+    // an accessible native-menu overflow control rather than grow or overlap.
+    let more = null;
+    if (overflow.length && cards.length) {
+        more = cards.pop(); overflow.unshift(items.find(item => item.id === more.id));
+    }
+    return { cards, overflow, more, lanes: Math.max(1, ...cards.map(card => card.lane + 1), more ? more.lane + 1 : 1), pitch };
+}
+
+function segmentHitsCard(a, b, card, clearance = 2) {
+    const left = card.left - clearance, right = card.left + card.width + clearance;
+    const top = card.top - clearance, bottom = card.top + card.height + clearance;
+    if (a[0] === b[0]) return a[0] > left && a[0] < right && Math.max(a[1], b[1]) > top && Math.min(a[1], b[1]) < bottom;
+    return a[1] > top && a[1] < bottom && Math.max(a[0], b[0]) > left && Math.min(a[0], b[0]) < right;
+}
+function simplify(points) {
+    const out = [];
+    for (const point of points) {
+        if (out.length && point[0] === out.at(-1)[0] && point[1] === out.at(-1)[1]) continue;
+        if (out.length > 1) {
+            const a = out.at(-2), b = out.at(-1);
+            if (a[0] === b[0] && b[0] === point[0] || a[1] === b[1] && b[1] === point[1]) out.pop();
+        }
+        out.push(point);
+    }
+    return out;
+}
+function segments(points) { return points.slice(1).map((point, i) => [points[i], point]); }
+function crosses(a, b) {
+    const [p, q] = a, [r, s] = b;
+    if ((p[0] === q[0]) === (r[0] === s[0])) return false;
+    const [v, h] = p[0] === q[0] ? [a, b] : [b, a];
+    return v[0][0] > Math.min(h[0][0], h[1][0]) && v[0][0] < Math.max(h[0][0], h[1][0]) &&
+        h[0][1] > Math.min(v[0][1], v[1][1]) && h[0][1] < Math.max(v[0][1], v[1][1]);
+}
+
+// A compact orthogonal router: direct, one gutter turn, or a clear vertical
+// corridor with two gutter turns. It never routes through another card.
+function milestoneLeaders(cards, { bottom = 40, left = 0, right, today = null, more = null } = {}) {
+    const routes = [], obstacles = more ? [...cards, more] : cards;
+    for (const card of cards) {
+        const source = card.tip ?? [card.x, bottom], [sourceX, sourceY] = source;
+        const endX = clamp(sourceX, card.left + 6, card.left + card.width - 6);
+        const blockers = obstacles.filter(other => other !== card);
+        if (card.lane === 0 && sourceX >= card.left + 6 && sourceX <= card.left + card.width - 6) continue;
+        const gutter = card.top - 6, first = sourceY + 6;
+        const corridors = [left + 2, right - 2, ...blockers.flatMap(other => [other.left - 4, other.left + other.width + 4])];
+        const endpoints = [...new Set([endX, card.left + 6, card.left + card.width - 6,
+            ...corridors.filter(x => x >= card.left + 6 && x <= card.left + card.width - 6)])];
+        const candidates = endpoints.flatMap(end => [
+            [source, [sourceX, gutter], [end, gutter], [end, card.top]],
+            [source, [sourceX, first], [end, first], [end, card.top]]
+        ]);
+        for (const x of corridors.filter(x => x >= left && x <= right)) {
+            candidates.push([source, [sourceX, first], [x, first], [x, gutter], [endX, gutter], [endX, card.top]]);
+        }
+        const choices = candidates.map(simplify).filter(points => !segments(points).some(([a, b]) => blockers.some(other => segmentHitsCard(a, b, other))));
+        const cost = points => {
+            const lines = segments(points);
+            const length = lines.reduce((sum, [a, b]) => sum + Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1]), 0);
+            const intersections = lines.reduce((sum, line) => sum + routes.flatMap(route => segments(route.points)).filter(other => crosses(line, other)).length, 0);
+            const todayCrossings = today == null ? 0 : lines.filter(([a, b]) => a[1] === b[1] && Math.min(a[0], b[0]) < today && Math.max(a[0], b[0]) > today).length;
+            return length + (points.length - 2) * 30 + intersections * 40 + todayCrossings * 80;
+        };
+        choices.sort((a, b) => cost(a) - cost(b));
+        if (choices[0]) routes.push({ id: card.id, points: choices[0] });
+    }
+    return routes;
+}
+module.exports = { milestoneDiamond, placeMilestoneCards, milestoneLeaders, segmentHitsCard };
 
 },
 "lib/domain/statistics.js": function (module, exports, __hubRequire) {
@@ -2048,7 +2532,7 @@ function prepareStatistics({ workspaces = [], activity = [], completions = [], o
         .map(record => ({ ...record, key: identify(record), kind: record.kind === "step" ? "step" : "task" }));
     const work = list(activity).filter(record => ["created", "edited"].includes(record.action) &&
         isStatisticsNote(record.path) && validTime(record.timestamp) && record.timestamp <= now)
-        .map(record => ({ timestamp: record.timestamp, key: identify(record) }));
+        .map(record => ({ timestamp: record.timestamp, path: record.path, action: record.action, key: identify(record) }));
     work.push(...completionRecords.map(record => ({ timestamp: record.timestamp, key: record.key })));
     const sessions = uniqueRecords(list(oaths)).filter(record => ["fulfilled", "broken"].includes(record.state) &&
         validTime(record.startedAt) && validTime(record.completedAt) && record.completedAt >= record.startedAt && record.completedAt <= now)
@@ -2065,18 +2549,20 @@ function prepareStatistics({ workspaces = [], activity = [], completions = [], o
         if (!date || +date > now || !Number.isInteger(record.score) || record.score < 0 || record.score > 4) return [];
         return [{ timestamp: +date, score: record.score, key: identify(record) }];
     });
-    const currentNotes = list(notes);
+    const currentNotes = list(notes).map((note, index) => ({ ...note, noteId: note.path ?? `legacy-note:${index}`,
+        key: identify(note) }));
     const creations = currentNotes.filter(note => validTime(note.createdAt) && note.createdAt <= now);
     let earliest = now;
     for (const record of [...work, ...sessions, ...creations, ...progress]) earliest = Math.min(earliest, record.timestamp ?? record.startedAt ?? record.createdAt);
     const lastActive = new Map();
     for (const record of work) lastActive.set(record.key, Math.max(lastActive.get(record.key) ?? 0, record.timestamp));
     for (const record of sessions) lastActive.set(record.key, Math.max(lastActive.get(record.key) ?? 0, record.completedAt));
-    return { registry, activityKeys, progress, work, completions: completionRecords, sessions, notes: creations, totalNotes: currentNotes.length, earliest, lastActive, now };
+    return { registry, activityKeys, progress, work, completions: completionRecords, sessions, notes: creations, currentNotes, noteEdits: work.filter(record => record.action === "edited"), totalNotes: currentNotes.length, earliest, lastActive, now };
 }
 
-function aggregateStatistics(source, rangeKey = "3m") {
+function aggregateStatistics(source, rangeKey = "3m", workspace = "all") {
     const range = statisticsRange(rangeKey, source.now, source.earliest);
+    const matches = key => workspace === "all" || key === workspace;
     const empty = () => range.bins.map(() => 0), inside = time => time >= range.start && time < range.end && time <= source.now;
     const index = time => Math.min(range.bins.length - 1, Math.floor((calendarDay(time) - calendarDay(range.start)) / range.binDays));
     const byWorkspace = new Map([...source.registry].map(([key, workspace]) => [key, {
@@ -2089,20 +2575,33 @@ function aggregateStatistics(source, rangeKey = "3m") {
         byWorkspace.get(record.key)[record.kind === "step" ? "steps" : "tasks"][index(record.timestamp)]++;
     }
     for (const session of source.sessions) {
-        if (inside(session.startedAt)) { oath.taken++; if (session.state === "fulfilled") oath.fulfilled++; }
+        if (matches(session.key) && inside(session.startedAt)) { oath.taken++; if (session.state === "fulfilled") oath.fulfilled++; }
         const start = Math.max(session.startedAt, range.start), end = Math.min(session.completedAt, range.end, source.now);
         if (end <= start) continue;
-        byWorkspace.get(session.key).time += end - start; oath.total += end - start;
+        byWorkspace.get(session.key).time += end - start;
+        if (!matches(session.key)) continue;
+        oath.total += end - start;
         for (let bin = index(start); bin < range.bins.length && range.bins[bin].start < end; bin++) {
             oath.values[bin] += Math.max(0, Math.min(end, range.bins[bin].end) - Math.max(start, range.bins[bin].start));
         }
     }
-    const note = { values: empty(), total: source.totalNotes, created: 0, largest: 0, largestDate: null }, dailyNotes = new Map();
-    for (const item of source.notes) if (inside(item.createdAt)) {
+    const note = { values: empty(), total: 0, edited: 0, created: 0, largest: 0, largestDate: null }, dailyNotes = new Map();
+    const relevant = new Set(), edited = new Set();
+    const surviving = new Map(source.currentNotes.filter(item => item.path).map(item => [item.path, item]));
+    for (const item of source.notes) if (matches(item.key) && inside(item.createdAt)) {
+        relevant.add(item.noteId);
         note.values[index(item.createdAt)]++; note.created++;
         const date = localISODate(new Date(item.createdAt)); dailyNotes.set(date, (dailyNotes.get(date) ?? 0) + 1);
     }
     for (const [date, count] of [...dailyNotes].sort(([a], [b]) => a.localeCompare(b))) if (count > note.largest) { note.largest = count; note.largestDate = date; }
+    // Count distinct surviving notes, never edit events or inferred historical files.
+    for (const record of source.noteEdits) {
+        const item = surviving.get(record.path);
+        if (item && item.key === record.key && matches(item.key) && inside(record.timestamp)) {
+            edited.add(item.noteId); relevant.add(item.noteId);
+        }
+    }
+    note.total = relevant.size; note.edited = edited.size;
     note.average = note.created / range.days;
     const rows = [...byWorkspace.values()];
     const projects = rows.filter(row => row.kind === "project" && source.activityKeys.has(row.key)).sort((a, b) =>
@@ -2125,12 +2624,47 @@ function seriesFor(model, metric, scope) {
 module.exports = { RANGES, formatDuration, isStatisticsNote, statisticsRange, prepareStatistics, aggregateStatistics, seriesFor };
 
 },
+"lib/domain/task-form.js": function (module, exports, __hubRequire) {
+"use strict";
+const { appendTask, validateTaskMetadata } = __hubRequire("lib/domain/task-planning.js");
+
+// Every task surface submits the ordinary Markdown task text and metadata.
+// Routing remains the responsibility of the existing workspace/location APIs.
+function taskFormValues(values = {}) {
+    const text = String(values.text ?? "").trim();
+    appendTask("", text);
+    const steps = (values.steps ?? []).map(step => {
+        const text = String(step.text ?? "").trim();
+        appendTask("", text);
+        return { ...step, text, completed: !!step.completed };
+    });
+    return { ...values, ...validateTaskMetadata(values), text, steps };
+}
+
+function validTaskForm(values) {
+    try { taskFormValues(values); return true; } catch (_) { return false; }
+}
+
+module.exports = { taskFormValues, validTaskForm };
+
+},
 "lib/domain/task-planning.js": function (module, exports, __hubRequire) {
 "use strict";
 const { parseLocalISODate, validLocalTime, localDateTime, taskDateLabel, taskDateRangeLabel } = __hubRequire("lib/domain/dates.js");
 const { taskLineDetails, taskDisplayText, taskIdentity, locateTaskLine, normalizedTaskText } = __hubRequire("lib/domain/tasks.js");
 
+function taskCaptureSource(value) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+    const source = {};
+    for (const key of ["origin", "workspaceId", "workspaceName", "path", "title", "url"]) {
+        const text = value[key] ?? (key === "title" ? value.pageTitle : key === "url" ? value.pageUrl : key === "workspaceName" ? value.name : null);
+        if (typeof text === "string" && text.trim()) source[key] = text.trim().slice(0, key === "url" || key === "path" ? 4096 : 512);
+    }
+    return Object.keys(source).length ? source : null;
+}
+
 function taskMetadata(value = {}) {
+    const captureSource = taskCaptureSource(value?.captureSource);
     return {
         ...(typeof value?.phaseId === "string" && value.phaseId.trim() ? { phaseId: value.phaseId.trim() } : {}),
         necessity: ["should", "must"].includes(value?.necessity) ? value.necessity : null,
@@ -2138,7 +2672,8 @@ function taskMetadata(value = {}) {
         dueDate: parseLocalISODate(value?.dueDate) ? value.dueDate : null,
         ...(typeof value?.linkedProjectId === "string" && value.linkedProjectId.trim() ? { linkedProjectId: value.linkedProjectId.trim() } : {}),
         ...(parseLocalISODate(value?.fromDate) && validLocalTime(value?.fromTime) ? { fromTime: value.fromTime } : {}),
-        ...(parseLocalISODate(value?.dueDate) && validLocalTime(value?.dueTime) ? { dueTime: value.dueTime } : {})
+        ...(parseLocalISODate(value?.dueDate) && validLocalTime(value?.dueTime) ? { dueTime: value.dueTime } : {}),
+        ...(captureSource ? { captureSource } : {})
     };
 }
 
@@ -3864,6 +4399,689 @@ class HomeCovers {
 module.exports = { HOME_COVER_PERIODS, homeTimePeriod, HomeCovers };
 
 },
+"lib/services/inbox.js": function (module, exports, __hubRequire) {
+"use strict";
+
+const { randomUUID, createHash } = require("crypto");
+const nodePath = require("path");
+const { createFileDomain, projectItemPath, isFolderLike } = __hubRequire("lib/domain/files.js");
+const { validLocation, locationLabel } = __hubRequire("lib/domain/task-views.js");
+const { taskWorkspaces } = __hubRequire("lib/services/task-locations.js");
+const { taskFormValues } = __hubRequire("lib/domain/task-form.js");
+const { NoteLocationError, noteLocation, parseNotePositions, resolveNoteLocation, insertNoteText } = __hubRequire("lib/domain/note-insertion.js");
+const { INBOX_VERSION, INBOX_ATTACHMENT_ROOT, captureKind, sourceMetadata, attachmentReference,
+    isInboxOwned, sortedCaptures, taskTitle, captureIntent, captureDraft, captureNoteTitle, inboxSort } = __hubRequire("lib/domain/inbox.js");
+
+const clone = value => JSON.parse(JSON.stringify(value));
+const digest = bytes => createHash("sha256").update(typeof bytes === "string" ? bytes : Buffer.from(bytes)).digest("hex");
+
+class HubInboxService {
+    constructor(plugin) {
+        this.plugin = plugin; this.app = plugin.app; this.listeners = new Set(); this.queue = Promise.resolve();
+        const version = Number(plugin.projectWizard.data.inbox?.version) || INBOX_VERSION;
+        if (version > INBOX_VERSION) throw Error("This Inbox was saved by a newer version of Itacan.");
+        this.files = createFileDomain({ getByPath: path => this.app.vault.getAbstractFileByPath(path) });
+        this.noteCache = new Map(); this.noteRevisions = new Map(); this.noteEvents = [];
+        if (this.app.vault.on && this.app.vault.offref) for (const event of ["modify", "delete", "rename"]) {
+            this.noteEvents.push(this.app.vault.on(event, (file, oldPath) => {
+                let changed = false;
+                for (const path of [file.path, oldPath].filter(Boolean)) {
+                    if (this.noteRevisions.has(path)) {
+                        this.noteCache.delete(path); this.noteRevisions.set(path, this.noteRevisions.get(path) + 1);
+                        changed = true;
+                    }
+                }
+                if (changed) this.emit();
+            }));
+        }
+    }
+    get state() { return this.plugin.projectWizard.data.inbox ?? { version: INBOX_VERSION, captures: [] }; }
+    get captures() { return (Array.isArray(this.state.captures) ? this.state.captures : []).filter(item => item && typeof item.id === "string"); }
+    get count() { return this.captures.length; }
+    list(options) { return sortedCaptures(this.captures, { completion: item => this.getInboxCompletion(item), ...options }); }
+    get sortPreference() { return inboxSort(this.plugin.projectWizard.data.inboxSort); }
+    setSortPreference(sort) { return this.enqueue(async () => {
+        sort = inboxSort(sort);
+        await this.plugin.dataStore.writeQueue?.catch(() => {});
+        const data = this.plugin.projectWizard.data, previous = data.inboxSort;
+        if (previous === sort) return;
+        data.inboxSort = sort;
+        try { await this.plugin.dataStore.save(data); this.plugin.projectWizard.data.inboxSort = sort; }
+        catch (error) {
+            if (data.inboxSort === sort) { if (previous === undefined) delete data.inboxSort; else data.inboxSort = previous; }
+            throw error;
+        }
+    }); }
+    get(id) { return this.captures.find(capture => capture.id === id) ?? null; }
+    onChange(callback) { this.listeners.add(callback); return () => this.listeners.delete(callback); }
+    destroy() { this.listeners.clear(); this.noteEvents.forEach(ref => this.app.vault.offref(ref)); this.noteCache.clear(); this.noteRevisions.clear(); }
+    emit() { for (const callback of this.listeners) { try { callback(); } catch (error) { console.error("Could not refresh Inbox", error); } } }
+    enqueue(work) { const result = this.queue.catch(() => {}).then(work); this.queue = result; return result; }
+    async save(captures) {
+        await this.plugin.dataStore.writeQueue?.catch(() => {});
+        const data = this.plugin.projectWizard.data, previous = data.inbox;
+        const next = { ...this.state, version: INBOX_VERSION, captures };
+        data.inbox = next;
+        try { await this.plugin.dataStore.save(data); this.plugin.projectWizard.data.inbox = next; }
+        catch (error) {
+            if (data.inbox === next) { if (previous === undefined) delete data.inbox; else data.inbox = previous; }
+            throw error;
+        }
+        this.emit();
+    }
+    async replace(capture) { await this.save(this.captures.map(item => item.id === capture.id ? capture : item)); return capture; }
+    capture(values) { return this.enqueue(() => this.createCapture(values)); }
+    async createCapture(values = {}) {
+        const text = String(values.text ?? values.taskTitle ?? ""), attachments = values.attachments ?? [], source = values.source ?? {};
+        const refs = attachments.map(attachmentReference);
+        if (!String(text).trim() && !refs.length) throw Error("Add some text or a file first.");
+        if (String(text).trim() && refs.length) throw Error("Write something or add a file. Clear the text or remove the file first.");
+        for (const attachment of refs) if (!this.attachmentExists(attachment)) throw Error(`\"${attachment.name}\" is no longer available.`);
+        const intent = captureIntent(values, refs);
+        const capture = { id: randomUUID(), createdAt: Date.now(), text: String(text), attachments: refs,
+            kind: captureKind(text, refs), source: sourceMetadata(source), ...(intent ? { intent } : {}) };
+        await this.save([...this.captures, capture]); return capture;
+    }
+    updateCapture(id, values) { return this.enqueue(async () => {
+        const previous = this.required(id);
+        const text = String(values.text ?? previous.text), attachments = (values.attachments ?? previous.attachments).map(attachmentReference);
+        if (previous.operation && previous.operation.state !== "done") {
+            if (text !== previous.text || JSON.stringify(attachments) !== JSON.stringify(previous.attachments) ||
+                JSON.stringify(sourceMetadata(values.source ?? previous.source)) !== JSON.stringify(previous.source)) {
+                throw Error("Retry this item's saved operation before editing its content or attachments.");
+            }
+            if (previous.operation.kind === "task") {
+                this.assertTaskValues(previous.operation, values);
+                if (values.workspaceId && values.workspaceId !== previous.operation.workspaceId) throw Error("Retry this task's original workspace.");
+            } else if (previous.operation.kind === "note-insertion") {
+                this.assertNoteInsertionValues(previous.operation, values);
+            } else if (previous.operation.state === "ready" && this.changedFileDestination(previous.operation, values)) {
+                throw Error("This item was already saved to its selected destination. Retry to finish removing it from Inbox.");
+            }
+        }
+        // Existing items may be cleared while being organised. Creation still
+        // requires content, and direct completion uses the ordinary validation.
+        if (String(text).trim() && attachments.length && !(String(previous.text).trim() && previous.attachments.length)) {
+            throw Error("Write something or add a file. Clear the text or remove the file first.");
+        }
+        const legacyRemainder = !previous.intent && !values.intent && (String(previous.text).trim() && previous.attachments.length ||
+            values.type === "task" && (taskTitle(text) !== text.trim() || values.taskTitle !== undefined && String(values.taskTitle).trim() !== text.trim()));
+        const intent = legacyRemainder ? null : captureIntent({ ...previous.intent, ...values }, attachments);
+        const result = { ...previous, text, attachments, kind: captureKind(text, attachments), source: sourceMetadata(values.source ?? previous.source) };
+        if (intent) result.intent = intent; else delete result.intent;
+        if (JSON.stringify(result) === JSON.stringify(previous)) return previous;
+        await this.replace(result); return result;
+    }); }
+    required(id) { const capture = this.get(id); if (!capture) throw Error("This item is no longer in Inbox."); return capture; }
+    input(capture, values) {
+        return { text: String(values.text ?? capture.text), attachments: (values.attachments ?? capture.attachments)
+            .map(ref => ({ id: ref.id, path: ref.path })) };
+    }
+    assertInput(capture, values) {
+        const previous = capture.operation?.input ?? this.input(capture, {});
+        if (JSON.stringify(this.input(capture, values)) !== JSON.stringify(previous)) {
+            throw Error("This item has a saved action to retry. Retry its original content and files; keep any new content in a separate item.");
+        }
+    }
+    changedFileDestination(operation, values) {
+        return (values.workspaceId !== undefined && values.workspaceId !== operation.workspaceId) ||
+            (values.folder !== undefined && values.folder && values.folder !== operation.folder) ||
+            (values.title !== undefined && String(values.title) !== operation.title);
+    }
+    assertTaskValues(operation, values) {
+        const canonical = taskFormValues({ ...operation.values, ...values, text: values.taskTitle ?? values.text ?? operation.text });
+        if (values.location !== undefined && values.location !== operation.location ||
+            canonical.text !== operation.text) {
+            throw Error("Retry this task's original title and location. Its saved action keeps the task from being created twice.");
+        }
+        for (const key of ["necessity", "fromDate", "dueDate", "fromTime", "dueTime", "steps", "phaseId", "milestoneId", "linkedProjectId"]) {
+            if (values[key] !== undefined && JSON.stringify(canonical[key]) !== JSON.stringify(operation.values[key])) {
+                throw Error("Retry this task's original details. Its saved action keeps the task from being created twice.");
+            }
+        }
+    }
+    assertNoteInsertionValues(operation, values) {
+        if (values.noteAction !== undefined && values.noteAction !== "existing" ||
+            values.workspaceId !== undefined && values.workspaceId !== operation.workspaceId ||
+            values.noteLocation !== undefined && JSON.stringify(noteLocation(values.noteLocation)) !== JSON.stringify(noteLocation(operation.noteLocation))) {
+            throw Error("Retry this item's original note position. Its saved action keeps the text from being inserted twice.");
+        }
+    }
+    async prepareCapture(capture, values) {
+        const text = String(values.text ?? capture.text), refs = (values.attachments ?? capture.attachments).map(attachmentReference);
+        if (capture.attachments.some(ref => !refs.some(item => item.id === ref.id && item.path === ref.path))) {
+            throw Error("Include all of this item's files so none are lost when it is resolved.");
+        }
+        if (text.trim() && refs.length && !(capture.text.trim() && capture.attachments.length)) {
+            throw Error("Write something or add a file. Clear the text or remove the file first.");
+        }
+        const legacyRemainder = !capture.intent && (capture.text.trim() && capture.attachments.length ||
+            values.type === "task" && (taskTitle(text) !== text.trim() || values.taskTitle !== undefined && String(values.taskTitle).trim() !== text.trim()));
+        const intent = legacyRemainder ? null : captureIntent({ ...capture.intent, ...values }, refs);
+        if (text !== capture.text || JSON.stringify(refs) !== JSON.stringify(capture.attachments) ||
+            JSON.stringify(intent) !== JSON.stringify(capture.intent ?? null)) {
+            for (const ref of refs) if (!this.attachmentExists(ref)) throw Error(`\"${ref.name}\" is no longer available.`);
+            const next = { ...capture, text, attachments: refs, kind: captureKind(text, refs) };
+            if (intent) next.intent = intent; else delete next.intent;
+            capture = await this.replace(next);
+        }
+        return capture;
+    }
+    completion(values = {}, captureId) {
+        const type = values.type || (values.attachments?.length ? "file" : null), requirements = [];
+        const requireValue = (valid, message) => { if (!valid) throw Error(message); };
+        const check = (label, validate) => {
+            try { validate(); requirements.push({ label, complete: true }); }
+            catch (error) { requirements.push({ label, complete: false, error: error.message }); }
+        };
+        let validationError = null;
+        if (!["task", "note", "file"].includes(type)) validationError = "Choose Task or Note.";
+        else {
+            if (type === "task") check("Content", () => taskFormValues({ text: values.taskTitle ?? values.text }));
+            else if (type === "note") check("Content", () => requireValue(String(values.text ?? "").trim(), "Write the note content."));
+            else check("File", () => {
+                requireValue(values.attachments?.length, "Add a file first.");
+                requireValue(values.attachments.every(ref => this.attachmentExists(ref)), "A file is no longer available.");
+            });
+            if (type !== "file") check("Type", () => requireValue(values.type === type, "Choose Task or Note."));
+            if (type === "note") check("Action", () => {}); // New note is the existing default route.
+            check("Workspace", () => {
+                requireValue(values.workspaceId, "Choose a Project or Resource.");
+                const workspace = this.workspace(values.workspaceId);
+                requireValue(workspace, "This Project or Resource is no longer available. Choose a destination.");
+                requireValue(this.plugin.oath?.canOpen(workspace) !== false, "This destination is locked during your Oath.");
+            });
+            if (type === "task") check("Location", () => this.taskDestination(values));
+            else if (type === "note" && values.noteAction === "existing") check("Location", () => {
+                const operation = this.get(captureId)?.operation;
+                const retry = operation?.kind === "note-insertion" && operation.state !== "done";
+                if (retry) this.assertNoteInsertionValues(operation, values);
+                this.noteDestination(values, !retry);
+            });
+            else {
+                check("Folder", () => { requireValue(values.folder, "Choose a folder."); this.destination(values); });
+                if (type === "note") check("Title", () => captureNoteTitle(values.title));
+            }
+            // Optional details never add progress steps. Their existing validity
+            // checks still block submission (for example, an unfinished Step).
+            try {
+                if (type === "task") {
+                    taskFormValues({ ...values, text: values.taskTitle ?? values.text });
+                    this.plugin.taskEditor.checkedMetadata(values, this.workspace(values.workspaceId));
+                } else if (type === "note" && values.noteAction === "existing" && values.attachments?.length) {
+                    throw Error("Use New note to keep this item's files.");
+                }
+            } catch (error) { validationError = error.message; }
+        }
+        const missing = requirements.filter(item => !item.complete).map(item => item.label);
+        const completedRequired = requirements.length - missing.length, totalRequired = requirements.length;
+        // Classification is the only known blocker before type-specific
+        // requirements exist. Keep its untyped progress at zero.
+        if (!totalRequired) missing.push("Type");
+        const complete = totalRequired > 0 && !missing.length && !validationError;
+        return { complete, ready: complete, error: requirements.find(item => !item.complete)?.error ?? validationError,
+            completedRequired, totalRequired, ratio: totalRequired ? completedRequired / totalRequired : 0, missing };
+    }
+    getInboxCompletion(capture, values) { return this.completion(values ?? captureDraft(capture), capture?.id); }
+    destinations() {
+        return taskWorkspaces(this.plugin).filter(workspace => workspace.contextKind === "resource" || workspace.status === "active")
+            .filter(workspace => isFolderLike(this.app.vault.getAbstractFileByPath(workspace.root)))
+            .map(workspace => ({ ...workspace, id: workspace.projectId || `resource:${workspace.resourceType || workspace.id}`,
+                name: workspace.name || workspace.label }));
+    }
+    workspace(id) { return this.destinations().find(workspace => workspace.id === id || workspace.root === id) ?? null; }
+    workspacePath(path, workspace) {
+        if (typeof path !== "string" || !path || !validLocation(path, workspace)) return false;
+        if (workspace.contextKind === "resource") return true;
+        // Files renders direct child folders as real Project workspaces. The
+        // synthetic root group exists only to display older loose root files.
+        const relative = path.slice(workspace.root.length + 1), name = relative.split("/")[0];
+        return !!name && isFolderLike(this.app.vault.getAbstractFileByPath(workspace.root + "/" + name));
+    }
+    taskLocations(id) {
+        const workspace = this.workspace(id); if (!workspace) return [];
+        return this.plugin.taskEditor.locations(workspace.root).filter(location => this.workspacePath(location.path, workspace));
+    }
+    noteDestination(values, structural = true) {
+        const workspace = this.workspace(values.workspaceId), location = noteLocation(values.noteLocation);
+        if (!workspace || this.plugin.oath?.canOpen(workspace) === false) throw Error("Choose an available note workspace.");
+        const file = location && this.app.vault.getAbstractFileByPath(location.path);
+        if (!file || isFolderLike(file) || file.extension?.toLowerCase() !== "md" || !this.workspacePath(file.path, workspace)) throw new NoteLocationError();
+        const parsed = this.noteCache.get(file.path)?.parsed;
+        if (structural && (location.targetType !== "note" || parsed) && !resolveNoteLocation(parsed, location)) throw new NoteLocationError();
+        return { workspace, file, location };
+    }
+    async readNotePositions(workspaceId, path) {
+        for (let attempt = 0; attempt < 3; attempt++) {
+            const { file } = this.noteDestination({ workspaceId, noteLocation: { path, targetType: "note", position: "end" } }, false);
+            if (!this.noteRevisions.has(path)) this.noteRevisions.set(path, 0);
+            const revision = this.noteRevisions.get(path), text = await this.app.vault.read(file);
+            if (revision !== this.noteRevisions.get(path) || file.path !== path) continue;
+            const parsed = parseNotePositions(text);
+            this.noteCache.set(path, { file, parsed }); return parsed;
+        }
+        throw Error("The note is changing. Choose its position again when editing has finished.");
+    }
+    folders(id) {
+        const workspace = this.workspace(id); if (!workspace) return [];
+        return (this.app.vault.getAllLoadedFiles?.() ?? []).filter(file => isFolderLike(file) && this.workspacePath(file.path, workspace))
+            .map(file => ({ path: file.path, name: file.name || file.path.split("/").at(-1), label: locationLabel(file.path, workspace) }))
+            .sort((a, b) => a.path === workspace.root ? -1 : b.path === workspace.root ? 1 : a.label.localeCompare(b.label, undefined, { numeric: true }));
+    }
+    destination(values) {
+        const workspace = this.workspace(values.workspaceId), folder = values.folder || (workspace?.contextKind === "resource" ? workspace.root : "");
+        if (!workspace) throw Error("This Project or Resource is no longer available. Choose a destination.");
+        if (workspace.contextKind === "project" && (!folder || folder === workspace.root)) {
+            throw Error("Choose a workspace folder inside this Project. The Project root is not a destination.");
+        }
+        if (!this.workspacePath(folder, workspace) || !isFolderLike(this.app.vault.getAbstractFileByPath(folder))) {
+            throw Error("This destination folder is no longer available. Choose another folder.");
+        }
+        if (this.plugin.oath?.canOpen(workspace) === false) throw Error("This destination is locked during your Oath.");
+        return { workspace, folder };
+    }
+    taskDestination(values) {
+        if (!values.location) throw Error("Choose a task location.");
+        const owner = this.plugin.taskEditor.context(values.location);
+        const workspace = values.workspaceId ? this.workspace(values.workspaceId) : this.workspace(owner?.projectId);
+        if (!workspace || owner?.projectId !== workspace.id || this.plugin.oath?.canOpen(workspace) === false) {
+            throw Error("Choose an available task workspace.");
+        }
+        if (!this.taskLocations(workspace.id).some(location => location.path === values.location)) {
+            throw Error(workspace.contextKind === "project" ?
+                "Choose a note or folder inside a Project workspace folder. The Project root is not a destination." :
+                "Choose an available note or folder inside this Resource.");
+        }
+        return workspace;
+    }
+    fileOperationStructure(operation) {
+        const workspace = taskWorkspaces(this.plugin).find(item => item.projectId === operation.workspaceId);
+        if (!workspace) throw Error("This Project or Resource is no longer available. Choose a destination.");
+        const folder = operation.folder;
+        if (workspace.contextKind === "project" && (!folder || folder === workspace.root)) {
+            throw Error("Choose a workspace folder inside this Project. The Project root is not a destination.");
+        }
+        const paths = [...(operation.moves ?? []).map(move => move.to), ...(operation.note ? [operation.note.path] : [])];
+        if (typeof folder !== "string" || !validLocation(folder, workspace) || paths.some(path => typeof path !== "string" ||
+            path.slice(0, path.lastIndexOf("/")) !== folder || !validLocation(path, workspace))) {
+            throw Error("This saved action has an invalid workspace destination. The item has been kept in Inbox.");
+        }
+        return { workspace, folder };
+    }
+    fileOperationDestination(operation) {
+        this.fileOperationStructure(operation);
+        return this.destination(operation);
+    }
+    attachmentPath(ref) {
+        if (this.app.vault.getAbstractFileByPath(ref?.path)) return ref.path;
+        for (const capture of this.captures) {
+            const move = capture.operation?.moves?.find(item => item.from === ref?.path);
+            if (move && this.app.vault.getAbstractFileByPath(move.to)) return move.to;
+        }
+        return ref?.path;
+    }
+    attachmentExists(ref) { const file = this.app.vault.getAbstractFileByPath(this.attachmentPath(ref)); return !!file && !isFolderLike(file); }
+    async openAttachment(ref) {
+        const path = this.attachmentPath(ref), file = this.app.vault.getAbstractFileByPath(path);
+        if (!file || isFolderLike(file)) throw Error(`\"${ref.name}\" is no longer available.`);
+        if (this.plugin.oath?.canOpen(path) === false) return false;
+        if (isInboxOwned(ref)) { await this.app.workspace.getLeaf(true).openFile(file); return true; }
+        return this.plugin.workspaceModes?.openFile ? this.plugin.workspaceModes.openFile(path) :
+            (await this.app.workspace.getLeaf(true).openFile(file), true);
+    }
+    async ensureFolder(path) {
+        if (this.plugin.projectWizard.ensureFolder) return this.plugin.projectWizard.ensureFolder(path);
+        let current = "";
+        for (const part of path.split("/")) {
+            current = current ? current + "/" + part : part;
+            const entry = this.app.vault.getAbstractFileByPath(current);
+            if (entry && !isFolderLike(entry)) throw Error("The Inbox attachment folder is occupied by a file.");
+            if (!entry) await this.app.vault.createFolder(current);
+        }
+    }
+    sourcePath(source) {
+        if (typeof source.path === "string" && source.path) return source.path;
+        try { return require("electron").webUtils?.getPathForFile(source) || null; } catch (_) { return null; }
+    }
+    vaultSource(source, sourcePath = this.sourcePath(source)) {
+        const base = this.app.vault.adapter?.getBasePath?.();
+        if (!base || typeof sourcePath !== "string" || !nodePath.isAbsolute(sourcePath)) return null;
+        const relative = nodePath.relative(base, sourcePath);
+        if (!relative || relative.startsWith("..") || nodePath.isAbsolute(relative)) return null;
+        const path = relative.replace(/\\/g, "/"), file = this.app.vault.getAbstractFileByPath(path);
+        return file && !isFolderLike(file) ? file : null;
+    }
+    stageFiles(sources) { return this.enqueue(async () => {
+        const refs = [], imported = [], folder = INBOX_ATTACHMENT_ROOT + "/" + randomUUID();
+        try {
+            for (const source of Array.from(sources ?? [])) {
+                if (!source || typeof source.arrayBuffer !== "function") throw Error("Drop files or images, rather than a folder.");
+                const name = String(source.name ?? "").trim();
+                if (!name || /[\\/:*?\"<>|]/.test(name) || name === "." || name === "..") throw Error("An attachment has an invalid filename. Rename it before importing.");
+                const sourcePath = this.sourcePath(source), existing = this.vaultSource(source, sourcePath);
+                if (existing) {
+                    refs.push({ id: randomUUID(), path: existing.path, name: existing.name || name, ownership: "reference", size: Number(source.size) || existing.stat?.size || 0, mime: source.type || "", originalPath: existing.path });
+                    continue;
+                }
+                await this.ensureFolder(folder);
+                const path = this.files.availableExternalFilePath(folder, name);
+                // Keep Markdown text and other bytes on the same native import paths as Files.
+                const file = /\.md$/i.test(name) && typeof source.text === "function" ?
+                    await this.app.vault.create(path, await source.text()) : await this.app.vault.createBinary(path, await source.arrayBuffer());
+                imported.push(file);
+                refs.push({ id: randomUUID(), path, name, ownership: "inbox", size: Number(source.size) || file.stat?.size || 0,
+                    mime: source.type || "", ...(sourcePath ? { originalPath: sourcePath } : {}) });
+            }
+            return refs;
+        } catch (error) {
+            for (const file of imported) { try { await this.app.vault.delete(file); } catch (_) { /* Preserve a failed-cleanup copy rather than its original. */ } }
+            throw error;
+        }
+    }); }
+    async releaseAttachments(refs) {
+        for (const ref of refs ?? []) {
+            if (!isInboxOwned(ref) || this.captures.some(capture => capture.attachments?.some(item => item.path === ref.path))) continue;
+            const file = this.app.vault.getAbstractFileByPath(ref.path);
+            if (file && !isFolderLike(file)) { try { await this.app.vault.delete(file); } catch (error) { console.warn("Could not remove unused Inbox copy", error); } }
+        }
+    }
+    delete(id) { return this.enqueue(async () => {
+        const capture = this.required(id);
+        if (["note", "files"].includes(capture.operation?.kind) && capture.operation.state === "prepared") {
+            let valid = false;
+            try { this.fileOperationStructure(capture.operation); valid = true; } catch (_) { /* Keep pre-existing output data of invalid legacy receipts. */ }
+            if (valid) await this.rollback(capture.operation);
+        }
+        await this.finish(capture); return true;
+    }); }
+    markdownLink(path, notePath, embed = false) {
+        const name = path.split("/").at(-1);
+        const file = this.app.vault.getAbstractFileByPath(path) || { path, name, basename: name.replace(/\.[^.]+$/, ""), extension: name.split(".").at(-1) };
+        const link = this.app.fileManager.generateMarkdownLink?.(file, notePath) || `[${file.basename}](<${path}>)`;
+        return embed && !link.startsWith("!") ? "!" + link : link;
+    }
+    noteText(capture, moves, path) {
+        const pieces = [capture.text.trimEnd()].filter(Boolean), source = capture.source ?? {};
+        const url = source.pageUrl || source.url;
+        if (url && /^https?:\/\//i.test(url)) {
+            const title = String(source.pageTitle || source.title || url).replace(/[\[\]\\]/g, "\\$&");
+            pieces.push(`Source: [${title}](<${url.replace(/[<>\r\n]/g, "")}>)`);
+        } else if (source.path && this.app.vault.getAbstractFileByPath(source.path)) pieces.push("Source: " + this.markdownLink(source.path, path));
+        else if (source.workspaceName) pieces.push("Source: " + source.workspaceName);
+        if (moves.length) pieces.push(moves.map(move => this.markdownLink(move.to, path,
+            /^image\//i.test(move.mime) || /\.(png|jpe?g|gif|webp|avif|bmp|svg|ico)$/i.test(move.name))).join("\n"));
+        return pieces.join("\n\n") + "\n";
+    }
+    async prepareFiles(capture, kind, values) {
+        const { workspace, folder } = this.destination(values), reserved = new Set();
+        const paths = createFileDomain({ getByPath: path => reserved.has(path) || this.app.vault.getAbstractFileByPath(path) });
+        if (kind === "files" && !capture.attachments.length) throw Error("Attach at least one file or image.");
+        if (kind === "note") {
+            if (!capture.attachments.length && !capture.text.trim()) throw Error("Write the note content.");
+            captureNoteTitle(values.title);
+        }
+        const moves = [];
+        for (const ref of capture.attachments) {
+            const duplicate = moves.find(move => move.from === ref.path);
+            if (duplicate) { moves.push({ ...duplicate, attachmentId: ref.id }); continue; }
+            const file = this.app.vault.getAbstractFileByPath(ref.path);
+            if (!file || isFolderLike(file)) throw Error(`\"${ref.name}\" is no longer available.`);
+            // Explicit Move to moves a vault reference; deleting a item never does.
+            const to = file.parent?.path === folder || ref.path.slice(0, ref.path.lastIndexOf("/")) === folder ? ref.path : paths.availableExternalFilePath(folder, ref.name);
+            reserved.add(to);
+            moves.push({ attachmentId: ref.id, from: ref.path, to, ownership: ref.ownership, name: ref.name,
+                mime: ref.mime, hash: digest(await this.app.vault.readBinary(file)) });
+        }
+        const source = capture.source ?? {}, operationId = randomUUID();
+        const needsNote = kind === "note" || !!capture.text.trim() || !!(source.url || source.pageUrl || source.path || source.workspaceName);
+        let note = null;
+        if (needsNote) {
+            const proposed = projectItemPath(folder, "note", values.title || (kind === "files" ? "Captured files" : "Untitled"));
+            const path = paths.availableExternalFilePath(folder, proposed.slice(folder.length + 1));
+            // Native attachment links are generated after the files have moved,
+            // when the actual TFiles can resolve names with the user's preferences.
+            note = { path };
+        }
+        return { id: operationId, kind, state: "prepared", workspaceId: workspace.id, folder, title: String(values.title ?? ""), moves, note, input: this.input(capture, values) };
+    }
+    async checkMove(move, path) {
+        const file = this.app.vault.getAbstractFileByPath(path);
+        if (!file || isFolderLike(file) || digest(await this.app.vault.readBinary(file)) !== move.hash) {
+            throw Error(`\"${move.name}\" changed or is missing. The item has been kept in Inbox.`);
+        }
+        return file;
+    }
+    async executeFiles(operation, capture) {
+        this.fileOperationDestination(operation);
+        for (const move of operation.moves) {
+            const from = this.app.vault.getAbstractFileByPath(move.from), to = this.app.vault.getAbstractFileByPath(move.to);
+            if (move.from === move.to || !from && to) { await this.checkMove(move, move.to); continue; }
+            if (to) throw Error(`\"${move.name}\" already exists at the destination.`);
+            await this.app.fileManager.renameFile(await this.checkMove(move, move.from), move.to);
+            await this.checkMove(move, move.to);
+        }
+        if (operation.note) {
+            if (operation.note.text === undefined) {
+                // Persist exact content before creating the note. The invisible
+                // receipt marker distinguishes our note from a competing user file.
+                const text = this.noteText({ ...capture, text: operation.input.text }, operation.moves, operation.note.path) +
+                    `\n<!-- itacan-capture:${operation.id} -->\n`;
+                operation = { ...operation, note: { ...operation.note, text, hash: digest(text) } };
+                await this.replace({ ...capture, operation });
+            }
+            const existing = this.app.vault.getAbstractFileByPath(operation.note.path);
+            if (!existing) await this.app.vault.create(operation.note.path, operation.note.text);
+            const file = this.app.vault.getAbstractFileByPath(operation.note.path);
+            if (!file || digest(await this.app.vault.read(file)) !== operation.note.hash) throw Error("The new note changed. The item has been kept in Inbox.");
+        }
+        return operation;
+    }
+    async rollback(operation) {
+        const failures = [];
+        if (operation.note) {
+            const file = this.app.vault.getAbstractFileByPath(operation.note.path);
+            if (file) {
+                try {
+                    const content = isFolderLike(file) ? "" : await this.app.vault.read(file);
+                    if (!content.includes(`<!-- itacan-capture:${operation.id} -->`)) {
+                        // A competing file is not ours, even when its name matches.
+                    } else if (digest(content) !== operation.note.hash) throw Error("The destination note changed. Check it before retrying this item.");
+                    else await this.app.vault.delete(file);
+                } catch (error) { failures.push(error); }
+            }
+        }
+        for (const move of [...operation.moves].reverse()) {
+            if (move.from === move.to || !this.app.vault.getAbstractFileByPath(move.to)) continue;
+            try {
+                if (this.app.vault.getAbstractFileByPath(move.from)) { await this.checkMove(move, move.from); continue; }
+                const parent = move.from.slice(0, move.from.lastIndexOf("/"));
+                if (!isFolderLike(this.app.vault.getAbstractFileByPath(parent))) throw Error("The original file folder was removed. The item has been kept in Inbox.");
+                await this.app.fileManager.renameFile(await this.checkMove(move, move.to), move.from);
+            } catch (error) { failures.push(error); }
+        }
+        if (failures.length) throw failures[0];
+    }
+    async finish(capture) {
+        const moves = capture.operation?.state === "ready" ? capture.operation.moves ?? [] : [];
+        await this.save(this.captures.filter(item => item.id !== capture.id).map(other => {
+            const attachments = other.attachments.map(ref => {
+                const move = moves.find(item => item.from === ref.path);
+                return move ? { ...ref, path: move.to, ownership: "reference" } : ref;
+            });
+            return { ...other, attachments };
+        }));
+        await this.releaseAttachments(capture.attachments);
+    }
+    createNote(values, captureId) { return this.enqueue(() => {
+        const saved = this.get(captureId);
+        return (values.noteAction ?? saved?.intent?.noteAction) === "existing" || saved?.operation?.kind === "note-insertion" ?
+            this.resolveNoteInsertion(values, captureId) : this.resolveFiles("note", values, captureId);
+    }); }
+    async resolveNoteInsertion(values, captureId) {
+        let capture = captureId ? this.required(captureId) : await this.createCapture({ ...values, type: "note", noteAction: "existing" });
+        values = { ...capture.intent, ...values, type: "note" };
+        let operation = capture.operation?.state !== "done" ? capture.operation : null, preparedHere = false, inserted = false;
+        try {
+            if (capture.attachments.length) throw Error("Use New note to keep this item's files.");
+            if (!String(values.text ?? capture.text).trim()) throw Error("Write the note content.");
+            if (operation && operation.kind !== "note-insertion") throw Error("Retry the saved action before choosing another action for this item.");
+            if (operation) { this.assertInput(capture, values); this.assertNoteInsertionValues(operation, values); }
+            if (values.noteAction !== "existing") throw Error("Retry the original Note action.");
+            let file;
+            for (let attempt = 0; attempt < 3; attempt++) {
+                if (!operation) {
+                    capture = await this.prepareCapture(capture, values);
+                    const destination = this.noteDestination(values, false);
+                    file = destination.file;
+                    const current = await this.app.vault.read(file);
+                    const next = insertNoteText(current, destination.location, capture.text);
+                    operation = { id: randomUUID(), kind: "note-insertion", state: "prepared", workspaceId: destination.workspace.id,
+                        noteLocation: destination.location, beforeHash: digest(current), afterHash: digest(next), input: this.input(capture, values) };
+                    capture = await this.replace({ ...capture, operation }); preparedHere = true;
+                }
+                file = this.noteDestination({ ...operation, noteAction: "existing" }, false).file;
+                if (operation.state !== "ready") {
+                    try {
+                        await this.app.vault.process(file, current => {
+                            const currentHash = digest(current);
+                            if (currentHash === operation.afterHash) return current;
+                            if (currentHash !== operation.beforeHash) {
+                                const error = Error(preparedHere ? "The note changed while saving. Try Add to Itacan again." :
+                                    "A previous insertion may already be saved in this note. Check the note before retrying this item.");
+                                error.code = "NOTE_INSERTION_CONFLICT"; throw error;
+                            }
+                            const next = insertNoteText(current, operation.noteLocation, operation.input.text);
+                            if (digest(next) !== operation.afterHash) throw new NoteLocationError();
+                            inserted = true; return next;
+                        });
+                    } catch (error) {
+                        if (preparedHere && error.code === "NOTE_INSERTION_CONFLICT" && !inserted) {
+                            // The synchronous transform refused the write. Re-read
+                            // and revalidate before preparing another atomic attempt.
+                            const { operation: previous, ...unprocessed } = capture;
+                            capture = await this.replace(unprocessed); operation = null; preparedHere = false;
+                            if (attempt < 2) continue;
+                        }
+                        throw error;
+                    }
+                }
+                if (digest(await this.app.vault.read(file)) !== operation.afterHash) {
+                    throw Error("The destination note changed after insertion. The item has been kept in Inbox for a safe retry.");
+                }
+                if (inserted) {
+                    this.plugin.markProjectChangedByPath?.(file.path);
+                    this.plugin.scheduleEditedActivity?.(file);
+                    this.plugin.notifyProjectFilesChanged?.(file.path);
+                }
+                if (operation.state !== "ready") capture = await this.replace({ ...this.required(capture.id), operation: { ...operation, state: "ready" } });
+                await this.finish(capture);
+                return { file, message: "Text added to note." };
+            }
+        } catch (error) {
+            if (error.code === "NOTE_LOCATION_INVALID" && !operation) {
+                // No note write has happened. Persist the incomplete state so
+                // Inbox cannot offer the stale location after a restart.
+                const current = this.required(capture.id);
+                try { await this.replace({ ...current, intent: { ...current.intent, noteAction: "existing", noteLocation: null } }); }
+                catch (_) { /* Retain the original item if invalidation cannot be saved. */ }
+                error.noteLocationInvalid = true;
+            }
+            error.captureId = capture.id; throw error;
+        }
+    }
+    addFiles(values, captureId) { return this.enqueue(() => this.resolveFiles("files", values, captureId)); }
+    async resolveFiles(kind, values, captureId) {
+        let capture = captureId ? this.required(captureId) : await this.createCapture({ ...values, type: kind === "files" ? "file" : "note" });
+        values = { ...capture.intent, ...values, type: kind === "files" ? "file" : "note" };
+        try {
+            if (capture.intent && !(capture.text.trim() && capture.attachments.length) && !values.folder) throw Error("Choose a folder.");
+            let operation = capture.operation;
+            if (operation?.state === "done") operation = null;
+            if (operation && operation.kind !== kind) throw Error("Retry the saved action before choosing another action for this item.");
+            if (operation) this.assertInput(capture, values);
+            if (operation && this.changedFileDestination(operation, values)) {
+                this.fileOperationStructure(operation);
+                if (operation.state === "ready") throw Error("This item was already saved to its selected destination. Retry to finish removing it from Inbox.");
+                this.destination(values);
+                // A fully rolled-back file/note attempt can safely choose a new
+                // destination after its old folder is removed while the form is open.
+                await this.rollback(operation);
+                for (const move of operation.moves) await this.checkMove(move, move.from);
+                const { operation: previous, ...unprocessed } = capture;
+                capture = await this.replace(unprocessed); operation = null;
+            }
+            if (!operation) {
+                capture = await this.prepareCapture(capture, values);
+                operation = await this.prepareFiles(capture, kind, values); capture = await this.replace({ ...capture, operation });
+            }
+            // Reject old or forged root receipts before running rollback or
+            // writing anything, preserving already-existing user files.
+            this.fileOperationDestination(operation);
+            if (operation.state !== "ready") {
+                try {
+                    operation = await this.executeFiles(operation, capture);
+                    capture = this.required(capture.id);
+                    capture = await this.replace({ ...capture, operation: { ...operation, state: "ready" } });
+                } catch (error) {
+                    try { await this.rollback(this.get(capture.id)?.operation ?? operation); }
+                    catch (rollbackError) { error.message += " " + rollbackError.message; }
+                    throw error;
+                }
+            } else {
+                this.fileOperationDestination(operation);
+                for (const move of operation.moves) await this.checkMove(move, move.to);
+                if (operation.note) {
+                    const note = this.app.vault.getAbstractFileByPath(operation.note.path);
+                    if (!note || isFolderLike(note) || digest(await this.app.vault.read(note)) !== operation.note.hash) {
+                        throw Error("The destination note changed or was removed. The item has been kept in Inbox.");
+                    }
+                }
+            }
+            const file = operation.note ? this.app.vault.getAbstractFileByPath(operation.note.path) : null;
+            const files = operation.moves.map(move => this.app.vault.getAbstractFileByPath(move.to));
+            await this.finish(capture);
+            return kind === "note" ? { file, attachments: files } : { files, note: file };
+        } catch (error) { error.captureId = capture.id; throw error; }
+    }
+    makeTask(values, captureId) { return this.enqueue(async () => {
+        let capture = captureId ? this.required(captureId) : await this.createCapture({ ...values, type: "task" });
+        values = { ...capture.intent, ...values, type: "task" };
+        try {
+            if (capture.intent?.type === "task" && !capture.operation && !values.workspaceId) throw Error("Choose a Project or Resource.");
+            let operation = capture.operation;
+            if (operation && operation.kind !== "task") throw Error("Retry the saved action before choosing another action for this item.");
+            if (operation) { this.assertInput(capture, values); this.assertTaskValues(operation, values); }
+            if (!operation) {
+                capture = await this.prepareCapture(capture, values);
+                const title = values.taskTitle ?? values.text ?? (capture.intent?.type === "task" ? capture.text : taskTitle(capture.text));
+                const taskValues = taskFormValues({ ...values, text: title });
+                const workspace = this.taskDestination(values);
+                this.plugin.taskEditor.checkedMetadata(taskValues, workspace);
+                const metadata = {};
+                for (const key of ["necessity", "fromDate", "dueDate", "fromTime", "dueTime", "steps", "phaseId", "linkedProjectId"]) {
+                    if (taskValues[key] !== undefined) metadata[key] = clone(taskValues[key]);
+                }
+                operation = { id: randomUUID(), kind: "task", state: "prepared", workspaceId: workspace.id, location: values.location,
+                    text: taskValues.text, taskId: randomUUID(), values: { ...metadata, text: taskValues.text, captureSource: sourceMetadata(capture.source) },
+                    input: this.input(capture, values) };
+                capture = await this.replace({ ...capture, operation });
+            }
+            const workspace = this.taskDestination(operation);
+            const file = await this.plugin.taskEditor.create(operation.location, operation.text,
+                { ...operation.values, hubTaskId: operation.taskId });
+            this.taskDestination({ workspaceId: workspace.id, location: file.path });
+            const retained = !!capture.attachments.length || capture.text.trim() !== operation.text.trim();
+            capture = await this.replace({ ...capture, operation: { ...operation, state: retained ? "done" : "ready", path: file.path } });
+            if (!retained) await this.finish(capture);
+            return { file, retained, captureId: retained ? capture.id : null,
+                ...(retained ? { message: "Task added. The item remains in Inbox so its content, files and source can be organised as a note." } : {}) };
+        } catch (error) { error.captureId = capture.id; throw error; }
+    }); }
+}
+
+module.exports = { HubInboxService };
+
+},
 "lib/services/navigation-history.js": function (module, exports, __hubRequire) {
 "use strict";
 
@@ -4165,7 +5383,7 @@ module.exports = { OathNavigationGuard };
 const { randomUUID } = require("crypto");
 const { taskGroups, readTaskSnapshot } = __hubRequire("lib/domain/task-planning.js");
 const { taskLineDetails, taskIdentity, applyTaskEdit, normalizedTaskText } = __hubRequire("lib/domain/tasks.js");
-const { isCommitted, validateOath, oathTime, normalizeOath, fulfilmentTime } = __hubRequire("lib/domain/oath.js");
+const { isCommitted, validateOath, oathRequirements, oathTime, normalizeOath, fulfilmentTime } = __hubRequire("lib/domain/oath.js");
 
 const { workspaceRef, validWorkspace, sameWorkspace, taskKey } = __hubRequire("lib/domain/oath-workspace.js");
 
@@ -4213,14 +5431,21 @@ class HubOathService {
             (task.path === context.path || task.path?.startsWith(context.root + "/"))), new Date(this.now()));
         return [...groups.active, ...groups.future];
     }
+    setupRequirements(draft) {
+        const available = new Set(this.workspaceTasks(draft.workspace).map(taskKey));
+        return oathRequirements(draft, this.now()).map(field => {
+            if (field.key === "Workspace" && field.complete && !this.resolveWorkspace(draft.workspace))
+                return { ...field, complete: false, error: "Choose an available Active Project or Resource." };
+            if (field.key === "Tasks" && !this.ready()) return { ...field, complete: false, error: "Wait for the task index to finish loading." };
+            if (field.key === "Tasks" && field.complete && draft.tasks.some(task => !available.has(taskKey(task))))
+                return { ...field, complete: false, error: "Selected tasks must be open tasks from this workspace. Update your selection." };
+            return field;
+        });
+    }
     validateDraft(draft) {
         validateOath(draft, this.now());
-        if (!this.resolveWorkspace(draft.workspace)) throw Error("Choose an available Active Project or Resource.");
-        if (!this.ready()) throw Error("Wait for the task index to finish loading.");
-        const available = new Set(this.workspaceTasks(draft.workspace).map(taskKey));
-        if (draft.tasks.some(task => !available.has(taskKey(task)))) {
-            throw Error("Selected tasks must be open tasks from this workspace. Update your selection.");
-        }
+        const missing = this.setupRequirements(draft).find(field => !field.complete);
+        if (missing) throw Error(missing.error);
     }
     projectWorkspaceForPath(path) {
         if (!this.active || this.current.workspace?.type !== "project" || typeof path !== "string") return null;
@@ -4762,12 +5987,14 @@ class ProjectPlanningService {
             }
         });
     }
-    reorder(id, phaseId, direction, revision) {
+    reorder(id, phaseIds, revision) {
         return this.transaction(id, revision, state => {
-            const index = state.phases.findIndex(phase => phase.id === phaseId), target = index + direction;
-            if (index < 0 || target < 0 || target >= state.phases.length || ![-1, 1].includes(direction)) return;
-            [state.phases[index], state.phases[target]] = [state.phases[target], state.phases[index]];
-            state.phases.forEach((phase, order) => { phase.order = order; });
+            if (!Array.isArray(phaseIds) || phaseIds.length !== state.phases.length ||
+                new Set(phaseIds).size !== phaseIds.length || state.phases.some(phase => !phaseIds.includes(phase.id))) {
+                throw Error("This Roadmap's phase list changed. Reopen it before reordering.");
+            }
+            const byId = new Map(state.phases.map(phase => [phase.id, phase]));
+            state.phases = phaseIds.map((id, order) => ({ ...byId.get(id), order }));
         });
     }
 }
@@ -4777,17 +6004,22 @@ module.exports = { ProjectPlanningService };
 "lib/services/statistics.js": function (module, exports, __hubRequire) {
 "use strict";
 
+const { findProjectForPath, findResourceForPath } = __hubRequire("lib/domain/contexts.js");
 const { isStatisticsNote, prepareStatistics } = __hubRequire("lib/domain/statistics.js");
 
-// Snapshot once per opening. Range and local filter changes only query in-memory
+// Snapshot once per opening. Range and workspace filter changes only query in-memory
 // aggregates; no Dataview parsing, file reads, or persistence is needed.
 function readStatistics(plugin, now = Date.now()) {
     const wizard = plugin.projectWizard;
-    const workspaces = [...wizard.getProjectRecords(), ...wizard.getResourceTypes()];
+    const projects = wizard.getProjectRecords(), resources = wizard.getResourceTypes();
+    const workspaces = [...projects, ...resources];
     const dashboardPaths = new Set(workspaces.map(workspace => workspace.path));
     const notes = plugin.app.vault.getMarkdownFiles().filter(file => isStatisticsNote(file.path, {
         dashboardPaths, frontmatter: plugin.app.metadataCache.getFileCache(file)?.frontmatter
-    })).map(file => ({ path: file.path, createdAt: file.stat?.ctime }));
+    })).map(file => {
+        const owner = findProjectForPath(projects, file.path) ?? findResourceForPath(resources, file.path);
+        return { path: file.path, createdAt: file.stat?.ctime, projectId: owner?.projectId, contextKind: owner?.contextKind };
+    });
     const oaths = Object.values(wizard.data.oathsByDevice ?? {}).flatMap(bucket => Array.isArray(bucket?.history) ? bucket.history : []);
     return prepareStatistics({ workspaces, notes, oaths, activity: wizard.activityLog,
         completions: wizard.completedTaskHistory,
@@ -5004,6 +6236,7 @@ const { randomUUID } = require("crypto");
 const { taskMetadata, validateTaskMetadata, readTaskSnapshot, saveTaskSnapshot, appendTask } = __hubRequire("lib/domain/task-planning.js");
 const { taskLocations, linkedProjects } = __hubRequire("lib/services/task-locations.js");
 const { validLocation } = __hubRequire("lib/domain/task-views.js");
+const { taskIdentity, taskLineDetails, normalizedTaskText } = __hubRequire("lib/domain/tasks.js");
 
 class HubTaskEditor {
     constructor(plugin) { this.plugin = plugin; this.app = plugin.app; }
@@ -5039,7 +6272,8 @@ class HubTaskEditor {
         }
     }
     checkedMetadata(values, workspace, previous = {}) {
-        const metadata = validateTaskMetadata(values);
+        const metadata = validateTaskMetadata({ ...values,
+            ...(values.captureSource === undefined && previous.captureSource ? { captureSource: previous.captureSource } : {}) });
         if (workspace?.contextKind !== "resource") delete metadata.linkedProjectId;
         if (metadata.linkedProjectId && metadata.linkedProjectId !== previous.linkedProjectId &&
             !this.projects().some(project => project.projectId === metadata.linkedProjectId)) {
@@ -5169,16 +6403,50 @@ class HubTaskEditor {
         try { await this.plugin.dataStore.save(data); }
         catch (error) { data.taskMetadata = previous; throw error; }
     }
+    async createdWithIdentity(id, text, owner) {
+        const files = this.app.vault.getMarkdownFiles?.() ??
+            this.app.vault.getAllLoadedFiles().filter(file => file.extension === "md");
+        const matches = [];
+        for (const file of files) {
+            const content = await this.app.vault.read(file);
+            if (!content.includes("<!-- hub-task:" + id + " -->")) continue;
+            let fence = null;
+            for (const line of content.split(/\r?\n/)) {
+                const token = line.trim().match(/^(`{3,}|~{3,})/);
+                if (token) { if (!fence) fence = token[1][0]; else if (fence === token[1][0]) fence = null; continue; }
+                if (fence) continue;
+                if (taskLineDetails(line) && taskIdentity(line) === id) matches.push({ file, line });
+            }
+        }
+        if (!matches.length) return null;
+        if (matches.length !== 1 || normalizedTaskText(taskLineDetails(matches[0].line).text) !== normalizedTaskText(text) ||
+            !validLocation(matches[0].file.path, owner)) {
+            throw Error("This task's saved identity changed or was copied. Check its existing task before retrying.");
+        }
+        return matches[0].file;
+    }
     create(path, text, values = {}) {
         const actionTimestamp = Date.now();
         return this.plugin.enqueueTaskMutation(async () => {
             const owner = this.context(path);
+            // Inbox receipts supply their persisted ID so a destination write
+            // followed by a failed receipt save can be retried without adding a
+            // second ordinary task. Existing callers retain their normal IDs.
+            const requestedId = values.hubTaskId;
+            if (requestedId != null && (typeof requestedId !== "string" || !/^[a-zA-Z0-9-]+$/.test(requestedId))) {
+                throw Error("Choose a valid task identity.");
+            }
+            if (requestedId) {
+                appendTask("", text); // Validate retries through the ordinary title rule too.
+                const existing = await this.createdWithIdentity(requestedId, text, owner);
+                if (existing) return existing;
+            }
             const metadata = this.checkedMetadata(values, owner);
             // Keep legacy callers that supply an existing note working unchanged.
             const file = this.app.vault.getAbstractFileByPath(path)?.extension === "md" ?
                 this.file(path) : await this.destination(path, owner);
             if (owner?.root && !validLocation(file.path, owner)) throw Error("Choose a location inside this workspace.");
-            const id = Object.values(metadata).some(Boolean) ? randomUUID() : null;
+            const id = requestedId ?? (Object.values(metadata).some(Boolean) ? randomUUID() : null);
             const writes = [];
             let edit;
             try {
@@ -5566,6 +6834,683 @@ function mountAppShortcuts(plugin, left) {
     return { refresh: render, destroy() { disposed = true; resize.disconnect(); mutation.disconnect(); group.remove(); } };
 }
 module.exports = { mountAppShortcuts };
+
+},
+"lib/ui/attention.js": function (module, exports, __hubRequire) {
+"use strict";
+
+// One owned animation lifecycle for guidance and next-action cues. Replaying an
+// explicit attempt restarts from normal; rerenders never schedule animations.
+function mountTransientEffects(root) {
+    const view = root.ownerDocument.defaultView, effects = new Map();
+    let disposed = false;
+    const reducedMotion = () => view.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    function cancel(element) { effects.get(element)?.finish(); }
+    function run(element, cls, done = () => {}) {
+        if (disposed || !element?.isConnected) return;
+        cancel(element);
+        const finish = event => {
+            if (event && event.target !== element) return;
+            const effect = effects.get(element); if (!effect) return;
+            view.cancelAnimationFrame(effect.frame); view.clearTimeout(effect.timer);
+            element.classList.remove(cls); element.removeEventListener("animationend", finish);
+            effects.delete(element); done();
+        };
+        const effect = { finish, frame: null, timer: null }; effects.set(element, effect);
+        // A fresh frame ensures repeated failed attempts replay both pulses.
+        effect.frame = view.requestAnimationFrame(() => {
+            if (disposed || !element.isConnected) { finish(); return; }
+            element.classList.add(cls);
+            element.addEventListener("animationend", finish);
+            effect.timer = view.setTimeout(finish, reducedMotion() ? 700 : 1800);
+        });
+    }
+    function reveal(element, container) {
+        if (!element?.isConnected) return;
+        const behavior = reducedMotion() ? "instant" : "smooth";
+        if (!container) { element.scrollIntoView({ block: "nearest", behavior }); return; }
+        const bounds = container.getBoundingClientRect(), field = element.getBoundingClientRect();
+        if (field.top < bounds.top + 6 || field.bottom > bounds.bottom - 6)
+            container.scrollTo({ top: Math.max(0, container.scrollTop + field.top - bounds.top - 8), behavior });
+    }
+    return { run, cancel, reveal,
+        pulse(element, container, done) { reveal(element, container); run(element, "hub-attention", done); },
+        destroy() { disposed = true; for (const effect of [...effects.values()]) effect.finish(); }
+    };
+}
+
+module.exports = { mountTransientEffects };
+
+},
+"lib/ui/capture-controls.js": function (module, exports, __hubRequire) {
+"use strict";
+const { Notice } = require("obsidian");
+const { setHubIcon } = __hubRequire("lib/ui/icons.js");
+const { setHubTooltip } = __hubRequire("lib/ui/tooltips.js");
+const { browserViewState } = __hubRequire("lib/domain/navigation.js");
+const { QuickAddModal } = __hubRequire("lib/ui/quick-add.js");
+const { InboxModal } = __hubRequire("lib/ui/inbox.js");
+
+function currentSource(plugin) {
+    const leaf = plugin.app.workspace.activeLeaf;
+    const context = plugin.workspaceModes?.currentContext();
+    const browser = browserViewState(leaf?.getViewState?.());
+    return { origin: browser ? "Atlas" : "Quick Add",
+        ...(context ? { workspaceId: context.projectId, workspaceName: context.name } : {}),
+        ...(browser ?? {}),
+        ...(!browser && leaf?.view?.file?.path ? { path: leaf.view.file.path } : {}) };
+}
+
+function mountCaptureControls(plugin, service, host) {
+    let quick = null, inbox = null, disposed = false;
+    const button = (label, icon, cls) => {
+        const button = host.createEl("button", { cls: "hub-oath-button " + cls,
+            attr: { type: "button", "aria-label": label, "aria-haspopup": "dialog" } });
+        setHubIcon(button.createSpan({ cls: "hub-oath-icon", attr: { "aria-hidden": "true" } }), icon);
+        button.createSpan({ text: label }); setHubTooltip(button, label, "top"); return button;
+    };
+    const quickButton = button("Quick Add", "zap", "hub-quick-add-button");
+    const inboxButton = button("Inbox", "inbox", "hub-inbox-button");
+    const badge = inboxButton.createSpan({ cls: "hub-inbox-badge", attr: { "aria-hidden": "true" } });
+    const update = () => {
+        badge.hidden = !service.count; badge.textContent = String(service.count);
+        const blocked = !!plugin.oath?.active;
+        inboxButton.disabled = blocked;
+        setHubTooltip(inboxButton, blocked ? "Inbox is unavailable during an active Oath" : service.count ? `Inbox · ${service.count} unresolved Captures` : "Inbox", "top");
+        if (blocked) inbox?.close();
+    };
+    const openQuickAdd = () => {
+        if (disposed) return;
+        if (quick) { quick.input?.focus(); return; }
+        if (host.ownerDocument.querySelector(".modal-container")) return;
+        quick = new QuickAddModal(plugin.app, service, { source: currentSource(plugin),
+            returnFocus: host.ownerDocument.activeElement, onClose: () => { quick = null; } });
+        quick.open();
+    };
+    const openLink = async url => {
+        const browser = browserViewState({ type: "webviewer", state: { url } });
+        if (!browser) throw Error("This link is unavailable.");
+        if (plugin.app.internalPlugins?.getEnabledPluginById?.("webviewer")) {
+            const leaf = plugin.app.workspace.getLeaf(true);
+            await leaf.setViewState({ type: "webviewer", state: browser });
+            plugin.app.workspace.setActiveLeaf?.(leaf, { focus: true });
+        } else await plugin.app.workspace.openLinkText(browser.url, "", true);
+    };
+    const openInbox = () => {
+        if (disposed) return;
+        if (plugin.oath?.active) { new Notice("Inbox is unavailable during an active Oath."); return; }
+        if (inbox) { inbox.filterButtons[0].button.focus(); return; }
+        if (host.ownerDocument.querySelector(".modal-container")) return;
+        inbox = new InboxModal(plugin.app, service, { openLink, workspaceId: plugin.workspaceModes?.currentContext()?.projectId,
+            returnFocus: host.ownerDocument.activeElement, onClose: () => { inbox = null; } });
+        inbox.open();
+    };
+    plugin.registerDomEvent(quickButton, "click", openQuickAdd);
+    plugin.registerDomEvent(inboxButton, "click", openInbox);
+    const stop = service.onChange(update), stopOath = plugin.oath?.onChange(update); update();
+    return { quickButton, inboxButton, openQuickAdd, openInbox,
+        destroy() { disposed = true; stop(); stopOath?.(); quick?.close(); inbox?.close(); quickButton.remove(); inboxButton.remove(); } };
+}
+module.exports = { mountCaptureControls, currentSource };
+
+},
+"lib/ui/capture-form.js": function (module, exports, __hubRequire) {
+"use strict";
+const { setHubIcon } = __hubRequire("lib/ui/icons.js");
+const { projectItemPath } = __hubRequire("lib/domain/files.js");
+const { openCaptureWorkspacePicker, openCaptureLocationPicker } = __hubRequire("lib/ui/capture-pickers.js");
+const { mountWorkspaceThumbnail } = __hubRequire("lib/ui/workspace-thumbnail.js");
+const { mountTaskFields, mountTaskRelationshipFields } = __hubRequire("lib/ui/task-form.js");
+const { openNotePositionPicker } = __hubRequire("lib/ui/note-position-picker.js");
+const { noteLocation, noteLocationSummary, resolveNoteLocation } = __hubRequire("lib/domain/note-insertion.js");
+
+const MODES = [["task", "Task", "square"], ["note", "Note", "notebook-text"]];
+function mountCaptureTypeControl({ host, selectedType = null, disabledTypes = [], onSelect }) {
+    return mountChoices({ host, label: "Type", options: MODES, selected: selectedType, disabled: disabledTypes, onSelect, cls: "hub-capture-types" });
+}
+function mountChoices({ host, label, options, selected, disabled = [], onSelect, cls }) {
+    const field = host.createDiv({ cls: "hub-capture-field", attr: { "data-capture-field": label } });
+    field.createSpan({ cls: "hub-capture-field-title", text: label });
+    const types = field.createDiv({ cls: "hub-capture-choices hub-equal-selectors hub-option-group " + cls, attr: { role: "group", "aria-label": label } });
+    for (const [type, title, icon] of options) {
+        const button = types.createEl("button", { cls: "hub-capture-type" + (selected === type ? " is-active" : ""), attr: {
+            type: "button", "aria-label": title, "aria-pressed": String(selected === type)
+        } });
+        button.disabled = disabled.includes(type);
+        const graphic = button.createSpan({ attr: { "aria-hidden": "true" } });
+        if (icon === "notebook-plus") {
+            graphic.classList.add("hub-capture-notebook-plus");
+            setHubIcon(graphic.createSpan(), "notebook");
+            setHubIcon(graphic.createSpan({ cls: "hub-capture-notebook-plus-mark" }), "plus");
+        } else setHubIcon(graphic, icon);
+        button.createSpan({ text: title });
+        button.addEventListener("click", () => onSelect(type));
+    }
+    return types;
+}
+const firstLine = text => String(text ?? "").split(/\r?\n/).find(line => line.trim())?.trim() ?? "";
+function noteTitle(draft) {
+    const proposed = firstLine(draft.text) || String(draft.attachments?.[0]?.name ?? "").replace(/\.[^./\\]+$/, "");
+    const title = proposed.replace(/[\\/:*?"<>|\u0000-\u001f]/g, " ").replace(/\s+/g, " ").trim().slice(0, 120).replace(/[. ]+$/, "") || "Untitled";
+    projectItemPath("", "note", title);
+    return title;
+}
+
+// Both overlays retain their content and attachment controls. A fixed Inbox
+// form owns one type at a time; Inbox can confirm and remount a different type.
+function mountCaptureForm({ host, service, draft = {}, onChange = () => {}, fixedType = null, captureId = () => null }) {
+    const taskEditor = service.plugin.taskEditor;
+    const element = host.createDiv({ cls: "hub-capture-form hub-task-form" });
+    const lockedType = ["task", "note", "file"].includes(fixedType) ? fixedType : null;
+    let state = { ...draft, ...(lockedType ? { type: lockedType } : {}), steps: (draft.steps ?? []).map(step => ({ ...step })) };
+    let disposed = false, picker = null, checkingNote = null, taskFields = null;
+    const disposers = [];
+    const destinations = () => service.destinations();
+    const workspace = () => destinations().find(item => item.id === state.workspaceId);
+    const locations = () => {
+        const current = workspace(); if (!current) return [];
+        return service.taskLocations(state.workspaceId);
+    };
+    const folders = () => {
+        const current = workspace(); if (!current) return [];
+        return service.folders(state.workspaceId).filter(item => current.contextKind === "resource" || item.path !== current.root);
+    };
+    const notify = () => { if (!disposed) onChange(value()); };
+    const initializeTitle = () => {
+        if (state.type === "note") {
+            state.noteAction = state.noteAction === "existing" ? "existing" : "new";
+            if (state.title == null) state.title = noteTitle(state);
+        }
+    };
+    const clearInvalidDestinations = () => {
+        if (state.folder && !folders().some(item => item.path === state.folder)) state.folder = "";
+        if (state.location && !locations().some(item => item.path === state.location)) state.location = "";
+        const operation = service.get(captureId())?.operation;
+        if (state.noteLocation && operation?.kind !== "note-insertion") {
+            const selected = noteLocation(state.noteLocation), parsed = selected && service.noteCache.get(selected.path)?.parsed;
+            if (!selected || !locations().some(item => !item.folder && item.path === selected.path) ||
+                parsed && !resolveNoteLocation(parsed, selected)) state.noteLocation = null;
+        }
+    };
+    const group = title => {
+        const section = element.createEl("section", { cls: "hub-capture-form-group" });
+        if (title) section.createEl("h3", { cls: "hub-capture-section-heading", text: title });
+        return section;
+    };
+    const fieldHost = (parent, label) => {
+        const wrap = parent.createDiv({ cls: "hub-capture-field", attr: { "data-capture-field": label === "Save to" ? "Workspace" : label } });
+        wrap.createSpan({ cls: "hub-capture-field-title", text: label }); return wrap;
+    };
+    const field = (parent, label, type, key, required = false) => {
+        const wrap = parent.createEl("label", { cls: "hub-capture-field", attr: { "data-capture-field": label } });
+        wrap.createSpan({ cls: "hub-capture-field-title", text: label });
+        const input = wrap.createEl("input", { type, attr: { "aria-label": label, ...(required ? { required: "" } : {}) } });
+        input.value = state[key] ?? "";
+        input.addEventListener("input", () => { state[key] = input.value; notify(); }); return input;
+    };
+    const pickerTrigger = (parent, label, title, subtitle, icon, open, disabled = false, imageWorkspace = null) => {
+        const button = fieldHost(parent, label).createEl("button", { cls: "hub-capture-picker-trigger", attr: {
+            type: "button", "aria-label": label, "aria-haspopup": "dialog"
+        } });
+        button.disabled = disabled;
+        if (imageWorkspace) mountWorkspaceThumbnail(button, service.plugin, imageWorkspace);
+        else setHubIcon(button.createSpan({ cls: "hub-capture-icon", attr: { "aria-hidden": "true" } }), icon);
+        const copy = button.createSpan({ cls: "hub-capture-picker-copy" });
+        copy.createSpan({ text: title }); if (subtitle) copy.createSpan({ text: subtitle, cls: "hub-capture-muted" });
+        setHubIcon(button.createSpan({ cls: "hub-capture-icon", attr: { "aria-hidden": "true" } }), "chevron-down");
+        button.title = [title, subtitle].filter(Boolean).join(" · ");
+        button.addEventListener("click", () => { if (!picker && !disposed) open(); }); return button;
+    };
+    const restorePickerFocus = label => {
+        picker = null;
+        if (!disposed) [...element.querySelectorAll("button")].find(button => button.getAttribute("aria-label") === label)?.focus({ preventScroll: true });
+    };
+    function workspaceField(parent) {
+        const current = workspace();
+        const category = current?.contextKind === "project" ? service.plugin.projectWizard.getCategories?.().find(item => item.id === current.categoryId || item.name === current.categoryId) : null;
+        pickerTrigger(parent, "Save to", current?.name ?? "Choose project or resource…",
+            current ? (current.contextKind === "resource" ? "Resource" : category?.name ? "Project · " + category.name : "Project") : null,
+            current?.contextKind === "resource" ? current.icon ?? "library" : "folder", () => {
+                picker = openCaptureWorkspacePicker(service, {
+                    selectedId: state.workspaceId,
+                    onSelect: selected => {
+                        if (disposed) return;
+                        if (selected.id !== state.workspaceId) { state.folder = ""; state.location = ""; state.noteLocation = null; state.phaseId = ""; }
+                        state.workspaceId = selected.id; render(); notify();
+                    },
+                    restoreFocus: () => restorePickerFocus("Save to")
+                });
+            }, false, current);
+    }
+    function locationField(parent, task) {
+        const label = task ? "Task location" : "Destination folder", current = workspace();
+        const items = task ? locations() : folders(), path = state[task ? "location" : "folder"];
+        const selected = items.find(item => item.path === path);
+        pickerTrigger(parent, task ? "Location" : "Folder", selected?.label ?? selected?.name ?? (task ? "Choose a note or folder…" : "Choose a folder…"),
+            selected && task ? selected.folder ? "Folder · Tasks note" : "Markdown note · " + selected.path.split("/").pop() : null,
+            selected && task && !selected.folder ? "notebook-text" : "folder", () => {
+                picker = openCaptureLocationPicker(service, {
+                    workspace: current, task, selectedPath: path, getItems: task ? locations : folders,
+                    onSelect: selected => { if (!disposed) { state[task ? "location" : "folder"] = selected.path; render(); notify(); } },
+                    restoreFocus: () => restorePickerFocus(label)
+                });
+            }, !current).setAttribute("aria-label", label);
+    }
+    function renderTask() {
+        locationField(group(), true);
+        taskFields = mountTaskFields({ app: service.app, host: element, state, onChange: notify });
+        mountTaskRelationshipFields({ host: element, state, service: taskEditor,
+            location: () => state.location || workspace()?.root, onChange: notify });
+    }
+    function existingNoteField(parent) {
+        const current = workspace();
+        pickerTrigger(parent, "Location", noteLocationSummary(state.noteLocation), null, "notebook-text", () => {
+            picker = openNotePositionPicker(service, { workspace: current, selectedLocation: state.noteLocation,
+                onSelect: selected => { if (!disposed) { state.noteLocation = selected; render(); notify(); } },
+                restoreFocus: () => restorePickerFocus("Location") });
+        }, !current);
+    }
+    function checkNoteLocation() {
+        const location = noteLocation(state.noteLocation);
+        if (!location || state.noteAction !== "existing" || checkingNote || service.noteCache.has(location.path) ||
+            service.get(captureId())?.operation?.kind === "note-insertion" || element.closest("[aria-busy=true]")) return;
+        const id = state.workspaceId;
+        checkingNote = service.readNotePositions(id, location.path).then(parsed => {
+            if (disposed || element.closest("[aria-busy=true]") || service.get(captureId())?.operation?.kind === "note-insertion" ||
+                id !== state.workspaceId || JSON.stringify(location) !== JSON.stringify(state.noteLocation)) return;
+            if (!resolveNoteLocation(parsed, location)) state.noteLocation = null;
+        }).catch(() => {
+            if (!disposed && !element.closest("[aria-busy=true]") && service.get(captureId())?.operation?.kind !== "note-insertion" &&
+                id === state.workspaceId && JSON.stringify(location) === JSON.stringify(state.noteLocation)) state.noteLocation = null;
+        }).finally(() => {
+            checkingNote = null;
+            if (!disposed && !element.closest("[aria-busy=true]")) refresh();
+        });
+    }
+    function render() {
+        taskFields?.destroy(); taskFields = null;
+        initializeTitle(); clearInvalidDestinations(); element.replaceChildren();
+        const placement = group();
+        if (!lockedType && state.inputPath !== "file" && !state.attachments?.length) {
+            mountCaptureTypeControl({ host: placement, selectedType: state.type, onSelect: type => {
+                state.type = type; render(); notify(); element.querySelector("button[aria-pressed=true]")?.focus();
+            } });
+        }
+        if (!state.type) return;
+        if (state.type === "note") mountChoices({ host: placement, label: "Action", cls: "hub-capture-note-actions", selected: state.noteAction,
+            disabled: state.attachments?.length ? ["existing"] : [],
+            options: [["new", "New note", "notebook-plus"], ["existing", "Add text to existing note", "notebook-pen"]],
+            onSelect: action => { state.noteAction = action; render(); notify();
+                element.querySelector(".hub-capture-note-actions button[aria-pressed=true]")?.focus(); } });
+        workspaceField(placement);
+        if (state.type === "task") renderTask();
+        else if (state.type === "note" && state.noteAction === "existing") { existingNoteField(placement); checkNoteLocation(); }
+        else {
+            locationField(placement, false);
+            if (state.type === "note") {
+                const title = field(placement, "Title", "text", "title", true); title.classList.add("hub-task-title-input");
+                title.setAttribute("aria-label", "Note title");
+            }
+        }
+    }
+    function value() { return { ...state, attachments: [...(state.attachments ?? [])], steps: state.steps.map(step => ({ ...step })) }; }
+    function valid() {
+        return service.completion(state, captureId()).complete;
+    }
+    const refresh = () => {
+        if (disposed) return;
+        if (!element.closest("[aria-busy=true]")) {
+            const active = element.ownerDocument.activeElement, label = element.contains(active) ? active.getAttribute("aria-label") : null;
+            const index = label ? [...element.querySelectorAll("button,input,select")].filter(input => input.getAttribute("aria-label") === label).indexOf(active) : -1;
+            const selection = active && typeof active.selectionStart === "number" ? [active.selectionStart, active.selectionEnd] : null;
+            render();
+            const target = index >= 0 ? [...element.querySelectorAll("button,input,select")].filter(input => input.getAttribute("aria-label") === label)[index] : null;
+            target?.focus({ preventScroll: true }); if (target && selection && target.type === "text") target.setSelectionRange(...selection);
+        }
+        notify();
+    };
+    const listen = (emitter, event) => {
+        if (!emitter?.on || !emitter.offref) return;
+        const reference = emitter.on(event, refresh); disposers.push(() => emitter.offref(reference));
+    };
+    render();
+    for (const event of ["create", "delete", "rename"]) listen(service.plugin.app.vault, event);
+    if (service.plugin.app.vault.on && service.plugin.app.vault.offref) {
+        const reference = service.plugin.app.vault.on("modify", file => { if (file.path === state.noteLocation?.path) refresh(); });
+        disposers.push(() => service.plugin.app.vault.offref(reference));
+    }
+    listen(service.plugin.app.metadataCache, "changed");
+    service.plugin.planning?.subscribe?.({ register: dispose => disposers.push(dispose) }, refresh);
+    return {
+        value, valid, refresh,
+        update(patch) {
+            const layoutChanged = (!lockedType && patch.type !== undefined && patch.type !== state.type) ||
+                (patch.workspaceId !== undefined && patch.workspaceId !== state.workspaceId) ||
+                (patch.noteAction !== undefined && patch.noteAction !== state.noteAction) || patch.noteLocation !== undefined ||
+                (patch.inputPath !== undefined && patch.inputPath !== state.inputPath);
+            if (patch.workspaceId !== undefined && patch.workspaceId !== state.workspaceId) {
+                state.folder = ""; state.location = ""; state.noteLocation = null; state.phaseId = "";
+            }
+            Object.assign(state, patch, lockedType ? { type: lockedType } : {});
+            if (patch.steps) state.steps = patch.steps.map(step => ({ ...step }));
+            initializeTitle(); clearInvalidDestinations();
+            if (layoutChanged) render();
+            notify();
+        },
+        focus() { element.querySelector("button.is-active,button,input,select")?.focus(); },
+        destroy() { disposed = true; picker?.close(); taskFields?.destroy(); for (const dispose of disposers) dispose(); element.remove(); }
+    };
+}
+module.exports = { mountCaptureForm, mountCaptureTypeControl, noteTitle };
+
+},
+"lib/ui/capture-modal.js": function (module, exports, __hubRequire) {
+"use strict";
+const { Modal } = require("obsidian");
+const { setHubIcon } = __hubRequire("lib/ui/icons.js");
+
+let instance = 0;
+function action(host, text, icon, callback, cls = "") {
+    const button = host.createEl("button", { cls, attr: { type: "button" } });
+    if (icon) setHubIcon(button.createSpan({ cls: "hub-capture-icon", attr: { "aria-hidden": "true" } }), icon);
+    button.createSpan({ text });
+    button.addEventListener("click", callback);
+    return button;
+}
+
+// Native Modal owns focus trapping and Escape. Both capture surfaces share
+// save blocking, native feedback, and restoration to the actual invoking input.
+class CaptureModal extends Modal {
+    constructor(app, service, options = {}) {
+        super(app); this.service = service; this.options = options;
+        this.returnFocus = options.returnFocus ?? app.workspace?.activeLeaf?.view?.containerEl?.ownerDocument?.activeElement ?? globalThis.document?.activeElement;
+        this.prefix = `hub-capture-${++instance}`; this.busy = false; this.closed = false;
+    }
+    header(title, subtitle) {
+        this.contentEl.classList.add("hub-button-scope", "hub-capture-content", "hub-capture-form-scope");
+        const header = this.contentEl.createEl("header", { cls: "hub-capture-header" });
+        header.createEl("h2", { text: title, attr: { id: this.prefix + "-title" } });
+        header.createEl("p", { text: subtitle, cls: "hub-oath-muted", attr: { id: this.prefix + "-description" } });
+        this.modalEl.setAttribute("aria-labelledby", this.prefix + "-title");
+        this.modalEl.setAttribute("aria-describedby", this.prefix + "-description");
+        const close = this.modalEl.querySelector(".modal-close-button");
+        close?.setAttribute("aria-label", "Close " + title);
+        close?.setAttribute("title", "Close " + title);
+        this.error = this.contentEl.createDiv({ cls: "hub-task-error hub-capture-error", attr: { role: "alert" } });
+    }
+    async run(work) {
+        if (this.busy || this.closed) return;
+        this.busy = true; this.error.textContent = "";
+        const controls = [...this.contentEl.querySelectorAll("button,input,textarea,select")];
+        const disabled = controls.map(control => control.disabled);
+        controls.forEach(control => control.disabled = true);
+        this.modalEl.setAttribute("aria-busy", "true");
+        try { return await work(); }
+        catch (error) {
+            this.onProblem?.(error);
+            if (!this.closed) this.error.textContent = error.message || "Could not save. Please try again.";
+        }
+        finally {
+            this.busy = false; this.modalEl.removeAttribute("aria-busy");
+            controls.forEach((control, index) => { control.disabled = disabled[index]; });
+            this.form?.refresh?.();
+            this.sync?.();
+        }
+    }
+    close() { if (!this.busy) super.close(); }
+    finish() { this.busy = false; this.close(); }
+    onClose() {
+        this.closed = true; this.stop?.(); this.form?.destroy(); this.contentEl.empty();
+        this.options.onClose?.();
+        if (this.returnFocus?.isConnected) this.returnFocus.focus({ preventScroll: true });
+    }
+}
+
+// Small native confirmations share capture typography, buttons and focus/Escape
+// handling. Closing the dialog always means Cancel.
+class CaptureConfirmation extends CaptureModal {
+    ask() { return new Promise(resolve => { this.resolve = resolve; this.open(); }); }
+    onOpen() {
+        this.modalEl.classList.add("hub-capture-confirmation");
+        this.header(this.options.title, this.options.message);
+        const actions = this.contentEl.createDiv({ cls: "hub-capture-actions" });
+        const cancel = action(actions, "Cancel", null, () => this.close());
+        action(actions, this.options.confirmLabel, null, () => {
+            this.resolve?.(true); this.resolve = null; this.close();
+        }, this.options.destructive ? "mod-warning" : "mod-cta");
+        cancel.focus();
+    }
+    onClose() { this.resolve?.(false); this.resolve = null; super.onClose(); }
+}
+
+function attachments(host, refs, service, { remove, open } = {}) {
+    host.empty();
+    for (const ref of refs) {
+        const row = host.createDiv({ cls: "hub-capture-attachment" });
+        const file = service.plugin.app.vault.getAbstractFileByPath(service.attachmentPath?.(ref) ?? ref.path);
+        if (file && (ref.mime?.startsWith("image/") || /\.(png|jpe?g|gif|webp|svg|bmp|avif)$/i.test(ref.name))) {
+            row.createEl("img", { cls: "hub-capture-thumbnail", attr: { src: service.plugin.app.vault.getResourcePath(file), alt: "" } });
+        } else setHubIcon(row.createSpan({ cls: "hub-capture-icon", attr: { "aria-hidden": "true" } }), ref.mime?.startsWith("image/") ? "image" : "file");
+        const copy = row.createDiv({ cls: "hub-capture-attachment-copy" });
+        copy.createDiv({ text: ref.name, cls: "hub-capture-filename", attr: { title: ref.name } });
+        copy.createDiv({ cls: "hub-capture-muted", text: !file ? "Source file unavailable" : ref.size ? `${Math.max(1, Math.round(ref.size / 1024)).toLocaleString()} KB` : "File" });
+        if (open && file) action(row, "Open", "external-link", () => open(ref), "hub-capture-small-action");
+        if (remove) {
+            const button = action(row, "", "x", () => remove(ref), "hub-capture-small-action");
+            button.setAttribute("aria-label", "Remove " + ref.name);
+            button.setAttribute("title", "Remove " + ref.name);
+        }
+    }
+}
+
+module.exports = { CaptureModal, CaptureConfirmation, action, attachments };
+
+},
+"lib/ui/capture-pickers.js": function (module, exports, __hubRequire) {
+"use strict";
+const { Modal, Component } = require("obsidian");
+const { createWorkspaceCards } = __hubRequire("lib/ui/workspace-cards.js");
+const { createCardImageRenderer } = __hubRequire("lib/ui/card-images.js");
+const { setHubIcon } = __hubRequire("lib/ui/icons.js");
+const { mountCaptureLocationTree } = __hubRequire("lib/ui/capture-tree.js");
+
+let pickerId = 0;
+function preparePicker(modal, title, classes) {
+    const id = `hub-capture-picker-${++pickerId}`;
+    modal.modalEl.classList.add("hub-oath-dialog", ...classes);
+    modal.contentEl.classList.add("hub-button-scope", "hub-capture-form-scope");
+    modal.contentEl.createEl("h2", { text: title, attr: { id } });
+    modal.modalEl.setAttribute("aria-labelledby", id);
+    const close = modal.modalEl.querySelector(".modal-close-button");
+    close?.setAttribute("aria-label", "Close " + title); close?.setAttribute("title", "Close " + title);
+    modal.owner = new Component(); modal.owner.load();
+}
+function cancelAction(modal) {
+    const actions = modal.contentEl.createDiv({ cls: "hub-oath-actions hub-capture-picker-actions" });
+    actions.createEl("button", { text: "Cancel", attr: { type: "button" } }).addEventListener("click", () => modal.close());
+}
+function listen(owner, emitter, event, render) {
+    if (!emitter?.on || !emitter.offref) return;
+    const reference = emitter.on(event, render);
+    owner.register(() => emitter.offref(reference));
+}
+
+// Reuse the same card markup, artwork crop, category subtitles, order, and Oath
+// eligibility as Home and Select project/resource. Choosing never navigates.
+function openCaptureWorkspacePicker(service, { selectedId, onSelect, restoreFocus } = {}) {
+    class WorkspacePicker extends Modal {
+        onOpen() {
+            preparePicker(this, "Save to", ["hub-oath-workspace-picker", "hub-capture-workspace-picker"]);
+            const search = this.contentEl.createEl("input", { type: "search", cls: "hub-oath-search",
+                attr: { placeholder: "Search projects and resources…", "aria-label": "Search destinations" } });
+            const body = this.contentEl.createDiv({ cls: "hub-capture-workspace-groups" });
+            const error = this.contentEl.createDiv({ cls: "hub-task-error", attr: { role: "alert" } });
+            const paintImage = createCardImageRenderer(body, this.owner,
+                key => ({ initial: service.plugin.projectWizard.data.headerImagePlacements?.[key] }), service.plugin.cardImageCache);
+            const cards = createWorkspaceCards({ app: service.app, root: body, component: this.owner,
+                renderImage: (element, url, options) => paintImage(element, url, { ...options, readOnly: true }),
+                categories: () => service.plugin.projectWizard.getCategories?.() ?? [], oath: service.plugin.oath });
+            const render = () => {
+                body.empty();
+                const query = search.value.toLocaleLowerCase().trim();
+                const all = service.destinations().filter(context => [context.name, context.label].filter(Boolean).join(" ").toLocaleLowerCase().includes(query));
+                const positions = service.plugin.projectWizard.data.projectCardOrder?.active ?? [];
+                for (const [kind, label] of [["project", "Projects"], ["resource", "Resources"]]) {
+                    const contexts = all.filter(context => context.contextKind === kind);
+                    if (kind === "project") contexts.sort((a, b) =>
+                        (positions.indexOf(a.projectId) < 0 ? Infinity : positions.indexOf(a.projectId)) -
+                        (positions.indexOf(b.projectId) < 0 ? Infinity : positions.indexOf(b.projectId)));
+                    if (!contexts.length) continue;
+                    const group = body.createEl("section", { cls: "hub-capture-workspace-group" });
+                    group.createEl("h3", { text: label, cls: "hub-capture-picker-heading" });
+                    const grid = group.createDiv({ cls: "hub-oath-workspace-grid is-" + kind });
+                    for (const context of contexts) {
+                        const card = cards.render(grid, context, () => {
+                            const current = service.destinations().find(item => item.id === context.id);
+                            if (!current) { error.textContent = "This destination is no longer available."; render(); return; }
+                            onSelect?.(current); this.close();
+                        });
+                        card.dataset.captureWorkspaceId = context.id;
+                        card.title = context.name ?? context.label;
+                        card.classList.toggle("is-selected", context.id === selectedId);
+                        card.setAttribute("aria-pressed", String(context.id === selectedId));
+                    }
+                }
+                if (!all.length) body.createEl("p", { cls: "hub-oath-muted", text: "No matching projects or resources." });
+            };
+            search.addEventListener("input", render);
+            service.plugin.taskData?.subscribe?.(this.owner, render);
+            for (const event of ["create", "delete", "rename"]) listen(this.owner, service.app.vault, event, render);
+            cancelAction(this); render(); search.focus();
+        }
+        onClose() { this.owner?.unload(); this.contentEl.empty(); restoreFocus?.(); }
+    }
+    const modal = new WorkspacePicker(service.app); modal.open(); return modal;
+}
+
+// The placement view is intentionally a picker, using the Files row/icon and
+// nested group language without mounting the explorer's editing/navigation UI.
+function openCaptureLocationPicker(service, { workspace, task = false, selectedPath, getItems, onSelect, restoreFocus } = {}) {
+    class LocationPicker extends Modal {
+        onOpen() {
+            preparePicker(this, task ? "Choose task location" : "Choose a folder", ["hub-capture-location-picker"]);
+            this.contentEl.createEl("p", { cls: "hub-oath-muted", text: workspace.name });
+            const searchBox = this.contentEl.createDiv({ cls: "hub-explorer-search" });
+            setHubIcon(searchBox.createSpan({ cls: "hub-explorer-icon", attr: { "aria-hidden": "true" } }), "search");
+            const search = searchBox.createEl("input", { type: "search", cls: "hub-explorer-search-input",
+                attr: { placeholder: task ? "Search notes and folders…" : "Search folders…", "aria-label": task ? "Search task locations" : "Search folders" } });
+            const tree = this.contentEl.createDiv({ cls: "hub-capture-location-tree", attr: { role: "tree", "aria-label": task ? "Task locations" : "Destination folders" } });
+            const error = this.contentEl.createDiv({ cls: "hub-task-error", attr: { role: "alert" } });
+            const hierarchy = mountCaptureLocationTree({ tree, search, getItems, foldersOnly: !task, showKind: task,
+                selectedPath: () => selectedPath,
+                onSelect: current => { onSelect?.(current); this.close(); },
+                onMissing: () => { error.textContent = "This location is no longer available."; }
+            });
+            this.owner.register(() => hierarchy.destroy());
+            for (const event of ["create", "delete", "rename"]) listen(this.owner, service.app.vault, event, hierarchy.render);
+            cancelAction(this); search.focus();
+        }
+        onClose() { this.owner?.unload(); this.contentEl.empty(); restoreFocus?.(); }
+    }
+    const modal = new LocationPicker(service.app); modal.open(); return modal;
+}
+module.exports = { openCaptureWorkspacePicker, openCaptureLocationPicker, preparePicker, listen };
+
+},
+"lib/ui/capture-tree.js": function (module, exports, __hubRequire) {
+"use strict";
+const { setHubIcon } = __hubRequire("lib/ui/icons.js");
+const { fileIcon } = __hubRequire("lib/ui/file-icons.js");
+
+// Shared location hierarchy, search and keyboard routing. The task/folder
+// picker still commits a clicked row; the note-position picker keeps notes
+// selected while folders only expand/collapse for navigation.
+function mountCaptureLocationTree({ tree, search, getItems, selectedPath = () => null, onSelect,
+    onMissing = () => {}, foldersOnly = false, showKind = true, collapsible = false }) {
+    let focusPath = selectedPath();
+    const collapsed = new Set();
+    const rows = () => [...tree.querySelectorAll("button[role=treeitem]")];
+    function focus(path) {
+        focusPath = path;
+        for (const button of rows()) button.tabIndex = button.dataset.capturePath === path ? 0 : -1;
+        const target = rows().find(button => button.dataset.capturePath === path);
+        target?.focus({ preventScroll: true }); target?.scrollIntoView({ block: "nearest" });
+    }
+    function render() {
+        const active = tree.contains(tree.ownerDocument.activeElement), scroll = tree.scrollTop;
+        tree.empty();
+        const entries = getItems().map(item => foldersOnly ? { ...item, folder: true } : item);
+        const nodes = new Map(entries.map(item => [item.path, { item, children: [] }])), roots = [];
+        for (const node of nodes.values()) {
+            const parent = nodes.get(node.item.path.slice(0, node.item.path.lastIndexOf("/")));
+            if (parent) parent.children.push(node); else roots.push(node);
+        }
+        const sort = nodes => nodes.sort((a, b) => Number(!!b.item.folder) - Number(!!a.item.folder) || a.item.path.localeCompare(b.item.path, undefined, { numeric: true }));
+        const query = search.value.trim().toLocaleLowerCase(), visible = new Set();
+        for (const item of entries) if (!query || [item.path, item.label, item.name].filter(Boolean).join(" ").toLocaleLowerCase().includes(query)) {
+            for (let path = item.path; nodes.has(path); path = path.slice(0, path.lastIndexOf("/"))) visible.add(path);
+        }
+        const branch = (parent, node, depth, index, count) => {
+            const item = node.item, folder = !!item.folder;
+            const wrapper = parent.createDiv({ cls: "hub-capture-location-item" });
+            const selected = item.path === selectedPath() && (!collapsible || !folder);
+            const row = wrapper.createEl("button", { cls: "hub-button-plain hub-explorer-tree-row hub-capture-location-row" + (selected ? " is-selected" : ""), attr: {
+                type: "button", role: "treeitem", "aria-level": String(depth + 1), "aria-posinset": String(index + 1), "aria-setsize": String(count),
+                "aria-selected": String(selected), "aria-label": (item.label ?? item.path) + (folder ? ", Folder" : ", Markdown note")
+            } });
+            row.dataset.capturePath = item.path; row.dataset.captureDepth = String(depth); row.style.setProperty("--hub-tree-depth", depth);
+            row.title = item.path;
+            const children = sort(node.children.filter(child => visible.has(child.item.path)));
+            const expanded = !collapsible || !!query || !collapsed.has(item.path);
+            if (collapsible) {
+                const chevron = row.createSpan({ cls: "hub-capture-tree-chevron", attr: { "aria-hidden": "true" } });
+                if (folder) setHubIcon(chevron, expanded ? "chevron-down" : "chevron-right");
+            }
+            setHubIcon(row.createSpan({ cls: "hub-explorer-icon", attr: { "aria-hidden": "true" } }), folder ? "folder" : fileIcon(item.file ?? item.path));
+            row.createSpan({ cls: "hub-explorer-name", text: item.name ?? item.file?.name?.replace(/\.md$/i, "") ?? item.path.split("/").pop().replace(/\.md$/i, "") });
+            if (showKind) row.createSpan({ cls: "hub-capture-location-kind", text: folder ? "Folder" : "Markdown note" });
+            row.addEventListener("click", () => {
+                const current = getItems().find(candidate => candidate.path === item.path);
+                if (!current) { onMissing(); render(); return; }
+                focusPath = item.path;
+                if (collapsible && folder) { toggle(item.path); return; }
+                onSelect(current);
+            });
+            if (folder && (children.length || collapsible)) row.setAttribute("aria-expanded", String(expanded));
+            if (children.length && expanded) {
+                const group = wrapper.createDiv({ cls: "hub-explorer-group hub-capture-location-group", attr: { role: "group" } });
+                group.style.setProperty("--hub-tree-depth", depth);
+                children.forEach((child, i) => branch(group, child, depth + 1, i, children.length));
+            }
+        };
+        const shownRoots = sort(roots.filter(node => visible.has(node.item.path)));
+        shownRoots.forEach((node, i) => branch(tree, node, 0, i, shownRoots.length));
+        const buttons = rows();
+        if (!buttons.length) tree.createDiv({ cls: "hub-explorer-empty", text: query ? "No matching locations." : "No available workspace folders." });
+        if (!buttons.some(row => row.dataset.capturePath === focusPath)) focusPath = buttons[0]?.dataset.capturePath;
+        buttons.forEach(row => { row.tabIndex = row.dataset.capturePath === focusPath ? 0 : -1; });
+        tree.scrollTop = scroll; if (active && focusPath) focus(focusPath);
+    }
+    function toggle(path) {
+        if (collapsed.has(path)) collapsed.delete(path); else collapsed.add(path);
+        render(); focus(path);
+    }
+    const key = event => {
+        const buttons = rows(), index = buttons.indexOf(event.target);
+        if (index < 0) return;
+        const path = event.target.dataset.capturePath, expanded = event.target.getAttribute("aria-expanded");
+        if (collapsible && !search.value.trim() && (event.key === "ArrowLeft" && expanded === "true" || event.key === "ArrowRight" && expanded === "false")) {
+            event.preventDefault(); toggle(path); return;
+        }
+        let next = event.key === "ArrowDown" ? buttons[Math.min(buttons.length - 1, index + 1)] : event.key === "ArrowUp" ? buttons[Math.max(0, index - 1)] : event.key === "Home" ? buttons[0] : event.key === "End" ? buttons.at(-1) : null;
+        if (event.key === "ArrowLeft") next = buttons.find(row => row.dataset.capturePath === path.slice(0, path.lastIndexOf("/")));
+        if (event.key === "ArrowRight" && Number(buttons[index + 1]?.dataset.captureDepth) > Number(event.target.dataset.captureDepth)) next = buttons[index + 1];
+        if (next) { event.preventDefault(); focus(next.dataset.capturePath); }
+    };
+    tree.addEventListener("keydown", key); search.addEventListener("input", render); render();
+    return { render, focus, destroy() { tree.removeEventListener("keydown", key); search.removeEventListener("input", render); } };
+}
+module.exports = { mountCaptureLocationTree };
 
 },
 "lib/ui/card-images.js": function (module, exports, __hubRequire) {
@@ -6337,6 +8282,7 @@ module.exports = { createDashboardFrame };
 },
 "lib/ui/dashboard-ui.js": function (module, exports, __hubRequire) {
 "use strict";
+const { disclosureIcons } = __hubRequire("lib/ui/disclosure.js");
 const { setHubTooltip } = __hubRequire("lib/ui/tooltips.js");
 const { progressColors, progressColor } = __hubRequire("lib/ui/progress-colors.js");
 
@@ -6510,16 +8456,6 @@ function createDashboardUi({
         return button;
     }
 
-    function disclosureIcons(button) {
-        button.classList.add("hub-disclosure");
-        // Both icons follow the same aria-expanded state the menu owns, including
-        // outside clicks, Escape, selection, resize and view disposal.
-        for (const [state, name] of [["closed", "chevron-right"], ["open", "chevron-down"]]) {
-            const icon = button.createEl("span", { cls: `hub-presets-chevron is-${state}` });
-            icon.setAttribute("aria-hidden", "true");
-            require("obsidian").setIcon(icon, name);
-        }
-    }
 
     function placeHeatmapNavigation(calendar, toolbar, previous, year, next) {
         const months = calendar.querySelector(".heatmap-calendar-months");
@@ -6598,6 +8534,122 @@ module.exports = {
     createDashboardUi,
     selectNavigation
 };
+
+},
+"lib/ui/date-time.js": function (module, exports, __hubRequire) {
+"use strict";
+const { Modal } = require("obsidian");
+const { parseLocalISODate, validLocalTime } = __hubRequire("lib/domain/dates.js");
+const { setHubIcon } = __hubRequire("lib/ui/icons.js");
+
+// The native calendar/time interaction is shared with The Oath. Showing the
+// real input on typing also keeps the control usable without showPicker().
+function bindNativeDateTimePicker({ input, surface, beforeOpen = () => {} }) {
+    const open = () => {
+        beforeOpen(); surface.classList.remove("is-typing"); input.focus();
+        try {
+            if (input.showPicker) input.showPicker();
+            else surface.classList.add("is-typing");
+        } catch (_) { surface.classList.add("is-typing"); }
+    };
+    input.addEventListener("click", open);
+    input.addEventListener("keydown", event => {
+        if (event.key === "Enter" || event.key === " " || (event.altKey && event.key === "ArrowDown")) {
+            event.preventDefault(); open();
+        } else if (!["Tab", "Escape", "Shift", "Alt", "Control", "Meta"].includes(event.key)) surface.classList.add("is-typing");
+    });
+    input.addEventListener("blur", () => surface.classList.remove("is-typing"));
+    return { open };
+}
+
+function mountTaskDateTime({ app, host, label, state, dateKey, timeKey, onChange = () => {} }) {
+    const field = host.createDiv({ cls: "hub-date-time-field" });
+    const title = field.createEl("label", { text: label });
+    const control = field.createEl("button", { cls: "hub-date-time-control hub-date-time-trigger", attr: {
+        type: "button", "aria-label": label, "aria-haspopup": "dialog", "aria-expanded": "false"
+    } });
+    const display = control.createSpan({ cls: "hub-date-time-value" });
+    setHubIcon(control.createSpan({ cls: "hub-capture-icon", attr: { "aria-hidden": "true" } }), "chevron-down");
+    let picker = null, minimum = "";
+    const sync = () => {
+        const date = parseLocalISODate(state[dateKey]);
+        const time = date && validLocalTime(state[timeKey]) ? state[timeKey] : "";
+        const text = date ? `${date.getDate()} ${date.toLocaleDateString("en-US", { month: "short" })} ${date.getFullYear()}${time ? ", " + time : ""}` : "Select date and time";
+        display.textContent = text;
+        picker?.refresh();
+    };
+    const update = (date, time) => {
+        state[dateKey] = date; state[timeKey] = date ? time : "";
+        sync(); onChange({ [dateKey]: state[dateKey], [timeKey]: state[timeKey] });
+    };
+    // Native datetime-local cannot represent a date without a time. Keep the
+    // native date/time interactions inside one shared picker, with independent
+    // optional time precision rather than seeding a persisted midnight.
+    class TaskDateTimePicker extends Modal {
+        onOpen() {
+            this.modalEl.classList.add("hub-task-date-time-picker");
+            this.contentEl.classList.add("hub-button-scope", "hub-capture-form-scope");
+            this.setTitle(label);
+            const fields = this.contentEl.createDiv({ cls: "hub-task-date-time-picker-fields" });
+            const dateLabel = fields.createEl("label", { cls: "hub-capture-field" });
+            dateLabel.createSpan({ cls: "hub-capture-field-title", text: "Date" });
+            this.date = dateLabel.createEl("input", { type: "date", attr: { "aria-label": label + " date", lang: "en" } });
+            const timeLabel = fields.createEl("label", { cls: "hub-capture-field" });
+            timeLabel.createSpan({ cls: "hub-capture-field-title", text: "Time (optional)" });
+            const timeRow = timeLabel.createDiv({ cls: "hub-task-time-field" });
+            this.time = timeRow.createEl("input", { type: "time", attr: { "aria-label": label + " time", lang: "en" } });
+            this.clearTime = timeRow.createEl("button", { text: "Clear time", attr: { type: "button" } });
+            this.clearTime.onclick = () => update(state[dateKey], "");
+            for (const event of ["input", "change"]) {
+                this.date.addEventListener(event, () => { if (!this.date.validity.badInput) update(this.date.value, state[timeKey] ?? ""); });
+                this.time.addEventListener(event, () => { if (!this.time.validity.badInput) update(state[dateKey], this.time.value); });
+            }
+            const actions = this.contentEl.createDiv({ cls: "hub-capture-actions" });
+            actions.createEl("button", { text: "Clear date", attr: { type: "button" } }).onclick = () => update("", "");
+            actions.createEl("button", { text: "Done", attr: { type: "button" } }).onclick = () => {
+                if (this.date.reportValidity() && this.time.reportValidity()) this.close();
+            };
+            this.refresh(); this.date.focus();
+        }
+        refresh() {
+            this.date.value = state[dateKey] ?? ""; this.date.min = minimum;
+            this.time.value = state[timeKey] ?? ""; this.time.disabled = !state[dateKey];
+            this.clearTime.disabled = !state[timeKey];
+        }
+        onClose() {
+            picker = null; control.setAttribute("aria-expanded", "false"); this.contentEl.empty();
+            if (control.isConnected) control.focus({ preventScroll: true });
+        }
+    }
+    const open = () => {
+        if (control.disabled || picker) return;
+        control.focus({ preventScroll: true });
+        picker = new TaskDateTimePicker(app); control.setAttribute("aria-expanded", "true"); picker.open();
+    };
+    control.addEventListener("click", open);
+    control.addEventListener("keydown", event => { if (event.key === "ArrowDown") { event.preventDefault(); open(); } });
+    title.addEventListener("click", open);
+    sync();
+    return { input: control, field, refresh: sync, setMin: date => { minimum = date ?? ""; picker?.refresh(); }, destroy: () => picker?.close() };
+}
+
+module.exports = { bindNativeDateTimePicker, mountTaskDateTime };
+
+},
+"lib/ui/disclosure.js": function (module, exports, __hubRequire) {
+"use strict";
+function disclosureIcons(button) {
+    const { setIcon } = require("obsidian");
+    button.classList.add("hub-disclosure");
+    // Both icons follow the aria-expanded state owned by the menu, including
+    // outside clicks, Escape, selection, resize and view disposal.
+    for (const [state, name] of [["closed", "chevron-right"], ["open", "chevron-down"]]) {
+        const icon = button.createEl("span", { cls: `hub-presets-chevron is-${state}` });
+        icon.setAttribute("aria-hidden", "true");
+        setIcon(icon, name);
+    }
+}
+module.exports = { disclosureIcons };
 
 },
 "lib/ui/file-icons.js": function (module, exports, __hubRequire) {
@@ -7091,10 +9143,728 @@ function setHubIcon(element, name) {
         resolved = getIcon(canonical) ? canonical : name;
         resolvedNames.set(name, resolved);
     }
+    if (name.replace(/^lucide-/, "") === "clock-arrow-right" && !getIcon(resolved)) {
+        // Obsidian 1.13.7 does not yet ship this requested Lucide icon. Use the
+        // official upstream SVG, as the shared History icon already does.
+        // https://github.com/lucide-icons/lucide/blob/main/icons/clock-arrow-right.svg
+        // ISC License, Copyright (c) 2026 Lucide Icons and Contributors.
+        // Permission to use, copy, modify, and/or distribute this software for any
+        // purpose with or without fee is hereby granted, provided that the above
+        // copyright notice and this permission notice appear in all copies.
+        // THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+        // WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+        // MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+        // ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+        // WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+        // ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+        // OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+        const svg = element.ownerDocument.createElementNS("http://www.w3.org/2000/svg", "svg");
+        svg.classList.add("lucide", "lucide-clock-arrow-right");
+        for (const [key, value] of Object.entries({ viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "stroke-width": "2", "stroke-linecap": "round", "stroke-linejoin": "round" })) svg.setAttribute(key, value);
+        for (const d of ["M12 6v6l2 1", "M13.5 21.885A10 10 0 1 1 22 12", "M14 18h8", "m18 22 4-4-4-4"]) {
+            const path = element.ownerDocument.createElementNS(svg.namespaceURI, "path"); path.setAttribute("d", d); svg.append(path);
+        }
+        element.replaceChildren(svg);
+        return;
+    }
+    if (name.replace(/^lucide-/, "") === "file-question-mark" && !getIcon(resolved)) {
+        // Official Lucide SVG for Obsidian releases predating this icon name.
+        // https://github.com/lucide-icons/lucide/blob/main/icons/file-question-mark.svg
+        // ISC License, Copyright (c) 2026 Lucide Icons and Contributors; the
+        // permission and warranty notice above also applies to this SVG.
+        const svg = element.ownerDocument.createElementNS("http://www.w3.org/2000/svg", "svg");
+        svg.classList.add("lucide", "lucide-file-question-mark");
+        for (const [key, value] of Object.entries({ viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "stroke-width": "2", "stroke-linecap": "round", "stroke-linejoin": "round" })) svg.setAttribute(key, value);
+        for (const d of ["M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z", "M12 17h.01", "M9.1 9a3 3 0 0 1 5.82 1c0 2-3 3-3 3"]) {
+            const path = element.ownerDocument.createElementNS(svg.namespaceURI, "path"); path.setAttribute("d", d); svg.append(path);
+        }
+        element.replaceChildren(svg); return;
+    }
     setIcon(element, resolved);
 }
 
 module.exports = { setHubIcon };
+
+},
+"lib/ui/inbox-guidance.js": function (module, exports, __hubRequire) {
+"use strict";
+
+const { mountTransientEffects } = __hubRequire("lib/ui/attention.js");
+let instance = 0;
+
+// Presentation only: the service's ordered missing requirements and readiness
+// remain the single source of truth, including invalid optional Task edits.
+function mountInboxGuidance({ body, readyArrow, completion }) {
+    const hintId = `hub-inbox-guidance-${++instance}`;
+    const hint = body.createSpan({ cls: "hub-inbox-guidance-status", attr: { id: hintId, role: "status", "aria-live": "polite" } });
+    const effects = mountTransientEffects(body);
+    let warning = null, readyCued = false, opened = false, disposed = false;
+    const firstMissing = state => [...body.querySelectorAll("[data-capture-field]")]
+        .find(field => state.missing.includes(field.dataset.captureField));
+    function clearWarning() {
+        if (!warning) return;
+        const element = warning; warning = null;
+        effects.cancel(element);
+        for (const control of [element, ...element.querySelectorAll("button,input,textarea,select")]) {
+            const ids = (control.getAttribute("aria-describedby") ?? "").split(/\s+/).filter(id => id && id !== hintId);
+            if (ids.length) control.setAttribute("aria-describedby", ids.join(" ")); else control.removeAttribute("aria-describedby");
+        }
+        hint.textContent = "";
+    }
+    function guide() {
+        if (disposed) return false;
+        clearWarning();
+        const state = completion(), target = firstMissing(state);
+        if (!target) return false;
+        warning = target; hint.textContent = `${target.dataset.captureField} is required.`;
+        for (const control of [...target.querySelectorAll("button,input,textarea,select")]) {
+            const ids = new Set((control.getAttribute("aria-describedby") ?? "").split(/\s+/).filter(Boolean));
+            ids.add(hintId); control.setAttribute("aria-describedby", [...ids].join(" "));
+        }
+        effects.pulse(target, body, clearWarning);
+        return true;
+    }
+    return {
+        guide,
+        update() {
+            if (disposed) return;
+            const state = completion(), target = firstMissing(state);
+            if (!opened && target) guide();
+            // Only opening guides a missing field. Edits never move the user's
+            // place or replay attention, even if the next requirement changes.
+            if (warning && target !== warning) clearWarning();
+            if (state.ready && !readyCued) { readyCued = true; effects.run(readyArrow, "hub-ready-nudge"); }
+            if (!state.ready) { readyCued = false; effects.cancel(readyArrow); }
+            opened = true;
+        },
+        destroy() {
+            disposed = true; clearWarning(); hint.remove();
+            effects.destroy();
+        }
+    };
+}
+
+module.exports = { mountInboxGuidance };
+
+},
+"lib/ui/inbox.js": function (module, exports, __hubRequire) {
+"use strict";
+const { Notice, Menu, getIcon } = require("obsidian");
+const { CaptureModal, CaptureConfirmation, action, attachments } = __hubRequire("lib/ui/capture-modal.js");
+const { setHubIcon } = __hubRequire("lib/ui/icons.js");
+const { disclosureIcons } = __hubRequire("lib/ui/disclosure.js");
+const { bindMenuToggle } = __hubRequire("lib/ui/menu-toggle.js");
+const { mountCaptureForm, mountCaptureTypeControl, noteTitle } = __hubRequire("lib/ui/capture-form.js");
+const { mountInboxGuidance } = __hubRequire("lib/ui/inbox-guidance.js");
+const { linkFromText, captureDraft, sortedCaptures, INBOX_SORTS, inboxCounts } = __hubRequire("lib/domain/inbox.js");
+const { mountTaskText } = __hubRequire("lib/ui/task-form.js");
+
+const SORT_ICONS = {
+    "most-complete": ["arrow-down-wide-narrow", "arrow-down-1-0"],
+    "least-complete": ["arrow-up-wide-narrow", "arrow-up-0-1"],
+    newest: ["calendar-arrow-down", "arrow-down-1-0"],
+    oldest: ["calendar-arrow-up", "arrow-up-0-1"],
+    type: ["shapes", "tags"]
+};
+function sortIcon(sort) {
+    const [preferred, fallback] = SORT_ICONS[sort];
+    return getIcon("lucide-" + preferred) || getIcon(preferred) ? preferred : fallback;
+}
+
+function timestamp(value) { return new Date(value).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }); }
+function preview(capture) { return String(capture.text ?? "").trim() || capture.attachments.map(ref => ref.name).join(", ") || "Untitled item"; }
+function detailTitle(capture) {
+    const line = preview(capture).split(/\r?\n/)[0];
+    return line.length > 160 ? line.slice(0, 157) + "…" : line;
+}
+function contentIcon(capture) {
+    const type = (capture.operation?.state !== "done" ? capture.operation?.kind : null) ?? capture.intent?.type;
+    if (type === "task") return "square";
+    if (type === "note" || type === "note-insertion") return "notebook-text";
+    return capture.attachments.length ? capture.attachments[0].mime?.startsWith("image/") ? "image" : "file" : "file-question-mark";
+}
+
+function hasTypeSpecificDetails(draft) {
+    if (draft.type === "task") return ["location", "necessity", "fromDate", "dueDate", "fromTime", "dueTime", "phaseId", "linkedProjectId"]
+        .some(key => !!draft[key]) || draft.steps?.some(step => String(step.text ?? "").trim() || step.completed);
+    return draft.type === "note" && (!!draft.folder || !!draft.noteLocation || draft.noteAction === "existing" ||
+        !!String(draft.title ?? "").trim() && draft.title !== noteTitle(draft));
+}
+
+class InboxModal extends CaptureModal {
+    onOpen() {
+        this.modalEl.classList.add("hub-inbox-dialog");
+        this.header("Inbox", "Saved items awaiting organisation");
+        this.filter = "all"; this.sortOrder = this.service.sortPreference; this.selectedId = null;
+        this.rows = new Map(); this.checkingPositions = new Set();
+        const body = this.contentEl.createDiv({ cls: "hub-inbox-body" });
+        const aside = body.createEl("aside", { cls: "hub-inbox-sidebar", attr: { "aria-label": "Inbox items" } });
+        const toolbar = aside.createDiv({ cls: "hub-inbox-toolbar" });
+        this.filters = toolbar.createDiv({ cls: "hub-inbox-filters hub-equal-selectors hub-option-group", attr: { role: "group", "aria-label": "Filter items" } });
+        this.filterButtons = [["all", "All"], ["text", "Texts"], ["files", "Files"]].map(([key, label]) => {
+            const button = action(this.filters, label, null, () => { void this.changeFilter(key); });
+            return { key, label, button };
+        });
+        const sort = toolbar.createDiv({ cls: "hub-inbox-sort" });
+        this.sort = action(sort, "", sortIcon(this.sortOrder), () => this.showSortMenu(), "hub-panel-action hub-inbox-sort-button");
+        this.sortIcon = this.sort.querySelector(".hub-capture-icon");
+        this.stopSortToggle = bindMenuToggle(this.sort, { isOpen: () => !!this.sortMenu, close: () => this.sortMenu?.hide() });
+        const sortLabels = this.sort.querySelector("span:not(.hub-capture-icon)"); sortLabels.classList.add("hub-inbox-sort-label");
+        this.sortLabel = sortLabels.createSpan({ text: "Most complete" });
+        // Intrinsic measuring labels reserve the longest option in the current
+        // theme/font, with no guessed character count or selection-dependent width.
+        for (const [, label] of INBOX_SORTS) sortLabels.createSpan({ text: label, cls: "hub-inbox-sort-measure", attr: { "aria-hidden": "true" } });
+        for (const [key, value] of Object.entries({ "aria-label": "Sort items", "aria-haspopup": "menu", "aria-expanded": "false" })) this.sort.setAttribute(key, value);
+        disclosureIcons(this.sort);
+        this.sort.addEventListener("keydown", event => {
+            if (event.key === "ArrowDown") { event.preventDefault(); this.showSortMenu(); }
+        });
+        this.list = aside.createDiv({ cls: "hub-inbox-list", attr: { role: "group", "aria-label": "Inbox items" } });
+        this.list.addEventListener("keydown", event => {
+            const rows = [...this.list.querySelectorAll("button[data-capture-id]")];
+            const index = rows.indexOf(event.target);
+            if (index < 0) return;
+            const next = event.key === "ArrowDown" ? Math.min(rows.length - 1, index + 1) : event.key === "ArrowUp" ? Math.max(0, index - 1) : event.key === "Home" ? 0 : event.key === "End" ? rows.length - 1 : null;
+            if (next === null) return;
+            event.preventDefault(); rows[next].click();
+            this.list.querySelector(`[data-capture-id="${rows[next].dataset.captureId}"]`)?.focus();
+        });
+        this.detail = body.createEl("section", { cls: "hub-inbox-detail", attr: { "aria-label": "Item details", tabindex: "-1" } });
+        this.detail.addEventListener("focusout", () => queueMicrotask(() => {
+            if (this.reorderPending && !this.editingText()) this.refresh();
+        }));
+        this.deleteKey = event => {
+            if (event.key !== "Delete" || event.defaultPrevented || event.repeat || event.isComposing ||
+                event.ctrlKey || event.metaKey || event.altKey || event.shiftKey || this.busy || this.confirmation || this.sortMenu || this.itemMenu || !this.selectedId) return;
+            const target = event.target;
+            if (target.isContentEditable || target.closest('input,textarea,select,[contenteditable]:not([contenteditable="false"]),[role="textbox"],[role="combobox"],.cm-editor,.menu')) return;
+            event.preventDefault(); event.stopPropagation(); void this.remove(this.selectedId);
+        };
+        this.modalEl.addEventListener("keydown", this.deleteKey);
+        this.submitKey = event => {
+            if (event.key !== "Enter" || event.defaultPrevented || event.repeat || event.isComposing || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey ||
+                this.busy || this.confirmation || this.sortMenu || this.itemMenu || !this.draft) return;
+            const target = event.target;
+            if (!this.detail.contains(target) || target.isContentEditable || target.closest('textarea,select,[contenteditable]:not([contenteditable="false"]),[role="combobox"],.menu')) return;
+            // Buttons, pickers, date/time and Step editors keep their own Enter behavior.
+            if (target !== this.taskInput && target.getAttribute("aria-label") !== "Note title" && target !== this.detail) return;
+            event.preventDefault(); void this.commit();
+        };
+        this.modalEl.addEventListener("keydown", this.submitKey);
+        const footer = this.contentEl.createDiv({ cls: "hub-capture-actions hub-inbox-footer" });
+        action(footer, "Close", null, () => this.close());
+        this.stop = this.service.onChange(() => this.refresh());
+        this.refresh(); this.filterButtons[0].button.focus();
+    }
+    showSortMenu() {
+        if (this.closed || this.busy || this.sort.disabled) return;
+        this.itemMenu?.hide();
+        if (this.sortMenu) { this.sortMenu.hide(); return; }
+        const menu = this.sortMenu = new Menu();
+        for (const [sort, label] of INBOX_SORTS) menu.addItem(item => item
+            .setTitle(label).setIcon(sortIcon(sort)).setChecked(this.sortOrder === sort).onClick(() => { void this.changeSort(sort); }));
+        menu.onHide(() => {
+            if (this.sortMenu === menu) this.sortMenu = null;
+            this.sort.setAttribute("aria-expanded", "false");
+            const focused = this.sort.ownerDocument.activeElement;
+            if (!this.closed && this.sort.isConnected && (focused === this.sort.ownerDocument.body || focused?.closest(".menu"))) this.sort.focus({ preventScroll: true });
+        });
+        this.sort.setAttribute("aria-expanded", "true");
+        const rect = this.sort.getBoundingClientRect(); menu.showAtPosition({ x: rect.left, y: rect.bottom });
+    }
+    canChangeType(capture) {
+        return !!capture && !capture.attachments.length && !capture.operation && [undefined, null, "task", "note"].includes(capture.intent?.type);
+    }
+    showItemMenu(id, position) {
+        const capture = this.service.get(id);
+        if (!capture || this.closed || this.busy || this.confirmation) return;
+        const menu = new Menu();
+        menu.addItem(item => item.setTitle("Open").setIcon("panel-right-open").onClick(() => {
+            void this.openItem(id);
+        }));
+        menu.addItem(item => item.setTitle("Send to Itacan").setIcon("send")
+            .setDisabled(!this.itemCompletion(capture).ready).onClick(async () => {
+                if (await this.openItem(id) && this.itemCompletion(this.service.get(id)).ready) await this.commit();
+            }));
+        const type = this.selectedId === id ? this.mode : captureDraft(capture).type;
+        if (this.canChangeType(capture)) menu.addItem(item => item.setTitle(["task", "note"].includes(type) ? "Change type" : "Choose type").setIcon("repeat-2")
+            .onClick(() => this.showTypeMenu(id, position)));
+        menu.addSeparator();
+        menu.addItem(item => item.setTitle("Delete").setIcon("trash-2").setWarning(true)
+            .onClick(() => { void this.remove(id); }));
+        this.presentItemMenu(menu, id, position);
+    }
+    showTypeMenu(id, position) {
+        const capture = this.service.get(id);
+        if (!this.canChangeType(capture) || this.closed || this.busy || this.confirmation) return;
+        const type = id === this.selectedId ? this.mode : capture.intent?.type;
+        const menu = new Menu();
+        for (const [value, label, icon] of [["task", "Task", "square"], ["note", "Note", "notebook-text"]])
+            menu.addItem(item => item.setTitle(label).setIcon(icon).setChecked(type === value).onClick(async () => {
+                if (await this.openItem(id) && this.canChangeType(this.service.get(id))) await this.classify(value);
+            }));
+        this.presentItemMenu(menu, id, position);
+    }
+    presentItemMenu(menu, id, position) {
+        this.sortMenu?.hide(); this.itemMenu?.hide(); this.itemMenu = menu;
+        menu.onHide(() => {
+            if (this.itemMenu !== menu) return;
+            this.itemMenu = null;
+            const doc = this.modalEl.ownerDocument, focused = doc.activeElement;
+            if (!this.closed && (focused === doc.body || focused?.closest(".menu"))) this.rows.get(id)?.button.focus({ preventScroll: true });
+        });
+        menu.showAtPosition(position);
+    }
+    async openItem(id) {
+        if (this.closed || this.busy || this.confirmation || !this.service.get(id)) return false;
+        await this.select(id);
+        if (this.closed || this.selectedId !== id) return false;
+        this.detail.focus({ preventScroll: true });
+        return true;
+    }
+    async changeSort(sort) {
+        if (this.closed || this.busy || !await this.flushEdits()) return;
+        this.sortOrder = sort; this.refresh({ resetScroll: true });
+        this.sortSave = this.service.setSortPreference(sort).catch(error => {
+            new Notice(`The Inbox sort preference could not be saved. ${error.message}`);
+        });
+        await this.sortSave;
+    }
+    itemCompletion(capture) {
+        const values = capture.id === this.selectedId && this.draft ? this.form?.value() ?? this.draft : undefined;
+        return this.service.getInboxCompletion(capture, values);
+    }
+    visible() {
+        return sortedCaptures(this.service.captures, { filter: this.filter, sort: this.sortOrder, completion: item => this.itemCompletion(item) });
+    }
+    editingText() {
+        const focused = this.detail?.ownerDocument.activeElement;
+        return this.detail?.contains(focused) && focused.matches('textarea,input:not([type="checkbox"]),[contenteditable="true"]');
+    }
+    loadNotePositions(captures) {
+        for (const capture of captures) {
+            const draft = captureDraft(capture), location = draft.noteLocation;
+            if (draft.type !== "note" || draft.noteAction !== "existing" || !location || location.targetType === "note" ||
+                this.service.noteCache.has(location.path) || this.checkingPositions.has(location.path)) continue;
+            this.checkingPositions.add(location.path);
+            // Reuse the picker/form's structural validation cache after reopening
+            // Inbox, including notes that have not been selected in the list.
+            this.service.readNotePositions(draft.workspaceId, location.path).then(() => this.refresh()).catch(() => {})
+                .finally(() => this.checkingPositions.delete(location.path));
+        }
+    }
+    async changeFilter(key) {
+        if (this.busy || !await this.flushEdits()) return;
+        this.filter = key; this.refresh({ resetScroll: true });
+    }
+    refresh({ resetScroll = false } = {}) {
+        if (this.closed) return;
+        if (this.busy) { this.needsRefresh = true; return; }
+        this.needsRefresh = false;
+        let rows = this.visible();
+        const previous = this.list.ownerDocument.activeElement?.dataset?.captureId, scrollTop = this.list.scrollTop;
+        const anchor = [...this.list.children].find(row => row.dataset.captureId && row.getBoundingClientRect().bottom > this.list.getBoundingClientRect().top);
+        const anchorTop = anchor?.getBoundingClientRect().top;
+        this.sortLabel.textContent = INBOX_SORTS.find(([key]) => key === this.sortOrder)[1];
+        this.sort.dataset.value = this.sortOrder;
+        const activeIcon = sortIcon(this.sortOrder);
+        if (this.sortIconName !== activeIcon) { setHubIcon(this.sortIcon, activeIcon); this.sortIconName = activeIcon; }
+        const counts = inboxCounts(this.service.captures);
+        this.filterButtons.forEach(({ key, label, button }) => {
+            button.querySelector("span").textContent = `${label} (${counts[key]})`;
+            button.classList.toggle("is-selected", key === this.filter); button.setAttribute("aria-pressed", String(key === this.filter));
+        });
+        const currentOrder = [...this.list.children].map(row => row.dataset.captureId).filter(Boolean);
+        this.reorderPending = !resetScroll && ["most-complete", "least-complete"].includes(this.sortOrder) && this.editingText() &&
+            currentOrder.join("|") !== rows.map(item => item.id).join("|");
+        if (this.reorderPending) {
+            const remaining = new Map(rows.map(item => [item.id, item]));
+            rows = currentOrder.filter(id => remaining.has(id)).map(id => { const item = remaining.get(id); remaining.delete(id); return item; }).concat([...remaining.values()]);
+        }
+        if (!rows.some(capture => capture.id === this.selectedId)) {
+            this.resetAction(); this.selectedId = rows[0]?.id ?? null;
+        }
+        const visibleIds = new Set(rows.map(item => item.id));
+        for (const [id, row] of this.rows) if (!visibleIds.has(id)) { row.button.remove(); this.rows.delete(id); }
+        this.list.querySelector(".hub-capture-empty")?.remove();
+        if (!rows.length) this.list.createDiv({ cls: "hub-capture-empty", text: this.service.count ? "No items match this filter." : "Your Inbox is empty. Use Quick Add to save something for later." });
+        rows.forEach((capture, index) => {
+            const row = this.updateRow(capture);
+            const at = this.list.children[index];
+            if (at !== row.button) this.list.insertBefore(row.button, at ?? null);
+        });
+        if (resetScroll) this.list.scrollTop = 0;
+        else if (anchor?.isConnected) this.list.scrollTop = scrollTop + anchor.getBoundingClientRect().top - anchorTop;
+        else this.list.scrollTop = scrollTop;
+        this.loadNotePositions(this.service.captures);
+        if (!this.mode) this.renderDetail();
+        this.syncSubmit();
+        this.guidance?.update();
+        if (previous) (this.rows.get(previous)?.button ?? this.rows.get(this.selectedId)?.button)?.focus({ preventScroll: true });
+    }
+    updateRow(capture) {
+        let row = this.rows.get(capture.id);
+        if (!row) {
+            const button = this.list.createEl("button", { cls: "hub-inbox-row", attr: { type: "button", "data-capture-id": capture.id,
+                "aria-describedby": `${this.prefix}-completion-${capture.id}` } });
+            const icon = button.createSpan({ cls: "hub-capture-icon", attr: { "aria-hidden": "true" } });
+            const copy = button.createDiv({ cls: "hub-inbox-row-copy" }), heading = copy.createDiv({ cls: "hub-inbox-row-heading" });
+            const title = heading.createDiv({ cls: "hub-inbox-row-title" });
+            const status = heading.createSpan({ cls: "hub-inbox-completion-label", attr: { "aria-hidden": "true" } });
+            const metadata = copy.createDiv({ cls: "hub-capture-muted" });
+            const progress = copy.createEl("progress", { cls: "hub-inbox-completion-progress", attr: { id: `${this.prefix}-completion-${capture.id}` } });
+            row = { button, icon, title, status, metadata, progress }; this.rows.set(capture.id, row);
+            button.addEventListener("click", () => { void this.select(capture.id); });
+            button.addEventListener("contextmenu", event => {
+                event.preventDefault(); event.stopPropagation();
+                this.showItemMenu(capture.id, { x: event.clientX, y: event.clientY });
+            });
+            button.addEventListener("keydown", event => {
+                if (event.key !== "ContextMenu" && !(event.key === "F10" && event.shiftKey)) return;
+                event.preventDefault(); event.stopPropagation();
+                const bounds = button.getBoundingClientRect();
+                this.showItemMenu(capture.id, { x: bounds.left + 12, y: bounds.top + 12 });
+            });
+        }
+        row.button.classList.toggle("is-selected", capture.id === this.selectedId);
+        row.button.setAttribute("aria-pressed", String(capture.id === this.selectedId));
+        const icon = contentIcon(capture);
+        if (row.iconName !== icon) { setHubIcon(row.icon, icon); row.iconName = icon; }
+        row.icon.classList.toggle("hub-inbox-unsorted-icon", icon === "file-question-mark");
+        const draft = capture.id === this.selectedId ? this.draft : null;
+        row.title.textContent = preview(draft ? { ...capture, text: draft.text } : capture); row.title.title = row.title.textContent;
+        row.metadata.textContent = timestamp(capture.createdAt);
+        const completion = this.itemCompletion(capture), { ready, totalRequired, completedRequired } = completion;
+        row.status.empty();
+        if (ready) setHubIcon(row.status.createSpan({ cls: "hub-capture-icon" }), "check");
+        const remaining = totalRequired - completedRequired;
+        const status = ready ? "Ready" : totalRequired ? `${remaining} ${remaining === 1 ? "detail" : "details"} left` : "Choose type";
+        row.status.createSpan({ text: status });
+        const description = ready ? "All required details complete" : !totalRequired ? "Type not selected" :
+            `${status}${completion.missing.length ? ". Missing: " + completion.missing.join(", ") : completion.error ? ". " + completion.error : ""}`;
+        row.progress.max = totalRequired || 1; row.progress.value = completedRequired;
+        row.progress.setAttribute("aria-label", description); row.progress.setAttribute("aria-valuetext", description);
+        row.progress.textContent = description;
+        return row;
+    }
+    async select(id) {
+        if (this.busy || id === this.selectedId || !await this.flushEdits()) return;
+        this.selectedId = id; this.resetAction();
+        this.error.textContent = ""; this.refresh();
+    }
+    renderDetail() {
+        this.resetAction(); this.detail.empty(); this.detail.classList.remove("is-action-form");
+        const capture = this.service.get(this.selectedId);
+        if (!capture) { this.detail.createDiv({ cls: "hub-capture-empty", text: "Select an item to review it." }); return; }
+        const pendingKind = capture.operation?.state !== "done" ? capture.operation?.kind : null;
+        const type = (pendingKind === "files" ? "file" : pendingKind === "note-insertion" ? "note" : pendingKind) ?? capture.intent?.type ??
+            (!capture.text.trim() && capture.attachments.length ? "file" : null);
+        if (type && (capture.operation?.state !== "done" || type !== "task")) { this.edit(type); return; }
+        if (!capture.attachments.length && (!capture.operation || capture.operation.state === "done")) { this.renderUnsorted(capture); return; }
+        this.detail.classList.add("is-action-form");
+        const body = this.detail.createDiv({ cls: "hub-inbox-action-body" });
+        const title = detailTitle(capture);
+        body.createEl("h3", { cls: "hub-inbox-detail-title", text: title });
+        body.createDiv({ cls: "hub-capture-muted", text: `${timestamp(capture.createdAt)} · ${capture.kind === "link" ? "Link" : capture.attachments.length ? "Files" : "Text"}` });
+        const view = body.createDiv({ cls: "hub-inbox-preview" });
+        if (capture.text && capture.text.trim() !== title) view.createDiv({ cls: "hub-inbox-text", text: capture.text });
+        if (capture.source) {
+            const source = view.createDiv({ cls: "hub-capture-source hub-capture-muted" });
+            source.createDiv({ text: [capture.source.origin, capture.source.workspaceName, capture.source.title].filter(Boolean).join(" · ") });
+            if (capture.source.url) source.createDiv({ text: capture.source.url });
+            if (capture.source.path) source.createDiv({ text: capture.source.path });
+        }
+        const refs = view.createDiv({ cls: "hub-capture-attachments" });
+        const url = this.service.captureUrl?.(capture) ?? linkFromText(capture.text) ?? capture.source?.url;
+        const openAttachment = ref => { void this.run(async () => { if (await this.service.openAttachment(ref) !== false) this.finish(); }); };
+        // One file is the Capture's Open action; multiple files keep individual
+        // row actions, as do files accompanying a separately openable URL.
+        attachments(refs, capture.attachments, this.service, { open: url || capture.attachments.length > 1 ? openAttachment : undefined });
+        if (capture.operation) view.createEl("p", { cls: "hub-capture-muted", text: capture.operation.state === "done" ? "A task has been created. The remaining content and files are kept here." : "A previous save is pending. Retry the same action to finish safely." });
+        const section = this.detail.createEl("section", { cls: "hub-inbox-actions-section hub-inbox-action-footer", attr: { "aria-labelledby": this.prefix + "-actions" } });
+        section.createEl("h3", { cls: "hub-inbox-actions-heading", text: "Actions", attr: { id: this.prefix + "-actions" } });
+        const actions = section.createDiv({ cls: "hub-inbox-detail-actions", attr: { role: "group", "aria-labelledby": this.prefix + "-actions" } });
+        const pending = capture.operation && capture.operation.state !== "done";
+        if (pending) {
+            action(actions, "Retry save", null, () => { void this.run(async () => {
+                const values = { ...capture, workspaceId: capture.operation.workspaceId, folder: capture.operation.folder };
+                const result = capture.operation.kind === "task" ? await this.service.makeTask(values, capture.id) :
+                    capture.operation.kind === "note" ? await this.service.createNote(values, capture.id) : await this.service.addFiles(values, capture.id);
+                new Notice(result?.message ?? "Item saved."); this.refresh();
+            }); });
+            // A prepared file/note save may have rolled back before its folder
+            // disappeared. Reopen its original action to choose a valid folder.
+            if (capture.operation.state === "prepared") {
+                if (capture.operation.kind === "note") action(actions, "Make note", "notebook-text", () => this.edit("note"));
+                if (capture.operation.kind === "files") action(actions, "Move to…", "folder", () => this.edit("file"));
+            }
+        }
+        else {
+            if (capture.text && capture.operation?.state !== "done") action(actions, "Make task", "square", () => this.edit("task"));
+            action(actions, "Make note", "notebook-text", () => this.edit("note"));
+            if (capture.attachments.length) action(actions, "Move to…", "folder", () => this.edit("file"));
+        }
+        if (url) action(actions, "Open", "external-link", () => { void this.run(async () => { await this.options.openLink?.(url); this.finish(); }); });
+        else if (capture.attachments.length === 1 && this.service.attachmentExists(capture.attachments[0]))
+            action(actions, "Open", "external-link", () => openAttachment(capture.attachments[0]));
+        this.deleteButton = action(actions, "Delete", "trash-2", () => { void this.remove(capture.id); }, "hub-capture-delete");
+    }
+    renderUnsorted(capture) {
+        this.mode = "unsorted"; this.draft = captureDraft(capture);
+        this.detail.classList.add("is-action-form");
+        this.detail.createEl("h3", { text: "Text", cls: "hub-inbox-detail-title hub-inbox-action-heading" });
+        const body = this.detail.createDiv({ cls: "hub-inbox-action-body" });
+        const content = body.createDiv({ cls: "hub-field-group", attr: { "data-capture-field": "Content" } });
+        const input = content.createEl("textarea", { cls: "hub-quick-add-input", attr: { rows: "3", "aria-label": "Text" } });
+        input.value = this.draft.text;
+        input.addEventListener("input", () => { this.draft.text = input.value; this.sync(); this.persistDraft(this.draft); });
+        mountCaptureTypeControl({ host: body, disabledTypes: capture.operation?.state === "done" ? ["task"] : [], onSelect: type => { void this.classify(type); } });
+        this.guidance = mountInboxGuidance({ body, completion: () => this.service.getInboxCompletion(capture, this.draft) });
+        this.guidance.update();
+        const footer = this.detail.createDiv({ cls: "hub-capture-actions hub-inbox-action-footer hub-inbox-unsorted-footer" });
+        action(footer, "Delete", "trash-2", () => { void this.remove(capture.id); }, "hub-capture-delete");
+    }
+    async classify(type) {
+        if (!["task", "note"].includes(type) || this.busy || this.confirmation || !await this.flushEdits()) return;
+        const capture = this.service.get(this.selectedId); if (!capture) return;
+        if (capture.attachments.length || this.mode === type || this.mode !== "unsorted" && capture.operation) return;
+        if (type === "task" && capture.operation?.state === "done") return;
+        const draft = this.form?.value() ?? this.draft;
+        if (draft && hasTypeSpecificDetails(draft)) {
+            const target = type === "task" ? "Task" : "Note", previous = draft.type === "task" ? "task" : "note";
+            if (!await this.confirm({ title: `Switch to ${target}?`,
+                message: `Changing this item to a ${target} will clear its ${previous} details. The text and Save to destination will be kept.`,
+                confirmLabel: "Continue" }) || this.closed || this.selectedId !== capture.id) return;
+        }
+        const saved = await this.run(() => this.service.updateCapture(capture.id, { type, intent: { type, inputPath: "text" } }));
+        if (saved && !this.closed) { this.resetAction(); this.refresh(); }
+    }
+    persistDraft(values) {
+        // Snapshot the existing form value only for the atomic write. The live
+        // editor has one content value; saves never replace it while typing.
+        this.pendingEdit = { id: this.selectedId, values: JSON.parse(JSON.stringify(values)) };
+        return this.flushEdits();
+    }
+    flushEdits() {
+        if (this.editSave) return this.editSave;
+        if (!this.pendingEdit) return Promise.resolve(true);
+        this.editSave = (async () => {
+            while (this.pendingEdit) {
+                const edit = this.pendingEdit; this.pendingEdit = null;
+                if (!this.service.get(edit.id)) continue;
+                try { await this.service.updateCapture(edit.id, edit.values); }
+                catch (error) {
+                    if (!this.service.get(edit.id)) continue;
+                    this.pendingEdit ??= edit;
+                    this.editError = error.message || "Could not save. Please try again.";
+                    if (!this.closed) this.error.textContent = this.editError;
+                    return false;
+                }
+            }
+            if (!this.closed && this.editError && this.error.textContent === this.editError) this.error.textContent = "";
+            this.editError = null;
+            return true;
+        })().finally(() => { this.editSave = null; });
+        return this.editSave;
+    }
+    async confirm(options) {
+        if (this.closed || this.busy || this.confirmation) return false;
+        const modal = this.confirmation = new CaptureConfirmation(this.app, null, {
+            ...options, returnFocus: this.modalEl.ownerDocument.activeElement
+        });
+        const confirmed = await modal.ask();
+        if (this.confirmation === modal) this.confirmation = null;
+        return confirmed;
+    }
+    async remove(id) {
+        if (this.busy || this.closed || !this.service.get(id) || !await this.confirm({
+            title: "Delete this inbox item?", message: "This item will be removed from your Inbox.", confirmLabel: "Delete", destructive: true
+        }) || this.closed || !await this.flushEdits()) return;
+        return this.run(async () => {
+            await this.service.delete(id); new Notice("Item deleted."); this.resetAction(); this.refresh();
+        });
+    }
+    edit(type) {
+        const capture = this.service.get(this.selectedId); if (!capture || this.busy) return;
+        if (!["task", "note", "file"].includes(type)) return;
+        const operation = capture.operation?.state === "prepared" && capture.operation.kind === (type === "file" ? "files" : type) ? capture.operation : null;
+        this.resetAction(); this.mode = type; this.error.textContent = ""; this.detail.empty();
+        this.detail.classList.add("is-action-form");
+        this.detail.createEl("h3", { text: type === "file" ? "File" : type === "task" ? "Task" : "Note", cls: "hub-inbox-detail-title hub-inbox-action-heading" });
+        const body = this.detail.createDiv({ cls: "hub-inbox-action-body" });
+        this.draft = { ...captureDraft(capture), type, attachments: [...capture.attachments],
+            ...(capture.intent || (capture.operation?.state !== "done" && capture.operation?.workspaceId) ? {} :
+                { workspaceId: this.options.workspaceId ?? "" }),
+            ...(operation ? { workspaceId: operation.workspaceId, folder: operation.folder, title: operation.title } : {}) };
+        // Legacy mixed captures retain their additional source content. New
+        // captures have one canonical task text or note content editor.
+        const legacyTask = type === "task" && !capture.intent && (capture.attachments.length || /[\r\n]/.test(capture.text.trim()));
+        if (legacyTask) {
+            this.draft.taskTitle = capture.operation?.kind === "task" ? capture.operation.text : capture.text.trim().split(/\r?\n/)[0];
+            this.draft.text = capture.text;
+        }
+        let content;
+        if (type === "note" || legacyTask || (capture.text && type === "file")) {
+            const field = body.createDiv({ cls: "hub-field-group", attr: type === "note" ? { "data-capture-field": "Content" } : {} });
+            if (type !== "note") field.createEl("label", { cls: "hub-capture-label", text: "Captured content", attr: { for: this.prefix + "-content" } });
+            content = field.createEl("textarea", { cls: "hub-quick-add-input", attr: { id: this.prefix + "-content", rows: "3", "aria-label": type === "note" ? "Note content" : "Captured content" } }); content.value = capture.text;
+            content.readOnly = !!capture.operation && capture.operation.state !== "done";
+        }
+        if (type === "task") {
+            const taskState = legacyTask ? { ...this.draft, text: this.draft.taskTitle ?? capture.text.trim().split(/\r?\n/)[0] } : this.draft;
+            const field = body.createDiv({ cls: "hub-field-group", attr: { "data-capture-field": "Content" } });
+            this.taskInput = mountTaskText(field, taskState, patch => {
+                this.form?.update(legacyTask ? { taskTitle: patch.text } : patch); this.sync();
+            }, { placeholder: "What needs doing?", multiline: !legacyTask && /[\r\n]/.test(this.draft.text) });
+            if (legacyTask) this.draft.taskTitle = taskState.text;
+        }
+        const refs = body.createDiv({ cls: "hub-capture-attachments" });
+        if (type === "file") refs.dataset.captureField = "File";
+        attachments(refs, capture.attachments, this.service, { open: type === "file" ? ref => {
+            void this.run(async () => { if (await this.service.openAttachment(ref) !== false) this.finish(); });
+        } : undefined });
+        const host = body.createDiv({ cls: "hub-inbox-form-host" });
+        this.form = mountCaptureForm({ host, service: this.service, draft: this.draft, fixedType: type,
+            captureId: () => this.selectedId,
+            onChange: value => { this.draft = value; this.sync(); if (!this.busy && !this.closed) this.persistDraft(value); } });
+        content?.addEventListener("input", () => { this.form.update({ text: content.value }); this.sync(); });
+        const actions = this.detail.createDiv({ cls: "hub-capture-actions hub-inbox-action-footer" });
+        action(actions, "Delete", "trash-2", () => { void this.remove(capture.id); }, "hub-capture-delete");
+        this.save = action(actions, "Add to Itacan", null, () => { void this.commit(); }, "mod-cta hub-guided-submit");
+        this.readyArrow = this.save.createSpan({ cls: "hub-inbox-submit-arrow hub-capture-icon", attr: { "aria-hidden": "true" } });
+        setHubIcon(this.readyArrow, "arrow-right");
+        this.guidance = mountInboxGuidance({ body, readyArrow: this.readyArrow,
+            completion: () => this.service.getInboxCompletion(this.service.get(this.selectedId), this.form.value()) });
+        this.form.focus?.();
+        this.sync();
+        if (!capture.operation && (!legacyTask || capture.intent)) this.persistDraft(this.form.value());
+    }
+    resetAction() {
+        this.guidance?.destroy(); this.guidance = null;
+        this.form?.destroy(); this.form = null; this.mode = null; this.draft = null; this.save = null; this.readyArrow = null;
+    }
+    syncSubmit() {
+        if (!this.save?.isConnected) return;
+        const blocked = this.busy || !this.form?.valid();
+        this.save.disabled = this.busy;
+        this.save.setAttribute("aria-disabled", String(blocked));
+        this.readyArrow.hidden = blocked;
+    }
+    sync() {
+        if (this.needsRefresh && !this.busy) this.refresh();
+        const selected = this.service.get(this.selectedId);
+        if (selected && this.rows.has(selected.id)) this.updateRow(selected);
+        if (["most-complete", "least-complete"].includes(this.sortOrder) && this.editingText()) this.reorderPending = true;
+        this.syncSubmit();
+        this.guidance?.update();
+        const operation = this.service.get(this.selectedId)?.operation;
+        if (this.form && operation && operation.state !== "done" && (operation.kind === "task" || operation.kind === "note-insertion" || operation.state === "ready")) {
+            this.detail.querySelectorAll(".hub-inbox-action-body button,.hub-inbox-action-body input,.hub-inbox-action-body textarea,.hub-inbox-action-body select").forEach(control => control.disabled = true);
+        }
+    }
+    async commit() {
+        if (this.busy || this.closed) return;
+        if (!this.form) { this.guidance?.guide(); return; }
+        if (!this.form.valid()) {
+            if (!this.guidance?.guide()) this.error.textContent = this.itemCompletion(this.service.get(this.selectedId)).error ?? "Check the item details.";
+            return;
+        }
+        if (!await this.flushEdits()) return;
+        return this.run(async () => {
+            const draft = this.form.value(), id = this.selectedId;
+            if (draft.type !== this.mode) throw Error("Choose the item action again.");
+            const result = draft.type === "task" ? await this.service.makeTask(draft, id) : draft.type === "note" ?
+                await this.service.createNote(draft, id) : await this.service.addFiles(draft, id);
+            new Notice(result?.message ?? (draft.type === "file" ? "Files moved." : `Added ${draft.type}.`));
+            this.mode = null; this.form?.destroy(); this.form = null; this.refresh();
+            (this.list.querySelector(`[data-capture-id="${this.selectedId}"]`) ?? this.filterButtons[0].button).focus();
+        });
+    }
+    onProblem(error) { if (error.noteLocationInvalid) this.form?.update({ noteLocation: null }); }
+    async close() {
+        if (this.closed || this.busy || !await this.flushEdits()) return;
+        await this.sortSave;
+        if (!this.closed) super.close();
+    }
+    onClose() {
+        this.modalEl.removeEventListener("keydown", this.deleteKey);
+        this.modalEl.removeEventListener("keydown", this.submitKey); this.stopSortToggle?.();
+        this.confirmation?.close(); this.confirmation = null;
+        this.guidance?.destroy(); this.guidance = null;
+        this.sortMenu?.hide(); this.sortMenu = null;
+        this.itemMenu?.hide(); this.itemMenu = null; super.onClose();
+    }
+}
+module.exports = { InboxModal };
+
+},
+"lib/ui/list-reorder.js": function (module, exports, __hubRequire) {
+"use strict";
+const { createPointerListReorder } = __hubRequire("lib/ui/pointer-list-reorder.js");
+
+// Presets pointer visuals and Roadmap keyboard pickup/move/drop share stable IDs.
+function bindListReorder({ rows, handles, status, commit, list, scroller }) {
+    let drag = null, pending = false;
+    const ids = rows.map(row => row.dataset.reorderId);
+    const pointer = createPointerListReorder({ container: list, scroller,
+        placeholderClass: "hub-preset-placeholder hub-roadmap-placeholder",
+        sortingClass: "is-sorting-presets", animate: true,
+        canStart: () => !pending && !drag && !pointer.busy,
+        focusTarget: row => row.querySelector(".hub-roadmap-drag-handle"),
+        commit: async (ordered, moved) => {
+            if (ordered.every((row, index) => row.dataset.reorderId === ids[index])) return;
+            pending = true;
+            try { await commit(ordered.map(row => row.dataset.reorderId), moved.dataset.reorderId); }
+            finally { pending = false; }
+        }
+    });
+    const clear = () => {
+        rows.forEach(row => row.classList.remove("is-dragging", "is-drop-before", "is-drop-after"));
+        handles.forEach(handle => handle.setAttribute("aria-pressed", "false"));
+        drag = null;
+    };
+    const indicate = () => {
+        rows.forEach(row => row.classList.remove("is-drop-before", "is-drop-after"));
+        if (!drag || drag.target === drag.index) return;
+        rows[drag.target].classList.add(drag.target < drag.index ? "is-drop-before" : "is-drop-after");
+        status.textContent = `Position ${drag.target + 1} of ${rows.length}. Press Space to drop, Escape to cancel.`;
+    };
+    const finish = async () => {
+        if (!drag || pending) return;
+        const { index, target } = drag;
+        clear();
+        if (index === target) return;
+        const order = ids.slice(); order.splice(target, 0, order.splice(index, 1)[0]);
+        pending = true; handles.forEach(handle => { handle.disabled = true; });
+        try { await commit(order, ids[index]); }
+        finally { pending = false; handles.forEach(handle => { handle.disabled = false; }); }
+    };
+    handles.forEach((handle, index) => {
+        handle.draggable = false;
+        handle.setAttribute("aria-pressed", "false");
+        handle.setAttribute("aria-description", "Drag to reorder. With the keyboard, press Space to pick up, Up or Down to move, Space to drop, Escape to cancel.");
+        handle.addEventListener("pointerdown", event => pointer.begin(event, rows[index], list));
+        handle.addEventListener("keydown", event => {
+            if (pending || pointer.busy) return;
+            if (event.key === "Escape" && drag) { event.preventDefault(); clear(); status.textContent = "Reordering canceled."; return; }
+            if ([" ", "Enter"].includes(event.key)) {
+                event.preventDefault();
+                if (drag?.keyboard) { void finish(); return; }
+                if (rows.length < 2) return;
+                clear(); drag = { index, target: index, keyboard: true };
+                handle.setAttribute("aria-pressed", "true"); rows[index].classList.add("is-dragging");
+                status.textContent = `Picked up phase ${index + 1} of ${rows.length}. Use Up or Down to move.`;
+            } else if (drag?.keyboard && ["ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) {
+                event.preventDefault();
+                drag.target = event.key === "Home" ? 0 : event.key === "End" ? rows.length - 1 :
+                    Math.max(0, Math.min(rows.length - 1, drag.target + (event.key === "ArrowUp" ? -1 : 1)));
+                indicate();
+            }
+        });
+    });
+    return () => { pointer.cancel(); clear(); };
+}
+module.exports = { bindListReorder };
 
 },
 "lib/ui/markdown.js": function (module, exports, __hubRequire) {
@@ -7152,6 +9922,61 @@ function createHubMarkdown({ app, component }) {
 module.exports = { createHubMarkdown };
 
 },
+"lib/ui/menu-toggle.js": function (module, exports, __hubRequire) {
+"use strict";
+
+// Native menus close on pointer-down outside their surface, before a trigger's
+// click. Remember a trigger press in capture phase so that click cannot reopen it.
+function bindMenuToggle(trigger, { isOpen, close }) {
+    const doc = trigger.ownerDocument;
+    let closingPress = false;
+    const pointer = event => {
+        closingPress = trigger.contains(event.target) && isOpen();
+        if (closingPress) close();
+    };
+    const click = event => {
+        if (!closingPress) return;
+        closingPress = false; event.preventDefault(); event.stopImmediatePropagation();
+    };
+    const cancel = () => { closingPress = false; };
+    const release = event => { if (!trigger.contains(event.target)) cancel(); };
+    doc.addEventListener("pointerdown", pointer, true);
+    doc.addEventListener("pointerup", release, true);
+    doc.addEventListener("pointercancel", cancel, true);
+    trigger.addEventListener("click", click, true);
+    return () => {
+        doc.removeEventListener("pointerdown", pointer, true);
+        doc.removeEventListener("pointerup", release, true);
+        doc.removeEventListener("pointercancel", cancel, true);
+        trigger.removeEventListener("click", click, true);
+    };
+}
+
+function mountDisclosure({ trigger, panel, onOpen = () => {}, onClose = () => {} }) {
+    const doc = trigger.ownerDocument;
+    let opened = false;
+    const sync = () => { panel.hidden = !opened; trigger.setAttribute("aria-expanded", String(opened)); };
+    const close = () => { if (!opened) return; opened = false; sync(); onClose(); };
+    const open = () => { if (opened) return; opened = true; sync(); onOpen(); };
+    const toggle = event => { event?.preventDefault(); if (opened) close(); else open(); };
+    const outside = event => { if (!trigger.contains(event.target) && !panel.contains(event.target)) close(); };
+    const key = event => {
+        if (!opened || event.key !== "Escape") return;
+        event.preventDefault(); event.stopImmediatePropagation(); close();
+        (trigger.querySelector("input[type=radio]") ?? trigger).focus({ preventScroll: true });
+    };
+    const stopToggle = bindMenuToggle(trigger, { isOpen: () => opened, close });
+    trigger.addEventListener("click", toggle);
+    doc.addEventListener("pointerdown", outside, true); doc.addEventListener("keydown", key, true);
+    sync();
+    return { open, close, toggle, get isOpen() { return opened; },
+        destroy() { close(); stopToggle(); trigger.removeEventListener("click", toggle); doc.removeEventListener("pointerdown", outside, true); doc.removeEventListener("keydown", key, true); }
+    };
+}
+
+module.exports = { bindMenuToggle, mountDisclosure };
+
+},
 "lib/ui/music.js": function (module, exports, __hubRequire) {
 "use strict";
 const { Modal, setIcon } = require("obsidian");
@@ -7188,6 +10013,161 @@ function mountMusicControl(plugin, host) {
     return { button, open, destroy() { destroyed = true; modal?.close(); button.remove(); } };
 }
 module.exports = { MusicModal, mountMusicControl };
+
+},
+"lib/ui/note-position-picker.js": function (module, exports, __hubRequire) {
+"use strict";
+const { Modal, Menu } = require("obsidian");
+const { preparePicker, listen } = __hubRequire("lib/ui/capture-pickers.js");
+const { mountCaptureLocationTree } = __hubRequire("lib/ui/capture-tree.js");
+const { setHubIcon } = __hubRequire("lib/ui/icons.js");
+const { setHubTooltip } = __hubRequire("lib/ui/tooltips.js");
+const { noteLocation, resolveNoteLocation } = __hubRequire("lib/domain/note-insertion.js");
+
+function openNotePositionPicker(service, { workspace, selectedLocation, onSelect, restoreFocus }) {
+    class NotePositionPicker extends Modal {
+        onOpen() {
+            preparePicker(this, "Choose note and position", ["hub-capture-location-picker", "hub-note-position-picker"]);
+            this.contentEl.createEl("p", { cls: "hub-oath-muted", text: workspace.name });
+            const searchBox = this.contentEl.createDiv({ cls: "hub-explorer-search" });
+            setHubIcon(searchBox.createSpan({ cls: "hub-explorer-icon", attr: { "aria-hidden": "true" } }), "search");
+            const search = searchBox.createEl("input", { type: "search", cls: "hub-explorer-search-input",
+                attr: { placeholder: "Search notes and folders...", "aria-label": "Search notes and folders" } });
+            const body = this.contentEl.createDiv({ cls: "hub-note-position-body" });
+            const tree = body.createDiv({ cls: "hub-capture-location-tree", attr: { role: "tree", "aria-label": "Notes and folders" } });
+            this.positions = body.createDiv({ cls: "hub-note-positions" });
+            this.error = body.createDiv({ cls: "hub-task-error", attr: { role: "alert" } });
+            const actions = this.contentEl.createDiv({ cls: "hub-capture-actions hub-capture-picker-actions" });
+            actions.createEl("button", { text: "Cancel", attr: { type: "button" } }).onclick = () => this.close();
+            this.use = actions.createEl("button", { text: "Use this position", cls: "mod-cta", attr: { type: "button" } });
+            this.use.disabled = true;
+            this.use.onclick = () => { void this.commit(); };
+            this.selection = noteLocation(selectedLocation); this.path = this.selection?.path ?? null;
+            this.request = 0; this.closed = false;
+            this.positionLabelId = this.modalEl.getAttribute("aria-labelledby") + "-position";
+            this.renderPositions();
+            this.hierarchy = mountCaptureLocationTree({ tree, search, collapsible: true,
+                getItems: () => service.taskLocations(workspace.id), selectedPath: () => this.path,
+                onSelect: item => { if (!item.folder) void this.chooseNote(item.path); },
+                onMissing: () => { this.error.textContent = "This note is no longer available."; }
+            });
+            this.owner.register(() => this.hierarchy.destroy());
+            for (const event of ["create", "delete", "rename"]) listen(this.owner, service.app.vault, event, () => {
+                this.hierarchy.render(); if (this.path) void this.readSelected(false);
+            });
+            listen(this.owner, service.app.vault, "modify", file => { if (file.path === this.path) void this.readSelected(false); });
+            if (this.path) void this.readSelected(false);
+            search.focus();
+        }
+        async chooseNote(path) {
+            const changed = path !== this.path;
+            this.path = path;
+            if (changed) this.selection = { path, targetType: "note", position: "end" };
+            this.hierarchy.render(); await this.readSelected(changed);
+        }
+        async readSelected(reset) {
+            const request = ++this.request, path = this.path;
+            this.use.disabled = true; this.parsed = null; this.renderPositions(); this.error.textContent = "";
+            try {
+                const parsed = await service.readNotePositions(workspace.id, path);
+                if (this.closed || request !== this.request) return;
+                this.parsed = parsed;
+                if (reset) this.selection = { path, targetType: "note", position: "end" };
+                if (!resolveNoteLocation(parsed, this.selection)) {
+                    this.selection = null;
+                    this.error.textContent = "The selected position changed. Choose a position again.";
+                }
+                this.renderPositions();
+            } catch (error) {
+                if (!this.closed && request === this.request) { this.selection = null; this.renderPositions(); this.error.textContent = error.message; }
+            }
+        }
+        renderPositions() {
+            this.positionMenu?.hide(); this.positions.empty();
+            this.positions.createEl("h3", { text: "Place in note", cls: "hub-capture-section-heading", attr: { id: this.positionLabelId } });
+            const modes = [
+                { type: "note", position: "end", label: "At the end of the note" },
+                { type: "note", position: "start", label: "At the start of the note", disabled: !!this.parsed?.unclosedFrontmatter },
+                { type: "heading", position: "end", label: "Under heading", disabled: !this.parsed?.headings.length },
+                { type: "list", position: "last", label: "In list", disabled: !this.parsed?.lists.length }
+            ];
+            const selected = modes.find(mode => this.selection?.targetType === mode.type && (mode.type !== "note" || this.selection.position === mode.position));
+            this.selector(this.positions, "mode", !this.path ? "Select a note first" : selected?.label ?? "Choose a position...", modes, mode => {
+                if (mode === selected) return;
+                const target = mode.type === "heading" ? this.parsed.headings[0] : mode.type === "list" ? this.parsed.lists[0] : null;
+                this.selection = { path: this.path, targetType: mode.type, position: mode.position,
+                    ...(target ? { anchor: target.anchor, label: target.label } : {}) };
+                this.error.textContent = ""; this.renderPositions();
+            }, !this.parsed);
+            const type = this.selection?.targetType;
+            if (this.path && type && type !== "note") {
+                const row = this.positions.createDiv({ cls: "hub-note-target-row" });
+                const targets = (type === "heading" ? this.parsed?.headings : this.parsed?.lists) ?? [];
+                const target = targets.find(item => item.anchor === this.selection.anchor);
+                this.selector(row, "target", target?.label ?? this.selection.label ?? (type === "heading" ? "Choose heading..." : "Choose list..."), targets, target => {
+                    this.selection.anchor = target.anchor; this.selection.label = target.label; this.renderPositions();
+                }, !this.parsed);
+                const positions = type === "heading" ? [
+                    { position: "end", label: "End of section" }, { position: "top", label: "Top of section" }
+                ] : [{ position: "last", label: "Last item" }, { position: "first", label: "First item" }];
+                this.selector(row, "position", positions.find(item => item.position === this.selection.position)?.label ?? "Choose position...", positions, item => {
+                    this.selection.position = item.position; this.renderPositions();
+                }, !this.parsed);
+            }
+            this.use.disabled = this.committing || !resolveNoteLocation(this.parsed, this.selection);
+        }
+        selector(host, kind, value, options, onSelect, disabled = false) {
+            const valueId = this.positionLabelId + "-" + kind;
+            const button = host.createEl("button", { cls: "hub-note-position-select", attr: {
+                type: "button", "data-note-selector": kind, "aria-haspopup": "menu", "aria-expanded": "false",
+                "aria-labelledby": kind === "mode" ? this.positionLabelId + " " + valueId : valueId
+            } });
+            button.disabled = disabled;
+            const text = button.createSpan({ text: value, attr: { id: valueId } });
+            setHubIcon(button.createSpan({ cls: "hub-capture-icon", attr: { "aria-hidden": "true" } }), "chevron-down");
+            if (kind === "target") button.addEventListener("pointerover", () => {
+                setHubTooltip(text, text.scrollWidth > text.clientWidth ? value : null);
+            });
+            const open = () => { if (!button.disabled) this.showPositionMenu(button, kind, options, onSelect); };
+            button.onclick = open;
+            button.onkeydown = event => { if (event.key === "ArrowDown") { event.preventDefault(); open(); } };
+            return button;
+        }
+        showPositionMenu(button, kind, options, onSelect) {
+            if (this.positionMenu) { this.positionMenu.hide(); return; }
+            const menu = this.positionMenu = new Menu();
+            options.forEach(option => menu.addItem(item => item.setTitle(option.label).setDisabled(!!option.disabled).setChecked(
+                kind === "target" ? option.anchor === this.selection?.anchor : kind === "position" ? option.position === this.selection?.position :
+                    option.type === this.selection?.targetType && (option.type !== "note" || option.position === this.selection.position)
+            ).onClick(() => {
+                if (this.closed) return;
+                onSelect(option);
+                this.positions.querySelector(`[data-note-selector="${kind}"]`)?.focus({ preventScroll: true });
+            })));
+            menu.onHide(() => { if (this.positionMenu === menu) this.positionMenu = null; button.setAttribute("aria-expanded", "false");
+                if (!this.closed && button.isConnected) button.focus({ preventScroll: true }); });
+            button.setAttribute("aria-expanded", "true");
+            const rect = button.getBoundingClientRect(); menu.showAtPosition({ x: rect.left, y: rect.bottom });
+        }
+        async commit() {
+            if (this.use.disabled || this.committing) return;
+            this.committing = true; this.use.disabled = true;
+            const selected = noteLocation(this.selection), request = this.request;
+            try {
+                // Selection is atomic only after checking the current note again.
+                const parsed = await service.readNotePositions(workspace.id, selected.path);
+                if (this.closed || request !== this.request) return;
+                if (!resolveNoteLocation(parsed, selected)) throw Error("The selected position changed. Choose a position again.");
+                onSelect(selected); this.close();
+            } catch (error) {
+                if (!this.closed) { this.selection = null; this.error.textContent = error.message; void this.readSelected(false); }
+            } finally { this.committing = false; }
+        }
+        onClose() { this.closed = true; this.request++; this.positionMenu?.hide(); this.owner?.unload(); this.contentEl.empty(); restoreFocus?.(); }
+    }
+    const modal = new NotePositionPicker(service.app); modal.open(); return modal;
+}
+module.exports = { openNotePositionPicker };
 
 },
 "lib/ui/note-rail.js": function (module, exports, __hubRequire) {
@@ -7345,12 +10325,15 @@ module.exports = { createOathTaskSection };
 "use strict";
 const { createTaskUi, createTaskRow } = __hubRequire("lib/ui/tasks.js");
 const { parseLocalISODate } = __hubRequire("lib/domain/dates.js");
+const { disclosureIcons } = __hubRequire("lib/ui/disclosure.js");
+const { mountTransientEffects } = __hubRequire("lib/ui/attention.js");
+const { bindMenuToggle, mountDisclosure } = __hubRequire("lib/ui/menu-toggle.js");
 const { setHubTooltip } = __hubRequire("lib/ui/tooltips.js");
 const { openTaskCreator } = __hubRequire("lib/ui/task-editor.js");
 const { createWorkspaceCards } = __hubRequire("lib/ui/workspace-cards.js");
 const { createCardImageRenderer } = __hubRequire("lib/ui/card-images.js");
 const { workspaceRef, sameWorkspace, taskKey } = __hubRequire("lib/domain/oath-workspace.js");
-const { isCommitted, validateOath, oathTime, oathProgress, shortOathTime, fulfilmentLabel, oathDuration } = __hubRequire("lib/domain/oath.js");
+const { isCommitted, oathTime, oathProgress, shortOathTime, fulfilmentLabel, oathDuration } = __hubRequire("lib/domain/oath.js");
 
 const dateLabel = time => new Date(time).toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
 const OATH_COPY = Object.freeze({
@@ -7532,15 +10515,14 @@ function openOathSetup(service) {
         selectWorkspace(ref) {
             if (!service.resolveWorkspace(ref) || sameWorkspace(this.draft.workspace, ref)) return;
             this.draft.workspace = ref;
-            this.draft.tasks = service.workspaceTasks(ref).slice(0, 3);
-            this.suggestWhenReady = !service.ready();
+            this.draft.tasks = [];
         }
         section(title) {
             const el = this.contentEl.createEl("section", { cls: "hub-oath-section" });
             el.createEl("h3", { text: title }); return el;
         }
         choices(parent, name, choices, value, changed) {
-            const group = parent.createDiv({ cls: "hub-oath-choices", attr: { role: "radiogroup", "aria-label": parent.querySelector("h3").textContent } });
+            const group = parent.createDiv({ cls: "hub-oath-choices hub-equal-selectors hub-option-group", attr: { role: "radiogroup", "aria-label": parent.querySelector("h3").textContent } });
             if (name === "duration") group.classList.add("hub-oath-duration-choices");
             if (name === "start") group.classList.add("hub-oath-start-choices");
             if (name === "workspace") group.classList.add("hub-oath-workspace-choices");
@@ -7591,61 +10573,72 @@ function openOathSetup(service) {
             return value.trim() ? Number(value) * (unit === "hours" ? 3600000 : 60000) : null;
         }
         setup() {
-            const draft = this.draft; this.unitMenu?.hide(); this.taskOwner?.unload(); this.contentEl.empty();
+            const draft = this.draft;
+            this.clearSetupEffects(); this.taskOwner?.unload(); this.updateNext = null; this.contentEl.empty();
+            this.effects = mountTransientEffects(this.contentEl);
             this.contentEl.classList.remove("hub-oath-review");
             this.contentEl.classList.add("hub-oath-setup");
             this.contentEl.createEl("h2", { text: "Make an Oath" });
             this.contentEl.createEl("p", { cls: "hub-oath-muted", text: "Set the terms of your commitment." });
             const start = this.section(OATH_COPY.start);
-            const startChoices = this.choices(start, "start", [["now", "Now"], ["scheduled", "Select date and time"]], draft.start, value => { draft.start = value; this.setup(); if (value === "scheduled") this.openScheduledPicker?.(); });
-            this.openScheduledPicker = null;
-            if (draft.start === "scheduled") {
-                const controls = this.inlineEditor(startChoices, "scheduled", "hub-oath-start");
-                if (draft.scheduledAt) {
-                    const date = new Date(draft.scheduledAt);
-                    const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString();
-                    this.scheduledDate = local.slice(0, 10); this.scheduledTime = local.slice(11, 16);
-                }
-                const card = controls.closest(".hub-oath-choice");
-                card.classList.add("hub-oath-scheduled-card");
-                const radio = card.querySelector('input[type="radio"]');
-                radio.tabIndex = -1;
-                const display = controls.createSpan({ cls: "hub-oath-start-value", attr: { "aria-hidden": "true" } });
-                // One native date-time picker replaces the two separate hit areas.
-                // The draft still stores the same local timestamp as before.
-                const input = card.createEl("input", { type: "datetime-local", cls: "hub-oath-start-input",
-                    attr: { lang: "en", "aria-label": "Scheduled Oath start", "data-oath-autofocus": "" } });
-                input.value = this.scheduledDate && this.scheduledTime ? `${this.scheduledDate}T${this.scheduledTime}` : "";
-                const update = () => {
-                    const [date = "", time = ""] = input.value.split("T");
-                    this.scheduledDate = date; this.scheduledTime = time;
-                    draft.scheduledAt = date && time && input.validity.valid ? new Date(input.value).getTime() : null;
-                    const local = parseLocalISODate(date);
-                    const label = local && time ? `${local.getDate()} ${local.toLocaleDateString("en-US", { month: "short" })} ${local.getFullYear()}, ${time}` : "Select date and time";
-                    display.textContent = label;
-                    input.setAttribute("aria-label", `Scheduled Oath start: ${label}`);
-                    this.updateNext?.();
-                };
-                this.openScheduledPicker = () => {
-                    card.classList.remove("is-typing"); input.focus();
-                    try {
-                        if (input.showPicker) input.showPicker();
-                        else card.classList.add("is-typing");
-                    } catch (_) { card.classList.add("is-typing"); }
-                };
-                input.addEventListener("click", this.openScheduledPicker);
-                radio.addEventListener("click", this.openScheduledPicker);
-                input.addEventListener("keydown", event => {
-                    if (event.key === "Enter" || event.key === " " || (event.altKey && event.key === "ArrowDown")) {
-                        event.preventDefault(); this.openScheduledPicker();
-                    } else if (!["Tab", "Escape", "Shift", "Alt", "Control", "Meta"].includes(event.key)) card.classList.add("is-typing");
-                });
-                input.addEventListener("blur", () => card.classList.remove("is-typing"));
-                input.addEventListener("input", update); input.addEventListener("change", update); update();
+            const startChoices = this.choices(start, "start", [["now", "Now"], ["scheduled", "Select date and time"]], draft.start, value => {
+                if (value === "now") { draft.start = "now"; this.setup(); }
+                else this.dateDisclosure.open();
+            });
+            const nowRadio = startChoices.querySelector('input[value="now"]');
+            const scheduledRadio = startChoices.querySelector('input[value="scheduled"]');
+            const scheduledCard = scheduledRadio.closest(".hub-oath-choice");
+            scheduledCard.classList.add("hub-oath-start-disclosure");
+            disclosureIcons(scheduledCard);
+            const datePanel = start.createDiv({ cls: "hub-oath-schedule-editor", attr: {
+                id: `hub-oath-date-${this.choiceGroupId}`, role: "group", "aria-label": "Scheduled Oath start"
+            } });
+            scheduledCard.setAttribute("aria-controls", datePanel.id);
+            scheduledRadio.setAttribute("aria-controls", datePanel.id);
+            datePanel.createEl("label", { text: "Date and time", attr: { for: `${datePanel.id}-input` } });
+            const dateInput = datePanel.createEl("input", { type: "datetime-local", cls: "hub-oath-start-input", attr: {
+                id: `${datePanel.id}-input`, lang: "en", "aria-label": "Scheduled Oath start"
+            } });
+            if (draft.scheduledAt) {
+                const date = new Date(draft.scheduledAt);
+                this.scheduledValue = new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
             }
-
+            dateInput.value = this.scheduledValue ?? "";
+            const startValid = () => service.setupRequirements(draft).find(item => item.key === "Start").complete;
+            const syncStart = () => {
+                const opened = this.dateDisclosure?.isOpen ?? false;
+                nowRadio.checked = draft.start === "now";
+                scheduledRadio.checked = opened || draft.start === "scheduled" && startValid();
+                scheduledRadio.setAttribute("aria-expanded", String(opened));
+                const [date = "", time = ""] = dateInput.value.split("T"), local = parseLocalISODate(date);
+                const label = local && time ? `${local.getDate()} ${local.toLocaleDateString("en-US", { month: "short" })} ${local.getFullYear()}, ${time}` : "Select date and time";
+                scheduledCard.querySelector(".hub-oath-choice-title").textContent = label;
+                dateInput.setAttribute("aria-label", `Scheduled Oath start: ${label}`);
+            };
+            this.dateDisclosure = mountDisclosure({ trigger: scheduledCard, panel: datePanel,
+                onOpen: () => { draft.start = "scheduled"; syncStart(); this.updateNext?.(); dateInput.focus(); },
+                onClose: () => {
+                    syncStart(); this.updateNext?.();
+                    if (datePanel.contains(datePanel.ownerDocument.activeElement)) scheduledRadio.focus({ preventScroll: true });
+                }
+            });
+            // A label's cancelled native activation can restore its radio after click.
+            scheduledCard.addEventListener("click", () => queueMicrotask(syncStart));
+            const updateDate = () => {
+                this.scheduledValue = dateInput.value;
+                draft.start = "scheduled";
+                draft.scheduledAt = dateInput.value && dateInput.validity.valid ? new Date(dateInput.value).getTime() : null;
+                syncStart(); this.updateNext?.();
+            };
+            dateInput.addEventListener("input", updateDate);
+            dateInput.addEventListener("change", () => { updateDate(); if (startValid()) this.dateDisclosure.close(); });
+            dateInput.addEventListener("keydown", event => {
+                if (event.key === "Enter") { event.preventDefault(); updateDate(); if (startValid()) this.dateDisclosure.close(); }
+            });
+            syncStart();
             const work = this.section(OATH_COPY.work);
             const choose = type => {
+                this.dateDisclosure.close(); this.unitMenu?.hide();
                 this.picker = openOathWorkspacePicker(service, type, ref => {
                     this.selectWorkspace(ref);
                     this.setup();
@@ -7658,12 +10651,9 @@ function openOathSetup(service) {
             ], draft.workspace?.type, choose);
             this.renderSelected = null;
             if (draft.workspace) {
-                const heading = work.createDiv({ cls: "hub-oath-tasks-heading" });
-                heading.createEl("h4", { cls: "hub-oath-suggestions-title", text: `Selected tasks from ${workspaceName}` });
-                const taskAction = heading.createEl("button", { cls: "hub-panel-action hub-oath-add-tasks", attr: { type: "button" } });
+                const body = work.createDiv({ cls: "hub-oath-selected-tasks hub-oath-task-options project-tasks-body" });
+                const taskAction = work.createEl("button", { cls: "hub-oath-add-tasks", attr: { type: "button", "aria-label": "Add tasks" } });
                 oathIcon(taskAction, "plus");
-                const taskActionLabel = taskAction.createSpan();
-                const body = work.createDiv({ cls: "hub-oath-selected-tasks project-tasks-body" });
                 this.taskOwner = new Component(); this.taskOwner.load();
                 const ui = createTaskUi({ app: service.app, component: this.taskOwner, body });
                 let noOpenTasks = false;
@@ -7672,31 +10662,40 @@ function openOathSetup(service) {
                     const ready = service.ready(), tasks = ready ? service.workspaceTasks(draft.workspace) : [];
                     noOpenTasks = ready && !tasks.length;
                     if (ready) {
-                        if (this.suggestWhenReady) { draft.tasks = tasks.slice(0, 3); this.suggestWhenReady = false; }
                         const available = new Map(tasks.map(task => [taskKey(task), task]));
                         draft.tasks = draft.tasks.map(task => available.get(taskKey(task))).filter(Boolean);
                     }
-                    for (const task of draft.tasks) {
+                    // Suggest only the first Task-panel task; selection is always explicit.
+                    const rows = [...new Map([...(tasks.length ? [tasks[0]] : []), ...draft.tasks].map(task => [taskKey(task), task])).values()];
+                    const selected = new Set(draft.tasks.map(taskKey));
+                    for (const task of rows) {
                         const row = selectionRow(ui, body, task);
-                        row.classList.add("is-selected");
-                        const remove = row.createEl("button", { cls: "hub-oath-remove-task hub-button-plain",
-                            attr: { type: "button", "aria-label": `Remove from Oath: ${task.text}`, title: "Remove from Oath" } });
-                        oathIcon(remove, "x");
-                        remove.addEventListener("click", () => {
-                            draft.tasks = draft.tasks.filter(item => taskKey(item) !== taskKey(task));
+                        const key = taskKey(task);
+                        row.classList.add("hub-oath-task-option");
+                        row.classList.toggle("is-selected", selected.has(key));
+                        row.dataset.taskKey = key;
+                        row.setAttribute("role", "button"); row.tabIndex = 0;
+                        row.setAttribute("aria-pressed", String(selected.has(key)));
+                        row.setAttribute("aria-label", `Select for Oath: ${task.text}`);
+                        const toggle = () => {
+                            draft.tasks = selected.has(key) ? draft.tasks.filter(item => taskKey(item) !== key) : [...draft.tasks, task];
                             this.renderSelected();
-                            body.querySelector(".hub-oath-remove-task")?.focus();
+                            [...body.children].find(item => item.dataset.taskKey === key)?.focus();
+                        };
+                        row.addEventListener("click", toggle);
+                        row.addEventListener("keydown", event => {
+                            if (event.target === row && ["Enter", " "].includes(event.key)) { event.preventDefault(); toggle(); }
                         });
                     }
-                    if (!draft.tasks.length) body.createEl("p", { cls: "hub-oath-muted", text: !ready ? "Loading tasks..." :
-                        noOpenTasks ? `${workspaceName} has no open tasks. Create a task before making an Oath, or choose another ${draft.workspace.type}.` :
-                        "No tasks selected. Add at least one task to continue." });
-                    taskActionLabel.textContent = noOpenTasks ? "Create task" : "Add tasks";
+                    if (!rows.length) body.createEl("p", { cls: "hub-oath-muted", text: !ready ? "Loading tasks..." :
+                        `${workspaceName} has no open tasks. Create a task before making an Oath, or choose another ${draft.workspace.type}.` });
+                    taskAction.setAttribute("aria-label", noOpenTasks ? "Create task" : "Add tasks");
                     taskAction.disabled = !ready || !service.resolveWorkspace(draft.workspace);
                     this.updateNext?.();
                 };
                 this.renderSelected();
                 taskAction.addEventListener("click", () => {
+                    this.dateDisclosure.close(); this.unitMenu?.hide();
                     if (noOpenTasks) {
                         const context = service.resolveWorkspace(draft.workspace);
                         if (context) this.creator = openTaskCreator(service.plugin.taskEditor, { root: context.root });
@@ -7727,7 +10726,7 @@ function openOathSetup(service) {
                 const unit = editor.createEl("button", { cls: "hub-oath-duration-unit", attr: {
                     type: "button", "aria-haspopup": "menu", "aria-expanded": "false"
                 } });
-                const unitLabel = unit.createSpan(); oathIcon(unit, "chevron-down");
+                const unitLabel = unit.createSpan({ cls: "hub-oath-duration-unit-label" }).createSpan(); disclosureIcons(unit);
                 const update = () => {
                     this.customValue.value = input.value;
                     draft.durationMs = this.customDuration();
@@ -7737,14 +10736,16 @@ function openOathSetup(service) {
                     this.updateNext?.();
                 };
                 const showUnits = () => {
-                    this.unitMenu?.hide();
+                    if (this.unitMenu) { this.unitMenu.hide(); return; }
+                    this.dateDisclosure.close();
                     const menu = this.unitMenu = new Menu();
                     for (const value of ["minutes", "hours"]) menu.addItem(item => item.setTitle(value)
                         .setChecked(this.customValue.unit === value).onClick(() => {
                             this.customValue.unit = value; update();
                         }));
                     menu.onHide(() => {
-                        if (this.unitMenu === menu) this.unitMenu = null;
+                        if (this.unitMenu !== menu) return;
+                        this.unitMenu = null;
                         unit.setAttribute("aria-expanded", "false");
                         if (unit.isConnected) unit.focus();
                     });
@@ -7752,6 +10753,7 @@ function openOathSetup(service) {
                     const rect = unit.getBoundingClientRect();
                     menu.showAtPosition({ x: rect.left, y: rect.bottom });
                 };
+                this.stopUnitToggle = bindMenuToggle(unit, { isOpen: () => !!this.unitMenu, close: () => this.unitMenu?.hide() });
                 unit.addEventListener("click", showUnits);
                 unit.addEventListener("keydown", event => {
                     if (event.key === "ArrowDown") { event.preventDefault(); showUnits(); }
@@ -7761,19 +10763,40 @@ function openOathSetup(service) {
             const error = this.contentEl.createDiv({ cls: "hub-task-error", attr: { role: "alert" } });
             const actions = this.contentEl.createDiv({ cls: "hub-oath-actions" });
             actions.createEl("button", { text: "Cancel" }).addEventListener("click", () => this.close());
-            const next = actions.createEl("button", { text: "Review Oath", cls: "mod-cta" });
+            const next = actions.createEl("button", { text: "Review Oath", cls: "mod-cta hub-guided-submit" });
+            this.requirementGroups = { Start: start, Workspace: work, Tasks: work, Duration: duration };
             this.updateNext = () => {
-                try { validateOath(draft, service.now()); next.disabled = !service.ready() || !service.resolveWorkspace(draft.workspace); }
-                catch (_) { next.disabled = true; }
+                const missing = service.setupRequirements(draft).find(item => !item.complete);
+                next.setAttribute("aria-disabled", String(!!missing));
+                if (!missing) error.textContent = "";
+                if (this.guidedGroup && this.requirementGroups[missing?.key] !== this.guidedGroup) {
+                    this.effects.cancel(this.guidedGroup); this.guidedGroup = null;
+                }
+                syncStart();
             };
             this.updateNext();
             next.addEventListener("click", () => {
-                try { this.review(); } catch (problem) { error.textContent = problem.message; }
+                try { this.review(); } catch (problem) {
+                    const missing = service.setupRequirements(draft).find(item => !item.complete);
+                    error.textContent = missing?.error ?? problem.message;
+                    if (missing) {
+                        this.effects.cancel(this.guidedGroup);
+                        this.guidedGroup = this.requirementGroups[missing.key];
+                        this.effects.pulse(this.guidedGroup);
+                    }
+                }
             });
+        }
+        clearSetupEffects() {
+            this.dateDisclosure?.destroy(); this.dateDisclosure = null;
+            this.unitMenu?.hide(); this.stopUnitToggle?.(); this.stopUnitToggle = null;
+            this.effects?.destroy();
+            this.guidedGroup = null;
         }
         review() {
             const draft = this.draft;
             service.validateDraft(draft);
+            this.clearSetupEffects();
             this.taskOwner?.unload(); this.updateNext = null;
             this.contentEl.empty();
             this.contentEl.classList.remove("hub-oath-setup");
@@ -7809,7 +10832,7 @@ function openOathSetup(service) {
             });
         }
         close() { if (!this.saving) super.close(); }
-        onClose() { this.unitMenu?.hide(); this.picker?.close(); this.creator?.close(); this.taskOwner?.unload(); this.owner?.unload(); this.contentEl.empty(); }
+        onClose() { this.clearSetupEffects(); this.picker?.close(); this.creator?.close(); this.taskOwner?.unload(); this.owner?.unload(); this.contentEl.empty(); }
     }
     const modal = new Setup(service.app); modal.open(); return modal;
 }
@@ -7936,7 +10959,7 @@ module.exports = { openOathPicker, openOathSetup, openOathStatus, mountOathContr
 const { Modal, FuzzySuggestModal } = require("obsidian");
 const { localISODate } = __hubRequire("lib/domain/dates.js");
 
-function openPlanningEditor(service, projectId, kind, value = null, dv) {
+function openPlanningEditor(service, projectId, kind, value = null, dv, defaults = {}) {
     const phase = kind === "phases", noun = phase ? "phase" : "milestone";
     class PlanningModal extends Modal {
         onOpen() {
@@ -7950,9 +10973,9 @@ function openPlanningEditor(service, projectId, kind, value = null, dv) {
                 const label = host.createEl("label"); label.createSpan({ text });
                 const input = label.createEl("input", { type, attr: { required: "", "aria-label": text } }); input.value = initial ?? ""; return input;
             }
-            const name = field(section(phase ? "Phase" : "Milestone"), "Name", "text", value?.name);
+            const name = field(section(phase ? "Phase" : "Milestone"), "Title", "text", value?.name);
             const dates = section(phase ? "Dates" : "Date").createDiv({ cls: "hub-task-date-fields" });
-            const start = field(dates, phase ? "Start" : "Date", "date", (phase ? value?.start : value?.date) ?? localISODate());
+            const start = field(dates, phase ? "Start" : "Date", "date", (phase ? value?.start ?? defaults.start : value?.date ?? defaults.date) ?? localISODate());
             let end, description, achieved, tasks = [], selected = new Map();
             const key = task => task.hubTaskId ?? task.path + ":" + task.line;
             if (phase) {
@@ -8023,6 +11046,147 @@ function openPlanningEditor(service, projectId, kind, value = null, dv) {
     const modal = new PlanningModal(service.plugin.app); modal.open(); return modal;
 }
 module.exports = { openPlanningEditor };
+
+},
+"lib/ui/pointer-list-reorder.js": function (module, exports, __hubRequire) {
+"use strict";
+// Extracted from Presets: floating row, frozen slot centers, dashed placeholder,
+// horizontal confinement, cancellation, pointer capture and edge auto-scroll.
+function createPointerListReorder({ container, scroller = container, canStart = () => true,
+    commit: save, onError = () => {}, placeholderClass = "hub-preset-placeholder",
+    sortingClass = "is-sorting-presets", focusTarget = row => row, animate = false }) {
+    const doc = container.ownerDocument, win = doc.defaultView;
+    let drag = null, suppressClick = false, settling = null, settledSave = null;
+    const duration = 140;
+    function animateRow(row, previousTop) {
+        if (!animate || previousTop == null || win.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+        const delta = previousTop - row.getBoundingClientRect().top;
+        if (delta) row.animate([{ transform: `translateY(${delta}px)` }, { transform: "translateY(0)" }],
+            { duration, easing: "ease-out" });
+    }
+    function beginDrag(event, item, list) {
+        if (event.button !== 0 || event.isPrimary === false || !canStart(event) || drag) return;
+        const rows = [...list.children];
+        if (rows.length < 2) return;
+        drag = { item, list, rows, pointerId: event.pointerId, startX: event.clientX, startY: event.clientY,
+            x: event.clientX, y: event.clientY, index: rows.indexOf(item), active: false };
+        doc.addEventListener("pointermove", moveDrag, { passive: false });
+        doc.addEventListener("pointerup", dropDrag);
+        doc.addEventListener("pointercancel", cancelDrag);
+        doc.addEventListener("keydown", dragKey, true);
+        doc.defaultView.addEventListener("blur", cancelDrag);
+    }
+    function moveDrag(event) {
+        const d = drag;
+        if (!d || event.pointerId !== d.pointerId) return;
+        d.x = event.clientX; d.y = event.clientY;
+        if (!d.active) {
+            if (Math.hypot(d.x - d.startX, d.y - d.startY) < 6) return;
+            d.active = true;
+            d.containerWidth = container.style.width;
+            container.style.width = `${container.getBoundingClientRect().width}px`;
+            const rect = d.item.getBoundingClientRect(), listRect = d.list.getBoundingClientRect();
+            d.offsetY = d.startY - rect.top; d.height = rect.height;
+            // Frozen slot centers avoid feedback from rows moving around the placeholder.
+            d.centers = d.rows.map(row => { const r = row.getBoundingClientRect(); return r.top - listRect.top + r.height / 2; });
+            d.placeholder = doc.createElement("div"); d.placeholder.className = placeholderClass;
+            d.placeholder.style.height = `${rect.height}px`; d.placeholder.setAttribute("aria-hidden", "true");
+            d.item.before(d.placeholder);
+            d.item.classList.add("is-dragging", "is-pointer-dragging");
+            d.item.style.width = `${rect.width}px`; d.item.style.left = `${rect.left - listRect.left}px`;
+            container.classList.add(sortingClass);
+            if (event.isTrusted) container.setPointerCapture?.(d.pointerId);
+            d.frame = doc.defaultView.requestAnimationFrame(scrollDrag);
+        }
+        event.preventDefault(); positionDrag();
+    }
+    function positionDrag() {
+        const d = drag;
+        if (!d?.active) return;
+        const rect = d.list.getBoundingClientRect();
+        const top = Math.max(0, Math.min(rect.height - d.height, d.y - rect.top - d.offsetY));
+        d.item.style.top = `${top}px`;
+        const center = top + d.height / 2;
+        let index = d.index;
+        // A small dead band keeps a pointer near a boundary from toggling slots.
+        while (index < d.rows.length - 1 && center > (d.centers[index] + d.centers[index + 1]) / 2 + 3) index++;
+        while (index > 0 && center < (d.centers[index - 1] + d.centers[index]) / 2 - 3) index--;
+        if (index !== d.index) {
+            d.index = index;
+            const others = d.rows.filter(row => row !== d.item);
+            const positions = animate ? others.map(row => row.getBoundingClientRect().top) : [];
+            d.list.insertBefore(d.placeholder, others[index] ?? null);
+            others.forEach((row, i) => animateRow(row, positions[i]));
+        }
+    }
+    function scrollDrag() {
+        const d = drag;
+        if (!d?.active) return;
+        const rect = scroller.getBoundingClientRect(), edge = 28;
+        const speed = d.y < rect.top + edge ? -8 : d.y > rect.bottom - edge ? 8 : 0;
+        if (speed) { scroller.scrollTop += speed; positionDrag(); }
+        d.frame = doc.defaultView.requestAnimationFrame(scrollDrag);
+    }
+    function dropDrag(event) {
+        if (!drag || event.pointerId !== drag.pointerId) return;
+        const rect = scroller.getBoundingClientRect(), listRect = drag.list.getBoundingClientRect();
+        finishDrag(event.clientX >= rect.left && event.clientX <= rect.right &&
+            event.clientY >= Math.max(rect.top, listRect.top) && event.clientY <= Math.min(rect.bottom, listRect.bottom));
+    }
+    function cancelDrag() { finishDrag(false); }
+    function dragKey(event) {
+        if (event.key === "Escape") { event.preventDefault(); event.stopImmediatePropagation(); finishDrag(false); }
+    }
+    function finishDrag(commit) {
+        const d = drag;
+        if (!d) return;
+        drag = null;
+        doc.removeEventListener("pointermove", moveDrag);
+        doc.removeEventListener("pointerup", dropDrag);
+        doc.removeEventListener("pointercancel", cancelDrag);
+        doc.removeEventListener("keydown", dragKey, true);
+        doc.defaultView.removeEventListener("blur", cancelDrag);
+        if (!d.active) return;
+        doc.defaultView.cancelAnimationFrame(d.frame);
+        if (container.hasPointerCapture?.(d.pointerId)) container.releasePointerCapture(d.pointerId);
+        const ordered = d.rows.filter(row => row !== d.item); ordered.splice(d.index, 0, d.item);
+        const lastTop = d.item.getBoundingClientRect().top;
+        if (commit && !animate) {
+            try { save(ordered, d.item); }
+            catch (error) { commit = false; onError(error); }
+        }
+        d.placeholder.remove(); d.item.classList.remove("is-dragging", "is-pointer-dragging");
+        for (const property of ["width", "left", "top"]) d.item.style.removeProperty(property);
+        d.list.append(...(commit ? ordered : d.rows));
+        container.style.width = d.containerWidth;
+        container.classList.remove(sortingClass);
+        suppressClick = true;
+        doc.defaultView.setTimeout(() => { suppressClick = false; }, 0);
+        (focusTarget(d.item) ?? d.item).focus({ preventScroll: true });
+        if (animate) {
+            animateRow(d.item, lastTop);
+            if (commit) {
+                settledSave = () => { const saveOrder = settledSave; settledSave = null; settling = null;
+                    if (saveOrder) save(ordered, d.item); };
+                settling = win.setTimeout(settledSave, duration);
+            }
+        }
+    }
+    container.addEventListener("click", event => {
+        if (suppressClick || drag?.active) { event.preventDefault(); event.stopImmediatePropagation(); }
+    }, true);
+    container.addEventListener("dragstart", event => event.preventDefault());
+    container.addEventListener("lostpointercapture", event => {
+        if (drag?.pointerId === event.pointerId) finishDrag(false);
+    });
+    return { begin: beginDrag, get busy() { return !!drag || settling != null; },
+        get active() { return !!drag?.active; }, cancel() {
+            // A completed drop must still save if its view closes during settling.
+            if (settling != null) { win.clearTimeout(settling); settledSave?.(); }
+            finishDrag(false);
+        } };
+}
+module.exports = { createPointerListReorder };
 
 },
 "lib/ui/prepared-note-rail.js": function (module, exports, __hubRequire) {
@@ -8216,19 +11380,22 @@ function showPresetsMenu(anchor, presets) {
     let closed = false;
     let nameModal = null;
     let contextMenu = null;
-    let drag = null;
-    let suppressClick = false;
+    const reorder = __hubRequire("lib/ui/pointer-list-reorder.js").createPointerListReorder({
+        container: menu, canStart: event => !event.target.closest("button") && !contextMenu,
+        commit: rows => presets.reorder(rows.map(row => row.dataset.presetId)),
+        onError: error => new Notice(error.message || "Could not reorder presets.")
+    });
     const run = action => Promise.resolve().then(action).catch(error => new Notice(error.message || "Could not update preset."));
     function close() {
         if (closed) return;
-        finishDrag(false);
+        reorder.cancel();
         closed = true; menu.remove(); anchor.setAttribute("aria-expanded", "false");
         contextMenu?.hide();
         doc.removeEventListener("pointerdown", outside, true);
         doc.defaultView.removeEventListener("resize", close);
     }
     function outside(event) {
-        if (drag) return;
+        if (reorder.busy) return;
         // Native menus/modals are portalled to body, but still belong to this
         // dropdown. Only a genuinely external click dismisses the parent menu.
         if (contextMenu?.dom?.contains(event.target) ||
@@ -8288,7 +11455,7 @@ function showPresetsMenu(anchor, presets) {
     }
     function render() {
     if (closed) return;
-    finishDrag(false);
+    reorder.cancel();
     menu.replaceChildren();
     if (presets.canSave) {
         const action = row("Save as new preset", () => namePrompt("Save preset", "", name => presets.create(name)));
@@ -8305,11 +11472,11 @@ function showPresetsMenu(anchor, presets) {
     for (const preset of presets.items) {
         const item = row(preset.name, () => { close(); void run(() => presets.open(preset.id, anchor)); }, list, "panels-top-left");
         item.dataset.presetId = preset.id;
-        item.addEventListener("pointerdown", event => beginDrag(event, item, list));
+        item.addEventListener("pointerdown", event => reorder.begin(event, item, list));
         const showContextMenu = event => {
             event.preventDefault(); event.stopPropagation();
-            if (drag?.active) return;
-            finishDrag(false);
+            if (reorder.active) return;
+            reorder.cancel();
             contextMenu?.hide();
             const context = new Menu();
             contextMenu = context;
@@ -8340,110 +11507,6 @@ function showPresetsMenu(anchor, presets) {
     }
     position();
     }
-    function beginDrag(event, item, list) {
-        if (event.button !== 0 || event.isPrimary === false || event.target.closest("button") || contextMenu || drag) return;
-        const rows = [...list.children];
-        if (rows.length < 2) return;
-        drag = { item, list, rows, pointerId: event.pointerId, startX: event.clientX, startY: event.clientY,
-            x: event.clientX, y: event.clientY, index: rows.indexOf(item), active: false };
-        doc.addEventListener("pointermove", moveDrag, { passive: false });
-        doc.addEventListener("pointerup", dropDrag);
-        doc.addEventListener("pointercancel", cancelDrag);
-        doc.addEventListener("keydown", dragKey, true);
-        doc.defaultView.addEventListener("blur", cancelDrag);
-    }
-    function moveDrag(event) {
-        const d = drag;
-        if (!d || event.pointerId !== d.pointerId) return;
-        d.x = event.clientX; d.y = event.clientY;
-        if (!d.active) {
-            if (Math.hypot(d.x - d.startX, d.y - d.startY) < 6) return;
-            d.active = true;
-            d.menuWidth = menu.style.width;
-            menu.style.width = `${menu.getBoundingClientRect().width}px`;
-            const rect = d.item.getBoundingClientRect(), listRect = d.list.getBoundingClientRect();
-            d.offsetY = d.startY - rect.top; d.height = rect.height;
-            // Frozen slot centers avoid feedback from rows moving around the placeholder.
-            d.centers = d.rows.map(row => { const r = row.getBoundingClientRect(); return r.top - listRect.top + r.height / 2; });
-            d.placeholder = doc.createElement("div"); d.placeholder.className = "hub-preset-placeholder";
-            d.placeholder.style.height = `${rect.height}px`; d.placeholder.setAttribute("aria-hidden", "true");
-            d.item.before(d.placeholder);
-            d.item.classList.add("is-dragging");
-            d.item.style.width = `${rect.width}px`; d.item.style.left = `${rect.left - listRect.left}px`;
-            menu.classList.add("is-sorting-presets");
-            if (event.isTrusted) menu.setPointerCapture?.(d.pointerId);
-            d.frame = doc.defaultView.requestAnimationFrame(scrollDrag);
-        }
-        event.preventDefault(); positionDrag();
-    }
-    function positionDrag() {
-        const d = drag;
-        if (!d?.active) return;
-        const rect = d.list.getBoundingClientRect();
-        const top = Math.max(0, Math.min(rect.height - d.height, d.y - rect.top - d.offsetY));
-        d.item.style.top = `${top}px`;
-        const center = top + d.height / 2;
-        let index = d.index;
-        // A small dead band keeps a pointer near a boundary from toggling slots.
-        while (index < d.rows.length - 1 && center > (d.centers[index] + d.centers[index + 1]) / 2 + 3) index++;
-        while (index > 0 && center < (d.centers[index - 1] + d.centers[index]) / 2 - 3) index--;
-        if (index !== d.index) {
-            d.index = index;
-            const others = d.rows.filter(row => row !== d.item);
-            d.list.insertBefore(d.placeholder, others[index] ?? null);
-        }
-    }
-    function scrollDrag() {
-        const d = drag;
-        if (!d?.active) return;
-        const rect = menu.getBoundingClientRect(), edge = 28;
-        const speed = d.y < rect.top + edge ? -8 : d.y > rect.bottom - edge ? 8 : 0;
-        if (speed) { menu.scrollTop += speed; positionDrag(); }
-        d.frame = doc.defaultView.requestAnimationFrame(scrollDrag);
-    }
-    function dropDrag(event) {
-        if (!drag || event.pointerId !== drag.pointerId) return;
-        const rect = menu.getBoundingClientRect(), listRect = drag.list.getBoundingClientRect();
-        finishDrag(event.clientX >= rect.left && event.clientX <= rect.right &&
-            event.clientY >= Math.max(rect.top, listRect.top) && event.clientY <= Math.min(rect.bottom, listRect.bottom));
-    }
-    function cancelDrag() { finishDrag(false); }
-    function dragKey(event) {
-        if (event.key === "Escape") { event.preventDefault(); event.stopImmediatePropagation(); finishDrag(false); }
-    }
-    function finishDrag(commit) {
-        const d = drag;
-        if (!d) return;
-        drag = null;
-        doc.removeEventListener("pointermove", moveDrag);
-        doc.removeEventListener("pointerup", dropDrag);
-        doc.removeEventListener("pointercancel", cancelDrag);
-        doc.removeEventListener("keydown", dragKey, true);
-        doc.defaultView.removeEventListener("blur", cancelDrag);
-        if (!d.active) return;
-        doc.defaultView.cancelAnimationFrame(d.frame);
-        if (menu.hasPointerCapture?.(d.pointerId)) menu.releasePointerCapture(d.pointerId);
-        const ordered = d.rows.filter(row => row !== d.item); ordered.splice(d.index, 0, d.item);
-        if (commit) {
-            try { presets.reorder(ordered.map(row => row.dataset.presetId)); }
-            catch (error) { commit = false; new Notice(error.message || "Could not reorder presets."); }
-        }
-        d.placeholder.remove(); d.item.classList.remove("is-dragging");
-        for (const property of ["width", "left", "top"]) d.item.style.removeProperty(property);
-        d.list.append(...(commit ? ordered : d.rows));
-        menu.style.width = d.menuWidth;
-        menu.classList.remove("is-sorting-presets");
-        suppressClick = true;
-        doc.defaultView.setTimeout(() => { suppressClick = false; }, 0);
-        d.item.focus({ preventScroll: true });
-    }
-    menu.addEventListener("click", event => {
-        if (suppressClick || drag?.active) { event.preventDefault(); event.stopImmediatePropagation(); }
-    }, true);
-    menu.addEventListener("dragstart", event => event.preventDefault());
-    menu.addEventListener("lostpointercapture", event => {
-        if (drag?.pointerId === event.pointerId) finishDrag(false);
-    });
     menu.addEventListener("keydown", event => {
         const items = [...menu.querySelectorAll('[role="menuitem"]:not([aria-disabled=true])')];
         const index = items.indexOf(doc.activeElement?.closest('[role="menuitem"]'));
@@ -8791,55 +11854,109 @@ module.exports = { ProjectDeletionModal };
 },
 "lib/ui/project-roadmap.js": function (module, exports, __hubRequire) {
 "use strict";
-const { Notice } = require("obsidian");
-const { localISODate } = __hubRequire("lib/domain/dates.js");
-const { roadmapRange, phasePlacement } = __hubRequire("lib/domain/project-planning.js");
+const { Notice, Menu, setIcon } = require("obsidian");
+const { localISODate, parseLocalISODate } = __hubRequire("lib/domain/dates.js");
+const { roadmapViewport, roadmapZoom, panRoadmap, roadmapToday, phasePlacement } = __hubRequire("lib/domain/project-planning.js");
 const { button, iconButton } = __hubRequire("lib/ui/task-view-primitives.js");
 const { openPlanningEditor } = __hubRequire("lib/ui/planning-editor.js");
+const { bindListReorder } = __hubRequire("lib/ui/list-reorder.js");
+const { setHubIcon } = __hubRequire("lib/ui/icons.js");
+const { setHubTooltip, bindHubFocusTooltip } = __hubRequire("lib/ui/tooltips.js");
+const { disclosureIcons } = __hubRequire("lib/ui/disclosure.js");
+const { milestoneDiamond, placeMilestoneCards, milestoneLeaders } = __hubRequire("lib/domain/roadmap-milestones.js");
 
 function mountProjectRoadmap({ plugin, component, dv, host, workspace, state }) {
     const service = plugin.planning;
-    state.roadmapAnchor ??= new Date(); state.roadmapMonths ??= 6;
+    // Retain the existing warm-view state, including an earlier chosen fixed zoom.
+    if (state.roadmapZoom == null) {
+        state.roadmapZoom = state.roadmapMonths ? String(state.roadmapMonths) : "all";
+        state.roadmapViewport = state.roadmapAnchor ? localISODate(state.roadmapAnchor) : null;
+    }
     const panel = host.createDiv({ cls: "project-panel hub-roadmap-panel" });
-    let disposed = false;
-    const edit = (kind, value) => openPlanningEditor(service, workspace.projectId, kind, value, dv);
+    const dismissDateTooltip = bindHubFocusTooltip(panel, component, ".hub-roadmap-milestone, .hub-roadmap-milestone-caption");
+    let disposed = false, cancelReorder = () => {}, cancelMilestoneLayout = () => {}, activeMenu = null;
+    const edit = (kind, value, defaults) => openPlanningEditor(service, workspace.projectId, kind, value, dv, defaults);
+    const closeMenu = () => { activeMenu?.hide(); activeMenu = null; };
     const month = date => date.toLocaleDateString("en-US", { month: "short", year: "numeric" });
     const dateLabel = iso => new Date(iso + "T12:00:00").toLocaleDateString("en-US", { day: "numeric", month: "short", year: "numeric" });
     function render() {
         if (disposed) return;
         const previous = panel.querySelector(".hub-roadmap-scroll"), scroll = { left: previous?.scrollLeft ?? 0, top: previous?.scrollTop ?? 0 };
-        panel.replaceChildren();
-        const data = service.read(workspace.projectId), range = roadmapRange(state.roadmapAnchor, state.roadmapMonths);
+        cancelReorder(); cancelMilestoneLayout(); closeMenu(); dismissDateTooltip(); panel.replaceChildren();
+        const data = service.read(workspace.projectId), range = roadmapViewport(data, state);
+        panel.dataset.viewportStart = localISODate(range.start); panel.dataset.viewportEnd = localISODate(range.end);
+        const changeViewport = patch => { Object.assign(state, patch); const current = panel.querySelector(".hub-roadmap-scroll"); if (current) current.scrollLeft = 0; render(); };
         const toolbar = panel.createDiv({ cls: "hub-planning-toolbar" });
-        const navigation = toolbar.createDiv({ cls: "hub-planning-navigation" });
-        const move = amount => { state.roadmapAnchor = new Date(range.start.getFullYear(), range.start.getMonth() + amount * state.roadmapMonths, 1); render(); };
-        iconButton(navigation, "Previous range", "chevron-left", () => move(-1));
-        iconButton(navigation, "Next range", "chevron-right", () => move(1));
-        button(navigation, "Today", () => { state.roadmapAnchor = new Date(); render(); }, "hub-panel-action");
-        navigation.createEl("h3", { text: month(range.start) + " – " + month(new Date(range.end.getFullYear(), range.end.getMonth(), 0)) });
-        const actions = toolbar.createDiv({ cls: "hub-planning-actions" });
-        const select = actions.createEl("select", { attr: { "aria-label": "Roadmap range" } });
-        for (const [value, label] of [[3, "3 months"], [6, "6 months"], [12, "1 year"]]) select.createEl("option", { text: label, attr: { value: String(value) } });
-        select.value = String(state.roadmapMonths); select.addEventListener("change", () => { state.roadmapMonths = Number(select.value); render(); });
-        const additions = actions.createDiv({ cls: "hub-planning-additions" });
-        button(additions, "Phase", () => edit("phases"), "hub-panel-action", "plus");
-        button(additions, "Milestone", () => edit("milestones"), "hub-panel-action", "plus");
-        if (!data.phases.length && !data.milestones.length) { panel.createDiv({ cls: "hub-task-view-empty", text: "No phases or milestones yet." }); return; }
+        const title = toolbar.createDiv({ cls: "project-panel-title project-tasks-title hub-roadmap-title", attr: { role: "heading", "aria-level": "2" } });
+        setHubIcon(title.createSpan({ cls: "project-tasks-title-icon", attr: { "aria-hidden": "true" } }), "route");
+        title.createSpan({ text: "Roadmap" });
+        const actions = toolbar.createDiv({ cls: "hub-planning-actions hub-roadmap-controls" });
+        const choices = [["all", "Entire project"], ["3", "3 months"], ["6", "6 months"], ["12", "1 year"]];
+        const dropdown = button(actions, choices.find(([value]) => value === state.roadmapZoom)?.[1] ?? "Entire project", () => showRanges(), "hub-panel-action hub-roadmap-range-select");
+        const rangeLabel = dropdown.querySelector("span"), currentLabel = rangeLabel.textContent;
+        rangeLabel.textContent = ""; rangeLabel.classList.add("hub-roadmap-range-label");
+        rangeLabel.createSpan({ cls: "hub-roadmap-range-current", text: currentLabel });
+        dropdown.dataset.value = state.roadmapZoom;
+        for (const [key, value] of Object.entries({ "aria-label": "Roadmap range", "aria-haspopup": "menu", "aria-expanded": "false" })) dropdown.setAttribute(key, value);
+        disclosureIcons(dropdown);
+        function showRanges() {
+            if (activeMenu) { closeMenu(); return; }
+            const menu = activeMenu = new Menu();
+            for (const [value, label] of choices) menu.addItem(item => item.setTitle(label).setChecked(value === state.roadmapZoom)
+                .onClick(() => changeViewport(roadmapZoom(data, state, value))));
+            menu.onHide(() => { if (activeMenu === menu) activeMenu = null; dropdown.setAttribute("aria-expanded", "false");
+                const focused = dropdown.ownerDocument.activeElement;
+                if (dropdown.isConnected && (focused === dropdown.ownerDocument.body || focused?.closest(".menu"))) dropdown.focus({ preventScroll: true });
+            });
+            dropdown.setAttribute("aria-expanded", "true");
+            const rect = dropdown.getBoundingClientRect(); menu.showAtPosition({ x: rect.left, y: rect.bottom });
+        }
+        dropdown.addEventListener("keydown", event => { if (event.key === "ArrowDown") { event.preventDefault(); showRanges(); } });
+        const creation = actions.createDiv({ cls: "hub-roadmap-creation hub-equal-selectors", attr: { role: "group", "aria-label": "Create planning item" } });
+        button(creation, "Phase", () => edit("phases"), "hub-panel-action hub-roadmap-add-phase", "plus");
+        button(creation, "Milestone", () => edit("milestones"), "hub-panel-action hub-roadmap-add-milestone", "plus");
+        const contextualCreation = (surface, track) => surface.addEventListener("contextmenu", event => {
+            if (event.target.closest("button,input,select,textarea,a,[role=button],.hub-roadmap-label")) return;
+            event.preventDefault(); closeMenu();
+            const bounds = track?.getBoundingClientRect();
+            let date = localISODate();
+            if (bounds && event.clientX >= bounds.left && event.clientX <= bounds.right) {
+                const day = Math.min(range.total - 1, Math.max(0, Math.floor((event.clientX - bounds.left) / bounds.width * range.total)));
+                const inferred = new Date(range.start); inferred.setDate(inferred.getDate() + day); date = localISODate(inferred);
+            }
+            const menu = activeMenu = new Menu();
+            menu.addItem(item => item.setTitle("Add phase").onClick(() => edit("phases", null, { start: date })));
+            menu.addItem(item => item.setTitle("Add milestone").onClick(() => edit("milestones", null, { date })));
+            menu.onHide(() => { if (activeMenu === menu) activeMenu = null; });
+            menu.showAtPosition({ x: event.clientX, y: event.clientY });
+        });
         const scroller = panel.createDiv({ cls: "hub-roadmap-scroll" });
         const timeline = scroller.createDiv({ cls: "hub-roadmap-timeline" });
-        const scaleWidth = Math.max(530, state.roadmapMonths * 85);
+        const scaleWidth = state.roadmapZoom === "all" ? 0 : Math.max(530, Number(state.roadmapZoom) * 85);
         timeline.style.setProperty("--hub-roadmap-scale-width", scaleWidth + "px");
-        const makeRow = cls => {
-            const row = timeline.createDiv({ cls: "hub-roadmap-row " + cls });
+        const makeRow = (cls, parent = timeline) => {
+            const row = parent.createDiv({ cls: "hub-roadmap-row " + cls });
             const label = row.createDiv({ cls: "hub-roadmap-label" }), track = row.createDiv({ cls: "hub-roadmap-track" });
             return { row, label, track };
         };
         const axis = makeRow("hub-roadmap-axis");
-        for (let i = 0; i < state.roadmapMonths; i++) {
-            const start = new Date(range.start.getFullYear(), range.start.getMonth() + i, 1), end = new Date(start.getFullYear(), start.getMonth() + 1, 1);
-            const heading = axis.track.createSpan({ cls: "hub-roadmap-month", text: month(start) });
-            heading.style.left = range.position(localISODate(start)) + "%";
-            heading.style.width = range.position(localISODate(end)) - range.position(localISODate(start)) + "%";
+        const navigation = axis.label.createDiv({ cls: "hub-planning-navigation hub-roadmap-axis-navigation", attr: { role: "group", "aria-label": "Roadmap time navigation" } });
+        const move = amount => changeViewport(panRoadmap(data, state, amount));
+        iconButton(navigation, "Previous range", "chevron-left", () => move(-1));
+        iconButton(navigation, "Next range", "chevron-right", () => move(1));
+        button(navigation, "Today", () => changeViewport(roadmapToday(data, state)), "hub-panel-action");
+        for (let start = new Date(range.start.getFullYear(), range.start.getMonth(), 1); start < range.end;
+            start = new Date(start.getFullYear(), start.getMonth() + 1, 1)) {
+            const end = new Date(start.getFullYear(), start.getMonth() + 1, 1);
+            const left = Math.max(0, range.position(localISODate(start))), right = Math.min(100, range.position(localISODate(end)));
+            const heading = axis.track.createSpan({ cls: "hub-roadmap-month", attr: { title: month(start) } });
+            heading.style.left = left + "%"; heading.style.width = right - left + "%";
+            const text = heading.createSpan({ text: month(start) });
+            // Measure the actual theme typography; retain the month cell/grid even
+            // when the visible fragment cannot fit the complete label.
+            const style = getComputedStyle(heading);
+            const padding = parseFloat(style.paddingLeft) + parseFloat(style.paddingRight);
+            if (text.getBoundingClientRect().width + padding > heading.clientWidth) text.remove();
         }
         const monday = new Date(range.start); monday.setDate(monday.getDate() + (8 - monday.getDay()) % 7);
         const weeks = [];
@@ -8847,42 +11964,122 @@ function mountProjectRoadmap({ plugin, component, dv, host, workspace, state }) 
             const left = range.position(localISODate(date)); weeks.push(left);
             const marker = axis.track.createSpan({ cls: "hub-roadmap-week", text: String(date.getDate()) }); marker.style.left = left + "%";
         }
+        if (!data.phases.length && !data.milestones.length) {
+            timeline.classList.add("is-empty");
+            const empty = timeline.createDiv({ cls: "hub-task-view-empty", text: "No phases or milestones yet." });
+            contextualCreation(empty); return;
+        }
         const milestones = makeRow("hub-roadmap-milestones"); milestones.label.createSpan({ text: "Milestones" });
         const visibleMilestones = data.milestones.filter(item => range.position(item.date) >= 0 && range.position(item.date) < 100).sort((a, b) => a.date.localeCompare(b.date));
-        for (const [index, item] of visibleMilestones.entries()) {
-            const position = range.position(item.date);
+        const svgElement = (parent, tag, attributes = {}) => {
+            const element = parent.ownerDocument.createElementNS("http://www.w3.org/2000/svg", tag);
+            for (const [name, value] of Object.entries(attributes)) element.setAttribute(name, value);
+            parent.append(element); return element;
+        };
+        const svg = svgElement(milestones.track, "svg", { class: "hub-roadmap-leaders", "aria-hidden": "true", preserveAspectRatio: "none" });
+        const leaders = svgElement(svg, "g"), diamonds = svgElement(svg, "g"); // Glyphs paint above their leaders.
+        const polygonPoints = vertices => [vertices.top, vertices.right, vertices.bottom, vertices.left].map(point => point.join(",")).join(" ");
+        const labels = [];
+        for (const item of visibleMilestones) {
             const marker = button(milestones.track, "", () => edit("milestones", item), "hub-button-plain hub-roadmap-milestone" + (item.achieved ? " is-achieved" : ""));
-            marker.dataset.planningId = item.id; marker.style.left = position + "%";
-            marker.setAttribute("aria-label", item.name + ", " + dateLabel(item.date) + (item.achieved ? ", achieved" : "")); marker.title = marker.getAttribute("aria-label");
-            marker.createSpan({ cls: "hub-roadmap-diamond", attr: { "aria-hidden": "true" } });
-            const label = marker.createSpan({ cls: "hub-roadmap-milestone-caption" });
-            label.createSpan({ text: item.name }); label.createSpan({ cls: "hub-roadmap-milestone-date", text: dateLabel(item.date) });
-            // Give captions the space halfway to adjacent markers; never move a diamond.
-            const trackWidth = milestones.track.getBoundingClientRect().width || scaleWidth;
-            const previous = index ? range.position(visibleMilestones[index - 1].date) : -position;
-            const next = index + 1 < visibleMilestones.length ? range.position(visibleMilestones[index + 1].date) : 200 - position;
-            const left = Math.max(0, (previous + position) / 2), right = Math.min(100, (next + position) / 2);
-            const width = Math.max(0, Math.min(145, (right - left) / 100 * trackWidth - 8));
-            const offset = Math.max((left - position) / 100 * trackWidth + 4, Math.min(-width / 2, (right - position) / 100 * trackWidth - width - 4));
-            label.style.width = width + "px"; label.style.left = offset + "px";
-            label.style.textAlign = offset < -width * .75 ? "right" : offset > -width * .25 ? "left" : "center";
-
+            marker.dataset.planningId = item.id;
+            const exactDate = parseLocalISODate(item.date).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+            const tooltip = item.name + " — " + exactDate + (item.achieved ? ", achieved" : "");
+            setHubTooltip(marker, tooltip); marker.dataset.hubFocusTooltip = exactDate;
+            // The native button remains the editing/focus target; its glyph and
+            // connector are both rendered in the one authoritative SVG space.
+            const diamond = svgElement(diamonds, "g", { class: "hub-roadmap-diamond", "data-milestone-id": item.id });
+            const outline = svgElement(diamond, "polygon");
+            const interior = item.achieved ? null : svgElement(diamond, "polygon", { class: "hub-roadmap-diamond-interior" });
+            const label = button(milestones.track, "", () => edit("milestones", item), "hub-button-plain hub-roadmap-milestone-caption");
+            label.dataset.milestoneId = item.id;
+            setHubTooltip(label, tooltip); label.dataset.hubFocusTooltip = exactDate;
+            label.createSpan({ cls: "hub-roadmap-milestone-title", text: item.name });
+            labels.push({ item, marker, diamond, outline, interior, label });
+        }
+        let moreButton;
+        function layoutMilestones() {
+            // CSS layout pixels, never viewport bounding-box distances. The
+            // SVG viewBox uses these same units even under ancestor zoom/scale.
+            const trackWidth = parseFloat(getComputedStyle(milestones.track).width);
+            if (!trackWidth) return;
+            const left = scroller.scrollLeft, labelWidth = parseFloat(getComputedStyle(milestones.label).width);
+            const right = Math.min(trackWidth, left + scroller.clientWidth - labelWidth);
+            const visible = labels.filter(({ item }) => { const x = range.position(item.date) / 100 * trackWidth; return x >= left && x <= right; });
+            const updateViewBox = () => svg.setAttribute("viewBox", `0 0 ${trackWidth} ${parseFloat(getComputedStyle(milestones.track).height)}`);
+            updateViewBox();
+            // Only HTML card bounds need conversion. Inverse CTM accounts for
+            // SVG origin/viewBox, ancestor transforms/zoom and both scroll axes.
+            const localBounds = element => {
+                const bounds = element.getBoundingClientRect(), inverse = svg.getScreenCTM().inverse();
+                const a = new DOMPoint(bounds.left, bounds.top).matrixTransform(inverse);
+                const b = new DOMPoint(bounds.right, bounds.bottom).matrixTransform(inverse);
+                return { left: a.x, top: a.y, width: b.x - a.x, height: b.y - a.y };
+            };
+            for (const entry of labels) {
+                const geometry = entry.geometry = milestoneDiamond(range.position(entry.item.date) / 100 * trackWidth);
+                entry.outline.setAttribute("points", polygonPoints(geometry.anchors));
+                entry.interior?.setAttribute("points", polygonPoints(geometry.interior));
+                // A transparent native hit area follows the explicit glyph bounds.
+                entry.marker.style.left = geometry.anchors.left[0] + "px";
+                entry.marker.style.top = geometry.anchors.top[1] + "px";
+                entry.marker.style.width = entry.marker.style.height = 2 * geometry.radius + "px";
+            }
+            labels.forEach(({ label }) => { label.hidden = true; }); moreButton?.remove(); leaders.replaceChildren();
+            const gap = parseFloat(getComputedStyle(panel).getPropertyValue("--hub-panel-gap")) || 12;
+            const width = Math.min(145, Math.max(1, right - left - gap));
+            const items = visible.map(({ item, label, geometry }) => {
+                label.hidden = false; label.style.width = width + "px";
+                return { id: item.id, x: geometry.x, tip: geometry.anchors.bottom, height: localBounds(label).height };
+            });
+            const bottom = milestoneDiamond(0).anchors.bottom[1];
+            const layout = placeMilestoneCards(items, { left, right, width, gap, top: bottom + gap });
+            visible.forEach(({ label }) => { label.hidden = true; });
+            for (const card of layout.cards) {
+                const label = labels.find(entry => entry.item.id === card.id).label;
+                label.hidden = false; label.style.left = card.left + "px"; label.style.top = card.top + "px";
+            }
+            if (layout.more) {
+                moreButton = button(milestones.track, layout.overflow.length + " more milestones", () => {
+                    closeMenu(); const menu = activeMenu = new Menu();
+                    for (const entry of layout.overflow) {
+                        const item = data.milestones.find(item => item.id === entry.id);
+                        menu.addItem(choice => choice.setTitle(item.name + " - " + dateLabel(item.date)).onClick(() => edit("milestones", item)));
+                    }
+                    menu.onHide(() => { if (activeMenu === menu) activeMenu = null; });
+                    const rect = moreButton.getBoundingClientRect(); menu.showAtPosition({ x: rect.left, y: rect.bottom });
+                }, "hub-panel-action hub-roadmap-more");
+                moreButton.style.left = layout.more.left + "px"; moreButton.style.top = layout.more.top + "px"; moreButton.style.width = layout.more.width + "px";
+            }
+            milestones.row.style.height = Math.max(113, bottom + gap + layout.lanes * layout.pitch) + "px";
+            milestones.row.dataset.lanes = String(layout.lanes);
+            updateViewBox();
+            // Card endpoints use the same SVG-local units as explicit vertices.
+            const cards = layout.cards.map(card => ({ ...card, ...localBounds(labels.find(entry => entry.item.id === card.id).label) }));
+            const more = layout.more ? { ...layout.more, ...localBounds(moreButton) } : null;
+            const today = range.position(localISODate()) / 100 * trackWidth;
+            for (const route of milestoneLeaders(cards, { bottom, left, right, today, more })) {
+                const path = document.createElementNS(svg.namespaceURI, "path");
+                path.dataset.milestoneId = route.id;
+                path.setAttribute("d", route.points.map(([x, y], index) => (index ? "L" : "M") + x + " " + y).join(" "));
+                leaders.append(path);
+            }
         }
         const heading = makeRow("hub-roadmap-phase-heading"); heading.label.createSpan({ text: "Phases" });
+        const phaseList = timeline.createDiv({ cls: "hub-roadmap-phase-list" });
+        const rows = [], handles = [];
+        const status = panel.createDiv({ cls: "hub-roadmap-status", attr: { role: "status", "aria-live": "polite" } });
         data.phases.forEach((phase, index) => {
-            const { row, label, track } = makeRow("hub-roadmap-phase");
-            row.style.setProperty("--hub-phase-color", `var(--hub-phase-${index % 4})`);
+            const { row, label, track } = makeRow("hub-roadmap-phase", phaseList);
+            row.dataset.reorderId = phase.id; rows.push(row);
+            const strength = data.phases.length < 2 ? 100 : 100 - index / (data.phases.length - 1) * 100;
+            row.style.setProperty("--hub-phase-color", index === 0 ? "var(--hub-phase-0)" :
+                `color-mix(in oklab, var(--hub-phase-0) ${strength}%, var(--hub-phase-end))`);
+            const handle = label.createEl("button", { cls: "hub-button-plain hub-roadmap-drag-handle",
+                attr: { type: "button", "aria-label": "Reorder phase " + phase.name, title: "Drag to reorder " + phase.name } });
+            setIcon(handle, "grip-vertical"); handles.push(handle);
             const title = button(label, phase.name, () => edit("phases", phase), "hub-button-plain hub-roadmap-phase-name"); title.title = phase.name;
             title.dataset.planningId = phase.id;
-            const reorder = label.createDiv({ cls: "hub-roadmap-reorder" });
-            for (const direction of [-1, 1]) {
-                const control = iconButton(reorder, `Move ${phase.name} ${direction < 0 ? "up" : "down"}`, direction < 0 ? "chevron-up" : "chevron-down", async () => {
-                    control.disabled = true;
-                    try { await service.reorder(workspace.projectId, phase.id, direction, data.revision); }
-                    catch (error) { new Notice(error.message); control.disabled = false; }
-                });
-                control.disabled = direction < 0 ? index === 0 : index === data.phases.length - 1;
-            }
             const position = phasePlacement(phase, range);
             if (position) {
                 const bar = button(track, "", () => edit("phases", phase), "hub-roadmap-phase-bar");
@@ -8890,11 +12087,43 @@ function mountProjectRoadmap({ plugin, component, dv, host, workspace, state }) 
                 bar.setAttribute("aria-label", `${phase.name}, ${dateLabel(phase.start)} to ${dateLabel(phase.end)}`); bar.title = bar.getAttribute("aria-label");
             }
         });
+        cancelReorder = bindListReorder({ rows, handles, status, list: phaseList, scroller, commit: async (ids, phaseId) => {
+            try {
+                await service.reorder(workspace.projectId, ids, data.revision);
+                if (disposed) return;
+                const handle = [...panel.querySelectorAll(".hub-roadmap-phase")].find(row => row.dataset.reorderId === phaseId)?.querySelector(".hub-roadmap-drag-handle");
+                handle?.focus({ preventScroll: true });
+                const message = panel.querySelector(".hub-roadmap-status");
+                if (message) message.textContent = "Phase order saved.";
+            } catch (error) { new Notice(error.message); if (!disposed) render(); }
+        } });
         const grid = timeline.createDiv({ cls: "hub-roadmap-grid", attr: { "aria-hidden": "true" } });
         for (const position of weeks) { const line = grid.createSpan(); line.style.left = position + "%"; }
         const today = range.position(localISODate());
         if (today >= 0 && today < 100) { const line = grid.createDiv({ cls: "hub-roadmap-today" }); line.style.left = today + "%"; line.setAttribute("aria-label", "Today"); }
+        contextualCreation(scroller, axis.track);
         scroller.scrollLeft = scroll.left; scroller.scrollTop = scroll.top;
+        layoutMilestones();
+        let layoutFrame = 0, active = true;
+        const requestLayout = () => {
+            if (!active || disposed || layoutFrame) return;
+            layoutFrame = requestAnimationFrame(() => { layoutFrame = 0; if (active && !disposed) layoutMilestones(); });
+        };
+        const geometryObserver = new ResizeObserver(requestLayout);
+        geometryObserver.observe(milestones.track);
+        for (const { label } of labels) geometryObserver.observe(label);
+        const fonts = milestones.track.ownerDocument.fonts;
+        fonts?.addEventListener("loadingdone", requestLayout);
+        fonts?.ready.then(requestLayout);
+        cancelMilestoneLayout = () => {
+            active = false; cancelAnimationFrame(layoutFrame); geometryObserver.disconnect();
+            fonts?.removeEventListener("loadingdone", requestLayout);
+        };
+        let lastLeft = scroller.scrollLeft;
+        scroller.addEventListener("scroll", () => {
+            if (lastLeft === scroller.scrollLeft) return;
+            lastLeft = scroller.scrollLeft; layoutMilestones();
+        });
     }
     service.subscribe(component, id => { if (id === workspace.projectId) render(); });
     let panelWidth = 0;
@@ -8903,11 +12132,16 @@ function mountProjectRoadmap({ plugin, component, dv, host, workspace, state }) 
         if (width && width !== panelWidth) { panelWidth = width; render(); }
     });
     observer.observe(panel);
-    component.register(() => { disposed = true; observer.disconnect(); }); render();
+    component.register(() => { disposed = true; cancelReorder(); cancelMilestoneLayout(); closeMenu(); observer.disconnect(); }); render();
     return { render, focus(kind, id) {
         const data = service.read(workspace.projectId), item = data[kind]?.find(item => item.id === id);
         if (!item) return false;
-        state.roadmapAnchor = new Date((item.start ?? item.date) + "T12:00:00"); render();
+        const date = item.start ?? item.date, range = roadmapViewport(data, state);
+        if (range.position(date) < 0 || range.position(date) >= 100) {
+            if (state.roadmapZoom === "all") Object.assign(state, { roadmapViewport: null });
+            else Object.assign(state, roadmapToday(data, state, parseLocalISODate(date)));
+        }
+        render();
         const target = [...panel.querySelectorAll("[data-planning-id]")].find(element => element.dataset.planningId === id);
         target?.focus({ preventScroll: true }); target?.scrollIntoView({ block: "nearest", inline: "nearest" }); return !!target;
     } };
@@ -8915,14 +12149,198 @@ function mountProjectRoadmap({ plugin, component, dv, host, workspace, state }) 
 module.exports = { mountProjectRoadmap };
 
 },
+"lib/ui/quick-add.js": function (module, exports, __hubRequire) {
+"use strict";
+const { Notice } = require("obsidian");
+const { CaptureModal, action, attachments } = __hubRequire("lib/ui/capture-modal.js");
+const { mountCaptureForm } = __hubRequire("lib/ui/capture-form.js");
+const { linkFromText } = __hubRequire("lib/domain/inbox.js");
+
+class QuickAddModal extends CaptureModal {
+    constructor(app, service, options = {}) {
+        super(app, service, options);
+        this.draft = { text: "", attachments: [], inputPath: "text", type: null, source: options.source ?? { origin: "Quick Add" } };
+        this.saved = false;
+        this.pendingImports = 0; this.importQueue = Promise.resolve();
+    }
+    onOpen() {
+        this.modalEl.classList.add("hub-quick-add-dialog");
+        this.header("Quick Add", "Write down a thought, or add a file.");
+        this.body = this.contentEl.createDiv({ cls: "hub-capture-body" });
+        this.textPath = this.body.createDiv({ cls: "hub-capture-input-path" });
+        this.label = this.textPath.createEl("label", { cls: "hub-capture-label", attr: { for: this.prefix + "-input" } }); this.label.hidden = true;
+        this.textEditor = this.textPath.createDiv({ cls: "hub-capture-text-editor" });
+        this.input = this.textEditor.createEl("textarea", { cls: "hub-quick-add-input", attr: { id: this.prefix + "-input", "aria-label": "Write something", rows: "3", placeholder: "Start typing..." } });
+        this.clear = action(this.textEditor, "", "x", () => {
+            this.input.value = ""; this.draft.text = ""; this.form?.update({ text: "" }); this.sync(); this.input.focus();
+        }, "hub-capture-clear");
+        this.clear.setAttribute("aria-label", "Clear"); this.clear.title = "Clear";
+        this.input.addEventListener("input", () => {
+            if (this.draft.attachments.length || this.pendingImports) return;
+            this.draft.text = this.input.value; this.form?.update({ text: this.input.value }); this.sync();
+        });
+        this.input.addEventListener("keydown", event => {
+            if (event.key === "Enter" && !event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey && !event.isComposing && event.keyCode !== 229) {
+                event.preventDefault();
+                if (!this.add.hidden && !this.add.disabled) void this.addDirect();
+                else if (!this.send.disabled) void this.sendInbox();
+            }
+        });
+        this.input.addEventListener("paste", event => {
+            const files = [...(event.clipboardData?.files ?? [])];
+            if (!files.length) return;
+            event.preventDefault();
+            void this.addAttachments(files);
+        });
+        this.body.addEventListener("dragover", event => {
+            if ([...(event.dataTransfer?.types ?? [])].some(type => ["Files", "text/uri-list", "text/plain"].includes(type))) {
+                event.preventDefault(); event.dataTransfer.dropEffect = "copy";
+            }
+        });
+        this.body.addEventListener("drop", event => {
+            const files = [...(event.dataTransfer?.files ?? [])];
+            if (files.length) {
+                event.preventDefault(); event.stopPropagation(); void this.addAttachments(files); return;
+            }
+            const links = (event.dataTransfer?.getData("text/uri-list") ?? "").split(/\r?\n/).filter(line => line && !line.startsWith("#"));
+            const text = links.length ? links.filter(link => linkFromText(link)).join("\n") : event.dataTransfer?.getData("text/plain") ?? "";
+            if (!text) return;
+            event.preventDefault(); event.stopPropagation();
+            if (this.busy || this.pendingImports) { this.error.textContent = "Wait for the current save before adding more content."; return; }
+            if (this.draft.attachments.length) { this.error.textContent = "Remove the file before writing something."; return; }
+            const start = event.target === this.input ? this.input.selectionStart : this.input.value.length;
+            const end = event.target === this.input ? this.input.selectionEnd : start;
+            const prefix = event.target !== this.input && this.input.value && !this.input.value.endsWith("\n") ? "\n" : "";
+            this.input.setRangeText(prefix + text, start, end, "end");
+            this.draft.text = this.input.value; this.form?.update({ text: this.input.value }); this.sync(); this.input.focus();
+        });
+        this.attachmentList = this.body.createDiv({ cls: "hub-capture-attachments" });
+        this.fileInput = this.body.createEl("input", { attr: { type: "file", multiple: "", hidden: "", tabindex: "-1", "aria-label": "Choose a file" } });
+        this.fileInput.addEventListener("change", () => { void this.addAttachments([...this.fileInput.files]); this.fileInput.value = ""; });
+        this.attach = action(this.body, "Add a file", "paperclip", () => this.fileInput.click(), "hub-capture-attach");
+        this.expanded = this.body.createDiv({ cls: "hub-capture-expanded" }); this.expanded.hidden = true;
+        const footer = this.contentEl.createDiv({ cls: "hub-capture-actions" });
+        this.cancel = action(footer, "Cancel", null, () => this.close());
+        this.more = action(footer, "More options", null, () => this.expand());
+        this.send = action(footer, "Send to Inbox", null, () => { void this.sendInbox(); }, "mod-cta");
+        this.add = action(footer, "Add to Itacan", null, () => { void this.addDirect(); }, "mod-cta"); this.add.hidden = true;
+        this.sync(); this.input.focus();
+    }
+    expand() {
+        if (this.form || this.busy || this.pendingImports || (!this.draft.text.trim() && !this.draft.attachments.length)) return;
+        this.more.hidden = true; this.add.hidden = false;
+        this.expanded.hidden = false; this.modalEl.classList.add("is-expanded");
+        if (this.draft.attachments.length) this.draft.type = "file";
+        this.form = mountCaptureForm({ host: this.expanded, service: this.service, draft: this.draft,
+            captureId: () => this.captureId,
+            onChange: value => { this.draft = value; this.sync(); } });
+        this.sync(); this.form.focus?.();
+    }
+    sync() {
+        if (this.closed || !this.send) return;
+        const file = !!this.draft.attachments.length, waiting = this.busy || !!this.pendingImports;
+        const text = !!this.draft.text.trim(), content = file || text;
+        if (!content && !waiting && this.form) {
+            this.form.destroy(); this.form = null; this.more.hidden = false; this.add.hidden = true;
+            this.expanded.hidden = true; this.modalEl.classList.remove("is-expanded");
+        }
+        const complete = !!this.form?.valid();
+        this.textPath.hidden = file;
+        const pendingNote = this.service.get(this.captureId)?.operation?.kind === "note-insertion";
+        this.input.disabled = waiting || file || pendingNote;
+        this.label.hidden = true;
+        this.input.setAttribute("aria-label", this.draft.type === "task" ? "Task" : this.draft.type === "note" ? "Note content" : "Write something");
+        this.clear.hidden = !this.draft.text.length || file; this.clear.disabled = waiting || pendingNote;
+        this.textEditor.classList.toggle("has-text", !!this.draft.text.length);
+        this.attach.hidden = file || text;
+        this.attach.disabled = waiting || text;
+        this.fileInput.disabled = this.attach.disabled;
+        this.more.disabled = waiting || !content;
+        this.send.disabled = waiting || complete || !content;
+        this.send.classList.toggle("mod-cta", !this.form);
+        this.add.disabled = waiting || !complete;
+        if (pendingNote) this.expanded.querySelectorAll("button,input,select,textarea").forEach(control => control.disabled = true);
+    }
+    renderAttachments() {
+        attachments(this.attachmentList, this.draft.attachments, this.service, { remove: ref => {
+            void this.run(async () => {
+                await this.service.releaseAttachments([ref]);
+                this.draft.attachments = this.draft.attachments.filter(item => item.id !== ref.id);
+                if (!this.draft.attachments.length) { this.draft.inputPath = "text"; this.draft.type = null; }
+                this.form?.update({ attachments: this.draft.attachments, inputPath: this.draft.inputPath, type: this.draft.type }); this.renderAttachments();
+            });
+        } });
+        this.form?.update({ attachments: this.draft.attachments }); this.sync();
+    }
+    addAttachments(files) {
+        if (!files?.length) return Promise.resolve();
+        if (this.draft.text.trim()) {
+            this.error.textContent = "Clear the text before adding a file.";
+            return Promise.resolve();
+        }
+        if (this.busy && !this.pendingImports) {
+            this.error.textContent = "Wait for the current save before adding more files.";
+            return Promise.resolve();
+        }
+        this.pendingImports++; this.sync();
+        const operation = this.importQueue.then(() => this.run(async () => {
+            const refs = await this.service.stageFiles(files);
+            if (refs.length) {
+                this.draft.attachments.push(...refs); this.draft.inputPath = "file"; this.draft.type = "file";
+                this.form?.update({ inputPath: "file", type: "file", attachments: this.draft.attachments }); this.renderAttachments();
+            }
+        })).finally(() => { this.pendingImports--; this.sync(); });
+        this.importQueue = operation.catch(() => {});
+        return operation;
+    }
+    sendInbox() {
+        if (this.busy || this.pendingImports) return;
+        if (!this.draft.text.trim() && !this.draft.attachments.length) return;
+        if (this.form?.valid()) return;
+        return this.run(async () => {
+            if (this.captureId) await this.service.updateCapture(this.captureId, this.draft);
+            else await this.service.capture(this.draft);
+            this.saved = true;
+            new Notice("Sent to Inbox."); this.finish();
+        });
+    }
+    addDirect() {
+        if (this.busy || this.pendingImports) return;
+        if (!this.form?.valid()) return;
+        return this.run(async () => {
+            const draft = this.form.value();
+            const result = draft.type === "task" ? await this.service.makeTask(draft, this.captureId) : draft.type === "note" ?
+                await this.service.createNote(draft, this.captureId) : await this.service.addFiles(draft, this.captureId);
+            this.saved = true; new Notice(result?.message ?? `Added ${draft.type}.`); this.finish();
+        });
+    }
+    onProblem(error) {
+        if (error.captureId) this.captureId = error.captureId;
+        if (error.noteLocationInvalid) this.form?.update({ noteLocation: null });
+    }
+    close() { if (!this.pendingImports) super.close(); }
+    onClose() {
+        if (!this.saved && this.draft.attachments.length) void this.service.releaseAttachments(this.draft.attachments)
+            .catch(error => new Notice(`Could not remove temporary attachment: ${error.message}`));
+        super.onClose();
+    }
+}
+module.exports = { QuickAddModal };
+
+},
 "lib/ui/schedule-toolbar.js": function (module, exports, __hubRequire) {
 "use strict";
 const { calendarRange, shiftDay } = __hubRequire("lib/domain/task-views.js");
+const { setHubIcon } = __hubRequire("lib/ui/icons.js");
 const { button, iconButton } = __hubRequire("lib/ui/task-view-primitives.js");
 
 function renderScheduleToolbar(panel, context, state) {
     const toolbar = panel.createDiv({ cls: "hub-planning-toolbar hub-schedule-toolbar" });
-    const navigation = toolbar.createDiv({ cls: "hub-planning-navigation" });
+    const contextHeader = toolbar.createDiv({ cls: "hub-schedule-context" });
+    const title = contextHeader.createDiv({ cls: "project-panel-title project-tasks-title hub-schedule-title", attr: { role: "heading", "aria-level": "2" } });
+    setHubIcon(title.createSpan({ cls: "project-tasks-title-icon", attr: { "aria-hidden": "true" } }), "clipboard-list");
+    title.createSpan({ text: "Schedule" });
+    const navigation = contextHeader.createDiv({ cls: "hub-planning-navigation" });
     const view = state.scheduleView;
     if (view !== "upcoming") {
         const move = direction => {
@@ -8938,11 +12356,11 @@ function renderScheduleToolbar(panel, context, state) {
     }
     const actions = toolbar.createDiv({ cls: "hub-planning-actions" });
     const modes = actions.createDiv({ cls: "hub-panel-selectors hub-equal-selectors", attr: { role: "group", "aria-label": "Schedule view" } });
-    for (const [value, label] of [["upcoming", "Upcoming"], ["month", "Month"], ["week", "Week"]]) {
+    for (const [value, label] of [["upcoming", "Overview"], ["week", "Week"], ["month", "Month"]]) {
         const choice = button(modes, label, () => { state.scheduleView = value; context.render(); }, view === value ? "is-active" : "");
         choice.setAttribute("aria-pressed", String(view === value));
     }
-    button(actions, "Add task", () => context.create({}), "hub-full-add-task hub-panel-action", "plus");
+    button(actions, "Task", () => context.create({}), "hub-full-add-task hub-panel-action", "plus");
 }
 module.exports = { renderScheduleToolbar };
 
@@ -8968,7 +12386,9 @@ const SETTINGS_PAGES = [
     ["shortcuts", "Shortcuts", "Keyboard shortcuts and quick actions."],
     ["advanced", "Advanced", "Additional application preferences."],
     ["about", "About", "About Itacan."]
-].map(([id, title, description]) => ({ id, title, description }));
+].filter(([id]) => id !== "daily-brief" ||
+    typeof process !== "undefined" && process.env?.ITACAN_DEVELOPMENT === "1")
+    .map(([id, title, description]) => ({ id, title, description }));
 
 function row(parent, label, description) {
     const el = parent.createDiv({ cls: "hub-settings-row" });
@@ -9129,9 +12549,11 @@ function emptyChart(parent, message) {
     parent.createDiv({ cls: "hub-report-empty hub-statistics-empty", text: message });
 }
 
-// One SVG rectangle per aggregated bin, never per raw event. A single focusable
+// One SVG rectangle per series/bin, never per raw event. A single focusable
 // chart provides keyboard/pointer details, with a native table for all values.
-function renderBarChart(parent, { range, values, label, color = "accent", duration = false, compact = false, summary = false, empty }) {
+function renderBarChart(parent, { range, values, label, color = "accent", duration = false, compact = false, summary = false, empty, series, stacked = false }) {
+    const datasets = series ?? [{ label, color, values }];
+    values = range.bins.map((_, index) => stacked ? datasets.reduce((sum, item) => sum + item.values[index], 0) : Math.max(...datasets.map(item => item.values[index])));
     if (!values.some(value => Number.isFinite(value) && value > 0)) { emptyChart(parent, empty); return; }
     const wrap = parent.createDiv({ cls: `hub-statistics-chart hub-statistics-series-${color}` });
     const format = duration ? formatDuration : value => value.toLocaleString();
@@ -9150,11 +12572,17 @@ function renderBarChart(parent, { range, values, label, color = "accent", durati
     }
     const bars = [], ticks = [];
     let chartWidth = 400, stride = width / values.length;
-    values.forEach((value, index) => {
-        const bar = svgElement(plot, "rect", { x: left + index * stride + stride * .15,
-            y: top + height * (1 - value / upper), width: stride * .7, height: height * value / upper,
-            class: "hub-statistics-bar", "aria-hidden": "true" });
-        bars.push(bar);
+    values.forEach((_, index) => {
+        let offset = 0;
+        datasets.forEach((item, seriesIndex) => {
+            const value = item.values[index];
+            const bar = svgElement(plot, "rect", {
+                y: top + height * (1 - (value + (stacked ? offset : 0)) / upper), height: height * value / upper,
+                class: "hub-statistics-bar hub-statistics-series-" + item.color, "aria-hidden": "true",
+                "data-bin": index, "data-series": item.label, "data-value": value
+            });
+            bars.push({ bar, index, seriesIndex }); offset += value;
+        });
     });
     for (const index of [...new Set([0, Math.floor((values.length - 1) / 2), values.length - 1])]) {
         const tick = svgElement(plot, "text", { x: left + (index + .5) * stride, y: plotHeight - 8,
@@ -9167,7 +12595,11 @@ function renderBarChart(parent, { range, values, label, color = "accent", durati
         stride = plotWidth / values.length;
         plot.setAttribute("viewBox", `0 0 ${chartWidth} ${plotHeight}`);
         for (const line of plot.querySelectorAll("line")) line.setAttribute("x2", left + plotWidth);
-        bars.forEach((bar, index) => { bar.setAttribute("x", left + (index + .15) * stride); bar.setAttribute("width", stride * .7); });
+        bars.forEach(({ bar, index, seriesIndex }) => {
+            const count = stacked ? 1 : datasets.length, slot = stride * .76 / count;
+            bar.setAttribute("x", left + (index + (count === 1 ? .15 : .12)) * stride + (stacked ? 0 : seriesIndex * slot));
+            bar.setAttribute("width", count === 1 ? stride * .7 : slot * .9);
+        });
         ticks.forEach(({ tick, index }) => {
             tick.setAttribute("x", left + (index + .5) * stride);
             tick.style.display = chartWidth < 360 && index > 0 && index < values.length - 1 ? "none" : "";
@@ -9182,12 +12614,14 @@ function renderBarChart(parent, { range, values, label, color = "accent", durati
     detail.setAttribute("role", "tooltip");
     detail.hidden = true;
     doc.body.append(detail);
-    const hide = () => { detail.hidden = true; bars[selected]?.classList.remove("is-selected"); };
+    const selectBars = (index, active) => bars.filter(item => item.index === index).forEach(({ bar }) => bar.classList.toggle("is-selected", active));
+    const hide = () => { detail.hidden = true; selectBars(selected, false); };
     let selected = Math.max(0, values.findIndex(value => value > 0));
     const show = index => {
-        bars[selected]?.classList.remove("is-selected"); selected = Math.max(0, Math.min(values.length - 1, index));
-        bars[selected].classList.add("is-selected");
-        detail.textContent = `${binLabel(range.bins[selected])}: ${format(values[selected])}`;
+        selectBars(selected, false); selected = Math.max(0, Math.min(values.length - 1, index));
+        selectBars(selected, true);
+        const facts = datasets.map(item => `${datasets.length > 1 ? item.label + " " : ""}${format(item.values[selected])}`).join(" · ");
+        detail.textContent = `${binLabel(range.bins[selected])}: ${facts}`;
         plot.setAttribute("aria-label", `${label}. ${detail.textContent}. Left and Right arrows change the date.`);
         detail.hidden = false;
         const rect = plot.getBoundingClientRect(), bounds = detail.getBoundingClientRect();
@@ -9211,11 +12645,12 @@ function renderBarChart(parent, { range, values, label, color = "accent", durati
     const scroll = wrap.createDiv({ cls: "hub-statistics-sr-only" });
     const table = scroll.createEl("table"); table.createEl("caption", { text: label });
     const header = table.createEl("thead").createEl("tr");
-    header.createEl("th", { text: "Date", attr: { scope: "col" } }); header.createEl("th", { text: duration ? "Time" : "Count", attr: { scope: "col" } });
+    header.createEl("th", { text: "Date", attr: { scope: "col" } });
+    datasets.forEach(item => header.createEl("th", { text: datasets.length > 1 ? item.label : duration ? "Time" : "Count", attr: { scope: "col" } }));
     const body = table.createEl("tbody");
     values.forEach((value, index) => {
         const row = body.createEl("tr"); row.createEl("th", { text: binLabel(range.bins[index]), attr: { scope: "row" } });
-        row.createEl("td", { text: format(value) });
+        datasets.forEach(item => row.createEl("td", { text: format(item.values[index]) }));
     });
     return () => {
         observer?.disconnect(); detail.remove();
@@ -9232,14 +12667,21 @@ function renderDonut(parent, comparison) {
     svgElement(svg, "circle", { cx: 50, cy: 50, r: 36, pathLength: 100, transform: "rotate(-90 50 50)",
         "stroke-dasharray": `${comparison.projects} ${100 - comparison.projects}`, class: "hub-statistics-donut-projects" });
     const legend = root.createDiv({ cls: "hub-statistics-legend" });
-    for (const [label, percent, cls] of [["Projects", comparison.projects, "accent"], ["Resources", comparison.resources, "blue"]]) {
+    for (const [label, percent, cls] of [["Projects", comparison.projects, "project"], ["Resources", comparison.resources, "resource"]]) {
         const row = legend.createDiv({ cls: `hub-statistics-legend-row hub-statistics-series-${cls}` });
         row.createSpan({ cls: "hub-statistics-dot", attr: { "aria-hidden": "true" } });
         row.createSpan({ text: label }); row.createEl("strong", { text: `${percent}%` });
     }
 }
 
-module.exports = { renderBarChart, renderDonut, emptyChart, dateLabel };
+function renderLegend(parent, series) {
+    const legend = parent.createDiv({ cls: "hub-statistics-inline-legend", attr: { "aria-label": "Chart legend" } });
+    for (const item of series) {
+        const entry = legend.createDiv({ cls: "hub-statistics-series-" + item.color });
+        entry.createSpan({ cls: "hub-statistics-dot", attr: { "aria-hidden": "true" } }); entry.createSpan({ text: item.label });
+    }
+}
+module.exports = { renderBarChart, renderDonut, renderLegend, emptyChart, dateLabel };
 
 },
 "lib/ui/statistics.js": function (module, exports, __hubRequire) {
@@ -9249,7 +12691,7 @@ const { Modal, setIcon } = require("obsidian");
 const { createImmediateHubTooltip } = __hubRequire("lib/ui/tooltips.js");
 const { RANGES, aggregateStatistics, seriesFor, formatDuration } = __hubRequire("lib/domain/statistics.js");
 const { readStatistics } = __hubRequire("lib/services/statistics.js");
-const { renderBarChart, renderDonut, emptyChart, dateLabel } = __hubRequire("lib/ui/statistics-charts.js");
+const { renderBarChart, renderDonut, emptyChart, dateLabel, renderLegend } = __hubRequire("lib/ui/statistics-charts.js");
 
 function workspaceLabel(row) {
     const state = row.deleted ? "Deleted" : row.status === "future" ? "Future" : row.status === "shelved" ? "Shelved" : null;
@@ -9259,7 +12701,7 @@ function workspaceLabel(row) {
 class StatisticsModal extends Modal {
     constructor(app, plugin, { source, onClose } = {}) {
         super(app); this.plugin = plugin; this.source = source; this.closed = onClose;
-        this.range = "3m"; this.filters = { distribution: "project", activity: "project", tasks: "project", steps: "project" };
+        this.range = "3m"; this.workspace = "all";
         this.cache = new Map(); this.chartCleanups = [];
     }
     onOpen() {
@@ -9269,7 +12711,21 @@ class StatisticsModal extends Modal {
         this.helpTooltips = createImmediateHubTooltip(this.contentEl);
         const header = this.contentEl.createDiv({ cls: "hub-statistics-header" });
         header.createEl("h2", { text: "Statistics" });
-        const ranges = header.createDiv({ cls: "hub-panel-selectors hub-equal-selectors hub-statistics-ranges", attr: { role: "group", "aria-label": "Statistics time range" } });
+        const controls = header.createDiv({ cls: "hub-statistics-controls" });
+        this.workspaceSelect = controls.createEl("select", { cls: "hub-statistics-workspace",
+            attr: { "aria-label": "Statistics workspace", "data-filter": "workspace" } });
+        this.workspaceSelect.createEl("option", { text: "All workspaces", attr: { value: "all" } });
+        for (const [kind, label] of [["project", "Projects"], ["resource", "Resources"]]) {
+            const group = this.workspaceSelect.createEl("optgroup", { attr: { label } });
+            [...this.source.registry.values()].filter(row => row.kind === kind).sort((a, b) => a.name.localeCompare(b.name) || a.key.localeCompare(b.key))
+                .forEach(row => group.createEl("option", { text: workspaceLabel(row), attr: { value: row.key } }));
+        }
+        this.workspaceSelect.value = this.workspace;
+        this.workspaceSelect.addEventListener("change", () => {
+            this.workspace = this.workspaceSelect.value; this.render();
+        });
+        const rangeScroll = controls.createDiv({ cls: "hub-statistics-ranges" });
+        const ranges = rangeScroll.createDiv({ cls: "hub-panel-selectors hub-equal-selectors", attr: { role: "group", "aria-label": "Statistics time range" } });
         this.rangeButtons = RANGES.map(([key, label]) => {
             const button = ranges.createEl("button", { text: label, attr: { type: "button", "aria-pressed": String(key === this.range) } });
             button.classList.toggle("is-active", key === this.range);
@@ -9283,27 +12739,15 @@ class StatisticsModal extends Modal {
         this.grid = this.contentEl.createDiv({ cls: "hub-statistics-grid" });
         this.render();
     }
-    card(id, title, { wide = false, options } = {}) {
+    card(id, title, { wide = false } = {}) {
         const card = this.grid.createEl("section", { cls: `hub-report-card hub-statistics-card${wide ? " hub-statistics-wide" : ""}`,
             attr: { "aria-label": title, "data-statistic": id } });
-        const heading = card.createDiv({ cls: "hub-statistics-card-heading" });
-        heading.createEl("h3", { text: title });
-        if (options) {
-            const select = heading.createEl("select", { attr: { "aria-label": `${title} workspace`, "data-filter": id } });
-            options.forEach(([value, label]) => select.createEl("option", { text: label, attr: { value } }));
-            select.value = this.filters[id];
-            select.title = select.selectedOptions[0]?.textContent ?? "";
-            select.style.width = Math.min(20, select.title.length + 5) + "ch";
-            select.addEventListener("change", () => {
-                this.filters[id] = select.value; const scrollTop = this.contentEl.scrollTop;
-                this.render(); this.grid.querySelector(`[data-filter="${id}"]`)?.focus({ preventScroll: true }); this.contentEl.scrollTop = scrollTop;
-            });
-        }
+        card.createDiv({ cls: "hub-statistics-card-heading" }).createEl("h3", { text: title });
         return card;
     }
     hint(parent, text) {
         const heading = parent.querySelector(".hub-statistics-card-heading");
-        if (["oaths", "notes"].includes(parent.dataset.statistic)) {
+        if (["oaths", "notes", "comparison"].includes(parent.dataset.statistic)) {
             const help = heading.createEl("button", { cls: "hub-panel-action hub-panel-action-icon hub-statistics-help",
                 attr: { type: "button", "aria-label": "About " + heading.textContent } });
             setIcon(help, "circle-help");
@@ -9320,35 +12764,43 @@ class StatisticsModal extends Modal {
     render() {
         this.helpTooltips?.dispose();
         this.helpTooltips = createImmediateHubTooltip(this.contentEl);
-        if (!this.cache.has(this.range)) this.cache.set(this.range, aggregateStatistics(this.source, this.range));
-        this.chartCleanups.splice(0).forEach(cleanup => cleanup());
-        this.model = this.cache.get(this.range); this.grid.empty();
-        const model = this.model, kinds = [["project", "Projects"], ["resource", "Resources"]];
-        this.renderDistribution(kinds);
-        const activity = this.card("activity", "Activity over time", { options: kinds });
-        this.chart(activity, seriesFor(model, "activity", this.filters.activity), "Work records", "No work activity in this period.");
-        this.hint(activity, "Note creations, recorded edits, and task or step completions.");
-        const workspaceOptions = [["project", "All projects"], ["resource", "All resources"],
-            ...model.rows.slice().sort((a, b) => a.name.localeCompare(b.name)).map(row => [row.key, workspaceLabel(row)])];
-        for (const [id, title, color] of [["tasks", "Tasks completed", "green"], ["steps", "Steps completed", "blue"]]) {
-            const card = this.card(id, title, { options: workspaceOptions });
-            this.chart(card, seriesFor(model, id, this.filters[id]), title, `No completed ${id} in this period.`, { color, compact: true });
+        const cacheKey = `${this.range}/${this.workspace}`;
+        if (!this.cache.has(cacheKey)) {
+            this.cache.set(cacheKey, aggregateStatistics(this.source, this.range, this.workspace));
+            // Bound cached selections while retaining the single read-only snapshot.
+            if (this.cache.size > 10) this.cache.delete(this.cache.keys().next().value);
         }
+        this.chartCleanups.splice(0).forEach(cleanup => cleanup());
+        this.model = this.cache.get(cacheKey); this.grid.empty();
+        this.workspaceSelect.title = this.workspaceSelect.selectedOptions[0]?.textContent ?? "All workspaces";
+        this.renderDistribution();
+        const model = this.model;
+        const activity = this.card("activity", "Activity over time");
+        const categories = [["project", "Projects"], ["resource", "Resources"]]
+            .filter(([kind]) => this.workspace === "all" || this.source.registry.get(this.workspace)?.kind === kind)
+            .map(([kind, label]) => ({ label, color: kind, values: seriesFor(model, "activity", this.workspace === "all" ? kind : this.workspace) }));
+        if (categories.length > 1) renderLegend(activity, categories);
+        this.chart(activity, null, "Work records", "No work activity in this period.", { series: categories, stacked: true });
+        this.hint(activity, "Note creations, recorded edits, and task or step completions. Mixed activity stacks Projects and Resources within each date bin.");
+        const completed = this.card("completions", "Tasks & steps completed", { wide: true });
+        const completionSeries = [["tasks", "Tasks", "green"], ["steps", "Steps", "blue"]]
+            .map(([metric, label, color]) => ({ label, color, values: seriesFor(model, metric, this.workspace) }));
+        renderLegend(completed, completionSeries);
+        this.chart(completed, null, "Tasks & steps completed", "No completed tasks or steps in this period.", { series: completionSeries, compact: true });
         this.renderOaths(); this.renderNotes(); this.renderProjects();
-        const comparison = this.card("comparison", "Resources vs Projects");
-        comparison.createDiv({ cls: "hub-statistics-caption", text: "Share of progress report points" });
+        const comparison = this.card("comparison", "Projects vs Resources");
         renderDonut(comparison, model.comparison);
-        this.hint(comparison, "Raw Progress Report evaluations (0?4), summed by workspace for the selected period.");
+        this.hint(comparison, "Share of progress report points. Raw evaluations (0–4) summed across all Projects and Resources for the selected period, independent of the workspace filter.");
     }
-    renderDistribution(options) {
-        const card = this.card("distribution", "Work distribution", { options });
-        const rows = this.model.rows.filter(row => row.kind === this.filters.distribution && row.progressPoints > 0)
-            .sort((a, b) => b.progressPoints - a.progressPoints || a.name.localeCompare(b.name));
+    renderDistribution() {
+        const card = this.card("distribution", "Work distribution");
+        const rows = this.model.rows.filter(row => (this.workspace === "all" || row.key === this.workspace) && row.progressPoints > 0)
+            .sort((a, b) => b.progressPoints - a.progressPoints || a.name.localeCompare(b.name) || a.key.localeCompare(b.key));
         if (!rows.length) { emptyChart(card, "No progress report data in this period."); return; }
         const total = rows.reduce((sum, row) => sum + row.progressPoints, 0);
         const list = card.createDiv({ cls: "hub-statistics-ranking", attr: { tabindex: "0", role: "list", "aria-label": "Workspace progress report points" } });
         for (const workspace of rows) {
-            const row = list.createDiv({ cls: "hub-statistics-rank-row", attr: { role: "listitem" } });
+            const row = list.createDiv({ cls: "hub-statistics-rank-row hub-statistics-series-" + workspace.kind, attr: { role: "listitem", "data-workspace": workspace.key } });
             if (workspace.status === "unassigned") {
                 row.classList.add("is-unassigned");
                 row.setAttribute("title", "Historical work without workspace attribution");
@@ -9376,14 +12828,14 @@ class StatisticsModal extends Modal {
     renderNotes() {
         const card = this.card("notes", "Notes", { wide: true }), note = this.model.note;
         const body = card.createDiv({ cls: "hub-statistics-split" });
-        this.chart(body.createDiv(), note.values, "Notes created", "No note activity in this period.", { color: "muted", compact: true, summary: true });
-        const metrics = body.createEl("dl", { cls: "hub-statistics-note-metrics" });
-        for (const [label, value] of [["Total notes", note.total.toLocaleString()], ["Notes created (selected period)", note.created.toLocaleString()],
-            ["Average per day", note.average.toFixed(1)], ["Largest day", `${note.largest} ${note.largest === 1 ? "note" : "notes"}${note.largestDate ? ` · ${dateLabel(new Date(note.largestDate + "T00:00:00"))}` : ""}`]]) {
-            metrics.createEl("dt", { text: label }); metrics.createEl("dd", { text: value });
+        this.chart(body.createDiv(), note.values, "Notes created", "No notes created in this period.", { color: "muted", compact: true, summary: true });
+        const metrics = body.createDiv({ cls: "hub-statistics-metrics hub-statistics-note-metrics" });
+        for (const [label, value] of [["Total notes", note.total], ["Notes edited", note.edited]]) {
+            const metric = metrics.createDiv(); metric.createSpan({ text: label }); metric.createEl("strong", { text: value.toLocaleString() });
         }
-        this.hint(card, "Current workspace Markdown notes, by file creation date. Deleted notes and workspace dashboards are excluded.");
+        this.hint(card, "Total notes counts distinct surviving workspace Markdown notes created or recorded as edited during the selected period. Notes edited counts distinct surviving notes with recorded edits in that period. Both follow the workspace filter. The chart uses file creation dates; dashboards, metadata and deleted notes are excluded.");
     }
+
     renderProjects() {
         const card = this.card("projects", "Project activity"), projects = this.model.projects;
         if (!projects.length) { emptyChart(card, "No project activity recorded yet."); return; }
@@ -9409,10 +12861,11 @@ module.exports = { StatisticsModal };
 },
 "lib/ui/task-editor.js": function (module, exports, __hubRequire) {
 "use strict";
-const { bindCompletionSound, playStepCompletionSound } = __hubRequire("lib/ui/completion-audio.js");
+const { taskFormValues } = __hubRequire("lib/domain/task-form.js");
+const { taskSection, mountTaskText, mountTaskFields, mountTaskRelationshipFields } = __hubRequire("lib/ui/task-form.js");
 
 function openTaskEditor(service, task, onEdit = () => {}, creation = null) {
-    const { Modal, Notice, setIcon } = require("obsidian");
+    const { Modal, Notice } = require("obsidian");
     class TaskModal extends Modal {
         async onOpen() {
             this.closed = false;
@@ -9438,115 +12891,15 @@ function openTaskEditor(service, task, onEdit = () => {}, creation = null) {
         render() {
             const snapshot = this.snapshot;
             const form = this.contentEl.createEl("form");
-            const section = (title, help) => {
-                const el = form.createEl("section", { cls: "hub-task-section" });
-                el.createEl("h3", { text: title });
-                if (help) el.createEl("p", { cls: "hub-task-help", text: help });
-                return el;
-            };
-            const title = section("Task");
-            const input = title.createEl("input", { type: "text", cls: "hub-task-title-input", attr: { "aria-label": "Task", required: "" } });
-            input.value = snapshot.text;
-            if (creation) input.placeholder = "What needs doing?";
-            const necessity = section("Necessity");
-            const necessityHeading = necessity.createDiv({ cls: "hub-task-necessity-heading" });
-            necessityHeading.appendChild(necessity.querySelector("h3"));
-            const choices = necessity.createDiv({ cls: "hub-task-necessity-choices", attr: { role: "group", "aria-label": "Necessity" } });
-            let selected = snapshot.necessity;
-            const buttons = ["should", "must"].map(value => {
-                const button = choices.createEl("button", { text: value === "should" ? "Should do" : "Must do",
-                    cls: `hub-task-necessity-choice is-${value}`, attr: { type: "button" } });
-                button.addEventListener("click", () => { selected = selected === value ? null : value; sync(); });
-                return { button, value };
-            });
-            const clear = necessityHeading.createEl("button", { text: "Clear", cls: "hub-button-plain hub-task-clear-necessity", attr: { type: "button" } });
-            const sync = () => {
-                for (const { button, value } of buttons) button.setAttribute("aria-pressed", String(selected === value));
-                clear.disabled = selected === null;
-            };
-            clear.addEventListener("click", () => { selected = null; sync(); }); sync();
-            const dates = section("Dates");
-            const fields = dates.createDiv({ cls: "hub-task-date-fields" });
-            const dateInput = (text, key) => {
-                const label = fields.createEl("label"); label.createSpan({ text });
-                const input = label.createEl("input", { type: "date" }); input.value = snapshot[key] ?? "";
-                // Native local controls, as in Oath; a separate time permits date-only values.
-                const timeKey = key.replace("Date", "Time");
-                const timeRow = label.createDiv({ cls: "hub-task-time-field" });
-                const time = timeRow.createEl("input", { type: "time", attr: { "aria-label": text + " time (optional)" } });
-                time.value = snapshot[timeKey] ?? "";
-                const clearTime = timeRow.createEl("button", { text: "Clear time", attr: { type: "button" } });
-                const syncTime = () => {
-                    time.disabled = !input.value;
-                    if (!input.value) time.value = "";
-                    clearTime.disabled = !time.value;
-                };
-                input.addEventListener("change", syncTime);
-                time.addEventListener("input", syncTime);
-                clearTime.addEventListener("click", () => { time.value = ""; syncTime(); });
-                syncTime();
-                input.timeInput = time;
-                return input;
-            };
-            const from = dateInput("Start", "fromDate");
-            const due = dateInput("Due", "dueDate");
-            from.addEventListener("change", () => { due.min = from.value; }); due.min = from.value;
-            const steps = section("Steps", "Break the task into smaller actions (optional).");
-            const list = steps.createDiv({ cls: "hub-task-step-list" });
-            const stepRows = [];
-            const addStep = step => {
-                const row = list.createDiv({ cls: "hub-task-step" });
-                const checkbox = row.createEl("input", { type: "checkbox", attr: { "aria-label": "Step complete" } });
-                checkbox.checked = !!step.completed;
-                const text = row.createEl("input", { type: "text", attr: { "aria-label": "Step text", required: "" } });
-                text.value = step.text ?? "";
-                const remove = row.createEl("button", { attr: { type: "button", "aria-label": "Remove step" } }); setIcon(remove, "x");
-                const state = { ...step, row, checkbox, input: text, removed: false }; stepRows.push(state);
-                bindCompletionSound(checkbox, playStepCompletionSound);
-                checkbox.addEventListener("change", () => { state.completedAt = checkbox.checked ? Date.now() : null; });
-                remove.addEventListener("click", () => {
-                    for (const child of stepRows) {
-                        if (child === state || (state.line != null && child.line > state.line && child.line < state.end)) {
-                            child.removed = true; child.row.remove();
-                        }
-                    }
-                });
-                return text;
-            };
-            snapshot.steps.forEach(addStep);
-            const add = steps.createEl("button", { cls: "hub-task-add-step", attr: { type: "button" } });
-            setIcon(add.createSpan(), "plus"); add.createSpan({ text: "Add step" });
-            add.addEventListener("click", () => addStep({}).focus());
+            const state = { ...snapshot, steps: snapshot.steps.map(step => ({ ...step })) };
+            const section = (title, help) => taskSection(form, title, help);
+            const input = mountTaskText(section("Task"), state, () => {}, { placeholder: creation ? "What needs doing?" : "" });
+            this.taskFields = mountTaskFields({ app: service.app, host: form, state, section });
             const location = section("Location");
             const owner = service.context?.(snapshot.path);
             const fieldsLocation = locationFields(service, location, snapshot, creation?.root ?? owner?.root);
-            const project = section("Project");
-            project.querySelector("h3").append(" (optional)");
-            const association = project.createEl("select", { attr: { "aria-label": "Project (optional)" } });
-            association.createEl("option", { text: "No project", attr: { value: "" } });
-            for (const item of service.projects?.() ?? []) association.createEl("option", { text: item.name, attr: { value: item.projectId } });
-            if (snapshot.linkedProjectId && ![...association.options].some(option => option.value === snapshot.linkedProjectId)) {
-                const previous = service.plugin?.projectWizard.getProjectById?.(snapshot.linkedProjectId);
-                association.createEl("option", { text: previous ? previous.name + " (" + previous.status + ")" : "Unavailable project", attr: { value: snapshot.linkedProjectId } });
-            }
-            association.value = snapshot.linkedProjectId ?? "";
-            const syncProject = () => { project.hidden = service.context?.(fieldsLocation.value())?.contextKind !== "resource"; };
-            fieldsLocation.onChange(syncProject); syncProject();
-            const phaseSection = section("Phase");
-            const phaseLabel = phaseSection.createEl("label");
-            phaseLabel.createSpan({ text: "Project phase (optional)", cls: "hub-task-help" });
-            const phase = phaseLabel.createEl("select", { attr: { "aria-label": "Project phase (optional)" } });
-            let initialPhase = true;
-            const syncPhase = () => {
-                const previous = initialPhase ? snapshot.phaseId ?? "" : phase.value;
-                initialPhase = false;
-                phase.replaceChildren();
-                phase.createEl("option", { text: "No phase", attr: { value: "" } });
-                for (const item of service.phases?.(fieldsLocation.value()) ?? []) phase.createEl("option", { text: item.name, attr: { value: item.id } });
-                phase.value = [...phase.options].some(item => item.value === previous) ? previous : "";
-                phaseSection.hidden = service.context?.(fieldsLocation.value())?.contextKind !== "project";
-            };
-            fieldsLocation.onChange(() => { syncProject(); syncPhase(); }); syncPhase();
+            const relationships = mountTaskRelationshipFields({ host: form, state, service, location: () => fieldsLocation.value(), section });
+            fieldsLocation.onChange(() => relationships.refresh());
             const errorEl = form.createDiv({ cls: "hub-task-error", attr: { role: "alert" } });
             const actions = form.createDiv({ cls: "hub-task-dialog-actions" });
             const remove = actions.createEl("button", { text: "Delete task", cls: "hub-task-remove", attr: { type: "button" } });
@@ -9563,11 +12916,9 @@ function openTaskEditor(service, task, onEdit = () => {}, creation = null) {
                 const controls = [...form.querySelectorAll("button,input,select")];
                 const states = controls.map(control => control.disabled); controls.forEach(control => control.disabled = true);
                 try {
-                    const values = { operation: deleting ? "delete" : "edit",
-                        location: fieldsLocation.value(), phaseId: phaseSection.hidden ? null : phase.value, linkedProjectId: project.hidden ? null : association.value,
-                        text: input.value, necessity: selected, fromDate: from.value, dueDate: due.value,
-                        fromTime: from.timeInput.value, dueTime: due.timeInput.value,
-                        steps: stepRows.filter(step => !step.removed).map(step => ({ line: step.line, text: step.input.value, completed: step.checkbox.checked, completedAt: step.completedAt })) };
+                    const values = { ...state, ...relationships.value(), text: input.value,
+                        operation: deleting ? "delete" : "edit", location: fieldsLocation.value() };
+                    if (!deleting) Object.assign(values, taskFormValues(values));
                     if (creation) {
                         if (!values.location) throw Error("Choose a Location.");
                         await service.create(values.location, values.text, values);
@@ -9576,7 +12927,7 @@ function openTaskEditor(service, task, onEdit = () => {}, creation = null) {
                     this.saving = false; this.close();
                 } catch (error) {
                     this.saving = false; controls.forEach((control, i) => control.disabled = states[i]);
-                    errorEl.textContent = error.message; sync();
+                    errorEl.textContent = error.message;
                 }
             };
             form.addEventListener("submit", event => { event.preventDefault(); void commit(false); });
@@ -9589,7 +12940,7 @@ function openTaskEditor(service, task, onEdit = () => {}, creation = null) {
             input.focus(); input.setSelectionRange(input.value.length, input.value.length);
         }
         close() { if (!this.saving) super.close(); }
-        onClose() { this.closed = true; this.contentEl.empty(); }
+        onClose() { this.closed = true; this.taskFields?.destroy(); this.contentEl.empty(); }
     }
     const modal = new TaskModal(service.app); modal.open(); return modal;
 }
@@ -9626,6 +12977,118 @@ function openTaskCreator(service, options = {}) {
 }
 
 module.exports = { openTaskEditor, openTaskCreator };
+
+},
+"lib/ui/task-form.js": function (module, exports, __hubRequire) {
+"use strict";
+const { setHubIcon } = __hubRequire("lib/ui/icons.js");
+const { bindCompletionSound, playStepCompletionSound } = __hubRequire("lib/ui/completion-audio.js");
+const { mountTaskDateTime } = __hubRequire("lib/ui/date-time.js");
+
+function taskSection(host, title, help) {
+    const section = host.createEl("section", { cls: "hub-task-section" });
+    if (title) section.createEl("h3", { text: title });
+    if (help) section.createEl("p", { cls: "hub-task-help", text: help });
+    return section;
+}
+
+function mountTaskText(host, state, onChange = () => {}, { placeholder = "", multiline = false } = {}) {
+    const input = host.createEl(multiline ? "textarea" : "input", { cls: multiline ? "hub-quick-add-input" : "hub-task-title-input",
+        attr: { ...(multiline ? { rows: "3" } : { type: "text" }), "aria-label": "Task", required: "" } });
+    input.value = state.text ?? ""; input.placeholder = placeholder;
+    input.addEventListener("input", () => { state.text = input.value; onChange({ text: state.text }); });
+    return input;
+}
+
+function mountTaskFields({ app, host, state, onChange = () => {}, section = (title, help) => taskSection(host, title, help) }) {
+    const necessity = section("Necessity");
+    const heading = necessity.createDiv({ cls: "hub-task-necessity-heading" });
+    const title = necessity.querySelector("h3"); if (title) heading.appendChild(title);
+    const choices = necessity.createDiv({ cls: "hub-task-necessity-choices", attr: { role: "group", "aria-label": "Necessity" } });
+    const buttons = ["should", "must"].map(value => {
+        const button = choices.createEl("button", { text: value === "should" ? "Should do" : "Must do",
+            cls: `hub-task-necessity-choice is-${value}`, attr: { type: "button" } });
+        button.addEventListener("click", () => { state.necessity = state.necessity === value ? null : value; syncNecessity(); onChange({ necessity: state.necessity }); });
+        return { button, value };
+    });
+    const clear = heading.createEl("button", { text: "Clear", cls: "hub-button-plain hub-task-clear-necessity", attr: { type: "button" } });
+    const syncNecessity = () => {
+        for (const { button, value } of buttons) button.setAttribute("aria-pressed", String(state.necessity === value));
+        clear.disabled = !state.necessity;
+    };
+    clear.addEventListener("click", () => { state.necessity = null; syncNecessity(); onChange({ necessity: null }); }); syncNecessity();
+
+    const dates = section();
+    const fields = dates.createDiv({ cls: "hub-task-date-fields" });
+    const from = mountTaskDateTime({ app, host: fields, label: "Start date", state, dateKey: "fromDate", timeKey: "fromTime", onChange: patch => {
+        due.setMin(state.fromDate); onChange(patch);
+    } });
+    const due = mountTaskDateTime({ app, host: fields, label: "Due date", state, dateKey: "dueDate", timeKey: "dueTime", onChange });
+    due.setMin(state.fromDate);
+
+    const steps = section("Steps");
+    const list = steps.createDiv({ cls: "hub-task-step-list" });
+    state.steps ??= [];
+    const renderSteps = () => {
+        list.replaceChildren();
+        state.steps.forEach((step, index) => {
+            const row = list.createDiv({ cls: "hub-task-step" });
+            const checkbox = row.createEl("input", { type: "checkbox", attr: { "aria-label": "Step complete" } }); checkbox.checked = !!step.completed;
+            bindCompletionSound(checkbox, playStepCompletionSound);
+            checkbox.addEventListener("change", () => { step.completed = checkbox.checked; step.completedAt = checkbox.checked ? Date.now() : null; onChange({ steps: state.steps }); });
+            const input = row.createEl("input", { type: "text", attr: { "aria-label": "Step text", required: "" } }); input.value = step.text ?? "";
+            input.addEventListener("input", () => { step.text = input.value; onChange({ steps: state.steps }); });
+            const remove = row.createEl("button", { attr: { type: "button", "aria-label": "Remove step " + (index + 1) } }); setHubIcon(remove, "x");
+            remove.addEventListener("click", () => {
+                // Removing an existing Markdown Step also removes its nested
+                // descendants, exactly as in the ordinary editor.
+                state.steps = state.steps.filter(child => child !== step && !(step.line != null && child.line > step.line && child.line < step.end));
+                renderSteps(); onChange({ steps: state.steps });
+            });
+        });
+    };
+    renderSteps();
+    const add = steps.createEl("button", { cls: "hub-task-add-step", attr: { type: "button" } });
+    setHubIcon(add.createSpan(), "plus"); add.createSpan({ text: "Add step" });
+    add.addEventListener("click", () => {
+        state.steps.push({ text: "", completed: false }); renderSteps();
+        list.lastElementChild?.querySelector("input[type=text]")?.focus(); onChange({ steps: state.steps });
+    });
+    return {
+        refresh() { syncNecessity(); from.refresh(); due.refresh(); due.setMin(state.fromDate); renderSteps(); },
+        destroy() { from.destroy(); due.destroy(); }
+    };
+}
+
+function mountTaskRelationshipFields({ host, state, service, location, onChange = () => {}, section = (title, help) => taskSection(host, title, help) }) {
+    const project = section("Project (optional)");
+    const association = project.createEl("select", { attr: { "aria-label": "Project (optional)" } });
+    const phaseSection = section("Phase");
+    const phaseLabel = phaseSection.createEl("label");
+    phaseLabel.createSpan({ text: "Project phase (optional)", cls: "hub-task-help" });
+    const phase = phaseLabel.createEl("select", { attr: { "aria-label": "Project phase (optional)" } });
+    const options = (select, items, selected, placeholder) => {
+        select.replaceChildren(); select.createEl("option", { text: placeholder, attr: { value: "" } });
+        for (const item of items) select.createEl("option", { text: item.name, attr: { value: item.id } });
+        if (selected && !items.some(item => item.id === selected)) select.createEl("option", { text: "Unavailable selection", attr: { value: selected } });
+        select.value = selected ?? "";
+    };
+    let initialized = false;
+    const refresh = () => {
+        if (initialized) { state.linkedProjectId = association.value; state.phaseId = phase.value; }
+        const path = location(); const owner = path ? service.context?.(path) : null;
+        project.hidden = owner?.contextKind !== "resource";
+        phaseSection.hidden = owner?.contextKind !== "project";
+        options(association, (service.projects?.() ?? []).map(item => ({ ...item, id: item.projectId })), state.linkedProjectId, "No project");
+        options(phase, path ? service.phases?.(path) ?? [] : [], state.phaseId, "No phase");
+        initialized = true;
+    };
+    association.addEventListener("change", () => { state.linkedProjectId = association.value; onChange({ linkedProjectId: state.linkedProjectId }); });
+    phase.addEventListener("change", () => { state.phaseId = phase.value; onChange({ phaseId: state.phaseId }); });
+    refresh(); return { refresh, value: () => ({ linkedProjectId: project.hidden ? null : association.value, phaseId: phaseSection.hidden ? null : phase.value }) };
+}
+
+module.exports = { taskSection, mountTaskText, mountTaskFields, mountTaskRelationshipFields };
 
 },
 "lib/ui/task-steps.js": function (module, exports, __hubRequire) {
@@ -9842,6 +13305,8 @@ module.exports = { button, iconButton, empty, stepsSummary, projectBadge, date, 
 "lib/ui/task-view-upcoming.js": function (module, exports, __hubRequire) {
 "use strict";
 const { BUCKETS, upcomingGroups } = __hubRequire("lib/domain/task-views.js");
+const { setHubIcon } = __hubRequire("lib/ui/icons.js");
+const headingIcons = { past: "clock-alert", today: "sun", tomorrow: "clock-arrow-right", later: "calendar-clock", unscheduled: "calendar-off" };
 const { taskCard } = __hubRequire("lib/ui/task-view-primitives.js");
 
 function renderUpcoming(host, tasks, context) {
@@ -9851,7 +13316,12 @@ function renderUpcoming(host, tasks, context) {
     for (const [id, label] of BUCKETS) {
         const column = board.createEl("section", { cls: "hub-task-column is-" + id, attr: { "aria-label": label } });
         const heading = column.createDiv({ cls: "hub-task-column-heading" });
-        heading.createEl("h3", { text: label });
+        const title = heading.createEl("h3", { cls: context.resource ? "" : "hub-history-heading" });
+        if (!context.resource) {
+            const icon = title.createSpan({ cls: "hub-history-icon hub-overview-heading-icon", attr: { "aria-hidden": "true" } });
+            setHubIcon(icon, headingIcons[id]);
+        }
+        title.createSpan({ text: label });
         heading.createSpan({ cls: "hub-task-count", text: String(groups[id].length) });
         const body = column.createDiv({ cls: "hub-task-column-body" });
         for (const task of groups[id]) taskCard(body, task, context);
@@ -9941,7 +13411,13 @@ function mountTaskWorkspace({ plugin, component, dv, root, toolbar, filesGrid, f
             primary.style.setProperty("--hub-project-mode-width", state.modeWidth);
         }
     };
-    const modeWidthObserver = new ResizeObserver(syncModeWidth);
+    const syncHeaderHeight = () => {
+        if (disposed || inNoteRail()) return;
+        const heading = filesPanel?.querySelector(".hub-explorer-heading");
+        const height = heading?.getBoundingClientRect().height;
+        if (height > 0) root.style.setProperty("--hub-project-header-height", height + "px");
+    };
+    const modeWidthObserver = new ResizeObserver(() => { syncModeWidth(); syncHeaderHeight(); });
     modeWidthObserver.observe(toolbar);
     if (filesPanel) modeWidthObserver.observe(filesPanel);
     component.register(() => modeWidthObserver.disconnect());
@@ -9998,6 +13474,7 @@ function mountTaskWorkspace({ plugin, component, dv, root, toolbar, filesGrid, f
         }
     }
     function mode(value, initial = false) {
+        syncHeaderHeight();
         state.mode = value;
         const active = value === "schedule";
         root.classList.toggle("is-task-workspace", active);
@@ -10479,7 +13956,52 @@ function createImmediateHubTooltip(root) {
     };
 }
 
-module.exports = { setHubTooltip, watchHubTooltips, createImmediateHubTooltip };
+// Obsidian's normal aria-label tooltips handle pointer hover. Opt-in keyboard
+// help uses that same small native surface, default delay and placement.
+function bindHubFocusTooltip(root, component, selector) {
+    const doc = root.ownerDocument, win = doc.defaultView;
+    let timer = 0, tooltip = null, target = null;
+    const hide = () => {
+        win.clearTimeout(timer); timer = 0;
+        target?.removeAttribute("aria-describedby");
+        tooltip?.remove(); tooltip = null; target = null;
+    };
+    const listen = (element, type, handler, options) => {
+        element.addEventListener(type, handler, options);
+        component.register(() => element.removeEventListener(type, handler, options));
+    };
+    listen(root, "focusin", event => {
+        hide();
+        const element = event.target.closest?.(selector);
+        if (!element?.matches(":focus-visible")) return;
+        const delay = Number(element.getAttribute("data-tooltip-delay") ?? 1000);
+        timer = win.setTimeout(() => {
+            if (!root.contains(element) || doc.activeElement !== element) return;
+            target = element;
+            tooltip = doc.createElement("div");
+            tooltip.className = "tooltip"; tooltip.setAttribute("role", "tooltip");
+            tooltip.id = `hub-focus-tooltip-${++detailTooltipId}`;
+            tooltip.textContent = element.dataset.hubFocusTooltip || element.getAttribute("aria-label");
+            const arrow = tooltip.appendChild(doc.createElement("div")); arrow.className = "tooltip-arrow";
+            doc.body.append(tooltip); element.setAttribute("aria-describedby", tooltip.id);
+            const bounds = element.getBoundingClientRect(), size = tooltip.getBoundingClientRect();
+            const gap = Number(element.getAttribute("data-tooltip-gap") ?? 8);
+            const center = Math.max(size.width / 2 + gap, Math.min(bounds.left + bounds.width / 2, win.innerWidth - size.width / 2 - gap));
+            tooltip.style.left = center + "px";
+            tooltip.style.top = Math.max(gap, Math.min(bounds.bottom + gap, win.innerHeight - size.height - gap)) + "px";
+            arrow.style.left = Math.max(5, Math.min(size.width - 5, bounds.left + bounds.width / 2 - center + size.width / 2)) + "px";
+        }, delay);
+    });
+    listen(root, "focusout", hide);
+    listen(doc, "pointerdown", hide, true);
+    listen(doc, "pointerover", hide, true); // Leave hover to the native handler.
+    listen(doc, "keydown", event => { if (event.key === "Escape") hide(); });
+    listen(doc, "scroll", hide, true); listen(win, "resize", hide);
+    component.register(hide);
+    return hide;
+}
+
+module.exports = { setHubTooltip, watchHubTooltips, createImmediateHubTooltip, bindHubFocusTooltip };
 
 },
 "lib/ui/workspace-cards.js": function (module, exports, __hubRequire) {
@@ -10988,6 +14510,31 @@ function mountWorkspaceExplorer({ parent, workspacePath, dashboardPath, descript
 module.exports = { mountWorkspaceExplorer };
 
 },
+"lib/ui/workspace-thumbnail.js": function (module, exports, __hubRequire) {
+"use strict";
+const { WIP_IMAGE_PATH } = __hubRequire("lib/config.js");
+
+// Use the same source as the workspace cover, without its large-card mask or
+// editable placement. Capture selectors deliberately use a simple square crop.
+function workspaceImagePath(plugin, workspace) {
+    if (workspace.contextKind === "resource") return workspace.image;
+    const category = plugin.projectWizard.getCategories?.().find(item =>
+        item.id === workspace.categoryId || item.name === workspace.categoryId);
+    const frontmatter = workspace.path && plugin.app.metadataCache?.getFileCache?.(
+        plugin.app.vault.getAbstractFileByPath(workspace.path))?.frontmatter;
+    return workspace.cover || frontmatter?.cover || category?.image || WIP_IMAGE_PATH;
+}
+function mountWorkspaceThumbnail(host, plugin, workspace) {
+    const path = workspaceImagePath(plugin, workspace);
+    const file = path && plugin.app.vault.getAbstractFileByPath(path);
+    return host.createEl("img", { cls: "hub-capture-workspace-thumbnail", attr: {
+        src: file ? plugin.app.vault.getResourcePath(file) : path,
+        alt: "", "aria-hidden": "true"
+    } });
+}
+module.exports = { workspaceImagePath, mountWorkspaceThumbnail };
+
+},
 "plugin.js": function (module, exports, __hubRequire) {
 const { dispose: disposeCompletionAudio } = __hubRequire("lib/ui/completion-audio.js");
 const { mountMusicControl } = __hubRequire("lib/ui/music.js");
@@ -10995,6 +14542,9 @@ const { mountSettingsControl } = __hubRequire("lib/ui/settings.js");
 const { processTaskWrite, isTaskWrite } = __hubRequire("lib/services/task-writes.js");
 const { DailyBriefService } = __hubRequire("lib/services/daily-brief.js");
 const { mountDailyBriefControl } = __hubRequire("lib/ui/daily-brief-control.js");
+const { HubInboxService } = __hubRequire("lib/services/inbox.js");
+const { mountCaptureControls } = __hubRequire("lib/ui/capture-controls.js");
+const ITACAN_DEVELOPMENT = process.env.ITACAN_DEVELOPMENT === "1";
 const { StatisticsModal } = __hubRequire("lib/ui/statistics.js");
 const { OathNavigationGuard } = __hubRequire("lib/services/oath-navigation.js");
 const { createWorkspaceCards } = __hubRequire("lib/ui/workspace-cards.js");
@@ -23606,15 +27156,21 @@ module.exports = class HubProjectMenu extends Plugin {
         window.hubRegisterSearchWorkspace = (...args) => this.contextSearch.registerWorkspace(...args);
         window.hubApplySearchFolder = root => this.contextSearch.applyFolder(root);
         this.dailyBrief = new DailyBriefService(this);
+        this.inbox = new HubInboxService(this);
         this.app.workspace.onLayoutReady(() => {
             if (this.oath.disposed) return;
             this.oathControl = mountOathControl(this, this.oath);
-            this.dailyBriefControl = mountDailyBriefControl(this, this.dailyBrief, this.oathControl.item);
+            this.captureControls = mountCaptureControls(this, this.inbox, this.oathControl.item);
             this.musicControl = mountMusicControl(this, this.oathControl.item);
             this.settingsControl = mountSettingsControl(this, this.oathControl.item);
+            if (ITACAN_DEVELOPMENT) this.dailyBriefControl = mountDailyBriefControl(this, this.dailyBrief, this.oathControl.item);
             this.appShortcutsControl = __hubRequire("lib/ui/app-shortcuts.js").mountAppShortcuts(this, this.oathControl.item);
-            void this.oath.start().then(() => this.dailyBrief.start()).catch(error => this.oath.error(error));
+            void this.oath.start().then(() => { if (ITACAN_DEVELOPMENT) this.dailyBrief.start(); }).catch(error => this.oath.error(error));
         });
+        this.addCommand({ id: "quick-add", name: "Quick Add", hotkeys: [{ modifiers: ["Mod", "Shift"], key: " " }],
+            callback: () => this.captureControls?.openQuickAdd() });
+        this.addCommand({ id: "inbox", name: "Inbox", callback: () => this.captureControls?.openInbox() });
+        if (ITACAN_DEVELOPMENT) this.addCommand({ id: "daily-brief", name: "Daily brief (development)", callback: () => this.dailyBrief.openManual() });
         this.addCommand({ id: "the-oath", name: "The Oath", callback: () => this.oathControl?.open() });
         this.addCommand({ id: "insert-markdown-task", name: "Insert task at cursor", editorCallback: insertTaskAtCursor });
         this.addCommand({ id: "add-hub-task", name: "Add task", callback: () => openTaskCreator(this.taskEditor) });
@@ -23740,6 +27296,8 @@ module.exports = class HubProjectMenu extends Plugin {
         delete window.hubOpenStatistics;
 
         this.appShortcutsControl?.destroy();
+        this.captureControls?.destroy();
+        this.inbox?.destroy();
         delete window.hubMountFullViewLayout;
         delete window.hubMountTaskWorkspace;
         delete window.hubMountContextSearch;

@@ -9,7 +9,7 @@ HTMLElement.prototype.createEl=function(tag,o={}){const e=document.createElement
 HTMLElement.prototype.createDiv=function(o){return this.createEl('div',o)};HTMLElement.prototype.createSpan=function(o){return this.createEl('span',o)};HTMLElement.prototype.empty=function(){this.replaceChildren()};
 class Modal{constructor(app){this.app=app;this.containerEl=document.body.createDiv({cls:'modal-container'});this.modalEl=this.containerEl.createDiv({cls:'modal'});this.contentEl=this.modalEl.createDiv({cls:'modal-content'});this.modalEl.createEl('button',{cls:'modal-close-button',text:'×',attr:{'aria-label':'Close'}}).onclick=()=>this.close();this.escape=e=>{if(e.key==='Escape')this.close()}}open(){this.onOpen();document.addEventListener('keydown',this.escape)}close(){this.onClose();document.removeEventListener('keydown',this.escape);this.containerEl.remove()}}
 const native={Modal,setIcon:(el,name)=>{el.dataset.icon=name;el.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="10"/><path d="M12 10v7M12 7v1"/></svg>'}};
-const names=['domain/dates','domain/history','domain/statistics','services/statistics','ui/statistics-charts','ui/tooltips','ui/statistics'],sources={},cache={};
+const names=['domain/dates','domain/history','domain/contexts','domain/statistics','services/statistics','ui/statistics-charts','ui/tooltips','ui/statistics'],sources={},cache={};
 for(const name of names)sources[name]=await(await fetch('../'+name+'.js')).text();
 function load(name){if(name==='obsidian')return native;if(cache[name])return cache[name].exports;const m=cache[name]={exports:{}};new Function('module','require',sources[name])(m,n=>{if(n==='obsidian')return native;const path=(name.slice(0,name.lastIndexOf('/'))+'/'+n).split('/'),out=[];for(const p of path){if(p==='..')out.pop();else if(p!=='.')out.push(p)}return load(out.join('/'))});return m.exports}
 const assert=(v,m)=>{if(!v)throw Error(m)},settle=()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
@@ -25,10 +25,11 @@ try{
   const resource=day%4===0,projectId=resource?'resource:study':'p'+day%32;
   reports.push({projectId,date:load('domain/dates').localISODate(date),score:1+day%4});
   for(let i=0;i<(day*7)%19;i++)completions.push({id:'c'+day+'-'+i,projectId,kind:i%3===0?'step':'task',timestamp});
-  for(let i=0;i<(day*13)%7;i++)activity.push({action:'edited',path:resource?'Resources/Knowledge/Algebra.md':'Projects/A/Research.md',projectId,timestamp});
-  for(let i=0;i<day%6;i++)notes.push({createdAt:timestamp});
+  for(let i=0;i<(day*13)%7;i++)activity.push({action:'edited',path:resource?'Resources/Knowledge/Algebra.md':'Projects/P'+day%32+'/Research.md',projectId,timestamp});
+  for(let i=0;i<day%6;i++)notes.push({path:(resource?'Resources/Knowledge/':'Projects/P'+day%32+'/')+'Note-'+day+'-'+i+'.md',projectId,createdAt:timestamp});
   if(day%3!==0)oaths.push({id:'o'+day,workspace:resource?{type:'resource',id:'study'}:{type:'project',id:'p'+day%32},state:day%8===0?'broken':'fulfilled',startedAt:timestamp,completedAt:timestamp+(1+day%4)*hour});
  }
+ for(const workspace of workspaces)notes.push({projectId:workspace.projectId,path:workspace.contextKind==='resource'?(workspace.projectId==='resource:study'?'Resources/Knowledge/Algebra.md':'Resources/Research/Algebra.md'):'Projects/P'+workspace.projectId.slice(1)+'/Research.md',createdAt:now-600*86400000});
  completions.push({id:'deleted',projectId:'deleted',projectName:'An archived historical project',timestamp:now-hour});
  const source=prepareStatistics({workspaces,activity,completions,oaths,notes,reports},now);
  const homeSource=await(await fetch('../../../../../System/Dashboards/Home/view.js')).text();
@@ -40,8 +41,8 @@ try{
  trigger.click();assert(entryModal?.contentEl.querySelector('h2').textContent==='Statistics','Real Progress action opens the modal');entryModal.close();header.remove();
  let closed=0;const modal=new StatisticsModal({},null,{source,onClose:()=>closed++});modal.open();window.statisticsModal=modal;
  await settle();const root=modal.contentEl,grid=modal.grid;
- assert(grid.children.length===8,'All eight analytics sections');
- assert([...grid.children].map(e=>e.dataset.statistic).join(',')==='distribution,activity,tasks,steps,oaths,notes,projects,comparison','Mockup section order');
+ assert(grid.children.length===7,'Seven analytics sections with combined completions');
+ assert([...grid.children].map(e=>e.dataset.statistic).join(',')==='distribution,activity,completions,oaths,notes,projects,comparison','Mockup section order');
  assert(root.querySelectorAll('.hub-statistics-ranges button').length===5,'Five real range buttons');
  assert(root.querySelector('.hub-statistics-ranges .is-active').textContent==='3 months','Default range');
  const rangeButtons=[...root.querySelectorAll('.hub-statistics-ranges button')],rangeWidth=rangeButtons[2].getBoundingClientRect().width;
@@ -49,7 +50,16 @@ try{
  const probe=rangeButtons[2].cloneNode(true);probe.style.cssText='position:absolute;width:max-content;visibility:hidden';rangeButtons[2].parentElement.append(probe);
  assert(Math.abs(probe.getBoundingClientRect().width-rangeWidth)<1,'Range width follows 3 months label');probe.remove();
  assert(root.querySelector('[data-statistic=distribution] h3').textContent==='Work distribution','Exact distribution title');
- assert(root.querySelector('[data-statistic=comparison]').textContent.includes('Share of progress report points'),'Visible comparison metric');
+ assert(root.querySelector('[data-statistic=comparison] h3').textContent==='Projects vs Resources','Renamed comparison');
+ assert(!root.querySelector('[data-statistic=comparison]').textContent.includes('Share of progress report points'),'Comparison explanation is not permanent body text');
+ assert(root.querySelectorAll('select').length===1&&modal.workspaceSelect.value==='all','One global selector defaults to all workspaces');
+ assert(modal.workspaceSelect.selectedOptions[0].textContent==='All workspaces','Default label');
+ assert([...modal.workspaceSelect.querySelectorAll('optgroup')].map(g=>g.label).join(',')==='Projects,Resources','Both workspace categories available');
+ const controlRect=modal.workspaceSelect.getBoundingClientRect(),rangesRect=root.querySelector('.hub-statistics-ranges').getBoundingClientRect();
+ assert(Math.abs(root.querySelector('.hub-statistics-header h2').getBoundingClientRect().top+root.querySelector('.hub-statistics-header h2').getBoundingClientRect().height/2-controlRect.top-controlRect.height/2)<1,'Statistics title and controls share the desktop header row');
+ assert(controlRect.right<rangesRect.left&&Math.abs(controlRect.top-rangesRect.top)<1,'Workspace filter is left of aligned time ranges');
+ assert(rangesRect.left-controlRect.right>rangeButtons[1].getBoundingClientRect().left-rangeButtons[0].getBoundingClientRect().right,'Groups have a larger separation');
+ assert(!grid.querySelector('select,[data-filter]'),'No panel selectors');
  const rowHeight=id=>root.querySelector('[data-statistic='+id+']').getBoundingClientRect().height;
  const distributionHeight=rowHeight('distribution');
  assert(Math.abs(rowHeight('distribution')-rowHeight('activity'))<1,'Full top-row card height');
@@ -57,16 +67,54 @@ try{
  const initialTaskCount=seriesFor(modal.model,'tasks','project').reduce((a,b)=>a+b,0);
  for(const [range]of RANGES){modal.rangeButtons.find(([key])=>key===range)[1].click();assert(modal.range===range,'Range state');assert(root.querySelectorAll('.hub-statistics-ranges [aria-pressed=true]').length===1,'Range accessible state');assert(!/NaN|Infinity/.test(root.textContent+root.innerHTML),'Finite chart geometry');}
  modal.rangeButtons.find(([key])=>key==='7d')[1].click();assert(seriesFor(modal.model,'tasks','project').reduce((a,b)=>a+b,0)<initialTaskCount,'Period actually updates values');
- const choose=(id,value)=>{const control=root.querySelector('[data-filter='+id+']');control.value=value;control.dispatchEvent(new Event('change'));assert(document.activeElement.dataset.filter===id,'Filter focus retained');};
- choose('distribution','resource');assert(root.querySelector('.hub-statistics-ranking').textContent.includes('Knowledge'),'Resource distribution');
- await settle();assert(Math.abs(rowHeight('distribution')-rowHeight('activity'))<1,'One resource fills the top row');
- assert(Math.abs(rowHeight('distribution')-distributionHeight)<1,'One item and many items retain the same card size');
- const resourceRow=root.querySelector('.hub-statistics-rank-row');assert(resourceRow.textContent.includes('100%')&&resourceRow.textContent.includes('pts'),'Resource-only denominator and point unit');
- choose('activity','resource');assert(root.querySelector('[data-statistic=activity] .hub-statistics-plot'),'Resource work activity');
- choose('tasks','project:p1');assert(modal.filters.tasks==='project:p1','Individual workspace filter');
- choose('steps','resource');assert(modal.filters.steps==='resource','Step resource filter');
- choose('distribution','project');choose('activity','project');choose('tasks','project');choose('steps','project');
- modal.rangeButtons.find(([key])=>key==='3m')[1].click();
+ const sum=values=>values.reduce((a,b)=>a+b,0);
+ const choose=value=>{modal.workspaceSelect.focus();modal.workspaceSelect.value=value;modal.workspaceSelect.dispatchEvent(new Event('change'));assert(document.activeElement===modal.workspaceSelect,'Global filter keeps focus');};
+ const compare=()=>root.querySelector('[data-statistic=comparison] svg')?.getAttribute('aria-label');
+ const projectsTable=()=>root.querySelector('[data-statistic=projects]').textContent;
+ const assertBars=(id,metric,scope)=>{
+  const actual=[...root.querySelectorAll('[data-statistic='+id+'] rect.hub-statistics-bar')].filter(bar=>id==='activity'||bar.dataset.series===(metric==='tasks'?'Tasks':'Steps')).reduce((total,bar)=>total+Number(bar.dataset.value),0);
+  assert(actual===sum(seriesFor(modal.model,metric,scope)),id+' chart follows workspace selection');
+ };
+ const globalComparison=compare(),globalProjects=projectsTable();
+ const globalNotes=modal.model.note.total,globalOaths=modal.model.oath.total;
+ const initialRanking=[...root.querySelectorAll('.hub-statistics-rank-row')];
+ assert(initialRanking.some(row=>row.dataset.workspace.startsWith('resource:'))&&initialRanking.some(row=>row.dataset.workspace.startsWith('project:')),'Both categories together');
+ const allActivity=root.querySelector('[data-statistic=activity]');
+ assert(allActivity.querySelector('.hub-statistics-series-project')&&allActivity.querySelector('.hub-statistics-series-resource'),'Mixed activity category colors');
+ for(const workspace of ['project:p1','resource:resource:study']){
+  choose(workspace);assert(modal.workspace===workspace&&modal.range==='7d','Workspace switch keeps range');
+  assert(compare()===globalComparison&&projectsTable()===globalProjects,'Comparison and Project activity remain global');
+  const rows=[...root.querySelectorAll('.hub-statistics-rank-row')];assert(rows.every(row=>row.dataset.workspace===workspace),'Distribution only shows selected workspace');
+  assert(rows.length===1&&rows[0].textContent.includes('100%'),'Scoped denominator is selected workspace');
+  assertBars('activity','activity',workspace);assertBars('completions','tasks',workspace);assertBars('completions','steps',workspace);
+  assert(modal.model.note.total<globalNotes&&modal.model.oath.total<globalOaths,'Notes and Oaths are scoped');
+  const selectedTotal=modal.model.note.total;
+  for(const [range]of RANGES){modal.rangeButtons.find(([key])=>key===range)[1].click();assert(modal.workspace===workspace&&modal.workspaceSelect.value===workspace,'Workspace persists through range changes');assertBars('activity','activity',workspace);assertBars('completions','tasks',workspace);assertBars('completions','steps',workspace);}
+  assert(modal.model.note.total>selectedTotal,'Notes facts depend on period');
+  modal.rangeButtons.find(([key])=>key==='7d')[1].click();
+ }
+ choose('all');modal.rangeButtons.find(([key])=>key==='3m')[1].click();await settle();
+ const projectColor=getComputedStyle(root.querySelector('.hub-statistics-rank-row.hub-statistics-series-project .hub-statistics-fill')).backgroundColor;
+ const resourceColor=getComputedStyle(root.querySelector('.hub-statistics-rank-row.hub-statistics-series-resource .hub-statistics-fill')).backgroundColor;
+ assert(projectColor!==resourceColor,'Distinct Project/Resource colors');
+ assert(getComputedStyle(root.querySelector('[data-statistic=activity] rect.hub-statistics-series-project')).fill===projectColor,'Activity uses Project color');
+ assert(getComputedStyle(root.querySelector('[data-statistic=activity] rect.hub-statistics-series-resource')).fill===resourceColor,'Activity uses Resource color');
+ assert(getComputedStyle(root.querySelector('.hub-statistics-donut-projects')).stroke===projectColor&&getComputedStyle(root.querySelector('.hub-statistics-donut-base')).stroke===resourceColor,'Donut uses same category colors');
+ const completion=root.querySelector('[data-statistic=completions]');
+ assert(completion.querySelector('h3').textContent==='Tasks & steps completed'&&completion.querySelector('.hub-statistics-inline-legend').textContent==='TasksSteps','Combined title and legend');
+ assert(Math.abs(completion.getBoundingClientRect().width-grid.getBoundingClientRect().width)<1,'Completions span full row');
+ const bins=modal.model.range.bins.length;
+ assert(completion.querySelectorAll('rect').length===2*bins,'Exactly two bars per bin');
+ for(let bin=0;bin<bins;bin++){
+  const [task,step]=[...completion.querySelectorAll('rect[data-bin="'+bin+'"]')];
+  assert(Number(task.getAttribute('x'))+Number(task.getAttribute('width'))<Number(step.getAttribute('x')),'Grouped bars are adjacent, not stacked');
+  assert(Math.abs(Number(task.getAttribute('y'))+Number(task.getAttribute('height'))-Number(step.getAttribute('y'))-Number(step.getAttribute('height')))<.001,'Both grouped bars share baseline');
+ }
+ const completionChart=completion.querySelector('svg');completionChart.focus();
+ assert(document.querySelector('.hub-statistics-point-tooltip:not([hidden])').textContent.includes('Tasks')&&document.querySelector('.hub-statistics-point-tooltip:not([hidden])').textContent.includes('Steps'),'Grouped tooltip exposes both values');completionChart.blur();
+ assert(completion.querySelectorAll('thead th').length===3,'Accessible Date/Tasks/Steps columns');
+ assert(root.querySelector('[data-statistic=notes] .hub-statistics-metrics').textContent.includes('Notes edited'),'Notes edited metric');
+ assert(!/Average per day|Largest day|Notes created \(selected period\)/.test(root.textContent),'Removed old Notes summaries');
  const ranking=root.querySelector('.hub-statistics-ranking'),projects=root.querySelector('.hub-statistics-project-list');
  assert(ranking.scrollHeight>ranking.clientHeight&&getComputedStyle(ranking).overflowY==='auto','Many workspaces scroll inside ranking');
  assert(projects.scrollHeight>projects.clientHeight&&getComputedStyle(projects).overflowY==='auto','Many projects scroll inside list');
@@ -82,10 +130,10 @@ try{
  const rect=chart.getBoundingClientRect();chart.dispatchEvent(new PointerEvent('pointermove',{clientX:rect.left+rect.width/2,bubbles:true}));
  assert(document.querySelector('.hub-statistics-point-tooltip:not([hidden])'),'Hover exposes exact value');
  chart.dispatchEvent(new PointerEvent('pointerleave'));assert(!document.querySelector('.hub-statistics-point-tooltip:not([hidden])'),'Leaving hides tooltip');
- assert(root.querySelectorAll('.hub-statistics-metrics > div').length===3&&root.querySelector('.hub-statistics-note-metrics'),'Summary metric presentations retained');
- assert(root.querySelectorAll('.hub-statistics-help').length===2,'Only ambiguous session/note methodology gets help buttons');
+ assert(root.querySelectorAll('[data-statistic=oaths] .hub-statistics-metrics > div').length===3&&root.querySelectorAll('[data-statistic=notes] .hub-statistics-metrics > div').length===2,'Three Oath tiles and exactly two Notes tiles');
+ assert(root.querySelectorAll('.hub-statistics-help').length===3,'Oaths, Notes and comparison use existing help pattern');
  assert(getComputedStyle(root.querySelector('.hub-statistics-metrics > div')).backgroundColor==='rgb(30, 30, 30)','Dark metric tiles preserved');
- assert(root.querySelector('[data-statistic=tasks] select').getBoundingClientRect().width<150,'Content-sized compact filters');
+ assert(root.querySelector('.hub-statistics-workspace').getBoundingClientRect().height===rangeButtons[0].getBoundingClientRect().height,'Global filter matches compact controls');
  const denseHeight=grid.getBoundingClientRect().height;
  assert(root.clientWidth<=720||denseHeight<1050,'Compact desktop content height: '+denseHeight);
  const fewSource=prepareStatistics({workspaces:workspaces.slice(0,2),reports:[{projectId:'p0',date:'2026-09-27',score:1},{date:'2026-09-27',score:2}]},now);
@@ -95,9 +143,11 @@ try{
  assert(Math.abs(few.grid.querySelector('[data-statistic=distribution]').getBoundingClientRect().height-few.grid.querySelector('[data-statistic=activity]').getBoundingClientRect().height)<1,'Sparse cards fill row');few.close();
 
  const mixed=new StatisticsModal({},null,{source:prepareStatistics({workspaces:[workspaces[0]],completions:[{id:'one',projectId:'p0',timestamp:now-hour}]},now)});mixed.open();await settle();
- const filled=mixed.contentEl.querySelector('[data-statistic=tasks]'),blank=mixed.contentEl.querySelector('[data-statistic=steps]');
- assert(Math.abs(filled.getBoundingClientRect().height-blank.getBoundingClientRect().height)<1,'Populated and empty completion cards remain matched');
- assert(blank.getBoundingClientRect().height<170,'Empty completion stays compact');mixed.close();
+ const filled=mixed.contentEl.querySelector('[data-statistic=completions]');
+ assert(filled.querySelectorAll('rect[data-series="Tasks"]').length&&[...filled.querySelectorAll('rect[data-series="Steps"]')].every(bar=>Number(bar.dataset.value)===0),'Tasks-only data retains zero Steps without stacking');mixed.close();
+ const comparisonHelp=root.querySelector('[data-statistic=comparison] .hub-statistics-help');
+ comparisonHelp.dispatchEvent(new PointerEvent('pointermove',{bubbles:true}));
+ assert(document.querySelector('.hub-detail-tooltip:not(.hub-statistics-point-tooltip)')?.textContent.includes('Share of progress report points'),'Comparison basis is in help');comparisonHelp.dispatchEvent(new PointerEvent('pointerout',{bubbles:true}));
  const help=root.querySelector('.hub-statistics-help');
  help.dispatchEvent(new PointerEvent('pointermove',{bubbles:true}));
  assert(document.querySelector('.hub-detail-tooltip:not(.hub-statistics-point-tooltip)')?.textContent.includes('Ended sessions'),'Methodology appears only on interaction');
@@ -107,20 +157,24 @@ try{
  for(const width of [1000,680,420,310]){
   modal.modalEl.style.width=width+'px';await settle();
   assert(root.scrollWidth<=root.clientWidth+1,'No horizontal overflow at '+width);
+  for(const button of rangeButtons)assert(Math.abs(button.getBoundingClientRect().width-rangeWidth)<1&&getComputedStyle(button).whiteSpace==='nowrap','Range labels keep equal natural widths without wrapping at '+width);
   for(const plot of root.querySelectorAll('.hub-statistics-plot'))assert(Math.abs(plot.viewBox.baseVal.width-plot.getBoundingClientRect().width)<1,'Chart text keeps native proportions at '+width);
   const cols=getComputedStyle(grid).gridTemplateColumns.split(' ').length;
   assert(cols===(root.clientWidth>720?2:1),'Responsive column count at '+width);
-  const t=root.querySelector('[data-statistic=tasks]'),s=root.querySelector('[data-statistic=steps]');
-  assert(Math.abs(t.getBoundingClientRect().width-s.getBoundingClientRect().width)<1,'Matched completion card widths');
-  assert(t.querySelector('svg').getBoundingClientRect().height===s.querySelector('svg').getBoundingClientRect().height,'Matched chart geometry');
+  const completed=root.querySelector('[data-statistic=completions]');
+  assert(Math.abs(completed.getBoundingClientRect().width-grid.getBoundingClientRect().width)<1,'Grouped panel stays full width');
+  assert(root.querySelectorAll('select').length===1,'Responsive layout preserves one global selector');
  }
  modal.modalEl.style.width='';await settle();assert(Math.abs(modal.modalEl.getBoundingClientRect().width-initialWidth)<1,'Restore width');
  const empty=new StatisticsModal({},null,{source:prepareStatistics({},now)});empty.open();
- assert(empty.grid.children.length===8,'Empty sections independent');assert(!empty.contentEl.querySelector('.hub-statistics-plot,.hub-statistics-comparison svg'),'No misleading empty charts');assert(!/NaN|Infinity/.test(empty.contentEl.innerHTML),'Finite empty state');empty.modalEl.querySelector('.modal-close-button').click();
- const partial=new StatisticsModal({},null,{source:prepareStatistics({notes:[{createdAt:now-hour}]},now)});partial.open();assert(partial.contentEl.querySelectorAll('.hub-statistics-plot').length===1,'One populated section survives seven empty sections');partial.close();
+ assert(empty.grid.children.length===7,'Empty sections independent');assert(!empty.contentEl.querySelector('.hub-statistics-plot,.hub-statistics-comparison svg'),'No misleading empty charts');assert(!/NaN|Infinity/.test(empty.contentEl.innerHTML),'Finite empty state');empty.modalEl.querySelector('.modal-close-button').click();
+ const editsOnly=new StatisticsModal({},null,{source:prepareStatistics({workspaces:[workspaces[0]],notes:[{path:'Projects/P0/Old.md',projectId:'p0',createdAt:now-100*86400000}],activity:[{path:'Projects/P0/Old.md',projectId:'p0',action:'edited',timestamp:now-hour}]},now)});editsOnly.range='7d';editsOnly.open();
+ assert(editsOnly.model.note.total===1&&editsOnly.model.note.edited===1,'Recorded edit counts older note in period');
+ assert(editsOnly.contentEl.querySelector('[data-statistic=notes] .hub-statistics-empty').textContent==='No notes created in this period.','Creation chart empty state does not deny edits');editsOnly.close();
+ const partial=new StatisticsModal({},null,{source:prepareStatistics({notes:[{createdAt:now-hour}]},now)});partial.open();assert(partial.contentEl.querySelectorAll('.hub-statistics-plot').length===1,'One populated section survives six empty sections');partial.close();
  root.scrollTop=0;document.activeElement.blur();
  document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape'}));assert(closed===1,'Native Escape closes and disposes the modal');
  const reopened=new StatisticsModal({},null,{source});reopened.open();window.statisticsModal=reopened;await settle();
- result.textContent='PASS: content height '+Math.round(denseHeight)+'px; eight sections, five ranges, local filters, keyboard chart details/data tables, finite empty/populated states, historical states, long names, bounded scroll and 1000/680/420/310px responsive layouts.';
+ result.textContent='PASS: content height '+Math.round(denseHeight)+'px; seven sections, five ranges, global Project/Resource filters, grouped completion bars, period notes and global comparison, keyboard chart details/data tables, finite empty/populated states, historical states, long names, bounded scroll and 1000/680/420/310px responsive layouts.';
 }catch(error){result.textContent='FAIL: '+error.stack}
 </script>

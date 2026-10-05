@@ -641,7 +641,7 @@ const glance = panel(
     grid,
     "Today's Focus",
     "home-glance",
-    "target"
+    "goal"
 );
 
 markDashboardRow(
@@ -807,7 +807,7 @@ const upcoming = panel(
     grid,
     "Tasks",
     "home-upcoming",
-    "list-checks"
+    "list-todo"
 );
 
 markDashboardRow(
@@ -2131,7 +2131,7 @@ heading(
     projectTabs,
     "home-project-heading",
     "Projects",
-    "folder"
+    "folder-kanban"
 );
 
 const projectTabButtons = projectTabs.createDiv({
@@ -2193,7 +2193,7 @@ heading(
     resourceSection,
     "home-resource-heading",
     "Resources",
-    "library"
+    "landmark"
 );
 
 const resourceGrid = resourceSection.createDiv({

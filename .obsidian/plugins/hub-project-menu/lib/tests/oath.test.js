@@ -4,7 +4,7 @@ const { HubOathService } = require("../services/oath");
 const { createOathFullscreen } = require("../services/oath-fullscreen");
 const { readTaskSnapshot, taskMetadata, toggleTaskStep } = require("../domain/task-planning");
 const { taskLineDetails, taskIdentity, editTaskContent } = require("../domain/tasks");
-const { oathTime, oathProgress, validateOath, fulfilmentLabel, oathDuration, normalizeOath } = require("../domain/oath");
+const { oathTime, oathProgress, validateOath, oathRequirements, fulfilmentLabel, oathDuration, normalizeOath } = require("../domain/oath");
 
 function fixture(data = {}, deviceId = "this-device") {
     let now = 1_000_000, persisted = null, failSave = false, ready = true, frozen = null, queries = 0;
@@ -53,6 +53,8 @@ function fixture(data = {}, deviceId = "this-device") {
 
 async function run() {
     const minute = 60000;
+    assert.deepEqual(oathRequirements({ start: "scheduled", scheduledAt: null, tasks: [], durationMs: null }).filter(field => !field.complete).map(field => field.key),
+        ["Start", "Workspace", "Tasks", "Duration"], "Required guidance follows the setup's visual order");
     for (const [minutes, label] of [[1, "1 minute"], [25, "25 minutes"], [50, "50 minutes"], [90, "90 minutes"], [150, "2 hours 30 minutes"]]) {
         assert.equal(oathDuration(minutes * minute), label);
         assert.equal(fulfilmentLabel({ durationMs: minutes * minute }), `After ${label}`);

@@ -146,4 +146,49 @@ function createImmediateHubTooltip(root) {
     };
 }
 
-module.exports = { setHubTooltip, watchHubTooltips, createImmediateHubTooltip };
+// Obsidian's normal aria-label tooltips handle pointer hover. Opt-in keyboard
+// help uses that same small native surface, default delay and placement.
+function bindHubFocusTooltip(root, component, selector) {
+    const doc = root.ownerDocument, win = doc.defaultView;
+    let timer = 0, tooltip = null, target = null;
+    const hide = () => {
+        win.clearTimeout(timer); timer = 0;
+        target?.removeAttribute("aria-describedby");
+        tooltip?.remove(); tooltip = null; target = null;
+    };
+    const listen = (element, type, handler, options) => {
+        element.addEventListener(type, handler, options);
+        component.register(() => element.removeEventListener(type, handler, options));
+    };
+    listen(root, "focusin", event => {
+        hide();
+        const element = event.target.closest?.(selector);
+        if (!element?.matches(":focus-visible")) return;
+        const delay = Number(element.getAttribute("data-tooltip-delay") ?? 1000);
+        timer = win.setTimeout(() => {
+            if (!root.contains(element) || doc.activeElement !== element) return;
+            target = element;
+            tooltip = doc.createElement("div");
+            tooltip.className = "tooltip"; tooltip.setAttribute("role", "tooltip");
+            tooltip.id = `hub-focus-tooltip-${++detailTooltipId}`;
+            tooltip.textContent = element.dataset.hubFocusTooltip || element.getAttribute("aria-label");
+            const arrow = tooltip.appendChild(doc.createElement("div")); arrow.className = "tooltip-arrow";
+            doc.body.append(tooltip); element.setAttribute("aria-describedby", tooltip.id);
+            const bounds = element.getBoundingClientRect(), size = tooltip.getBoundingClientRect();
+            const gap = Number(element.getAttribute("data-tooltip-gap") ?? 8);
+            const center = Math.max(size.width / 2 + gap, Math.min(bounds.left + bounds.width / 2, win.innerWidth - size.width / 2 - gap));
+            tooltip.style.left = center + "px";
+            tooltip.style.top = Math.max(gap, Math.min(bounds.bottom + gap, win.innerHeight - size.height - gap)) + "px";
+            arrow.style.left = Math.max(5, Math.min(size.width - 5, bounds.left + bounds.width / 2 - center + size.width / 2)) + "px";
+        }, delay);
+    });
+    listen(root, "focusout", hide);
+    listen(doc, "pointerdown", hide, true);
+    listen(doc, "pointerover", hide, true); // Leave hover to the native handler.
+    listen(doc, "keydown", event => { if (event.key === "Escape") hide(); });
+    listen(doc, "scroll", hide, true); listen(win, "resize", hide);
+    component.register(hide);
+    return hide;
+}
+
+module.exports = { setHubTooltip, watchHubTooltips, createImmediateHubTooltip, bindHubFocusTooltip };

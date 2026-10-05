@@ -1,4 +1,5 @@
 "use strict";
+const { disclosureIcons } = require("./disclosure");
 const { setHubTooltip } = require("./tooltips");
 const { progressColors, progressColor } = require("./progress-colors");
 
@@ -172,16 +173,6 @@ function createDashboardUi({
         return button;
     }
 
-    function disclosureIcons(button) {
-        button.classList.add("hub-disclosure");
-        // Both icons follow the same aria-expanded state the menu owns, including
-        // outside clicks, Escape, selection, resize and view disposal.
-        for (const [state, name] of [["closed", "chevron-right"], ["open", "chevron-down"]]) {
-            const icon = button.createEl("span", { cls: `hub-presets-chevron is-${state}` });
-            icon.setAttribute("aria-hidden", "true");
-            require("obsidian").setIcon(icon, name);
-        }
-    }
 
     function placeHeatmapNavigation(calendar, toolbar, previous, year, next) {
         const months = calendar.querySelector(".heatmap-calendar-months");

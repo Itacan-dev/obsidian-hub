@@ -1,10 +1,15 @@
 "use strict";
 const { calendarRange, shiftDay } = require("../domain/task-views");
+const { setHubIcon } = require("./icons");
 const { button, iconButton } = require("./task-view-primitives");
 
 function renderScheduleToolbar(panel, context, state) {
     const toolbar = panel.createDiv({ cls: "hub-planning-toolbar hub-schedule-toolbar" });
-    const navigation = toolbar.createDiv({ cls: "hub-planning-navigation" });
+    const contextHeader = toolbar.createDiv({ cls: "hub-schedule-context" });
+    const title = contextHeader.createDiv({ cls: "project-panel-title project-tasks-title hub-schedule-title", attr: { role: "heading", "aria-level": "2" } });
+    setHubIcon(title.createSpan({ cls: "project-tasks-title-icon", attr: { "aria-hidden": "true" } }), "clipboard-list");
+    title.createSpan({ text: "Schedule" });
+    const navigation = contextHeader.createDiv({ cls: "hub-planning-navigation" });
     const view = state.scheduleView;
     if (view !== "upcoming") {
         const move = direction => {
@@ -20,10 +25,10 @@ function renderScheduleToolbar(panel, context, state) {
     }
     const actions = toolbar.createDiv({ cls: "hub-planning-actions" });
     const modes = actions.createDiv({ cls: "hub-panel-selectors hub-equal-selectors", attr: { role: "group", "aria-label": "Schedule view" } });
-    for (const [value, label] of [["upcoming", "Upcoming"], ["month", "Month"], ["week", "Week"]]) {
+    for (const [value, label] of [["upcoming", "Overview"], ["week", "Week"], ["month", "Month"]]) {
         const choice = button(modes, label, () => { state.scheduleView = value; context.render(); }, view === value ? "is-active" : "");
         choice.setAttribute("aria-pressed", String(view === value));
     }
-    button(actions, "Add task", () => context.create({}), "hub-full-add-task hub-panel-action", "plus");
+    button(actions, "Task", () => context.create({}), "hub-full-add-task hub-panel-action", "plus");
 }
 module.exports = { renderScheduleToolbar };

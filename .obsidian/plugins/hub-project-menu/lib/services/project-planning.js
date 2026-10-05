@@ -100,12 +100,14 @@ class ProjectPlanningService {
             }
         });
     }
-    reorder(id, phaseId, direction, revision) {
+    reorder(id, phaseIds, revision) {
         return this.transaction(id, revision, state => {
-            const index = state.phases.findIndex(phase => phase.id === phaseId), target = index + direction;
-            if (index < 0 || target < 0 || target >= state.phases.length || ![-1, 1].includes(direction)) return;
-            [state.phases[index], state.phases[target]] = [state.phases[target], state.phases[index]];
-            state.phases.forEach((phase, order) => { phase.order = order; });
+            if (!Array.isArray(phaseIds) || phaseIds.length !== state.phases.length ||
+                new Set(phaseIds).size !== phaseIds.length || state.phases.some(phase => !phaseIds.includes(phase.id))) {
+                throw Error("This Roadmap's phase list changed. Reopen it before reordering.");
+            }
+            const byId = new Map(state.phases.map(phase => [phase.id, phase]));
+            state.phases = phaseIds.map((id, order) => ({ ...byId.get(id), order }));
         });
     }
 }

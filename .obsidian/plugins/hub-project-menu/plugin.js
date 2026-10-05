@@ -4,6 +4,9 @@ const { mountSettingsControl } = require("./lib/ui/settings");
 const { processTaskWrite, isTaskWrite } = require("./lib/services/task-writes");
 const { DailyBriefService } = require("./lib/services/daily-brief");
 const { mountDailyBriefControl } = require("./lib/ui/daily-brief-control");
+const { HubInboxService } = require("./lib/services/inbox");
+const { mountCaptureControls } = require("./lib/ui/capture-controls");
+const ITACAN_DEVELOPMENT = process.env.ITACAN_DEVELOPMENT === "1";
 const { StatisticsModal } = require("./lib/ui/statistics");
 const { OathNavigationGuard } = require("./lib/services/oath-navigation");
 const { createWorkspaceCards } = require("./lib/ui/workspace-cards");
@@ -12615,15 +12618,21 @@ module.exports = class HubProjectMenu extends Plugin {
         window.hubRegisterSearchWorkspace = (...args) => this.contextSearch.registerWorkspace(...args);
         window.hubApplySearchFolder = root => this.contextSearch.applyFolder(root);
         this.dailyBrief = new DailyBriefService(this);
+        this.inbox = new HubInboxService(this);
         this.app.workspace.onLayoutReady(() => {
             if (this.oath.disposed) return;
             this.oathControl = mountOathControl(this, this.oath);
-            this.dailyBriefControl = mountDailyBriefControl(this, this.dailyBrief, this.oathControl.item);
+            this.captureControls = mountCaptureControls(this, this.inbox, this.oathControl.item);
             this.musicControl = mountMusicControl(this, this.oathControl.item);
             this.settingsControl = mountSettingsControl(this, this.oathControl.item);
+            if (ITACAN_DEVELOPMENT) this.dailyBriefControl = mountDailyBriefControl(this, this.dailyBrief, this.oathControl.item);
             this.appShortcutsControl = require("./lib/ui/app-shortcuts").mountAppShortcuts(this, this.oathControl.item);
-            void this.oath.start().then(() => this.dailyBrief.start()).catch(error => this.oath.error(error));
+            void this.oath.start().then(() => { if (ITACAN_DEVELOPMENT) this.dailyBrief.start(); }).catch(error => this.oath.error(error));
         });
+        this.addCommand({ id: "quick-add", name: "Quick Add", hotkeys: [{ modifiers: ["Mod", "Shift"], key: " " }],
+            callback: () => this.captureControls?.openQuickAdd() });
+        this.addCommand({ id: "inbox", name: "Inbox", callback: () => this.captureControls?.openInbox() });
+        if (ITACAN_DEVELOPMENT) this.addCommand({ id: "daily-brief", name: "Daily brief (development)", callback: () => this.dailyBrief.openManual() });
         this.addCommand({ id: "the-oath", name: "The Oath", callback: () => this.oathControl?.open() });
         this.addCommand({ id: "insert-markdown-task", name: "Insert task at cursor", editorCallback: insertTaskAtCursor });
         this.addCommand({ id: "add-hub-task", name: "Add task", callback: () => openTaskCreator(this.taskEditor) });
@@ -12749,6 +12758,8 @@ module.exports = class HubProjectMenu extends Plugin {
         delete window.hubOpenStatistics;
 
         this.appShortcutsControl?.destroy();
+        this.captureControls?.destroy();
+        this.inbox?.destroy();
         delete window.hubMountFullViewLayout;
         delete window.hubMountTaskWorkspace;
         delete window.hubMountContextSearch;

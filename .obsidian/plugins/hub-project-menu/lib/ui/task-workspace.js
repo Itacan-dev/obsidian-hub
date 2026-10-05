@@ -77,7 +77,13 @@ function mountTaskWorkspace({ plugin, component, dv, root, toolbar, filesGrid, f
             primary.style.setProperty("--hub-project-mode-width", state.modeWidth);
         }
     };
-    const modeWidthObserver = new ResizeObserver(syncModeWidth);
+    const syncHeaderHeight = () => {
+        if (disposed || inNoteRail()) return;
+        const heading = filesPanel?.querySelector(".hub-explorer-heading");
+        const height = heading?.getBoundingClientRect().height;
+        if (height > 0) root.style.setProperty("--hub-project-header-height", height + "px");
+    };
+    const modeWidthObserver = new ResizeObserver(() => { syncModeWidth(); syncHeaderHeight(); });
     modeWidthObserver.observe(toolbar);
     if (filesPanel) modeWidthObserver.observe(filesPanel);
     component.register(() => modeWidthObserver.disconnect());
@@ -134,6 +140,7 @@ function mountTaskWorkspace({ plugin, component, dv, root, toolbar, filesGrid, f
         }
     }
     function mode(value, initial = false) {
+        syncHeaderHeight();
         state.mode = value;
         const active = value === "schedule";
         root.classList.toggle("is-task-workspace", active);

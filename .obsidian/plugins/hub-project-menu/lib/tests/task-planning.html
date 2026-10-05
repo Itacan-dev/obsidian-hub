@@ -11,9 +11,11 @@ HTMLElement.prototype.createEl=function(tag,o={}){const e=document.createElement
 HTMLElement.prototype.createDiv=function(o){return this.createEl('div',o)};HTMLElement.prototype.createSpan=function(o){return this.createEl('span',o)};HTMLElement.prototype.empty=function(){this.replaceChildren()};
 class Component{constructor(){this.children=new Set();this.cleanups=[]}register(fn){this.cleanups.push(fn)}addChild(c){this.children.add(c)}removeChild(c){c.unload();this.children.delete(c)}unload(){this.cleanups.splice(0).forEach(fn=>fn());this.children.forEach(c=>c.unload());this.children.clear()}}
 class Modal{constructor(app){this.app=app;this.containerEl=document.body.createDiv({cls:'modal-container'});this.modalEl=this.containerEl.createDiv({cls:'modal'});this.modalEl.createEl('button',{text:'×',cls:'modal-close-button'}).onclick=()=>this.close();this.contentEl=this.modalEl.createDiv({cls:'modal-content'});this.escape=e=>{if(e.key==='Escape')this.close()};document.addEventListener('keydown',this.escape)}open(){this.onOpen()}close(){this.onClose();this.containerEl.remove();document.removeEventListener('keydown',this.escape)}}
+Modal.prototype.setTitle = function(title) { this.modalEl.setAttribute('aria-label', title); };
 class Menu{constructor(){this.items=[];window.lastMenu=this}addItem(fn){const item={setTitle(v){this.title=v;return this},setIcon(){return this},setWarning(){return this},onClick(fn){this.click=fn;return this}};fn(item);this.items.push(item)}showAtMouseEvent(){}}
 const notices=[],obsidian={Component,Modal,Menu,FuzzySuggestModal:class{},Notice:class{constructor(text){notices.push(text)}},setIcon:(el,name)=>{el.textContent=({plus:'＋',x:'×',folder:'▱','calendar-days':'▦','list-checks':'☷','square-check':'☑'})[name]||''},MarkdownRenderer:{render:async(app,text,el)=>{el.createEl('p',{text})}}};
 const originalSetIcon=obsidian.setIcon;
+obsidian.getIcon=()=>null;
 obsidian.setIcon=(el,name)=>{
  el.dataset.icon=name;
  if(!name.startsWith('chevron-')) return originalSetIcon(el,name);
@@ -24,7 +26,7 @@ obsidian.setIcon=(el,name)=>{
 const assert=(ok,message)=>{if(!ok)throw Error(message)};
 const settle=async()=>{for(let i=0;i<30;i++)await Promise.resolve();await new Promise(r=>requestAnimationFrame(r))};
 window.onload=async()=>{try{
- const names=['domain/tasks','domain/dates','domain/task-planning','domain/oath','ui/markdown','ui/completion-audio','ui/task-steps','ui/oath-tasks','ui/tasks','ui/task-editor'];
+ const names=['domain/tasks','domain/dates','domain/task-planning','domain/task-form','domain/oath','ui/markdown','ui/completion-audio','ui/task-steps','ui/oath-tasks','ui/tasks','ui/icons','ui/date-time','ui/task-form','ui/task-editor'];
  const sources=Object.fromEntries(await Promise.all(names.map(async name=>[name,await(await fetch('../'+name+'.js')).text()]))),cache={};
  const load=name=>{if(name==='obsidian')return obsidian;if(cache[name])return cache[name].exports;const mod=cache[name]={exports:{}};new Function('module','require',sources[name])(mod,request=>{if(request==='obsidian')return obsidian;const parts=(name.slice(0,name.lastIndexOf('/'))+'/'+request).split('/'),out=[];for(const part of parts){if(part==='..')out.pop();else if(part!=='.')out.push(part)}return load(out.join('/'))});return mod.exports};
  const domain=load('domain/tasks'),planning=load('domain/task-planning'),dates=load('domain/dates'),{createTaskUi,taskSourceLabel}=load('ui/tasks'),{openTaskEditor,openTaskCreator}=load('ui/task-editor');
@@ -160,14 +162,16 @@ window.onload=async()=>{try{
  form.querySelector('.hub-task-clear-necessity').click();
 
  assert(!/Highlight this task|Clear the classification|Add dates if relevant|Earliest date|Deadline for completion|This task is saved in|Start \(From\)/.test(form.textContent),'Redundant helper text removed');
- assert(form.textContent.includes('Break the task into smaller actions (optional).'),'Steps help retained');
+ assert(!form.textContent.includes('Break the task into smaller actions (optional).'),'Steps helper copy removed from the shared form');
  assert(form.querySelector('.hub-task-source').textContent.includes('Topology'),'Location retained');
 
- assert(form.querySelectorAll('input[type=date]').length===2&&!/Until|Planned/.test(form.textContent),'Only From and Due');
+ assert(form.querySelectorAll('.hub-date-time-trigger').length===2&&form.querySelector('[aria-label="Start date"]')&&form.querySelector('[aria-label="Due date"]')&&!form.textContent.includes('Include time'),'Shared Start date and Due date controls without external time toggles');
+ assert(![...form.querySelectorAll('h3')].some(h=>h.textContent==='Dates')&&!form.textContent.includes('Clear time'),'Dates use explicit labels without redundant heading or time-clearing buttons');
  const must=form.querySelector('.is-must'),clearNecessity=form.querySelector('.hub-task-clear-necessity');must.click();assert(must.getAttribute('aria-pressed')==='true','Select must');clearNecessity.click();assert(must.getAttribute('aria-pressed')==='false','Clear necessity');must.click();
- const dateInputs=form.querySelectorAll('input[type=date]');dateInputs[0].value=today;dateInputs[1].value=shift(4);
- form.querySelector('.hub-task-add-step').click();const stepInputs=form.querySelectorAll('.hub-task-step input[type=text]');stepInputs[2].value='Check the final proof';form.querySelector('.hub-task-title-input').value='Finish and review topology assignment';
+ for(const [index,value] of [today,shift(4)].entries()){form.querySelectorAll('.hub-date-time-trigger')[index].click();const picker=document.querySelector('.hub-task-date-time-picker'),date=picker.querySelector('input[type=date]');date.value=value;date.dispatchEvent(new Event('input'));picker.querySelector('.modal-close-button').click();}
+ form.querySelector('.hub-task-add-step').click();const stepInputs=form.querySelectorAll('.hub-task-step input[type=text]');stepInputs[2].value='Check the final proof';stepInputs[2].dispatchEvent(new Event('input'));form.querySelector('.hub-task-title-input').value='Finish and review topology assignment';
  form.querySelector('button[type=submit]').click();await settle();assert(writes===1&&metadata.necessity==='must'&&content.includes('Check the final proof'),'Save title, necessity, dates and nested Markdown Steps');
+ assert(metadata.fromDate===today&&metadata.dueDate===shift(4)&&!metadata.fromTime&&!metadata.dueTime,'Shared picker keeps untimed task dates untimed after Save');
  modal=openTaskEditor(service,{});await settle();form=modal.contentEl;form.querySelector('.hub-task-title-input').value='Cancelled';[...form.querySelectorAll('button')].find(el=>el.textContent==='Cancel').click();assert(writes===1&&!content.includes('Cancelled'),'Cancel leaves source untouched');
  modal=openTaskEditor(service,{});await settle();document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape'}));assert(!modal.containerEl.isConnected&&writes===1,'Escape cancels');
  const creator=openTaskCreator(service);const creationForm=creator.contentEl;creationForm.querySelector('input[type=text]').value='A quick ordinary task';creationForm.querySelector('button[type=submit]').click();await settle();assert(writes===2&&content.endsWith('- [ ] A quick ordinary task\n'),'Quick creation needs only text and destination');

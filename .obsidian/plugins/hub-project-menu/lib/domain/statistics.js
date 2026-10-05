@@ -83,7 +83,7 @@ function prepareStatistics({ workspaces = [], activity = [], completions = [], o
         .map(record => ({ ...record, key: identify(record), kind: record.kind === "step" ? "step" : "task" }));
     const work = list(activity).filter(record => ["created", "edited"].includes(record.action) &&
         isStatisticsNote(record.path) && validTime(record.timestamp) && record.timestamp <= now)
-        .map(record => ({ timestamp: record.timestamp, key: identify(record) }));
+        .map(record => ({ timestamp: record.timestamp, path: record.path, action: record.action, key: identify(record) }));
     work.push(...completionRecords.map(record => ({ timestamp: record.timestamp, key: record.key })));
     const sessions = uniqueRecords(list(oaths)).filter(record => ["fulfilled", "broken"].includes(record.state) &&
         validTime(record.startedAt) && validTime(record.completedAt) && record.completedAt >= record.startedAt && record.completedAt <= now)
@@ -100,18 +100,20 @@ function prepareStatistics({ workspaces = [], activity = [], completions = [], o
         if (!date || +date > now || !Number.isInteger(record.score) || record.score < 0 || record.score > 4) return [];
         return [{ timestamp: +date, score: record.score, key: identify(record) }];
     });
-    const currentNotes = list(notes);
+    const currentNotes = list(notes).map((note, index) => ({ ...note, noteId: note.path ?? `legacy-note:${index}`,
+        key: identify(note) }));
     const creations = currentNotes.filter(note => validTime(note.createdAt) && note.createdAt <= now);
     let earliest = now;
     for (const record of [...work, ...sessions, ...creations, ...progress]) earliest = Math.min(earliest, record.timestamp ?? record.startedAt ?? record.createdAt);
     const lastActive = new Map();
     for (const record of work) lastActive.set(record.key, Math.max(lastActive.get(record.key) ?? 0, record.timestamp));
     for (const record of sessions) lastActive.set(record.key, Math.max(lastActive.get(record.key) ?? 0, record.completedAt));
-    return { registry, activityKeys, progress, work, completions: completionRecords, sessions, notes: creations, totalNotes: currentNotes.length, earliest, lastActive, now };
+    return { registry, activityKeys, progress, work, completions: completionRecords, sessions, notes: creations, currentNotes, noteEdits: work.filter(record => record.action === "edited"), totalNotes: currentNotes.length, earliest, lastActive, now };
 }
 
-function aggregateStatistics(source, rangeKey = "3m") {
+function aggregateStatistics(source, rangeKey = "3m", workspace = "all") {
     const range = statisticsRange(rangeKey, source.now, source.earliest);
+    const matches = key => workspace === "all" || key === workspace;
     const empty = () => range.bins.map(() => 0), inside = time => time >= range.start && time < range.end && time <= source.now;
     const index = time => Math.min(range.bins.length - 1, Math.floor((calendarDay(time) - calendarDay(range.start)) / range.binDays));
     const byWorkspace = new Map([...source.registry].map(([key, workspace]) => [key, {
@@ -124,20 +126,33 @@ function aggregateStatistics(source, rangeKey = "3m") {
         byWorkspace.get(record.key)[record.kind === "step" ? "steps" : "tasks"][index(record.timestamp)]++;
     }
     for (const session of source.sessions) {
-        if (inside(session.startedAt)) { oath.taken++; if (session.state === "fulfilled") oath.fulfilled++; }
+        if (matches(session.key) && inside(session.startedAt)) { oath.taken++; if (session.state === "fulfilled") oath.fulfilled++; }
         const start = Math.max(session.startedAt, range.start), end = Math.min(session.completedAt, range.end, source.now);
         if (end <= start) continue;
-        byWorkspace.get(session.key).time += end - start; oath.total += end - start;
+        byWorkspace.get(session.key).time += end - start;
+        if (!matches(session.key)) continue;
+        oath.total += end - start;
         for (let bin = index(start); bin < range.bins.length && range.bins[bin].start < end; bin++) {
             oath.values[bin] += Math.max(0, Math.min(end, range.bins[bin].end) - Math.max(start, range.bins[bin].start));
         }
     }
-    const note = { values: empty(), total: source.totalNotes, created: 0, largest: 0, largestDate: null }, dailyNotes = new Map();
-    for (const item of source.notes) if (inside(item.createdAt)) {
+    const note = { values: empty(), total: 0, edited: 0, created: 0, largest: 0, largestDate: null }, dailyNotes = new Map();
+    const relevant = new Set(), edited = new Set();
+    const surviving = new Map(source.currentNotes.filter(item => item.path).map(item => [item.path, item]));
+    for (const item of source.notes) if (matches(item.key) && inside(item.createdAt)) {
+        relevant.add(item.noteId);
         note.values[index(item.createdAt)]++; note.created++;
         const date = localISODate(new Date(item.createdAt)); dailyNotes.set(date, (dailyNotes.get(date) ?? 0) + 1);
     }
     for (const [date, count] of [...dailyNotes].sort(([a], [b]) => a.localeCompare(b))) if (count > note.largest) { note.largest = count; note.largestDate = date; }
+    // Count distinct surviving notes, never edit events or inferred historical files.
+    for (const record of source.noteEdits) {
+        const item = surviving.get(record.path);
+        if (item && item.key === record.key && matches(item.key) && inside(record.timestamp)) {
+            edited.add(item.noteId); relevant.add(item.noteId);
+        }
+    }
+    note.total = relevant.size; note.edited = edited.size;
     note.average = note.created / range.days;
     const rows = [...byWorkspace.values()];
     const projects = rows.filter(row => row.kind === "project" && source.activityKeys.has(row.key)).sort((a, b) =>

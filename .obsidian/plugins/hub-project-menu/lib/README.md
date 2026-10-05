@@ -1,5 +1,177 @@
 # Obsidian Hub modules
 
+Quick Add and Inbox use `services/inbox.js` and `domain/inbox.js`, with native
+modal surfaces in `ui/quick-add.js` and `ui/inbox.js`. `ui/capture-controls.js`
+mounts them in the existing global footer; the Quick Add command uses Obsidian's
+central hotkey registration for Ctrl/Cmd+Shift+Space. Opening either surface
+does not write workspace layouts, Last File, Presets, or Oath state. Quick Add
+is available during an Oath; Inbox review is disabled during an active Oath.
+
+The existing atomic `HubDataStore` persists a backward-compatible optional
+`inbox: {version: 1, captures: []}` field. Missing data means an empty Inbox,
+with no migration write. The badge counts all unresolved Captures. Captures
+store content, timestamps, source metadata, file references, optional structured
+`intent`, and a compact destination-operation receipt for safe retries. Intent
+reuses existing Task/Note/File fields (workspace/folder/location IDs, note title,
+necessity, dates/times, Steps, phase and linked Project). Content and file references
+remain canonical Capture fields. Older entries need no migration. Binary bytes live in managed
+`Inbox/Attachments/<UUID>/` vault files, never in plugin JSON. Files already in
+the vault are references. Deleting/canceling only cleans unused Inbox-owned
+copies, never original external files or referenced vault files.
+
+Destination operations persist their receipt before changing files, use native
+vault/fileManager APIs and the Files panel's collision naming rules, and resolve
+the Capture only after success. Exact content fingerprints guard retry/rollback
+ownership. A failed final Inbox save leaves a recoverable receipt; retrying after
+reload does not duplicate the destination. Markdown notes use normal vault
+creation and generated attachment links, so existing indexing/explorers observe
+the same events. Note intent additionally keeps `noteAction` (`new` or `existing`)
+and an optional atomic `noteLocation` (Markdown path, target kind/anchor, position
+and display label). Existing Captures default to New note without a migration.
+
+New note keeps Folder/Title routing. Add text to existing note uses the shared
+Capture form and location hierarchy in `ui/note-position-picker.js`. Folders
+navigate; only Markdown notes can be committed with Use this position. Note end
+is the default in one native-menu selector, followed by note start, heading and
+list targeting. Place in note is always visible; before note selection it shows
+a disabled Select a note first control. Heading/list modes share a compact
+target/position row, with section end/list last as defaults. Cancel keeps
+the previously committed Location. Switching actions retains both routing modes;
+switching workspace clears Folder and existing-note Location.
+
+`domain/note-insertion.js` scans ATX headings and contiguous top-level ordered /
+unordered lists, excluding YAML, fenced/indented code and comments. Anchors
+retain structural context and refuse ambiguous or missing targets. Section end
+includes nested headings; note start follows frontmatter. List content becomes
+one item with indented continuation lines, preserving bullet/delimiter and newline
+conventions. The service re-reads and revalidates inside native `Vault.process`,
+then follows ordinary workspace/activity/file refresh hooks. Its existing
+operation receipt stores before/after fingerprints for safe retries; no rollback
+ever overwrites or deletes an existing user note. A stale target becomes an
+incomplete Capture. An ambiguous, subsequently edited output remains in Inbox
+instead of risking another insertion.
+
+Quick Add starts with mutually exclusive text / Add a file surfaces. The full-width
+file action is a compact, neutral 44px button with centered paperclip and text,
+independent of textarea resizing. Meaningful text hides file import; files hide the editor until removed.
+The compact Clear control restores the empty state. More options and submission
+require content. Text offers only Task and Note in More options; files enter
+routing directly. Inbox shows Text with editable content and the
+same shared Type control. Choosing Task or Note immediately persists intent and
+opens its continuation. Partial Tasks, Notes and Files reopen their existing
+form with saved choices. `services/inbox.completion`
+validates the same minimum requirements as creation: Task text/workspace/location,
+New note content/title/workspace/folder, existing-note content/workspace/complete
+Location, or actual file/workspace/folder. Complete
+Quick Add forms enable Add to Itacan and disable Send to Inbox.
+
+Inbox filters show live All / Texts / Files counts; the footer retains only Close.
+The list's thin native progress elements reuse the existing Steps progress styling
+and accent variable. `services/inbox.getInboxCompletion` reports completed/total
+required details, ratio, readiness and missing fields from the same `completion`
+result that enables Add to Itacan. Untyped text has zero requirements and an empty
+bar until classification. Optional Task metadata never adds progress steps; invalid
+optional edits still block creation through the existing validator, so a full
+required-details fraction can remain non-Ready until that edit is corrected.
+Note insertion counts Location atomically and reuses the structural note cache.
+
+Inbox defaults to Most complete. Most/Least complete compare normalized ratios;
+ties and Type groups use oldest-first timestamps (then ID for deterministic ties).
+Newest/Oldest remain purely chronological. Manual sorting is saved as the optional
+`inboxSort` plugin-data preference through the existing atomic HubDataStore; opening
+Inbox without a preference does not write one. List rows retain their DOM identity,
+selection and visible scroll anchor as indicators update. Completeness-driven
+movement waits for a focused text editor to blur; dropdown decisions reorder on
+commit without replacing the right-hand form. Progress appears only in the list.
+
+Inbox edits autosave through the existing atomic Capture update queue, including
+incomplete or cleared content. Selecting another item, filtering, creation and
+closing wait for pending edits; failed saves keep the visible edit for retry.
+The scrolling right body keeps Delete / Add to Itacan in its separate footer,
+without Cancel. Untyped items show only a bottom-right Delete action and omit
+source/timestamp details from the decision pane; metadata remains persisted.
+Untyped rows use Lucide file-question-mark with a muted neutral treatment.
+
+`ui/capture-form.js` shares destination and creation controls between both
+surfaces. Task/Note/File routing uses the same spacing tokens and neutral
+keyboard focus scope; internal Task fields use spacing without dividers.
+Type/Action/Necessity selections keep their accent states. Inbox Note keeps an
+accessible, unlabelled content editor; File preview uses the normal title gap.
+`ui/workspace-thumbnail.js` uses the Resource image or Project cover,
+category image and existing placeholder as a clean square crop. Its destination pickers reuse the Oath/Home workspace cards and the
+Files hierarchy conventions. Project placement is restricted to actual local
+workspace folders and their descendants, including task locations; the synthetic
+Project root and loose root notes are not capture destinations. Resource root
+semantics remain unchanged. The service validates the same policy on creation
+and retry. Each Inbox form fixes its current action type and keeps its action
+footer outside the scrolling form body. Typed specifications omit classification
+buttons. The native row context menu offers Open, Ready-only Send to Itacan,
+Change type for eligible text, and destructive Delete. Change type opens a checked
+Task/Note menu; Cancel/Continue confirms meaningful type-specific loss, retaining
+canonical content and workspace. Files, legacy
+remainders and journaled operations keep their existing classification policy.
+
+`hub-option-group` shares filled-accent option selection between Quick Add,
+Inbox filters/Type and Oath radios. `hub-equal-selectors` sizes compact groups
+from their widest label; full-row groups retain equal flexible columns. Selected
+Inbox/task objects retain accent borders. Inbox uses 30px Lucide type icons in
+the existing row geometry and shows only date/time in normal list metadata.
+Incomplete labels show N of M; Ready uses Lucide check plus Ready with the same
+accent progress track. All detail types share a fixed 44/56 desktop grid and
+fixed modal height, independent scrolling bodies and pinned action footers.
+Narrow stacking is also independent of item type. The native sort trigger reserves
+all labels intrinsically, with arrow-up-down and a right/down disclosure chevron.
+Oath options keep native radios visually clipped, centered text and equal widths;
+scheduled start uses the same right/down disclosure helper. Ordinary selects keep
+their dropdown chevrons.
+
+`ui/inbox-guidance.js` reads ordered `getInboxCompletion().missing` and `ready`
+without redefining requirements or progress. UI fields expose presentation-only
+`data-capture-field` anchors. Opening reveals the first missing required field and
+cues it in amber for 1.3 seconds, then removes all cue styling and its accessible
+description. Edits never replay missing-field cues or automatic scroll. Ready cues
+Add once on opening or first completion, then returns to its normal primary state.
+Reduced motion uses a short static cue with the same cleanup. Optional
+invalid values can still block Ready without being highlighted as required.
+Delete clicks and physical Delete use the same small native confirmation;
+text-entry controls, menus, composition and modified/repeated keys are ignored.
+
+`ui/task-form.js` and `domain/task-form.js` share canonical task fields and validation
+with normal Add/Edit Task. `ui/date-time.js` keeps the Oath native interaction and
+provides one Task picker containing native Date and optional Time inputs. Native
+datetime-local cannot represent date-only values, so Task fields never seed a
+time: only an explicitly chosen time is stored, including midnight. Clear time
+inside the picker returns to date-only; clearing the date clears both values.
+There is no external time toggle. Start/Due labels use the shared semibold field
+style. Picker close/disposal returns focus to its neutral trigger.
+Task capture text has one editable source. Tasks use the ordinary
+`HubTaskEditor.create` path, including optional dates/times, necessity, Steps,
+phase assignment and Resource Project association.
+Stable IDs allow retrying the same creation without duplicate task/history
+events. Optional `captureSource` metadata retains source information through
+normal task edits/moves. New Captures cannot mix text and files. Legacy Captures
+with arbitrary attachments or multiline content remain supported; those Captures remain in Inbox after task creation until the
+remaining data is made into a note or moved. Milestones currently have no task
+link API, so the feature exposes existing phase linking only. File routing with
+captured text/source creates a normal companion Markdown note to preserve it.
+
+Daily Brief remains available for development when Obsidian is launched with
+`ITACAN_DEVELOPMENT=1`. Production footer controls are The Oath, Quick Add,
+Inbox, Music, Settings; developer-only Daily Brief is not started automatically
+or registered as a shipped command.
+
+Run `node lib/tests/note-insertion.test.js`, `node lib/tests/inbox.test.js`, `node lib/tests/task-creation-retry.test.js`
+and `node lib/tests/task-form.test.js`, `node lib/tests/run-browser-test.js inbox`,
+and `node lib/tests/run-browser-test.js task-workspace`, then `node build.js` from the
+plugin directory. Browser fixtures use isolated in-memory vaults. The Inbox
+fixture covers native-modal behavior, context restoration, IME, clipboard/drop,
+exclusive input paths, partial intent/reload, multiple files, direct creation,
+legacy retention, retry, original file safety,
+removed destinations, workspace thumbnails, neutral text focus, independent
+scrolling, and desktop/narrow layouts. Normal text-entry focus preserves neutral
+borders throughout Itacan; selectable options and keyboard button focus retain
+their established styling.
+
 The Hub source is split into small CommonJS modules. Obsidian loads the
 self-contained `main.js` artifact generated from `plugin.js` and `lib/` by
 `build.js`.
@@ -70,7 +242,7 @@ Home's Progress header (verified in installed Obsidian 1.13.7's icon registry).
 `ui/statistics-charts.js` draws bounded SVG bins with hover/focus value tooltips and a screen-reader-only
 data table. The compact modal is capped at 980px / 85vh; short lists size naturally,
 and long lists scroll. Methodology help uses the verified Lucide circle-help icon
-only for Oaths and Notes. Unassigned bars are muted without changing totals. Resize observers are disposed on rerender and close.
+for Oaths, Notes and the global comparison. Unassigned bars are muted without changing totals. Resize observers are disposed on rerender and close.
 
 `services/statistics.js` reads one metadata/history snapshot per opening.
 `domain/statistics.js` owns identities, local-calendar ranges and aggregation:
@@ -89,16 +261,24 @@ only for Oaths and Notes. Unassigned bars are muted without changing totals. Res
   or report snapshots. Unchecking removes the recorded completion; clearing does
   not add one.
 - Notes are surviving workspace Markdown files, excluding dashboards, Meta,
-  hidden paths and implementation metadata. Creation dates use file ctime, so
-  deleted notes are not reconstructed. Total notes is current; average includes
-  zero-creation calendar days and largest day remains daily even in weekly bins.
+  hidden paths and implementation metadata. The chart retains file ctime bins.
+  Total notes is the distinct union created or recorded as edited in the selected
+  period; Notes edited counts distinct surviving notes with recorded edits and
+  matching canonical owners. Deleted notes are not reconstructed.
 - Project activity includes Active, Future, Shelved and historically deleted
   projects, with state labels. Last active is all-time; time uses the range.
   Stable IDs resolve current names; unidentified legacy records stay Unassigned.
 
-Ranges share local-calendar bins, capped at 105 bars (80 for long histories).
+Ranges share local-calendar bins, capped at 105 bins (80 for long histories).
 Three months is the default. Range results are cached within the modal; changing
-filters does not reread the vault. All-time begins at the earliest available
+the global workspace filter does not reread the vault. The filter scopes
+Distribution, Activity, grouped Tasks/Steps, Oaths and Notes; Project activity
+and the Progress Report comparison remain global. Projects and Resources use
+consistent muted violet/teal colors. Tasks and Steps use adjacent, never stacked,
+bars; mixed Activity uses category stacks. Both reuse the existing chart
+keyboard details, hover tooltips, screen-reader tables and resize cleanup.
+The shared equal selectors size range buttons from the widest label; one native
+workspace select replaces all card selectors. Cached selections are bounded. All-time begins at the earliest available
 work, Progress Report, ended Oath or surviving note creation record.
 
 Run `node lib/tests/statistics.test.js` and
@@ -106,7 +286,8 @@ Run `node lib/tests/statistics.test.js` and
 `node build.js`. The aggregation tests cover real check/uncheck/delete semantics,
 cross-midnight and DST sessions, duplicate sessions, renamed/deleted workspaces,
 all ranges, empty datasets and 100,000 records. The browser fixture covers the
-real Progress action, all eight sections, range/local controls, chart keyboard
+real Progress action, all seven sections, global workspace/range persistence, grouped chart geometry,
+category colors, period notes, global comparison, chart keyboard
 details, native close/Escape, long names/lists and 310–1000px modal widths.
 
 Workspace Tasks uses `ui/task-workspace.js` with separate Upcoming, Calendar,
@@ -180,7 +361,7 @@ files or changing restored expansion. Both folder rows and disclosures toggle on
 retain their neutral color while the row carries the purple-tinted background,
 without a left selection marker. Branch containers are transparent; only the
 uniform guide border is painted. The shared search input stays transparent even
-under native input-hover rules, with focus indicated by its enclosing field.
+under native input-hover rules; its neutral border remains unchanged on focus.
 
 Run `node lib/tests/workspace-explorer.test.js` and
 `node lib/tests/run-browser-test.js workspace-explorer`, then `node build.js`.
@@ -190,3 +371,46 @@ detachment, recursive filtering, keyboard and middle-click opening, sorting,
 creation/rename/move/import/trash, presets, hierarchy guides, long/deep names,
 and explorer/Tasks alignment across the three existing rail states. Native
 Obsidian adoption and vault timing should still be checked after a reload.
+
+Roadmap bounds use all valid phase endpoints and milestone dates. The warm
+workspace view state retains zoom and a separate viewport start; new views fit
+the entire project with modest calendar-day padding. Fixed month spans, panning
+and Today use domain/project-planning.js; they never rewrite planning dates.
+Presets and Roadmap pointer dragging share ui/pointer-list-reorder.js (floating
+row, placeholder, stable slots, cancellation and auto-scroll). Roadmap adds reduced-
+motion-aware row settling, while keyboard pickup/move/drop uses ui/list-reorder.js
+and save a validated stable-ID order through the existing revision transaction.
+Run the project-planning test and roadmap-refinement browser fixture for bounds,
+zoom, collision lanes, reorder persistence and retained Full-view geometry.
+
+Project Full-view planning controls use the measured Work Files header band;
+Schedule keeps its internal upcoming key while displaying Overview / Week / Month.
+Schedule reuses the Tasks panel title and Home History subsection typography.
+Its view choices and Task action share one intrinsic width, with the existing
+larger separation after Overview and before Task. Roadmap uses that separation
+between its independent range selector and equal-width creation actions.
+Roadmap reuses the Schedule/Tasks panel title with Lucide route. Time navigation
+is centered in the two-row axis corner; the month axis replaces the range label.
+Milestone annotations are transparent, title-only two-line cards reserving two
+line heights. Native hover tooltips retain exact dates; an opt-in keyboard
+variant in ui/tooltips.js uses the same native surface, delay and placement.
+Diamonds and leaders share one SVG
+viewBox in layout pixels; domain/roadmap-milestones.js defines exact outer and
+inner vertices matching the original rotated-square dimensions. A path starts
+literally at its diamond's bottom vertex. HTML card endpoints are converted
+through the inverse SVG screen CTM, never by subtracting viewport rectangles.
+Track/card ResizeObservers and font-load events refresh label geometry; shared
+SVG content moves together under scrolling, zoom and ancestor transforms.
+Roadmap and Presets share ui/disclosure.js and native menu lifecycle conventions.
+Creation buttons and empty-grid menus call the same planning editor; contextual
+start/date defaults never change edit detection or phase-task assignments.
+domain/roadmap-milestones.js clamps label cards to the visible date track, packs
+three bounded lanes, and routes subtle orthogonal leaders around other cards.
+At physical capacity, a native overflow menu retains access to excess items.
+Run roadmap-milestones.test.js and the project-full-polish browser fixture for
+edge/middle/scroll collisions, card-avoiding routes, menu defaults, all zooms,
+control widths, heading icons and cross-mode separator/utility alignment.
+The roadmap-anchors browser fixture reproduces the screenshot cluster and
+checks actual SVG-to-screen tip/card joins through all zooms, pan/Today, scroll,
+resize, font reflow, dense edge layouts and milestone mutations. Its scaled
+case failed with a 5.26px offset before the shared SVG implementation.

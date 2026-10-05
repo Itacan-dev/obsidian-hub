@@ -23,9 +23,11 @@ function emptyChart(parent, message) {
     parent.createDiv({ cls: "hub-report-empty hub-statistics-empty", text: message });
 }
 
-// One SVG rectangle per aggregated bin, never per raw event. A single focusable
+// One SVG rectangle per series/bin, never per raw event. A single focusable
 // chart provides keyboard/pointer details, with a native table for all values.
-function renderBarChart(parent, { range, values, label, color = "accent", duration = false, compact = false, summary = false, empty }) {
+function renderBarChart(parent, { range, values, label, color = "accent", duration = false, compact = false, summary = false, empty, series, stacked = false }) {
+    const datasets = series ?? [{ label, color, values }];
+    values = range.bins.map((_, index) => stacked ? datasets.reduce((sum, item) => sum + item.values[index], 0) : Math.max(...datasets.map(item => item.values[index])));
     if (!values.some(value => Number.isFinite(value) && value > 0)) { emptyChart(parent, empty); return; }
     const wrap = parent.createDiv({ cls: `hub-statistics-chart hub-statistics-series-${color}` });
     const format = duration ? formatDuration : value => value.toLocaleString();
@@ -44,11 +46,17 @@ function renderBarChart(parent, { range, values, label, color = "accent", durati
     }
     const bars = [], ticks = [];
     let chartWidth = 400, stride = width / values.length;
-    values.forEach((value, index) => {
-        const bar = svgElement(plot, "rect", { x: left + index * stride + stride * .15,
-            y: top + height * (1 - value / upper), width: stride * .7, height: height * value / upper,
-            class: "hub-statistics-bar", "aria-hidden": "true" });
-        bars.push(bar);
+    values.forEach((_, index) => {
+        let offset = 0;
+        datasets.forEach((item, seriesIndex) => {
+            const value = item.values[index];
+            const bar = svgElement(plot, "rect", {
+                y: top + height * (1 - (value + (stacked ? offset : 0)) / upper), height: height * value / upper,
+                class: "hub-statistics-bar hub-statistics-series-" + item.color, "aria-hidden": "true",
+                "data-bin": index, "data-series": item.label, "data-value": value
+            });
+            bars.push({ bar, index, seriesIndex }); offset += value;
+        });
     });
     for (const index of [...new Set([0, Math.floor((values.length - 1) / 2), values.length - 1])]) {
         const tick = svgElement(plot, "text", { x: left + (index + .5) * stride, y: plotHeight - 8,
@@ -61,7 +69,11 @@ function renderBarChart(parent, { range, values, label, color = "accent", durati
         stride = plotWidth / values.length;
         plot.setAttribute("viewBox", `0 0 ${chartWidth} ${plotHeight}`);
         for (const line of plot.querySelectorAll("line")) line.setAttribute("x2", left + plotWidth);
-        bars.forEach((bar, index) => { bar.setAttribute("x", left + (index + .15) * stride); bar.setAttribute("width", stride * .7); });
+        bars.forEach(({ bar, index, seriesIndex }) => {
+            const count = stacked ? 1 : datasets.length, slot = stride * .76 / count;
+            bar.setAttribute("x", left + (index + (count === 1 ? .15 : .12)) * stride + (stacked ? 0 : seriesIndex * slot));
+            bar.setAttribute("width", count === 1 ? stride * .7 : slot * .9);
+        });
         ticks.forEach(({ tick, index }) => {
             tick.setAttribute("x", left + (index + .5) * stride);
             tick.style.display = chartWidth < 360 && index > 0 && index < values.length - 1 ? "none" : "";
@@ -76,12 +88,14 @@ function renderBarChart(parent, { range, values, label, color = "accent", durati
     detail.setAttribute("role", "tooltip");
     detail.hidden = true;
     doc.body.append(detail);
-    const hide = () => { detail.hidden = true; bars[selected]?.classList.remove("is-selected"); };
+    const selectBars = (index, active) => bars.filter(item => item.index === index).forEach(({ bar }) => bar.classList.toggle("is-selected", active));
+    const hide = () => { detail.hidden = true; selectBars(selected, false); };
     let selected = Math.max(0, values.findIndex(value => value > 0));
     const show = index => {
-        bars[selected]?.classList.remove("is-selected"); selected = Math.max(0, Math.min(values.length - 1, index));
-        bars[selected].classList.add("is-selected");
-        detail.textContent = `${binLabel(range.bins[selected])}: ${format(values[selected])}`;
+        selectBars(selected, false); selected = Math.max(0, Math.min(values.length - 1, index));
+        selectBars(selected, true);
+        const facts = datasets.map(item => `${datasets.length > 1 ? item.label + " " : ""}${format(item.values[selected])}`).join(" · ");
+        detail.textContent = `${binLabel(range.bins[selected])}: ${facts}`;
         plot.setAttribute("aria-label", `${label}. ${detail.textContent}. Left and Right arrows change the date.`);
         detail.hidden = false;
         const rect = plot.getBoundingClientRect(), bounds = detail.getBoundingClientRect();
@@ -105,11 +119,12 @@ function renderBarChart(parent, { range, values, label, color = "accent", durati
     const scroll = wrap.createDiv({ cls: "hub-statistics-sr-only" });
     const table = scroll.createEl("table"); table.createEl("caption", { text: label });
     const header = table.createEl("thead").createEl("tr");
-    header.createEl("th", { text: "Date", attr: { scope: "col" } }); header.createEl("th", { text: duration ? "Time" : "Count", attr: { scope: "col" } });
+    header.createEl("th", { text: "Date", attr: { scope: "col" } });
+    datasets.forEach(item => header.createEl("th", { text: datasets.length > 1 ? item.label : duration ? "Time" : "Count", attr: { scope: "col" } }));
     const body = table.createEl("tbody");
     values.forEach((value, index) => {
         const row = body.createEl("tr"); row.createEl("th", { text: binLabel(range.bins[index]), attr: { scope: "row" } });
-        row.createEl("td", { text: format(value) });
+        datasets.forEach(item => row.createEl("td", { text: format(item.values[index]) }));
     });
     return () => {
         observer?.disconnect(); detail.remove();
@@ -126,11 +141,18 @@ function renderDonut(parent, comparison) {
     svgElement(svg, "circle", { cx: 50, cy: 50, r: 36, pathLength: 100, transform: "rotate(-90 50 50)",
         "stroke-dasharray": `${comparison.projects} ${100 - comparison.projects}`, class: "hub-statistics-donut-projects" });
     const legend = root.createDiv({ cls: "hub-statistics-legend" });
-    for (const [label, percent, cls] of [["Projects", comparison.projects, "accent"], ["Resources", comparison.resources, "blue"]]) {
+    for (const [label, percent, cls] of [["Projects", comparison.projects, "project"], ["Resources", comparison.resources, "resource"]]) {
         const row = legend.createDiv({ cls: `hub-statistics-legend-row hub-statistics-series-${cls}` });
         row.createSpan({ cls: "hub-statistics-dot", attr: { "aria-hidden": "true" } });
         row.createSpan({ text: label }); row.createEl("strong", { text: `${percent}%` });
     }
 }
 
-module.exports = { renderBarChart, renderDonut, emptyChart, dateLabel };
+function renderLegend(parent, series) {
+    const legend = parent.createDiv({ cls: "hub-statistics-inline-legend", attr: { "aria-label": "Chart legend" } });
+    for (const item of series) {
+        const entry = legend.createDiv({ cls: "hub-statistics-series-" + item.color });
+        entry.createSpan({ cls: "hub-statistics-dot", attr: { "aria-hidden": "true" } }); entry.createSpan({ text: item.label });
+    }
+}
+module.exports = { renderBarChart, renderDonut, renderLegend, emptyChart, dateLabel };

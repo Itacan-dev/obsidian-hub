@@ -37,7 +37,7 @@ for(const kind of ['Home Projects','Home Resources','Project','Resource']){
  const panel=fixtures.createEl('div',{cls:'panel'}),heading=panel.createEl('div',{cls:'home-panel-title',text:'Progress'});
  if(kind.startsWith('Home')){
   const home=await(await fetch('../../../../../System/Dashboards/Home/view.js')).text();
-  const controls=home.slice(home.indexOf('const progressScopeControls ='),home.indexOf('const progressToolbar ='));
+  const controls=home.slice(home.indexOf('const progressHeaderControls ='),home.indexOf('const progressToolbar ='));
   const switcher=home.slice(home.indexOf('function setProgressScope('),home.indexOf('reportsTab.addEventListener('));
   const years=home.slice(home.indexOf('function refreshProgressYears()'),home.indexOf('const progressSection ='));
   const make=new Function('progressHeader','initialScope',`
@@ -53,7 +53,7 @@ for(const kind of ['Home Projects','Home Resources','Project','Resource']){
   const buttons=[...heading.querySelectorAll('.home-progress-scope-controls button')];
   check(buttons.map(b=>b.textContent).join(',')==='Projects,Resources','Both choices always visible without icons');
   check(!heading.querySelector('svg,[aria-haspopup],.hub-disclosure'),'No scope disclosure or icons');
-  check(buttons[1].getBoundingClientRect().width>buttons[0].getBoundingClientRect().width,'Buttons have compact natural unequal widths');
+  check(Math.abs(buttons[1].getBoundingClientRect().width-buttons[0].getBoundingClientRect().width)<1,'Scope buttons retain the current equal-width convention');
   const tabs=panel.createEl('div',{cls:'home-progress-tabs hub-panel-selectors'}),reference=tabs.createEl('button',{text:'Reports'});
   for(const property of ['fontSize','padding','height','borderRadius','borderColor','backgroundColor','transition']) {
    const inactive=buttons.find(b=>!b.classList.contains('is-active'));
@@ -87,7 +87,7 @@ for(const kind of ['Home Projects','Home Resources','Project','Resource']){
  check(geometry()===before,'Every month label, heatmap and panel bound exactly unchanged');
  const area=toolbar.getBoundingClientRect(),yearRect=year.getBoundingClientRect(),box=cells.getBoundingClientRect();
  const jan=months.firstElementChild.getBoundingClientRect();
- check(Math.abs(yearRect.left-box.left)<.1&&Math.abs(yearRect.top-jan.top-1)<.1&&Math.abs(yearRect.height-jan.height)<.1,'Year retains gutter position with one-pixel optical lowering');
+ check(Math.abs(yearRect.left-calendar.getBoundingClientRect().left)<.1&&Math.abs(yearRect.top-jan.top-1)<.1&&Math.abs(yearRect.height-jan.height)<.1,'Year retains gutter position with one-pixel optical lowering');
  check(yearRect.right<=jan.left,'Year does not overlap January');
  for(const [arrow,edge] of [[prev,box.left],[next,box.right]]){const r=arrow.getBoundingClientRect();check(Math.abs(r.left+r.width/2-edge)<.1&&Math.abs(r.top+r.height/2-box.top-box.height/2)<.1,'Overlay chevron centered on cell grid edge');check(r.width===28&&r.height===28,'Unchanged usable hit target');check(getComputedStyle(arrow).borderRadius==='4px','Rounded-square treatment');}
  const move=(target,x)=>target.dispatchEvent(new PointerEvent('pointermove',{bubbles:true,pointerType:'mouse',clientX:x,clientY:box.top+box.height/2}));

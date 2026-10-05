@@ -10,18 +10,22 @@ function normalizeOath(oath) {
     return { ...current, durationMs: validDuration(oath.durationMs) ? oath.durationMs : DEFAULT_DURATION_MS,
         tasks: Array.isArray(oath.tasks) ? oath.tasks : [], fulfilledAt: Number.isFinite(oath.fulfilledAt) ? oath.fulfilledAt : null };
 }
+function oathRequirements(draft, now = Date.now()) {
+    return [
+        { key: "Start", complete: draft.start === "now" || draft.start === "scheduled" && Number.isFinite(draft.scheduledAt) && draft.scheduledAt > now,
+            error: draft.start === "scheduled" ? "Choose a start date and time in the future." : "Choose when the Oath should begin." },
+        { key: "Workspace", complete: validWorkspace(draft.workspace), error: "Select a Project or Resource for your Oath." },
+        { key: "Tasks", complete: Array.isArray(draft.tasks) && draft.tasks.length > 0, error: "Select at least one task for your Oath." },
+        { key: "Duration", complete: validDuration(draft.durationMs), error: "Choose a duration in whole minutes, at least one minute." }
+    ];
+}
 function validateOath(draft, now = Date.now()) {
-    if (!["now", "scheduled"].includes(draft.start)) throw Error("Choose when the Oath should begin.");
-    if (draft.start === "scheduled" && (!Number.isFinite(draft.scheduledAt) || draft.scheduledAt <= now)) {
-        throw Error("Choose a start date and time in the future.");
+    const requirements = oathRequirements(draft, now);
+    // Preserve the service's established error precedence; guidance uses form order.
+    for (const key of ["Start", "Duration", "Tasks", "Workspace"]) {
+        const field = requirements.find(field => field.key === key);
+        if (!field.complete) throw Error(field.error);
     }
-    if (!validDuration(draft.durationMs)) {
-        throw Error("Choose a duration in whole minutes, at least one minute.");
-    }
-    if (!Array.isArray(draft.tasks) || !draft.tasks.length) {
-        throw Error("Select at least one task for your Oath.");
-    }
-    if (!validWorkspace(draft.workspace)) throw Error("Select a Project or Resource for your Oath.");
 }
 function oathTime(oath, now = Date.now()) {
     const elapsedMs = oath?.startedAt == null ? 0 : Math.max(0, (oath.completedAt ?? now) - oath.startedAt);
@@ -55,4 +59,4 @@ function oathDuration(ms) {
     const hours = Math.floor(minutes / 60), remainder = minutes % 60;
     return `${hours} hours${remainder ? ` ${remainder} ${remainder === 1 ? "minute" : "minutes"}` : ""}`;
 }
-module.exports = { isCommitted, validateOath, oathTime, oathProgress, shortOathTime, fulfilmentLabel, oathDuration, DEFAULT_DURATION_MS, validDuration, normalizeOath, fulfilmentTime };
+module.exports = { isCommitted, validateOath, oathRequirements, oathTime, oathProgress, shortOathTime, fulfilmentLabel, oathDuration, DEFAULT_DURATION_MS, validDuration, normalizeOath, fulfilmentTime };

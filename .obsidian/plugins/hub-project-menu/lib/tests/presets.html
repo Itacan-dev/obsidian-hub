@@ -22,10 +22,12 @@ class Menu{
  showAtMouseEvent(){document.body.append(this.dom)}showAtPosition(){this.showAtMouseEvent()}
 }
 const notices=[];
-const module={exports:{}};new Function('module','require',await(await fetch('../ui/presets.js')).text())(module,()=>({Modal,Menu,setIcon(el,name){el.dataset.icon=name;el.innerHTML='<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor"/></svg>'},Notice:class{constructor(m){notices.push(m)}}}));
+const pointerReorder={exports:{}};new Function('module',await(await fetch('../ui/pointer-list-reorder.js')).text())(pointerReorder);
+const module={exports:{}};new Function('module','require',await(await fetch('../ui/presets.js')).text())(module,name=>name==='./pointer-list-reorder'?pointerReorder.exports:({Modal,Menu,setIcon(el,name){el.dataset.icon=name;el.innerHTML='<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor"/></svg>'},Notice:class{constructor(m){notices.push(m)}}}));
 const tooltips={exports:{}},ui={exports:{}};
 new Function('module',await(await fetch('../ui/tooltips.js')).text())(tooltips);
-new Function('module','require',await(await fetch('../ui/dashboard-ui.js')).text())(ui,name=>name==='obsidian'?{setIcon(el,name){el.dataset.icon=name;el.innerHTML='<svg viewBox="0 0 24 24"></svg>'}}:tooltips.exports);
+const disclosure={exports:{}};new Function('module','require',await(await fetch('../ui/disclosure.js')).text())(disclosure,()=>({setIcon(el,name){el.dataset.icon=name;el.innerHTML='<svg viewBox=\"0 0 24 24\"></svg>'}}));
+new Function('module','require',await(await fetch('../ui/dashboard-ui.js')).text())(ui,name=>name==='./disclosure'?disclosure.exports:name==='obsidian'?{setIcon(el,name){el.dataset.icon=name;el.innerHTML='<svg viewBox="0 0 24 24"></svg>'}}:tooltips.exports);
 const calls=[],presets={modes:{app:{}},canSave:false,items:[],defaultName:()=> 'Preset 1',
 create(name){calls.push(['create',name]);this.items.push({id:'p',name:name.trim()||this.defaultName()})},
 rename(id,name){calls.push(['rename',id,name]);this.items.find(item=>item.id===id).name=name},delete(id){calls.push(['delete',id]);this.items=this.items.filter(item=>item.id!==id)},
