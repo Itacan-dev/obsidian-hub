@@ -11038,7 +11038,7 @@ const { createWorkspaceCards } = __hubRequire("lib/ui/workspace-cards.js");
 const { createCardImageRenderer } = __hubRequire("lib/ui/card-images.js");
 const { mountWorkspaceThumbnail } = __hubRequire("lib/ui/workspace-thumbnail.js");
 const { workspaceRef, sameWorkspace, taskKey } = __hubRequire("lib/domain/oath-workspace.js");
-const { isCommitted, oathTime, oathProgress, shortOathTime, fulfilmentLabel, oathDuration } = __hubRequire("lib/domain/oath.js");
+const { isCommitted, oathTime, oathProgress, shortOathTime, fulfilmentLabel, oathDuration, validDuration } = __hubRequire("lib/domain/oath.js");
 
 const dateLabel = time => new Date(time).toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
 const OATH_COPY = Object.freeze({
@@ -11264,17 +11264,6 @@ function openOathSetup(service) {
             }
             return group;
         }
-        inlineEditor(group, key, className) {
-            const radio = group.querySelector(`input[value="${key}"]`);
-            const label = radio.closest(".hub-oath-choice");
-            // Multiple interactive controls must not share a native label.
-            const card = label.ownerDocument.createElement("div");
-            card.className = label.className + " is-editor";
-            card.append(...label.childNodes); label.replaceWith(card);
-            card.querySelector(".hub-oath-choice-title").classList.add("hub-oath-editor-label");
-            card.addEventListener("click", event => { if (event.target === card) radio.click(); });
-            return card.querySelector(".hub-oath-choice-copy").createSpan({ cls: className });
-        }
         customDuration() {
             const { value = "", unit = "minutes" } = this.customValue ?? {};
             return value.trim() ? Number(value) * (unit === "hours" ? 3600000 : 60000) : null;
@@ -11440,15 +11429,59 @@ function openOathSetup(service) {
             const duration = this.section(OATH_COPY.duration);
             const durationChoices = this.choices(duration, "duration", [["25", "25 minutes"], ["50", "50 minutes"], ["90", "90 minutes"], ["custom", "Custom"]],
                 this.custom ? "custom" : draft.durationMs == null ? null : String(draft.durationMs / 60000), value => {
-                    this.custom = value === "custom";
-                    if (this.custom) {
-                        this.customValue ??= { value: "", unit: "minutes" };
-                        draft.durationMs = this.customDuration();
-                    } else draft.durationMs = Number(value) * 60000;
-                    this.setup();
+                    if (value === "custom") this.customDisclosure.open();
+                    else {
+                        this.customDisclosure.close();
+                        this.custom = false;
+                        draft.durationMs = Number(value) * 60000;
+                        this.setup();
+                    }
                 });
-            if (this.custom) {
-                const editor = this.inlineEditor(durationChoices, "custom", "hub-oath-custom");
+            const customRadio = durationChoices.querySelector('input[value="custom"]');
+            const customLabel = customRadio.closest(".hub-oath-choice");
+            const customCard = customLabel.ownerDocument.createElement("div");
+            customCard.className = customLabel.className + " hub-oath-custom-disclosure";
+            customCard.append(...customLabel.childNodes); customLabel.replaceWith(customCard);
+            // Keep the radio and editable controls out of a shared native label.
+            const customTitle = customCard.querySelector(".hub-oath-choice-title");
+            disclosureIcons(customCard);
+            const editorId = `hub-oath-custom-${this.choiceGroupId}`;
+            let customOpen = false, customEditor = null;
+            const syncCustom = () => {
+                customCard.setAttribute("aria-expanded", String(customOpen));
+                customRadio.setAttribute("aria-expanded", String(customOpen));
+                if (customOpen) customRadio.setAttribute("aria-controls", editorId);
+                else customRadio.removeAttribute("aria-controls");
+                customRadio.checked = customOpen || !!this.custom;
+                customCard.classList.toggle("is-editor", customOpen);
+                customTitle.classList.toggle("hub-oath-editor-label", customOpen);
+                const { value, unit } = this.customValue ?? {};
+                customTitle.textContent = this.custom && !customOpen ? `${Number(value)} ${unit === "hours"
+                    ? Number(value) === 1 ? "hour" : "hours" : Number(value) === 1 ? "minute" : "minutes"}` : "Custom";
+            };
+            const closeCustom = ({ cancel = false } = {}) => {
+                if (!customOpen) return;
+                const focused = customCard.contains(customCard.ownerDocument.activeElement);
+                // Only the UI remembers the last commit; the draft keeps durationMs.
+                if (!cancel && validDuration(this.customDuration())) this.committedCustomValue = { ...this.customValue };
+                else if (this.committedCustomValue) this.customValue = { ...this.committedCustomValue };
+                this.custom = !!this.committedCustomValue;
+                draft.durationMs = this.custom ? this.customDuration() : null;
+                customOpen = false;
+                this.unitMenu?.hide(); this.stopUnitToggle?.(); this.stopUnitToggle = null;
+                customEditor?.remove(); customEditor = null;
+                syncCustom(); this.updateNext?.();
+                if (focused) customRadio.focus({ preventScroll: true });
+            };
+            const openCustom = () => {
+                if (customOpen) return;
+                this.dateDisclosure.close();
+                this.customValue ??= { value: "", unit: "minutes" };
+                this.custom = true; customOpen = true;
+                for (const radio of durationChoices.querySelectorAll('input[type="radio"]')) radio.checked = radio === customRadio;
+                const editor = customEditor = customCard.querySelector(".hub-oath-choice-copy").createSpan({ cls: "hub-oath-custom", attr: {
+                    id: editorId, role: "group", "aria-label": "Custom duration editor"
+                } });
                 const input = editor.createEl("input", { type: "number", attr: {
                     min: "0", step: "any", "aria-label": "Custom duration", "data-oath-autofocus": ""
                 } });
@@ -11456,7 +11489,7 @@ function openOathSetup(service) {
                 const unit = editor.createEl("button", { cls: "hub-oath-duration-unit", attr: {
                     type: "button", "aria-haspopup": "menu", "aria-expanded": "false"
                 } });
-                const unitLabel = unit.createSpan({ cls: "hub-oath-duration-unit-label" }).createSpan(); disclosureIcons(unit);
+                const unitLabel = unit.createSpan({ cls: "hub-oath-duration-unit-label" }).createSpan();
                 const update = () => {
                     this.customValue.value = input.value;
                     draft.durationMs = this.customDuration();
@@ -11484,12 +11517,52 @@ function openOathSetup(service) {
                     menu.showAtPosition({ x: rect.left, y: rect.bottom });
                 };
                 this.stopUnitToggle = bindMenuToggle(unit, { isOpen: () => !!this.unitMenu, close: () => this.unitMenu?.hide() });
-                unit.addEventListener("click", showUnits);
+                unit.addEventListener("click", event => { event.stopPropagation(); showUnits(); });
                 unit.addEventListener("keydown", event => {
                     if (event.key === "ArrowDown") { event.preventDefault(); showUnits(); }
                 });
-                input.addEventListener("input", update); update();
-            }
+                input.addEventListener("click", event => event.stopPropagation());
+                input.addEventListener("keydown", event => {
+                    if (event.key === "Enter") {
+                        event.preventDefault(); event.stopPropagation(); update();
+                        if (input.validity.valid && validDuration(draft.durationMs)) closeCustom();
+                    }
+                });
+                input.addEventListener("input", update); update(); syncCustom(); input.focus({ preventScroll: true });
+            };
+            const toggleCustom = event => {
+                event.preventDefault();
+                if (customOpen) closeCustom(); else openCustom();
+            };
+            const customOutside = event => {
+                if (!customCard.contains(event.target) && !(this.unitMenu && event.target.closest?.(".menu"))) closeCustom();
+            };
+            const customKey = event => {
+                if (!customOpen || event.key !== "Escape" || this.unitMenu) return;
+                event.preventDefault(); event.stopImmediatePropagation(); closeCustom({ cancel: true });
+            };
+            const customDoc = customCard.ownerDocument;
+            customCard.addEventListener("click", toggleCustom);
+            // Cancelled native radio activation can restore its old checked state.
+            customCard.addEventListener("click", () => queueMicrotask(syncCustom));
+            customRadio.addEventListener("keydown", event => {
+                if (["Enter", " "].includes(event.key)) toggleCustom(event);
+            });
+            customCard.addEventListener("focusout", event => {
+                // Native Tab can run microtasks before the destination receives focus.
+                if (customCard.contains(event.relatedTarget)) return;
+                queueMicrotask(() => {
+                    if (!customCard.contains(customDoc.activeElement) && !this.unitMenu) closeCustom();
+                });
+            });
+            customDoc.addEventListener("pointerdown", customOutside, true);
+            customDoc.addEventListener("keydown", customKey, true);
+            this.customDisclosure = { open: openCustom, close: closeCustom, destroy: () => {
+                closeCustom();
+                customDoc.removeEventListener("pointerdown", customOutside, true);
+                customDoc.removeEventListener("keydown", customKey, true);
+            } };
+            syncCustom();
             const error = this.contentEl.createDiv({ cls: "hub-task-error", attr: { role: "alert" } });
             const hint = this.contentEl.createSpan({ cls: "hub-guidance-status", attr: { role: "status", "aria-live": "polite" } });
             const actions = this.contentEl.createDiv({ cls: "hub-oath-actions" });
@@ -11529,6 +11602,7 @@ function openOathSetup(service) {
             });
         }
         clearSetupEffects() {
+            this.customDisclosure?.destroy(); this.customDisclosure = null;
             this.nativeDatePicker?.close(); this.nativeDatePicker = null;
             this.dateDisclosure?.destroy(); this.dateDisclosure = null;
             this.unitMenu?.hide(); this.stopUnitToggle?.(); this.stopUnitToggle = null;

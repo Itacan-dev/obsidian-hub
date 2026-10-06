@@ -281,6 +281,75 @@ window.onload=async()=>{try{
  unitToggle.click();await settle();guidance.contentEl.querySelector('h2').dispatchEvent(new PointerEvent('pointerdown',{bubbles:true}));await settle();
  assert(unitToggle.getAttribute('aria-expanded')==='false','Outside closes Custom units');
  click(guidance.contentEl,'Review Oath');assert(guidance.contentEl.classList.contains('hub-oath-review'),'Valid setup proceeds through the existing review validator');guidance.close();
+ // Custom has separate editing and committed states, using the existing duration model.
+ for(const width of [740,460,330]){
+  setContext(contexts[0].path);const durationScreen=openSetup();durationScreen.modalEl.style.width=width+'px';await settle();
+  const card=()=>durationScreen.contentEl.querySelector('.hub-oath-custom-disclosure');
+  const number=()=>durationScreen.contentEl.querySelector('input[type=number]');
+  const title=()=>card().querySelector('.hub-oath-choice-title').textContent;
+  const type=value=>{const input=number();input.value=value;input.dispatchEvent(new Event('input'));return input};
+  const press=key=>number().dispatchEvent(new KeyboardEvent('keydown',{key,bubbles:true,cancelable:true}));
+  const away=()=>durationScreen.contentEl.querySelector('h2').dispatchEvent(new PointerEvent('pointerdown',{bubbles:true}));
+  const geometry=durationScreen.modalEl.getBoundingClientRect();
+  const checkGeometry=()=>{
+   const rects=[...durationScreen.contentEl.querySelector('.hub-oath-duration-choices').children].map(el=>el.getBoundingClientRect());
+   assert(rects.every(rect=>Math.abs(rect.width-rects[0].width)<1&&Math.abs(rect.height-rects[0].height)<1),'Custom dimensions match presets at '+width);
+   assert(Math.abs(durationScreen.modalEl.getBoundingClientRect().height-geometry.height)<1&&durationScreen.modalEl.scrollWidth<=durationScreen.modalEl.clientWidth+1,'Custom states preserve modal geometry at '+width);
+  };
+  const closed=(label,selected)=>{
+   assert(title()===label&&!number()&&card().getAttribute('aria-expanded')==='false'&&card().querySelector('input[type=radio]').checked===selected,'Closed Custom label/selection has no inset input: '+label);
+   if(selected){
+    assert(getComputedStyle(card()).backgroundColor==='rgb(89, 87, 218)','Committed Custom retains full accent');
+    assert(getComputedStyle(card().querySelector('[data-icon=chevron-right]')).display==='flex'&&getComputedStyle(card().querySelector('[data-icon=chevron-down]')).display==='none','Closed Custom uses chevron-right');
+    const range=document.createRange();range.selectNodeContents(card().querySelector('.hub-oath-choice-title'));const text=range.getBoundingClientRect(),bounds=card().getBoundingClientRect();
+    assert(Math.abs(text.left+text.width/2-bounds.left-bounds.width/2)<1&&Math.abs(text.top+text.height/2-bounds.top-bounds.height/2)<1,'Committed duration text is centered in both axes');
+   }else assert(getComputedStyle(card()).backgroundColor==='rgb(32, 35, 41)','Neutral Custom has no selected accent');
+   checkGeometry();
+  };
+  closed('Custom',false);
+  for(const invalid of ['', '0', '-2', '1.5', '1e100']){
+   card().click();type(invalid);press('Enter');await settle();
+   assert(number()&&card().getAttribute('aria-expanded')==='true','Invalid Enter stays editable');
+   away();await settle();closed('Custom',false);
+   assert(durationScreen.draft.durationMs===null&&!durationScreen.contentEl.querySelector('.hub-oath-duration-choices input:checked'),'Invalid dismissal never commits or leaves an empty selected Custom');
+  }
+  card().click();type('242');press('Escape');await settle();closed('Custom',false);
+  assert(durationScreen.containerEl.isConnected&&document.activeElement===card().querySelector('input[type=radio]'),'Escape cancels first edit and returns focus without closing modal');
+  card().click();await settle();checkGeometry();
+  assert(number().value==='242'&&document.activeElement===number(),'Reopening retains existing stored custom representation');
+  assert(getComputedStyle(card().querySelector('[data-icon=chevron-down]')).display==='flex'&&getComputedStyle(card().querySelector('[data-icon=chevron-right]')).display==='none','Open Custom uses chevron-down');
+  number().dispatchEvent(new PointerEvent('pointerdown',{bubbles:true}));number().click();await settle();
+  assert(number()&&card().getAttribute('aria-expanded')==='true','Clicking the inset input keeps editing open');
+  const units=durationScreen.contentEl.querySelector('.hub-oath-duration-unit');
+  number().dispatchEvent(new FocusEvent('focusout',{bubbles:true,relatedTarget:units}));await settle();
+  assert(number(),'Native focus transition to units keeps editor open before destination focus arrives');
+  units.focus();await settle();assert(number()&&document.activeElement===units,'Units receive keyboard focus within the editor');number().focus();
+  type('242');press('Enter');await settle();closed('242 minutes',true);
+  assert(durationScreen.draft.durationMs===242*60000&&document.activeElement===card().querySelector('input[type=radio]'),'Enter commits existing whole-minute validation and returns focus');
+  card().querySelector('input[type=radio]').dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true,cancelable:true}));await settle();
+  assert(number().value==='242'&&document.activeElement===number(),'Keyboard reopens committed Custom with value preserved');
+  type('300');press('Escape');await settle();closed('242 minutes',true);
+  for(const invalid of ['', '0', '-2', '1.5']){
+   card().click();type(invalid);away();await settle();closed('242 minutes',true);
+   assert(durationScreen.draft.durationMs===242*60000,'Invalid dismissal restores prior committed duration');
+  }
+  card().click();type('243');card().dispatchEvent(new PointerEvent('pointerdown',{bubbles:true}));card().click();await settle();closed('243 minutes',true);
+  card().click();type('244');away();await settle();closed('244 minutes',true);
+  card().click();type('245');const cancelButton=[...durationScreen.contentEl.querySelectorAll('button')].find(el=>el.textContent==='Cancel');cancelButton.focus();await settle();closed('245 minutes',true);
+  assert(document.activeElement===cancelButton,'Keyboard focus leaving Custom commits without stealing focus');
+  for(const preset of [25,50,90]){
+   click(durationScreen.contentEl,preset+' minutes');await settle();closed('Custom',false);
+   assert(durationScreen.draft.durationMs===preset*60000&&durationScreen.contentEl.querySelectorAll('.hub-oath-duration-choices input:checked').length===1,'Preset duration stays mutually exclusive');
+   card().click();await settle();assert(number().value==='245','Preset retains custom value under existing model');
+   assert(durationScreen.contentEl.querySelectorAll('.hub-oath-duration-choices input:checked').length===1,'Editing Custom deselects presets');
+   press('Enter');await settle();closed('245 minutes',true);
+  }
+  card().click();type('246');durationScreen.contentEl.querySelector('.hub-oath-duration-unit').click();await settle();
+  const hours=[...document.querySelectorAll('.menu button')].find(el=>el.textContent==='hours');hours.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true}));hours.click();await settle();
+  assert(number()&&number().value==='246'&&durationScreen.customValue.unit==='hours','Unit menu pointer selection preserves editing and existing hour model');
+  press('Enter');await settle();closed('246 hours',true);
+  durationScreen.close();await settle();
+ }
  // Inline editors preserve visible representation and all validation boundaries.
  setContext(contexts[0].path);const inline=openSetup();
  const inputValue=(type,value)=>{const input=inline.contentEl.querySelector('input[type='+type+']');input.value=value;input.dispatchEvent(new Event('input'));return input};
@@ -316,11 +385,11 @@ window.onload=async()=>{try{
  click(inline.contentEl,'50 minutes');click(inline.contentEl,'Custom');
  assert(inline.contentEl.querySelector('input[type=number]').value===''&&inline.draft.durationMs===null&&isBlocked(reviewButton(inline)),'First Custom after preset is blank, no stale duration');
  assert(document.activeElement===inline.contentEl.querySelector('input[type=number]'),'Custom activation focuses number input');
- assert(inline.contentEl.querySelector('.hub-oath-custom [data-icon=chevron-down]'),'Exact custom chevron');
+ assert(inline.contentEl.querySelector('.hub-oath-custom-disclosure [data-icon=chevron-down]'),'Exact custom chevron');
  chooseUnit('hours');inputValue('number','1.5');
  assert(inline.draft.durationMs===90*60000&&!isBlocked(reviewButton(inline)),'Fractional hours resolve to whole minutes');
  click(inline.contentEl,'Review Oath');assert(inline.contentEl.textContent.includes('90 minutes'),'Review uses resolved duration');click(inline.contentEl,'Back');
- assert(inline.contentEl.querySelector('input[type=number]').value==='1.5'&&inline.contentEl.querySelector('.hub-oath-duration-unit').textContent==='hours','Back retains custom value and unit');
+ assert(!inline.contentEl.querySelector('input[type=number]')&&inline.contentEl.querySelector('.hub-oath-custom-disclosure .hub-oath-choice-title').textContent==='1.5 hours','Back retains the committed custom value and unit with editor closed');
  click(inline.contentEl,'25 minutes');assert(!inline.contentEl.querySelector('.hub-oath-custom')&&inline.contentEl.querySelector('input[value=custom]').closest('.hub-oath-choice').textContent==='Custom','Preset restores Custom label');
  click(inline.contentEl,'Custom');assert(inline.draft.durationMs===90*60000&&inline.contentEl.querySelector('input[type=number]').value==='1.5','Returning to configured Custom restores its own representation');
  for(const value of ['', '0','-1','0.001']){inputValue('number',value);assert(isBlocked(reviewButton(inline)),'Invalid hours blocked: '+value)}
@@ -499,7 +568,7 @@ window.onload=async()=>{try{
   assert(setup.modalEl.scrollWidth<=setup.modalEl.clientWidth+1,'Long review fits at '+width);
  }
  setup.modalEl.style.width='';files.delete(longTaskPath);draft.tasks=savedTasks;setup.review();
- click(setup.contentEl,'Back');assert(setup.contentEl.querySelectorAll('.hub-oath-selected-tasks .project-task-row').length===2&&setup.contentEl.querySelector('input[type=number]').value==='35','Back preserves draft');
+ click(setup.contentEl,'Back');assert(setup.contentEl.querySelectorAll('.hub-oath-selected-tasks .project-task-row').length===2&&setup.contentEl.querySelector('.hub-oath-custom-disclosure .hub-oath-choice-title').textContent==='35 minutes'&&!setup.contentEl.querySelector('input[type=number]'),'Back preserves draft with Custom committed');
  click(setup.contentEl,'Select date and time');
  const dateInput=setup.contentEl.querySelector('input[type=datetime-local]'),date=new Date(now+3600000);
  const local=new Date(date.getTime()-date.getTimezoneOffset()*60000).toISOString();
@@ -723,6 +792,13 @@ window.onload=async()=>{try{
  if(preview==='fresh-future')setContext(contexts[2].path);
  if(preview==='fresh-empty')setContext(resources.find(item=>item.resourceType==='study').path);
  const screen=load('ui/oath').openOathSetup(service);if(preview==='setup-controls'){click(screen.contentEl,'Custom');click(screen.contentEl,'Select date and time')}if(preview==='project-picker'){click(screen.contentEl,'Project');await new Promise(r=>setTimeout(r,300))}if(preview==='resource-picker'){click(screen.contentEl,'Resource');await new Promise(r=>setTimeout(r,300))}if(preview==='suggestions'){chooseProject();await settle()}
+ if(['custom-duration-neutral','custom-duration-editing','custom-duration-committed'].includes(preview)){
+  screen.draft.workspace=oathWorkspace;screen.draft.tasks=service.workspaceTasks(oathWorkspace).slice(0,3);screen.setup();await settle();
+  if(preview!=='custom-duration-neutral'){
+   click(screen.contentEl,'Custom');const input=screen.contentEl.querySelector('input[type=number]');input.value='242';input.dispatchEvent(new Event('input'));
+   if(preview==='custom-duration-committed')input.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true,cancelable:true}));
+  }
+ }
  if(preview==='refinement'){screen.draft.workspace=oathWorkspace;screen.draft.tasks=service.workspaceTasks(oathWorkspace).slice(0,3);screen.draft.durationMs=50*60000;screen.setup();window.oathPreview=screen;await settle()}
  if(['inline-preset','inline-scheduled-empty','inline-scheduled-full','inline-custom-empty','inline-custom-minutes','inline-custom-hours','inline-one-task','inline-no-tasks'].includes(preview)){
   chooseProject();click(screen.contentEl,'50 minutes');
@@ -747,6 +823,6 @@ window.onload=async()=>{try{
  if(preview==='resource-selection'){click(screen.contentEl,'Resource');modal().querySelector('[data-resource-type=literature]').click();await settle()}
  if(preview==='long-review'){files.set(longTaskPath,longTasks.map(title=>'- [ ] '+title).join('\n'));screen.draft.durationMs=50*60000;screen.draft.workspace=oathWorkspace;screen.draft.tasks=read().filter(task=>task.path===longTaskPath);screen.review();await settle()}if(preview==='review'){screen.draft.durationMs=50*60000;screen.draft.workspace=oathWorkspace;screen.draft.tasks=service.workspaceTasks(oathWorkspace).slice(0,2);screen.review();}await settle();assert(screen.modalEl.scrollWidth<=screen.modalEl.clientWidth+1,'Preview fits');}
  assert(!runtimeErrors.length,'No uncaught runtime errors: '+runtimeErrors.join('; '));
- document.getElementById('result').textContent='PASS: inline custom value/units, calendar/time popover schedules, selected task header/state, geometry and focus, contextual fresh defaults, required explicit duration, delayed suggestions, completed-only empty states, scoped task creation and preserved draft, shared Project/Resource cards, workspace switching/cancellation, scoped suggestions/search/additions, readonly checkboxes, live lock visuals/cleanup, redesigned setup/review, radio proportions, required/single/multiple tasks, custom validation, Back, picker/source integration, Steps, consolidated live pinned header, responsive layout, clock cleanup, Escape/Keep/X/Break, task/timer fulfillment, exact boundary, 70-minute Oathbound time, schedules and cancellation.';
+ document.getElementById('result').textContent='PASS: custom neutral/editing/committed states, Enter/outside/toggle commit, Escape cancel, invalid rollback, chevrons, focus and equal geometry at 740/460/330px; inline custom value/units, calendar/time popover schedules, selected task header/state, geometry and focus, contextual fresh defaults, required explicit duration, delayed suggestions, completed-only empty states, scoped task creation and preserved draft, shared Project/Resource cards, workspace switching/cancellation, scoped suggestions/search/additions, readonly checkboxes, live lock visuals/cleanup, redesigned setup/review, radio proportions, required/single/multiple tasks, custom validation, Back, picker/source integration, Steps, consolidated live pinned header, responsive layout, clock cleanup, Escape/Keep/X/Break, task/timer fulfillment, exact boundary, 70-minute Oathbound time, schedules and cancellation.';
 }catch(error){document.getElementById('result').textContent='FAIL: '+error.stack}};
 </script>
