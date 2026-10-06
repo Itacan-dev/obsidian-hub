@@ -7867,6 +7867,7 @@ module.exports = { mountCaptureForm, mountCaptureTypeControl, noteTitle };
 },
 "lib/ui/capture-modal.js": function (module, exports, __hubRequire) {
 "use strict";
+const { createWindowTitle, setWindowUndertext } = __hubRequire("lib/ui/window-title.js");
 const { Modal } = require("obsidian");
 const { setHubIcon } = __hubRequire("lib/ui/icons.js");
 
@@ -7887,11 +7888,13 @@ class CaptureModal extends Modal {
         this.returnFocus = options.returnFocus ?? app.workspace?.activeLeaf?.view?.containerEl?.ownerDocument?.activeElement ?? globalThis.document?.activeElement;
         this.prefix = `hub-capture-${++instance}`; this.busy = false; this.closed = false;
     }
-    header(title, subtitle) {
+    header(title, subtitle, icon) {
         this.contentEl.classList.add("hub-button-scope", "hub-capture-content", "hub-capture-form-scope");
         const header = this.contentEl.createEl("header", { cls: "hub-capture-header" });
-        header.createEl("h2", { text: title, attr: { id: this.prefix + "-title" } });
-        header.createEl("p", { text: subtitle, cls: "hub-oath-muted", attr: { id: this.prefix + "-description" } });
+        const heading = icon ? createWindowTitle(header, title, icon, { attr: { id: this.prefix + "-title" } }) :
+            header.createEl("h2", { text: title, attr: { id: this.prefix + "-title" } });
+        const description = header.createEl("p", { text: subtitle, cls: "hub-oath-muted", attr: { id: this.prefix + "-description" } });
+        if (icon) setWindowUndertext(heading, description);
         this.modalEl.setAttribute("aria-labelledby", this.prefix + "-title");
         this.modalEl.setAttribute("aria-describedby", this.prefix + "-description");
         const close = this.modalEl.querySelector(".modal-close-button");
@@ -8634,6 +8637,7 @@ module.exports = { mountDailyBriefControl };
 },
 "lib/ui/daily-brief.js": function (module, exports, __hubRequire) {
 "use strict";
+const { createWindowTitle, setWindowUndertext } = __hubRequire("lib/ui/window-title.js");
 const { Modal, Component, setIcon } = require("obsidian");
 const { parseLocalISODate } = __hubRequire("lib/domain/dates.js");
 const { createHubMarkdown } = __hubRequire("lib/ui/markdown.js");
@@ -8677,8 +8681,8 @@ class DailyBriefModal extends Modal {
     render() {
         this.markdown.clear(); this.contentEl.empty();
         const root = this.contentEl, historical = this.selectedDate !== this.context.lastWorkDate;
-        root.createEl("h2", { text: "Daily brief", attr: { tabindex: "-1" } });
-        root.createDiv({ cls: "hub-brief-date", text: briefDateLabel(this.context.briefDate, true) });
+        const headingTitle = createWindowTitle(root, "Daily brief", "newspaper", { attr: { tabindex: "-1" } });
+        setWindowUndertext(headingTitle, root.createDiv({ cls: "hub-brief-date", text: briefDateLabel(this.context.briefDate, true) }));
         if (historical) this.action(root, "Back to today's brief", () => this.showDate(this.context.lastWorkDate), "hub-brief-back");
         const day = this.context.days.find(day => day.date === this.selectedDate);
         if (!day) return;
@@ -8740,6 +8744,7 @@ module.exports = { DailyBriefModal, briefDateLabel };
 },
 "lib/ui/daily-report.js": function (module, exports, __hubRequire) {
 "use strict";
+const { createWindowTitle } = __hubRequire("lib/ui/window-title.js");
 
 const { Modal, Component, setIcon } = require("obsidian");
 const { parseLocalISODate } = __hubRequire("lib/domain/dates.js");
@@ -8866,7 +8871,7 @@ class DailyReportModal extends Modal {
     constructor(app, { day, onEdit }) { super(app); this.day = day; this.onEdit = onEdit; }
     onOpen() {
         this.contentEl.addClass("hub-project-advancement-modal", "hub-daily-report-modal", "hub-button-scope");
-        this.contentEl.createEl("h2", { text: reportTitle(this.day.date) });
+        createWindowTitle(this.contentEl, reportTitle(this.day.date), "clipboard-check");
         this.renderComponent = new Component();
         this.renderComponent.load();
         const markdown = createHubMarkdown({ app: this.app, component: this.renderComponent });
@@ -9674,6 +9679,7 @@ module.exports = { createHistoryPager };
 },
 "lib/ui/home-covers.js": function (module, exports, __hubRequire) {
 "use strict";
+const { createWindowTitle, setWindowUndertext } = __hubRequire("lib/ui/window-title.js");
 const { HOME_COVER_PERIODS } = __hubRequire("lib/services/home-covers.js");
 const { mountHeaderImage } = __hubRequire("lib/ui/header-image.js");
 
@@ -9684,8 +9690,8 @@ function openHomeCoverEditor(service, sourceCover) {
             this.owner = new Component(); this.owner.load(); this.closed = false;
             this.modalEl.classList.add("hub-home-covers-dialog");
             this.contentEl.classList.add("hub-button-scope", "hub-home-covers-editor");
-            this.contentEl.createEl("h2", { text: "Edit cover images" });
-            this.contentEl.createEl("p", { text: "Right-click a preview to change its image or image placement." });
+            const heading = createWindowTitle(this.contentEl, "Edit cover images", "image");
+            setWindowUndertext(heading, this.contentEl.createEl("p", { text: "Right-click a preview to change its image or image placement." }));
             this.previews = [];
             this.sourceSize = { width: sourceCover.clientWidth, height: sourceCover.clientHeight };
             for (const period of HOME_COVER_PERIODS) {
@@ -9988,7 +9994,7 @@ function hasTypeSpecificDetails(draft) {
 class InboxModal extends CaptureModal {
     onOpen() {
         this.modalEl.classList.add("hub-inbox-dialog");
-        this.header("Inbox", "Saved items awaiting organisation");
+        this.header("Inbox", "Saved items awaiting organisation", "inbox");
         this.filter = "all"; this.sortOrder = this.service.sortPreference; this.selectedId = null;
         this.rows = new Map(); this.checkingPositions = new Set();
         const body = this.contentEl.createDiv({ cls: "hub-inbox-body" });
@@ -10682,6 +10688,7 @@ module.exports = { bindMenuToggle, mountDisclosure };
 },
 "lib/ui/music.js": function (module, exports, __hubRequire) {
 "use strict";
+const { createWindowTitle } = __hubRequire("lib/ui/window-title.js");
 const { Modal, setIcon } = require("obsidian");
 const { setHubTooltip } = __hubRequire("lib/ui/tooltips.js");
 let instance = 0;
@@ -10692,7 +10699,7 @@ class MusicModal extends Modal {
         this.modalEl.classList.add("hub-oath-dialog", "hub-music-dialog");
         this.contentEl.classList.add("hub-button-scope");
         this.contentEl.tabIndex = -1;
-        this.contentEl.createEl("h2", { text: "Music", attr: { id: this.titleId } });
+        createWindowTitle(this.contentEl, "Music", "music", { attr: { id: this.titleId } });
         this.modalEl.setAttribute("aria-labelledby", this.titleId);
         this.contentEl.focus();
     }
@@ -11026,6 +11033,7 @@ module.exports = { createOathTaskSection };
 },
 "lib/ui/oath.js": function (module, exports, __hubRequire) {
 "use strict";
+const { createWindowTitle, setWindowUndertext } = __hubRequire("lib/ui/window-title.js");
 const { createTaskUi, createTaskRow } = __hubRequire("lib/ui/tasks.js");
 const { parseLocalISODate } = __hubRequire("lib/domain/dates.js");
 const { bindNativeDateTimePicker } = __hubRequire("lib/ui/date-time.js");
@@ -11274,8 +11282,8 @@ function openOathSetup(service) {
             this.effects = mountTransientEffects(this.contentEl);
             this.contentEl.classList.remove("hub-oath-review");
             this.contentEl.classList.add("hub-oath-setup");
-            this.contentEl.createEl("h2", { text: "Make an Oath" });
-            this.contentEl.createEl("p", { cls: "hub-oath-muted", text: "Set the terms of your commitment." });
+            const heading = createWindowTitle(this.contentEl, "Make an Oath", "shield-user");
+            setWindowUndertext(heading, this.contentEl.createEl("p", { cls: "hub-oath-muted", text: "Set the terms of your commitment." }));
             const start = this.section(OATH_COPY.start);
             const startChoices = this.choices(start, "start", [["now", "Now"], ["scheduled", "Select date and time"]], draft.start, value => {
                 if (value === "now") { draft.start = "now"; this.setup(); }
@@ -11617,8 +11625,8 @@ function openOathSetup(service) {
             this.contentEl.empty();
             this.contentEl.classList.remove("hub-oath-setup");
             this.contentEl.classList.add("hub-oath-review");
-            this.contentEl.createEl("h2", { text: OATH_COPY.confirmation });
-            this.contentEl.createEl("p", { text: "Review the terms of your commitment before taking the Oath.", cls: "hub-oath-muted" });
+            const heading = createWindowTitle(this.contentEl, OATH_COPY.confirmation, "shield-user");
+            setWindowUndertext(heading, this.contentEl.createEl("p", { text: "Review the terms of your commitment before taking the Oath.", cls: "hub-oath-muted" }));
             const summary = this.section("Your Oath").createDiv({ cls: "hub-oath-row-group" });
             for (const [icon, label, value] of [
                 ["clock", "Start time", draft.start === "now" ? "Now" : dateLabel(draft.scheduledAt)],
@@ -11672,9 +11680,10 @@ function openOathStatus(service) {
         }
         render() {
             const oath = service.current; this.contentEl.empty();
-            this.contentEl.createEl("h2", { text: oath.state === "scheduled" ? "Scheduled Oath" : "Oathbound" });
+            const heading = createWindowTitle(this.contentEl, oath.state === "scheduled" ? "Scheduled Oath" : "Oathbound", "shield-user");
             this.clock = this.contentEl.createEl("p", { cls: "hub-oath-status-time" }); this.updateClock();
-            this.contentEl.createEl("p", { text: fulfilmentLabel(oath), cls: "hub-oath-muted" });
+            setWindowUndertext(heading, this.clock);
+            setWindowUndertext(heading, this.contentEl.createEl("p", { text: fulfilmentLabel(oath), cls: "hub-oath-muted" }));
             const work = this.contentEl.createDiv({ cls: "hub-oath-status-work" });
             for (const ref of oath.tasks) {
                 const task = service.work.find(item => item.ref.id === ref.id)?.task;
@@ -11750,7 +11759,7 @@ function mountOathControl(plugin, service) {
     if (!bar) { fallback = true; bar = document.createElement("div"); document.querySelector(".app-container").appendChild(bar); bar.appendChild(item); }
     bar.classList.add("hub-oath-statusbar");
     const button = item.createEl("button", { cls: "hub-oath-button", attr: { type: "button" } });
-    setIcon(button.createSpan({ cls: "hub-oath-icon" }), "shield");
+    setIcon(button.createSpan({ cls: "hub-oath-icon" }), "shield-user");
     const label = button.createSpan();
     let modal = null;
     const open = () => { modal?.close(); modal = service.committed ? openOathStatus(service) : openOathSetup(service); };
@@ -12185,6 +12194,7 @@ module.exports = { createPreparedNoteRails, NOTE_RAIL_VIEW, HOME_VIEW };
 },
 "lib/ui/presets.js": function (module, exports, __hubRequire) {
 "use strict";
+const { createWindowTitle } = __hubRequire("lib/ui/window-title.js");
 
 function showPresetsMenu(anchor, presets) {
     const { Menu, Modal, Notice, setIcon } = require("obsidian");
@@ -12228,7 +12238,7 @@ function showPresetsMenu(anchor, presets) {
         class NameModal extends Modal {
             onOpen() {
                 this.contentEl.addClass("hub-button-scope");
-                this.contentEl.createEl("h2", { text: title });
+                createWindowTitle(this.contentEl, title, "panels-top-left");
                 const input = this.contentEl.createEl("input", { type: "text", cls: "hub-preset-name" });
                 input.value = value; input.placeholder = presets.defaultName(); input.setAttribute("aria-label", "Preset name");
                 const actions = this.contentEl.createDiv({ cls: "hub-project-wizard-actions" });
@@ -12982,7 +12992,7 @@ class QuickAddModal extends CaptureModal {
     }
     onOpen() {
         this.modalEl.classList.add("hub-quick-add-dialog");
-        this.header("Quick Add", "Write down a thought, or add a file.");
+        this.header("Quick Add", "Write down a thought, or add a file.", "zap");
         this.body = this.contentEl.createDiv({ cls: "hub-capture-body" });
         this.textPath = this.body.createDiv({ cls: "hub-capture-input-path", attr: { "data-capture-field": "Content" } });
         this.label = this.textPath.createEl("label", { cls: "hub-capture-label", attr: { for: this.prefix + "-input" } }); this.label.hidden = true;
@@ -13279,6 +13289,7 @@ module.exports = { SETTINGS_PAGES, renderSettingsPage };
 },
 "lib/ui/settings.js": function (module, exports, __hubRequire) {
 "use strict";
+const { createWindowTitle, setWindowUndertext } = __hubRequire("lib/ui/window-title.js");
 const { Modal, setIcon } = require("obsidian");
 const { setHubTooltip } = __hubRequire("lib/ui/tooltips.js");
 const { SETTINGS_PAGES, renderSettingsPage } = __hubRequire("lib/ui/settings-pages.js");
@@ -13290,9 +13301,9 @@ class SettingsModal extends Modal {
         this.modalEl.classList.add("hub-settings-dialog");
         this.contentEl.classList.add("hub-settings-content", "hub-button-scope");
         const header = this.contentEl.createEl("header", { cls: "hub-settings-header" });
-        header.createEl("h2", { text: "Settings", attr: { id: `${this.prefix}-title` } });
+        const heading = createWindowTitle(header, "Settings", "settings", { attr: { id: `${this.prefix}-title` } });
         this.modalEl.setAttribute("aria-labelledby", `${this.prefix}-title`);
-        header.createEl("p", { cls: "hub-settings-description", text: "Customize how Itacan looks and behaves." });
+        setWindowUndertext(heading, header.createEl("p", { cls: "hub-settings-description", text: "Customize how Itacan looks and behaves." }));
         const body = this.contentEl.createDiv({ cls: "hub-settings-body" });
         const sidebar = body.createEl("aside", { cls: "hub-settings-sidebar" });
         const search = sidebar.createEl("input", { cls: "hub-settings-search", attr: {
@@ -13514,6 +13525,7 @@ module.exports = { renderBarChart, renderDonut, renderLegend, emptyChart, dateLa
 },
 "lib/ui/statistics.js": function (module, exports, __hubRequire) {
 "use strict";
+const { createWindowTitle } = __hubRequire("lib/ui/window-title.js");
 
 const { Modal, setIcon } = require("obsidian");
 const { createImmediateHubTooltip } = __hubRequire("lib/ui/tooltips.js");
@@ -13538,7 +13550,7 @@ class StatisticsModal extends Modal {
         this.source ??= readStatistics(this.plugin);
         this.helpTooltips = createImmediateHubTooltip(this.contentEl);
         const header = this.contentEl.createDiv({ cls: "hub-statistics-header" });
-        header.createEl("h2", { text: "Statistics" });
+        createWindowTitle(header, "Statistics", "chart-no-axes-column");
         const controls = header.createDiv({ cls: "hub-statistics-controls" });
         this.workspaceSelect = controls.createEl("select", { cls: "hub-statistics-workspace",
             attr: { "aria-label": "Statistics workspace", "data-filter": "workspace" } });
@@ -13689,6 +13701,7 @@ module.exports = { StatisticsModal };
 },
 "lib/ui/task-editor.js": function (module, exports, __hubRequire) {
 "use strict";
+const { createWindowTitle } = __hubRequire("lib/ui/window-title.js");
 const { taskFormValues } = __hubRequire("lib/domain/task-form.js");
 const { taskSection, mountTaskText, mountTaskFields, mountTaskRelationshipFields } = __hubRequire("lib/ui/task-form.js");
 
@@ -13699,7 +13712,7 @@ function openTaskEditor(service, task, onEdit = () => {}, creation = null) {
             this.closed = false;
             this.modalEl.classList.add("hub-task-dialog");
             this.contentEl.classList.add("hub-button-scope", "hub-task-form");
-            this.contentEl.createEl("h2", { cls: "hub-task-dialog-title", text: creation ? "Add task" : "Edit task" });
+            createWindowTitle(this.contentEl, creation ? "Add task" : "Edit task", creation ? "square-plus" : "square-pen", { cls: "hub-task-dialog-title" });
             if (creation) {
                 const locations = availableLocations(service, creation.root);
                 const activePath = service.app.workspace.getActiveFile()?.path;
@@ -14832,6 +14845,57 @@ function bindHubFocusTooltip(root, component, selector) {
 module.exports = { setHubTooltip, watchHubTooltips, createImmediateHubTooltip, bindHubFocusTooltip };
 
 },
+"lib/ui/window-title.js": function (module, exports, __hubRequire) {
+﻿"use strict";
+const { setIcon } = require("obsidian");
+
+const headers = new WeakMap();
+// Keep native heading/undertext styles while moving their outer margins to the
+// shared grid. Reading the existing styles also preserves the user's theme.
+function createWindowTitle(parent, text, icon, options = {}) {
+    const title = parent.createEl("h2", { ...options, text });
+    const style = parent.ownerDocument.defaultView.getComputedStyle(title);
+    const margins = [style.marginTop, style.marginRight, style.marginBottom, style.marginLeft];
+    const color = style.color;
+    const header = parent.createEl("div", { cls: "hub-window-header" });
+    parent.insertBefore(header, title);
+    header.style.margin = margins.join(" ");
+    const graphic = header.createEl("span", { cls: "hub-window-title-icon", attr: { "aria-hidden": "true", "data-icon": icon } });
+    graphic.style.color = color;
+    setIcon(graphic, icon);
+    const copy = header.createEl("div", { cls: "hub-window-header-copy" });
+    copy.append(title);
+    title.classList.add("hub-window-title");
+    title.style.margin = "0";
+    headers.set(title, { header, copy, bottomMargin: margins[2], tightenedBy: 0 });
+    return title;
+}
+
+function setWindowUndertext(title, undertext) {
+    const state = headers.get(title);
+    const { header, copy, bottomMargin } = state;
+    const style = undertext.ownerDocument.defaultView.getComputedStyle(undertext);
+    // These previously adjacent block elements collapsed their vertical margins.
+    const gap = Math.max(parseFloat(bottomMargin), parseFloat(style.marginTop));
+    state.bottomMargin = style.marginBottom;
+    header.style.marginBottom = style.marginBottom;
+    undertext.style.margin = "0";
+    undertext.style.marginTop = gap + "px";
+    undertext.classList.add("hub-window-undertext");
+    copy.append(undertext);
+    // Keep the existing header footprint, so tightening the text group does not
+    // pull separators or modal content upward. Only the first undertext gap changes.
+    header.style.minHeight = Math.max(32, copy.getBoundingClientRect().height + state.tightenedBy) + "px";
+    if (copy.children.length === 2) {
+        state.tightenedBy = Math.min(4, gap);
+        undertext.style.marginTop = (gap - state.tightenedBy) + "px";
+    }
+    return undertext;
+}
+
+module.exports = { createWindowTitle, setWindowUndertext };
+
+},
 "lib/ui/workspace-cards.js": function (module, exports, __hubRequire) {
 "use strict";
 const { workspaceRef, sameWorkspace } = __hubRequire("lib/domain/oath-workspace.js");
@@ -15364,6 +15428,7 @@ module.exports = { workspaceImagePath, mountWorkspaceThumbnail };
 
 },
 "plugin.js": function (module, exports, __hubRequire) {
+const { createWindowTitle, setWindowUndertext } = __hubRequire("lib/ui/window-title.js");
 const { dispose: disposeCompletionAudio } = __hubRequire("lib/ui/completion-audio.js");
 const { mountMusicControl } = __hubRequire("lib/ui/music.js");
 const { mountSettingsControl } = __hubRequire("lib/ui/settings.js");
@@ -16427,18 +16492,13 @@ class ProjectAdvancementModal
         );
 
 
-        this.contentEl.createEl(
-            "h2",
-            {
-                text:
-                    this.title
-            }
-        );
+        const heading = createWindowTitle(this.contentEl, this.title, "clipboard-pen");
 
 
         const guidance = this.contentEl.createDiv({ cls: 'hub-progress-rating-guidance' });
         guidance.createDiv({ text: "Rate the significance of today's work in each workspace." });
         guidance.createDiv({ cls: 'hub-progress-rating-hint', text: 'Hover over a rating for details.' });
+        setWindowUndertext(heading, guidance);
         this.ratingTooltips?.dispose();
         this.ratingTooltips = createImmediateHubTooltip(this.contentEl);
 
@@ -17251,13 +17311,7 @@ class ProjectCategoryModal
             "hub-project-wizard", "hub-button-scope"
         );
 
-        this.contentEl.createEl(
-            "h2",
-            {
-                text:
-                    `Change category of "${this.projectName}"`
-            }
-        );
+        createWindowTitle(this.contentEl, `Change category of "${this.projectName}"`, "tag");
 
 
         const list =
@@ -17507,7 +17561,7 @@ class ResourceFolderPickerModal extends Modal {
 
     onOpen() {
         this.contentEl.addClass("hub-resource-folder-picker", "hub-button-scope");
-        this.contentEl.createEl("h2", { text: this.title });
+        createWindowTitle(this.contentEl, this.title, "library");
 
         const list = this.contentEl.createDiv({ cls: "hub-resource-folder-picker-list" });
 
@@ -17597,9 +17651,7 @@ class ProjectWizardModal extends Modal {
             "hub-project-wizard", "hub-button-scope"
         );
 
-        this.contentEl.createEl("h2", {
-            text: title
-        });
+        createWindowTitle(this.contentEl, title, "folder-plus");
     }
 
     notifyCategoriesChanged(

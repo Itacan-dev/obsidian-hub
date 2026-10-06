@@ -1,4 +1,5 @@
 "use strict";
+const { createWindowTitle, setWindowUndertext } = require("./window-title");
 const { Modal, setIcon } = require("obsidian");
 const { setHubTooltip } = require("./tooltips");
 const { SETTINGS_PAGES, renderSettingsPage } = require("./settings-pages");
@@ -10,9 +11,9 @@ class SettingsModal extends Modal {
         this.modalEl.classList.add("hub-settings-dialog");
         this.contentEl.classList.add("hub-settings-content", "hub-button-scope");
         const header = this.contentEl.createEl("header", { cls: "hub-settings-header" });
-        header.createEl("h2", { text: "Settings", attr: { id: `${this.prefix}-title` } });
+        const heading = createWindowTitle(header, "Settings", "settings", { attr: { id: `${this.prefix}-title` } });
         this.modalEl.setAttribute("aria-labelledby", `${this.prefix}-title`);
-        header.createEl("p", { cls: "hub-settings-description", text: "Customize how Itacan looks and behaves." });
+        setWindowUndertext(heading, header.createEl("p", { cls: "hub-settings-description", text: "Customize how Itacan looks and behaves." }));
         const body = this.contentEl.createDiv({ cls: "hub-settings-body" });
         const sidebar = body.createEl("aside", { cls: "hub-settings-sidebar" });
         const search = sidebar.createEl("input", { cls: "hub-settings-search", attr: {

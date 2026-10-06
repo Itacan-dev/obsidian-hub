@@ -228,7 +228,7 @@
 .hub-oath-setup > .hub-oath-section { border-top: 0; padding-top: 0; margin-top: 24px; }
 .hub-oath-setup > .hub-oath-section:first-of-type { border-top: 1px solid var(--background-modifier-border); padding-top: 20px; }
 .hub-oath-setup > .hub-oath-actions { border-top: 1px solid var(--background-modifier-border); padding-top: 16px; }
-.hub-oath-setup > .hub-oath-muted { margin: 0 0 12px; }
+.hub-oath-setup .hub-window-undertext.hub-oath-muted, .hub-oath-setup > .hub-oath-muted { margin: 0 0 12px; }
 .hub-button-scope .hub-oath-choice {
     height: auto; min-height: 54px; min-width: 0; padding: 12px 16px;
     white-space: normal; text-align: center; font-size: var(--hub-font-body); line-height: 1.4;
@@ -2214,7 +2214,7 @@ body.hub-project-note-mode
 .modal.hub-settings-dialog { width: 980px; max-width: calc(100vw - 32px); height: min(780px, calc(100dvh - 48px)); max-height: calc(100dvh - 48px); display: flex; flex-direction: column; }
 .hub-settings-content { container-type: inline-size; display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: hidden; }
 .hub-settings-header { flex: 0 0 auto; padding-bottom: var(--size-4-4, 16px); border-bottom: 1px solid var(--background-modifier-border); }
-.hub-settings-header > h2 { margin: 0 24px 10px 0; }
+.hub-settings-header h2 { margin: 0 24px 10px 0; }
 .hub-settings-description { color: var(--text-muted); font-size: var(--hub-font-body); line-height: 1.5; margin: 0; }
 .hub-settings-body { display: grid; grid-template-columns: 190px minmax(0, 1fr); flex: 1; min-height: 0; }
 .hub-settings-sidebar { display: flex; flex-direction: column; min-height: 0; min-width: 0; padding: 16px 14px 0 0; border-right: 1px solid var(--background-modifier-border); }
@@ -2726,4 +2726,42 @@ body.hub-project-note-mode
 }
 :is(.hub-button-scope, .home-dashboard, .project-dashboard) :is(input:not([type]), input[type=text], input[type=search], input[type=email], input[type=url], input[type=tel], input[type=password], textarea):is(:focus, :focus-visible) {
     border-color: var(--background-modifier-border); box-shadow: var(--input-shadow); outline: none;
+}
+/* Shared feature-window header: the icon always has its own full-size column. */
+.hub-window-header {
+    position: relative;
+    display: grid;
+    grid-template-columns: 44px minmax(0, 1fr);
+    column-gap: 14px;
+    align-items: center;
+    min-height: 32px;
+}
+.hub-window-header-copy {
+    grid-column: 2;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+.hub-window-header > .hub-window-title-icon {
+    /* Center the visual anchor independently of layout height. This preserves
+       title-only header footprints and the positions of content below them. */
+    position: absolute;
+    top: 50%;
+    left: 0;
+    transform: translateY(-50%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+}
+.hub-window-header > .hub-window-title-icon > svg {
+    display: block;
+    flex: 0 0 44px;
+    width: 44px;
+    height: 44px;
+    color: inherit;
+}
+.hub-window-title {
+    min-width: 0;
 }

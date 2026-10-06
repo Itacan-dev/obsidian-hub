@@ -1,0 +1,107 @@
+<!doctype html><meta charset="utf-8"><title>Window title geometry</title>
+<link rel="stylesheet" href="../../styles.css">
+<style>
+body{font:16px Arial;background:#1e1e1e;color:#ddd;--text-normal:#ddd;--text-muted:#aaa;--background-modifier-border:#444}
+.modal{position:relative;box-sizing:border-box;padding:24px;background:#262626;border:1px solid #444;border-radius:12px;margin:12px;width:680px;max-width:calc(100vw - 28px)}
+h2{font-size:32px;line-height:1.2}.modal-close-button{position:absolute;right:12px;top:10px}p{margin:0}#result{white-space:pre-wrap}
+</style><pre id="result">RUNNING</pre><main id="windows"></main>
+<script type="module">
+HTMLElement.prototype.createEl=function(tag,o={}){const e=document.createElement(tag);e.className=o.cls||'';e.textContent=o.text||'';for(const[k,v]of Object.entries(o.attr||{}))e.setAttribute(k,v);this.append(e);return e};
+HTMLElement.prototype.createSpan=function(o){return this.createEl('span',o)};
+import {titleIcons} from './window-title-icons.js';
+const native={setIcon(el,name){
+ el.dataset.icon=name;
+ const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');
+ for(const[k,v]of Object.entries({viewBox:'0 0 24 24',fill:'none',stroke:'currentColor','stroke-width':2,'stroke-linecap':'round','stroke-linejoin':'round'}))svg.setAttribute(k,v);
+ for(const[type,...values]of titleIcons[name]){
+  const tags={1:'circle',2:'polyline',5:'rect',6:'path'},attrs={1:['cx','cy','r'],2:['points'],5:['x','y','width','height','rx','ry'],6:['d']};
+  const shape=document.createElementNS(svg.namespaceURI,tags[type]);
+  values.forEach((value,i)=>{if(attrs[type][i])shape.setAttribute(attrs[type][i],value)});svg.append(shape);
+ }
+ el.replaceChildren(svg);
+}};
+const module={exports:{}};new Function('module','require',await(await fetch('../ui/window-title.js')).text())(module,()=>native);
+const {createWindowTitle,setWindowUndertext}=module.exports,assert=(v,m)=>{if(!v)throw Error(m)},near=(a,b)=>Math.abs(a-b)<0.2;
+const cases=[
+ ['Make an Oath','shield-user','hub-oath-dialog','',740],
+ ['Review your Oath','shield-user','hub-oath-dialog','',740],
+ ['Scheduled Oath','shield-user','hub-oath-dialog hub-oath-status','',530],
+ ['Oathbound','shield-user','hub-oath-dialog hub-oath-status','',530],
+ ['Quick Add','zap','','hub-capture-header',680],['Inbox','inbox','','hub-capture-header',1000],
+ ['Music','music','hub-oath-dialog','',740],['Settings','settings','','hub-settings-header',980],
+ ['Edit task','square-pen','hub-task-dialog','hub-task-form',680],
+ ['Add task','square-plus','hub-task-dialog','hub-task-form',680],
+ ['Progress report — 30 September 2026','clipboard-check','','hub-project-advancement-modal',740],
+ ['Edit progress report — 30 September 2026','clipboard-pen','','hub-project-advancement-modal',740],
+ ['Statistics','chart-no-axes-column','','hub-statistics-header',1000],
+ ['Daily brief','newspaper','','hub-daily-brief-modal',740],
+ ['Save preset','panels-top-left','','',450],['Rename preset','panels-top-left','','',450],
+ ['Edit cover images','image','hub-home-covers-dialog','',680],
+ ['Choose Resource folders','library','','hub-resource-folder-picker',600],
+ ['Choose a project category','folder-plus','','hub-project-wizard',600],
+ ['Choose a category image','folder-plus','','hub-project-wizard',600],
+ ['Change category of Itacan','tag','','hub-project-wizard',600],
+ ['Name your project','folder-plus','','hub-project-wizard',600]
+];
+
+const subtitles={
+ 'Scheduled Oath':'Starts tomorrow at 09:00',
+ 'Oathbound':'50:00 remaining',
+ 'Make an Oath':'Set the terms of your commitment.',
+ 'Review your Oath':'Review the terms of your commitment before taking the Oath.',
+ 'Quick Add':'Write down a thought, or add a file.',
+ 'Inbox':'Saved items awaiting organisation',
+ 'Settings':'Customize how Itacan looks and behaves.',
+ 'Daily brief':'Tuesday, 6 October 2026',
+ 'Edit cover images':'Right-click a preview to change its image or image placement.',
+ 'Edit progress report — 30 September 2026':"Rate the significance of today's work in each workspace."
+};
+try{
+ for(const [text,icon,modalClass,headerClass,width]of cases){
+  const modal=windows.createEl('section',{cls:'modal '+modalClass});modal.style.width=width+'px';
+  const close=modal.createEl('button',{cls:'modal-close-button',text:'×',attr:{'aria-label':'Close'}});
+  const header=modal.createEl('header',{cls:headerClass}),options=text.includes('task')?{cls:'hub-task-dialog-title'}:{};
+  const baseline=header.createEl('h2',{...options,text});
+  // Compare against the existing two-column header's available text width.
+  baseline.style.width='calc(100% - 50px - '+getComputedStyle(baseline).marginRight+')';
+  const description=subtitles[text];
+  const undertext=description?header.createEl('p',{cls:headerClass==='hub-settings-header'?'hub-settings-description':'hub-oath-muted',text:description}):null;
+  const style=getComputedStyle(baseline),textStyle={font:style.font,fontSize:style.fontSize,fontWeight:style.fontWeight,lineHeight:style.lineHeight};
+  const body=modal.createEl('div',{text:'Existing body content'});
+  const before={bodyTop:body.getBoundingClientRect().top,close:close.getBoundingClientRect().toJSON(),width:modal.offsetWidth,gap:undertext?undertext.getBoundingClientRect().top-baseline.getBoundingClientRect().bottom:null,underFont:undertext?getComputedStyle(undertext).font:null};
+  baseline.remove();undertext?.remove();
+  const title=createWindowTitle(header,text,icon,options);
+  if(undertext){header.append(undertext);setWindowUndertext(title,undertext);}
+  const row=title.closest('.hub-window-header'),copy=title.parentElement,graphic=row.firstElementChild,svg=graphic.firstElementChild;
+  const g=graphic.getBoundingClientRect(),r=svg.getBoundingClientRect(),c=copy.getBoundingClientRect(),t=title.getBoundingClientRect();
+  assert(title.textContent===text&&graphic.dataset.icon===icon,text+': mapping and text');
+  assert(graphic.getAttribute('aria-hidden')==='true',text+': decorative icon');
+  for(const[key,value]of Object.entries(textStyle))assert(getComputedStyle(title)[key]===value,text+': title typography '+key);
+  assert(near(g.width,44)&&near(r.width,44)&&near(r.height,44),text+': same fixed column and SVG dimensions');
+  assert(near(c.left-g.right,14),text+': shared column gap');
+  assert(near(r.top+r.height/2,c.top+c.height/2),text+': icon centers on complete text block');
+  assert(r.left>=g.left&&r.right<=g.right&&near(r.top,g.top)&&near(r.bottom,g.bottom),text+': SVG fully inside icon area without clipping');
+  const bounds=svg.getBBox();assert(bounds.x>=0&&bounds.y>=0&&bounds.x+bounds.width<=24&&bounds.y+bounds.height<=24,text+': actual Lucide shape fits viewBox');
+  assert(getComputedStyle(svg).transform==='none',text+': no icon offsets');
+  if(undertext){
+   assert(near(undertext.getBoundingClientRect().left,t.left),text+': two text rows align');
+   assert(near(undertext.getBoundingClientRect().top-t.bottom,Math.max(0,before.gap-4)),text+': title/undertext spacing tightened by 4px');
+   assert(getComputedStyle(undertext).font===before.underFont,text+': undertext typography preserved');
+  }else{
+   assert(copy.children.length===1&&near(c.height,t.height),text+': no empty subtitle row');
+   assert(near(r.top+r.height/2,t.top+t.height/2),text+': title itself centers on same large icon');
+  }
+  assert(near(body.getBoundingClientRect().top,before.bodyTop),text+': body position preserved');
+  assert(modal.offsetWidth===before.width&&JSON.stringify(close.getBoundingClientRect().toJSON())===JSON.stringify(before.close),text+': unchanged window and close geometry');
+  modal.style.width='310px';
+  assert(row.scrollWidth<=row.clientWidth&&copy.scrollWidth<=copy.clientWidth,text+': narrow text stays contained');
+  modal.style.width=width+'px';
+ }
+ if(new URLSearchParams(location.search).has('preview')){
+  windows.style.cssText='display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px';
+  for(const modal of windows.children)modal.style.cssText='width:auto;margin:0;max-width:none';
+  const previewStyle=document.createElement('style');previewStyle.textContent='h2{font:700 32px/1.3 "Segoe UI",sans-serif}';document.head.append(previewStyle);
+ }
+ result.textContent='PASS: '+cases.length+' real Lucide feature headers; 44px icons in 44px columns with 14px gaps, full-text-block centering, identical title-only sizing, preserved text typography, tighter undertext gaps and unchanged body positioning, unclipped SVGs, no offsets, unchanged window/close geometry, contained narrow wrapping.';
+}catch(error){result.textContent='FAIL: '+error.stack}
+</script>

@@ -1,4 +1,5 @@
 "use strict";
+const { createWindowTitle, setWindowUndertext } = require("./window-title");
 const { HOME_COVER_PERIODS } = require("../services/home-covers");
 const { mountHeaderImage } = require("./header-image");
 
@@ -9,8 +10,8 @@ function openHomeCoverEditor(service, sourceCover) {
             this.owner = new Component(); this.owner.load(); this.closed = false;
             this.modalEl.classList.add("hub-home-covers-dialog");
             this.contentEl.classList.add("hub-button-scope", "hub-home-covers-editor");
-            this.contentEl.createEl("h2", { text: "Edit cover images" });
-            this.contentEl.createEl("p", { text: "Right-click a preview to change its image or image placement." });
+            const heading = createWindowTitle(this.contentEl, "Edit cover images", "image");
+            setWindowUndertext(heading, this.contentEl.createEl("p", { text: "Right-click a preview to change its image or image placement." }));
             this.previews = [];
             this.sourceSize = { width: sourceCover.clientWidth, height: sourceCover.clientHeight };
             for (const period of HOME_COVER_PERIODS) {

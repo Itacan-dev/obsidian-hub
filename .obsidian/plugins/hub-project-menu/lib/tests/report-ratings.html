@@ -25,10 +25,11 @@ const focus={exports:{}};
 new Function('module',await(await fetch('../domain/focus.js')).text())(focus);
 new Function('module','process',await(await fetch('../config.js')).text())(config,{env:{}});
 new Function('module',await(await fetch('../ui/tooltips.js')).text())(tooltips);
+const windowTitle={exports:{}};new Function('module','require',await(await fetch('../ui/window-title.js')).text())(windowTitle,()=>({setIcon(){}}));
 const source=await(await fetch('../../plugin.js')).text();
 const code=source.slice(source.indexOf('class FocusListEditor'),source.indexOf('class DailyFocusModal'));
-const Report=new Function('Modal','PROJECT_ADVANCEMENT_OPTIONS','progressRatingOptions','createImmediateHubTooltip','setIcon','Notice','normalizeFocusItems',code+';return ProjectAdvancementModal;')(
- Modal,config.exports.PROJECT_ADVANCEMENT_OPTIONS,config.exports.progressRatingOptions,tooltips.exports.createImmediateHubTooltip,()=>{},class{constructor(message){throw Error(message)}},focus.exports.normalizeFocusItems);
+const Report=new Function('Modal','PROJECT_ADVANCEMENT_OPTIONS','progressRatingOptions','createImmediateHubTooltip','setIcon','Notice','normalizeFocusItems','createWindowTitle','setWindowUndertext',code+';return ProjectAdvancementModal;')(
+ Modal,config.exports.PROJECT_ADVANCEMENT_OPTIONS,config.exports.progressRatingOptions,tooltips.exports.createImmediateHubTooltip,()=>{},class{constructor(message){throw Error(message)}},focus.exports.normalizeFocusItems,windowTitle.exports.createWindowTitle,windowTitle.exports.setWindowUndertext);
 const project={projectId:'p',name:'Project A',contextKind:'project'},resource={projectId:'resource:study',name:'Knowledge',resourceType:'study'};
 const tooltip=()=>document.querySelector('.hub-detail-tooltip');
 const hover=button=>button.dispatchEvent(new PointerEvent('pointermove',{bubbles:true,pointerType:'mouse'}));

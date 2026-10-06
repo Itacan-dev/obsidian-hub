@@ -10,6 +10,7 @@ const check=(ok,message)=>{if(!ok)throw Error(message)};
 const settle=async()=>{for(let i=0;i<12;i++)await Promise.resolve()};
 HTMLElement.prototype.createEl=function(tag,o={}){const e=document.createElement(tag);e.className=o.cls||'';e.textContent=o.text||'';if(o.type)e.type=o.type;this.append(e);return e;};
 HTMLElement.prototype.createDiv=function(o){return this.createEl('div',o)};
+HTMLElement.prototype.createSpan=function(o){return this.createEl('span',o)};
 HTMLElement.prototype.addClass=function(...cls){this.classList.add(...cls)};
 HTMLElement.prototype.empty=function(){this.replaceChildren()};
 class Modal{constructor(){this.contentEl=document.body.createDiv({cls:'modal'})}open(){this.onOpen()}close(){this.onClose();this.contentEl.remove()}}
@@ -23,7 +24,8 @@ class Menu{
 }
 const notices=[];
 const pointerReorder={exports:{}};new Function('module',await(await fetch('../ui/pointer-list-reorder.js')).text())(pointerReorder);
-const module={exports:{}};new Function('module','require',await(await fetch('../ui/presets.js')).text())(module,name=>name==='./pointer-list-reorder'?pointerReorder.exports:({Modal,Menu,setIcon(el,name){el.dataset.icon=name;el.innerHTML='<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor"/></svg>'},Notice:class{constructor(m){notices.push(m)}}}));
+const windowTitle={exports:{}};new Function('module','require',await(await fetch('../ui/window-title.js')).text())(windowTitle,()=>({setIcon(el,name){el.dataset.icon=name;el.innerHTML='<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor"/></svg>'}}));
+const module={exports:{}};new Function('module','require',await(await fetch('../ui/presets.js')).text())(module,name=>name==='./window-title'?windowTitle.exports:name==='./pointer-list-reorder'?pointerReorder.exports:({Modal,Menu,setIcon(el,name){el.dataset.icon=name;el.innerHTML='<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor"/></svg>'},Notice:class{constructor(m){notices.push(m)}}}));
 const tooltips={exports:{}},ui={exports:{}};
 new Function('module',await(await fetch('../ui/tooltips.js')).text())(tooltips);
 const disclosure={exports:{}};new Function('module','require',await(await fetch('../ui/disclosure.js')).text())(disclosure,()=>({setIcon(el,name){el.dataset.icon=name;el.innerHTML='<svg viewBox=\"0 0 24 24\"></svg>'}}));

@@ -1,4 +1,5 @@
 "use strict";
+const { createWindowTitle } = require("./window-title");
 
 const { Modal, Component, setIcon } = require("obsidian");
 const { parseLocalISODate } = require("../domain/dates");
@@ -125,7 +126,7 @@ class DailyReportModal extends Modal {
     constructor(app, { day, onEdit }) { super(app); this.day = day; this.onEdit = onEdit; }
     onOpen() {
         this.contentEl.addClass("hub-project-advancement-modal", "hub-daily-report-modal", "hub-button-scope");
-        this.contentEl.createEl("h2", { text: reportTitle(this.day.date) });
+        createWindowTitle(this.contentEl, reportTitle(this.day.date), "clipboard-check");
         this.renderComponent = new Component();
         this.renderComponent.load();
         const markdown = createHubMarkdown({ app: this.app, component: this.renderComponent });

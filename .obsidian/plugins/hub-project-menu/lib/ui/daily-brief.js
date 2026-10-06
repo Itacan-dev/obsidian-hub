@@ -1,4 +1,5 @@
 "use strict";
+const { createWindowTitle, setWindowUndertext } = require("./window-title");
 const { Modal, Component, setIcon } = require("obsidian");
 const { parseLocalISODate } = require("../domain/dates");
 const { createHubMarkdown } = require("./markdown");
@@ -42,8 +43,8 @@ class DailyBriefModal extends Modal {
     render() {
         this.markdown.clear(); this.contentEl.empty();
         const root = this.contentEl, historical = this.selectedDate !== this.context.lastWorkDate;
-        root.createEl("h2", { text: "Daily brief", attr: { tabindex: "-1" } });
-        root.createDiv({ cls: "hub-brief-date", text: briefDateLabel(this.context.briefDate, true) });
+        const headingTitle = createWindowTitle(root, "Daily brief", "newspaper", { attr: { tabindex: "-1" } });
+        setWindowUndertext(headingTitle, root.createDiv({ cls: "hub-brief-date", text: briefDateLabel(this.context.briefDate, true) }));
         if (historical) this.action(root, "Back to today's brief", () => this.showDate(this.context.lastWorkDate), "hub-brief-back");
         const day = this.context.days.find(day => day.date === this.selectedDate);
         if (!day) return;

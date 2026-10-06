@@ -45,7 +45,7 @@ function hasTypeSpecificDetails(draft) {
 class InboxModal extends CaptureModal {
     onOpen() {
         this.modalEl.classList.add("hub-inbox-dialog");
-        this.header("Inbox", "Saved items awaiting organisation");
+        this.header("Inbox", "Saved items awaiting organisation", "inbox");
         this.filter = "all"; this.sortOrder = this.service.sortPreference; this.selectedId = null;
         this.rows = new Map(); this.checkingPositions = new Set();
         const body = this.contentEl.createDiv({ cls: "hub-inbox-body" });

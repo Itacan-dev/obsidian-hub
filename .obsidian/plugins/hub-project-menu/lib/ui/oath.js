@@ -1,4 +1,5 @@
 "use strict";
+const { createWindowTitle, setWindowUndertext } = require("./window-title");
 const { createTaskUi, createTaskRow } = require("./tasks");
 const { parseLocalISODate } = require("../domain/dates");
 const { bindNativeDateTimePicker } = require("./date-time");
@@ -247,8 +248,8 @@ function openOathSetup(service) {
             this.effects = mountTransientEffects(this.contentEl);
             this.contentEl.classList.remove("hub-oath-review");
             this.contentEl.classList.add("hub-oath-setup");
-            this.contentEl.createEl("h2", { text: "Make an Oath" });
-            this.contentEl.createEl("p", { cls: "hub-oath-muted", text: "Set the terms of your commitment." });
+            const heading = createWindowTitle(this.contentEl, "Make an Oath", "shield-user");
+            setWindowUndertext(heading, this.contentEl.createEl("p", { cls: "hub-oath-muted", text: "Set the terms of your commitment." }));
             const start = this.section(OATH_COPY.start);
             const startChoices = this.choices(start, "start", [["now", "Now"], ["scheduled", "Select date and time"]], draft.start, value => {
                 if (value === "now") { draft.start = "now"; this.setup(); }
@@ -590,8 +591,8 @@ function openOathSetup(service) {
             this.contentEl.empty();
             this.contentEl.classList.remove("hub-oath-setup");
             this.contentEl.classList.add("hub-oath-review");
-            this.contentEl.createEl("h2", { text: OATH_COPY.confirmation });
-            this.contentEl.createEl("p", { text: "Review the terms of your commitment before taking the Oath.", cls: "hub-oath-muted" });
+            const heading = createWindowTitle(this.contentEl, OATH_COPY.confirmation, "shield-user");
+            setWindowUndertext(heading, this.contentEl.createEl("p", { text: "Review the terms of your commitment before taking the Oath.", cls: "hub-oath-muted" }));
             const summary = this.section("Your Oath").createDiv({ cls: "hub-oath-row-group" });
             for (const [icon, label, value] of [
                 ["clock", "Start time", draft.start === "now" ? "Now" : dateLabel(draft.scheduledAt)],
@@ -645,9 +646,10 @@ function openOathStatus(service) {
         }
         render() {
             const oath = service.current; this.contentEl.empty();
-            this.contentEl.createEl("h2", { text: oath.state === "scheduled" ? "Scheduled Oath" : "Oathbound" });
+            const heading = createWindowTitle(this.contentEl, oath.state === "scheduled" ? "Scheduled Oath" : "Oathbound", "shield-user");
             this.clock = this.contentEl.createEl("p", { cls: "hub-oath-status-time" }); this.updateClock();
-            this.contentEl.createEl("p", { text: fulfilmentLabel(oath), cls: "hub-oath-muted" });
+            setWindowUndertext(heading, this.clock);
+            setWindowUndertext(heading, this.contentEl.createEl("p", { text: fulfilmentLabel(oath), cls: "hub-oath-muted" }));
             const work = this.contentEl.createDiv({ cls: "hub-oath-status-work" });
             for (const ref of oath.tasks) {
                 const task = service.work.find(item => item.ref.id === ref.id)?.task;
@@ -723,7 +725,7 @@ function mountOathControl(plugin, service) {
     if (!bar) { fallback = true; bar = document.createElement("div"); document.querySelector(".app-container").appendChild(bar); bar.appendChild(item); }
     bar.classList.add("hub-oath-statusbar");
     const button = item.createEl("button", { cls: "hub-oath-button", attr: { type: "button" } });
-    setIcon(button.createSpan({ cls: "hub-oath-icon" }), "shield");
+    setIcon(button.createSpan({ cls: "hub-oath-icon" }), "shield-user");
     const label = button.createSpan();
     let modal = null;
     const open = () => { modal?.close(); modal = service.committed ? openOathStatus(service) : openOathSetup(service); };

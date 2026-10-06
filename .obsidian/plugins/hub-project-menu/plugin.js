@@ -1,3 +1,4 @@
+const { createWindowTitle, setWindowUndertext } = require("./lib/ui/window-title");
 const { dispose: disposeCompletionAudio } = require("./lib/ui/completion-audio");
 const { mountMusicControl } = require("./lib/ui/music");
 const { mountSettingsControl } = require("./lib/ui/settings");
@@ -1061,18 +1062,13 @@ class ProjectAdvancementModal
         );
 
 
-        this.contentEl.createEl(
-            "h2",
-            {
-                text:
-                    this.title
-            }
-        );
+        const heading = createWindowTitle(this.contentEl, this.title, "clipboard-pen");
 
 
         const guidance = this.contentEl.createDiv({ cls: 'hub-progress-rating-guidance' });
         guidance.createDiv({ text: "Rate the significance of today's work in each workspace." });
         guidance.createDiv({ cls: 'hub-progress-rating-hint', text: 'Hover over a rating for details.' });
+        setWindowUndertext(heading, guidance);
         this.ratingTooltips?.dispose();
         this.ratingTooltips = createImmediateHubTooltip(this.contentEl);
 
@@ -1885,13 +1881,7 @@ class ProjectCategoryModal
             "hub-project-wizard", "hub-button-scope"
         );
 
-        this.contentEl.createEl(
-            "h2",
-            {
-                text:
-                    `Change category of "${this.projectName}"`
-            }
-        );
+        createWindowTitle(this.contentEl, `Change category of "${this.projectName}"`, "tag");
 
 
         const list =
@@ -2141,7 +2131,7 @@ class ResourceFolderPickerModal extends Modal {
 
     onOpen() {
         this.contentEl.addClass("hub-resource-folder-picker", "hub-button-scope");
-        this.contentEl.createEl("h2", { text: this.title });
+        createWindowTitle(this.contentEl, this.title, "library");
 
         const list = this.contentEl.createDiv({ cls: "hub-resource-folder-picker-list" });
 
@@ -2231,9 +2221,7 @@ class ProjectWizardModal extends Modal {
             "hub-project-wizard", "hub-button-scope"
         );
 
-        this.contentEl.createEl("h2", {
-            text: title
-        });
+        createWindowTitle(this.contentEl, title, "folder-plus");
     }
 
     notifyCategoriesChanged(

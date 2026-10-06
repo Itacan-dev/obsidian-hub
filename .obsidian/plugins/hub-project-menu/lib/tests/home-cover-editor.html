@@ -12,10 +12,11 @@ HTMLElement.prototype.createDiv=function(o){return this.createEl('div',o)};HTMLE
 let menu;class Menu{constructor(){this.items=[];menu=this}addItem(fn){const i={setTitle(t){this.title=t;return this},setIcon(){return this},setDisabled(v){this.disabled=v;return this},onClick(fn){this.click=fn;return this}};fn(i);this.items.push(i)}showAtMouseEvent(){}showAtPosition(){}}
 class Modal{constructor(){this.modalEl=document.body.createDiv({cls:'modal'});this.contentEl=this.modalEl.createDiv({cls:'modal-content'});this.scope={register:(_mods,_key,fn)=>{this.escape=fn}}}open(){this.onOpen()}close(){this.onClose();this.modalEl.remove()}}
 const notices=[],obsidian={Component,Menu,Modal,setIcon(el){el.innerHTML='<svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg>'},Notice:class{constructor(message){notices.push(message)}}};
+const windowTitle={exports:{}};new Function('module','require',await(await fetch('../ui/window-title.js')).text())(windowTitle,()=>obsidian);
 const header={exports:{}},dataModule={exports:{}},ui={exports:{}};
 new Function('module','require',await(await fetch('../ui/header-image.js')).text())(header,()=>obsidian);
 new Function('module','require',await(await fetch('../services/home-covers.js')).text())(dataModule,name=>name==='../ui/header-image'?header.exports:name==='crypto'?{randomUUID:()=>crypto.randomUUID()}:obsidian);
-new Function('module','require',await(await fetch('../ui/home-covers.js')).text())(ui,name=>name==='../services/home-covers'?dataModule.exports:name==='./header-image'?header.exports:obsidian);
+new Function('module','require',await(await fetch('../ui/home-covers.js')).text())(ui,name=>name==='./window-title'?windowTitle.exports:name==='../services/home-covers'?dataModule.exports:name==='./header-image'?header.exports:obsidian);
 const {HomeCovers,HOME_COVER_PERIODS}=dataModule.exports;
 const assets=new Map(HOME_COVER_PERIODS.map(period=>[period.cover,{path:period.cover}])),data={homeCoverImages:{}};
 for(const [index,period]of HOME_COVER_PERIODS.entries())data.homeCoverImages[period.name]={path:period.cover,placement:index?{x:20+index*15,y:10+index*20,zoom:1+index*.3}:null};

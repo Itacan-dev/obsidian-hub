@@ -1,4 +1,5 @@
 "use strict";
+const { createWindowTitle } = require("./window-title");
 const { Modal, setIcon } = require("obsidian");
 const { setHubTooltip } = require("./tooltips");
 let instance = 0;
@@ -9,7 +10,7 @@ class MusicModal extends Modal {
         this.modalEl.classList.add("hub-oath-dialog", "hub-music-dialog");
         this.contentEl.classList.add("hub-button-scope");
         this.contentEl.tabIndex = -1;
-        this.contentEl.createEl("h2", { text: "Music", attr: { id: this.titleId } });
+        createWindowTitle(this.contentEl, "Music", "music", { attr: { id: this.titleId } });
         this.modalEl.setAttribute("aria-labelledby", this.titleId);
         this.contentEl.focus();
     }

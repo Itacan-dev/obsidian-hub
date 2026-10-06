@@ -1,4 +1,5 @@
 "use strict";
+const { createWindowTitle } = require("./window-title");
 
 function showPresetsMenu(anchor, presets) {
     const { Menu, Modal, Notice, setIcon } = require("obsidian");
@@ -42,7 +43,7 @@ function showPresetsMenu(anchor, presets) {
         class NameModal extends Modal {
             onOpen() {
                 this.contentEl.addClass("hub-button-scope");
-                this.contentEl.createEl("h2", { text: title });
+                createWindowTitle(this.contentEl, title, "panels-top-left");
                 const input = this.contentEl.createEl("input", { type: "text", cls: "hub-preset-name" });
                 input.value = value; input.placeholder = presets.defaultName(); input.setAttribute("aria-label", "Preset name");
                 const actions = this.contentEl.createDiv({ cls: "hub-project-wizard-actions" });

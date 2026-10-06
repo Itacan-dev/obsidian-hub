@@ -36,12 +36,13 @@ class Component{constructor(){this.callbacks=[];this.children=[]}load(){}registe
 const native={Modal,Component,setIcon,getIcon:()=>null,MarkdownRenderer:{async render(app,text,el){el.textContent=text}}};
 const markdown=await load('markdown','../ui/markdown.js',()=>native);
 const dashboard=await load('dashboard','../ui/dashboard-ui.js',n=>n==='obsidian'?native:{});
-const ui=await load('ui','../ui/daily-report.js',n=>n==='obsidian'?native:n==='./markdown'?markdown:n==='./dashboard-ui'?dashboard:n.includes('dates')?dates:domain);
+const windowTitle=await load('windowTitle','../ui/window-title.js',()=>native);
+const ui=await load('ui','../ui/daily-report.js',n=>n==='./window-title'?windowTitle:n==='obsidian'?native:n==='./markdown'?markdown:n==='./dashboard-ui'?dashboard:n.includes('dates')?dates:domain);
 const config=await load('config','../config.js'),tooltips=await load('tooltips','../ui/tooltips.js');
 const source=await(await fetch('../../plugin.js')).text();
 const code=source.slice(source.indexOf('class FocusListEditor'),source.indexOf('class DailyFocusModal'));
-const Report=new Function('Modal','PROJECT_ADVANCEMENT_OPTIONS','progressRatingOptions','createImmediateHubTooltip','setIcon','Notice','normalizeFocusItems','renderReportEvidence','focusSection',code+';return ProjectAdvancementModal;')(
- Modal,config.PROJECT_ADVANCEMENT_OPTIONS,config.progressRatingOptions,tooltips.createImmediateHubTooltip,setIcon,class{constructor(message){throw Error(message)}},focus.normalizeFocusItems,ui.renderReportEvidence,ui.focusSection);
+const Report=new Function('Modal','PROJECT_ADVANCEMENT_OPTIONS','progressRatingOptions','createImmediateHubTooltip','setIcon','Notice','normalizeFocusItems','renderReportEvidence','focusSection','createWindowTitle','setWindowUndertext',code+';return ProjectAdvancementModal;')(
+ Modal,config.PROJECT_ADVANCEMENT_OPTIONS,config.progressRatingOptions,tooltips.createImmediateHubTooltip,setIcon,class{constructor(message){throw Error(message)}},focus.normalizeFocusItems,ui.renderReportEvidence,ui.focusSection,windowTitle.createWindowTitle,windowTitle.setWindowUndertext);
 const date='2026-09-14',timestamp=new Date(2026,8,14,10,23).getTime();
 const context={version:1,tasks:[{kind:'step',parentText:'Assignment 5',text:'1a',timestamp:timestamp+300000},{text:'Finish the historical report view',timestamp},{text:'Review completion records',timestamp:timestamp+600000}],activity:[{action:'created',title:'Daily reports',timestamp},{action:'edited',title:'Progress interface',timestamp}],focus:['Make completed reports useful as daily records.']};
 const empty={version:1,tasks:[],activity:[],focus:[]};

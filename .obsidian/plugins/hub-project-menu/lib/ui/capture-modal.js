@@ -1,4 +1,5 @@
 "use strict";
+const { createWindowTitle, setWindowUndertext } = require("./window-title");
 const { Modal } = require("obsidian");
 const { setHubIcon } = require("./icons");
 
@@ -19,11 +20,13 @@ class CaptureModal extends Modal {
         this.returnFocus = options.returnFocus ?? app.workspace?.activeLeaf?.view?.containerEl?.ownerDocument?.activeElement ?? globalThis.document?.activeElement;
         this.prefix = `hub-capture-${++instance}`; this.busy = false; this.closed = false;
     }
-    header(title, subtitle) {
+    header(title, subtitle, icon) {
         this.contentEl.classList.add("hub-button-scope", "hub-capture-content", "hub-capture-form-scope");
         const header = this.contentEl.createEl("header", { cls: "hub-capture-header" });
-        header.createEl("h2", { text: title, attr: { id: this.prefix + "-title" } });
-        header.createEl("p", { text: subtitle, cls: "hub-oath-muted", attr: { id: this.prefix + "-description" } });
+        const heading = icon ? createWindowTitle(header, title, icon, { attr: { id: this.prefix + "-title" } }) :
+            header.createEl("h2", { text: title, attr: { id: this.prefix + "-title" } });
+        const description = header.createEl("p", { text: subtitle, cls: "hub-oath-muted", attr: { id: this.prefix + "-description" } });
+        if (icon) setWindowUndertext(heading, description);
         this.modalEl.setAttribute("aria-labelledby", this.prefix + "-title");
         this.modalEl.setAttribute("aria-describedby", this.prefix + "-description");
         const close = this.modalEl.querySelector(".modal-close-button");

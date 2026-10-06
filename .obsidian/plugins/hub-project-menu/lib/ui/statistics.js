@@ -1,4 +1,5 @@
 "use strict";
+const { createWindowTitle } = require("./window-title");
 
 const { Modal, setIcon } = require("obsidian");
 const { createImmediateHubTooltip } = require("./tooltips");
@@ -23,7 +24,7 @@ class StatisticsModal extends Modal {
         this.source ??= readStatistics(this.plugin);
         this.helpTooltips = createImmediateHubTooltip(this.contentEl);
         const header = this.contentEl.createDiv({ cls: "hub-statistics-header" });
-        header.createEl("h2", { text: "Statistics" });
+        createWindowTitle(header, "Statistics", "chart-no-axes-column");
         const controls = header.createDiv({ cls: "hub-statistics-controls" });
         this.workspaceSelect = controls.createEl("select", { cls: "hub-statistics-workspace",
             attr: { "aria-label": "Statistics workspace", "data-filter": "workspace" } });
