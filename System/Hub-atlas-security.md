@@ -1,7 +1,7 @@
 # Atlas webviewer threat and bypass review
 
-Reviewed 2026-10-05 against the copied Core and installed Obsidian frontend
-1.13.7 / Electron 39.8.3 / Chromium 142.0.7444.265. The native suite runs that
+Reviewed 2026-10-06 against unchanged Core and inspected Obsidian frontend
+1.14.4 / Electron 39.8.3 / Chromium 142.0.7444.265. The native suite runs that
 Electron version with real guests, a local HTTP server, hidden windows and a
 temporary profile. It does not launch the user's vault or submit credentials.
 The renderer fixture uses the actual remote bridge and built Atlas bundle, with
@@ -68,6 +68,24 @@ The UI command boundary rejects raw confirmation IDs, arbitrary targets/scopes,
 direct Journey minting, extra fields and stale context generations. Protected
 timing inputs round-trip integer milliseconds exactly, including MAX_SAFE_INTEGER.
 
+Application-schema-1 metadata extends the disk envelope without changing Core's
+closed schema. Policy and frozen presentation metadata apply in the same Vault
+commit; descriptions select only metadata matching Core's verified storage
+version. Lost acknowledgements cannot show a new destination ahead of policy.
+Presentation-only commands reject host fields and stale revisions, and leave all
+permissions unchanged. Migration infers names only from existing committed hosts.
+Managed refresh validates bounded official-source data and replaces a last-good
+private cache before activating its compiled identity in the runtime queue.
+Cache/network failures retain prior protection; no usable bundle/cache supplies
+unavailable managed authority rather than an empty blacklist.
+
+Native Home is trusted parent UI above a sterile `about:blank` guest. Its links
+delegate to the normal native navigation gate; a Home marker or service label
+supplies no permission. Header/tab launch checks live Note mode, context/leaf
+ownership and Settings at menu creation and activation. Stale callbacks, Home,
+unrelated notes, other modes and Settings cannot open a tab. The renderer has no
+global ribbon/command launcher or policy engine.
+
 ## Explicit limits and compatibility choices
 
 - The local filesystem and trusted Obsidian/main-process code are part of the
@@ -85,9 +103,11 @@ timing inputs round-trip integer milliseconds exactly, including MAX_SAFE_INTEGE
 - The Firefox D30 automatic timeout-homepage effect is deliberately replaced by
   closing the guest and an explicit root-homepage retry. It creates no synthetic
   navigation that could automatically mint another Journey. Core is unchanged.
-- No managed feed bytes or curated service compiler/preset were copied. Manual
-  exact-host policy is functional; no managed protection or implicit service
-  seeding is advertised. No apex/www scope is inferred.
+- Curated initialization/import is explicit, with no policy reseeding on migration.
+  Managed blocking follows the verified bundle/cache and daily official refresh,
+  retaining the last good identity on failure. Core's manual Blacklist/explicit
+  Whitelist precedence is unchanged; no apex/www scope is inferred. The managed
+  source is an external data input whose correctness is not independently proven.
 - Native enforcement was verified on the installed Electron engine. Private
   Obsidian view/remote APIs require compatibility checks after app upgrades.
   Missing native integration refuses normal browser factories and displays an

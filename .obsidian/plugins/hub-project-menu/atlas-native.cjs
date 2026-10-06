@@ -2081,6 +2081,281 @@ function cancelPolicyProposal(proposalId, input) {
 }
 
 },
+"lib/atlas/managed/hosts-feed.js": function (module, exports, __hubRequire) {
+"use strict";
+// Ported from AtlasCore extension/src/managed/hosts-feed.ts. Validation and
+// source identity preserve D17's combined variant and truncation safeguards.
+const { normalizeTarget, compileManagedBlacklist } = __hubRequire("lib/atlas/core/index.js");
+const { isIP } = require("net");
+const sourceUrl = "https://raw.githubusercontent.com/StevenBlack/hosts/master/alternates/fakenews-gambling-porn-social/hosts";
+const categories = ["base", "fakenews", "gambling", "porn", "social"];
+const maxFeedBytes = 20_000_000, minimumDomains = 50_000;
+const local = h => h === "localhost" || h === "localhost.localdomain" || h === "local" || h === "broadcasthost" || h.startsWith("ip6-") || h.endsWith(".localhost") || h.endsWith(".local");
+function parseHostsFeed(text) {
+    const domains = new Set(), names = new Set(); let malformedLines = 0;
+    for (const line of text.split(/\r?\n/)) {
+        const record = line.split("#", 1)[0].trim(); if (!record) continue;
+        const fields = record.split(/\s+/), ip = fields.shift();
+        if (!["0.0.0.0", "127.0.0.1", "::"].includes(ip)) {
+            if (isIP((ip ?? "").split("%")[0]) === 0) malformedLines++; continue;
+        }
+        if (!fields.length) { malformedLines++; continue; }
+        for (const field of fields) {
+            if (["0.0.0.0", "127.0.0.1", "::1"].includes(field) || local(field.toLowerCase())) continue;
+            names.add(field.toLowerCase().replace(/\.$/, ""));
+            const hostname = normalizeTarget({ hostname: field })?.hostname;
+            if (hostname && hostname.includes(".") && !local(hostname)) domains.add(hostname);
+        }
+    }
+    const header = text.slice(0, 4000), count = /^# Number of unique domains:\s*([\d,]+)\s*$/m.exec(header)?.[1];
+    const extensions = /^# Extensions added to this file:\s*(.+)$/m.exec(header)?.[1]?.split(",").map(s => s.trim()).sort().join(",");
+    return { domains: [...domains], malformedLines, uniqueNames: names.size, ignoredNames: names.size - domains.size,
+        declaredCount: count ? Number(count.replaceAll(",", "")) : null, upstreamDate: /^# Date:\s*(.+)$/m.exec(header)?.[1]?.trim() ?? null,
+        identityValid: header.startsWith("# Title: StevenBlack/hosts ") && header.includes("# Project home page: https://github.com/StevenBlack/hosts") && extensions === "fakenews,gambling,porn,social" };
+}
+function validateFeed(text, previousCount = 0) {
+    if (typeof text !== "string" || !text.length || Buffer.byteLength(text) > maxFeedBytes || text.includes("\0")) return null;
+    const parsed = parseHostsFeed(text);
+    if (!parsed.identityValid || !parsed.upstreamDate || parsed.malformedLines !== 0 || parsed.uniqueNames !== parsed.declaredCount ||
+        parsed.domains.length < minimumDomains || parsed.ignoredNames > Math.max(20, parsed.uniqueNames * 0.001) || parsed.domains.length < previousCount * 0.8) return null;
+    const compiled = compileManagedBlacklist(parsed.domains);
+    return compiled ? { parsed, compiled } : null;
+}
+module.exports = { sourceUrl, categories, maxFeedBytes, minimumDomains, parseHostsFeed, validateFeed };
+
+},
+"lib/atlas/managed/service.js": function (module, exports, __hubRequire) {
+"use strict";
+const fs = require("fs"), path = require("path"), { createHash } = require("crypto");
+const { managedBlacklistContains } = __hubRequire("lib/atlas/core/index.js");
+const { sourceUrl, categories, maxFeedBytes, validateFeed } = __hubRequire("lib/atlas/managed/hosts-feed.js");
+const refreshIntervalMs = 86_400_000;
+const digest = text => createHash("sha256").update(text, "utf8").digest("hex");
+const time = value => Number.isSafeInteger(value) && value >= 0;
+const validator = value => value === null || typeof value === "string" && value.length <= 300 && !/[\r\n]/.test(value);
+
+function readBundle(directory) {
+    const metadata = JSON.parse(fs.readFileSync(path.join(directory, "metadata.json"), "utf8"));
+    const text = fs.readFileSync(path.join(directory, "hosts"), "utf8");
+    if (!/^[a-f0-9]{40}$/.test(metadata.revision) || metadata.sourceUrl !== sourceUrl.replace("/master/", `/${metadata.revision}/`) || digest(text) !== metadata.sha256) throw new Error("BUNDLED_BLACKLIST_INVALID");
+    return { text, sourceUrl: metadata.sourceUrl, sha256: metadata.sha256, fetchedAt: null, upstreamVersion: metadata.revision,
+        etag: null, lastModified: null };
+}
+function createManagedService({ repository, bundle, fetch: fetchFeed, now = Date.now, publish = work => work(), changed = () => {} }) {
+    let current = null, origin = "BUNDLE", lastAttemptAt = null, lastResult = "LOADING", inFlight = null;
+    const notify = () => { try { changed(); } catch (_) { /* committed data is independent of UI clients */ } };
+    const save = state => { try { return repository.saveManagedCache(state); } catch (_) { return false; } };
+    const checkpoint = (feed = current?.record, result = lastResult) => ({ schemaVersion: 1, feed, lastAttemptAt, lastResult: result });
+    function readFeed(record) {
+        if (!record || typeof record.text !== "string" || !(record.sourceUrl === sourceUrl || /^https:\/\/raw\.githubusercontent\.com\/StevenBlack\/hosts\/[a-f0-9]{40}\/alternates\/fakenews-gambling-porn-social\/hosts$/.test(record.sourceUrl)) ||
+            digest(record.text) !== record.sha256 || !(record.fetchedAt === null || time(record.fetchedAt)) || !validator(record.upstreamVersion) || !validator(record.etag) || !validator(record.lastModified)) return null;
+        const valid = validateFeed(record.text); return valid ? { ...valid, record } : null;
+    }
+    const ready = Promise.resolve().then(async () => {
+        let cached = null; try { cached = repository.loadManagedCache(); } catch (_) { /* verified bundle remains available */ }
+        if (cached?.schemaVersion === 1) {
+            current = readFeed(cached.feed);
+            lastAttemptAt = time(cached.lastAttemptAt) ? cached.lastAttemptAt : null;
+            if (current) { origin = "CACHE"; lastResult = /^[A-Z_]{1,60}$/.test(cached.lastResult) ? cached.lastResult : "ACTIVE"; }
+        }
+        if (!current) {
+            current = readFeed(await bundle());
+            if (!current) throw new Error("BUNDLED_BLACKLIST_INVALID");
+            origin = "BUNDLE"; lastResult = cached ? "CACHE_INVALID_USING_BUNDLE" : "ACTIVE";
+            if (!save(checkpoint())) lastResult = "CACHE_UNAVAILABLE_USING_BUNDLE";
+        }
+        if (lastResult === "UPDATING") lastResult = "INTERRUPTED_UPDATE";
+        notify();
+    }).catch(() => { current = null; lastResult = "MANAGED_AUTHORITY_UNAVAILABLE"; notify(); });
+
+    async function download() {
+        const abort = new AbortController(), timeout = setTimeout(() => abort.abort(), 30_000); timeout.unref?.();
+        try {
+            const headers = {};
+            if (current.record.etag) headers["If-None-Match"] = current.record.etag;
+            if (current.record.lastModified) headers["If-Modified-Since"] = current.record.lastModified;
+            const response = await fetchFeed(sourceUrl, { headers, credentials: "omit", redirect: "error", cache: "no-store", signal: abort.signal });
+            if (response.status === 304) {
+                if (!headers["If-None-Match"] && !headers["If-Modified-Since"]) throw new Error("INVALID_CACHE_RESPONSE");
+                return { unchanged: true };
+            }
+            if (!response.ok || !response.body || Number(response.headers.get("content-length") ?? 0) > maxFeedBytes) throw new Error("DOWNLOAD_FAILED");
+            const reader = response.body.getReader(), decoder = new TextDecoder("utf-8", { fatal: true });
+            let bytes = 0, text = "";
+            try {
+                while (true) {
+                    const chunk = await reader.read(); if (chunk.done) break;
+                    bytes += chunk.value.length; if (bytes > maxFeedBytes) throw new Error("FEED_TOO_LARGE");
+                    text += decoder.decode(chunk.value, { stream: true });
+                }
+                text += decoder.decode();
+            } finally { await reader.cancel(); }
+            const etag = response.headers.get("etag"), lastModified = response.headers.get("last-modified");
+            if (!validator(etag) || !validator(lastModified)) throw new Error("INVALID_CACHE_HEADERS");
+            return { unchanged: false, text, etag, lastModified };
+        } finally { clearTimeout(timeout); }
+    }
+    async function refresh(force) {
+        await ready;
+        const timestamp = now();
+        if (!current || !time(timestamp)) return;
+        if (!force && lastAttemptAt !== null && timestamp - lastAttemptAt < refreshIntervalMs) return;
+        lastAttemptAt = timestamp; lastResult = "UPDATING";
+        if (!save(checkpoint())) { lastResult = "CACHE_WRITE_FAILED"; notify(); return; }
+        notify();
+        try {
+            const downloaded = await download();
+            const next = downloaded.unchanged ? { parsed: current.parsed, compiled: current.compiled } : validateFeed(downloaded.text, current.compiled.size);
+            if (!next) { lastResult = "INVALID_FEED"; }
+            else {
+                const record = downloaded.unchanged ? { ...current.record, fetchedAt: timestamp } : {
+                    text: downloaded.text, sourceUrl, sha256: digest(downloaded.text), fetchedAt: timestamp,
+                    upstreamVersion: downloaded.etag, etag: downloaded.etag, lastModified: downloaded.lastModified };
+                const result = downloaded.unchanged ? "NOT_MODIFIED" : "UPDATED";
+                const committed = await publish(async () => {
+                    if (!save(checkpoint(record, result))) return false;
+                    current = { ...next, record }; origin = "UPDATE"; lastResult = result; return true;
+                });
+                if (!committed) lastResult = "CACHE_WRITE_FAILED";
+                notify(); return;
+            }
+        } catch (_) { lastResult = "NETWORK_UPDATE_FAILED"; }
+        save(checkpoint()); notify();
+    }
+    return { ready, getBlacklist: () => current?.compiled ?? null,
+        view: (/** @type {readonly string[]} */ whitelist = []) => ({ enabled: true, active: !!current, count: current?.compiled.size ?? 0, source: sourceUrl, categories,
+            origin, upstreamDate: current?.parsed.upstreamDate ?? null, version: current?.record.upstreamVersion ?? null,
+            hash: current?.record.sha256 ?? null, lastSuccessfulSync: current?.record.fetchedAt ?? null, lastAttemptAt,
+            status: lastResult, error: /FAILED|INVALID|UNAVAILABLE/.test(lastResult) ? lastResult : null,
+            conflicts: current ? whitelist.filter(h => managedBlacklistContains(current.compiled, h) === true) : [] }),
+        lookup: hostname => current ? managedBlacklistContains(current.compiled, hostname) : null,
+        refresh({ force = false } = {}) {
+            if (!inFlight) inFlight = refresh(force).finally(() => { inFlight = null; }); return inFlight;
+        } };
+}
+module.exports = { createManagedService, readBundle, refreshIntervalMs, digest };
+
+},
+"lib/atlas/obsidian/application.js": function (module, exports, __hubRequire) {
+"use strict";
+
+// Application metadata only. Core continues to own every host classification.
+const Core = __hubRequire("lib/atlas/core/index.js");
+const { normalizePolicy } = __hubRequire("lib/atlas/core/policy.js");
+const { curatedWhitelist, serviceHostnames } = __hubRequire("lib/atlas/presets/curated-whitelist.js");
+const exact = (value, keys) => value && typeof value === "object" && !Array.isArray(value) &&
+    Object.keys(value).length === keys.length && keys.every(key => Object.hasOwn(value, key));
+const text = (value, limit) => typeof value === "string" && value.trim() === value && value.length > 0 && value.length <= limit && !/[\x00-\x1f]/.test(value);
+const host = value => typeof value === "string" && Core.normalizeTarget({ hostname: value })?.hostname === value;
+const hosts = values => Array.isArray(values) && values.length <= 256 && values.every(host) && new Set(values).size === values.length;
+const samePolicy = (a, b) => ["whitelist", "blacklist"].every(key =>
+    JSON.stringify([...new Set(a[key])].sort()) === JSON.stringify([...new Set(b[key])].sort()));
+
+function validateDestination(value) {
+    if (!exact(value, ["id", "label", "category", "hostname", "aliases", "destinations", "pinned"]) ||
+        !text(value.id, 256) || !text(value.label, 200) || !text(value.category, 100) || !host(value.hostname) ||
+        !hosts(value.aliases) || !hosts(value.destinations) || typeof value.pinned !== "boolean") return null;
+    const all = serviceHostnames(value);
+    return new Set(all).size === all.length ? structuredClone(value) : null;
+}
+function validateDestinations(values) {
+    if (!Array.isArray(values) || values.length > 2000) return null;
+    const result = values.map(validateDestination);
+    if (result.some(value => value === null) || new Set(result.map(value => value.id)).size !== result.length ||
+        new Set(result.map(value => value.hostname)).size !== result.length) return null;
+    return result;
+}
+function destinationsFromPolicy(policy) {
+    const explicit = new Set([...policy.whitelist, ...policy.blacklist]), covered = new Set(), result = [];
+    for (const group of curatedWhitelist) for (const service of group.services) {
+        if (!explicit.has(service.hostname)) continue;
+        const item = { id: `curated:${service.hostname}`, label: service.label, category: group.label,
+            hostname: service.hostname, aliases: (service.aliases ?? []).filter(h => explicit.has(h)),
+            destinations: (service.destinations ?? []).filter(h => explicit.has(h)),
+            pinned: ["ChatGPT", "Gmail", "KTH Mail", "GitHub"].includes(service.label) };
+        result.push(item); serviceHostnames(item).forEach(h => covered.add(h));
+    }
+    for (const hostname of explicit) if (!covered.has(hostname)) result.push({ id: `host:${hostname}`, label: hostname,
+        category: "My destinations", hostname, aliases: [], destinations: [], pinned: false });
+    return result;
+}
+function initialApplication(policy) {
+    return { schemaVersion: 1, revision: 0, destinations: destinationsFromPolicy(policy), pending: null };
+}
+// Explicit curated import merges reviewed hosts into the existing service.
+// User labels, categories, pins, custom services and manual Blacklist survive.
+function mergeCuratedDestinations(application, policy) {
+    const destinations = structuredClone(application.destinations);
+    for (const curated of destinationsFromPolicy(policy)) {
+        const old = destinations.find(d => d.hostname === curated.hostname);
+        if (!old) {
+            if (!destinations.some(d => serviceHostnames(d).includes(curated.hostname))) destinations.push(curated);
+            continue;
+        }
+        old.aliases = [...new Set([...old.aliases, ...curated.aliases])].filter(h => !old.destinations.includes(h));
+        old.destinations = [...new Set([...old.destinations, ...curated.destinations])].filter(h => !old.aliases.includes(h));
+    }
+    return destinations;
+}
+function validateApplication(value, snapshot) {
+    if (!exact(value, ["schemaVersion", "revision", "destinations", "pending"]) || value.schemaVersion !== 1 ||
+        !Number.isSafeInteger(value.revision) || value.revision < 0 || !validateDestinations(value.destinations)) return null;
+    if (value.pending !== null) {
+        const p = value.pending, proposal = snapshot.vaultState.pendingProposal;
+        if (!exact(p, ["proposalId", "policy", "destinations"]) || !proposal || p.proposalId !== proposal.id ||
+            !normalizePolicy(p.policy) || !samePolicy(p.policy, proposal.candidatePolicy) || !validateDestinations(p.destinations)) return null;
+    }
+    return structuredClone(value);
+}
+function transitionApplication(application, before, after, staged) {
+    const value = structuredClone(application), pending = after.vaultState.pendingProposal;
+    if (staged && pending && pending.id !== before.vaultState.pendingProposal?.id) {
+        value.pending = { proposalId: pending.id, policy: structuredClone(pending.candidatePolicy), destinations: staged };
+    }
+    if (value.pending && !pending) {
+        if (after.vaultState.lastApplied?.proposalId === value.pending.proposalId &&
+            before.vaultState.lastApplied?.proposalId !== value.pending.proposalId && samePolicy(after.policy, value.pending.policy)) {
+            value.destinations = value.pending.destinations; value.revision++;
+        }
+        value.pending = null;
+    }
+    // Advanced/import changes have no presentation draft. Reflect their exact
+    // committed host removals and additions instead of resurrecting the preset.
+    if (!samePolicy(before.policy, after.policy) && !application.pending) {
+        const explicit = new Set([...after.policy.whitelist, ...after.policy.blacklist]);
+        value.destinations = value.destinations.filter(d => explicit.has(d.hostname)).map(d => ({ ...d,
+            aliases: d.aliases.filter(h => explicit.has(h)), destinations: d.destinations.filter(h => explicit.has(h)) }));
+        const covered = new Set(value.destinations.flatMap(serviceHostnames));
+        value.destinations.push(...destinationsFromPolicy(after.policy).filter(d => !covered.has(d.hostname)));
+        value.revision++;
+    }
+    return value;
+}
+function buildDestinationChange(snapshot, application, input) {
+    if (input.basePolicyRevision !== snapshot.policyRevision || input.baseApplicationRevision !== application.revision) throw new Error("STALE_DRAFT");
+    const destination = input.destination === null ? null : validateDestination(input.destination);
+    if (input.destination !== null && !destination || !["WHITELIST", "BLACKLIST", "GREYLIST"].includes(input.access)) throw new Error("INVALID_DESTINATION");
+    const previous = application.destinations.find(d => d.id === input.previousId);
+    if (input.previousId !== null && !previous) throw new Error("STALE_DESTINATION");
+    if (destination && application.destinations.some(d => d.id !== input.previousId && (d.id === destination.id || d.hostname === destination.hostname))) throw new Error("DUPLICATE_DESTINATION");
+    const destinations = application.destinations.filter(d => d.id !== input.previousId);
+    const shared = new Set(destinations.flatMap(serviceHostnames)), removed = new Set(previous ? serviceHostnames(previous).filter(h => !shared.has(h)) : []);
+    const policy = { whitelist: snapshot.policy.whitelist.filter(h => !removed.has(h)), blacklist: snapshot.policy.blacklist.filter(h => !removed.has(h)) };
+    if (destination) {
+        destinations.push(destination);
+        const proposed = new Set(serviceHostnames(destination));
+        policy.whitelist = policy.whitelist.filter(h => !proposed.has(h)); policy.blacklist = policy.blacklist.filter(h => !proposed.has(h));
+        if (input.access !== "GREYLIST") policy[input.access === "WHITELIST" ? "whitelist" : "blacklist"].push(...proposed);
+    }
+    policy.whitelist = [...new Set(policy.whitelist)]; policy.blacklist = [...new Set(policy.blacklist)];
+    if (!normalizePolicy(policy) || !validateDestinations(destinations)) throw new Error("INVALID_DESTINATION");
+    return { policy, destinations, presentationOnly: samePolicy(policy, snapshot.policy) };
+}
+
+module.exports = { validateDestination, validateDestinations, validateApplication, initialApplication, mergeCuratedDestinations,
+    transitionApplication, buildDestinationChange, samePolicy };
+
+},
 "lib/atlas/obsidian/clock.js": function (module, exports, __hubRequire) {
 "use strict";
 
@@ -2106,6 +2381,7 @@ const { AtlasFileRepository } = __hubRequire("lib/atlas/obsidian/persistence.js"
 const { createClock } = __hubRequire("lib/atlas/obsidian/clock.js");
 const { createAtlasRuntime, DEVELOPMENT_CONFIGURATION } = __hubRequire("lib/atlas/obsidian/runtime.js");
 const { createWebviewerEnforcement } = __hubRequire("lib/atlas/obsidian/webviewer.js");
+const { createManagedService, readBundle } = __hubRequire("lib/atlas/managed/service.js");
 
 // Cached in Electron's MAIN PROCESS, not each Obsidian/popout renderer. Retain
 // the same controller on plugin reload, including uncertain commits/time guards.
@@ -2122,12 +2398,16 @@ function getAtlasHost({ directory, partition }) {
     }
     const electron = require("electron");
     const repository = new AtlasFileRepository(path.join(directory, "atlas-state"), { configuration: DEVELOPMENT_CONFIGURATION });
-    const runtime = createAtlasRuntime({ repository, clock: createClock() });
     const clients = new Map();
     let nextClient = 0;
     const notify = message => {
         for (const [id, callback] of clients) { try { callback(message); } catch (_) { clients.delete(id); } }
     };
+    let runtime;
+    const managed = createManagedService({ repository, bundle: () => readBundle(path.join(directory, "lib/atlas/managed/data")),
+        fetch: electron.net.fetch.bind(electron.net), publish: work => runtime.updateManaged(work),
+        changed: () => notify({ type: "STATE_CHANGED" }) });
+    runtime = createAtlasRuntime({ repository, clock: createClock(), managedBlacklist: managed.getBlacklist });
     const enforcement = createWebviewerEnforcement({ electron, runtime, partition, onOpenHome: message => notify({ type: "OPEN_HOME", ...message }) });
     runtime.subscribe(() => notify({ type: "STATE_CHANGED" }));
     let observing = false;
@@ -2137,8 +2417,28 @@ function getAtlasHost({ directory, partition }) {
         runtime.observe().finally(() => { observing = false; });
     }, 1000);
     timer.unref?.();
+    const refreshTimer = setInterval(() => { void managed.refresh(); }, 3_600_000); refreshTimer.unref?.();
     const api = Object.freeze({
-        view: runtime.view, command: runtime.command, open: runtime.open,
+        apiVersion: 3,
+        // Remote object proxies make every nested property read synchronous IPC.
+        // Strings cross once; UI descriptions/results are ordinary local data.
+        viewJSON: () => JSON.stringify(api.view()),
+        commandJSON: async encoded => {
+            let input;
+            try { if (typeof encoded !== "string" || encoded.length > 1_000_000) throw new Error(); input = JSON.parse(encoded); }
+            catch (_) { return JSON.stringify({ type: "REJECTED", reason: "INVALID_OPERATION" }); }
+            return JSON.stringify(await api.command(input));
+        },
+        view: () => { const view = runtime.view(); return { ...view, managed: managed.view(view.snapshot?.policy.whitelist) }; },
+        command: input => {
+            if (input?.kind === "REFRESH_MANAGED" && Object.keys(input).length === 1) return managed.refresh({ force: true }).then(() => ({ type: "MANAGED_STATUS", status: managed.view().status }));
+            if (input?.kind === "LOOKUP_MANAGED" && Object.keys(input).length === 2 && typeof input.hostname === "string") {
+                const target = __hubRequire("lib/atlas/core/index.js").normalizeTarget({ hostname: input.hostname });
+                return Promise.resolve(target ? { type: "MANAGED_LOOKUP", hostname: target.hostname, blocked: managed.lookup(target.hostname) } : { type: "REJECTED", reason: "INVALID_TARGET" });
+            }
+            return runtime.command(input);
+        },
+        open: async () => { await managed.ready; return runtime.open(); },
         subscribe(callback) { if (typeof callback !== "function") throw new TypeError("Invalid client"); const id = ++nextClient; clients.set(id, callback); return id; },
         unsubscribe(id) { clients.delete(id); if (clients.size === 0) enforcement.suspend(); },
         forget: runtime.forget
@@ -2146,11 +2446,11 @@ function getAtlasHost({ directory, partition }) {
     const owner = { partition, api, resume: () => enforcement.resume() };
     owners.set(key, owner);
     electron.app.once("will-quit", () => {
-        clearInterval(timer); enforcement.shutdown(); repository.close(); owners.delete(key);
+        clearInterval(timer); clearInterval(refreshTimer); enforcement.shutdown(); repository.close(); owners.delete(key);
     });
     // Installing enforcement is synchronous. Loading state may be asynchronous;
     // every guest remains guarded while the controller is unavailable.
-    void runtime.open();
+    void managed.ready.then(async () => { await runtime.open(); void managed.refresh(); });
     return api;
 }
 
@@ -2165,6 +2465,7 @@ const path = require("path");
 const os = require("os");
 const { randomUUID, createHash } = require("crypto");
 const { validateAtlasSnapshot, migrateAtlasSnapshotV1 } = __hubRequire("lib/atlas/core/index.js");
+const { initialApplication, validateApplication, transitionApplication, validateDestinations } = __hubRequire("lib/atlas/obsidian/application.js");
 
 const digest = text => createHash("sha256").update(text).digest("hex");
 const token = value => typeof value === "string" && /^[A-Za-z0-9_.:-]{1,256}$/.test(value);
@@ -2243,12 +2544,14 @@ class AtlasFileRepository {
     }
     envelope(text) {
         const data = JSON.parse(text);
-        if (!exact(data, ["schemaVersion", "storageVersion", "lastCommitId", "snapshot"]) ||
+        if (!(exact(data, ["schemaVersion", "storageVersion", "lastCommitId", "snapshot"]) ||
+            exact(data, ["schemaVersion", "storageVersion", "lastCommitId", "snapshot", "application"])) ||
             ![1, 2].includes(data.schemaVersion) || !token(data.storageVersion) ||
             !(data.lastCommitId === null || token(data.lastCommitId))) throw new Error("Invalid Atlas envelope");
         if (data.schemaVersion === 2) {
             const validated = validateAtlasSnapshot(data.snapshot);
             if (!validated.ok) throw new Error("Invalid Atlas snapshot");
+            if (Object.hasOwn(data, "application") && !validateApplication(data.application, validated.snapshot)) throw new Error("Invalid Atlas application metadata");
             return { ...data, snapshot: validated.snapshot };
         }
         return data;
@@ -2300,22 +2603,25 @@ class AtlasFileRepository {
             if (this.lastBytes !== null && text !== this.lastBytes) {
                 this.issue = "EXTERNAL_WRITE"; return { type: "UNAVAILABLE" };
             }
-            if (value.schemaVersion === 1) {
-                const converted = migrateAtlasSnapshotV1(value.snapshot, this.configuration);
+            if (value.schemaVersion === 1 || !Object.hasOwn(value, "application")) {
+                const converted = value.schemaVersion === 1 ? migrateAtlasSnapshotV1(value.snapshot, this.configuration) : validateAtlasSnapshot(value.snapshot);
                 if (!converted.ok) return { type: "READY", envelope: null };
-                const next = { schemaVersion: 2, snapshot: converted.snapshot };
+                const next = { schemaVersion: 2, snapshot: converted.snapshot, application: initialApplication(converted.snapshot.policy) };
                 this.lastBytes = text;
                 const receipt = await this.replace(value.storageVersion, `migration:${randomUUID()}`, next);
                 if (receipt.type !== "COMMITTED") return { type: "UNAVAILABLE" };
                 value = this.envelope(this.lastBytes);
             }
             this.lastBytes = this.read("authority.json");
-            return { type: "READY", envelope: value };
+            // Core's closed envelope stays unchanged. Application data never
+            // enters its schema or its permission-changing operations.
+            const { application: _application, ...envelope } = value;
+            return { type: "READY", envelope };
         } catch (_) { this.issue = "STORAGE_UNAVAILABLE"; return { type: "UNAVAILABLE" }; }
     }
-    async initialize(snapshot) {
+    async initialize(snapshot, application = initialApplication(snapshot.policy)) {
         const validated = validateAtlasSnapshot(snapshot);
-        if (!validated.ok) return false;
+        if (!validated.ok || !validateApplication(application, validated.snapshot)) return false;
         const loaded = await this.load();
         if (loaded.type !== "UNINITIALIZED") return false;
         try {
@@ -2324,7 +2630,7 @@ class AtlasFileRepository {
             // setup is unavailable, rather than being mistaken for fresh setup.
             this.flushFile("initialized", "Atlas schema 2\n");
             this.flushDirectory();
-            const value = { schemaVersion: 2, storageVersion: randomUUID(), lastCommitId: null, snapshot: validated.snapshot };
+            const value = { schemaVersion: 2, storageVersion: randomUUID(), lastCommitId: null, snapshot: validated.snapshot, application };
             const bytes = JSON.stringify(value);
             const temporary = `.authority-${randomUUID()}.tmp`;
             this.flushFile(temporary, bytes);
@@ -2346,7 +2652,10 @@ class AtlasFileRepository {
             const validated = validateAtlasSnapshot(next.snapshot);
             if (next.schemaVersion !== 2 || !validated.ok || !token(commitId)) return receipt("NOT_WRITTEN");
             const storageVersion = randomUUID();
-            const after = JSON.stringify({ schemaVersion: 2, storageVersion, lastCommitId: commitId, snapshot: validated.snapshot });
+            const application = next.application ?? transitionApplication(current.application ?? initialApplication(current.snapshot.policy),
+                current.snapshot, validated.snapshot, this.stagedApplication);
+            if (!validateApplication(application, validated.snapshot)) return receipt("NOT_WRITTEN");
+            const after = JSON.stringify({ schemaVersion: 2, storageVersion, lastCommitId: commitId, snapshot: validated.snapshot, application });
             const journal = { commitId, beforeHash: digest(before), afterHash: digest(after), storageVersion };
             const temporary = `.authority-${randomUUID()}.tmp`;
             this.flushFile(temporary, after);
@@ -2358,6 +2667,7 @@ class AtlasFileRepository {
             this.flushDirectory();
             const result = this.settled(journal);
             if (result.type !== "COMMITTED") return receipt("UNKNOWN");
+            this.previousEnvelope = current;
             this.lastBytes = after;
             this.clearJournal();
             this.issue = null;
@@ -2375,6 +2685,27 @@ class AtlasFileRepository {
     }
     /** @param {import('../core/index').AtlasCommitRequest} request */
     commit(request) { return this.replace(request.expectedStorageVersion, request.commitId, request.next); }
+    application(storageVersion = undefined) {
+        if (!this.lastBytes) return null;
+        const envelope = this.envelope(this.lastBytes);
+        if (storageVersion === undefined || envelope.storageVersion === storageVersion) return envelope.application ?? null;
+        return this.previousEnvelope?.storageVersion === storageVersion ? this.previousEnvelope.application ?? null : null;
+    }
+    stageApplication(destinations) {
+        const valid = validateDestinations(destinations);
+        if (!valid) throw new Error("Invalid Atlas destination draft");
+        this.stagedApplication = valid;
+    }
+    clearApplicationStage() { this.stagedApplication = null; }
+    // Operational cache uses the same owner and atomic replacement, separately
+    // from authority and the Core journal. Failed publication keeps prior data.
+    loadManagedCache() { this.acquire(); this.assertOwner(); const text = this.read("managed-cache.json"); return text === null ? null : JSON.parse(text); }
+    saveManagedCache(value) {
+        try {
+            this.assertOwner(); const name = `.managed-${randomUUID()}.tmp`;
+            this.flushFile(name, JSON.stringify(value)); this.io.renameSync(this.file(name), this.file("managed-cache.json")); this.flushDirectory(); return true;
+        } catch (_) { return false; }
+    }
     /** @returns {Promise<import('../core/index').AtlasCommitResolution>} */
     async resolveCommit(commitId) {
         try {
@@ -2383,6 +2714,7 @@ class AtlasFileRepository {
             if (!journal || journal.commitId !== commitId) return { type: "UNKNOWN", commitId };
             const result = this.settled(journal);
             if (result.type !== "UNKNOWN") {
+                if (this.lastBytes) this.previousEnvelope = this.envelope(this.lastBytes);
                 this.lastBytes = this.read("authority.json");
                 this.clearJournal();
             }
@@ -2404,6 +2736,8 @@ module.exports = { AtlasFileRepository };
 
 const { randomUUID } = require("crypto");
 const Core = __hubRequire("lib/atlas/core/index.js");
+const { compileCuratedWhitelist, curatedWhitelist, serviceHostnames } = __hubRequire("lib/atlas/presets/curated-whitelist.js");
+const { initialApplication, buildDestinationChange, validateDestinations, mergeCuratedDestinations } = __hubRequire("lib/atlas/obsidian/application.js");
 
 // These are the copied D19 development values, disclosed during first setup.
 // Once initialized, only snapshot.configuration governs operations.
@@ -2425,7 +2759,7 @@ const blocked = reason => ({ type: "BLOCKED", reason });
  * @returns {response is Extract<import('../core/index').AtlasControllerResponse, {type: 'ASSESSMENT'}>} */
 const allowed = response => response?.type === "ASSESSMENT" && response.decision.outcome === "ALLOW";
 
-/** @param {{repository: import('../core/index').AtlasRepository & {initialize: (snapshot: import('../core/index').AtlasSnapshot) => Promise<boolean>, issue?: string}, clock: import('../core/index').AtlasClock, configuration?: import('../core/index').AtlasConfiguration, managedBlacklist?: () => import('../core/index').ManagedBlacklist}} options */
+/** @param {{repository: import('./persistence').AtlasFileRepository, clock: import('../core/index').AtlasClock, configuration?: import('../core/index').AtlasConfiguration, managedBlacklist?: () => import('../core/index').ManagedBlacklist | null}} options */
 function createAtlasRuntime({ repository, clock, configuration = DEVELOPMENT_CONFIGURATION, managedBlacklist }) {
     const controller = Core.createAtlasController({ repository, clock, configuration,
         ownerId: randomUUID(), ...(managedBlacklist === undefined ? {} : { managedBlacklist }) });
@@ -2634,7 +2968,25 @@ function createAtlasRuntime({ repository, clock, configuration = DEVELOPMENT_CON
     }
     function view() {
         const state = controller.getView();
-        return { ...state, enabled, initialConfiguration: state.snapshot ? null : configuration, repositoryIssue: repository.issue ?? null,
+        const application = repository.application?.(state.storageVersion) ?? (state.snapshot ? initialApplication(state.snapshot.policy) : null);
+        // Descriptions from the pure Core planner carry no executable ALLOW.
+        // Native requests still require the controller and verified persistence.
+        const describe = hostname => {
+            if (state.status !== "READY" || !enabled) return { outcome: "DENY", reason: "ATLAS_UNAVAILABLE" };
+            const managed = managedBlacklist?.();
+            const plan = Core.planAtlasOperation({ kind: "CHECK_NAVIGATION", target: { hostname }, context: { contextId: "atlas-home-description", journeyId: null } }, {
+                snapshot: state.snapshot, now: clock.now(), configuration: state.snapshot.configuration,
+                ...(managedBlacklist ? { managedBlacklist: managed } : {}) });
+            return plan.result.type === "ASSESSMENT" ? plan.result.decision : { outcome: "DENY", reason: plan.result.type };
+        };
+        const destinations = (application?.destinations ?? []).map(destination => ({ ...destination,
+            hosts: serviceHostnames(destination).map(hostname => ({ hostname, decision: describe(hostname) })), decision: describe(destination.hostname) }));
+        return { ...state, enabled, application, destinations,
+            temporaryDestinations: (state.snapshot?.accessState.grants ?? []).map(grant => ({ ...grant, decision: describe(grant.hostname) })),
+            starter: { groups: curatedWhitelist.map(g => ({ label: g.label, count: g.services.length })),
+                serviceCount: curatedWhitelist.reduce((count, g) => count + g.services.length, 0), hostCount: compileCuratedWhitelist().whitelist.length,
+                policy: compileCuratedWhitelist() },
+            initialConfiguration: state.snapshot ? null : configuration, repositoryIssue: repository.issue ?? null,
             contexts: [...contexts.values()].map(context => ({ id: context.id, nativeId: context.nativeId,
                 generation: context.generation, closed: context.closed, phase: context.phase,
                 response: context.response, origin: context.origin, journey: snapshot()?.journeyState.journeys.find(j => j.contextId === context.id) ?? null })) };
@@ -2642,6 +2994,62 @@ function createAtlasRuntime({ repository, clock, configuration = DEVELOPMENT_CON
     async function command(input) {
         if (!input || typeof input !== "object" || Array.isArray(input)) return { type: "REJECTED", reason: "INVALID_OPERATION" };
         const kind = input.kind;
+        if (kind === "SAVE_DISPLAY_DETAILS" && Object.keys(input).length === 7 &&
+            ["destinationId", "label", "category", "pinned", "basePolicyRevision", "baseApplicationRevision"].every(key => Object.hasOwn(input, key))) {
+            if (controller.getView().status !== "READY") return blocked("NOT_READY");
+            const application = repository.application(), old = application.destinations.find(d => d.id === input.destinationId);
+            if (!old || input.basePolicyRevision !== snapshot().policyRevision || input.baseApplicationRevision !== application.revision) return { type: "REJECTED", reason: "STALE_DRAFT" };
+            if (application.pending) return { type: "REJECTED", reason: "PROPOSAL_PENDING" };
+            const destinations = application.destinations.map(d => d === old ? { ...d, label: input.label, category: input.category, pinned: input.pinned } : d);
+            if (!validateDestinations(destinations)) return { type: "REJECTED", reason: "INVALID_DESTINATION" };
+            return savePresentation({ ...application, revision: application.revision + 1, destinations });
+        }
+        if (kind === "INITIALIZE_CURATED" && Object.keys(input).length === 2 && Object.hasOwn(input, "configuration")) {
+            return initialize(compileCuratedWhitelist(), input.configuration);
+        }
+        if (kind === "IMPORT_CURATED" && Object.keys(input).length === 1) {
+            if (controller.getView().status !== "READY") return blocked("NOT_READY");
+            const candidatePolicy = { whitelist: [...new Set([...snapshot().policy.whitelist,
+                ...compileCuratedWhitelist().whitelist])], blacklist: [...snapshot().policy.blacklist] };
+            repository.stageApplication(mergeCuratedDestinations(repository.application(), candidatePolicy));
+            try { return await command({ kind: "PROPOSE_POLICY", candidatePolicy }); }
+            finally { repository.clearApplicationStage(); }
+        }
+        if (kind === "RECREATE_POLICY" && Object.keys(input).length === 2 && Object.hasOwn(input, "proposalId")) {
+            if (controller.getView().status !== "READY") return blocked("NOT_READY");
+            const pending = snapshot().vaultState.pendingProposal;
+            if (!pending || pending.id !== input.proposalId) return { type: "REJECTED", reason: "STALE_PROPOSAL" };
+            if (pending.basePolicyRevision !== snapshot().policyRevision ||
+                pending.baseConfigurationRevision !== undefined && pending.baseConfigurationRevision !== snapshot().configurationRevision) return { type: "REJECTED", reason: "STALE_PROPOSAL" };
+            if (clock.now() < pending.confirmBy) return { type: "REJECTED", reason: "PROPOSAL_NOT_EXPIRED" };
+            // Core owns cancellation, new IDs, the full wait and confirmation.
+            // Never replay a confirmation or apply any of these candidate values.
+            const destinations = repository.application().pending?.destinations;
+            const cancelled = await command({ kind: "CANCEL_POLICY", proposalId: pending.id });
+            if (cancelled.type !== "COMMITTED") return cancelled;
+            if (destinations) repository.stageApplication(destinations);
+            try { return await command(pending.candidateConfiguration &&
+                JSON.stringify(pending.candidateConfiguration) !== JSON.stringify(snapshot().configuration)
+                ? { kind: "PROPOSE_SETTINGS", candidateConfiguration: pending.candidateConfiguration }
+                : { kind: "PROPOSE_POLICY", candidatePolicy: pending.candidatePolicy }); }
+            finally { repository.clearApplicationStage(); }
+        }
+        if (kind === "PROPOSE_DESTINATION" && Object.keys(input).length === 6 &&
+            ["destination", "access", "previousId", "basePolicyRevision", "baseApplicationRevision"].every(key => Object.hasOwn(input, key))) {
+            if (controller.getView().status !== "READY") return blocked("NOT_READY");
+            try {
+                const application = repository.application(), change = buildDestinationChange(snapshot(), application, input);
+                if (change.presentationOnly) {
+                    // Names/categories/pins confer no access. Save only display
+                    // preferences, atomically, with the same owner/CAS/journal.
+                    if (application.pending) return { type: "REJECTED", reason: "PROPOSAL_PENDING" };
+                    return savePresentation({ ...application, revision: application.revision + 1, destinations: change.destinations });
+                }
+                repository.stageApplication(change.destinations);
+                try { return await command({ kind: "PROPOSE_POLICY", candidatePolicy: change.policy }); }
+                finally { repository.clearApplicationStage(); }
+            } catch (error) { return { type: "REJECTED", reason: error.message }; }
+        }
         if (kind === "RECOVER" && Object.keys(input).length === 1) return open();
         if (kind === "INITIALIZE" && Object.keys(input).length === 3) return initialize(input.policy, input.configuration);
         if (["PROPOSE_POLICY", "PROPOSE_SETTINGS", "REVIEW_POLICY", "CONFIRM_POLICY", "CANCEL_POLICY"].includes(kind)) {
@@ -2686,7 +3094,16 @@ function createAtlasRuntime({ repository, clock, configuration = DEVELOPMENT_CON
         }
         await recheck(context); publish(); return response;
     }
+    async function savePresentation(application) {
+        const prior = controller.getView();
+        const receipt = await repository.replace(prior.storageVersion, `presentation:${randomUUID()}`,
+            { schemaVersion: 2, snapshot: prior.snapshot, application });
+        if (receipt.type !== "COMMITTED") { failAll("PRESENTATION_SAVE_FAILED"); await core({ kind: "OBSERVE_TIME" }); publish(); return blocked("PRESENTATION_SAVE_FAILED"); }
+        await core({ kind: "OBSERVE_TIME" }); publish();
+        return controller.getView().status === "READY" ? { type: "COMMITTED", operation: "PRESENTATION" } : blocked("PRESENTATION_SAVE_FAILED");
+    }
     return Object.freeze({ controller, attach, navigate, arrive,
+        updateManaged: work => enqueue(async () => { const result = await work(); if (result && controller.getView().status === "READY") await observe(); else publish(); return result; }),
         open: () => enqueue(open), command: input => {
             let copy; try { copy = structuredClone(input); } catch (_) { copy = null; }
             return enqueue(() => command(copy));
@@ -2996,6 +3413,89 @@ function createWebviewerEnforcement({ electron, runtime, partition, onOpenHome }
 }
 
 module.exports = { createWebviewerEnforcement };
+
+},
+"lib/atlas/presets/curated-whitelist.js": function (module, exports, __hubRequire) {
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.curatedWhitelist = void 0;
+exports.serviceHostnames = serviceHostnames;
+exports.serviceLabel = serviceLabel;
+exports.compileCuratedWhitelist = compileCuratedWhitelist;
+const index_1 = __hubRequire("lib/atlas/core/index.js");
+/** Initial product preset. Edit services here; generated Policy remains exact-host only. */
+exports.curatedWhitelist = [
+    { label: 'AI', services: [
+            { label: 'ChatGPT', hostname: 'chatgpt.com', aliases: ['www.chatgpt.com'] },
+            { label: 'Claude', hostname: 'claude.ai', aliases: ['www.claude.ai'] },
+        ] },
+    { label: 'Mail', services: [
+            { label: 'Gmail', hostname: 'mail.google.com' },
+            { label: 'KTH Mail', hostname: 'webmail.kth.se' },
+            { label: 'Outlook', hostname: 'outlook.com', aliases: ['www.outlook.com'],
+                destinations: ['outlook.live.com', 'outlook.office.com', 'outlook.office365.com'] },
+            { label: 'Microsoft 365', hostname: 'microsoft365.com', aliases: ['www.microsoft365.com'] },
+        ] },
+    { label: 'Video', services: [
+            { label: 'YouTube', hostname: 'youtube.com', aliases: ['www.youtube.com'] },
+        ] },
+    { label: 'Scholar / Research', services: [
+            { label: 'Google Scholar', hostname: 'scholar.google.com' },
+            { label: 'arXiv', hostname: 'arxiv.org', aliases: ['www.arxiv.org'] },
+            { label: 'INSPIRE', hostname: 'inspirehep.net' },
+            { label: 'DOI', hostname: 'doi.org', aliases: ['www.doi.org'] },
+            { label: 'Crossref', hostname: 'crossref.org', aliases: ['www.crossref.org'] },
+            { label: 'ORCID', hostname: 'orcid.org', aliases: ['www.orcid.org'] },
+            { label: 'Semantic Scholar', hostname: 'semanticscholar.org', aliases: ['www.semanticscholar.org'] },
+            { label: 'APS', hostname: 'journals.aps.org', destinations: ['link.aps.org'] },
+            { label: 'AIP', hostname: 'pubs.aip.org' },
+            { label: 'IOPscience', hostname: 'iopscience.iop.org' },
+            { label: 'Nature', hostname: 'nature.com', aliases: ['www.nature.com'] },
+            { label: 'Science', hostname: 'science.org', aliases: ['www.science.org'] },
+            { label: 'ScienceDirect', hostname: 'sciencedirect.com', aliases: ['www.sciencedirect.com'] },
+            { label: 'Springer', hostname: 'springer.com', aliases: ['www.springer.com'], destinations: ['link.springer.com'] },
+            { label: 'Wiley Online Library', hostname: 'onlinelibrary.wiley.com' },
+            { label: 'Oxford Academic', hostname: 'academic.oup.com' },
+            { label: 'Cambridge', hostname: 'cambridge.org', aliases: ['www.cambridge.org'] },
+            { label: 'JSTOR', hostname: 'jstor.org', aliases: ['www.jstor.org'] },
+            { label: 'IEEE Xplore', hostname: 'ieeexplore.ieee.org' },
+            { label: 'ACM Digital Library', hostname: 'dl.acm.org' },
+            { label: 'PubMed / NCBI', hostname: 'pubmed.ncbi.nlm.nih.gov', destinations: ['ncbi.nlm.nih.gov'] },
+        ] },
+    { label: 'Writing', services: [
+            { label: 'Overleaf', hostname: 'overleaf.com', aliases: ['www.overleaf.com'] },
+        ] },
+    { label: 'University', services: [
+            { label: 'Ladok', hostname: 'student.ladok.se' },
+            { label: 'Canvas', hostname: 'canvas.kth.se', destinations: ['canvas.instructure.com', 'learn.canvas.net'] },
+        ] },
+    { label: 'Development', services: [
+            { label: 'GitHub', hostname: 'github.com', aliases: ['www.github.com'] },
+        ] },
+];
+function serviceHostnames(service) {
+    return [service.hostname, ...(service.aliases ?? []), ...(service.destinations ?? [])];
+}
+/** Display metadata only; never makes a hostname available or equivalent. */
+function serviceLabel(hostname) {
+    for (const group of exports.curatedWhitelist)
+        for (const service of group.services) {
+            if (serviceHostnames(service).includes(hostname))
+                return service.label;
+        }
+    return hostname;
+}
+function compileCuratedWhitelist(groups = exports.curatedWhitelist) {
+    const hostnames = new Set();
+    for (const group of groups)
+        for (const service of group.services)
+            for (const hostname of serviceHostnames(service)) {
+                if ((0, index_1.normalizeTarget)({ hostname })?.hostname !== hostname)
+                    throw new TypeError('Invalid curated hostname');
+                hostnames.add(hostname);
+            }
+    return { whitelist: [...hostnames], blacklist: [] };
+}
 
 }
 };

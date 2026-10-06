@@ -5,6 +5,7 @@ const path = require("path");
 const os = require("os");
 const { randomUUID, createHash } = require("crypto");
 const { validateAtlasSnapshot, migrateAtlasSnapshotV1 } = require("../core/index");
+const { initialApplication, validateApplication, transitionApplication, validateDestinations } = require("./application");
 
 const digest = text => createHash("sha256").update(text).digest("hex");
 const token = value => typeof value === "string" && /^[A-Za-z0-9_.:-]{1,256}$/.test(value);
@@ -83,12 +84,14 @@ class AtlasFileRepository {
     }
     envelope(text) {
         const data = JSON.parse(text);
-        if (!exact(data, ["schemaVersion", "storageVersion", "lastCommitId", "snapshot"]) ||
+        if (!(exact(data, ["schemaVersion", "storageVersion", "lastCommitId", "snapshot"]) ||
+            exact(data, ["schemaVersion", "storageVersion", "lastCommitId", "snapshot", "application"])) ||
             ![1, 2].includes(data.schemaVersion) || !token(data.storageVersion) ||
             !(data.lastCommitId === null || token(data.lastCommitId))) throw new Error("Invalid Atlas envelope");
         if (data.schemaVersion === 2) {
             const validated = validateAtlasSnapshot(data.snapshot);
             if (!validated.ok) throw new Error("Invalid Atlas snapshot");
+            if (Object.hasOwn(data, "application") && !validateApplication(data.application, validated.snapshot)) throw new Error("Invalid Atlas application metadata");
             return { ...data, snapshot: validated.snapshot };
         }
         return data;
@@ -140,22 +143,25 @@ class AtlasFileRepository {
             if (this.lastBytes !== null && text !== this.lastBytes) {
                 this.issue = "EXTERNAL_WRITE"; return { type: "UNAVAILABLE" };
             }
-            if (value.schemaVersion === 1) {
-                const converted = migrateAtlasSnapshotV1(value.snapshot, this.configuration);
+            if (value.schemaVersion === 1 || !Object.hasOwn(value, "application")) {
+                const converted = value.schemaVersion === 1 ? migrateAtlasSnapshotV1(value.snapshot, this.configuration) : validateAtlasSnapshot(value.snapshot);
                 if (!converted.ok) return { type: "READY", envelope: null };
-                const next = { schemaVersion: 2, snapshot: converted.snapshot };
+                const next = { schemaVersion: 2, snapshot: converted.snapshot, application: initialApplication(converted.snapshot.policy) };
                 this.lastBytes = text;
                 const receipt = await this.replace(value.storageVersion, `migration:${randomUUID()}`, next);
                 if (receipt.type !== "COMMITTED") return { type: "UNAVAILABLE" };
                 value = this.envelope(this.lastBytes);
             }
             this.lastBytes = this.read("authority.json");
-            return { type: "READY", envelope: value };
+            // Core's closed envelope stays unchanged. Application data never
+            // enters its schema or its permission-changing operations.
+            const { application: _application, ...envelope } = value;
+            return { type: "READY", envelope };
         } catch (_) { this.issue = "STORAGE_UNAVAILABLE"; return { type: "UNAVAILABLE" }; }
     }
-    async initialize(snapshot) {
+    async initialize(snapshot, application = initialApplication(snapshot.policy)) {
         const validated = validateAtlasSnapshot(snapshot);
-        if (!validated.ok) return false;
+        if (!validated.ok || !validateApplication(application, validated.snapshot)) return false;
         const loaded = await this.load();
         if (loaded.type !== "UNINITIALIZED") return false;
         try {
@@ -164,7 +170,7 @@ class AtlasFileRepository {
             // setup is unavailable, rather than being mistaken for fresh setup.
             this.flushFile("initialized", "Atlas schema 2\n");
             this.flushDirectory();
-            const value = { schemaVersion: 2, storageVersion: randomUUID(), lastCommitId: null, snapshot: validated.snapshot };
+            const value = { schemaVersion: 2, storageVersion: randomUUID(), lastCommitId: null, snapshot: validated.snapshot, application };
             const bytes = JSON.stringify(value);
             const temporary = `.authority-${randomUUID()}.tmp`;
             this.flushFile(temporary, bytes);
@@ -186,7 +192,10 @@ class AtlasFileRepository {
             const validated = validateAtlasSnapshot(next.snapshot);
             if (next.schemaVersion !== 2 || !validated.ok || !token(commitId)) return receipt("NOT_WRITTEN");
             const storageVersion = randomUUID();
-            const after = JSON.stringify({ schemaVersion: 2, storageVersion, lastCommitId: commitId, snapshot: validated.snapshot });
+            const application = next.application ?? transitionApplication(current.application ?? initialApplication(current.snapshot.policy),
+                current.snapshot, validated.snapshot, this.stagedApplication);
+            if (!validateApplication(application, validated.snapshot)) return receipt("NOT_WRITTEN");
+            const after = JSON.stringify({ schemaVersion: 2, storageVersion, lastCommitId: commitId, snapshot: validated.snapshot, application });
             const journal = { commitId, beforeHash: digest(before), afterHash: digest(after), storageVersion };
             const temporary = `.authority-${randomUUID()}.tmp`;
             this.flushFile(temporary, after);
@@ -198,6 +207,7 @@ class AtlasFileRepository {
             this.flushDirectory();
             const result = this.settled(journal);
             if (result.type !== "COMMITTED") return receipt("UNKNOWN");
+            this.previousEnvelope = current;
             this.lastBytes = after;
             this.clearJournal();
             this.issue = null;
@@ -215,6 +225,27 @@ class AtlasFileRepository {
     }
     /** @param {import('../core/index').AtlasCommitRequest} request */
     commit(request) { return this.replace(request.expectedStorageVersion, request.commitId, request.next); }
+    application(storageVersion = undefined) {
+        if (!this.lastBytes) return null;
+        const envelope = this.envelope(this.lastBytes);
+        if (storageVersion === undefined || envelope.storageVersion === storageVersion) return envelope.application ?? null;
+        return this.previousEnvelope?.storageVersion === storageVersion ? this.previousEnvelope.application ?? null : null;
+    }
+    stageApplication(destinations) {
+        const valid = validateDestinations(destinations);
+        if (!valid) throw new Error("Invalid Atlas destination draft");
+        this.stagedApplication = valid;
+    }
+    clearApplicationStage() { this.stagedApplication = null; }
+    // Operational cache uses the same owner and atomic replacement, separately
+    // from authority and the Core journal. Failed publication keeps prior data.
+    loadManagedCache() { this.acquire(); this.assertOwner(); const text = this.read("managed-cache.json"); return text === null ? null : JSON.parse(text); }
+    saveManagedCache(value) {
+        try {
+            this.assertOwner(); const name = `.managed-${randomUUID()}.tmp`;
+            this.flushFile(name, JSON.stringify(value)); this.io.renameSync(this.file(name), this.file("managed-cache.json")); this.flushDirectory(); return true;
+        } catch (_) { return false; }
+    }
     /** @returns {Promise<import('../core/index').AtlasCommitResolution>} */
     async resolveCommit(commitId) {
         try {
@@ -223,6 +254,7 @@ class AtlasFileRepository {
             if (!journal || journal.commitId !== commitId) return { type: "UNKNOWN", commitId };
             const result = this.settled(journal);
             if (result.type !== "UNKNOWN") {
+                if (this.lastBytes) this.previousEnvelope = this.envelope(this.lastBytes);
                 this.lastBytes = this.read("authority.json");
                 this.clearJournal();
             }

@@ -21,3 +21,14 @@ fs.writeFileSync(path.join(output, "build-manifest.json"), JSON.stringify({
     artifacts: Object.fromEntries(artifacts.map(name => [name, hash(path.join(output, name))]))
 }, null, 2) + "\n");
 console.log("Compiled AtlasCore for Obsidian.");
+// The attached product preset is canonical TypeScript; compile it, never copy
+// its hostnames into an independently maintained list.
+const preset = path.join(__dirname, "lib/atlas/presets/curated-whitelist.ts");
+execFileSync(process.execPath, [path.join(core, "node_modules/typescript/bin/tsc"), preset,
+    "--target", "ES2022", "--module", "commonjs", "--moduleResolution", "node10",
+    "--ignoreDeprecations", "6.0", "--skipLibCheck", "true", "--declaration", "true",
+    "--outDir", path.dirname(preset)], { stdio: "inherit", windowsHide: true });
+fs.writeFileSync(path.join(path.dirname(preset), "build-manifest.json"), JSON.stringify({
+    source: hash(preset), javascript: hash(preset.replace(/\.ts$/, ".js")),
+    declarations: hash(preset.replace(/\.ts$/, ".d.ts"))
+}, null, 2) + "\n");

@@ -1,0 +1,54 @@
+<!doctype html><meta charset="utf-8"><title>Atlas product surface checks</title>
+<link rel="stylesheet" href="../../styles.css">
+<style>
+html,body{margin:0;height:100%;background:#1e1e1e;font-family:Arial,sans-serif}#home{height:100%;box-sizing:border-box}#settings{height:100%;box-sizing:border-box}#result{position:fixed;top:0;right:0;z-index:20;margin:0;padding:3px 8px;background:#fff;color:#596344;font-size:10px;pointer-events:none}
+</style>
+<main id="home" class="hub-atlas-home"></main><main id="settings" hidden></main><pre id="result">RUNNING</pre>
+<script type="module">
+const sources=new Map(),cache=new Map();
+const resolve=(name,request)=>{const parts=name.split('/').slice(0,-1);for(const part of request.split('/')){if(part==='..')parts.pop();else if(part!=='.')parts.push(part)}return parts.join('/').replace(/\.js$/,'')};
+async function collect(name){if(sources.has(name))return;sources.set(name,null);const response=await fetch('../'+name+'.js');if(!response.ok)throw Error('Missing fixture module '+name);const source=await response.text();sources.set(name,source);await Promise.all([...source.matchAll(/require\(\s*['"](\.\.?\/[^'"]+)['"]\s*\)/g)].map(match=>collect(resolve(name,match[1]))))}
+function load(name){if(cache.has(name))return cache.get(name).exports;const module={exports:{}};cache.set(name,module);new Function('module','exports','require',sources.get(name))(module,module.exports,request=>load(resolve(name,request)));return module.exports}
+const assert=(value,message)=>{if(!value)throw Error(message)},tick=()=>new Promise(resolve=>setTimeout(resolve,30));
+try{
+ await Promise.all(['atlas/obsidian/home-ui','atlas/obsidian/ui','atlas/presets/curated-whitelist','atlas/core/index'].map(collect));
+ const Core=load('atlas/core/index'),preset=load('atlas/presets/curated-whitelist'),{mountAtlasHome}=load('atlas/obsidian/home-ui'),{mountAtlasOverview}=load('atlas/obsidian/ui');
+ const config={accessTiming:{waitMs:10000,confirmationWindowMs:60000,grantDurationMs:60000},vaultTiming:{waitMs:30000,confirmationWindowMs:60000},journeyLimits:{lifetimeMs:300000,maxHops:12}};
+ const initialPolicy=preset.compileCuratedWhitelist(),initialDestinations=preset.curatedWhitelist.flatMap(group=>group.services.map(service=>({id:'curated:'+service.hostname,label:service.label,category:group.label,hostname:service.hostname,aliases:[...(service.aliases??[])],destinations:[...(service.destinations??[])],pinned:['Gmail','KTH Mail','ChatGPT','GitHub'].includes(service.label)})));
+ const snapshot={policy:structuredClone(initialPolicy),policyRevision:0,configuration:config,configurationRevision:0,accessState:Core.createAccessState(),vaultState:Core.createVaultState(),journeyState:Core.createJourneyState()};
+ const application={schemaVersion:1,revision:0,destinations:structuredClone(initialDestinations),pending:null},listeners=new Set(),commands=[];let temporary=[];
+ const state=()=>({status:'READY',enabled:true,snapshot,application,starter:{policy:initialPolicy},storageVersion:'fixture-committed-authority',contexts:[],
+  destinations:application.destinations.map(d=>({...d,decision:Core.evaluate({hostname:d.hostname},snapshot.policy),hosts:preset.serviceHostnames(d).map(hostname=>({hostname,decision:Core.evaluate({hostname},snapshot.policy)}))})),temporaryDestinations:temporary,
+  managed:{enabled:true,active:true,count:163850,source:'StevenBlack combined variant',categories:['base','fakenews','gambling','porn','social'],origin:'BUNDLE',status:'ACTIVE',lastSuccessfulSync:null,lastAttemptAt:null,conflicts:[]}});
+ const bridge={view:state,subscribe:fn=>{listeners.add(fn);return()=>listeners.delete(fn)},command:async command=>{commands.push(command);return {type:'REJECTED',reason:'FIXTURE_CAPTURED_DRAFT'}},open:()=>{document.getElementById('home').hidden=true;document.getElementById('settings').hidden=false}};
+ const publish=()=>listeners.forEach(fn=>fn()),home=document.getElementById('home'),settings=document.getElementById('settings');
+ let navigation=null;const disposeHome=mountAtlasHome(home,bridge,url=>{navigation=url}),disposeSettings=mountAtlasOverview(settings,bridge);
+ assert(home.textContent.includes('ChatGPT')&&home.textContent.includes('Scholar / Research'),'Canonical metadata supplies Home');
+ assert(parseFloat(getComputedStyle(home.querySelector('h1')).fontSize)>parseFloat(getComputedStyle(home).fontSize)*1.5,'Atlas uses the existing Hub title/body typography tokens');
+ const originalCard=home.querySelector('.hub-atlas-card');for(let i=0;i<20;i++){snapshot.accessState.lastObservedAt=Date.now();publish()}assert(originalCard.isConnected,'Housekeeping preserves Home cards');
+ const search=home.querySelector('input[type=search]');search.value='arxiv';search.dispatchEvent(new Event('input'));assert(home.querySelectorAll('.hub-atlas-card').length===1,'Home search filters destinations');search.value='';search.dispatchEvent(new Event('input'));
+ home.querySelector('.hub-atlas-destination-link').click();await tick();assert(navigation.startsWith('https://'),'Home delegates external navigation');
+ const click=(parent,text)=>{const control=[...parent.querySelectorAll('button')].find(button=>button.textContent===text);assert(control&&!control.disabled,'Action '+text);control.click()};
+ bridge.open();click(settings,'Add a destination');const draft=settings.querySelector('.hub-atlas-draft'),name=draft.querySelector('[aria-label="Name"]'),primary=draft.querySelector('[aria-label="Primary hostname"]'),category=draft.querySelector('[aria-label="Category"]');
+ name.value='Wolfram Alpha';primary.value='wolframalpha.com';category.value='Tools';primary.dispatchEvent(new Event('input'));const checks=draft.querySelectorAll('input[type=checkbox]');checks[0].checked=true;checks[0].dispatchEvent(new Event('input'));
+ assert(draft.textContent.includes('wolframalpha.com, www.wolframalpha.com'),'www scope is explicit before submission');
+ const policyBefore=JSON.stringify(snapshot.policy);click(draft,'Review change in Vault');await tick();assert(commands.at(-1).kind==='PROPOSE_DESTINATION','Structured editor proposes through application/Core bridge');assert(commands.at(-1).destination.aliases[0]==='www.wolframalpha.com','Explicit counterpart included');assert(JSON.stringify(snapshot.policy)===policyBefore,'Draft never changes active policy');
+ name.focus();for(let i=0;i<20;i++){snapshot.accessState.lastObservedAt=Date.now();publish()}assert(name.isConnected&&name.value==='Wolfram Alpha'&&document.activeElement===name,'Housekeeping preserves focused draft');
+ const retainedCard=home.querySelector('.hub-atlas-card');temporary=[{hostname:'temporary.test',policyRevision:0,expiresAt:Date.now()+1000,decision:{outcome:'ALLOW',reason:'ACTIVE_GRANT'}}];publish();assert(home.textContent.includes('temporary.test'),'Temporary access is reflected');temporary=[];publish();assert(retainedCard.isConnected,'Grant transitions preserve destination cards');
+ application.destinations[0].label='My assistant';application.destinations[0].category='Work';application.destinations[0].pinned=false;application.revision++;publish();assert(home.textContent.includes('My assistant')&&home.textContent.includes('Work'),'Committed names/categories/pins update Home');
+ const github=application.destinations.find(d=>d.label==='GitHub');snapshot.policy.whitelist=snapshot.policy.whitelist.filter(h=>!preset.serviceHostnames(github).includes(h));snapshot.policyRevision++;application.destinations=application.destinations.filter(d=>d!==github);application.revision++;publish();assert(!home.textContent.includes('GitHub'),'Removed committed destination disappears');
+ // Restore canonical public fixture data for a reviewable visual preview.
+ snapshot.policy=structuredClone(initialPolicy);snapshot.policyRevision=0;application.destinations=structuredClone(initialDestinations);application.revision++;publish();
+ // Display edits must preserve a differently classified alias and its role.
+ snapshot.policy.blacklist.push('www.github.com');publish();
+ const sourceRow=[...settings.querySelectorAll('.hub-atlas-site-row')].find(row=>row.textContent.includes('GitHub'));click(sourceRow,'Edit');
+ const sourceDraft=settings.querySelector('.hub-atlas-draft');sourceDraft.querySelector('[aria-label="Name"]').value='My code';const mixedPolicy=JSON.stringify(snapshot.policy);
+ click(sourceDraft,'Save display details');await tick();assert(commands.at(-1).kind==='SAVE_DISPLAY_DETAILS'&&!Object.hasOwn(commands.at(-1),'hostname'),'Name-only editor uses the closed presentation command');assert(JSON.stringify(snapshot.policy)===mixedPolicy,'Name-only editor never reclassifies mixed aliases');
+ snapshot.policy=structuredClone(initialPolicy);publish();
+ click(settings,'Add a destination');const previewDraft=settings.querySelector('.hub-atlas-draft');previewDraft.querySelector('[aria-label="Name"]').value='Wolfram Alpha';previewDraft.querySelector('[aria-label="Primary hostname"]').value='wolframalpha.com';previewDraft.querySelector('[aria-label="Category"]').value='Tools';previewDraft.querySelector('input[type=checkbox]').checked=true;previewDraft.querySelector('[aria-label="Primary hostname"]').dispatchEvent(new Event('input'));
+ const preview=new URLSearchParams(location.search).get('preview')||'home';home.hidden=preview!=='home';settings.hidden=preview==='home';
+ assert(!settings.querySelector('[data-atlas-page=sites]').hidden,'Sites page is selected');
+ document.getElementById('result').textContent='PASS: canonical Home, search, committed metadata/removal, temporary access, structured Vault draft, explicit www, stable focused inputs/cards.';
+ window.addEventListener('unload',()=>{disposeHome();disposeSettings()},{once:true});
+}catch(error){document.getElementById('result').textContent='FAIL: '+error.stack}
+</script>

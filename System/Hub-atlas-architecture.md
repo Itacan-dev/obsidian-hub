@@ -1,7 +1,7 @@
 # Atlas in the Obsidian webviewer
 
 Integration design recorded before implementation and updated after verification,
-2026-10-05. The copied Core
+2026-10-06. The copied Core
 source, tests and current D18/D19/D22/D25 contracts govern authorization. Earlier
 Firefox milestones describe historical scope, not APIs to copy into Obsidian.
 
@@ -15,6 +15,8 @@ AtlasCore/packages/core/src/                 framework independent, unchanged
 
 .obsidian/plugins/hub-project-menu/
 ├── lib/atlas/core/                          generated CommonJS from Core source
+├── lib/atlas/presets/                       canonical service metadata/compiler
+├── lib/atlas/managed/                       verified feed/cache/bundle service
 ├── lib/atlas/obsidian/
 │   ├── persistence.js                      exclusive filesystem repository
 │   ├── clock.js                            real clock injected into Core
@@ -22,11 +24,15 @@ AtlasCore/packages/core/src/                 framework independent, unchanged
 │   ├── webviewer.js                        Electron main-process interception
 │   ├── native.js                           one host per vault/session
 │   ├── integration.js                      trusted Obsidian renderer bridge
-│   └── ui.js                               blocked access, overview and Vault
+│   ├── application.js                     versioned destination metadata
+│   ├── note-context.js                    live Note-view menu gating
+│   ├── home-ui.js                         trusted internal Atlas Home
+│   ├── settings-ui.js                     six functional settings sections
+│   └── ui.js                              shared forms and blocked access
 ├── atlas-native.cjs                         generated main-process entry
 └── plugin.js → main.js                      installs bridge at plugin startup
 
-Obsidian native webviewer (installed 1.13.7)
+Obsidian native webviewer (inspected frontend 1.14.4)
 ├── setViewState / navigate / loadURL         typed URL, notes, bookmarks, restoration
 ├── leaf.history                            Obsidian Back/Forward
 ├── Electron <webview> / WebContents          Chromium documents and native events
@@ -41,7 +47,8 @@ Obsidian native webviewer (installed 1.13.7)
 | Clock | Wall-clock observation and elapsed-time floor for this process | Date/performance clock | Controller and execution veto | Time input; never confirmation |
 | Webviewer guard | Native handles, debugger readiness, request IDs, frame IDs, initiating-frame evidence, expiry watchdogs | Runtime, Electron/CDP | Native Electron events | Browser facts; never stored policy |
 | Renderer bridge | View/guest association, subscription and DOM lifecycle | Narrow host methods | Plugin, native view lifecycle, UI | Derived; no independent controller |
-| UI | Editable drafts, displayed deadlines/reasons, selected context, busy state | Closed explicit host commands | Obsidian settings, ribbon, blocked viewer | Presentation only |
+| Application/managed services | Versioned destination metadata, frozen proposal metadata; last-good compiled managed identity/cache | Repository and Core compiler/planner | Runtime and native host | Managed membership input to Core; metadata never grants access |
+| UI | Editable drafts, displayed deadlines/reasons, selected context, busy state | Closed explicit host commands | Note-view Home, Obsidian settings, blocked viewer | Presentation only |
 | Native Obsidian viewer | Actual URL/document, title, reader mode, leaf history and layout | Electron guest APIs | Obsidian and notes | Browser state, not Atlas permission |
 
 ## Observed platform boundary
@@ -49,9 +56,14 @@ Obsidian native webviewer (installed 1.13.7)
 This repository is an Obsidian vault and CommonJS community plugin, not an
 Electron application with its own bootstrap. Hub's existing navigation and
 presets preserve native `webviewer` leaves; they do not create browser controls.
-Inspection of the installed `obsidian-1.13.7.asar/app.js` establishes:
+Inspection of the installed `obsidian-1.14.4.asar/app.js` establishes:
 
 - `instantiateWebView` creates an Electron `<webview>` in the vault partition.
+- `leaf-menu` is emitted by both the native header menu and tab-header context
+  menu. Settings pushes its own native keymap scope, including under a menu scope.
+- Empty tab strips do not emit `leaf-menu`, and native drag regions swallow DOM
+  context menus. Live Note content groups receive a scoped no-drag menu surface;
+  its launcher rechecks the same mode, leaf, document and Settings authority.
 - `navigate` uses `webview.loadURL`; reload calls `webview.reload` directly.
 - Native address suggestions, note/open-url events, CLI, bookmarks, reader-mode
   links and context menus can call `setViewState`, including tab/split/window.
@@ -99,6 +111,14 @@ navigation assessment, required Journey adoption, release, arrival and user
 commands. Context IDs are fresh and opaque; guest IDs alone are never reusable
 Journey identity. Plugin unload suspends browsing while the host keeps Core
 authority and unresolved-write guards for reload.
+The renderer requires native API version 3. An older cached service is refused
+with an explicit quit/reopen notice and guest-factory quarantine, rather than
+hot-swapping a controller or displaying new features against old authority.
+Descriptions and command results cross the remote bridge as JSON strings, then
+become ordinary local renderer data. Nested remote object proxies previously
+caused synchronous IPC on property reads during rendering. STATE_CHANGED events
+replace the local description before publishing to Home, Settings and native
+interstitials. The renderer cache confers no navigation authority.
 
 Hub's `data.json` store deliberately normalizes missing data and has weaker
 reconciliation semantics than Atlas requires. Atlas instead uses the same
@@ -112,10 +132,32 @@ An exclusive machine/process lock fences other cooperative writers. Missing
 initialized authority, malformed data, future schema, conflicts and clock
 rollback block browsing. Known valid schema 1 is explicitly migrated atomically.
 
-First setup is a separate explicit UI action on a genuinely uninitialized
-repository. It chooses exact-host policy and discloses the documented
+First setup is an explicit action on a genuinely unused repository. It offers
+the curated policy (32 services / 58 exact hosts) and discloses the
 development timing values (10s/60s/60s Access; 30s/60s Vault; 5m/12 hops Journey).
-No unavailable or damaged repository is reset. Later changes use Vault.
+Advanced custom/empty initialization remains explicit. Existing policy is never
+reseeded: importing the starter set later proposes a union in Vault, preserving
+manual Blacklist entries and all active authority until confirmation. No damaged
+repository is reset. Later host/access and timing changes use Vault.
+
+The disk envelope keeps Core schema 2 and adds an application-schema-1 field.
+The repository strips this field before supplying Core's closed envelope contract.
+Known old envelopes acquire metadata through the same journal/CAS/atomic-write
+path, preserving the complete Core snapshot, counters and revisions. Destination
+names, categories, aliases, entrypoints and pins are persisted; active Home rows
+always describe committed policy. Frozen metadata for a host edit commits in the
+same envelope as its successful Core Vault confirmation. Failed/unknown saves do
+not publish metadata ahead of the controller's verified storage version.
+Presentation-only edits have an explicit atomic save and never rewrite hosts or
+policy revisions; Core correctly refuses no-policy-change Vault proposals.
+
+Managed data is a separate private `managed-cache.json`, never manual Blacklist.
+The verified pinned bundle allows offline startup. A valid last-good cache wins;
+corrupt cache falls back to the bundle, and no usable authority yields unavailable
+managed input rather than an empty allowlist. Download/validation runs outside the
+controller queue; flushed cache replacement and compiled-identity activation run
+inside it, followed by Core observation and retained-page checks. See
+[the product/services contract](Hub-atlas-product.md) for source and validation.
 
 ```text
 Explicit user action → controller loads/validates → Core complete candidate
@@ -169,16 +211,42 @@ evidence and saves Core context closure.
 
 The panel uses Core outcomes/IDs; it does not infer permission from a countdown.
 Request creation is idempotent in Core. Saved exact scopes are shown; no global
-apex/www equivalence or Firefox preset is invented. The copied tree contains
-Core's managed-list compiler but no feed bytes, curated compiler or preset.
-The adapter documents managed authority as absent rather than claiming a
-bundled blacklist, provider catalog or seed policy.
+apex/www equivalence is inferred. The canonical preset explicitly enumerates
+every alias and related destination. Sites & Access previews the exact primary,
+optional www counterpart and other hosts before proposing a change. Managed
+membership always flows through Core's existing precedence.
 
-Atlas overview lists saved temporary grants and native contexts with Journey
+Atlas settings list saved temporary grants and native contexts with Journey
 status. Policy and seven protected settings use PROPOSE → frozen REVIEW → wait
 → explicit CONFIRM → durable commit. One Vault slot is shared. Cancellation
 and replacement require a fresh full wait; no direct-write settings shortcut
 exists. Core review supplies exact classification consequences.
+
+## Note-view launch and Atlas Home
+
+The live `plugin.workspaceModes.mode` identity plus `state.currentMode === "note"`
+is Hub's Note-view authority. Launch additionally checks live main-leaf/document
+ownership, the current active view and content membership, and native/Hub/Atlas
+Settings. Markdown must belong to the live Project/Resource (including linked
+Resource folders); the prepared rail and native browser tabs are eligible.
+Home.md, other modes/views, detached leaves and stale mode callbacks are excluded.
+The menu captures the live mode and rechecks it on activation and before opening.
+Body classes, remembered last navigation, text selection and URLs supply no gate.
+
+The action creates a sibling native `webviewer` at `about:blank`, marking native
+state `{atlasHome:true,title:"Atlas"}` for presets/layout restoration. It reuses
+an existing internal Home in the live content leaves; ordinary browser tabs stay
+separate. Atlas Home is trusted parent UI while its guest stays sterile blank.
+Branding, search, temporary access, pins, categories and entrypoints derive from
+canonical/application metadata plus committed Core descriptions. A destination
+click calls native `navigate`, entering the same main-process Fetch authorization
+gate as note links and typed URLs. Blank/Home is no destination permission.
+There is no Atlas ribbon, command-palette launcher or global Hub mode.
+
+Subscribers compare meaningful section signatures, preserving focused drafts and
+unchanged cards during time observations and grant transitions. A one-second
+timer updates countdown text only. This native-parent route differs from the
+Firefox extension's own privileged page/tab; the security engine stays unchanged.
 
 ## Security limits to verify and document
 
@@ -197,7 +265,7 @@ table and limits in [the security review](Hub-atlas-security.md).
 
 ## Building and verification
 
-`build-atlas.js` compiles the unchanged Core source to CommonJS plus declarations.
+`build-atlas.js` compiles unchanged Core and the canonical preset to CommonJS plus declarations.
 Its manifest records source/configuration/builder and artifact hashes. `build.js`
 refuses stale Core artifacts, then emits the renderer and main-process bundles.
 The main bundle alone imports Electron/native filesystem; the renderer imports
@@ -212,7 +280,10 @@ Node suite also passes; three stale fixture assumptions about existing history,
 card ownership/window mocks and Oath typography were corrected without changing
 those production features. Exact commands are documented in the root README.
 
-Final verification on 2026-10-05: 191 Core tests, 32 adapter/repository tests,
-36 existing Hub tests and 21 real Electron browser cases passed. Core's strict
-typecheck, the adapter JavaScript typecheck, both generated bundles and the
-whitespace check passed. No live vault Atlas authority was initialized.
+Verification commands are in the root README. New tests cover curated setup,
+existing-policy import, atomic metadata/Vault confirmation and uncertainty,
+display-only revisions, old-envelope migration, managed validation/cache/failure
+and Core precedence, note-only/stale-menu rejection, native Home creation/reuse,
+draft/card stability and navigation from Home through the real Chromium gate.
+The portable HTML runner renders hidden fixtures offscreen in isolated profiles.
+No live vault Atlas authority is initialized by these tests.

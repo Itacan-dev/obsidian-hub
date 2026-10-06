@@ -4,6 +4,7 @@
 // Missing files are pruned at restore time; markdown content always opens editable.
 function browserViewState(view) {
     if (view?.type !== "webviewer" || typeof view.state?.url !== "string") return null;
+    if (view.state.url === "about:blank" && view.state.atlasHome === true) return { url: "about:blank", atlasHome: true, title: "Atlas" };
     try {
         const url = new URL(view.state.url);
         if (!["http:", "https:"].includes(url.protocol)) return null;

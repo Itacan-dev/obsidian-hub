@@ -8,7 +8,7 @@ const { createAtlasRuntime } = require("../../obsidian/runtime");
 const { createWebviewerEnforcement } = require("../../obsidian/webviewer");
 const directory = process.env.ATLAS_NATIVE_TEST_ROOT || fs.mkdtempSync(path.join(os.tmpdir(), "atlas-native-test-"));
 app.setPath("userData", path.join(directory, "profile"));
-app.commandLine.appendSwitch("host-resolver-rules", "MAP *.test 127.0.0.1");
+app.commandLine.appendSwitch("host-resolver-rules", "MAP *.test 127.0.0.1, MAP chatgpt.com 127.0.0.1, MAP www.chatgpt.com 127.0.0.1");
 app.commandLine.appendSwitch("no-proxy-server");
 app.commandLine.appendSwitch("disable-gpu");
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -225,9 +225,15 @@ app.whenReady().then(async () => {
         const uiDirectory = path.join(directory, "ui-plugin"); fs.mkdirSync(uiDirectory);
         const pluginDirectory = path.resolve(__dirname, "../../../..");
         fs.copyFileSync(path.join(pluginDirectory, "atlas-native.cjs"), path.join(uiDirectory, "atlas-native.cjs"));
-        const uiWindow = new BrowserWindow({ show: false, webPreferences: { webviewTag: true, nodeIntegration: true, contextIsolation: false } });
+        const bundleDirectory = path.join(uiDirectory, "lib/atlas/managed/data"); fs.mkdirSync(bundleDirectory, { recursive: true });
+        for (const name of ["hosts", "metadata.json"]) fs.copyFileSync(path.join(pluginDirectory, "lib/atlas/managed/data", name), path.join(bundleDirectory, name));
+        // Operational fetch uses only the pinned fixture bytes in this suite.
+        const net = require("electron").net, originalFetch = net.fetch;
+        net.fetch = async () => new Response(fs.readFileSync(path.join(bundleDirectory, "hosts"), "utf8"), { headers: { etag: '"native-fixture"' } });
+        const uiWindow = new BrowserWindow({ show: false, width: 1300, height: 940, webPreferences: { webviewTag: true, nodeIntegration: true, contextIsolation: false, backgroundThrottling: false } });
         remoteMain.enable(uiWindow.webContents); await uiWindow.loadFile(path.join(__dirname, "host.html"));
         const result = await uiWindow.webContents.executeJavaScript(`require(${JSON.stringify(path.join(__dirname, "renderer-fixture.cjs"))})(${JSON.stringify({ directory: uiDirectory, pluginDirectory, baseUrl: url("unknown.test") })})`);
+        net.fetch = originalFetch;
         assert.match(result, /^PASS/); console.log(result);
         await uiWindow.webContents.executeJavaScript("document.body.replaceChildren()"); uiWindow.close();
     });

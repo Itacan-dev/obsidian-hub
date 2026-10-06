@@ -72,10 +72,10 @@ function renderAppearance(parent) {
     segments(row(group, "Animations"), "Animations", ["Full", "Reduced"], "Full");
 }
 function renderSettingsPage(parent, page, plugin) {
+    if (page.id === "atlas" && plugin?.atlas) return require("../atlas/obsidian/ui").mountAtlasOverview(parent, plugin.atlas);
     parent.createEl("h2", { text: page.title });
     parent.createEl("p", { cls: "hub-settings-description", text: page.description });
     if (page.id === "appearance") return renderAppearance(parent);
-    if (page.id === "atlas" && plugin?.atlas) return require("../atlas/obsidian/ui").mountAtlasOverview(parent, plugin.atlas);
     parent.createEl("p", { cls: "hub-settings-preview-note", text: "No options available in this preview." });
     for (let i = 0; i < 2; i++) parent.createDiv({ cls: "hub-settings-empty-section", attr: { "aria-hidden": "true" } });
 }

@@ -1,5 +1,20 @@
 # Obsidian Hub modules
 
+Atlas lives under `atlas/`. `core/` is generated unchanged from the copied
+framework-independent TypeScript; `presets/` compiles the canonical service
+metadata. `managed/` validates the pinned offline data and last-good daily feed
+cache. `obsidian/application.js` owns validated display metadata; persistence and
+runtime publish it atomically with successful Core Vault host changes. Renderer
+`home-ui.js` and `settings-ui.js` own presentation/drafts only. `note-context.js`
+registers a native header/tab action gated by the live Hub Note-mode object,
+leaf/context membership and Settings, including rechecks of old callbacks.
+There is no global Atlas launcher or extra renderer authorization engine.
+See the root README and `System/Hub-atlas-{architecture,product,security}.md`.
+
+Run the Atlas Node suite and pinned Electron native suite as documented in the
+root README. `atlas/tests/native/browser-launch.cjs` also runs existing HTML
+fixtures in hidden offscreen Chromium; it uses only isolated temporary profiles.
+
 Quick Add and Inbox use `services/inbox.js` and `domain/inbox.js`, with native
 modal surfaces in `ui/quick-add.js` and `ui/inbox.js`. `ui/capture-controls.js`
 mounts them in the existing global footer; the Quick Add command uses Obsidian's

@@ -22,7 +22,13 @@ function el(parent, tag, text, className) {
 }
 function button(parent, label, action, disabled = false) {
     const node = el(parent, "button", label); node.type = "button"; node.disabled = disabled;
-    node.addEventListener("click", async () => { node.disabled = true; try { await action(); } finally { if (node.isConnected) node.disabled = disabled; } });
+    node.addEventListener("click", async () => {
+        node.dataset.atlasBusy = "true"; node.disabled = true;
+        try { await action(); } finally {
+            delete node.dataset.atlasBusy;
+            if (node.isConnected) node.disabled = disabled || node.dataset.atlasUnavailable === "true" || node.dataset.atlasNotReady === "true";
+        }
+    });
     return node;
 }
 const seconds = deadline => `${Math.max(0, Math.ceil((deadline - Date.now()) / 1000))} s`;
@@ -31,7 +37,10 @@ function countdown(parent, label, deadline) {
     node.dataset.atlasDeadline = String(deadline); node.dataset.atlasLabel = label;
 }
 function updateCountdowns(parent) {
-    for (const node of parent.querySelectorAll("[data-atlas-deadline]")) node.textContent = `${node.dataset.atlasLabel}: ${seconds(Number(node.dataset.atlasDeadline))}`;
+    for (const node of parent.querySelectorAll("[data-atlas-deadline]")) {
+        const value = `${node.dataset.atlasLabel}: ${seconds(Number(node.dataset.atlasDeadline))}`;
+        if (node.textContent !== value) node.textContent = value;
+    }
 }
 function renderNavigation(parent, state, context, bridge) {
     const decision = context?.response?.decision;
@@ -80,10 +89,18 @@ function hostInput(parent, label, hostnames) {
     return () => input.value.split(/[\n,]/).map(value => value.trim()).filter(Boolean);
 }
 function configurationInput(parent, configuration) {
+    const descriptions = {
+        waitMs: "Waiting makes an explicit confirmation available; it never grants permission.",
+        confirmationWindowMs: "Confirm within this window. Expiry requires a fresh request or proposal.",
+        grantDurationMs: "Fixed lifetime after confirmation. Browsing and reloads never extend it.",
+        lifetimeMs: "Maximum fixed time for a continuation from a trusted destination.",
+        maxHops: "Maximum continuation steps. No other tab or popup inherits them."
+    };
     const inputs = fields.map(([group, key, label, duration]) => {
         const wrapper = el(parent, "label", `${label}${duration ? " (seconds)" : ""}`), input = el(wrapper, "input");
         input.type = "number"; input.min = "0"; input.step = duration ? "0.001" : "1";
         input.value = duration ? formatMilliseconds(configuration[group][key]) : String(configuration[group][key]);
+        el(wrapper, "small", descriptions[key]);
         return { group, key, duration, input };
     });
     return () => {
@@ -107,108 +124,7 @@ function describeConfiguration(parent, config, title) {
 }
 
 function mountAtlasOverview(parent, bridge) {
-    const hadOverviewClass = parent.classList.contains("hub-atlas-overview");
-    parent.classList.add("hub-atlas-overview");
-    el(parent, "h2", "Atlas access and Vault");
-    el(parent, "p", "Atlas governs top-level webviewer destinations by exact hostname. Waiting only makes explicit confirmation available.");
-    const status = el(parent, "div"), message = el(parent, "p"), forms = el(parent, "div"), navigation = el(parent, "div"), activity = el(parent, "div"), vault = el(parent, "div");
-    message.setAttribute("role", "status");
-    let formMode = null, review = null, activitySignature = null, vaultSignature = null, disposed = false;
-    const panels = new Map();
-    async function send(input) {
-        try {
-            const result = await bridge.command(input);
-            if (result.type === "REVIEW") review = result.review;
-            else if (result.type === "COMMITTED") review = null;
-            message.textContent = result.reason ?? (result.type === "COMMITTED" ? "Saved." : result.type === "REVIEW" ? "Review the frozen proposal below." : result.status ?? result.type);
-            vaultSignature = null; refresh(); return result;
-        } catch (error) { message.textContent = error.message; }
-    }
-    function refresh() {
-        if (disposed) return;
-        const state = bridge.view(), snapshot = state.snapshot;
-        status.textContent = `Atlas: ${state.status.toLowerCase()}${state.reason ? ` · ${state.reason}` : ""}${state.repositoryIssue ? ` · ${state.repositoryIssue}` : ""}`;
-        const mode = state.status === "UNINITIALIZED" ? "setup" : snapshot ? "protected" : "unavailable";
-        if (formMode !== mode) {
-            formMode = mode; forms.replaceChildren();
-            if (mode === "unavailable") {
-                el(forms, "p", "Atlas cannot establish authoritative state. Browsing stays blocked. Recovery reloads and reconciles saved state; it never resets it.");
-                button(forms, "Recover saved state", () => send({ kind: "RECOVER" }));
-            } else {
-                el(forms, "h3", mode === "setup" ? "First setup" : "Propose protected changes");
-                if (mode === "setup") el(forms, "p", "Choose your initial host policy and review the development timing defaults below. There is no implicit service preset. Setup is available only for an unused repository.");
-                const policy = snapshot?.policy ?? { whitelist: [], blacklist: [] };
-                const readWhitelist = hostInput(forms, "Whitelist", policy.whitelist), readBlacklist = hostInput(forms, "Blacklist", policy.blacklist);
-                const readConfig = configurationInput(forms, snapshot?.configuration ?? state.initialConfiguration);
-                const readPolicy = () => ({ whitelist: readWhitelist(), blacklist: readBlacklist() });
-                if (mode === "setup") button(forms, "Initialize Atlas with these terms", async () => {
-                    try { await send({ kind: "INITIALIZE", policy: readPolicy(), configuration: readConfig() }); } catch (error) { message.textContent = error.message; }
-                });
-                else {
-                    button(forms, "Propose policy in Vault", () => send({ kind: "PROPOSE_POLICY", candidatePolicy: readPolicy() })).dataset.atlasProtected = "";
-                    button(forms, "Propose timing settings in Vault", async () => {
-                        try { await send({ kind: "PROPOSE_SETTINGS", candidateConfiguration: readConfig() }); } catch (error) { message.textContent = error.message; }
-                    }).dataset.atlasProtected = "";
-                    button(forms, "Recover saved state", () => send({ kind: "RECOVER" }));
-                }
-            }
-        }
-        for (const node of forms.querySelectorAll("[data-atlas-protected]")) node.disabled = state.status !== "READY";
-        if (!snapshot) return;
-        const blockedContexts = state.contexts.filter(context => context.origin && ["BLOCKED", "ENFORCEMENT_FAILED"].includes(context.phase));
-        for (const [id, panel] of panels) if (!blockedContexts.some(context => context.id === id)) { panel.remove(); panels.delete(id); }
-        for (const context of blockedContexts) {
-            let panel = panels.get(context.id);
-            if (!panel) { panel = el(navigation, "section", undefined, "hub-atlas-panel"); panels.set(context.id, panel); }
-            renderNavigation(panel, state, context, bridge);
-        }
-        const signature = JSON.stringify([snapshot.policy, snapshot.policyRevision, snapshot.configuration, snapshot.configurationRevision,
-            snapshot.accessState.pendingRequests, snapshot.accessState.grants, snapshot.journeyState.journeys]);
-        if (activitySignature !== signature) {
-            activitySignature = signature; activity.replaceChildren();
-            el(activity, "h3", `Active policy · revision ${snapshot.policyRevision}`);
-            el(activity, "p", `Whitelist: ${snapshot.policy.whitelist.join(", ") || "empty"}`);
-            el(activity, "p", `Blacklist: ${snapshot.policy.blacklist.join(", ") || "empty"}`);
-            describeConfiguration(activity, snapshot.configuration, `Active timing settings · revision ${snapshot.configurationRevision}`);
-            el(activity, "h3", "Temporary access");
-            for (const grant of snapshot.accessState.grants) countdown(activity, `${(grant.scopeHostnames ?? [grant.hostname]).join(", ")} · remaining`, grant.expiresAt);
-            if (!snapshot.accessState.grants.length) el(activity, "p", "No temporary grants.");
-            for (const request of snapshot.accessState.pendingRequests) countdown(activity, `${request.hostname} · request ${request.id} · ready in`, request.readyAt);
-            el(activity, "h3", "Journeys");
-            for (const journey of snapshot.journeyState.journeys) {
-                el(activity, "p", `${journey.rootHostname} → ${journey.currentHostname} · ${journey.phase.toLowerCase()}${journey.endReason ? ` · ${journey.endReason.toLowerCase()}` : ""}`);
-                const context = state.contexts.find(item => item.id === journey.contextId);
-                if (context && journey.phase !== "ENDED") button(activity, "End this Journey", () => send({ kind: "CANCEL_JOURNEY", contextId: context.id, generation: context.generation }));
-            }
-        }
-        updateCountdowns(activity);
-        const pending = snapshot.vaultState.pendingProposal;
-        if (review && review.proposalId !== pending?.id) review = null;
-        const nextVaultSignature = JSON.stringify([pending, review, state.status]);
-        if (vaultSignature !== nextVaultSignature) {
-            vaultSignature = nextVaultSignature; vault.replaceChildren(); el(vault, "h3", "Vault");
-            if (!pending) el(vault, "p", "No pending proposal. Policy and settings share one proposal slot.");
-            else {
-                countdown(vault, `Proposal ${pending.id} · ready in`, pending.readyAt);
-                countdown(vault, "Confirmation window ends in", pending.confirmBy);
-                button(vault, "Review proposal", () => send({ kind: "REVIEW_POLICY", proposalId: pending.id }));
-                button(vault, "Cancel proposal", () => send({ kind: "CANCEL_POLICY", proposalId: pending.id }));
-                if (review) {
-                    el(vault, "p", `Review: ${review.phase.toLowerCase()}. ${review.invalidatesAccess ? "Policy confirmation invalidates old access and Journey bindings." : "Existing request and Journey terms remain frozen."}`);
-                    for (const change of review.classifications) el(vault, "p", `${change.hostname}: ${change.before.toLowerCase()} → ${change.after.toLowerCase()}`);
-                    describeConfiguration(vault, review.currentConfiguration, "Current terms");
-                    describeConfiguration(vault, review.candidateConfiguration, "Proposed terms");
-                    button(vault, "Confirm reviewed proposal", () => send({ kind: "CONFIRM_POLICY", proposalId: review.proposalId }), review.phase !== "READY" || state.status !== "READY");
-                }
-            }
-        }
-        updateCountdowns(vault);
-    }
-    const unsubscribe = bridge.subscribe(refresh); refresh();
-    return () => {
-        disposed = true; unsubscribe();
-        if (!hadOverviewClass) parent.classList.remove("hub-atlas-overview");
-    };
+    return require("./settings-ui").mountAtlasSettings(parent, bridge);
 }
 
-module.exports = { mountAtlasOverview, renderNavigation, configurationInput, formatMilliseconds };
+module.exports = { mountAtlasOverview, renderNavigation, configurationInput, formatMilliseconds, el, button, countdown, updateCountdowns, describeConfiguration };

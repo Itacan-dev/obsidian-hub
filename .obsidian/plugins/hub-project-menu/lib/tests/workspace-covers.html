@@ -21,7 +21,7 @@ const readiness={exports:{}};new Function('module',await(await fetch('../ui/rend
 new Function('module','require',await (await fetch('../services/transition-service.js')).text())(transitions,name=>name.endsWith('render-readiness')?readiness.exports:header.exports);
 const service=new transitions.exports.HubTransitionService();
 const shell=document.querySelector('.workspace'),container=document.querySelector('.mod-root'),leaf=container.firstElementChild;
-const asset=new URL('../../../../../Assets/ProjectCards/Categories/custom-master-s-thesis.jpg',location.href).href;
+const asset=new URL('../../../../../Assets/ProjectCards/research.jpg',location.href).href;
 let mounts=0;
 function create(kind,id,placement){
  const owner=new Component(),root=document.createElement('div');root.className=`${kind==='home'?'home':'project'}-dashboard is-hub-cover-pending`;

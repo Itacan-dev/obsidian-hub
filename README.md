@@ -24,11 +24,26 @@ the relevant files under `System/Templates` or `System/Scripts` in their setting
 Each developer's vault has independent personal state.
 
 Webviewer browsing is governed by Atlas. Enable Obsidian's native Web viewer,
-then open **Atlas** from the ribbon, command palette, or Settings → Atlas.
-Choose an initial exact-host policy and review timing terms before explicitly
-initializing. Browsing stays blocked until setup succeeds. The initial displayed
-terms are the copied development defaults; all later policy/timing changes use
-Vault. Unknown destinations use Request access → wait → explicit confirmation.
+then enter a Project or Resource **Note view**. Right-click a native tab header
+or open its header menu and choose **Open Atlas**. This opens Atlas Home in a
+native browser tab and reuses an internal Home in the same workspace. It needs
+no URL note or selected text and is absent outside Note view.
+
+Atlas in Hub Settings has six sections: Sites & Access, Temporary Access, Timings,
+Vault, Managed Lists, and Diagnostics / Recovery. Explicit initialization on an
+unused repository offers the curated preset (32 destinations, 58 exact hosts)
+and shows the timing terms. Existing policy is preserved; importing the starter
+set later requires Vault confirmation. Names, categories and pins are display
+preferences; hostname/access and protected timing changes use Vault.
+Vault shows changes immediately, enables **Confirm change** when ready, and
+offers **Recreate proposal** after expiry. Settings keeps a stable size with
+internal scrolling. Note content tab strips also offer **Open Atlas** on right-click.
+
+StevenBlack managed blocking starts from a verified offline bundle or last-good
+cache. Background refresh runs at most daily; Managed Lists offers manual refresh
+and exact-host lookup. Failed updates retain the last-good list. Manual Blacklist
+takes precedence over explicit Whitelist, which takes precedence over managed
+blocking. Unknown destinations use Request access → wait → explicit confirmation.
 Confirmation opens a fresh homepage, preserving no login request or POST body.
 See [the architecture](System/Hub-atlas-architecture.md) and
 [navigation/security review](System/Hub-atlas-security.md) for compatibility limits.
@@ -53,13 +68,20 @@ node .obsidian/plugins/hub-project-menu/lib/tests/data-store.integration.test.js
 node .obsidian/plugins/hub-project-menu/lib/tests/plugin-load.test.js
 ```
 
-Reload Obsidian after rebuilding the plugin. The browser fixtures can be run with
+Quit and reopen Obsidian after upgrading Atlas's native bundle. The main-process
+service remains cached across plugin reloads; an older service displays a restart
+notice and the new UI stays blocked. Ordinary UI-only rebuilds may reload the plugin.
+The browser fixtures can be run with
 `lib/tests/run-browser-test.js`; set `HUB_TEST_BROWSER` to a Chromium executable
 when it is not installed at the runner's default Windows Chrome location.
+The pinned Electron test installation below can also run the HTML fixtures with
+`node .obsidian/plugins/hub-project-menu/lib/atlas/tests/native/browser-launch.cjs`.
+It renders offscreen in isolated profiles and needs no Chrome installation.
 
 AtlasCore is unchanged framework-independent TypeScript in `AtlasCore/packages/core`.
-After changing Core, rebuild its CommonJS copy before rebuilding Hub. The bundler
-checks source/artifact hashes and refuses stale Core code. From PowerShell:
+After changing Core or the curated preset copy, rebuild their CommonJS artifacts
+before rebuilding Hub. The bundler checks source/artifact hashes and refuses stale
+generated code. From PowerShell:
 
 ```powershell
 npm.cmd --prefix AtlasCore/packages/core ci --ignore-scripts --no-audit --no-fund

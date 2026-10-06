@@ -6,6 +6,13 @@ Atlas authorization has a separate private repository at
 `.obsidian/plugins/hub-project-menu/atlas-state/`, excluded from Git and Hub
 presets/backups. Its policy, protected settings, Access/Vault/Journey state and
 time/revision guards require exclusive ownership and verified atomic commits.
+The same private authority envelope includes versioned destination names,
+categories, aliases/entrypoints and pins, with frozen metadata for Vault edits.
+`managed-cache.json` retains validated StevenBlack bytes, identity/digest,
+validators and sync/error metadata. Neither file participates in Hub restores.
+The bundled managed data and canonical preset source are shared implementation
+assets; user policy and last-good downloaded cache remain private. Home layout
+markers contain presentation routing only, never authorization snapshots.
 Hub normalization/recovery below must never reset or import Atlas authority.
 Concurrent independent OneDrive writers are unsupported; see
 [the Atlas architecture](Hub-atlas-architecture.md) and
@@ -72,6 +79,7 @@ missing-reference behavior.
 | Location | Personal content |
 | --- | --- |
 | `.obsidian/plugins/hub-project-menu/data.json` | Presets, navigation, history, progress, tasks and other Hub state |
+| `.obsidian/plugins/hub-project-menu/atlas-state/` | Atlas policy, timings, Access/Vault/Journey authority, destination metadata and managed cache |
 | `.obsidian/plugins/*/data*.json`, `.data.*.tmp` | Plugin state, conflict copies and atomic-write temporary files |
 | Other `.obsidian/` configuration files | Native workspaces, bookmarks, installed-plugin settings, device preferences and credentials |
 | `Projects/` except `Projects/Itacan/` and `Projects/Obsidian Hub/` | Other personal project content, notes and task logs |

@@ -66,6 +66,6 @@ function mountSettingsControl(plugin, host) {
         modal.open();
     };
     plugin.registerDomEvent(button, "click", open);
-    return { button, open, destroy() { destroyed = true; modal?.close(); button.remove(); } };
+    return { button, open, isOpen: () => !!modal, destroy() { destroyed = true; modal?.close(); button.remove(); } };
 }
 module.exports = { SettingsModal, mountSettingsControl };

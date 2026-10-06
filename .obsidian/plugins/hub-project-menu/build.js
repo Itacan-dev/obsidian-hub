@@ -20,6 +20,10 @@ const atlasStale = atlasManifest.schemaVersion !== 1 || atlasManifest.builder !=
     Object.entries(atlasManifest.sources).some(([name, hash]) => atlasHash(path.join(coreSource, "src", name)) !== hash) ||
     Object.entries(atlasManifest.artifacts).some(([name, hash]) => atlasHash(path.join(atlasCore, name)) !== hash);
 if (atlasStale) throw new Error("AtlasCore artifacts are stale. Run node .obsidian/plugins/hub-project-menu/build-atlas.js first.");
+const presetPath = path.join(pluginRoot, "lib/atlas/presets/curated-whitelist");
+const presetManifest = JSON.parse(fs.readFileSync(path.join(path.dirname(presetPath), "build-manifest.json"), "utf8"));
+if (presetManifest.source !== atlasHash(presetPath + ".ts") || presetManifest.javascript !== atlasHash(presetPath + ".js") ||
+    presetManifest.declarations !== atlasHash(presetPath + ".d.ts")) throw new Error("Curated preset is stale. Run build-atlas.js.");
 
 function moduleId(filePath) {
     return path.relative(pluginRoot, filePath)

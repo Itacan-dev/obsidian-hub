@@ -1,6 +1,7 @@
 # Vault-root repository: new top-level vault content is private by default.
 /*
 !/.gitignore
+!/.gitattributes
 !/README.md
 !/Home.md
 !/.obsidian/

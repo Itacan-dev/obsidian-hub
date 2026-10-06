@@ -1,38 +1,45 @@
 "use strict";
 
 const path = require("path");
-const { Modal, Notice } = require("obsidian");
+const { Modal, Notice, Menu } = require("obsidian");
 const { mountAtlasOverview, renderNavigation } = require("./ui");
+const { mountAtlasHome } = require("./home-ui");
+const { registerNoteAtlasAction, canOpenAtlas } = require("./note-context");
 
 // Renderer bridge: holds descriptions, DOM identities and subscriptions only.
 // It has no controller, policy evaluator, persistence writer or Journey facts.
 function installAtlasIntegration(plugin) {
     const app = plugin.app, records = new Map(), listeners = new Set(), patches = new Map(), documents = new Map(), existingIds = new WeakMap();
-    let host = null, client = null, stopped = false, modal = null, issue = null;
+    let host = null, client = null, stopped = false, modal = null, issue = null, action = null;
+    let description = null;
+    const readDescription = () => { if (host) description = JSON.parse(host.viewJSON()); };
     const publish = () => { for (const callback of listeners) callback(); };
     const bridge = {
-        view() { return host ? host.view() : { status: "UNAVAILABLE", reason: issue, snapshot: null, contexts: [] }; },
+        view() { return description ?? { status: "UNAVAILABLE", reason: issue, snapshot: null, contexts: [] }; },
         async command(input) {
             if (!host) return { type: "BLOCKED", reason: issue };
-            const result = await host.command(input); refresh(); publish(); return result;
+            const result = JSON.parse(await host.commandJSON(JSON.stringify(input))); readDescription(); refresh(); publish(); return result;
         },
         subscribe(callback) { listeners.add(callback); return () => listeners.delete(callback); },
+        isSettingsOpen: () => !!modal,
         open() {
             if (modal) return;
             modal = new class extends Modal {
-                onOpen() { this.contentEl.classList.add("hub-atlas-overview"); this.dispose = mountAtlasOverview(this.contentEl, bridge); }
+                onOpen() { this.modalEl?.classList.add("hub-atlas-dialog"); this.contentEl.classList.add("hub-atlas-overview"); this.dispose = mountAtlasOverview(this.contentEl, bridge); }
                 onClose() { this.dispose?.(); this.contentEl.replaceChildren(); modal = null; }
             }(app);
             modal.open();
         },
         destroy() {
-            stopped = true; modal?.close(); clearInterval(scanTimer);
+            stopped = true; modal?.close(); clearInterval(scanTimer); action?.destroy();
             if (host && client !== null) host.unsubscribe(client);
-            for (const record of records.values()) { record.panel?.remove(); record.status?.remove(); }
+            for (const record of records.values()) { record.disposeHome?.(); record.home?.remove(); record.panel?.remove(); record.status?.remove(); }
             for (const observer of documents.values()) observer.disconnect();
             for (const [prototype, patch] of patches) {
                 if (prototype.instantiateWebView === patch.wrapper) prototype.instantiateWebView = patch.original;
                 if (prototype.navigate === patch.navigateWrapper) prototype.navigate = patch.navigate;
+                if (prototype.setState === patch.setStateWrapper) prototype.setState = patch.setState;
+                if (prototype.getState === patch.getStateWrapper) prototype.getState = patch.getState;
             }
             listeners.clear();
         }
@@ -49,6 +56,7 @@ function installAtlasIntegration(plugin) {
             const wrapper = function (...args) { const result = original.apply(this, args); watch(this); return result; };
             const navigate = prototype.navigate;
             const navigateWrapper = function (url, ...args) {
+                this.__atlasHome = url === "about:blank";
                 const record = records.get(this);
                 if (record?.context?.closed) {
                     this.url = url; this.loadFirstPage = null;
@@ -57,12 +65,24 @@ function installAtlasIntegration(plugin) {
                 }
                 return navigate.call(this, url, ...args);
             };
-            patches.set(prototype, { original, wrapper, navigate, navigateWrapper }); prototype.instantiateWebView = wrapper;
+            const setState = prototype.setState, getState = prototype.getState;
+            const setStateWrapper = function (state, ...args) {
+                this.__atlasHome = state?.atlasHome === true && state?.url === "about:blank";
+                const result = setState.call(this, state, ...args);
+                Promise.resolve(result).then(() => { watch(this); refresh(); }, () => {}); return result;
+            };
+            const getStateWrapper = function (...args) {
+                const state = getState.apply(this, args);
+                return this.__atlasHome || !this.url || this.url === "about:blank" ? { ...state, url: "about:blank", atlasHome: true, title: "Atlas" } : state;
+            };
+            patches.set(prototype, { original, wrapper, navigate, navigateWrapper, setState, getState, setStateWrapper, getStateWrapper }); prototype.instantiateWebView = wrapper;
             if (typeof navigate === "function") prototype.navigate = navigateWrapper;
+            if (typeof setState === "function") prototype.setState = setStateWrapper;
+            if (typeof getState === "function") prototype.getState = getStateWrapper;
         }
         let record = records.get(view);
         if (record?.webview === view.webview) { remember(record); return; }
-        if (record) { record.panel?.remove(); record.status?.remove(); if (record.nativeId) host?.forget(record.nativeId); }
+        if (record) { record.disposeHome?.(); record.home?.remove(); record.panel?.remove(); record.status?.remove(); if (record.nativeId) host?.forget(record.nativeId); }
         record = { view, webview: view.webview, nativeId: existingIds.get(view.webview) ?? null, context: null };
         records.set(view, record);
         for (const event of ["did-attach", "dom-ready", "did-start-navigation", "destroyed"]) {
@@ -72,11 +92,12 @@ function installAtlasIntegration(plugin) {
     }
     function scan() {
         if (stopped) return;
+        action?.sync();
         watchDocument(window.document);
         app.workspace.iterateAllLeaves?.(leaf => watchDocument(leaf.view?.containerEl?.ownerDocument ?? leaf.view?.contentEl?.ownerDocument));
         for (const leaf of app.workspace.getLeavesOfType("webviewer")) watch(leaf.view);
         for (const [view, record] of records) {
-            if (!view.contentEl.isConnected) { record.panel?.remove(); record.status?.remove(); if (record.nativeId) host?.forget(record.nativeId); records.delete(view); }
+            if (!view.contentEl.isConnected) { record.disposeHome?.(); record.home?.remove(); record.panel?.remove(); record.status?.remove(); if (record.nativeId) host?.forget(record.nativeId); records.delete(view); }
         }
         refresh();
     }
@@ -87,6 +108,18 @@ function installAtlasIntegration(plugin) {
             remember(record);
             const context = state.contexts.find(item => item.nativeId === record.nativeId) ?? record.context;
             record.context = context;
+            const internalHome = !record.view.url || record.view.url === "about:blank";
+            if (internalHome && !record.home) {
+                record.home = record.view.contentEl.ownerDocument.createElement("section");
+                record.home.className = "hub-atlas-home"; record.view.contentEl.appendChild(record.home);
+                record.disposeHome = mountAtlasHome(record.home, bridge, async url => {
+                    if (stopped || !host) return;
+                    // The same native navigate/loadURL/Fetch gate as note links.
+                    await record.view.navigate(url).catch(() => {}); refresh();
+                });
+            }
+            if (record.home) record.home.hidden = !internalHome;
+            record.view.contentEl.classList.toggle("hub-atlas-internal-home", internalHome);
             const view = record.view, blocked = !host || state.status !== "READY" || !state.enabled ||
                 !context || context.closed || ["BLOCKED", "ENFORCEMENT_FAILED"].includes(context.phase);
             view.contentEl.classList.toggle("hub-atlas-blocked", blocked);
@@ -99,19 +132,25 @@ function installAtlasIntegration(plugin) {
                 record.status.setAttribute("aria-live", "polite");
                 view.contentEl.appendChild(record.status);
             }
-            record.panel.hidden = !blocked;
-            if (blocked) {
+            record.panel.hidden = internalHome || !blocked;
+            if (blocked || internalHome) view.showLoadingIndicator?.(false);
+            if (blocked && !internalHome) {
                 // Also clear Obsidian's extracted reader copy. CSS keeps any late
                 // async reader/error rendering concealed until a new guest passes.
-                view.renderer?.clear?.(); view.readerView?.replaceChildren();
+                if (!record.wasBlocked) view.renderer?.clear?.();
+                if (view.readerView?.hasChildNodes()) view.readerView.replaceChildren();
                 if (context?.closed) record.webview.remove();
                 renderNavigation(record.panel, state, context, bridge);
             }
-            record.status.textContent = context?.response?.decision
+            record.wasBlocked = blocked;
+            const statusText = context?.response?.decision
                 ? `Atlas · ${context.response.decision.reason.replaceAll("_", " ").toLowerCase()}` : `Atlas · ${state.reason ?? state.status}`;
+            if (record.status.textContent !== statusText) record.status.textContent = statusText;
+            record.status.hidden = internalHome;
         }
     }
     function watchDocument(document) {
+        action?.watchDocument(document);
         if (!document || documents.has(document)) return;
         if (!host) quarantineDocument(document);
         else if (document.__hubAtlasQuarantine) {
@@ -162,6 +201,7 @@ function installAtlasIntegration(plugin) {
             return;
         }
         const view = record.view;
+        view.__atlasHome = false;
         view.url = message.origin;
         view.loadFirstPage = null;
         view.readerView?.replaceChildren(); view.renderer = null;
@@ -177,25 +217,44 @@ function installAtlasIntegration(plugin) {
         }
         const base = app.vault.adapter.getBasePath();
         const directory = path.resolve(base, plugin.manifest.dir);
-        host = window.electron.remote.require(path.join(directory, "atlas-native.cjs"))
+        const candidate = window.electron.remote.require(path.join(directory, "atlas-native.cjs"))
             .getAtlasHost({ directory, partition: app.getWebviewPartition() });
-        client = host.subscribe(message => { if (stopped) return; if (message.type === "OPEN_HOME") openHome(message); else { scan(); publish(); } });
-        if (!host.view().enabled) void host.open();
+        if (candidate.apiVersion !== 3) {
+            // Never hot-swap an old controller or its uncertain-write guards.
+            try { candidate.unsubscribe(null); } catch (_) { /* quarantine below */ }
+            throw new Error("NATIVE_ADAPTER_UPGRADE_REQUIRED");
+        }
+        host = candidate;
+        readDescription();
+        client = host.subscribe(message => { if (stopped) return; readDescription(); if (message.type === "OPEN_HOME") openHome(message); else { scan(); publish(); } });
+        if (!description.enabled) void host.open();
     } catch (error) {
-        issue = "NATIVE_ENFORCEMENT_UNAVAILABLE";
-        console.error("Atlas could not install the native webviewer guard", error);
+        issue = error.message === "NATIVE_ADAPTER_UPGRADE_REQUIRED" ? error.message : "NATIVE_ENFORCEMENT_UNAVAILABLE";
+        if (issue === "NATIVE_ADAPTER_UPGRADE_REQUIRED") console.info("Atlas native upgrade requires an Obsidian restart.");
+        else console.error("Atlas could not install the native webviewer guard", error);
         // Refuse native browser creation when the mandatory main bridge is absent.
         // Existing guests and new guest elements are removed before they can be
         // used. This unsupported profile cannot offer Atlas-controlled browsing.
         quarantineDocument(window.document);
-        new Notice("Atlas requires desktop native enforcement. Webviewer browsing is unavailable.", 0);
+        new Notice(issue === "NATIVE_ADAPTER_UPGRADE_REQUIRED" ? "Quit and reopen Obsidian to load the updated Atlas native service. Browsing stays blocked." : "Atlas requires desktop native enforcement. Webviewer browsing is unavailable.", 0);
     }
     const scanTimer = setInterval(scan, 500);
     plugin.registerEvent(app.workspace.on("layout-change", scan));
     plugin.registerEvent(app.workspace.on("window-open", (_workspaceWindow, openedWindow) => watchDocument(openedWindow?.document)));
     app.workspace.onLayoutReady(scan);
-    plugin.addCommand({ id: "atlas-open", name: "Open Atlas access and Vault", callback: () => bridge.open() });
-    plugin.addRibbonIcon("shield-check", "Atlas", () => bridge.open());
+    action = registerNoteAtlasAction(plugin, async (source, expectedMode) => {
+        if (!canOpenAtlas(plugin, source, expectedMode) || stopped || !host) return false;
+        const modes = plugin.workspaceModes;
+        const existing = modes.contentLeaves().find(leaf => leaf.getViewState?.()?.type === "webviewer" &&
+            (leaf.view?.url === "about:blank" || leaf.getViewState?.()?.state?.atlasHome === true));
+        if (existing) { await app.workspace.revealLeaf(existing); scan(); return true; }
+        const anchor = modes.pickContentLeaf() ?? source;
+        if (!canOpenAtlas(plugin, source, expectedMode)) return false;
+        const leaf = modes.createTabLeaf(anchor);
+        await leaf.setViewState({ type: "webviewer", state: { url: "about:blank", atlasHome: true, title: "Atlas" }, active: true });
+        leaf.view.__atlasHome = true; scan(); modes.captureNoteLayout(); return true;
+    }, () => new Menu());
+    bridge.openFromNote = action.open;
     return bridge;
 }
 
