@@ -1,0 +1,35 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Home scrolling without local snippet settings</title>
+<style>
+* { box-sizing: border-box; }
+body { margin: 0; }
+.markdown-preview-view { height: 500px; overflow-y: auto; padding: 0; }
+/* Reproduce native scroll-past-end defaults, independently of user settings. */
+.markdown-preview-sizer { min-height: 1000px; padding-bottom: 500px; }
+.markdown-preview-section { min-height: 1000px; padding-bottom: 500px; }
+.fixture-content { height: 700px; }
+</style>
+<link id="plugin-style" rel="stylesheet" href="../../styles.css">
+<link rel="stylesheet" href="../../../../../System/Dashboards/Home/view.css">
+<div class="dashboard markdown-preview-view"><div class="markdown-preview-sizer"><div class="markdown-preview-section"><div class="fixture-content">Home panels</div></div></div></div>
+<pre id="result">RUNNING</pre>
+<script>
+window.onload = () => {
+    try {
+        const preview = document.querySelector('.markdown-preview-view');
+        const sizer = document.querySelector('.markdown-preview-sizer');
+        const section = document.querySelector('.markdown-preview-section');
+        const plugin = document.querySelector('#plugin-style');
+        plugin.disabled = true;
+        if (preview.scrollHeight < 1500) throw Error('Fixture must reproduce excess native scrolling');
+        plugin.disabled = false;
+        if (getComputedStyle(sizer).paddingBottom !== '60px') throw Error('Expected bounded bottom spacing');
+        if (getComputedStyle(section).paddingBottom !== '0px') throw Error('Nested section must not add extra scrolling');
+        if (preview.scrollHeight > 800) throw Error('Home still scrolls past its intended bottom');
+        preview.scrollTop = 10000;
+        if (preview.scrollTop > 300) throw Error('Maximum scroll is not constrained');
+        document.querySelector('#result').textContent = 'PASS: missing snippet reproduces excess scrolling; tracked plugin CSS removes it without appearance.json or local snippet activation.';
+    } catch (error) { document.querySelector('#result').textContent = 'FAIL: ' + error.stack; }
+};
+</script>

@@ -10,6 +10,7 @@ const {
 const HUB_STATE_SCHEMA_VERSION = 1;
 const HUB_STATE_META_KEY = "hubState";
 const DEVICE_STORAGE_KEY = "obsidian-hub::device-id";
+const { SharedProjectStore } = require("./shared-projects");
 
 function clonePluginData(data) {
     return JSON.parse(JSON.stringify(data ?? {}));
@@ -79,6 +80,7 @@ class HubDataStore {
         this.deviceId = localDeviceId();
         this.lastRevision = 0;
         this.lastDiskSignature = null;
+        this.sharedProjects = new SharedProjectStore(plugin.app?.vault?.adapter?.getBasePath?.());
     }
 
     pluginDirectoryPath() {
@@ -146,7 +148,7 @@ class HubDataStore {
     async load() {
         const data = (await this.plugin.loadData()) ?? {};
         const originalMeta = stateMeta(data);
-        const normalized = this.normalizeLoadedData(data);
+        const normalized = await this.sharedProjects.load(this.normalizeLoadedData(data));
         const requiresVersionStamp =
             Number(originalMeta.schemaVersion) !==
                 HUB_STATE_SCHEMA_VERSION ||
@@ -227,8 +229,7 @@ class HubDataStore {
         return snapshot;
     }
 
-    async atomicWrite(snapshot) {
-        const filePath = this.dataFilePath();
+    async atomicWrite(snapshot, filePath = this.dataFilePath()) {
 
         if (!filePath) {
             await this.plugin.saveData(snapshot);
@@ -244,6 +245,7 @@ class HubDataStore {
         let handle = null;
 
         try {
+            await fs.promises.mkdir(directory, { recursive: true });
             handle = await fs.promises.open(
                 temporaryPath,
                 "wx"
@@ -301,11 +303,23 @@ class HubDataStore {
                     diskData
                 );
 
-                await this.atomicWrite(versioned);
+                const prepared = await this.sharedProjects.prepare(versioned);
+                const local = prepared?.local ?? versioned;
+                await this.atomicWrite(local);
+                try {
+                    if (prepared && prepared.text !== this.sharedProjects.lastText.replace(/\r\n/g, "\n")) {
+                        await this.atomicWrite(prepared.shared, this.sharedProjects.filePath);
+                        this.sharedProjects.lastText = prepared.text;
+                    }
+                } catch (error) {
+                    // A failed shared write must not report success or advance the local revision.
+                    await this.atomicWrite(diskData ?? {});
+                    throw error;
+                }
 
                 this.lastRevision =
                     versioned[HUB_STATE_META_KEY].revision;
-                this.lastDiskSignature = stateSignature(versioned);
+                this.lastDiskSignature = stateSignature(local);
 
                 return clonePluginData(versioned);
             });

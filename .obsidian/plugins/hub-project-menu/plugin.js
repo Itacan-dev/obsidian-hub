@@ -44,6 +44,7 @@ const { createOathFullscreen } = require('./lib/services/oath-fullscreen');
 const { mountOathControl } = require('./lib/ui/oath');
 const { HubWorkspaceState, emptyWorkspaceState } = require('./lib/services/workspace-state');
 const { HubNavigationHistory } = require('./lib/services/navigation-history');
+const { SHARED_PROJECT_ROOTS, SHARED_IMAGE_ROOT } = require('./lib/services/shared-projects');
 
 const fs =
     require("fs");
@@ -7076,8 +7077,11 @@ class ProjectWizardService {
         file
     ) {
 
+        const imageRoot = this.getProjectsUsingCategory({ id }).some(project =>
+            SHARED_PROJECT_ROOTS.some(root => project.path.startsWith(`${root}/`)))
+            ? SHARED_IMAGE_ROOT : CATEGORY_IMAGE_ROOT;
         await this.ensureFolder(
-            CATEGORY_IMAGE_ROOT
+            imageRoot
         );
 
 
@@ -7098,7 +7102,7 @@ class ProjectWizardService {
 
         const path =
             normalizePath(
-                `${CATEGORY_IMAGE_ROOT}/${id}.${extension}`
+                `${imageRoot}/${id}.${extension}`
             );
 
 
@@ -14511,9 +14515,11 @@ module.exports = class HubProjectMenu extends Plugin {
                         frontmatter.cover;
 
 
+                    const coverRoot = SHARED_PROJECT_ROOTS.some(root => file.path.startsWith(`${root}/`))
+                        ? SHARED_IMAGE_ROOT : PROJECT_COVER_ROOT;
                     await this.projectWizard
                         .ensureFolder(
-                            PROJECT_COVER_ROOT
+                            coverRoot
                         );
 
 
@@ -14535,7 +14541,7 @@ module.exports = class HubProjectMenu extends Plugin {
 
                     const coverPath =
                         normalizePath(
-                            `${PROJECT_COVER_ROOT}/${projectId}.${extension}`
+                            `${coverRoot}/${projectId}.${extension}`
                         );
 
 

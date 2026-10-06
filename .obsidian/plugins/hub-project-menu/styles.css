@@ -50,6 +50,21 @@
 
 /* Local view selectors reuse the normal button border/hover/focus system,
    with compact dimensions. Navigation and launchers retain their larger scale. */
+/* Dashboard geometry is required behavior, independent of local snippet settings. */
+.dashboard .inline-title,
+.dashboard .metadata-container { display: none !important; }
+.dashboard.markdown-preview-view .markdown-preview-sizer {
+    padding-top: 15px !important;
+    min-height: auto !important;
+    height: auto !important;
+    padding-bottom: 60px !important;
+}
+.dashboard.markdown-preview-view .markdown-preview-section {
+    min-height: auto !important;
+    height: auto !important;
+    padding-bottom: 0 !important;
+}
+
 .hub-button-scope { --hub-panel-control-height: 23px; }
 .hub-panel-selectors { display: flex; align-items: center; gap: 4px; }
 .hub-history-selectors, .hub-equal-selectors { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; width: max-content; }

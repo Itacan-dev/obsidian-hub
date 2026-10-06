@@ -142,7 +142,8 @@ function __hubRequire(id) {
 module.exports = __hubRequire(${JSON.stringify(entryId)});
 `;
 
-fs.writeFileSync(outputPath, bundle, "utf8");
+// Keep the existing distributed bundles' CRLF convention across source checkouts.
+fs.writeFileSync(outputPath, bundle.replace(/\r?\n/g, "\r\n"), "utf8");
 
 console.log(
     `Built ${path.basename(outputPath)} with ${modules.size} modules.`

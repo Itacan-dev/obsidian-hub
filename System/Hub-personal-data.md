@@ -17,7 +17,7 @@ layouts, Last File and Last Workspace. Folder preferences used
 `obsidian-hub::folder-ui::<vault name>::<context id>`; a legacy Last Project
 key also existed.
 
-The authoritative store is now
+The authoritative personal store is
 `.obsidian/plugins/hub-project-menu/data.json`:
 
 - `workspaceMode`: complete presets, native note/browser layouts, tab order,
@@ -26,9 +26,68 @@ The authoritative store is now
   its own complete folder snapshot under `workspaceMode.presets`.
 - `workspaceMigration`: import ledger and original legacy snapshots, retained
   only for recovery. Runtime reads do not use these snapshots.
-- Existing fields: activity and completed-task history, progress ratings and
+- Personal fields: activity and completed-task history, progress ratings and
   reports, work logs, Focus, task metadata, Oath state/history, custom categories,
-  card ordering, image choices and placement preferences.
+  card ordering, image choices and placement preferences. Shared-project task
+  metadata, categories, Roadmaps and image placement instead use the shared store below.
+
+## Shared project persistence
+
+`System/Hub-shared-projects.json` is authoritative for the two Git-shared
+project roots, `Projects/Itacan` and `Projects/Obsidian Hub`. It contains only
+their project/category identities, selected category configuration, Roadmaps,
+task metadata and header/card image placements. Task ownership comes from stable
+`<!-- hub-task:UUID -->` identities in these projects' Markdown. A task in a
+private Resource linked to Itacan remains private; linking does not export its source.
+
+Project name, stable ID, status, category, cover override, folder order and Resource
+references remain in the project dashboard frontmatter. Task text, checkboxes,
+steps and identities remain in Markdown. `Meta/ROADMAP.md` is a tracked planning
+document, separate from the interactive Roadmap's phases/milestones in shared JSON.
+
+On startup, `SharedProjectStore` overlays the shared values onto personal Hub
+data, with Git's values winning over legacy local copies. Every queued save
+selects the shared fields by project/task ownership and writes personal values
+to ignored `data.json`. New tasks and metadata edits require no manual export.
+Private edits do not rewrite unchanged shared JSON. Disk changes to either
+store reject stale writes; reload after Git synchronization. A failed shared
+write rolls back the local write and allows retry. These are individual atomic
+file replacements, not a crash-atomic transaction across both files. Concurrent
+Git/OneDrive writers still need normal conflict resolution.
+
+Uploaded shared images go to tracked `Assets/ProjectCards/Shared/`; a newly
+assigned personal category publishes only its selected image and relevant
+Markdown/image template files to the shared image/template directories. Built-in
+images keep their existing tracked paths. All references are vault-relative.
+Other uploads and category templates stay private. Shared templates exclude
+hidden files, environment files, dependencies and symlinks.
+
+The initial migration exported six Itacan phases, five milestones, 59 metadata
+records belonging to 60 shared task IDs, two categories and two current Obsidian
+Hub image placements. Itacan uses the tracked `wip.jpg` placeholder; Obsidian Hub
+uses the formerly ignored custom Meta-Obsidian image. Neither project currently
+has a project-specific cover override. The Meta-Obsidian template's empty
+`Project.md` is now tracked in the shared template directory. The original
+personal data/uploads/templates were preserved.
+
+The only shared native plugin configuration is
+`.obsidian/plugins/dataview/data.json`: inspected, credential-free query/rendering
+settings, including JavaScript-query enablement. Third-party plugin binaries,
+the enabled-plugin list, appearance/font/theme preferences, workspace layouts,
+bookmarks, credentials and all other plugin data remain local. Dependencies
+still need installation/enabling as documented in the root README.
+
+### Home scrolling
+
+The tracked `dashbboard.css` snippet previously supplied the rules removing
+Obsidian's preview-sizer/section minimum height and excessive bottom padding.
+Its activation is in ignored `.obsidian/appearance.json`, so Git alone did not
+activate it on another computer. Those required geometry rules now also live in
+the always-loaded Hub plugin stylesheet. The `home-scroll` browser fixture
+reproduces excess scrolling without those rules and verifies bounded scrolling
+with plugin CSS alone. This establishes a configuration gap sufficient to cause
+the reported difference; the coworker's actual plugin/theme/settings state has
+not been inspected.
 
 The plugin's existing `HubDataStore` reads via `loadData()` and performs queued,
 atomic replacements of this conventional plugin data file on desktop. Its
@@ -71,9 +130,9 @@ missing-reference behavior.
 
 | Location | Personal content |
 | --- | --- |
-| `.obsidian/plugins/hub-project-menu/data.json` | Presets, navigation, history, progress, tasks and other Hub state |
+| `.obsidian/plugins/hub-project-menu/data.json` | Presets, navigation, history, progress, private tasks/categories/planning and other personal Hub state |
 | `.obsidian/plugins/*/data*.json`, `.data.*.tmp` | Plugin state, conflict copies and atomic-write temporary files |
-| Other `.obsidian/` configuration files | Native workspaces, bookmarks, installed-plugin settings, device preferences and credentials |
+| Other `.obsidian/` configuration files, except Dataview `data.json` | Native workspaces, bookmarks, installed-plugin settings, device preferences and credentials |
 | `Projects/` except `Projects/Itacan/` and `Projects/Obsidian Hub/` | Other personal project content, notes and task logs |
 | `Resources/` | Personal Resource dashboards, notes and content |
 | `Archive/`, `Areas/`, `Daily Notes/`, `Inbox/`, `Knowledge/`, `Sources/`, `old (DONT DELETE)/` | Other personal vault content |
@@ -87,8 +146,10 @@ missing-reference behavior.
 project entry notes, Atlas, Meta, tasks, roadmaps, screenshots, design assets,
 source and future subfolders. Their project content is intentionally collaborative.
 References to Resources do not include the referenced Resource files in Git.
-Each developer still has separate presets, task metadata, Oath state, Focus,
+Each developer still has separate presets, private task metadata, Oath state, Focus,
 History, Progress, navigation and other global state in ignored plugin data.
+Shared-project metadata/planning/categories/image placement use the tracked
+shared JSON; their selected uploads/templates use explicitly tracked shared folders.
 
 The relevant root `.gitignore` rules are:
 
@@ -99,7 +160,7 @@ The relevant root `.gitignore` rules are:
 !/Projects/Itacan/
 !/Projects/Obsidian Hub/
 
-# These follow generic machine-copy/log exclusions so project content is shared.
+# Project content is shared; machine-copy/log/cache exclusions still apply.
 !/Projects/Itacan/**
 !/Projects/Obsidian Hub/**
 
@@ -113,13 +174,18 @@ The relevant root `.gitignore` rules are:
 /System/Migrations/
 /.obsidian/plugins/*/data*.json
 /.obsidian/plugins/*/.data.*.tmp
+!/System/Hub-shared-projects.json
+!/Assets/ProjectCards/Shared/
+!/System/Project Templates/Shared/
+!/.obsidian/plugins/dataview/data.json
 ```
 
 The complete root file also retains the Hub implementation/template/default-asset
 exceptions and private Obsidian configuration, uploads and vault-content rules.
 The former file allowlist in `Projects/Itacan/Meta/.gitignore` has been removed;
-that file now contains explanatory comments only. No existing project content
-files remain excluded. Secret environment files and generated dependency trees
+that file now contains explanatory comments only. Project content is included,
+with explicit exclusions for machine conflict copies, logs and temporary/cache files.
+Secret environment files and generated dependency trees
 would still be excluded if created in either Project. All other Projects and
 all Resources remain private by default and continue to synchronize via OneDrive.
 
@@ -133,7 +199,7 @@ git check-ignore -v --no-index Projects/Itacan/Meta/ROADMAP.md
 git check-ignore -v --no-index "Projects/Obsidian Hub/Obsidian Hub.md"
 git check-ignore -v --no-index Resources/Knowledge/Knowledge.md
 git check-ignore -v --no-index .obsidian/plugins/hub-project-menu/data.json
-git ls-files --stage -- Projects
+git ls-files --stage -- Projects System/Hub-shared-projects.json Assets/ProjectCards/Shared "System/Project Templates/Shared" .obsidian/plugins/dataview/data.json
 ```
 
 A reported rule starting with `!` is an inclusion exception. Use
@@ -158,7 +224,7 @@ git --git-dir=System/Backups/Git/itacan-meta.git log --oneline
 
 The preserved index reflects its state when archived; it is not used to stage
 the collaborative Projects. A fresh clone receives both complete development
-Projects and the Hub implementation, without other Projects, Resources, global
+Projects, shared project state and the Hub implementation, without other Projects, Resources, personal global
 runtime state or the archived Git metadata. Follow the root README to install
 Obsidian dependencies; each developer initializes their own private state.
 
