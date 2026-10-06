@@ -468,61 +468,66 @@ async function inboxOrganisation() {
     const f = fixture({ otherPreference: "keep" });
     assert.equal(f.service.sortPreference, "most-complete");
     assert.equal(f.calls.saves, 0, "The default Inbox sort needs no preference/migration write");
-    assert.deepEqual(INBOX_SORTS.map(item => item[1]), ["Most complete", "Least complete", "Newest first", "Oldest first", "Type"]);
+    assert.deepEqual(INBOX_SORTS.map(item => item[1]), ["Most complete", "Least complete", "Newest first", "Oldest first", "Item type"]);
     assert.deepEqual(inboxCounts(f.service.captures), { all: 0, text: 0, files: 0 });
     const inspect = (values, completed, total, ready = false) => {
         const state = f.service.completion(values);
         assert.equal(state.completedRequired, completed); assert.equal(state.totalRequired, total);
         assert.equal(state.ratio, total ? completed / total : 0);
         assert.equal(state.ready, ready); assert.equal(state.complete, ready, "Progress readiness is the existing submission validation result");
-        assert.equal(state.missing.length, total ? total - completed : 1);
+        assert.ok(state.missing.length >= (total ? total - completed : 1));
         if (!total) assert.deepEqual(state.missing, ["Type"]);
         return state;
     };
     const untyped = await f.service.capture({ text: "Classify me" });
     inspect(captureDraft(untyped), 0, 0);
     const task = { text: "Organise a Task", type: "task" };
-    inspect(task, 2, 4);
+    assert.deepEqual(inspect(task, 0, 2).missing, ["Workspace", "Location"], "Type selects the Task schema without earning a segment");
     const routedTask = { ...task, workspaceId: "p1", location: f.p.root + "/Design" };
-    inspect({ ...routedTask, location: "" }, 3, 4);
-    assert.deepEqual(inspect({ ...routedTask, location: "" }, 3, 4).missing, ["Location"]);
-    inspect(routedTask, 4, 4, true);
-    inspect({ ...routedTask, text: "" }, 3, 4);
-    inspect({ ...routedTask, location: f.p.root }, 3, 4);
+    inspect({ ...routedTask, location: "" }, 1, 2);
+    assert.deepEqual(inspect({ ...routedTask, location: "" }, 1, 2).missing, ["Location"]);
+    inspect(routedTask, 2, 2, true);
+    inspect({ ...routedTask, text: "" }, 2, 2);
+    inspect({ ...routedTask, location: f.p.root }, 1, 2);
     for (const optional of [{ necessity: "must" }, { fromDate: "2026-10-03", fromTime: "00:00" },
         { dueDate: "2026-10-04", dueTime: "17:30" }, { steps: [{ text: "Optional action" }] }]) {
-        inspect({ ...routedTask, ...optional }, 4, 4, true);
-        inspect({ ...routedTask, location: "", ...optional }, 3, 4);
+        inspect({ ...routedTask, ...optional }, 2, 2, true);
+        inspect({ ...routedTask, location: "", ...optional }, 1, 2);
     }
     for (const invalidOptional of [{ steps: [{ text: "" }] }, { fromDate: "invalid" },
         { fromDate: "2026-10-04", dueDate: "2026-10-03" }]) {
-        const state = inspect({ ...routedTask, ...invalidOptional }, 4, 4);
+        const state = inspect({ ...routedTask, ...invalidOptional }, 2, 2);
         assert.ok(state.error, "Invalid optional edits still block creation without adding progress requirements");
     }
     const note = { text: "Note content", type: "note", noteAction: "new" };
-    inspect(note, 3, 6);
+    assert.deepEqual(inspect(note, 1, 4).missing, ["Workspace", "Folder", "Title"], "New note counts Action plus its three required destination/title details");
     const newNote = { ...note, workspaceId: "p1", folder: f.p.root + "/Design", title: "New note" };
-    inspect(newNote, 6, 6, true);
-    inspect({ ...newNote, title: "" }, 5, 6);
-    inspect({ ...newNote, folder: f.p.root }, 5, 6);
+    inspect(newNote, 4, 4, true);
+    inspect({ ...newNote, title: "" }, 3, 4);
+    inspect({ ...newNote, folder: f.p.root }, 3, 4);
+    inspect({ ...newNote, text: "" }, 4, 4);
     const path = f.p.root + "/Design/Existing.md";
     f.add(path, "# Heading\n\n- Item\n");
     const existingNote = { ...note, noteAction: "existing", workspaceId: "p1", title: "", folder: "" };
-    inspect(existingNote, 4, 5);
-    inspect({ ...existingNote, noteLocation: { path, targetType: "note", position: "end" } }, 5, 5, true);
-    inspect({ ...existingNote, noteLocation: { path, targetType: "note" } }, 4, 5);
+    inspect(existingNote, 2, 3);
+    inspect({ ...existingNote, noteLocation: { path, targetType: "note", position: "end" } }, 3, 3, true);
+    inspect({ ...existingNote, noteLocation: { path, targetType: "note" } }, 2, 3);
     const positions = await f.service.readNotePositions("p1", path);
     const heading = { path, targetType: "heading", anchor: positions.headings[0].anchor, position: "end" };
-    inspect({ ...existingNote, noteLocation: heading }, 5, 5, true);
-    inspect({ ...existingNote, noteLocation: { ...heading, anchor: "stale" } }, 4, 5);
+    inspect({ ...existingNote, noteLocation: heading }, 3, 3, true);
+    inspect({ ...existingNote, noteLocation: { ...heading, anchor: "stale" } }, 2, 3);
     const refs = await f.service.stageFiles([source("Counts.pdf")]);
+    const untypedFile = await f.service.capture({ attachments: await f.service.stageFiles([source("Unsorted.pdf")]) });
+    inspect(captureDraft(untypedFile), 0, 0);
+    assert.equal(untypedFile.intent, undefined, "Raw attachments do not silently establish an organisational type");
+    await f.service.delete(untypedFile.id);
     const file = { type: "file", attachments: refs };
-    inspect(file, 1, 3);
-    inspect({ ...file, workspaceId: "p1" }, 2, 3);
+    inspect(file, 0, 2);
+    inspect({ ...file, workspaceId: "p1" }, 1, 2);
     const routedFile = { ...file, workspaceId: "p1", folder: f.p.root + "/Design" };
-    inspect(routedFile, 3, 3, true);
-    inspect({ ...routedFile, attachments: [] }, 2, 3);
-    inspect({ ...routedFile, attachments: [{ path: "Missing.pdf" }] }, 2, 3);
+    inspect(routedFile, 2, 2, true);
+    inspect({ ...routedFile, attachments: [] }, 2, 2);
+    inspect({ ...routedFile, attachments: [{ path: "Missing.pdf" }] }, 2, 2);
     f.plugin.oath = { canOpen: () => false };
     for (const values of [routedTask, newNote, routedFile]) assert.equal(f.service.completion(values).ready, false);
     delete f.plugin.oath;
@@ -533,8 +538,8 @@ async function inboxOrganisation() {
     const times = [10, 40, 30, 20, 60, 50];
     await f.service.save(captures.map((item, index) => ({ ...item, createdAt: times[index] })));
     const ids = options => f.service.list(options).map(item => item.id);
-    assert.deepEqual(ids({ sort: "most-complete" }), [captures[3], captures[5], captures[4], captures[1], captures[2], captures[0]].map(item => item.id),
-        "Most complete uses normalized ratios: Task 3/4 precedes File 2/3, Ready ties are oldest first");
+    assert.deepEqual(ids({ sort: "most-complete" }), [captures[3], captures[5], captures[4], captures[2], captures[1], captures[0]].map(item => item.id),
+        "Task 1/2 and File 1/2 tie by oldest first, as do Ready items");
     assert.deepEqual(ids({ sort: "least-complete" }), [captures[0], captures[2], captures[1], captures[3], captures[5], captures[4]].map(item => item.id));
     assert.deepEqual(ids({ sort: "newest" }), [captures[4], captures[5], captures[1], captures[2], captures[3], captures[0]].map(item => item.id));
     assert.deepEqual(ids({ sort: "oldest" }), [captures[0], captures[3], captures[2], captures[1], captures[5], captures[4]].map(item => item.id));

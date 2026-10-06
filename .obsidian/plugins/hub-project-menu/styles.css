@@ -56,10 +56,10 @@
 /* Interaction grammar: option groups fill with accent; inspected objects keep
    accent borders. Intrinsic equal tracks size every alternative from the widest
    label; full-row groups below retain their existing equal flexible tracks. */
-.hub-button-scope .hub-option-group > :is(button.is-active, button.is-selected, button[aria-pressed=true], :has(> input[type=radio]:checked)) {
+.hub-button-scope .hub-option-group > :is(button.is-active, button.is-selected, [aria-pressed=true], :has(> input[type=radio]:checked)) {
     color: var(--text-on-accent); border-color: var(--interactive-accent); background: var(--interactive-accent); box-shadow: var(--input-shadow);
 }
-.hub-button-scope .hub-option-group > :is(button.is-active, button.is-selected, button[aria-pressed=true], :has(> input[type=radio]:checked)):hover {
+.hub-button-scope .hub-option-group > :is(button.is-active, button.is-selected, [aria-pressed=true], :has(> input[type=radio]:checked)):hover {
     border-color: var(--interactive-accent); background: var(--interactive-accent-hover, var(--interactive-accent));
 }
 .hub-button-scope button.hub-panel-action-icon {
@@ -210,6 +210,9 @@
 .hub-oath-duration-choices { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .hub-oath-setup { display: flex; flex-direction: column; container: oath-setup / inline-size; }
 .hub-oath-setup > .hub-oath-section:first-of-type { margin-top: 10px; }
+.hub-oath-setup > .hub-oath-section { border-top: 0; padding-top: 0; margin-top: 24px; }
+.hub-oath-setup > .hub-oath-section:first-of-type { border-top: 1px solid var(--background-modifier-border); padding-top: 20px; }
+.hub-oath-setup > .hub-oath-actions { border-top: 1px solid var(--background-modifier-border); padding-top: 16px; }
 .hub-oath-setup > .hub-oath-muted { margin: 0 0 12px; }
 .hub-button-scope .hub-oath-choice {
     height: auto; min-height: 54px; min-width: 0; padding: 12px 16px;
@@ -233,6 +236,8 @@
 .hub-oath-choice-copy { flex: 1; min-width: 0; }
 .hub-oath-choice-title, .hub-oath-choice-help { display: block; }
 .hub-oath-workspace-choices .hub-oath-choice-copy { flex: 1; min-width: 0; }
+.hub-oath-workspace-choices .hub-oath-choice-copy:has(img) { display: flex; align-items: center; justify-content: center; gap: 10px; }
+.hub-oath-workspace-choices .hub-capture-workspace-thumbnail { width: 38px; height: 38px; flex: 0 0 38px; margin-block: -3px; }
 .hub-oath-workspace-choices .hub-oath-choice-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .hub-oath-workspace-choices .hub-oath-choice-copy, .hub-oath-start-disclosure .hub-oath-choice-copy { padding-inline: 20px; }
 .hub-oath-workspace-change, .hub-oath-start-disclosure > .hub-presets-chevron { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); pointer-events: none; }
@@ -250,10 +255,12 @@
 /* Conditional editors live inside their selected option, without changing the grid. */
 .hub-oath-choice.is-editor .hub-oath-choice-copy { flex: 1; min-width: 0; }
 .hub-oath-editor-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-.hub-oath-schedule-editor { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+.hub-oath-schedule-editor { position: absolute; inset: 0; border-radius: inherit; }
 .hub-oath-schedule-editor[hidden] { display: none; }
-.hub-oath-schedule-editor label { color: var(--text-muted); font-size: var(--hub-font-secondary); }
-.hub-oath-schedule-editor .hub-oath-start-input { width: 100%; min-width: 0; height: 36px; padding: 6px 10px; font: inherit; color: var(--text-normal); background: var(--background-secondary); }
+.hub-oath-schedule-editor .hub-oath-start-input { position: absolute; inset: 0; width: 100%; height: 100%; min-width: 0; min-height: 0; margin: 0; padding: 12px 32px 12px 16px; border: 0; border-radius: inherit; background: transparent; box-shadow: none; outline: none; font: inherit; color: inherit; opacity: 0; cursor: pointer; }
+.hub-oath-scheduled-card.is-typing .hub-oath-start-input { opacity: 1; cursor: text; }
+.hub-oath-scheduled-card.is-typing .hub-oath-choice-copy { visibility: hidden; }
+.hub-oath-start-input::-webkit-calendar-picker-indicator { display: none; }
 .hub-button-scope .hub-oath-duration-choices .hub-oath-choice.is-editor { padding-inline: 8px; gap: 6px; }
 .hub-oath-custom { display: flex; align-items: center; min-width: 0; gap: 6px; font-size: var(--hub-font-compact); }
 .hub-oath-choice .hub-oath-custom input {
@@ -588,7 +595,7 @@
 .hub-capture-icon { display: inline-flex; flex: 0 0 auto; align-items: center; }
 .hub-capture-icon svg { width: 17px; height: 17px; }
 .hub-capture-error { flex-shrink: 0; margin: 12px 0 0; }
-.hub-capture-body { min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding-top: var(--size-4-4, 16px); }
+.hub-capture-body { min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: var(--size-4-4, 16px) 5px 5px; }
 .hub-capture-label { display: block; margin-bottom: var(--size-4-2, 8px); font-weight: var(--font-semibold, 600); }
 .hub-quick-add-input { width: 100%; min-height: 90px; resize: vertical; max-height: 30vh; padding: var(--size-4-3, 12px); line-height: 1.5; box-sizing: border-box; }
 .hub-capture-text-editor { position: relative; }
@@ -661,7 +668,7 @@
     box-shadow: var(--input-shadow); color: var(--text-normal); transform: none;
 }
 .hub-button-scope button:is(.hub-capture-clear, .hub-capture-attach)[hidden] { display: none; }
-.hub-inbox-body { display: grid; grid-template-columns: minmax(0, 0.44fr) minmax(0, 0.56fr); grid-template-rows: minmax(0, 1fr); flex: 1; min-height: 0; gap: var(--size-4-4, 16px); padding-top: var(--size-4-4, 16px); }
+.hub-inbox-body { display: grid; grid-template-columns: minmax(0, 0.47fr) minmax(0, 0.53fr); grid-template-rows: minmax(0, 1fr); flex: 1; min-height: 0; gap: var(--size-4-4, 16px); padding-top: var(--size-4-4, 16px); }
 .hub-inbox-sidebar { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
 .hub-inbox-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: var(--size-4-2, 8px); margin-bottom: var(--size-4-3, 12px); }
 .hub-inbox-filters { gap: 4px; }
@@ -683,12 +690,15 @@
 .hub-inbox-row-heading { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; gap: var(--size-4-2, 8px); }
 .hub-inbox-completion-label { display: inline-flex; align-items: center; gap: 4px; color: var(--text-muted); font-size: var(--hub-font-secondary); line-height: 1.5; white-space: nowrap; }
 .hub-inbox-completion-label .hub-capture-icon svg { width: 12px; height: 12px; }
-.hub-inbox-completion-progress { display: block; width: 100%; height: 4px; margin-top: var(--size-4-1, 4px); transition: none; animation: none; }
+.hub-inbox-completion-progress { display: grid; grid-template-columns: repeat(var(--hub-completion-segments, 1), minmax(0, 1fr)); gap: 3px; width: 100%; height: 4px; margin-top: var(--size-4-1, 4px); border: 0; border-radius: 2px; background: transparent; transition: none; animation: none; }
+.hub-inbox-completion-progress:empty { background: var(--background-modifier-border); }
+.hub-inbox-completion-segment { min-width: 0; border-radius: 1px; background: var(--background-modifier-border); }
+.hub-inbox-completion-segment.is-complete { background: var(--interactive-accent); }
 .hub-inbox-row-title { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; line-height: 1.5; margin-bottom: 4px; }
 .hub-inbox-detail { display: flex; flex-direction: column; min-height: 0; min-width: 0; overflow: hidden; padding: 16px; border: 1px solid var(--background-modifier-border); border-radius: var(--radius-s, 6px); }
 .hub-inbox-action-heading { flex: 0 0 auto; }
 .hub-inbox-dialog { --hub-field-label-gap: var(--size-4-2, 8px); --hub-field-group-gap: var(--size-4-6, 24px); }
-.hub-inbox-action-body { display: flex; flex-direction: column; gap: var(--hub-field-group-gap); flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 2px 3px; }
+.hub-inbox-action-body { display: flex; flex-direction: column; gap: var(--hub-field-group-gap); flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 5px; }
 .hub-inbox-action-body > * { flex: 0 0 auto; }
 .hub-inbox-action-body > .hub-capture-attachments:empty { display: none; }
 .hub-inbox-action-body .hub-field-group > :is(input,textarea).hub-task-title-input { width: 100%; min-width: 0; min-height: 46px; font-size: var(--hub-font-heading); }
@@ -709,32 +719,37 @@
 .hub-inbox-detail-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
 .hub-inbox-detail-actions button { display: inline-flex; align-items: center; gap: 6px; min-height: 30px; padding: 4px 10px; white-space: nowrap; }
 .hub-button-scope .hub-capture-delete { display: inline-flex; align-items: center; gap: var(--size-4-2, 8px); color: var(--color-red); }
-/* Shared whole-group guidance. The overlay sits behind controls, so button
-   fills and text keep their normal colors throughout both amber pulses. */
-.hub-attention { position: relative; isolation: isolate; }
-.hub-attention::after { content: ""; position: absolute; inset: -2px; z-index: -1; pointer-events: none; border-radius: var(--radius-s, 6px); background: color-mix(in srgb, var(--color-yellow) 9%, transparent); outline: 1px solid color-mix(in srgb, var(--color-yellow) 55%, transparent); box-shadow: 0 0 7px color-mix(in srgb, var(--color-yellow) 12%, transparent); opacity: 0; animation: hub-attention-pulse 850ms ease-in-out 2; }
+/* One inherited strength drives the semantic fill and real control surfaces.
+   The solid 5px paint expansion has no stronger edge, blur or scroll overflow. */
+@property --hub-attention-strength { syntax: "<number>"; inherits: true; initial-value: 0; }
+.hub-attention { --hub-attention-color: #ffd54f; position: relative; isolation: isolate; animation: hub-attention-pulse 1250ms ease-in-out 2; }
+.hub-attention::after { content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none; border-radius: var(--radius-s, 6px); background: color-mix(in srgb, var(--hub-attention-color) 24%, transparent); box-shadow: 0 0 0 5px color-mix(in srgb, var(--hub-attention-color) 24%, transparent); opacity: var(--hub-attention-strength); }
+.hub-attention [data-hub-attention-surface] { background-color: color-mix(in srgb, var(--hub-attention-color) calc(var(--hub-attention-strength) * 22%), var(--hub-attention-base-surface)) !important; background-image: none !important; transition: none !important; }
 .hub-guided-submit[aria-disabled=true] { opacity: .55; }
-.hub-button-scope .hub-inbox-action-footer .hub-guided-submit { display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
-.hub-inbox-action-footer .hub-inbox-submit-arrow[hidden] { display: inline-flex; visibility: hidden; }
-.hub-ready-nudge { animation: hub-ready-nudge 850ms ease-in-out 2; }
-.hub-inbox-guidance-status { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.hub-button-scope .hub-inbox-action-footer .hub-guided-submit { display: inline-flex; align-items: center; justify-content: center; gap: 8px; background: var(--interactive-accent); color: var(--text-on-accent); border-color: var(--interactive-accent); box-shadow: var(--input-shadow); outline: none; }
+.hub-inbox-action-footer .hub-inbox-submit-arrow { color: #fff; }
+.hub-button-scope .hub-inbox-action-footer .hub-guided-submit:focus-visible { outline: 2px solid var(--text-muted); outline-offset: 2px; }
+.hub-ready-nudge { animation: hub-ready-nudge 1200ms ease-in-out 2; }
+.hub-guidance-status { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 @keyframes hub-attention-pulse {
-    0%, 55%, 100% { opacity: 0; }
-    25% { opacity: 1; }
+    /* Each pulse: 450ms fade in, 550ms fade out, 250ms resting pause. */
+    0%, 80%, 100% { --hub-attention-strength: 0; }
+    36% { --hub-attention-strength: 1; }
 }
 @keyframes hub-ready-nudge {
-    0%, 55%, 100% { transform: translateX(0); }
-    25% { transform: translateX(4px); }
+    /* 400ms rightward, 500ms return, 300ms stationary pause. */
+    0%, 75%, 100% { transform: translateX(0); }
+    33.333333% { transform: translateX(7px); }
 }
 @media (prefers-reduced-motion: reduce) {
-    .hub-attention::after { animation: none; opacity: .65; }
+    .hub-attention { animation: none; --hub-attention-strength: .65; }
     .hub-ready-nudge { animation: none; }
     .hub-button-scope .hub-inbox-row { transition: none; }
 }
 .hub-capture-empty { padding: 24px 12px; color: var(--text-muted); line-height: 1.6; }
-.hub-oath-control .hub-inbox-badge { flex-shrink: 0; min-width: 16px; padding: 0 4px; border-radius: 10px; background: var(--interactive-accent); color: var(--text-on-accent); font-size: var(--hub-font-meta); text-align: center; }
+.hub-oath-control .hub-inbox-badge { display: inline-flex; align-items: center; justify-content: center; align-self: center; flex-shrink: 0; box-sizing: border-box; min-width: 16px; height: 16px; margin: 0; padding: 0 4px; border-radius: 10px; background: var(--interactive-accent); color: var(--text-on-accent); font-size: var(--hub-font-meta); line-height: 1; text-align: center; transform: none; }
 .hub-oath-control > .hub-inbox-button > span:nth-child(2) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-inline-end: 1px; margin-inline-end: -1px; }
-.hub-oath-control > .hub-inbox-button > .hub-inbox-badge { overflow: visible; text-overflow: clip; padding-inline-end: 4px; margin-inline-end: 0; }
+.hub-oath-control > .hub-inbox-button > span.hub-inbox-badge { overflow: visible; text-overflow: clip; padding-inline-end: 4px; margin-inline-end: 0; }
 .hub-oath-control :is(.hub-quick-add-button,.hub-inbox-button):focus-visible { outline: 2px solid var(--interactive-accent); outline-offset: -2px; }
 .hub-capture-content [hidden], .hub-oath-control .hub-inbox-badge[hidden] { display: none; }
 .modal.hub-capture-workspace-picker { max-height: calc(100dvh - 48px); display: flex; flex-direction: column; }
@@ -1977,7 +1992,7 @@ body.hub-project-note-mode
 }
 
 
-.project-task-row:hover
+.project-task-row:not([aria-pressed=true]):hover
 .project-task-text {
     color:
         var(--interactive-accent);
@@ -2028,7 +2043,9 @@ body.hub-project-note-mode
 .is-oath-locked .hub-workspace-oath-state { color: var(--text-muted); }
 .hub-workspace-oath-state svg { width: 13px; height: 13px; }
 .hub-oath-selected-tasks { max-height: 32vh; overflow-y: auto; margin-top: 14px; }
-.hub-oath-task-row { cursor: default; border: 1px solid transparent; }
+.hub-oath-dialog { --hub-oath-task-gap: 6px; }
+.hub-oath-selected-tasks, .hub-oath-picker-tasks { display: flex; flex-direction: column; gap: var(--hub-oath-task-gap); }
+.hub-oath-task-row { cursor: default; border: 1px solid transparent; border-radius: 7px; flex-shrink: 0; }
 /* Completion squares are decoration only in the Oath configuration views. */
 .hub-oath-task-row input[type=checkbox]:disabled,
 .hub-oath-task-row input[type=checkbox]:disabled:is(:hover, :active, :focus) {
@@ -2045,9 +2062,7 @@ body.hub-project-note-mode
 .hub-oath-add-tasks .hub-oath-row-icon svg { width: 24px; height: 24px; }
 .hub-oath-task-options .hub-oath-task-option { cursor: pointer; background: var(--background-primary); border-color: var(--background-modifier-border); border-radius: 7px; transition: background-color 150ms ease; }
 .hub-oath-task-options .hub-oath-task-option:not(.is-selected):hover { background: var(--background-modifier-hover); }
-.hub-oath-task-options .hub-oath-task-option.is-selected,
-.hub-oath-task-options .hub-oath-task-option.is-selected:hover {
-    background: var(--interactive-accent); border-color: var(--interactive-accent); color: var(--text-on-accent);
+.hub-oath-task-options .hub-oath-task-option.is-selected {
     --text-normal: var(--text-on-accent); --text-muted: color-mix(in srgb, var(--text-on-accent) 85%, transparent);
     --text-faint: color-mix(in srgb, var(--text-on-accent) 75%, transparent);
     --checkbox-border-color: var(--text-on-accent);
@@ -2057,7 +2072,7 @@ body.hub-project-note-mode
 .hub-oath-task-options .hub-oath-task-option.is-selected a { color: var(--text-on-accent); }
 
 .hub-button-scope .hub-oath-task-row:has(.hub-oath-remove-task) { padding-right: 38px; }
-.hub-oath-task-row > .hub-oath-remove-task { position: absolute; right: 0; top: 6px; }
+.hub-oath-task-row > .hub-oath-remove-task { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); }
 .hub-button-scope .hub-oath-task-row.is-already-selected { padding-right: 76px; }
 .hub-oath-task-row > .hub-oath-task-included { position: absolute; right: 6px; top: 8px; }
 
@@ -2484,10 +2499,10 @@ body.hub-project-note-mode
 .hub-full-necessity.is-should { color: var(--color-yellow); }
 .hub-full-steps { display: flex; align-items: center; gap: 8px; padding: 0; height: auto; background: transparent; border: 0; box-shadow: none; color: var(--text-muted); font-size: var(--hub-font-secondary); white-space: nowrap; }
 .hub-full-steps progress { width: 46px; min-width: 20px; height: 5px; }
-:is(.hub-full-steps progress, .hub-inbox-completion-progress) { appearance: none; border: 0; border-radius: var(--size-4-1, 4px); overflow: hidden; background: var(--background-modifier-border); }
-:is(.hub-full-steps progress, .hub-inbox-completion-progress)::-webkit-progress-bar { background: var(--background-modifier-border); }
-:is(.hub-full-steps progress, .hub-inbox-completion-progress)::-webkit-progress-value { background: var(--interactive-accent); }
-:is(.hub-full-steps progress, .hub-inbox-completion-progress)::-moz-progress-bar { background: var(--interactive-accent); }
+.hub-full-steps progress { appearance: none; border: 0; border-radius: var(--size-4-1, 4px); overflow: hidden; background: var(--background-modifier-border); }
+.hub-full-steps progress::-webkit-progress-bar { background: var(--background-modifier-border); }
+.hub-full-steps progress::-webkit-progress-value { background: var(--interactive-accent); }
+.hub-full-steps progress::-moz-progress-bar { background: var(--interactive-accent); }
 .hub-task-location-tree { overflow-x: auto; }
 .hub-task-location-group { border: 1px solid var(--background-modifier-border); border-radius: 8px; background: var(--background-secondary); margin-bottom: 7px; min-width: 700px; }
 .hub-task-location-children > .hub-task-location-group { border: 0; border-radius: 0; border-left: 1px solid var(--background-modifier-border); margin-bottom: 0; min-width: 0; }

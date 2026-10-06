@@ -1,6 +1,7 @@
 "use strict";
 const { createTaskUi, createTaskRow } = require("./tasks");
 const { parseLocalISODate } = require("../domain/dates");
+const { bindNativeDateTimePicker } = require("./date-time");
 const { disclosureIcons } = require("./disclosure");
 const { mountTransientEffects } = require("./attention");
 const { bindMenuToggle, mountDisclosure } = require("./menu-toggle");
@@ -8,6 +9,7 @@ const { setHubTooltip } = require("./tooltips");
 const { openTaskCreator } = require("./task-editor");
 const { createWorkspaceCards } = require("./workspace-cards");
 const { createCardImageRenderer } = require("./card-images");
+const { mountWorkspaceThumbnail } = require("./workspace-thumbnail");
 const { workspaceRef, sameWorkspace, taskKey } = require("../domain/oath-workspace");
 const { isCommitted, oathTime, oathProgress, shortOathTime, fulfilmentLabel, oathDuration } = require("../domain/oath");
 
@@ -211,6 +213,8 @@ function openOathSetup(service) {
                 const title = copy.createSpan({ text: label, cls: "hub-oath-choice-title", attr: { id: `${radioName}-${key}` } });
                 radio.setAttribute("aria-labelledby", title.id);
                 if (name === "workspace" && value === key) {
+                    const workspace = service.resolveWorkspace(this.draft.workspace);
+                    if (workspace) copy.prepend(mountWorkspaceThumbnail(copy, service.plugin, workspace));
                     oathIcon(card, "chevrons-up-down").classList.add("hub-oath-workspace-change");
                     const tooltip = () => setHubTooltip(title, title.scrollWidth > title.clientWidth ? label : null);
                     card.addEventListener("pointerover", tooltip);
@@ -263,17 +267,20 @@ function openOathSetup(service) {
             });
             const nowRadio = startChoices.querySelector('input[value="now"]');
             const scheduledRadio = startChoices.querySelector('input[value="scheduled"]');
-            const scheduledCard = scheduledRadio.closest(".hub-oath-choice");
-            scheduledCard.classList.add("hub-oath-start-disclosure");
+            const scheduledLabel = scheduledRadio.closest(".hub-oath-choice");
+            // Restore the former styled option with its native picker surface.
+            // A div keeps the radio and date editor out of one native label.
+            const scheduledCard = scheduledLabel.ownerDocument.createElement("div");
+            scheduledCard.className = scheduledLabel.className + " hub-oath-start-disclosure hub-oath-scheduled-card";
+            scheduledCard.append(...scheduledLabel.childNodes); scheduledLabel.replaceWith(scheduledCard);
             disclosureIcons(scheduledCard);
-            const datePanel = start.createDiv({ cls: "hub-oath-schedule-editor", attr: {
+            const datePanel = scheduledCard.createSpan({ cls: "hub-oath-schedule-editor", attr: {
                 id: `hub-oath-date-${this.choiceGroupId}`, role: "group", "aria-label": "Scheduled Oath start"
             } });
             scheduledCard.setAttribute("aria-controls", datePanel.id);
             scheduledRadio.setAttribute("aria-controls", datePanel.id);
-            datePanel.createEl("label", { text: "Date and time", attr: { for: `${datePanel.id}-input` } });
             const dateInput = datePanel.createEl("input", { type: "datetime-local", cls: "hub-oath-start-input", attr: {
-                id: `${datePanel.id}-input`, lang: "en", "aria-label": "Scheduled Oath start"
+                id: `${datePanel.id}-input`, lang: "en", "aria-label": "Scheduled Oath start", "data-oath-autofocus": ""
             } });
             if (draft.scheduledAt) {
                 const date = new Date(draft.scheduledAt);
@@ -291,11 +298,15 @@ function openOathSetup(service) {
                 scheduledCard.querySelector(".hub-oath-choice-title").textContent = label;
                 dateInput.setAttribute("aria-label", `Scheduled Oath start: ${label}`);
             };
+            const nativePicker = this.nativeDatePicker = bindNativeDateTimePicker({ input: dateInput, surface: scheduledCard,
+                bindEvents: false, onClose: () => this.dateDisclosure?.close() });
             this.dateDisclosure = mountDisclosure({ trigger: scheduledCard, panel: datePanel,
-                onOpen: () => { draft.start = "scheduled"; syncStart(); this.updateNext?.(); dateInput.focus(); },
+                onOpen: () => { draft.start = "scheduled"; syncStart(); this.updateNext?.(); nativePicker.open(); },
                 onClose: () => {
+                    const focused = datePanel.contains(datePanel.ownerDocument.activeElement);
+                    nativePicker.close();
                     syncStart(); this.updateNext?.();
-                    if (datePanel.contains(datePanel.ownerDocument.activeElement)) scheduledRadio.focus({ preventScroll: true });
+                    if (focused) scheduledRadio.focus({ preventScroll: true });
                 }
             });
             // A label's cancelled native activation can restore its radio after click.
@@ -307,7 +318,12 @@ function openOathSetup(service) {
                 syncStart(); this.updateNext?.();
             };
             dateInput.addEventListener("input", updateDate);
-            dateInput.addEventListener("change", () => { updateDate(); if (startValid()) this.dateDisclosure.close(); });
+            dateInput.addEventListener("change", () => {
+                updateDate();
+                // The combined popover can update its date before the user
+                // finishes choosing hours/minutes. Let its own dismissal close it.
+                if (startValid() && !dateInput.matches(":open")) this.dateDisclosure.close();
+            });
             dateInput.addEventListener("keydown", event => {
                 if (event.key === "Enter") { event.preventDefault(); updateDate(); if (startValid()) this.dateDisclosure.close(); }
             });
@@ -322,12 +338,12 @@ function openOathSetup(service) {
             };
             const workspaceName = service.resolveWorkspace(draft.workspace)?.name ?? draft.workspace?.name;
             this.choices(work, "workspace", [
-                ["project", draft.workspace?.type === "project" ? `Project: ${workspaceName}` : "Project"],
-                ["resource", draft.workspace?.type === "resource" ? `Resource: ${workspaceName}` : "Resource"]
+                ["project", draft.workspace?.type === "project" ? workspaceName : "Project"],
+                ["resource", draft.workspace?.type === "resource" ? workspaceName : "Resource"]
             ], draft.workspace?.type, choose);
             this.renderSelected = null;
             if (draft.workspace) {
-                const body = work.createDiv({ cls: "hub-oath-selected-tasks hub-oath-task-options project-tasks-body" });
+                const body = work.createDiv({ cls: "hub-oath-selected-tasks hub-oath-task-options hub-option-group project-tasks-body" });
                 const taskAction = work.createEl("button", { cls: "hub-oath-add-tasks", attr: { type: "button", "aria-label": "Add tasks" } });
                 oathIcon(taskAction, "plus");
                 this.taskOwner = new Component(); this.taskOwner.load();
@@ -362,6 +378,17 @@ function openOathSetup(service) {
                         row.addEventListener("keydown", event => {
                             if (event.target === row && ["Enter", " "].includes(event.key)) { event.preventDefault(); toggle(); }
                         });
+                        if (selected.has(key)) {
+                            const remove = row.createEl("button", { cls: "hub-oath-remove-task hub-button-plain",
+                                attr: { type: "button", "aria-label": `Remove from Oath: ${task.text}` } });
+                            oathIcon(remove, "x");
+                            remove.addEventListener("click", event => {
+                                event.preventDefault(); event.stopPropagation();
+                                draft.tasks = draft.tasks.filter(item => taskKey(item) !== key);
+                                this.renderSelected();
+                                (body.querySelector(".hub-oath-remove-task") ?? body.querySelector(".hub-oath-task-option") ?? taskAction).focus();
+                            });
+                        }
                     }
                     if (!rows.length) body.createEl("p", { cls: "hub-oath-muted", text: !ready ? "Loading tasks..." :
                         `${workspaceName} has no open tasks. Create a task before making an Oath, or choose another ${draft.workspace.type}.` });
@@ -437,6 +464,7 @@ function openOathSetup(service) {
                 input.addEventListener("input", update); update();
             }
             const error = this.contentEl.createDiv({ cls: "hub-task-error", attr: { role: "alert" } });
+            const hint = this.contentEl.createSpan({ cls: "hub-guidance-status", attr: { role: "status", "aria-live": "polite" } });
             const actions = this.contentEl.createDiv({ cls: "hub-oath-actions" });
             actions.createEl("button", { text: "Cancel" }).addEventListener("click", () => this.close());
             const next = actions.createEl("button", { text: "Review Oath", cls: "mod-cta hub-guided-submit" });
@@ -454,16 +482,27 @@ function openOathSetup(service) {
             next.addEventListener("click", () => {
                 try { this.review(); } catch (problem) {
                     const missing = service.setupRequirements(draft).find(item => !item.complete);
-                    error.textContent = missing?.error ?? problem.message;
+                    // An empty choice only needs guidance. Invalid populated
+                    // values, unavailable destinations/tasks and index errors
+                    // still explain what the user needs to correct or await.
+                    const unchosen = missing && {
+                        Start: !this.scheduledValue,
+                        Workspace: !draft.workspace,
+                        Tasks: service.ready() && !draft.tasks.length,
+                        Duration: draft.durationMs == null && !this.customValue?.value
+                    }[missing.key];
+                    error.textContent = unchosen ? "" : missing?.error ?? problem.message;
                     if (missing) {
                         this.effects.cancel(this.guidedGroup);
                         this.guidedGroup = this.requirementGroups[missing.key];
-                        this.effects.pulse(this.guidedGroup);
+                        hint.textContent = missing.error;
+                        this.effects.pulse(this.guidedGroup, null, () => { hint.textContent = ""; });
                     }
                 }
             });
         }
         clearSetupEffects() {
+            this.nativeDatePicker?.close(); this.nativeDatePicker = null;
             this.dateDisclosure?.destroy(); this.dateDisclosure = null;
             this.unitMenu?.hide(); this.stopUnitToggle?.(); this.stopUnitToggle = null;
             this.effects?.destroy();

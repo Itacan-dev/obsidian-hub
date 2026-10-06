@@ -5,22 +5,32 @@ const { setHubIcon } = require("./icons");
 
 // The native calendar/time interaction is shared with The Oath. Showing the
 // real input on typing also keeps the control usable without showPicker().
-function bindNativeDateTimePicker({ input, surface, beforeOpen = () => {} }) {
+function bindNativeDateTimePicker({ input, surface, beforeOpen = () => {}, onClose = () => {}, bindEvents = true }) {
+    const view = input.ownerDocument.defaultView;
+    let frame = null;
+    const watch = () => {
+        frame = null;
+        if (input.isConnected && input.matches(":open")) frame = view.requestAnimationFrame(watch);
+        else onClose();
+    };
     const open = () => {
+        view.cancelAnimationFrame(frame);
         beforeOpen(); surface.classList.remove("is-typing"); input.focus();
         try {
-            if (input.showPicker) input.showPicker();
-            else surface.classList.add("is-typing");
+            if (input.showPicker) {
+                input.showPicker();
+                if (input.matches(":open")) frame = view.requestAnimationFrame(watch);
+            } else surface.classList.add("is-typing");
         } catch (_) { surface.classList.add("is-typing"); }
     };
-    input.addEventListener("click", open);
+    if (bindEvents) input.addEventListener("click", open);
     input.addEventListener("keydown", event => {
         if (event.key === "Enter" || event.key === " " || (event.altKey && event.key === "ArrowDown")) {
             event.preventDefault(); open();
         } else if (!["Tab", "Escape", "Shift", "Alt", "Control", "Meta"].includes(event.key)) surface.classList.add("is-typing");
     });
     input.addEventListener("blur", () => surface.classList.remove("is-typing"));
-    return { open };
+    return { open, close() { view.cancelAnimationFrame(frame); frame = null; input.blur(); surface.classList.remove("is-typing"); } };
 }
 
 function mountTaskDateTime({ app, host, label, state, dateKey, timeKey, onChange = () => {} }) {

@@ -3,7 +3,7 @@
 <link rel="stylesheet" href="../../../../../System/Dashboards/Home/view.css">
 <link rel="stylesheet" href="../../../../../System/Dashboards/Project/view.css">
 <style>
-body{margin:0;background:#191b1e;color:#e0e4ef;font:16px system-ui;--background-primary:#202329;--background-secondary:#262a31;--text-normal:#e0e4ef;--text-muted:#a6afbe;--text-faint:#818996;--background-modifier-border:#3c424e;--background-modifier-hover:#ffffff0c;--interactive-accent:#5957da;--text-accent:#78c7ec;--text-on-accent:white;--color-red:#f5787e;--color-yellow:#ebbd58}
+body{color-scheme:dark;margin:0;background:#191b1e;color:#e0e4ef;font:16px system-ui;--background-primary:#202329;--background-secondary:#262a31;--text-normal:#e0e4ef;--text-muted:#a6afbe;--text-faint:#818996;--background-modifier-border:#3c424e;--background-modifier-hover:#ffffff0c;--interactive-accent:#5957da;--text-accent:#78c7ec;--text-on-accent:white;--color-red:#f5787e;--color-yellow:#ebbd58}
 *{box-sizing:border-box}button,input{font:inherit;color:inherit;border:1px solid var(--background-modifier-border);border-radius:6px;background:var(--background-primary);padding:7px}button{cursor:pointer}input[type=checkbox]{width:16px;height:16px;accent-color:var(--interactive-accent)}button:disabled{opacity:.45}.app-container{height:100vh;display:flex;flex-direction:column}.horizontal-main-container{flex:1 0 0;min-height:0;overflow:auto;padding:24px}.status-bar{position:absolute;bottom:0;right:0;display:flex}.modal-container{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:#0008;z-index:10}.modal{background:var(--background-primary);border:1px solid var(--background-modifier-border);border-radius:12px;padding:26px;max-height:94vh;overflow:auto}.modal-close-button{float:right}#fixture{width:100%;max-width:1030px}.home-panel,.project-panel{padding:16px;border:1px solid var(--background-modifier-border);border-radius:12px}.home-tasks-body,.project-tasks-body{max-height:640px}#result{white-space:pre-wrap;font-size:11px}.hub-task-markdown p{margin:0}
 </style>
 <div class="app-container"><div class="horizontal-main-container"><div id="fixture"></div><pre id="result">RUNNING</pre></div><div class="status-bar"><span>Native status controls</span></div></div>
@@ -60,7 +60,7 @@ obsidian.getIcon=()=>null;
 const fallbackIcon=obsidian.setIcon;obsidian.setIcon=(el,name)=>{el.dataset.icon=name;name=name.startsWith('lucide-')?name.slice(7):name==='fullscreen'?'maximize':name;if(iconShapes[name])el.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'+iconShapes[name]+'</svg>';else fallbackIcon(el,name)};
 const assert=(ok,message)=>{if(!ok)throw Error(message)};
 const isBlocked=button=>button.disabled||button.getAttribute('aria-disabled')==='true';
-const click=(scope,text)=>{const button=[...scope.querySelectorAll('button')].find(el=>el.textContent===text||el.getAttribute('aria-label')===text)||[...scope.querySelectorAll('.hub-oath-choice')].find(el=>(el.querySelector('.hub-oath-choice-title')?.textContent===text||el.querySelector('.hub-oath-choice-title')?.textContent.startsWith(text+': ')))?.querySelector('input');assert(button,'Missing control '+text);button.click();return button};
+const click=(scope,text)=>{const button=[...scope.querySelectorAll('button')].find(el=>el.textContent===text||el.getAttribute('aria-label')===text)||[...scope.querySelectorAll('.hub-oath-choice')].find(el=>(el.querySelector('.hub-oath-choice-title')?.textContent===text||el.querySelector('input[type=radio]')?.value===text.toLowerCase()))?.querySelector('input');assert(button,'Missing control '+text);button.click();return button};
 const selectSuggestion=screen=>screen.querySelector('.hub-oath-task-option:not(.is-selected)')?.click();
 const modal=()=>[...document.querySelectorAll('.modal-content')].at(-1);
 const settle=async()=>{for(let i=0;i<80;i++)await Promise.resolve();await new Promise(r=>requestAnimationFrame(r))};
@@ -69,7 +69,7 @@ window.addEventListener('error',event=>runtimeErrors.push(event.message));
 window.addEventListener('unhandledrejection',event=>runtimeErrors.push(String(event.reason)));
 window.onload=async()=>{try{
  window.process={platform:'win32',env:{}};
- const names=['domain/tasks','domain/dates','domain/task-planning','domain/task-form','domain/task-views','domain/oath','domain/oath-workspace','config','ui/workspace-cards','ui/card-images','ui/header-image','ui/tooltips','services/oath','services/task-data','services/task-writes','services/task-locations','services/task-editor','services/oath-fullscreen','ui/markdown','ui/completion-audio','ui/task-steps','ui/oath-tasks','ui/tasks','ui/icons','ui/date-time','ui/disclosure','ui/attention','ui/menu-toggle','ui/task-form','ui/task-editor','ui/oath'];
+ const names=['domain/tasks','domain/dates','domain/task-planning','domain/task-form','domain/task-views','domain/oath','domain/oath-workspace','config','ui/workspace-cards','ui/workspace-thumbnail','ui/card-images','ui/header-image','ui/tooltips','services/oath','services/task-data','services/task-writes','services/task-locations','services/task-editor','services/oath-fullscreen','ui/markdown','ui/completion-audio','ui/task-steps','ui/oath-tasks','ui/tasks','ui/icons','ui/date-time','ui/disclosure','ui/attention','ui/menu-toggle','ui/task-form','ui/task-editor','ui/oath'];
  const sources=Object.fromEntries(await Promise.all(names.map(async name=>[name,await(await fetch('../'+name+'.js')).text()]))),cache={};
  const load=name=>{if(name==='obsidian')return obsidian;if(name==='crypto')return{randomUUID:()=>crypto.randomUUID()};if(cache[name])return cache[name].exports;assert(sources[name],'Missing module '+name);const mod=cache[name]={exports:{}};new Function('module','require',sources[name])(mod,request=>{if(!request.startsWith('.'))return load(request);const out=[];for(const part of(name.slice(0,name.lastIndexOf('/'))+'/'+request).split('/')){if(part==='..')out.pop();else if(part!=='.')out.push(part)}return load(out.join('/'))});return mod.exports};
  const domain=load('domain/tasks'),planning=load('domain/task-planning'),{HubOathService}=load('services/oath'),{createTaskUi}=load('ui/tasks'),{mountOathControl}=load('ui/oath');
@@ -169,7 +169,7 @@ window.onload=async()=>{try{
   setContext(path);const fresh=openSetup();await settle();
   assert(fresh.draft.start==='now'&&fresh.contentEl.querySelector('input[value=now]').checked,'Fresh Now from '+path);
   assert(fresh.draft.durationMs===null&&!fresh.contentEl.querySelector('.hub-oath-duration-choices input:checked'),'Truly empty duration from '+path);
-  for(const group of fresh.contentEl.querySelectorAll('.hub-option-group')){
+  for(const group of fresh.contentEl.querySelectorAll('.hub-oath-choices.hub-option-group')){
    const cards=[...group.children],widths=cards.map(card=>card.getBoundingClientRect().width);
    assert(widths.every(width=>Math.abs(width-widths[0])<1),'Equal alternative widths in '+group.getAttribute('aria-label'));
    for(const card of cards){
@@ -244,16 +244,23 @@ window.onload=async()=>{try{
  click(guidance.contentEl,'Review Oath');await settle();
  const workHint=guidance.requirementGroups.Workspace,headingColor=getComputedStyle(workHint.querySelector('h3')).color;
  assert(workHint.classList.contains('hub-attention')&&guidance.contentEl.querySelectorAll('.hub-attention').length===1,'Missing workspace guides its whole requirement, before duration');
- const effect=getComputedStyle(workHint,'::after');
- assert(reducedMotion?effect.animationName==='none':effect.animationName==='hub-attention-pulse'&&effect.animationIterationCount==='2'&&effect.animationDuration==='0.85s','Oath reuses the shared two-pulse amber effect and reduced-motion variant');
- assert([...workHint.querySelectorAll('.hub-oath-choice')].every(card=>getComputedStyle(card).backgroundColor==='rgb(32, 35, 41)')&&headingColor==='rgb(224, 228, 239)','Attention leaves option fill and heading text unchanged');
+ const effect=getComputedStyle(workHint),paint=getComputedStyle(workHint,'::after');
+ assert(paint.outlineStyle==='none'&&paint.boxShadow.includes('0px 0px 0px 5px')&&paint.borderTopWidth==='0px'&&paint.backgroundImage==='none','Oath uses a uniformly expanded amber fill without a brighter edge');
+ assert(!guidance.contentEl.querySelector('.hub-task-error').textContent&&guidance.contentEl.querySelector('.hub-guidance-status').textContent,'Missing setup uses transient accessible guidance without duplicate red copy');
+ assert(reducedMotion?effect.animationName==='none':effect.animationName==='hub-attention-pulse'&&effect.animationIterationCount==='2'&&effect.animationDuration==='1.25s','Oath reuses the shared two-pulse amber effect and reduced-motion variant');
+ const firstPeak=workHint.getAnimations()[0];if(firstPeak){firstPeak.pause();firstPeak.currentTime=450;await settle()}
+ assert([...workHint.querySelectorAll('.hub-oath-choice')].every(card=>getComputedStyle(card).backgroundColor!=='rgb(32, 35, 41)')&&getComputedStyle(workHint.querySelector('h3')).color===headingColor,'Oath option surfaces participate in the same amber peak without changing heading text');
+ if(firstPeak){firstPeak.currentTime=0;firstPeak.play()}
  const firstHint=workHint.getAnimations({subtree:true})[0];click(guidance.contentEl,'Review Oath');await settle();
  assert(workHint.classList.contains('hub-attention')&&(reducedMotion||workHint.getAnimations({subtree:true})[0]!==firstHint),'Repeated failed Review replays the same blocker');
- await new Promise(resolve=>setTimeout(resolve,reducedMotion?850:1850));
- assert(!guidance.contentEl.querySelector('.hub-attention')&&getComputedStyle(workHint).outlineStyle==='none'&&getComputedStyle(workHint.querySelector('h3')).color===headingColor,'Oath guidance finishes fully normal');
+ await new Promise(resolve=>setTimeout(resolve,reducedMotion?850:2750));
+ assert(!guidance.contentEl.querySelector('.hub-attention,[data-hub-attention-surface]')&&getComputedStyle(workHint).outlineStyle==='none'&&getComputedStyle(workHint.querySelector('h3')).color===headingColor&&[...workHint.querySelectorAll('.hub-oath-choice')].every(card=>getComputedStyle(card).backgroundColor==='rgb(32, 35, 41)'),'Oath guidance and surface backgrounds finish fully normal');
  click(guidance.contentEl,'Select date and time');await settle();guidance.contentEl.querySelector('.hub-oath-start-disclosure').click();await settle();
  click(guidance.contentEl,'Review Oath');await settle();
  assert(guidance.requirementGroups.Start.classList.contains('hub-attention')&&!guidance.requirementGroups.Workspace.classList.contains('hub-attention'),'An unchosen scheduled start is the highest blocker');
+ const pastStart=guidance.contentEl.querySelector('input[type=datetime-local]'),past=new Date(Date.now()-3600000);
+ pastStart.value=new Date(past.getTime()-past.getTimezoneOffset()*60000).toISOString().slice(0,16);pastStart.dispatchEvent(new Event('input'));click(guidance.contentEl,'Review Oath');await settle();
+ assert(guidance.contentEl.querySelector('.hub-task-error').textContent==='Choose a start date and time in the future.','Invalid populated schedule retains its meaningful future-date error alongside guidance');
  click(guidance.contentEl,'Now');chooseProject();await settle();click(guidance.contentEl,'Review Oath');await settle();
  assert(guidance.requirementGroups.Tasks.classList.contains('hub-attention')&&guidance.requirementGroups.Tasks.querySelector('h3')&&guidance.requirementGroups.Tasks.querySelector('.hub-oath-task-option')&&!guidance.draft.tasks.length,'Task selection is required and its heading/options receive guidance together');
  selectSuggestion(guidance.contentEl);click(guidance.contentEl,'Review Oath');await settle();
@@ -262,6 +269,9 @@ window.onload=async()=>{try{
  const customBounds=customCard.getBoundingClientRect();inset.value='45';inset.dispatchEvent(new Event('input'));await settle();
  assert(getComputedStyle(customCard).backgroundColor==='rgb(89, 87, 218)'&&getComputedStyle(inset).backgroundColor==='rgb(32, 35, 41)'&&getComputedStyle(inset).color==='rgb(224, 228, 239)'&&getComputedStyle(inset).borderBottomWidth==='1px','Custom uses a readable neutral inset without an underline');
  assert(Math.abs(customCard.getBoundingClientRect().width-customBounds.width)<1&&Math.abs(customCard.getBoundingClientRect().height-customBounds.height)<1,'Custom typing preserves option geometry');
+ inset.value='.5';inset.dispatchEvent(new Event('input'));click(guidance.contentEl,'Review Oath');await settle();
+ assert(guidance.contentEl.querySelector('.hub-task-error').textContent==='Choose a duration in whole minutes, at least one minute.','Invalid populated Custom duration retains its meaningful whole-minute error');
+ inset.value='45';inset.dispatchEvent(new Event('input'));await settle();
  const unitToggle=guidance.contentEl.querySelector('.hub-oath-duration-unit');unitToggle.click();await settle();
  assert(unitToggle.getAttribute('aria-expanded')==='true','Custom unit disclosure opens');
  unitToggle.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true}));unitToggle.click();await settle();
@@ -281,6 +291,26 @@ window.onload=async()=>{try{
  assert(inline.contentEl.querySelectorAll('.hub-oath-task-option').length===1&&!inline.draft.tasks.length,'One suggestion remains unselected');
  selectSuggestion(inline.contentEl);
  assert(inline.draft.tasks.length===1&&getComputedStyle(inline.contentEl.querySelector('.hub-oath-task-option.is-selected')).backgroundColor==='rgb(89, 87, 218)','Selecting the suggestion uses full accent fill');
+ const underlying=service.workspaceTasks(inline.draft.workspace).length,removeSuggestion=inline.contentEl.querySelector('.hub-oath-remove-task');
+ assert(removeSuggestion?.querySelector('[data-icon=x]'),'Selected tasks expose the restored Lucide remove control');
+ removeSuggestion.click();
+ assert(!inline.draft.tasks.length&&service.workspaceTasks(inline.draft.workspace).length===underlying&&!inline.contentEl.querySelector('.hub-oath-task-option.is-selected'),'Remove only clears commitment selection and cannot bubble into selecting the row again');
+ inline.draft.tasks=service.workspaceTasks(inline.draft.workspace).slice(0,3);inline.renderSelected();await settle();
+ const spacedRows=[...inline.contentEl.querySelectorAll('.hub-oath-task-option')],spacedRects=spacedRows.map(row=>row.getBoundingClientRect());
+ const workspaceBottom=inline.contentEl.querySelector('.hub-oath-workspace-choices').getBoundingClientRect().bottom;
+ assert(spacedRects.length>=2&&spacedRects.slice(1).every((rect,index)=>Math.abs(rect.top-spacedRects[index].bottom-6)<1)&&spacedRects[0].top-workspaceBottom>6,'Six-pixel task gaps stay smaller than the workspace-to-task gap');
+ for(const row of spacedRows.filter(row=>row.classList.contains('is-selected'))){const bounds=row.getBoundingClientRect(),remove=row.querySelector('.hub-oath-remove-task').getBoundingClientRect();assert(Math.abs(remove.top+remove.height/2-bounds.top-bounds.height/2)<1&&bounds.right-remove.right>=4,'Remove controls remain vertically centered with right breathing room')}
+ plus.click();await settle();
+ const pickerRows=[...modal().querySelectorAll('.hub-oath-task-row')].map(row=>row.getBoundingClientRect());
+ assert(pickerRows.length>=2&&pickerRows.slice(1).every((rect,index)=>Math.abs(rect.top-pickerRows[index].bottom-6)<1),'Add Tasks uses the same compact six-pixel row gaps');
+ inline.picker.close();inline.draft.tasks=service.workspaceTasks(inline.draft.workspace).slice(0,1);inline.renderSelected();
+ const sections=[...inline.contentEl.querySelectorAll(':scope > .hub-oath-section')];
+ assert(sections.every((section,index)=>getComputedStyle(section).borderTopWidth===(index?'0px':'1px'))&&getComputedStyle(inline.contentEl.querySelector('.hub-oath-actions')).borderTopWidth==='1px','Only header and footer separators remain in Make an Oath');
+ const selectedWorkspace=inline.contentEl.querySelector('.hub-oath-workspace-choices .hub-oath-choice:has(input:checked)'),thumbnail=selectedWorkspace.querySelector('img');
+ const imageBounds=thumbnail.getBoundingClientRect(),nameBounds=selectedWorkspace.querySelector('.hub-oath-choice-title').getBoundingClientRect(),workspaceBounds=selectedWorkspace.getBoundingClientRect();
+ assert(imageBounds.width===38&&imageBounds.height===38&&Math.abs((imageBounds.left+nameBounds.right)/2-(workspaceBounds.left+workspaceBounds.width/2))<1,'Larger square workspace image and unprefixed title stay centered together');
+ Object.assign(thumbnail.style,{width:'32px',height:'32px',flexBasis:'32px',marginBlock:'0'});
+ assert(Math.abs(selectedWorkspace.getBoundingClientRect().height-workspaceBounds.height)<1,'Enlarging the image preserves the existing option-button height');thumbnail.removeAttribute('style');
  assert(!inline.contentEl.querySelector('.hub-oath-selected-tasks input[type=radio],.hub-oath-selected-tasks [data-icon=check]'),'No additional selection indicators');
  const initialInlineHeight=inline.modalEl.getBoundingClientRect().height;
  click(inline.contentEl,'50 minutes');click(inline.contentEl,'Custom');
@@ -384,7 +414,7 @@ window.onload=async()=>{try{
     for(const input of controls.querySelectorAll('input')){const r=input.getBoundingClientRect();assert(r.left>=b.left&&r.right<=b.right+1,'Native control fits its option column')}
    }
    assert(setup.modalEl.scrollWidth<=setup.modalEl.clientWidth+1,'Conditional setup fits at '+width);
-   assert(getComputedStyle(setup.contentEl.querySelector('.hub-oath-actions')).paddingTop==='0px','No reserved action whitespace');
+   assert(getComputedStyle(setup.contentEl.querySelector('.hub-oath-actions')).paddingTop==='16px','Footer separator has compact breathing room');
   }
  }
  setup.modalEl.style.width='';click(setup.contentEl,'Now');click(setup.contentEl,'50 minutes');
@@ -418,8 +448,8 @@ window.onload=async()=>{try{
   assert(t.right<=c.left&&c.right<=a.right&&title.scrollWidth>title.clientWidth,'Text truncates before fixed icon at '+width);
   assert(getComputedStyle(title).textOverflow==='ellipsis'&&getComputedStyle(title).whiteSpace==='nowrap','Single line ellipsis');
   card.dispatchEvent(new Event('pointerover',{bubbles:true}));
-  assert(title.getAttribute('aria-label')==='Project: '+longName&&title.dataset.tooltipPosition==='bottom','Existing tooltip exposes full name');
-  assert(card.querySelector('input').getAttribute('aria-labelledby')===title.id&&title.textContent==='Project: '+longName,'Accessible label is unabridged');
+  assert(title.getAttribute('aria-label')===longName&&title.dataset.tooltipPosition==='bottom','Existing tooltip exposes full name');
+  assert(card.querySelector('input').getAttribute('aria-labelledby')===title.id&&title.textContent===longName,'Accessible label is unabridged');
   assert(!card.querySelector('button,[tabindex]')&&icon.getAttribute('aria-hidden')==='true','Change icon adds no control or tab stop');
  }
  setup.modalEl.style.width='';contexts[0].name=shortName;setup.setup();await settle();
@@ -493,7 +523,7 @@ window.onload=async()=>{try{
  assert(!picker.querySelector('input[type=radio],input[type=checkbox]'),'Cards have no selection icons');
  assert(getComputedStyle(picker.querySelector('.hub-oath-workspace-grid')).gridTemplateColumns.split(' ').length===(picker.clientWidth<=440?1:picker.clientWidth<=680?2:3),'Project grid follows its responsive container width');
  picker.querySelector('.home-project-card').dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true,cancelable:true}));
- assert(modal().querySelector('input[value=project]').closest('label').textContent==='Project: Itacan','Workspace is inside selected card');
+ assert(modal().querySelector('input[value=project]').closest('label').textContent==='Itacan','Workspace is inside selected card');
  assert(!modal().querySelector('.hub-oath-selected-workspace')&&![...modal().querySelectorAll('button')].some(button=>button.textContent==='Change'),'Standalone workspace and Change row removed');
  assert(modal().querySelectorAll('.hub-oath-workspace-change').length===1&&modal().querySelector('.hub-oath-workspace-change').dataset.icon==='chevrons-up-down','Only selected card has exact change icon');
  const selectedTitles=()=>[...modal().querySelectorAll('.hub-oath-selected-tasks .is-selected .project-task-text')].map(el=>el.textContent);
@@ -529,6 +559,19 @@ window.onload=async()=>{try{
  readonlyHover(modal().querySelector('.hub-oath-task-row input'));
  const normalCheckbox=view.body.querySelector('input[type=checkbox]'),normalBefore=hoverAppearance(normalCheckbox);
  normalCheckbox.classList.add('test-hover');assert(hoverAppearance(normalCheckbox)!==normalBefore,'Normal Tasks checkbox retains native hover feedback');normalCheckbox.classList.remove('test-hover');
+ selectSuggestion(modal());await settle();
+ const selectedTask=modal().querySelector('.hub-oath-task-option.is-selected'),selectedNow=modal().querySelector('input[value=now]').closest('.hub-oath-choice');
+ const foreground=[...selectedTask.querySelectorAll('.project-task-text,.project-task-location,.hub-task-dates time,input[type=checkbox],.hub-task-necessity-bar,.hub-oath-remove-task')];
+ const resting=foreground.map(node=>({node,color:getComputedStyle(node).color,opacity:getComputedStyle(node).opacity,text:node.textContent}));
+ assert(foreground.length===6,'Selected task exposes title, workspace, due date, checkbox, priority and remove icon');
+ modal().style.setProperty('--interactive-accent-hover','#6c69e2');
+ selectedTask.classList.add('test-hover');selectedNow.classList.add('test-hover');
+ await Promise.all(selectedTask.getAnimations().map(animation=>animation.finished.catch(()=>{})));await settle();
+ const taskHover=getComputedStyle(selectedTask),nowHover=getComputedStyle(selectedNow);
+ assert(taskHover.backgroundColor==='rgb(108, 105, 226)'&&taskHover.backgroundColor===nowHover.backgroundColor&&taskHover.borderColor===nowHover.borderColor&&taskHover.color===nowHover.color&&taskHover.boxShadow===nowHover.boxShadow,'Selected tasks use the same selected-hover surface as Now, including a distinct theme hover accent');
+ assert(resting.every(({node,color,opacity,text})=>{const css=getComputedStyle(node);return css.color===color&&css.opacity===opacity&&node.textContent===text&&node.getBoundingClientRect().width>0&&css.visibility==='visible'}),'Hover preserves all selected task foregrounds, metadata and controls');
+ assert(getComputedStyle(selectedTask.querySelector('.project-task-text')).color==='rgb(255, 255, 255)','Generic task hover cannot recolor selected task titles into the purple fill');
+ selectedTask.classList.remove('test-hover');selectedNow.classList.remove('test-hover');modal().style.removeProperty('--interactive-accent-hover');selectedTask.click();await settle();
  const beforeSelection=selectedTitles(),beforeFiles=JSON.stringify([...files]);
  modal().querySelector('.hub-oath-task-row input').click();
  assert(JSON.stringify([...files])===beforeFiles&&!selectedTitles().length,'Completion square cannot complete or select');
@@ -544,7 +587,10 @@ window.onload=async()=>{try{
  assert(!selectedTitles().length&&modal().querySelector('.hub-oath-task-option').textContent.includes('Read research source'),'Switching workspace resets selection and reveals its top task');selectSuggestion(modal());
  click(modal(),'Review Oath');assert([...modal().querySelectorAll('.hub-oath-review-row strong')].map(el=>el.textContent).join('|')==='Start time|Selected resource|Selected tasks|Duration','Resource review label');
  click(modal(),'Back');
- assert(modal().querySelector('input[value=resource]').closest('label').textContent==='Resource: Research','Selected Resource card label');
+ assert(modal().querySelector('input[value=resource]').closest('label').textContent==='Research','Selected Resource card label');
+ const resourceCard=modal().querySelector('input[value=resource]').closest('label'),resourceImage=resourceCard.querySelector('img'),resourceTitle=resourceCard.querySelector('.hub-oath-choice-title');
+ const ri=resourceImage.getBoundingClientRect(),rt=resourceTitle.getBoundingClientRect(),rc=resourceCard.getBoundingClientRect();
+ assert(ri.width===38&&ri.height===38&&Math.abs((ri.left+rt.right)/2-rc.left-rc.width/2)<1,'Resources share the larger centered square-image treatment');
  click(modal(),'Project');click(modal(),'Cancel');
  assert(selectedTitles().join('|')==='Read research source'&&modal().querySelector('input[value=resource]').checked,'Resource to Project cancellation is atomic');
  click(modal(),'Resource');assert(modal().querySelector('h2').textContent==='Select resource','Selected Resource card reopens picker');modal().querySelector('[data-resource-type=study]').click();
@@ -677,6 +723,7 @@ window.onload=async()=>{try{
  if(preview==='fresh-future')setContext(contexts[2].path);
  if(preview==='fresh-empty')setContext(resources.find(item=>item.resourceType==='study').path);
  const screen=load('ui/oath').openOathSetup(service);if(preview==='setup-controls'){click(screen.contentEl,'Custom');click(screen.contentEl,'Select date and time')}if(preview==='project-picker'){click(screen.contentEl,'Project');await new Promise(r=>setTimeout(r,300))}if(preview==='resource-picker'){click(screen.contentEl,'Resource');await new Promise(r=>setTimeout(r,300))}if(preview==='suggestions'){chooseProject();await settle()}
+ if(preview==='refinement'){screen.draft.workspace=oathWorkspace;screen.draft.tasks=service.workspaceTasks(oathWorkspace).slice(0,3);screen.draft.durationMs=50*60000;screen.setup();window.oathPreview=screen;await settle()}
  if(['inline-preset','inline-scheduled-empty','inline-scheduled-full','inline-custom-empty','inline-custom-minutes','inline-custom-hours','inline-one-task','inline-no-tasks'].includes(preview)){
   chooseProject();click(screen.contentEl,'50 minutes');
   if(preview.includes('custom')){click(screen.contentEl,'Custom');if(preview!=='inline-custom-empty'){
@@ -695,10 +742,11 @@ window.onload=async()=>{try{
   }
   document.activeElement?.blur();await settle();
  }
+ if(preview==='guidance'){click(screen.contentEl,'Review Oath');await settle();const pulse=screen.requirementGroups.Workspace.getAnimations({subtree:true})[0];if(pulse){pulse.pause();pulse.currentTime=450;await settle()}}
  if(preview==='long-workspace'){contexts[0].name=longName;chooseProject(longName);await settle()}
  if(preview==='resource-selection'){click(screen.contentEl,'Resource');modal().querySelector('[data-resource-type=literature]').click();await settle()}
  if(preview==='long-review'){files.set(longTaskPath,longTasks.map(title=>'- [ ] '+title).join('\n'));screen.draft.durationMs=50*60000;screen.draft.workspace=oathWorkspace;screen.draft.tasks=read().filter(task=>task.path===longTaskPath);screen.review();await settle()}if(preview==='review'){screen.draft.durationMs=50*60000;screen.draft.workspace=oathWorkspace;screen.draft.tasks=service.workspaceTasks(oathWorkspace).slice(0,2);screen.review();}await settle();assert(screen.modalEl.scrollWidth<=screen.modalEl.clientWidth+1,'Preview fits');}
  assert(!runtimeErrors.length,'No uncaught runtime errors: '+runtimeErrors.join('; '));
- document.getElementById('result').textContent='PASS: inline custom value/units, native inline schedules, selected task header/state, geometry and focus, contextual fresh defaults, required explicit duration, delayed suggestions, completed-only empty states, scoped task creation and preserved draft, shared Project/Resource cards, workspace switching/cancellation, scoped suggestions/search/additions, readonly checkboxes, live lock visuals/cleanup, redesigned setup/review, radio proportions, required/single/multiple tasks, custom validation, Back, picker/source integration, Steps, consolidated live pinned header, responsive layout, clock cleanup, Escape/Keep/X/Break, task/timer fulfillment, exact boundary, 70-minute Oathbound time, schedules and cancellation.';
+ document.getElementById('result').textContent='PASS: inline custom value/units, calendar/time popover schedules, selected task header/state, geometry and focus, contextual fresh defaults, required explicit duration, delayed suggestions, completed-only empty states, scoped task creation and preserved draft, shared Project/Resource cards, workspace switching/cancellation, scoped suggestions/search/additions, readonly checkboxes, live lock visuals/cleanup, redesigned setup/review, radio proportions, required/single/multiple tasks, custom validation, Back, picker/source integration, Steps, consolidated live pinned header, responsive layout, clock cleanup, Escape/Keep/X/Break, task/timer fulfillment, exact boundary, 70-minute Oathbound time, schedules and cancellation.';
 }catch(error){document.getElementById('result').textContent='FAIL: '+error.stack}};
 </script>

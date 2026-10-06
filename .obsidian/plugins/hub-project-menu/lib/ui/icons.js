@@ -1,12 +1,13 @@
 "use strict";
 
-const { getIcon, setIcon } = require("obsidian");
+const { getIcon, setIcon, addIcon } = require("obsidian");
 
 // Obsidian's unprefixed names include legacy aliases (folder -> folder-open,
 // presentation -> monitor). Prefer canonical Lucide names at the Hub boundary,
 // while retaining registered custom icons and legacy-only names as a fallback.
 const resolvedNames = new Map();
 function setHubIcon(element, name) {
+    ensureHubIcon(name);
     let resolved = resolvedNames.get(name);
     if (!resolved) {
         const canonical = name.startsWith("lucide-") ? name : "lucide-" + name;
@@ -53,4 +54,21 @@ function setHubIcon(element, name) {
     setIcon(element, resolved);
 }
 
-module.exports = { setHubIcon };
+// Exact upstream Lucide icons for registries predating these names. Register
+// them once so native Menu.setIcon and Hub triggers render the same SVG.
+// https://github.com/lucide-icons/lucide/blob/main/icons/list-sort-descending.svg
+// https://github.com/lucide-icons/lucide/blob/main/icons/list-sort-ascending.svg
+// ISC copyright, permission and warranty notice above applies to these SVGs.
+const missingSortIcons = {
+    "list-sort-descending": '<path d="M15 12H3"/><path d="M3 5h18"/><path d="M9 19H3"/>',
+    "list-sort-ascending": '<path d="M3 19h18"/><path d="M15 12H3"/><path d="M9 5H3"/>'
+};
+function ensureHubIcon(name) {
+    const key = name.replace(/^lucide-/, ""), svg = missingSortIcons[key];
+    if (svg && !getIcon("lucide-" + key) && !getIcon(key)) {
+        // Native custom icons use a 100-unit viewBox; Lucide uses 24 units.
+        addIcon(key, `<g transform="scale(${100 / 24})" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${svg}</g>`);
+    }
+}
+
+module.exports = { setHubIcon, ensureHubIcon };

@@ -2,6 +2,7 @@
 const { Notice } = require("obsidian");
 const { CaptureModal, action, attachments } = require("./capture-modal");
 const { mountCaptureForm } = require("./capture-form");
+const { mountCaptureGuidance } = require("./inbox-guidance");
 const { linkFromText } = require("../domain/inbox");
 
 class QuickAddModal extends CaptureModal {
@@ -15,7 +16,7 @@ class QuickAddModal extends CaptureModal {
         this.modalEl.classList.add("hub-quick-add-dialog");
         this.header("Quick Add", "Write down a thought, or add a file.");
         this.body = this.contentEl.createDiv({ cls: "hub-capture-body" });
-        this.textPath = this.body.createDiv({ cls: "hub-capture-input-path" });
+        this.textPath = this.body.createDiv({ cls: "hub-capture-input-path", attr: { "data-capture-field": "Content" } });
         this.label = this.textPath.createEl("label", { cls: "hub-capture-label", attr: { for: this.prefix + "-input" } }); this.label.hidden = true;
         this.textEditor = this.textPath.createDiv({ cls: "hub-capture-text-editor" });
         this.input = this.textEditor.createEl("textarea", { cls: "hub-quick-add-input", attr: { id: this.prefix + "-input", "aria-label": "Write something", rows: "3", placeholder: "Start typing..." } });
@@ -30,7 +31,7 @@ class QuickAddModal extends CaptureModal {
         this.input.addEventListener("keydown", event => {
             if (event.key === "Enter" && !event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey && !event.isComposing && event.keyCode !== 229) {
                 event.preventDefault();
-                if (!this.add.hidden && !this.add.disabled) void this.addDirect();
+                if (!this.add.hidden && !this.add.disabled && this.add.getAttribute("aria-disabled") !== "true") void this.addDirect();
                 else if (!this.send.disabled) void this.sendInbox();
             }
         });
@@ -62,7 +63,7 @@ class QuickAddModal extends CaptureModal {
             this.input.setRangeText(prefix + text, start, end, "end");
             this.draft.text = this.input.value; this.form?.update({ text: this.input.value }); this.sync(); this.input.focus();
         });
-        this.attachmentList = this.body.createDiv({ cls: "hub-capture-attachments" });
+        this.attachmentList = this.body.createDiv({ cls: "hub-capture-attachments", attr: { "data-capture-field": "File" } });
         this.fileInput = this.body.createEl("input", { attr: { type: "file", multiple: "", hidden: "", tabindex: "-1", "aria-label": "Choose a file" } });
         this.fileInput.addEventListener("change", () => { void this.addAttachments([...this.fileInput.files]); this.fileInput.value = ""; });
         this.attach = action(this.body, "Add a file", "paperclip", () => this.fileInput.click(), "hub-capture-attach");
@@ -71,7 +72,9 @@ class QuickAddModal extends CaptureModal {
         this.cancel = action(footer, "Cancel", null, () => this.close());
         this.more = action(footer, "More options", null, () => this.expand());
         this.send = action(footer, "Send to Inbox", null, () => { void this.sendInbox(); }, "mod-cta");
-        this.add = action(footer, "Add to Itacan", null, () => { void this.addDirect(); }, "mod-cta"); this.add.hidden = true;
+        this.add = action(footer, "Add to Itacan", null, () => { void this.addDirect(); }, "mod-cta hub-guided-submit"); this.add.hidden = true;
+        this.guidance = mountCaptureGuidance({ body: this.body,
+            completion: () => this.service.completion(this.form?.value() ?? this.draft, this.captureId) });
         this.sync(); this.input.focus();
     }
     expand() {
@@ -106,8 +109,10 @@ class QuickAddModal extends CaptureModal {
         this.more.disabled = waiting || !content;
         this.send.disabled = waiting || complete || !content;
         this.send.classList.toggle("mod-cta", !this.form);
-        this.add.disabled = waiting || !complete;
+        this.add.disabled = waiting;
+        this.add.setAttribute("aria-disabled", String(waiting || !complete));
         if (pendingNote) this.expanded.querySelectorAll("button,input,select,textarea").forEach(control => control.disabled = true);
+        this.guidance?.update();
     }
     renderAttachments() {
         attachments(this.attachmentList, this.draft.attachments, this.service, { remove: ref => {
@@ -154,7 +159,12 @@ class QuickAddModal extends CaptureModal {
     }
     addDirect() {
         if (this.busy || this.pendingImports) return;
-        if (!this.form?.valid()) return;
+        if (!this.form?.valid()) {
+            // Use the same required-field ordering as Inbox. Optional invalid
+            // edits retain meaningful errors without becoming amber targets.
+            if (!this.guidance?.guide()) this.error.textContent = this.service.completion(this.form?.value() ?? this.draft, this.captureId).error ?? "";
+            return;
+        }
         return this.run(async () => {
             const draft = this.form.value();
             const result = draft.type === "task" ? await this.service.makeTask(draft, this.captureId) : draft.type === "note" ?
@@ -168,6 +178,7 @@ class QuickAddModal extends CaptureModal {
     }
     close() { if (!this.pendingImports) super.close(); }
     onClose() {
+        this.guidance?.destroy();
         if (!this.saved && this.draft.attachments.length) void this.service.releaseAttachments(this.draft.attachments)
             .catch(error => new Notice(`Could not remove temporary attachment: ${error.message}`));
         super.onClose();

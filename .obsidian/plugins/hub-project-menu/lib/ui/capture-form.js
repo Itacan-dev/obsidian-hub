@@ -8,8 +8,8 @@ const { openNotePositionPicker } = require("./note-position-picker");
 const { noteLocation, noteLocationSummary, resolveNoteLocation } = require("../domain/note-insertion");
 
 const MODES = [["task", "Task", "square"], ["note", "Note", "notebook-text"]];
-function mountCaptureTypeControl({ host, selectedType = null, disabledTypes = [], onSelect }) {
-    return mountChoices({ host, label: "Type", options: MODES, selected: selectedType, disabled: disabledTypes, onSelect, cls: "hub-capture-types" });
+function mountCaptureTypeControl({ host, selectedType = null, disabledTypes = [], onSelect, file = false }) {
+    return mountChoices({ host, label: "Type", options: file ? [["file", "File", "file"]] : MODES, selected: selectedType, disabled: disabledTypes, onSelect, cls: "hub-capture-types" });
 }
 function mountChoices({ host, label, options, selected, disabled = [], onSelect, cls }) {
     const field = host.createDiv({ cls: "hub-capture-field", attr: { "data-capture-field": label } });

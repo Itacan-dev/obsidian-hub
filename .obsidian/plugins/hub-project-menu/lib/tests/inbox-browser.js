@@ -1,5 +1,16 @@
 "use strict";
 const isBlocked = button => button.disabled || button.getAttribute("aria-disabled") === "true";
+const progressValue = progress => Number(progress.getAttribute('aria-valuenow'));
+const progressMax = progress => Number(progress.getAttribute('aria-valuemax'));
+const colorContext = document.createElement('canvas').getContext('2d');
+function rgba(color) {
+    colorContext.clearRect(0, 0, 1, 1); colorContext.fillStyle = color; colorContext.fillRect(0, 0, 1, 1);
+    return [...colorContext.getImageData(0, 0, 1, 1).data];
+}
+function contrast(first, second) {
+    const luminance = color => rgba(color).slice(0, 3).map(value => value / 255).map(value => value <= .04045 ? value / 12.92 : ((value + .055) / 1.055) ** 2.4).reduce((sum, value, index) => sum + value * [.2126, .7152, .0722][index], 0);
+    const a = luminance(first), b = luminance(second); return (Math.max(a, b) + .05) / (Math.min(a, b) + .05);
+}
 // Native modules against an isolated in-memory vault. No production data is used.
 HTMLElement.prototype.createEl = function (tag, options = {}) {
     const element = document.createElement(tag);
@@ -134,14 +145,23 @@ async function changeType(inbox, id, label) {
     const item = window.lastMenu.items.find(item => item.title === label);
     assert(item, "Contextual type option: " + label); item.element.click(); await settle();
 }
+const registeredIcons = new Map();
 const obsidian = {
     Component, Modal, FuzzySuggestModal, Menu, Platform: { isMacOS: false, isDesktop: true },
     Notice: class { constructor(message) { notices.push(message); } },
     normalizePath: path => path.replace(/\\/g, "/").replace(/\/+/g, "/"),
-    getIcon: name => /^(lucide-)?(arrow-down-wide-narrow|arrow-up-wide-narrow|calendar-arrow-down|calendar-arrow-up|shapes)$/.test(name) ? document.createElementNS("http://www.w3.org/2000/svg", "svg") : null,
+    addIcon: (name, svg) => registeredIcons.set(name, svg),
+    getIcon: name => {
+        if (registeredIcons.has(name)) {
+            const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+            svg.setAttribute('viewBox', '0 0 100 100'); svg.innerHTML = registeredIcons.get(name); return svg;
+        }
+        return /^(lucide-)?(clock-arrow-down|clock-arrow-up|files)$/.test(name) ? document.createElementNS("http://www.w3.org/2000/svg", "svg") : null;
+    },
     setTooltip(element, title) { element.title = title; },
     setIcon(element, name) {
         element.replaceChildren(); element.dataset.icon = name.replace(/^lucide-/, "");
+        if (registeredIcons.has(name)) { element.append(obsidian.getIcon(name)); return; }
         const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
         for (const [key, value] of Object.entries({ viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "stroke-width": "1.7", "stroke-linecap": "round", "stroke-linejoin": "round" })) svg.setAttribute(key, value);
         const path = document.createElementNS(svg.namespaceURI, "path");
@@ -161,8 +181,9 @@ const obsidian = {
             "arrow-right": "M4 12h16m-6-6 6 6-6 6",
             "arrow-down-wide-narrow": "m3 16 4 4 4-4M7 20V4M14 4h8m-8 8h6m-6 8h4",
             "arrow-up-wide-narrow": "m3 8 4-4 4 4M7 4v16M14 4h8m-8 8h6m-6 8h4",
-            "calendar-arrow-down": "M8 2v4m8-4v4M3 10h18M21 13V6H3v15h9m4-5 3 3 3-3m-3-4v7",
-            "calendar-arrow-up": "M8 2v4m8-4v4M3 10h18M21 13V6H3v15h9m4-5 3-3 3 3m-3 4v-7",
+            "clock-arrow-down": "M12 6v6l2 1M22 12a10 10 0 1 0-10 10M18 14v8m-4-4 4 4 4-4",
+            "clock-arrow-up": "M12 6v6l2 1M22 12a10 10 0 1 0-10 10M18 22v-8m-4 4 4-4 4 4",
+            files: "M15 2H6v14h14V7l-5-5M14 2v6h6M2 6v15a1 1 0 0 0 1 1h12",
             shapes: "m5 3 4 6H1zm8 10h8v8h-8zM9 17a4 4 0 1 0-8 0 4 4 0 0 0 8 0",
             check: "m5 12 4 4L19 6", "panel-right-open": "M3 3h18v18H3zM15 3v18m-9-12 3 3-3 3M9 12H3",
             send: "m22 2-7 20-4-9-9-4 20-7zM22 2 11 13", "repeat-2": "m17 2 4 4-4 4M3 11V8a2 2 0 0 1 2-2h16M7 22l-4-4 4-4m14-1v3a2 2 0 0 1-2 2H3"
@@ -377,7 +398,7 @@ window.onload = async () => {
                 const trigger = host.querySelector('button[aria-label="Sort items"]');
                 assert(trigger && !host.querySelector('select[aria-label="Sort items"]'), "Inbox sorting uses a native menu trigger instead of select");
                 trigger.click(); await settle();
-                const title = ({ "most-complete": "Most complete", "least-complete": "Least complete", newest: "Newest first", oldest: "Oldest first", type: "Type" })[value];
+                const title = ({ "most-complete": "Most complete", "least-complete": "Least complete", newest: "Newest first", oldest: "Oldest first", type: "Item type" })[value];
                 const item = window.lastMenu.items.find(item => item.title === title);
                 assert(item?.element && !item.element.disabled, "Native sort menu contains " + title);
                 item.element.click(); await settle();
@@ -493,6 +514,16 @@ window.onload = async () => {
         quick.input.dispatchEvent(enter); await settle();
         assert(enter.defaultPrevented && count() === 1, "Enter creates one unresolved Capture");
         assert(!badge.hidden && badge.textContent === "1", "Global badge updates immediately to unresolved count");
+        const badgeStyle = getComputedStyle(badge), badgeBounds = badge.getBoundingClientRect(), navBounds = controls.inboxButton.getBoundingClientRect();
+        // An inline-flex item computes to flex inside the navigation flex row.
+        assert(['flex', 'inline-flex'].includes(badgeStyle.display) && badgeStyle.alignItems === 'center' && badgeStyle.justifyContent === 'center' && badgeStyle.paddingLeft === badgeStyle.paddingRight && badgeBounds.height === 16 && Math.abs(badgeBounds.top + badgeBounds.height / 2 - navBounds.top - navBounds.height / 2) < 1, 'Inbox badge centers its number and compact sixteen-pixel box beside the navigation label');
+        for (const digits of ['1', '14', '128']) {
+            badge.textContent = digits;
+            const number = document.createRange(); number.selectNodeContents(badge);
+            const numberBounds = number.getBoundingClientRect(), bounds = badge.getBoundingClientRect();
+            assert(bounds.height === 16 && Math.abs(numberBounds.left + numberBounds.width / 2 - bounds.left - bounds.width / 2) < 1 && Math.abs(numberBounds.top + numberBounds.height / 2 - bounds.top - bounds.height / 2) < 1, 'Rendered badge number ' + digits + ' is centered horizontally and vertically');
+        }
+        badge.textContent = '1';
         assert(!quick.containerEl.isConnected && document.activeElement === quickTrigger, "Successful capture closes and restores trigger focus");
         assert(workspace.activeLeaf.view.file === activeFile && oathChanges === 0, "Capturing preserves current work and Oath state");
         assert(metadataSaves > 0 && restoredData, "Captures are written through the canonical persistence boundary");
@@ -596,7 +627,7 @@ window.onload = async () => {
         await chooseWorkspace(quick, project, "Task"); assertViewport(quick);
         assert(quick.input.getAttribute("aria-label") === "Task" && quick.contentEl.querySelectorAll('textarea,input[aria-label="Task"]').length === 1, "Task mode morphs the captured text into one canonical task editor");
         assert(![...quick.contentEl.querySelectorAll("h3")].some(item => ["Task details", "Dates"].includes(item.textContent)), "Task mode removes redundant Task details and Dates headings");
-        assert(quick.add.textContent.trim() === "Add to Itacan" && !quick.add.disabled && quick.send.disabled, "Text plus workspace and location enables only direct Add to Itacan");
+        assert(quick.add.textContent.trim() === "Add to Itacan" && !isBlocked(quick.add) && quick.send.disabled, "Text plus workspace and location enables only direct Add to Itacan");
         const image = quick.contentEl.querySelector('button[aria-label="Save to"] .hub-capture-workspace-thumbnail');
         assert(image?.tagName === "IMG" && getComputedStyle(image).width === getComputedStyle(image).height && getComputedStyle(image).objectFit === "cover" && getComputedStyle(image).clipPath === "none", "Selected Project uses a clean square image crop without its card mask");
         assert(load("ui/workspace-thumbnail").workspaceImagePath(plugin, service.destinations().find(item => item.id === project.projectId)) === customCoverPath, "Selected Project thumbnail resolves its user cover from canonical cached metadata");
@@ -647,7 +678,7 @@ window.onload = async () => {
         await quick.addAttachments([new File(["one"], "evidence.pdf", { type: "application/pdf" }), new File(["two"], "evidence.pdf", { type: "application/pdf" })]); await settle();
         await click(quick.contentEl, "More options");
         await chooseWorkspace(quick, resource, "File", resource.root + "/Quantum Gravity");
-        assert(!quick.contentEl.querySelector(".hub-capture-types,.hub-capture-file-help") && quick.add.disabled === false && quick.send.disabled, "File mode requires only actual files and routing without redundant types or helper copy");
+        assert(!quick.contentEl.querySelector(".hub-capture-types,.hub-capture-file-help") && isBlocked(quick.add) === false && quick.send.disabled, "File mode requires only actual files and routing without redundant types or helper copy");
         await click(quick.contentEl, "Add to Itacan");
         assert([...objects.keys()].filter(path => path.startsWith(resource.root + "/Quantum Gravity/evidence") && path.endsWith(".pdf")).length === 2, "Multiple imported files preserve safe collision handling");
         assert(original.path === resource.root + "/original.pdf" && objects.has(original.path), "Direct imports preserve original existing user files");
@@ -674,7 +705,7 @@ window.onload = async () => {
         picker.contentEl.querySelector(`[data-capture-path="${project.root}/Design/Nested folder"]`).click(); await settle();
         assert(quick.form.value().folder === project.root + "/Design/Nested folder" && quick.input.value === "Picker content survives nested selection", "Choosing a nested workspace folder preserves captured input");
         quick.form.update({ folder: project.root }); quick.sync();
-        assert(quick.add.disabled, "Programmatic Project-root folder selection cannot enable Add note");
+        assert(isBlocked(quick.add), "Programmatic Project-root folder selection cannot enable Add note");
         const rootCapture = await capture("Programmatic destination validation");
         let rejectedRoot;
         try { await service.createNote({ workspaceId: project.projectId, folder: project.root, title: "Forbidden root note", text: rootCapture.text, attachments: [], source: rootCapture.source }, rootCapture.id); } catch (error) { rejectedRoot = error; }
@@ -686,7 +717,7 @@ window.onload = async () => {
         assert(!picker.contentEl.querySelector(`[data-capture-path="${project.root}"]`) && !picker.contentEl.querySelector(`[data-capture-path="${activeFile.path}"]`), "Feature task picker excludes Project-root folder and root note locations");
         assert(picker.contentEl.querySelector(`[data-capture-path="${project.root}/Design/Tasks.md"]`) && picker.contentEl.querySelector(`[data-capture-path="${project.root}/Design"]`), "Task picker distinguishes available workspace Markdown notes and folders");
         assert(picker.contentEl.querySelector(`[data-capture-path="${project.root}/Design/Tasks.md"]`).textContent.includes("Markdown note") && picker.contentEl.querySelector(`[data-capture-path="${project.root}/Design"]`).textContent.includes("Folder"), "Task location rows identify notes and folders with clear native captions");
-        picker.close(); quick.form.update({ location: activeFile.path }); quick.sync(); assert(quick.add.disabled, "Programmatic root-note task selection cannot enable Add task"); await click(quick.contentEl, "Cancel");
+        picker.close(); quick.form.update({ location: activeFile.path }); quick.sync(); assert(isBlocked(quick.add), "Programmatic root-note task selection cannot enable Add task"); await click(quick.contentEl, "Cancel");
 
         quick = await openQuick(); await quick.addAttachments([new File(["retry bytes"], "direct-retry.pdf", { type: "application/pdf" })]); await settle();
         await click(quick.contentEl, "More options"); await select(quick.contentEl, "Save to", project.projectId); await select(quick.contentEl, "Destination folder", project.root + "/Design");
@@ -706,6 +737,7 @@ window.onload = async () => {
         await verifyPartialCaptures({ service, plugin, memory, project, resource, openQuick, openInbox, load, capture, stage, select, click, setField, count, assertViewport, getPersisted: () => restoredData, setFailSave: () => { failSave = true; } });
         await verifyPersistentInboxEdits({ service, plugin, project, resource, openInbox, load, stage, select, click, setField, getPersisted: () => restoredData });
         await verifyInboxOrganisation({ plugin, project, resource, load, stage, select, click, setField });
+        await verifyQuickAddGuidance({ service, project, resource, openQuick, select, click, setField });
         await verifyInteractionPolish({ service, project, resource, openInbox, select, click, setField, stage });
         await verifyExistingNoteFlow({ service, plugin, memory, project, resource, openQuick, openInbox, load, select, click, setField, checkTextFocus, assertViewport,
             getPersisted: () => restoredData, setFailResolutionText: text => { failTaskResolutionText = text; } });
@@ -787,7 +819,7 @@ async function verifyExistingNoteFlow({ service, plugin, memory, project, resour
     setField(quick.contentEl, "Note title", "Remember this title"); await settle();
     await click(quick.contentEl, "Add text to existing note");
     assert(!quick.contentEl.querySelector('[aria-label="Destination folder"],[aria-label="Note title"]') && quick.contentEl.querySelector('button[aria-label="Location"]').textContent.includes("Choose note and position..."), "Existing-note mode replaces Folder and Title with Location");
-    assert(quick.contentEl.querySelector('button[aria-label="Location"] [data-icon="notebook-text"]') && !quick.send.disabled && quick.add.disabled, "Incomplete existing-note mode keeps Send to Inbox available and uses the Markdown-note location icon");
+    assert(quick.contentEl.querySelector('button[aria-label="Location"] [data-icon="notebook-text"]') && !quick.send.disabled && isBlocked(quick.add), "Incomplete existing-note mode keeps Send to Inbox available and uses the Markdown-note location icon");
     let picker = await openPicker(quick.contentEl);
     const emptyMode = picker.positions.querySelector('[data-note-selector="mode"]');
     assert(picker.positions.querySelector('h3').textContent === "Place in note" && emptyMode.disabled && emptyMode.textContent === "Select a note first" && picker.positions.querySelectorAll('button').length === 1, "Place in note is visible immediately with one disabled neutral prompt before note selection");
@@ -831,7 +863,7 @@ async function verifyExistingNoteFlow({ service, plugin, memory, project, resour
     assert(picker.selection.position === "top" && picker.selection.label === "Quick Add", "Clicking the already selected heading choice preserves its target and contextual position");
     await click(picker.contentEl, "Use this position");
     assert(quick.form.value().noteLocation.position === "top" && quick.contentEl.querySelector('[aria-label="Location"]').textContent.includes("Position targets · Quick Add · Top of section"), "Use this position commits a concise atomic heading-location summary");
-    assert(!quick.add.disabled && quick.send.disabled && document.activeElement === quick.contentEl.querySelector('[aria-label="Location"]'), "A complete existing-note Location enables Add, disables Send and restores field focus");
+    assert(!isBlocked(quick.add) && quick.send.disabled && document.activeElement === quick.contentEl.querySelector('[aria-label="Location"]'), "A complete existing-note Location enables Add, disables Send and restores field focus");
     picker = await openPicker(quick.contentEl);
     assert(picker.selection.position === "top" && picker.selection.targetType === "heading", "Reopening restores the committed note and contextual position");
     picker.contentEl.querySelector(`[data-capture-path="${plainPath}"]`).click(); await settle();
@@ -856,7 +888,7 @@ async function verifyExistingNoteFlow({ service, plugin, memory, project, resour
     await click(quick.contentEl, "Add text to existing note");
     assert(quick.form.value().noteLocation.position === "top" && quick.input.value === "Captured body", "Switching actions preserves the existing-note Location and canonical content");
     await select(quick.contentEl, "Save to", resource.projectId);
-    assert(!quick.form.value().folder && !quick.form.value().noteLocation && quick.add.disabled && !quick.send.disabled, "Changing workspace clears both mode-specific destinations and updates completeness");
+    assert(!quick.form.value().folder && !quick.form.value().noteLocation && isBlocked(quick.add) && !quick.send.disabled, "Changing workspace clears both mode-specific destinations and updates completeness");
     await select(quick.contentEl, "Save to", project.projectId);
     picker = await openPicker(quick.contentEl); await pickNote(picker); await click(picker.contentEl, "Use this position");
     const fileCount = objects.size; await click(quick.contentEl, "Add to Itacan");
@@ -889,7 +921,7 @@ async function verifyExistingNoteFlow({ service, plugin, memory, project, resour
     picker = await openPicker(quick.contentEl); await pickNote(picker); await click(picker.contentEl, "In list"); await click(picker.contentEl, "Use this position");
     setFailResolutionText("Retry existing insertion once"); await click(quick.contentEl, "Add to Itacan");
     const retryId = quick.captureId;
-    assert(retryId && service.get(retryId).operation.state === "ready" && !quick.add.disabled && quick.input.disabled && contents.get(path).split("Retry existing insertion once").length === 2, "Failed final save retains a retryable receipt while locking already-inserted content");
+    assert(retryId && service.get(retryId).operation.state === "ready" && !isBlocked(quick.add) && quick.input.disabled && contents.get(path).split("Retry existing insertion once").length === 2, "Failed final save retains a retryable receipt while locking already-inserted content");
     await click(quick.contentEl, "Cancel"); inbox = await openInbox(); await inbox.select(retryId); await settle();
     assert(inbox.mode === "note" && inbox.form.value().noteAction === "existing" && !isBlocked(inbox.save), "Inbox resumes an existing-note receipt even though insertion changed the original list anchor");
     await click(inbox.detail, "Add to Itacan");
@@ -900,7 +932,7 @@ async function verifyExistingNoteFlow({ service, plugin, memory, project, resour
     await click(quick.contentEl, "Add text to existing note"); await select(quick.contentEl, "Save to", project.projectId);
     picker = await openPicker(quick.contentEl); await pickNote(picker); await click(picker.contentEl, "Under heading"); await click(picker.contentEl, "Use this position");
     await vault.modify(target, contents.get(path).replace("# Quick Add", "# Renamed")); await settle();
-    assert(!quick.form.value().noteLocation && quick.add.disabled && !quick.send.disabled && !contents.get(path).includes("Do not insert into a missing heading"), "Changed structural target becomes incomplete without guessing another insertion position");
+    assert(!quick.form.value().noteLocation && isBlocked(quick.add) && !quick.send.disabled && !contents.get(path).includes("Do not insert into a missing heading"), "Changed structural target becomes incomplete without guessing another insertion position");
     await quick.close(); await settle();
 }
 
@@ -913,32 +945,32 @@ async function verifyPartialCaptures({ service, plugin, memory, project, resourc
     setField(quick.contentEl, "Start date", "2026-10-12T00:00"); setField(quick.contentEl, "Start date", "2026-10-12T09:30");
     setField(quick.contentEl, "Due date", "2026-10-14T00:00"); setField(quick.contentEl, "Due date", "2026-10-14T15:45");
     await select(quick.contentEl, "Project phase (optional)", "phase1"); await click(quick.contentEl, "Add step"); setField(quick.contentEl, "Step text", "Preserved partial Step");
-    assert(quick.add.disabled && !quick.send.disabled, "A partial Task with missing location can only be sent to Inbox");
+    assert(isBlocked(quick.add) && !quick.send.disabled, "A partial Task with missing location can only be sent to Inbox");
     await click(quick.contentEl, "Send to Inbox"); const task = find("Partial Task continuation");
     assert(task?.intent?.type === "task" && task.intent.workspaceId === project.projectId && !task.intent.location, "Sending a partial Task preserves its type/workspace and missing location");
     assert(task.intent.necessity === "must" && task.intent.fromDate === "2026-10-12" && task.intent.fromTime === "09:30" && task.intent.dueDate === "2026-10-14" && task.intent.dueTime === "15:45" && task.intent.phaseId === "phase1" && task.intent.steps[0].text === "Preserved partial Step", "Partial Task preserves necessity, both date/time pairs, phase and Steps: " + JSON.stringify(task.intent));
 
     quick = await openQuick(); enter(quick.input, "Partial Note content\nPreserve the second line"); await click(quick.contentEl, "More options"); await click(quick.contentEl, "Note");
     await select(quick.contentEl, "Save to", resource.projectId); setField(quick.contentEl, "Note title", "Partial Note title");
-    assert(quick.add.disabled && !quick.send.disabled && quick.contentEl.querySelectorAll("textarea").length === 1, "Partial Note requires a folder and has only one canonical content editor");
+    assert(isBlocked(quick.add) && !quick.send.disabled && quick.contentEl.querySelectorAll("textarea").length === 1, "Partial Note requires a folder and has only one canonical content editor");
     await click(quick.contentEl, "Send to Inbox"); const note = find("Partial Note content\nPreserve the second line");
     assert(note?.intent?.type === "note" && note.intent.workspaceId === resource.projectId && note.intent.title === "Partial Note title", "Partial Note preserves workspace, entered title and full content");
 
     quick = await openQuick(); enter(quick.input, "Preserve selected folder"); await click(quick.contentEl, "More options"); await click(quick.contentEl, "Note");
     await select(quick.contentEl, "Save to", resource.projectId); await select(quick.contentEl, "Destination folder", resource.root + "/Quantum Gravity");
     setField(quick.contentEl, "Note title", "");
-    assert(quick.add.disabled && !quick.send.disabled, "Clearing the required Note title immediately restores only Send to Inbox");
+    assert(isBlocked(quick.add) && !quick.send.disabled, "Clearing the required Note title immediately restores only Send to Inbox");
     await click(quick.contentEl, "Send to Inbox"); const routedNote = find("Preserve selected folder");
     assert(routedNote.intent.folder === resource.root + "/Quantum Gravity" && routedNote.intent.title === "", "A partial Note preserves its selected folder and intentionally cleared title");
 
     quick = await openQuick(); enter(quick.input, "Preserve both Task lines\nUntil deliberately edited"); await click(quick.contentEl, "More options"); await click(quick.contentEl, "Task");
     await select(quick.contentEl, "Save to", project.projectId); await select(quick.contentEl, "Task location", project.root + "/Design");
-    assert(quick.add.disabled && !quick.send.disabled, "Multiline Task text remains incomplete under the canonical single-line Task rule");
+    assert(isBlocked(quick.add) && !quick.send.disabled, "Multiline Task text remains incomplete under the canonical single-line Task rule");
     await click(quick.contentEl, "Send to Inbox"); const multilineTask = find("Preserve both Task lines\nUntil deliberately edited");
 
     quick = await openQuick(); await quick.addAttachments([new File(["partial bytes"], "partial-file.pdf", { type: "application/pdf" })]); await settle();
     await click(quick.contentEl, "More options"); await select(quick.contentEl, "Save to", project.projectId);
-    const fileRef = quick.draft.attachments[0]; assert(quick.add.disabled && !quick.send.disabled, "Partial File waits for a valid folder while Send to Inbox remains available");
+    const fileRef = quick.draft.attachments[0]; assert(isBlocked(quick.add) && !quick.send.disabled, "Partial File waits for a valid folder while Send to Inbox remains available");
     await click(quick.contentEl, "Send to Inbox"); const file = service.list().find(item => item.attachments[0]?.id === fileRef.id);
     assert(file?.intent?.type === "file" && file.intent.workspaceId === project.projectId && memory.objects.has(fileRef.path), "Partial File preserves its binary reference and workspace routing choice");
 
@@ -963,7 +995,7 @@ async function verifyPartialCaptures({ service, plugin, memory, project, resourc
     await selectRestored(file.id);
     const titleRect = restored.detail.querySelector('.hub-inbox-action-heading').getBoundingClientRect(), fileRect = restored.detail.querySelector('.hub-capture-attachment').getBoundingClientRect();
     const previewGap = fileRect.top + restored.detail.querySelector('.hub-inbox-action-body').scrollTop - titleRect.bottom;
-    assert(previewGap >= 0 && previewGap <= 12, "Inbox File preview retains its compact intrinsic gap even when guidance scrolls to Folder");
+    assert(previewGap >= 0 && previewGap <= 14, "Inbox File preview retains its compact intrinsic gap even when guidance scrolls to Folder");
     assert(restored.mode === "file" && !restored.detail.querySelector("textarea,.hub-capture-types,.hub-inbox-actions-section") && restored.form.value().workspaceId === project.projectId && restored.form.value().attachments[0].id === fileRef.id && isBlocked(restored.save), "Reloaded File opens routing directly and preserves file/workspace without classification");
     restored.close();
 
@@ -997,7 +1029,7 @@ async function verifyPersistentInboxEdits({ service, plugin, project, resource, 
     const source = { origin: "Quick Add", path: "Home.md", title: "Home" };
     const task = await service.capture({ text: "An unfinished thought", source });
     const note = await service.capture({ text: "Note before classification", source });
-    const refs = await stage("persist-routing.pdf", "application/pdf"), file = await service.capture({ attachments: refs });
+    const refs = await stage("persist-routing.pdf", "application/pdf"), file = await service.capture({ type: "file", attachments: refs });
     let inbox = await openInbox();
     const choose = async id => { await inbox.select(id); await settle(); };
     const enter = (element, value) => { element.value = value; element.dispatchEvent(new Event("input", { bubbles: true })); };
@@ -1069,13 +1101,19 @@ async function verifyInboxOrganisation({ plugin, project, resource, load, stage,
         const capture = service.get(id), state = service.getInboxCompletion(capture, id === inbox.selectedId ? inbox.form?.value() ?? inbox.draft : undefined);
         const remaining = state.totalRequired - state.completedRequired;
         const indicator = row(id), expected = state.ready ? "Ready" : state.totalRequired ? `${remaining} ${remaining === 1 ? "detail" : "details"} left` : "Choose type";
-        assert(indicator.status.textContent === expected && indicator.progress.value / indicator.progress.max === state.ratio, "Row fraction and native progress match the shared submission validator");
+        assert(indicator.status.textContent === expected && progressValue(indicator.progress) / progressMax(indicator.progress) === state.ratio, "Status and accessible progress match the shared submission validator");
+        assert(indicator.progress.children.length === state.totalRequired && indicator.progress.querySelectorAll('.is-complete').length === state.completedRequired, 'One segment per required detail and one filled segment per completed requirement');
         if (id === inbox.selectedId && inbox.form) assert(!isBlocked(inbox.save) === state.ready && inbox.form.valid() === state.ready, "Ready and Add to Itacan eligibility agree for the selected form");
         const description = indicator.progress.getAttribute("aria-label");
         assert(description && indicator.button.getAttribute("aria-describedby") === indicator.progress.id && indicator.progress.getAttribute("aria-valuetext") === description, "Each row exposes an accessible completeness description");
         assert(!inbox.detail.querySelector("progress,.hub-inbox-completion-label,.hub-inbox-completion-progress"), "Completeness exists only in the left list");
         const style = getComputedStyle(indicator.progress), heading = indicator.status.getBoundingClientRect(), title = indicator.title.getBoundingClientRect();
-        assert(parseFloat(style.height) >= 3 && parseFloat(style.height) <= 4 && style.transitionDuration === "0s" && style.animationName === "none" && parseFloat(style.borderWidth) === 0, "Native progress is a thin neutral track without animation or extra border");
+        assert(parseFloat(style.height) >= 3 && parseFloat(style.height) <= 4 && style.transitionDuration === "0s" && style.animationName === "none" && parseFloat(style.borderWidth) === 0, "Segmented progress retains its thin footprint without animation or extra border");
+        assert([...indicator.progress.children].every(segment => getComputedStyle(segment).backgroundColor === (segment.classList.contains('is-complete') ? 'rgb(139, 92, 246)' : 'rgb(52, 52, 52)')), 'Segment fill and track retain the established accent/neutral colors');
+        if (state.totalRequired) {
+            const segments = [...indicator.progress.children].map(segment => segment.getBoundingClientRect());
+            assert(rgba(style.backgroundColor)[3] === 0 && segments.every((rect, index) => Math.abs(rect.width - segments[0].width) < 1 && (!index || Math.abs(rect.left - segments[index - 1].right - 3) < 1)), 'Purple and gray segments have equal widths and open three-pixel gaps without a continuous track underneath');
+        }
         assert(heading.left >= title.right - 1 && indicator.progress.getBoundingClientRect().width >= indicator.title.parentElement.clientWidth - 1, "Secondary status stays right of the title and progress spans the usable content width");
         return state;
     };
@@ -1088,23 +1126,33 @@ async function verifyInboxOrganisation({ plugin, project, resource, load, stage,
     assert(rowIds().join("|") === [first.id, second.id].join("|"), "Untyped-only Most complete ties use oldest first");
     for (const item of [first, second]) {
         const state = checkCompletion(item.id);
-        assert(state.ratio === 0 && row(item.id).status.textContent === "Choose type" && row(item.id).progress.value === 0 && row(item.id).progress.getAttribute("aria-label") === "Type not selected", "Untyped text asks to choose its type and retains an empty accessible track");
+        assert(state.ratio === 0 && row(item.id).status.textContent === "Choose type" && progressValue(row(item.id).progress) === 0 && row(item.id).progress.getAttribute("aria-label") === "Type not selected", "Untyped text asks to choose its type and retains an empty accessible track");
     }
+    const rawFile = await service.capture({ attachments: await stage('Unclassified.pdf', 'application/pdf') });
+    await inbox.select(rawFile.id); await settle();
+    assert(checkCompletion(rawFile.id).totalRequired === 0 && row(rawFile.id).status.textContent === 'Choose type' && !row(rawFile.id).progress.children.length, 'Untyped files retain zero progress and no invented segments');
+    await click(inbox.detail, 'File');
+    assert(checkCompletion(rawFile.id).completedRequired === 0 && checkCompletion(rawFile.id).totalRequired === 2 && inbox.mode === 'file', 'Classifying a file establishes Workspace and Folder details without a payload point');
+    await service.delete(rawFile.id);
     await inbox.select(first.id); await click(inbox.detail, "Task");
-    assert(checkCompletion(first.id).completedRequired === 2 && row(first.id).status.textContent === "2 details left", "Selecting Type starts normal required-detail completeness");
+    assert(checkCompletion(first.id).completedRequired === 0 && checkCompletion(first.id).totalRequired === 2 && row(first.id).status.textContent === "2 details left", "Selecting Task establishes exactly two organisational details without a Type point");
     await click(inbox.detail, "Must do");
     setField(inbox.detail, "Start date", "2026-10-19T09:30");
     await click(inbox.detail, "Add step"); setField(inbox.detail, "Step text", "Optional step"); await settle();
-    assert(checkCompletion(first.id).ratio === 0.5, "Necessity, date, time and Steps never add organisation progress");
+    assert(checkCompletion(first.id).ratio === 0, "Necessity, date, time and Steps never add organisation progress");
     await select(inbox.detail, "Save to", project.projectId);
-    assert(checkCompletion(first.id).ratio === 0.75, "Choosing the required workspace updates the indicator");
+    assert(checkCompletion(first.id).ratio === 1 / 2, "Choosing the required workspace updates the indicator");
     await select(inbox.detail, "Task location", project.root + "/Design");
-    assert(checkCompletion(first.id).ready && row(first.id).progress.value === row(first.id).progress.max && row(first.id).progress.getAttribute("aria-label") === "All required details complete", "Complete required details show Ready and a full bar");
+    assert(checkCompletion(first.id).ready && progressValue(row(first.id).progress) === progressMax(row(first.id).progress) && row(first.id).progress.getAttribute("aria-label") === "All required details complete", "Complete required details show Ready and a full bar");
     const refs = await stage("organisation-file.pdf", "application/pdf");
     const file = await service.capture({ attachments: refs, workspaceId: project.projectId });
-    const partialTask = await service.capture({ text: "Three of four details", type: "task", workspaceId: project.projectId });
-    const note = await service.capture({ text: "Five of six details", type: "note", noteAction: "new", workspaceId: resource.projectId,
+    const partialTask = await service.capture({ text: "One of two details", type: "task", workspaceId: project.projectId });
+    const note = await service.capture({ text: "Three of four details", type: "note", noteAction: "new", workspaceId: resource.projectId,
         folder: resource.root + "/Quantum Gravity", title: "" });
+    const emptyTask = await service.capture({ text: 'Two Task details remain', type: 'task' });
+    const halfNote = await service.capture({ text: 'Two Note details remain', type: 'note', workspaceId: resource.projectId, title: '' });
+    checkCompletion(emptyTask.id); checkCompletion(halfNote.id); checkCompletion(file.id); checkCompletion(note.id);
+    assert(row(emptyTask.id).status.textContent === '2 details left' && row(halfNote.id).status.textContent === '2 details left' && row(emptyTask.id).progress.children.length === 2 && row(halfNote.id).progress.children.length === 4 && row(emptyTask.id).progress.querySelectorAll('.is-complete').length === 0 && row(halfNote.id).progress.querySelectorAll('.is-complete').length === 2, 'Equal details-left labels correspond to two gray segments in both the two-detail Task and four-detail Note schema');
     const targetFile = await plugin.app.vault.create(project.root + "/Design/Organisation targets.md", "# Organisation heading\n\n- Item\n");
     const parsed = await service.readNotePositions(project.projectId, targetFile.path);
     const insertion = await service.capture({ text: "Append under this heading", type: "note", noteAction: "existing", workspaceId: project.projectId,
@@ -1120,16 +1168,16 @@ async function verifyInboxOrganisation({ plugin, project, resource, load, stage,
     await service.save(service.captures.map((item, index) => ({ ...item, createdAt: index + 1 })));
     await settle();
     checkCounts();
-    assert(rowIds().indexOf(partialTask.id) < rowIds().indexOf(file.id) && checkCompletion(partialTask.id).ratio === 0.75 && checkCompletion(file.id).ratio === 2 / 3,
-        "Most complete compares mixed denominators by normalized ratio");
+    assert(rowIds().indexOf(note.id) < rowIds().indexOf(partialTask.id) && rowIds().indexOf(file.id) < rowIds().indexOf(partialTask.id) && checkCompletion(note.id).ratio === 3 / 4 && checkCompletion(partialTask.id).ratio === 1 / 2 && checkCompletion(file.id).ratio === 1 / 2,
+        "Most complete compares corrected denominators and breaks equal Task/File ratios by oldest first");
     await inbox.select(first.id); await settle();
     const form = inbox.form, editor = inbox.taskInput, selectedRow = row(first.id).button;
     editor.focus(); inbox.list.scrollTop = Math.min(80, inbox.list.scrollHeight - inbox.list.clientHeight);
     const orderBefore = rowIds().join("|"), scrollBefore = inbox.list.scrollTop;
     editor.value = ""; editor.dispatchEvent(new Event("input", { bubbles: true }));
-    assert(row(first.id).status.textContent === "1 detail left" && isBlocked(inbox.save), "Editing required content changes progress and readiness before persistence completes");
+    assert(row(first.id).status.textContent === "0 details left" && checkCompletion(first.id).ratio === 1 && isBlocked(inbox.save), "Invalid payload blocks creation without changing organisational progress");
     await settle();
-    assert(rowIds().join("|") === orderBefore && inbox.reorderPending && inbox.list.scrollTop === scrollBefore, "Completeness sorting keeps row order and scroll stable during text editing");
+    assert(rowIds().join("|") === orderBefore && !inbox.reorderPending && inbox.list.scrollTop === scrollBefore, "Payload edits leave completeness order and scroll stable without scheduling a redundant reorder");
     assert(inbox.selectedId === first.id && inbox.form === form && inbox.taskInput === editor && row(first.id).button === selectedRow && document.activeElement === editor,
         "Live progress preserves selection, row identity, form identity and caret focus");
     const anchor = [...inbox.list.children].find(element => element.getBoundingClientRect().bottom > inbox.list.getBoundingClientRect().top), anchorTop = anchor.getBoundingClientRect().top;
@@ -1138,7 +1186,7 @@ async function verifyInboxOrganisation({ plugin, project, resource, load, stage,
         "Blurring the text field safely reorders without switching the detail pane");
     assert(Math.abs(anchor.getBoundingClientRect().top - anchorTop) <= 1, "Automatic reordering preserves the visible scroll anchor");
     editor.focus(); editor.value = "Ready again"; editor.dispatchEvent(new Event("input", { bubbles: true })); await settle();
-    assert(checkCompletion(first.id).ready && rowIds()[0] !== first.id, "Ready updates immediately while row movement remains deferred during typing");
+    assert(checkCompletion(first.id).ready && rowIds().join('|') === orderBefore, "Restoring valid payload restores Ready without inventing a progress step or moving the row");
     inbox.sort.focus(); await settle();
     assert(rowIds()[0] === first.id && inbox.selectedId === first.id, "Ready joins the 100% group when the edit commits");
     await select(inbox.contentEl, "Sort items", "least-complete");
@@ -1164,7 +1212,7 @@ async function verifyInboxOrganisation({ plugin, project, resource, load, stage,
     assert(checkCompletion(note.id).ready && !inbox.detail.querySelector("label[for$='-content']"), "Note title updates shared readiness and preserves the removed visible content heading");
     await click(inbox.filters, "Files"); checkCounts();
     await inbox.select(file.id); await settle();
-    assert(checkCompletion(file.id).completedRequired === 2, "File progress counts actual file, workspace and folder only");
+    assert(checkCompletion(file.id).completedRequired === 1, "File progress counts workspace and folder without the raw payload");
     await select(inbox.detail, "Destination folder", project.root + "/Design");
     assert(checkCompletion(file.id).ready, "Selecting Folder makes File Ready through the same validation");
     const beforeAdd = service.count;
@@ -1180,6 +1228,94 @@ async function verifyInboxOrganisation({ plugin, project, resource, load, stage,
     await plugin.app.vault.delete(targetFile);
 }
 
+async function verifyQuickAddGuidance({ service, project, resource, openQuick, select, click, setField }) {
+    const before = service.count, reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    let quick = await openQuick();
+    quick.input.value = 'Organise this thought'; quick.input.dispatchEvent(new Event('input', { bubbles: true }));
+    await click(quick.contentEl, 'More options');
+    assert(!quick.body.querySelector('.hub-attention') && !quick.add.disabled && isBlocked(quick.add), 'Incomplete Quick Add accepts an explicit validation attempt without guiding on open');
+    const type = quick.body.querySelector('[data-capture-field="Type"]'), bounds = type.getBoundingClientRect();
+    const labelColor = getComputedStyle(type.querySelector('.hub-capture-field-title')).color;
+    const buttonColor = getComputedStyle(type.querySelector('button')).backgroundColor;
+    await click(quick.contentEl, 'Add to Itacan');
+    assert(quick.body.querySelector('.hub-attention') === type && service.count === before, 'Untyped direct Add guides Type without creating a Capture');
+    const fill = getComputedStyle(type, '::after');
+    assert(fill.outlineStyle === 'none' && fill.borderTopWidth === '0px' && fill.backgroundImage === 'none' && fill.boxShadow.includes('0px 0px 0px 5px') && fill.boxShadow.startsWith(fill.backgroundColor), 'Amber fill expands 5px with identical color, without a border, outline, blur or gradient');
+    assert(Math.abs(type.getBoundingClientRect().height - bounds.height) < 1 && Math.abs(type.getBoundingClientRect().width - bounds.width) < 1 && getComputedStyle(type.querySelector('.hub-capture-field-title')).color === labelColor && quick.body.scrollWidth === quick.body.clientWidth, 'Quick Add guidance preserves geometry, foreground and scrollbar width');
+    const foreground = getComputedStyle(type.querySelector('button')).color, iconForeground = getComputedStyle(type.querySelector('svg')).color;
+    const restingSurface = type.querySelector('button').style.getPropertyValue('--hub-attention-base-surface');
+    if (!reduced) {
+        const pulse = type.getAnimations({ subtree: true })[0]; pulse.pause();
+        for (const [time, expected] of [[0, 0], [450, 1], [1000, 0], [1250, 0], [1700, 1], [2250, 0]]) {
+            pulse.currentTime = time; await settle();
+            assert(Math.abs(Number(getComputedStyle(type, '::after').opacity) - expected) < .01, 'Actual amber animation follows two calm peaks and resting intervals at ' + time + 'ms');
+            const current = rgba(getComputedStyle(type.querySelector('button')).backgroundColor).join();
+            assert((current !== rgba(restingSurface).join()) === !!expected && getComputedStyle(type.querySelector('button')).color === foreground && getComputedStyle(type.querySelector('svg')).color === iconForeground, 'Child surfaces follow the shared pulse while text and icons stay crisp at ' + time + 'ms');
+        }
+        pulse.currentTime = 0; pulse.play();
+    } else assert(getComputedStyle(type).animationName === 'none' && Number(fill.opacity) > 0 && rgba(getComputedStyle(type.querySelector('button')).backgroundColor).join() !== rgba(restingSurface).join(), 'Reduced motion uses a transient static emphasis on group and control surfaces');
+    await new Promise(resolve => setTimeout(resolve, reduced ? 850 : 2750));
+    assert(!quick.body.querySelector('.hub-attention') && !type.querySelector('[aria-describedby],[data-hub-attention-surface]') && getComputedStyle(type.querySelector('button')).backgroundColor === buttonColor, 'Quick Add guidance, surface overrides and accessible description expire completely');
+    await click(quick.contentEl, 'Add to Itacan');
+    const first = type.getAnimations({ subtree: true })[0];
+    await click(quick.contentEl, 'Add to Itacan');
+    assert(type.classList.contains('hub-attention') && (reduced || type.getAnimations({ subtree: true })[0] !== first), 'Repeated direct Add restarts the same missing requirement');
+    await click(quick.contentEl, 'Task');
+    assert(!quick.body.querySelector('.hub-attention'), 'Fixing Type clears guidance without automatically pulsing the next field');
+    await click(quick.contentEl, 'Add to Itacan');
+    assert(quick.body.querySelector('.hub-attention')?.dataset.captureField === 'Workspace', 'Task direct Add guides Workspace before Location or optional metadata');
+    await select(quick.contentEl, 'Save to', project.projectId);
+    await click(quick.contentEl, 'Add to Itacan');
+    assert(quick.body.querySelectorAll('.hub-attention').length === 1 && quick.body.querySelector('.hub-attention')?.dataset.captureField === 'Location', 'Fixing Workspace advances only the next missing required Location');
+    await select(quick.contentEl, 'Task location', project.root + '/Design');
+    quick.input.value = 'Invalid\nTask content'; quick.input.dispatchEvent(new Event('input', { bubbles: true }));
+    await click(quick.contentEl, 'Add to Itacan');
+    assert(quick.body.querySelector('.hub-attention') === quick.textPath && service.count === before, 'Invalid Task content guides the highest visible Content group using canonical validation');
+    quick.input.value = 'Organise this thought'; quick.input.dispatchEvent(new Event('input', { bubbles: true }));
+    quick.form.update({ steps: [{ text: '' }] }); await settle();
+    await click(quick.contentEl, 'Add to Itacan');
+    assert(!quick.body.querySelector('.hub-attention') && quick.error.textContent && service.count === before, 'Optional invalid Task edits retain meaningful errors without amber required-field guidance');
+    quick.close();
+    quick = await openQuick(); quick.input.value = 'Incomplete note'; quick.input.dispatchEvent(new Event('input', { bubbles: true }));
+    await click(quick.contentEl, 'More options'); await click(quick.contentEl, 'Note');
+    await select(quick.contentEl, 'Save to', resource.projectId);
+    await click(quick.contentEl, 'Add to Itacan');
+    assert(quick.body.querySelector('.hub-attention')?.dataset.captureField === 'Folder', 'New note guides required Folder before Title');
+    const folder = quick.body.querySelector('.hub-attention'), folderPulse = folder.getAnimations()[0];
+    if (folderPulse) { folderPulse.pause(); folderPulse.currentTime = 450; await settle(); }
+    const folderSurface = folder.querySelector('button'), base = rgba(folderSurface.style.getPropertyValue('--hub-attention-base-surface')), amber = rgba(getComputedStyle(folder).getPropertyValue('--hub-attention-color').trim());
+    const strength = Number(getComputedStyle(folder).getPropertyValue('--hub-attention-strength'));
+    const expectedSurface = base.slice(0, 3).map((value, index) => value * (1 - .22 * strength) + amber[index] * .22 * strength);
+    const actualSurface = rgba(getComputedStyle(folderSurface).backgroundColor);
+    assert(actualSurface[3] === 255 && expectedSurface.every((value, index) => Math.abs(actualSurface[index] - value) <= 1), 'Transparent picker surfaces blend from their opaque resting appearance without doubling the parent amber');
+    const paintBounds = folder.getBoundingClientRect(), clipBounds = quick.body.getBoundingClientRect();
+    assert(paintBounds.left - clipBounds.left >= 5 && clipBounds.right - paintBounds.right >= 5, 'Quick Add reserves the shared five-pixel highlight footprint outside both sides of the semantic group');
+    await click(quick.contentEl, 'Add to Itacan');
+    assert(rgba(folderSurface.style.getPropertyValue('--hub-attention-base-surface')).join() === base.join(), 'Repeating a failed attempt at peak emphasis captures the same resting surface without accumulating amber');
+    await select(quick.contentEl, 'Destination folder', resource.root); setField(quick.contentEl, 'Note title', '');
+    quick.body.scrollTop = 0; await click(quick.contentEl, 'Add to Itacan');
+    const title = quick.body.querySelector('.hub-attention');
+    assert(title?.dataset.captureField === 'Title', 'Cleared Note title becomes the next required Quick Add target');
+    await new Promise(resolve => setTimeout(resolve, reduced ? 1 : 600));
+    const viewport = quick.body.getBoundingClientRect(), titleBounds = title.getBoundingClientRect();
+    assert(titleBounds.top >= viewport.top - 1 && titleBounds.bottom <= viewport.bottom + 1, 'Direct Add scrolls its missing field into the Quick Add viewport');
+    quick.close();
+    quick = await openQuick(); quick.input.value = 'Keep this incomplete capture'; quick.input.dispatchEvent(new Event('input', { bubbles: true }));
+    await click(quick.contentEl, 'More options'); await click(quick.contentEl, 'Note'); await click(quick.contentEl, 'Add text to existing note');
+    await select(quick.contentEl, 'Save to', resource.projectId); await click(quick.contentEl, 'Add to Itacan');
+    assert(quick.body.querySelector('.hub-attention')?.dataset.captureField === 'Location', 'Existing note uses canonical atomic Location guidance');
+    quick.guidance.update();
+    const attentionStarts = []; const observe = event => { if (event.animationName === 'hub-attention-pulse') attentionStarts.push(event); };
+    document.addEventListener('animationstart', observe);
+    // Let the earlier attempted cue finish; Send itself must never start one.
+    await new Promise(resolve => setTimeout(resolve, reduced ? 850 : 2750));
+    attentionStarts.length = 0;
+    await click(quick.contentEl, 'Send to Inbox'); document.removeEventListener('animationstart', observe);
+    const saved = service.list().find(item => item.text === 'Keep this incomplete capture');
+    assert(saved && !quick.containerEl.isConnected && !attentionStarts.length && !quick.body.querySelector('.hub-attention'), 'Send to Inbox accepts incomplete existing-note intent without any validation guidance');
+    await service.delete(saved.id);
+}
+
 async function verifyInteractionPolish({ service, project, resource, openInbox, select, click, setField, stage }) {
     const ids = [], capture = async values => { const item = await service.capture(values); ids.push(item.id); return item; };
     const note = await capture({ text: "Complete the missing title", type: "note", workspaceId: resource.projectId,
@@ -1188,16 +1324,17 @@ async function verifyInteractionPolish({ service, project, resource, openInbox, 
     const ready = await capture({ text: "A fully organised task", type: "task", workspaceId: project.projectId, location: project.root + "/Design" });
     const inbox = await openInbox(); await inbox.select(note.id); await settle();
     const width = inbox.sort.getBoundingClientRect().width;
-    const sortIcons = { "least-complete": "arrow-up-wide-narrow", newest: "calendar-arrow-down", oldest: "calendar-arrow-up", type: "shapes", "most-complete": "arrow-down-wide-narrow" };
+    const sortIcons = { "least-complete": "list-sort-ascending", newest: "clock-arrow-down", oldest: "clock-arrow-up", type: "files", "most-complete": "list-sort-descending" };
     for (const value of ["least-complete", "newest", "oldest", "type", "most-complete"]) {
         await select(inbox.contentEl, "Sort items", value);
         assert(Math.abs(inbox.sort.getBoundingClientRect().width - width) < 1, "Sort reserves the widest label for " + value);
         assert(inbox.sort.querySelector(`[data-icon="${sortIcons[value]}"]`), "Trigger icon matches " + value);
     }
-    assert(inbox.sort.querySelector('[data-icon="arrow-down-wide-narrow"]') && !inbox.sortMenu, "Sort trigger matches the active ranking mode");
+    assert(inbox.sort.querySelector('[data-icon="list-sort-descending"]') && !inbox.sortMenu, "Sort trigger matches the active ranking mode");
     inbox.sort.click(); await settle();
     const sortMenu = inbox.sortMenu;
-    assert(sortMenu.items.map(item => item.icon).join('|') === 'arrow-down-wide-narrow|arrow-up-wide-narrow|calendar-arrow-down|calendar-arrow-up|shapes' && sortMenu.items.filter(item => item.checked).length === 1, "Every sort option has a paired icon and only the active option is checked");
+    assert(sortMenu.items.map(item => item.icon).join('|') === 'list-sort-descending|list-sort-ascending|clock-arrow-down|clock-arrow-up|files' && sortMenu.items.filter(item => item.checked).length === 1 && sortMenu.items.at(-1).title === 'Item type', "Every sort option uses the exact requested icon, Item type label and one active checkmark");
+    assert(registeredIcons.has('list-sort-descending') && registeredIcons.has('list-sort-ascending') && inbox.sort.querySelector('svg').getAttribute('viewBox') === '0 0 100 100', 'Older native registries render exact registered Lucide list-sort paths at the correct custom-icon scale');
     assert(inbox.sort.getAttribute('aria-expanded') === 'true' && getComputedStyle(inbox.sort.querySelector('.is-open')).display === 'flex', "Open sort shows the down chevron");
     inbox.sort.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })); inbox.sort.click(); await settle();
     assert(!inbox.sortMenu && !sortMenu.element.isConnected && window.lastMenu === sortMenu && inbox.sort.getAttribute('aria-expanded') === 'false', "Pointer-down click-away cannot close and reopen the same sort trigger");
@@ -1227,6 +1364,7 @@ async function verifyInteractionPolish({ service, project, resource, openInbox, 
     assert(getComputedStyle(row.button).borderTopColor === "rgba(0, 0, 0, 0)" && getComputedStyle(row.button).backgroundColor !== "rgb(139, 92, 246)" && getComputedStyle(row.button).boxShadow === "none", "Selected content uses a quiet tint without a border or shadow");
     const hoverStyles = document.createElement('style');
     hoverStyles.textContent = (await (await fetch('../../styles.css')).text()).replaceAll(':hover', '.fixture-hover'); document.head.append(hoverStyles);
+    await Promise.all(row.button.getAnimations().map(animation => animation.finished.catch(() => {})));
     const selectedBackground = getComputedStyle(row.button).backgroundColor;
     row.button.classList.add('fixture-hover'); await new Promise(resolve => setTimeout(resolve, 180));
     assert(getComputedStyle(row.button).backgroundColor === selectedBackground && getComputedStyle(row.button).borderTopColor === 'rgba(0, 0, 0, 0)' && getComputedStyle(row.button).boxShadow === 'none' && getComputedStyle(row.button).transform === 'none', "Selected hover keeps its calm selection treatment");
@@ -1239,12 +1377,13 @@ async function verifyInteractionPolish({ service, project, resource, openInbox, 
     const body = inbox.detail.querySelector('.hub-inbox-action-body');
     const warning = inbox.detail.querySelector('.hub-attention');
     assert(warning?.dataset.captureField === service.getInboxCompletion(service.get(note.id), inbox.form.value()).missing[0] && warning.dataset.captureField === "Title", "Opening highlights the service's first missing required field");
-    const animation = getComputedStyle(warning, '::after'), reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
-    assert(reducedMotion ? animation.animationName === "none" : animation.animationIterationCount === "2" && parseFloat(animation.animationDuration) === .85,
+    const paint = getComputedStyle(warning, '::after'), animation = getComputedStyle(warning), reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    assert(paint.outlineStyle === 'none' && paint.boxShadow.includes('0px 0px 0px 5px') && paint.borderTopWidth === '0px', 'Inbox uses the shared expanded fill without a brighter amber edge');
+    assert(reducedMotion ? animation.animationName === "none" : animation.animationIterationCount === "2" && parseFloat(animation.animationDuration) === 1.25,
         "Missing-field attention is two restrained pulses (or respects reduced motion): " + [animation.animationName, animation.animationIterationCount, warning.className, reducedMotion].join(" / "));
     const title = inbox.detail.querySelector('[aria-label="Note title"]');
     assert(title.getAttribute('aria-describedby')?.includes('hub-inbox-guidance-'), "Transient required-field guidance is accessible to the field control");
-    await new Promise(resolve => setTimeout(resolve, 1850));
+    await new Promise(resolve => setTimeout(resolve, reducedMotion ? 850 : 2750));
     const bounds = body.getBoundingClientRect(), field = warning.getBoundingClientRect();
     assert(field.top >= bounds.top - 1 && field.bottom <= bounds.bottom + 1, "Opening brings the missing Title into the scrolling editor viewport");
     assert(!warning.classList.contains('hub-attention') && getComputedStyle(warning).animationName === "none" && getComputedStyle(warning).outlineStyle === "none" && neutralColor(getComputedStyle(warning.querySelector('.hub-capture-field-title')).color), "Attention expires fully with no amber outline or label");
@@ -1252,6 +1391,7 @@ async function verifyInteractionPolish({ service, project, resource, openInbox, 
     assert(!warning.classList.contains('hub-attention'), "Repeated completeness updates do not replay a missing-field pulse");
     assert(!title.hasAttribute('aria-describedby'), "Transient guidance also clears its accessible description after expiring");
     assert(!inbox.save.disabled && isBlocked(inbox.save), "Incomplete primary action accepts a validation attempt");
+    assert(!inbox.readyArrow.hidden && getComputedStyle(inbox.readyArrow).color === 'rgb(255, 255, 255)' && Number(getComputedStyle(inbox.save).opacity) < 1, 'Incomplete action keeps its white arrow and muted interactive guidance state');
     await click(inbox.detail, 'Add to Itacan');
     assert(inbox.detail.querySelector('.hub-attention') === warning && service.get(note.id), "Incomplete Add replays the first required field without submitting");
     const firstAttempt = warning.getAnimations({ subtree: true })[0];
@@ -1263,8 +1403,20 @@ async function verifyInteractionPolish({ service, project, resource, openInbox, 
     title.focus(); const scrollBefore = body.scrollTop; setField(inbox.detail, "Note title", "Completed guidance note"); await settle();
     assert(!inbox.detail.querySelector('.hub-attention') && !title.hasAttribute('aria-describedby'), "Completing a required field leaves ordinary styling and no stale hint");
     assert(document.activeElement === title && body.scrollTop === scrollBefore && inbox.readyArrow.classList.contains('hub-ready-nudge') && !isBlocked(inbox.save), "Entering Ready cues Add while keeping editing focus and scroll");
-    await new Promise(resolve => setTimeout(resolve, 1850)); inbox.sync();
-    assert(getComputedStyle(inbox.readyArrow).animationName === "none" && !isBlocked(inbox.save), "Ready attention stops and leaves the normal enabled primary action");
+    const arrowColor = getComputedStyle(inbox.readyArrow).color, actionColor = getComputedStyle(inbox.save).backgroundColor;
+    assert(getComputedStyle(inbox.save).borderTopColor === actionColor && getComputedStyle(inbox.save).outlineStyle === 'none', 'Ready primary action has no bright border or outline');
+    assert(arrowColor === 'rgb(255, 255, 255)' && actionColor === 'rgb(139, 92, 246)' && getComputedStyle(inbox.save.querySelector('span')).color === 'rgb(255, 255, 255)' && contrast(arrowColor, actionColor) >= 3, 'White arrow and text retain at least 3:1 contrast against the normal purple action');
+    if (!reducedMotion) {
+        const cue = inbox.readyArrow.getAnimations()[0]; cue.pause();
+        for (const [time, expected] of [[0, 0], [400, 7], [900, 0], [1200, 0], [1600, 7], [2100, 0]]) {
+            cue.currentTime = time; await settle();
+            const transform = getComputedStyle(inbox.readyArrow).transform, distance = transform === 'none' ? 0 : new DOMMatrix(transform).m41;
+            assert(Math.abs(distance - expected) < .01, 'Ready arrow travels 7px twice with calm returns and pauses at ' + time + 'ms');
+        }
+        cue.currentTime = 0; cue.play();
+    } else assert(getComputedStyle(inbox.readyArrow).animationName === 'none' && getComputedStyle(inbox.readyArrow).transform === 'none', 'Reduced-motion Ready arrow stays white and static');
+    await new Promise(resolve => setTimeout(resolve, reducedMotion ? 850 : 2650)); inbox.sync();
+    assert(getComputedStyle(inbox.readyArrow).animationName === "none" && getComputedStyle(inbox.readyArrow).color === arrowColor && !isBlocked(inbox.save), "Ready attention stops, retaining its white arrow and enabled purple action");
     for (let repeat = 0; repeat < 3; repeat++) { inbox.sync(); inbox.refresh(); await settle(); }
     assert(!inbox.readyArrow.hidden && inbox.readyArrow.dataset.icon === 'arrow-right' && !inbox.readyArrow.classList.contains('hub-ready-nudge') && getComputedStyle(inbox.save).backgroundColor === 'rgb(139, 92, 246)', "Ordinary Ready rerenders retain the arrow and primary fill without replaying its cue");
     const menu = await itemMenu(inbox, task.id);
@@ -1293,7 +1445,7 @@ async function verifyInteractionPolish({ service, project, resource, openInbox, 
     await changeType(inbox, task.id, "Task"); await click(inbox.confirmation.contentEl, "Continue");
     assert(inbox.mode === "task" && !service.get(task.id).intent.folder && !service.get(task.id).intent.title, "Confirmed Note-to-Task switch drops Note routing without stale fields");
     await inbox.select(ready.id); await settle();
-    assert(inbox.readyArrow.classList.contains('hub-ready-nudge') && inbox.rows.get(ready.id).status.querySelector('[data-icon=check]') && inbox.rows.get(ready.id).status.textContent === "Ready" && inbox.rows.get(ready.id).progress.value === inbox.rows.get(ready.id).progress.max, "Opening Ready shows a Lucide check, a full progress track and a brief Add cue");
+    assert(inbox.readyArrow.classList.contains('hub-ready-nudge') && inbox.rows.get(ready.id).status.querySelector('[data-icon=check]') && inbox.rows.get(ready.id).status.textContent === "Ready" && progressValue(inbox.rows.get(ready.id).progress) === progressMax(inbox.rows.get(ready.id).progress), "Opening Ready shows a Lucide check, a full progress track and a brief Add cue");
     const readyMenu = await itemMenu(inbox, ready.id);
     assert(!readyMenu.items.find(item => item.title === "Send to Itacan").disabled, "Ready items enable the contextual Send action"); readyMenu.hide();
     const editor = inbox.taskInput, taskBody = editor.closest(".hub-inbox-action-body");
@@ -1326,11 +1478,11 @@ async function verifyInteractionPolish({ service, project, resource, openInbox, 
     assert(!inbox.confirmation && service.get(ready.id) && inbox.containerEl.isConnected, "Escape cancels deletion and keeps Inbox open");
     await click(inbox.detail, "Delete"); await click(inbox.confirmation.contentEl, "Delete");
     assert(!service.get(ready.id), "The destructive second click confirms deletion");
-    const file = await capture({ attachments: await stage("type-locked-file.pdf", "application/pdf") }); await inbox.select(file.id); await settle();
+    const file = await capture({ type: "file", attachments: await stage("type-locked-file.pdf", "application/pdf") }); await inbox.select(file.id); await settle();
     assert(inbox.mode === "file" && !inbox.detail.querySelector('.hub-capture-types'), "Files keep inherent classification and omit editable Type");
     const fileMenu = await itemMenu(inbox, file.id);
     assert(!fileMenu.items.some(item => item.title === "Change type"), "Files omit Change type from the context menu"); fileMenu.hide();
-    const image = await capture({ attachments: await stage("stable-layout.png", "image/png") });
+    const image = await capture({ type: "file", attachments: await stage("stable-layout.png", "image/png") });
     const geometry = () => [inbox.modalEl, inbox.contentEl.querySelector('.hub-inbox-sidebar'), inbox.detail].flatMap(element => {
         const r = element.getBoundingClientRect(); return [r.left, r.top, r.width, r.height];
     });
@@ -1357,7 +1509,7 @@ async function verifyInteractionPolish({ service, project, resource, openInbox, 
         assert(detailBody.scrollTop === detailScroll, "Left scrolling keeps detail position independent");
     }
     const sidebar = inbox.contentEl.querySelector('.hub-inbox-sidebar').getBoundingClientRect(), detailRect = inbox.detail.getBoundingClientRect();
-    if (innerWidth > 680) assert(Math.abs(sidebar.width / (sidebar.width + detailRect.width) - .44) < .002 && Math.abs(sidebar.height - detailRect.height) < 1, "Desktop uses one 44/56 split and equal-height pane region");
+    if (innerWidth > 680) assert(Math.abs(sidebar.width / (sidebar.width + detailRect.width) - .47) < .002 && Math.abs(sidebar.height - detailRect.height) < 1, "Desktop uses one 47/53 split and equal-height pane region");
     const untyped = await capture({ text: 'Choose a classification' }); await inbox.select(untyped.id); await settle();
     assert(inbox.rows.get(untyped.id).status.textContent === 'Choose type' && inbox.detail.querySelector('.hub-attention')?.dataset.captureField === 'Type', "Untyped items use classification language and guide only Type");
     const untypedMenu = await itemMenu(inbox, untyped.id);
@@ -1391,10 +1543,10 @@ async function verifyInbox({ service, plugin, memory, project, resource, openQui
     const plain = await capture("Resolve this text as a task");
     const link = await capture("https://example.org/review");
     const imageRefs = await stage("Inbox image.png");
-    const image = await capture("", imageRefs);
+    const image = await service.capture({ type: "file", attachments: imageRefs });
     const mixedRefs = await stage("captured-paper.pdf", "application/pdf");
     const mixed = await legacyCapture("Read the paper\nPreserve these source notes", mixedRefs);
-    const referenced = await capture("", [{ id: "reference-original", path: resource.root + "/original.pdf", name: "original.pdf", ownership: "reference", mime: "application/pdf", size: 3 }]);
+    const referenced = await service.capture({ type: "file", attachments: [{ id: "reference-original", path: resource.root + "/original.pdf", name: "original.pdf", ownership: "reference", mime: "application/pdf", size: 3 }] });
     const missingRefs = await stage("missing-source.png"), missing = await legacyCapture("Missing referenced source", missingRefs);
     await vault.delete(objects.get(missingRefs[0].path));
     const noFiles = count() - service.list({ filter: "files" }).length;
@@ -1436,11 +1588,11 @@ async function verifyInbox({ service, plugin, memory, project, resource, openQui
     const oldestMenu = window.lastMenu;
     assert(openSortKey.defaultPrevented && inbox.sortMenu === oldestMenu && inbox.sort.getAttribute("aria-expanded") === "true", "ArrowDown opens the native sort menu without changing Inbox context");
     assert(getComputedStyle(inbox.sort.querySelector('[data-icon="chevron-down"]')).display !== "none" && getComputedStyle(inbox.sort.querySelector('[data-icon="chevron-right"]')).display === "none", "Open Inbox sort shows the down disclosure chevron");
-    assert(oldestMenu.items.map(item => item.title).join("|") === "Most complete|Least complete|Newest first|Oldest first|Type" && oldestMenu.items[0].checked && oldestMenu.items.slice(1).every(item => !item.checked), "Native sort menu exposes five ordered options and checks the current selection");
+    assert(oldestMenu.items.map(item => item.title).join("|") === "Most complete|Least complete|Newest first|Oldest first|Item type" && oldestMenu.items[0].checked && oldestMenu.items.slice(1).every(item => !item.checked), "Native sort menu exposes five ordered options and checks the current selection");
     const menuRect = oldestMenu.element.getBoundingClientRect();
     assert(menuRect.left >= 0 && menuRect.top >= 0 && menuRect.right <= innerWidth && menuRect.bottom <= innerHeight, "Native sort menu fixture stays within viewport bounds");
     oldestMenu.items[0].element.dispatchEvent(new KeyboardEvent("keydown", { key: "End", bubbles: true, cancelable: true }));
-    assert(document.activeElement === oldestMenu.items[4].element, "Native Menu fixture keyboard navigation reaches Type");
+    assert(document.activeElement === oldestMenu.items[4].element, "Native Menu fixture keyboard navigation reaches Item type");
     oldestMenu.items[4].element.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true, cancelable: true }));
     assert(document.activeElement === oldestMenu.items[3].element, "ArrowUp focuses the oldest-first option");
     oldestMenu.items[3].element.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })); await settle();
@@ -1558,7 +1710,7 @@ async function verifyInbox({ service, plugin, memory, project, resource, openQui
     assert(objects.has(project.root + "/Design/captured-paper.pdf") && !objects.has(mixedRefs[0].path), "Owned attachment transfers into the destination without retaining a duplicate staged binary");
 
     const movingRefs = await stage("movable.pdf", "application/pdf"), moving = await capture("", movingRefs);
-    await choose(moving.id);
+    await choose(moving.id); await click(inbox.detail, "File");
     checkMode("file");
     assert(!inbox.detail.querySelector("[aria-label='Task'],[aria-label='Note title']"), "Move action contains only destination controls");
     await select(inbox.detail, "Save to", resource.projectId); await select(inbox.detail, "Destination folder", resource.root + "/Quantum Gravity");
@@ -1610,6 +1762,10 @@ async function verifyInbox({ service, plugin, memory, project, resource, openQui
 
     for (let i = 0; i < 120; i++) await capture("Capture " + i + ": " + "A long idea with enough text to wrap inside the native list and detail panes. ".repeat(10));
     assert(rows().length === count(), "Large Inbox retains every Capture");
+    if (innerWidth >= 1000) {
+        const filters = inbox.contentEl.querySelector('.hub-inbox-filters').getBoundingClientRect(), sort = inbox.sort.getBoundingClientRect();
+        assert(Math.abs(filters.top - sort.top) < 1 && filters.right + 8 <= sort.left, 'Desktop filters and fixed-width sort share one comfortable header row even with three-digit counts');
+    }
     assert(controlHost.scrollWidth <= controlHost.clientWidth + 1 && controlHost.getBoundingClientRect().right <= innerWidth, "Five global controls and a three-digit unresolved badge remain inside narrow footer geometry");
     assertViewport(inbox);
     assert(getComputedStyle(inbox.list).overflowY === "auto" && getComputedStyle(inbox.detail.querySelector(".hub-inbox-action-body")).overflowY === "auto", "Capture list and right form body scroll independently");
@@ -1628,12 +1784,36 @@ async function verifyInbox({ service, plugin, memory, project, resource, openQui
     await choose(finalCapture.id);
     window.capturePreview = { inbox, service, project, resource, openQuick, openInbox, select, click, setField };
     const preview = new URLSearchParams(location.search).get("preview") ?? "task";
+    if (preview === 'polish') {
+        for (const item of [...service.list()]) await service.delete(item.id);
+        const examples = {
+            task: await service.capture({ text: 'Compare detector sensitivity', type: 'task' }),
+            note: await service.capture({ text: 'A note to organise', type: 'note', title: 'A note to organise', workspaceId: resource.projectId }),
+            file: await service.capture({ attachments: await stage('Reference paper.pdf', 'application/pdf'), workspaceId: resource.projectId }),
+            ready: await service.capture({ text: 'Review the latest measurements', type: 'task', workspaceId: project.projectId, location: project.root + '/Design' }),
+            readyNote: await service.capture({ text: 'A fully organised note', type: 'note', title: 'A fully organised note', workspaceId: resource.projectId, folder: resource.root }),
+            untyped: await service.capture({ text: 'An idea to classify later' })
+        };
+        await select(inbox.contentEl, 'Sort items', 'most-complete');
+        window.capturePreview.selectPolish = async mode => {
+            await choose(examples[mode].id); await settle();
+            if (['task', 'note', 'file'].includes(mode)) { await click(inbox.detail, 'Add to Itacan'); await freezeGuidancePeak(inbox.detail); }
+            if (['ready', 'readyNote'].includes(mode)) {
+                const cue = inbox.readyArrow.getAnimations()[0]; if (cue) { cue.pause(); cue.currentTime = 400; await settle(); }
+            }
+        };
+        await window.capturePreview.selectPolish('note'); assertViewport(inbox); return;
+    }
     if (["neutral", "unsorted"].includes(preview)) {
         const unsorted = await capture("An idea to come back to\nContinue organising this thought when ready."); await choose(unsorted.id); return;
     }
-    if (["quick", "quick-task", "quick-file", "quick-note", "note-picker", "note-list", "note-heading", "note-empty"].includes(preview)) {
+    if (["quick", "quick-task", "quick-file", "quick-note", "quick-guidance", "note-picker", "note-list", "note-heading", "note-empty"].includes(preview)) {
         inbox.close(); const quick = await openQuick();
-        if (preview === "quick-task") {
+        if (preview === "quick-guidance") {
+            quick.input.value = 'A thought to organise'; quick.input.dispatchEvent(new Event('input', { bubbles: true }));
+            await click(quick.contentEl, 'More options'); await click(quick.contentEl, 'Note');
+            await click(quick.contentEl, 'Add to Itacan'); await freezeGuidancePeak(quick.body);
+        } else if (preview === "quick-task") {
             quick.input.value = "Compare detector sensitivity across the two readout methods"; quick.input.dispatchEvent(new Event("input", { bubbles: true }));
             await click(quick.contentEl, "More options"); await click(quick.contentEl, "Task"); await select(quick.contentEl, "Save to", project.projectId);
         } else if (preview === "quick-file") {
@@ -1652,6 +1832,10 @@ async function verifyInbox({ service, plugin, memory, project, resource, openQui
             }
         }
         assertViewport(quick); return;
+    }
+    if (preview === 'inbox-guidance') {
+        const item = await service.capture({ text: 'A thought to organise', type: 'note', title: 'A thought to organise' });
+        await choose(item.id); await click(inbox.detail, 'Add to Itacan'); await freezeGuidancePeak(inbox.detail); return;
     }
     if (["note", "image", "file"].includes(preview)) {
         const item = preview === "note" ? await service.capture({ text: "A research thought to organise", type: "note", workspaceId: resource.projectId, folder: resource.root, title: "Research thought" }) :
@@ -1673,4 +1857,10 @@ async function verifyInbox({ service, plugin, memory, project, resource, openQui
     // The default screenshot reviews compact task grouping and the stable pane
     // footer. Optional ?preview=destination|folder|neutral reviews native pickers;
     // quick|quick-task|quick-file reviews the corresponding Quick Add surface.
+}
+
+// Pause only an isolated preview at the actual first peak for visual inspection.
+async function freezeGuidancePeak(host) {
+    const pulse = host.querySelector('.hub-attention')?.getAnimations({ subtree: true })[0];
+    if (pulse) { pulse.pause(); pulse.currentTime = 450; await settle(); }
 }

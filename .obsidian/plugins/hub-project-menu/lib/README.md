@@ -66,12 +66,20 @@ Location, or actual file/workspace/folder. Complete
 Quick Add forms enable Add to Itacan and disable Send to Inbox.
 
 Inbox filters show live All / Texts / Files counts; the footer retains only Close.
-The list's thin native progress elements reuse the existing Steps progress styling
-and accent variable. `services/inbox.getInboxCompletion` reports completed/total
+The list's thin segmented progress uses the existing accent and neutral track
+colors, with one equal-width segment per `totalRequired` and `completedRequired`
+filled segments. Identical gaps separate both purple and gray segments; there is
+no continuous background behind the remaining segments.
+`services/inbox.getInboxCompletion` reports completed/total
 required details, ratio, readiness and missing fields from the same `completion`
-result that enables Add to Itacan. Untyped text has zero requirements and an empty
-bar until classification. Optional Task metadata never adds progress steps; invalid
-optional edits still block creation through the existing validator, so a full
+result that enables Add to Itacan. Untyped text and files have zero requirements
+and an empty bar until classification. Raw text/attachment existence earns no
+organisational progress point, but payload validity still gates creation and
+guides corrections. Type selects the schema without adding a detail: Tasks count
+Workspace and Location; New notes count Action, Workspace, Folder and Title;
+existing-note insertion counts Action, Workspace and Location; Files count
+Workspace and Folder. Optional Task metadata never adds progress steps; invalid
+payload or optional edits still block creation through the existing validator, so a full
 required-details fraction can remain non-Ready until that edit is corrected.
 Note insertion counts Location atomically and reuses the structural note cache.
 
@@ -114,23 +122,52 @@ remainders and journaled operations keep their existing classification policy.
 `hub-option-group` shares filled-accent option selection between Quick Add,
 Inbox filters/Type and Oath radios. `hub-equal-selectors` sizes compact groups
 from their widest label; full-row groups retain equal flexible columns. Selected
-Inbox/task objects retain accent borders. Inbox uses 30px Lucide type icons in
+Inbox rows retain muted accent fills; task objects retain accent borders. Inbox uses 30px Lucide type icons in
 the existing row geometry and shows only date/time in normal list metadata.
-Incomplete labels show N of M; Ready uses Lucide check plus Ready with the same
-accent progress track. All detail types share a fixed 44/56 desktop grid and
+Incomplete labels show detail(s) left; Ready uses Lucide check plus Ready with the same
+accent progress track. All detail types share a fixed 47/53 desktop grid and
 fixed modal height, independent scrolling bodies and pinned action footers.
 Narrow stacking is also independent of item type. The native sort trigger reserves
-all labels intrinsically, with arrow-up-down and a right/down disclosure chevron.
-Oath options keep native radios visually clipped, centered text and equal widths;
-scheduled start uses the same right/down disclosure helper. Ordinary selects keep
-their dropdown chevrons.
+all labels intrinsically, with the active rule icon and a right/down disclosure chevron.
+Most/Least complete use list-sort-descending/list-sort-ascending; Newest/Oldest
+use clock-arrow-down/clock-arrow-up; Item type uses files. `ui/icons.js` registers
+the exact upstream list-sort SVGs when the installed native registry lacks them.
+Oath options keep native radios visually clipped, centered text and equal widths.
+Selected workspaces center their shared 38px square thumbnail and name without a
+category prefix. Scheduled start restores the combined month-calendar/hour-minute
+popover behind the styled option, using the same right/down disclosure helper and
+valid-selection state. Dismissal without a valid date returns to neutral; typing
+remains available as a fallback. Ordinary selects keep their dropdown chevrons.
+Oath setup has only header/footer separators. Its task rows and Add Tasks rows
+share compact 6px gaps and rounded geometry; selected Oath tasks have a neutral,
+centered remove icon that changes the commitment selection only. The full-width
+plus and single uncommitted suggestion retain their existing workflow.
+Selected task options reuse the same option-group fill and hover as Now; generic
+task hover only accents titles on unselected rows. The compact Inbox badge uses
+flex centering and symmetric padding, overriding the navigation label's clipping
+allowance so its number stays centered.
 
-`ui/inbox-guidance.js` reads ordered `getInboxCompletion().missing` and `ready`
-without redefining requirements or progress. UI fields expose presentation-only
-`data-capture-field` anchors. Opening reveals the first missing required field and
-cues it in amber for 1.3 seconds, then removes all cue styling and its accessible
-description. Edits never replay missing-field cues or automatic scroll. Ready cues
-Add once on opening or first completion, then returns to its normal primary state.
+`ui/inbox-guidance.js` shares Capture guidance between Inbox and Quick Add, reading
+the service's `completion().missing` and `ready` without redefining requirements
+or progress. UI fields expose presentation-only `data-capture-field` anchors.
+Inbox opening/failed submissions and Quick Add failed direct Add reveal the
+highest visible missing requirement. Quick Add Send to Inbox and existing Enter
+routing continue to accept incomplete captures without guidance. All three forms,
+including Oath's ordered setup groups, use `ui/attention.js` and `hub-attention`
+in `styles.css`: one inherited `--hub-attention-strength` animates the group fill
+and actual control backgrounds together. Control surfaces blend their captured
+theme/selection colors toward clean warm yellow (`#ffd54f`) at 22%; the group uses
+24% with a uniform 5px paint expansion, without an outline, border, blur or scroll
+overflow. Capture bodies reserve that paint space even in Quick Add. Text,
+icons and semantic states stay intact. Two 1.25-second pulses fade in for 450ms, fade out
+for 550ms and pause for 250ms, then clear the styling and accessible description.
+Oath omits duplicate empty-choice errors but retains invalid-value/availability
+messages. Edits never replay missing-field cues or automatic scroll. Ready cues
+the white arrow once on opening or first completion, moving 7px right and back
+twice in 2.4 seconds (400ms right, 500ms return, 300ms pause per cycle). The arrow
+stays white and stationary afterward. It also remains visible on incomplete
+Inbox actions, whose muted styling and clickable validation guidance are retained.
+Ready uses the normal purple primary styling without a bright border or halo.
 Reduced motion uses a short static cue with the same cleanup. Optional
 invalid values can still block Ready without being highlighted as required.
 Delete clicks and physical Delete use the same small native confirmation;

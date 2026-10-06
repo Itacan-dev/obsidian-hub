@@ -1969,7 +1969,7 @@ const INBOX_VERSION = 1;
 const INBOX_ATTACHMENT_ROOT = "Inbox/Attachments";
 const INBOX_SORTS = [
     ["most-complete", "Most complete"], ["least-complete", "Least complete"],
-    ["newest", "Newest first"], ["oldest", "Oldest first"], ["type", "Type"]
+    ["newest", "Newest first"], ["oldest", "Oldest first"], ["type", "Item type"]
 ];
 function inboxSort(value) { return INBOX_SORTS.some(([key]) => key === value) ? value : "most-complete"; }
 
@@ -2062,7 +2062,7 @@ function captureNoteTitle(value) {
 // keeps the decisions that can be resumed in the existing creation forms.
 function captureIntent(values = {}, attachments = []) {
     const input = { ...(values.intent ?? {}), ...values };
-    const type = attachments.length ? "file" : ["task", "note"].includes(input.type) ? input.type : null;
+    const type = attachments.length ? (["task", "note", "file"].includes(input.type) || input.workspaceId || input.folder ? "file" : null) : ["task", "note"].includes(input.type) ? input.type : null;
     if (!type) return null;
     const intent = { inputPath: attachments.length ? "file" : "text", type };
     const keys = type === "task" ? ["workspaceId", "location", "necessity", "fromDate", "dueDate", "fromTime", "dueTime", "phaseId", "linkedProjectId"] :
@@ -2102,7 +2102,6 @@ function captureDraft(capture = {}) {
         // Ready receipts always retain their already-created destination.
         if (operation.state === "prepared" && operation.kind !== "task" && !insertion && capture.intent) Object.assign(draft, capture.intent);
     }
-    if (draft.attachments.length && !operation) draft.type = "file";
     draft.inputPath = draft.attachments.length ? "file" : "text";
     if (Array.isArray(draft.steps)) draft.steps = draft.steps.map(step => ({ ...step }));
     delete draft.taskTitle;
@@ -4990,22 +4989,24 @@ class HubInboxService {
         return capture;
     }
     completion(values = {}, captureId) {
-        const type = values.type || (values.attachments?.length ? "file" : null), requirements = [];
+        const type = values.type, requirements = [];
         const requireValue = (valid, message) => { if (!valid) throw Error(message); };
-        const check = (label, validate) => {
-            try { validate(); requirements.push({ label, complete: true }); }
-            catch (error) { requirements.push({ label, complete: false, error: error.message }); }
+        const check = (label, validate, progress = true) => {
+            try { validate(); requirements.push({ label, complete: true, progress }); }
+            catch (error) { requirements.push({ label, complete: false, progress, error: error.message }); }
         };
         let validationError = null;
         if (!["task", "note", "file"].includes(type)) validationError = "Choose Task or Note.";
         else {
-            if (type === "task") check("Content", () => taskFormValues({ text: values.taskTitle ?? values.text }));
-            else if (type === "note") check("Content", () => requireValue(String(values.text ?? "").trim(), "Write the note content."));
+            // Payload validity still gates creation and guides corrections, but
+            // its mere existence never earns an organisational progress step.
+            if (type === "task") check("Content", () => taskFormValues({ text: values.taskTitle ?? values.text }), false);
+            else if (type === "note") check("Content", () => requireValue(String(values.text ?? "").trim(), "Write the note content."), false);
             else check("File", () => {
                 requireValue(values.attachments?.length, "Add a file first.");
                 requireValue(values.attachments.every(ref => this.attachmentExists(ref)), "A file is no longer available.");
-            });
-            if (type !== "file") check("Type", () => requireValue(values.type === type, "Choose Task or Note."));
+            }, false);
+            // Type selects this schema; it is not an organisational detail.
             if (type === "note") check("Action", () => {}); // New note is the existing default route.
             check("Workspace", () => {
                 requireValue(values.workspaceId, "Choose a Project or Resource.");
@@ -5036,7 +5037,8 @@ class HubInboxService {
             } catch (error) { validationError = error.message; }
         }
         const missing = requirements.filter(item => !item.complete).map(item => item.label);
-        const completedRequired = requirements.length - missing.length, totalRequired = requirements.length;
+        const details = requirements.filter(item => item.progress);
+        const completedRequired = details.filter(item => item.complete).length, totalRequired = details.length;
         // Classification is the only known blocker before type-specific
         // requirements exist. Keep its untyped progress at zero.
         if (!totalRequired) missing.push("Type");
@@ -7265,8 +7267,24 @@ module.exports = { mountAppShortcuts };
 // explicit attempt restarts from normal; rerenders never schedule animations.
 function mountTransientEffects(root) {
     const view = root.ownerDocument.defaultView, effects = new Map();
+    const surfaceSelector = 'button,textarea,select,input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]),.hub-oath-choice,.project-task-row,[role="button"]';
+    const canvas = root.ownerDocument.createElement("canvas"); canvas.width = canvas.height = 1;
+    const paint = canvas.getContext("2d");
     let disposed = false;
     const reducedMotion = () => view.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    function surfaceBackground(node) {
+        // Transparent buttons and muted selections need their visible resting
+        // color, otherwise their tint compounds with the highlighted parent.
+        const ancestors = []; for (let parent = node; parent; parent = parent.parentElement) ancestors.push(parent);
+        paint.clearRect(0, 0, 1, 1);
+        paint.fillStyle = view.getComputedStyle(root).getPropertyValue("--background-primary").trim() || "#1e1e1e";
+        paint.fillRect(0, 0, 1, 1);
+        for (const parent of ancestors.reverse()) {
+            paint.fillStyle = view.getComputedStyle(parent).backgroundColor; paint.fillRect(0, 0, 1, 1);
+        }
+        const [red, green, blue] = paint.getImageData(0, 0, 1, 1).data;
+        return `rgb(${red}, ${green}, ${blue})`;
+    }
     function cancel(element) { effects.get(element)?.finish(); }
     function run(element, cls, done = () => {}) {
         if (disposed || !element?.isConnected) return;
@@ -7276,15 +7294,42 @@ function mountTransientEffects(root) {
             const effect = effects.get(element); if (!effect) return;
             view.cancelAnimationFrame(effect.frame); view.clearTimeout(effect.timer);
             element.classList.remove(cls); element.removeEventListener("animationend", finish);
+            for (const surface of effect.surfaces) {
+                const { node, value, priority, marker } = surface;
+                if (value) node.style.setProperty("--hub-attention-base-surface", value, priority);
+                else node.style.removeProperty("--hub-attention-base-surface");
+                if (marker == null) node.removeAttribute("data-hub-attention-surface");
+                else node.setAttribute("data-hub-attention-surface", marker);
+                // Restoring theme transitions at an interrupted peak can fade
+                // from amber. End that background transition before a replay
+                // samples the resting surface again.
+                for (const animation of node.getAnimations())
+                    if (animation.transitionProperty === "background-color") animation.cancel();
+            }
             effects.delete(element); done();
         };
-        const effect = { finish, frame: null, timer: null }; effects.set(element, effect);
+        const effect = { finish, frame: null, timer: null, surfaces: [] }; effects.set(element, effect);
         // A fresh frame ensures repeated failed attempts replay both pulses.
         effect.frame = view.requestAnimationFrame(() => {
             if (disposed || !element.isConnected) { finish(); return; }
+            if (cls === "hub-attention") {
+                // Capture the actual theme/selection surfaces before applying
+                // one inherited CSS pulse. Foreground colors are never touched.
+                effect.surfaces = [...element.querySelectorAll(surfaceSelector)].map(node => ({
+                    node, background: surfaceBackground(node),
+                    value: node.style.getPropertyValue("--hub-attention-base-surface"),
+                    priority: node.style.getPropertyPriority("--hub-attention-base-surface"),
+                    marker: node.getAttribute("data-hub-attention-surface")
+                }));
+                for (const { node, background } of effect.surfaces) {
+                    node.style.setProperty("--hub-attention-base-surface", background);
+                    node.setAttribute("data-hub-attention-surface", "");
+                }
+            }
             element.classList.add(cls);
             element.addEventListener("animationend", finish);
-            effect.timer = view.setTimeout(finish, reducedMotion() ? 700 : 1800);
+            // Fallbacks outlast both pulses; reduced motion is briefly static.
+            effect.timer = view.setTimeout(finish, reducedMotion() ? 700 : cls === "hub-attention" ? 2600 : 2500);
         });
     }
     function reveal(element, container) {
@@ -7387,8 +7432,8 @@ const { openNotePositionPicker } = __hubRequire("lib/ui/note-position-picker.js"
 const { noteLocation, noteLocationSummary, resolveNoteLocation } = __hubRequire("lib/domain/note-insertion.js");
 
 const MODES = [["task", "Task", "square"], ["note", "Note", "notebook-text"]];
-function mountCaptureTypeControl({ host, selectedType = null, disabledTypes = [], onSelect }) {
-    return mountChoices({ host, label: "Type", options: MODES, selected: selectedType, disabled: disabledTypes, onSelect, cls: "hub-capture-types" });
+function mountCaptureTypeControl({ host, selectedType = null, disabledTypes = [], onSelect, file = false }) {
+    return mountChoices({ host, label: "Type", options: file ? [["file", "File", "file"]] : MODES, selected: selectedType, disabled: disabledTypes, onSelect, cls: "hub-capture-types" });
 }
 function mountChoices({ host, label, options, selected, disabled = [], onSelect, cls }) {
     const field = host.createDiv({ cls: "hub-capture-field", attr: { "data-capture-field": label } });
@@ -8966,22 +9011,32 @@ const { setHubIcon } = __hubRequire("lib/ui/icons.js");
 
 // The native calendar/time interaction is shared with The Oath. Showing the
 // real input on typing also keeps the control usable without showPicker().
-function bindNativeDateTimePicker({ input, surface, beforeOpen = () => {} }) {
+function bindNativeDateTimePicker({ input, surface, beforeOpen = () => {}, onClose = () => {}, bindEvents = true }) {
+    const view = input.ownerDocument.defaultView;
+    let frame = null;
+    const watch = () => {
+        frame = null;
+        if (input.isConnected && input.matches(":open")) frame = view.requestAnimationFrame(watch);
+        else onClose();
+    };
     const open = () => {
+        view.cancelAnimationFrame(frame);
         beforeOpen(); surface.classList.remove("is-typing"); input.focus();
         try {
-            if (input.showPicker) input.showPicker();
-            else surface.classList.add("is-typing");
+            if (input.showPicker) {
+                input.showPicker();
+                if (input.matches(":open")) frame = view.requestAnimationFrame(watch);
+            } else surface.classList.add("is-typing");
         } catch (_) { surface.classList.add("is-typing"); }
     };
-    input.addEventListener("click", open);
+    if (bindEvents) input.addEventListener("click", open);
     input.addEventListener("keydown", event => {
         if (event.key === "Enter" || event.key === " " || (event.altKey && event.key === "ArrowDown")) {
             event.preventDefault(); open();
         } else if (!["Tab", "Escape", "Shift", "Alt", "Control", "Meta"].includes(event.key)) surface.classList.add("is-typing");
     });
     input.addEventListener("blur", () => surface.classList.remove("is-typing"));
-    return { open };
+    return { open, close() { view.cancelAnimationFrame(frame); frame = null; input.blur(); surface.classList.remove("is-typing"); } };
 }
 
 function mountTaskDateTime({ app, host, label, state, dateKey, timeKey, onChange = () => {} }) {
@@ -9552,13 +9607,14 @@ module.exports = { openHomeCoverEditor };
 "lib/ui/icons.js": function (module, exports, __hubRequire) {
 "use strict";
 
-const { getIcon, setIcon } = require("obsidian");
+const { getIcon, setIcon, addIcon } = require("obsidian");
 
 // Obsidian's unprefixed names include legacy aliases (folder -> folder-open,
 // presentation -> monitor). Prefer canonical Lucide names at the Hub boundary,
 // while retaining registered custom icons and legacy-only names as a fallback.
 const resolvedNames = new Map();
 function setHubIcon(element, name) {
+    ensureHubIcon(name);
     let resolved = resolvedNames.get(name);
     if (!resolved) {
         const canonical = name.startsWith("lucide-") ? name : "lucide-" + name;
@@ -9605,7 +9661,24 @@ function setHubIcon(element, name) {
     setIcon(element, resolved);
 }
 
-module.exports = { setHubIcon };
+// Exact upstream Lucide icons for registries predating these names. Register
+// them once so native Menu.setIcon and Hub triggers render the same SVG.
+// https://github.com/lucide-icons/lucide/blob/main/icons/list-sort-descending.svg
+// https://github.com/lucide-icons/lucide/blob/main/icons/list-sort-ascending.svg
+// ISC copyright, permission and warranty notice above applies to these SVGs.
+const missingSortIcons = {
+    "list-sort-descending": '<path d="M15 12H3"/><path d="M3 5h18"/><path d="M9 19H3"/>',
+    "list-sort-ascending": '<path d="M3 19h18"/><path d="M15 12H3"/><path d="M9 5H3"/>'
+};
+function ensureHubIcon(name) {
+    const key = name.replace(/^lucide-/, ""), svg = missingSortIcons[key];
+    if (svg && !getIcon("lucide-" + key) && !getIcon(key)) {
+        // Native custom icons use a 100-unit viewBox; Lucide uses 24 units.
+        addIcon(key, `<g transform="scale(${100 / 24})" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${svg}</g>`);
+    }
+}
+
+module.exports = { setHubIcon, ensureHubIcon };
 
 },
 "lib/ui/inbox-guidance.js": function (module, exports, __hubRequire) {
@@ -9616,9 +9689,9 @@ let instance = 0;
 
 // Presentation only: the service's ordered missing requirements and readiness
 // remain the single source of truth, including invalid optional Task edits.
-function mountInboxGuidance({ body, readyArrow, completion }) {
+function mountCaptureGuidance({ body, readyArrow, completion, guideOnOpen = false }) {
     const hintId = `hub-inbox-guidance-${++instance}`;
-    const hint = body.createSpan({ cls: "hub-inbox-guidance-status", attr: { id: hintId, role: "status", "aria-live": "polite" } });
+    const hint = body.createSpan({ cls: "hub-guidance-status", attr: { id: hintId, role: "status", "aria-live": "polite" } });
     const effects = mountTransientEffects(body);
     let warning = null, readyCued = false, opened = false, disposed = false;
     const firstMissing = state => [...body.querySelectorAll("[data-capture-field]")]
@@ -9651,9 +9724,9 @@ function mountInboxGuidance({ body, readyArrow, completion }) {
         update() {
             if (disposed) return;
             const state = completion(), target = firstMissing(state);
-            if (!opened && target) guide();
-            // Only opening guides a missing field. Edits never move the user's
-            // place or replay attention, even if the next requirement changes.
+            if (guideOnOpen && !opened && target) guide();
+            // Inbox guides on opening; Quick Add only guides direct attempts.
+            // Edits never move the user's place or replay attention.
             if (warning && target !== warning) clearWarning();
             if (state.ready && !readyCued) { readyCued = true; effects.run(readyArrow, "hub-ready-nudge"); }
             if (!state.ready) { readyCued = false; effects.cancel(readyArrow); }
@@ -9666,14 +9739,18 @@ function mountInboxGuidance({ body, readyArrow, completion }) {
     };
 }
 
-module.exports = { mountInboxGuidance };
+function mountInboxGuidance(options) {
+    return mountCaptureGuidance({ ...options, guideOnOpen: true });
+}
+
+module.exports = { mountInboxGuidance, mountCaptureGuidance };
 
 },
 "lib/ui/inbox.js": function (module, exports, __hubRequire) {
 "use strict";
-const { Notice, Menu, getIcon } = require("obsidian");
+const { Notice, Menu } = require("obsidian");
 const { CaptureModal, CaptureConfirmation, action, attachments } = __hubRequire("lib/ui/capture-modal.js");
-const { setHubIcon } = __hubRequire("lib/ui/icons.js");
+const { setHubIcon, ensureHubIcon } = __hubRequire("lib/ui/icons.js");
 const { disclosureIcons } = __hubRequire("lib/ui/disclosure.js");
 const { bindMenuToggle } = __hubRequire("lib/ui/menu-toggle.js");
 const { mountCaptureForm, mountCaptureTypeControl, noteTitle } = __hubRequire("lib/ui/capture-form.js");
@@ -9682,15 +9759,16 @@ const { linkFromText, captureDraft, sortedCaptures, INBOX_SORTS, inboxCounts } =
 const { mountTaskText } = __hubRequire("lib/ui/task-form.js");
 
 const SORT_ICONS = {
-    "most-complete": ["arrow-down-wide-narrow", "arrow-down-1-0"],
-    "least-complete": ["arrow-up-wide-narrow", "arrow-up-0-1"],
-    newest: ["calendar-arrow-down", "arrow-down-1-0"],
-    oldest: ["calendar-arrow-up", "arrow-up-0-1"],
-    type: ["shapes", "tags"]
+    "most-complete": "list-sort-descending",
+    "least-complete": "list-sort-ascending",
+    newest: "clock-arrow-down",
+    oldest: "clock-arrow-up",
+    type: "files"
 };
 function sortIcon(sort) {
-    const [preferred, fallback] = SORT_ICONS[sort];
-    return getIcon("lucide-" + preferred) || getIcon(preferred) ? preferred : fallback;
+    const icon = SORT_ICONS[sort];
+    ensureHubIcon(icon);
+    return icon;
 }
 
 function timestamp(value) { return new Date(value).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }); }
@@ -9795,7 +9873,7 @@ class InboxModal extends CaptureModal {
         const rect = this.sort.getBoundingClientRect(); menu.showAtPosition({ x: rect.left, y: rect.bottom });
     }
     canChangeType(capture) {
-        return !!capture && !capture.attachments.length && !capture.operation && [undefined, null, "task", "note"].includes(capture.intent?.type);
+        return !!capture && !capture.operation && (capture.attachments.length ? !capture.intent?.type : [undefined, null, "task", "note"].includes(capture.intent?.type));
     }
     showItemMenu(id, position) {
         const capture = this.service.get(id);
@@ -9821,7 +9899,7 @@ class InboxModal extends CaptureModal {
         if (!this.canChangeType(capture) || this.closed || this.busy || this.confirmation) return;
         const type = id === this.selectedId ? this.mode : capture.intent?.type;
         const menu = new Menu();
-        for (const [value, label, icon] of [["task", "Task", "square"], ["note", "Note", "notebook-text"]])
+        for (const [value, label, icon] of capture.attachments.length ? [["file", "File", "file"]] : [["task", "Task", "square"], ["note", "Note", "notebook-text"]])
             menu.addItem(item => item.setTitle(label).setIcon(icon).setChecked(type === value).onClick(async () => {
                 if (await this.openItem(id) && this.canChangeType(this.service.get(id))) await this.classify(value);
             }));
@@ -9934,7 +10012,7 @@ class InboxModal extends CaptureModal {
             const title = heading.createDiv({ cls: "hub-inbox-row-title" });
             const status = heading.createSpan({ cls: "hub-inbox-completion-label", attr: { "aria-hidden": "true" } });
             const metadata = copy.createDiv({ cls: "hub-capture-muted" });
-            const progress = copy.createEl("progress", { cls: "hub-inbox-completion-progress", attr: { id: `${this.prefix}-completion-${capture.id}` } });
+            const progress = copy.createDiv({ cls: "hub-inbox-completion-progress", attr: { id: `${this.prefix}-completion-${capture.id}`, role: "progressbar", "aria-valuemin": "0" } });
             row = { button, icon, title, status, metadata, progress }; this.rows.set(capture.id, row);
             button.addEventListener("click", () => { void this.select(capture.id); });
             button.addEventListener("contextmenu", event => {
@@ -9964,9 +10042,14 @@ class InboxModal extends CaptureModal {
         row.status.createSpan({ text: status });
         const description = ready ? "All required details complete" : !totalRequired ? "Type not selected" :
             `${status}${completion.missing.length ? ". Missing: " + completion.missing.join(", ") : completion.error ? ". " + completion.error : ""}`;
-        row.progress.max = totalRequired || 1; row.progress.value = completedRequired;
+        row.progress.setAttribute("aria-valuemax", String(totalRequired || 1)); row.progress.setAttribute("aria-valuenow", String(completedRequired));
         row.progress.setAttribute("aria-label", description); row.progress.setAttribute("aria-valuetext", description);
-        row.progress.textContent = description;
+        row.progress.style.setProperty("--hub-completion-segments", String(totalRequired || 1));
+        if (row.progress.children.length !== totalRequired) {
+            row.progress.empty();
+            for (let index = 0; index < totalRequired; index++) row.progress.createSpan({ cls: "hub-inbox-completion-segment", attr: { "aria-hidden": "true" } });
+        }
+        [...row.progress.children].forEach((segment, index) => segment.classList.toggle("is-complete", index < completedRequired));
         return row;
     }
     async select(id) {
@@ -9979,10 +10062,9 @@ class InboxModal extends CaptureModal {
         const capture = this.service.get(this.selectedId);
         if (!capture) { this.detail.createDiv({ cls: "hub-capture-empty", text: "Select an item to review it." }); return; }
         const pendingKind = capture.operation?.state !== "done" ? capture.operation?.kind : null;
-        const type = (pendingKind === "files" ? "file" : pendingKind === "note-insertion" ? "note" : pendingKind) ?? capture.intent?.type ??
-            (!capture.text.trim() && capture.attachments.length ? "file" : null);
+        const type = (pendingKind === "files" ? "file" : pendingKind === "note-insertion" ? "note" : pendingKind) ?? capture.intent?.type;
         if (type && (capture.operation?.state !== "done" || type !== "task")) { this.edit(type); return; }
-        if (!capture.attachments.length && (!capture.operation || capture.operation.state === "done")) { this.renderUnsorted(capture); return; }
+        if ((!capture.attachments.length || !capture.text.trim()) && (!capture.operation || capture.operation.state === "done")) { this.renderUnsorted(capture); return; }
         this.detail.classList.add("is-action-form");
         const body = this.detail.createDiv({ cls: "hub-inbox-action-body" });
         const title = detailTitle(capture);
@@ -10034,22 +10116,28 @@ class InboxModal extends CaptureModal {
     renderUnsorted(capture) {
         this.mode = "unsorted"; this.draft = captureDraft(capture);
         this.detail.classList.add("is-action-form");
-        this.detail.createEl("h3", { text: "Text", cls: "hub-inbox-detail-title hub-inbox-action-heading" });
+        const file = !!capture.attachments.length;
+        this.detail.createEl("h3", { text: file ? "File" : "Text", cls: "hub-inbox-detail-title hub-inbox-action-heading" });
         const body = this.detail.createDiv({ cls: "hub-inbox-action-body" });
-        const content = body.createDiv({ cls: "hub-field-group", attr: { "data-capture-field": "Content" } });
-        const input = content.createEl("textarea", { cls: "hub-quick-add-input", attr: { rows: "3", "aria-label": "Text" } });
-        input.value = this.draft.text;
-        input.addEventListener("input", () => { this.draft.text = input.value; this.sync(); this.persistDraft(this.draft); });
-        mountCaptureTypeControl({ host: body, disabledTypes: capture.operation?.state === "done" ? ["task"] : [], onSelect: type => { void this.classify(type); } });
+        if (file) attachments(body.createDiv({ cls: "hub-capture-attachments" }), capture.attachments, this.service, {
+            open: ref => { void this.run(async () => { if (await this.service.openAttachment(ref) !== false) this.finish(); }); }
+        });
+        else {
+            const content = body.createDiv({ cls: "hub-field-group", attr: { "data-capture-field": "Content" } });
+            const input = content.createEl("textarea", { cls: "hub-quick-add-input", attr: { rows: "3", "aria-label": "Text" } });
+            input.value = this.draft.text;
+            input.addEventListener("input", () => { this.draft.text = input.value; this.sync(); this.persistDraft(this.draft); });
+        }
+        mountCaptureTypeControl({ host: body, file, disabledTypes: capture.operation?.state === "done" ? ["task"] : [], onSelect: type => { void this.classify(type); } });
         this.guidance = mountInboxGuidance({ body, completion: () => this.service.getInboxCompletion(capture, this.draft) });
         this.guidance.update();
         const footer = this.detail.createDiv({ cls: "hub-capture-actions hub-inbox-action-footer hub-inbox-unsorted-footer" });
         action(footer, "Delete", "trash-2", () => { void this.remove(capture.id); }, "hub-capture-delete");
     }
     async classify(type) {
-        if (!["task", "note"].includes(type) || this.busy || this.confirmation || !await this.flushEdits()) return;
+        if (!["task", "note", "file"].includes(type) || this.busy || this.confirmation || !await this.flushEdits()) return;
         const capture = this.service.get(this.selectedId); if (!capture) return;
-        if (capture.attachments.length || this.mode === type || this.mode !== "unsorted" && capture.operation) return;
+        if (!!capture.attachments.length !== (type === "file") || this.mode === type || this.mode !== "unsorted" && capture.operation) return;
         if (type === "task" && capture.operation?.state === "done") return;
         const draft = this.form?.value() ?? this.draft;
         if (draft && hasTypeSpecificDetails(draft)) {
@@ -10058,7 +10146,7 @@ class InboxModal extends CaptureModal {
                 message: `Changing this item to a ${target} will clear its ${previous} details. The text and Save to destination will be kept.`,
                 confirmLabel: "Continue" }) || this.closed || this.selectedId !== capture.id) return;
         }
-        const saved = await this.run(() => this.service.updateCapture(capture.id, { type, intent: { type, inputPath: "text" } }));
+        const saved = await this.run(() => this.service.updateCapture(capture.id, { type, intent: { type, inputPath: type === "file" ? "file" : "text" } }));
         if (saved && !this.closed) { this.resetAction(); this.refresh(); }
     }
     persistDraft(values) {
@@ -10170,7 +10258,6 @@ class InboxModal extends CaptureModal {
         const blocked = this.busy || !this.form?.valid();
         this.save.disabled = this.busy;
         this.save.setAttribute("aria-disabled", String(blocked));
-        this.readyArrow.hidden = blocked;
     }
     sync() {
         if (this.needsRefresh && !this.busy) this.refresh();
@@ -10747,6 +10834,7 @@ module.exports = { createOathTaskSection };
 "use strict";
 const { createTaskUi, createTaskRow } = __hubRequire("lib/ui/tasks.js");
 const { parseLocalISODate } = __hubRequire("lib/domain/dates.js");
+const { bindNativeDateTimePicker } = __hubRequire("lib/ui/date-time.js");
 const { disclosureIcons } = __hubRequire("lib/ui/disclosure.js");
 const { mountTransientEffects } = __hubRequire("lib/ui/attention.js");
 const { bindMenuToggle, mountDisclosure } = __hubRequire("lib/ui/menu-toggle.js");
@@ -10754,6 +10842,7 @@ const { setHubTooltip } = __hubRequire("lib/ui/tooltips.js");
 const { openTaskCreator } = __hubRequire("lib/ui/task-editor.js");
 const { createWorkspaceCards } = __hubRequire("lib/ui/workspace-cards.js");
 const { createCardImageRenderer } = __hubRequire("lib/ui/card-images.js");
+const { mountWorkspaceThumbnail } = __hubRequire("lib/ui/workspace-thumbnail.js");
 const { workspaceRef, sameWorkspace, taskKey } = __hubRequire("lib/domain/oath-workspace.js");
 const { isCommitted, oathTime, oathProgress, shortOathTime, fulfilmentLabel, oathDuration } = __hubRequire("lib/domain/oath.js");
 
@@ -10957,6 +11046,8 @@ function openOathSetup(service) {
                 const title = copy.createSpan({ text: label, cls: "hub-oath-choice-title", attr: { id: `${radioName}-${key}` } });
                 radio.setAttribute("aria-labelledby", title.id);
                 if (name === "workspace" && value === key) {
+                    const workspace = service.resolveWorkspace(this.draft.workspace);
+                    if (workspace) copy.prepend(mountWorkspaceThumbnail(copy, service.plugin, workspace));
                     oathIcon(card, "chevrons-up-down").classList.add("hub-oath-workspace-change");
                     const tooltip = () => setHubTooltip(title, title.scrollWidth > title.clientWidth ? label : null);
                     card.addEventListener("pointerover", tooltip);
@@ -11009,17 +11100,20 @@ function openOathSetup(service) {
             });
             const nowRadio = startChoices.querySelector('input[value="now"]');
             const scheduledRadio = startChoices.querySelector('input[value="scheduled"]');
-            const scheduledCard = scheduledRadio.closest(".hub-oath-choice");
-            scheduledCard.classList.add("hub-oath-start-disclosure");
+            const scheduledLabel = scheduledRadio.closest(".hub-oath-choice");
+            // Restore the former styled option with its native picker surface.
+            // A div keeps the radio and date editor out of one native label.
+            const scheduledCard = scheduledLabel.ownerDocument.createElement("div");
+            scheduledCard.className = scheduledLabel.className + " hub-oath-start-disclosure hub-oath-scheduled-card";
+            scheduledCard.append(...scheduledLabel.childNodes); scheduledLabel.replaceWith(scheduledCard);
             disclosureIcons(scheduledCard);
-            const datePanel = start.createDiv({ cls: "hub-oath-schedule-editor", attr: {
+            const datePanel = scheduledCard.createSpan({ cls: "hub-oath-schedule-editor", attr: {
                 id: `hub-oath-date-${this.choiceGroupId}`, role: "group", "aria-label": "Scheduled Oath start"
             } });
             scheduledCard.setAttribute("aria-controls", datePanel.id);
             scheduledRadio.setAttribute("aria-controls", datePanel.id);
-            datePanel.createEl("label", { text: "Date and time", attr: { for: `${datePanel.id}-input` } });
             const dateInput = datePanel.createEl("input", { type: "datetime-local", cls: "hub-oath-start-input", attr: {
-                id: `${datePanel.id}-input`, lang: "en", "aria-label": "Scheduled Oath start"
+                id: `${datePanel.id}-input`, lang: "en", "aria-label": "Scheduled Oath start", "data-oath-autofocus": ""
             } });
             if (draft.scheduledAt) {
                 const date = new Date(draft.scheduledAt);
@@ -11037,11 +11131,15 @@ function openOathSetup(service) {
                 scheduledCard.querySelector(".hub-oath-choice-title").textContent = label;
                 dateInput.setAttribute("aria-label", `Scheduled Oath start: ${label}`);
             };
+            const nativePicker = this.nativeDatePicker = bindNativeDateTimePicker({ input: dateInput, surface: scheduledCard,
+                bindEvents: false, onClose: () => this.dateDisclosure?.close() });
             this.dateDisclosure = mountDisclosure({ trigger: scheduledCard, panel: datePanel,
-                onOpen: () => { draft.start = "scheduled"; syncStart(); this.updateNext?.(); dateInput.focus(); },
+                onOpen: () => { draft.start = "scheduled"; syncStart(); this.updateNext?.(); nativePicker.open(); },
                 onClose: () => {
+                    const focused = datePanel.contains(datePanel.ownerDocument.activeElement);
+                    nativePicker.close();
                     syncStart(); this.updateNext?.();
-                    if (datePanel.contains(datePanel.ownerDocument.activeElement)) scheduledRadio.focus({ preventScroll: true });
+                    if (focused) scheduledRadio.focus({ preventScroll: true });
                 }
             });
             // A label's cancelled native activation can restore its radio after click.
@@ -11053,7 +11151,12 @@ function openOathSetup(service) {
                 syncStart(); this.updateNext?.();
             };
             dateInput.addEventListener("input", updateDate);
-            dateInput.addEventListener("change", () => { updateDate(); if (startValid()) this.dateDisclosure.close(); });
+            dateInput.addEventListener("change", () => {
+                updateDate();
+                // The combined popover can update its date before the user
+                // finishes choosing hours/minutes. Let its own dismissal close it.
+                if (startValid() && !dateInput.matches(":open")) this.dateDisclosure.close();
+            });
             dateInput.addEventListener("keydown", event => {
                 if (event.key === "Enter") { event.preventDefault(); updateDate(); if (startValid()) this.dateDisclosure.close(); }
             });
@@ -11068,12 +11171,12 @@ function openOathSetup(service) {
             };
             const workspaceName = service.resolveWorkspace(draft.workspace)?.name ?? draft.workspace?.name;
             this.choices(work, "workspace", [
-                ["project", draft.workspace?.type === "project" ? `Project: ${workspaceName}` : "Project"],
-                ["resource", draft.workspace?.type === "resource" ? `Resource: ${workspaceName}` : "Resource"]
+                ["project", draft.workspace?.type === "project" ? workspaceName : "Project"],
+                ["resource", draft.workspace?.type === "resource" ? workspaceName : "Resource"]
             ], draft.workspace?.type, choose);
             this.renderSelected = null;
             if (draft.workspace) {
-                const body = work.createDiv({ cls: "hub-oath-selected-tasks hub-oath-task-options project-tasks-body" });
+                const body = work.createDiv({ cls: "hub-oath-selected-tasks hub-oath-task-options hub-option-group project-tasks-body" });
                 const taskAction = work.createEl("button", { cls: "hub-oath-add-tasks", attr: { type: "button", "aria-label": "Add tasks" } });
                 oathIcon(taskAction, "plus");
                 this.taskOwner = new Component(); this.taskOwner.load();
@@ -11108,6 +11211,17 @@ function openOathSetup(service) {
                         row.addEventListener("keydown", event => {
                             if (event.target === row && ["Enter", " "].includes(event.key)) { event.preventDefault(); toggle(); }
                         });
+                        if (selected.has(key)) {
+                            const remove = row.createEl("button", { cls: "hub-oath-remove-task hub-button-plain",
+                                attr: { type: "button", "aria-label": `Remove from Oath: ${task.text}` } });
+                            oathIcon(remove, "x");
+                            remove.addEventListener("click", event => {
+                                event.preventDefault(); event.stopPropagation();
+                                draft.tasks = draft.tasks.filter(item => taskKey(item) !== key);
+                                this.renderSelected();
+                                (body.querySelector(".hub-oath-remove-task") ?? body.querySelector(".hub-oath-task-option") ?? taskAction).focus();
+                            });
+                        }
                     }
                     if (!rows.length) body.createEl("p", { cls: "hub-oath-muted", text: !ready ? "Loading tasks..." :
                         `${workspaceName} has no open tasks. Create a task before making an Oath, or choose another ${draft.workspace.type}.` });
@@ -11183,6 +11297,7 @@ function openOathSetup(service) {
                 input.addEventListener("input", update); update();
             }
             const error = this.contentEl.createDiv({ cls: "hub-task-error", attr: { role: "alert" } });
+            const hint = this.contentEl.createSpan({ cls: "hub-guidance-status", attr: { role: "status", "aria-live": "polite" } });
             const actions = this.contentEl.createDiv({ cls: "hub-oath-actions" });
             actions.createEl("button", { text: "Cancel" }).addEventListener("click", () => this.close());
             const next = actions.createEl("button", { text: "Review Oath", cls: "mod-cta hub-guided-submit" });
@@ -11200,16 +11315,27 @@ function openOathSetup(service) {
             next.addEventListener("click", () => {
                 try { this.review(); } catch (problem) {
                     const missing = service.setupRequirements(draft).find(item => !item.complete);
-                    error.textContent = missing?.error ?? problem.message;
+                    // An empty choice only needs guidance. Invalid populated
+                    // values, unavailable destinations/tasks and index errors
+                    // still explain what the user needs to correct or await.
+                    const unchosen = missing && {
+                        Start: !this.scheduledValue,
+                        Workspace: !draft.workspace,
+                        Tasks: service.ready() && !draft.tasks.length,
+                        Duration: draft.durationMs == null && !this.customValue?.value
+                    }[missing.key];
+                    error.textContent = unchosen ? "" : missing?.error ?? problem.message;
                     if (missing) {
                         this.effects.cancel(this.guidedGroup);
                         this.guidedGroup = this.requirementGroups[missing.key];
-                        this.effects.pulse(this.guidedGroup);
+                        hint.textContent = missing.error;
+                        this.effects.pulse(this.guidedGroup, null, () => { hint.textContent = ""; });
                     }
                 }
             });
         }
         clearSetupEffects() {
+            this.nativeDatePicker?.close(); this.nativeDatePicker = null;
             this.dateDisclosure?.destroy(); this.dateDisclosure = null;
             this.unitMenu?.hide(); this.stopUnitToggle?.(); this.stopUnitToggle = null;
             this.effects?.destroy();
@@ -12576,6 +12702,7 @@ module.exports = { mountProjectRoadmap };
 const { Notice } = require("obsidian");
 const { CaptureModal, action, attachments } = __hubRequire("lib/ui/capture-modal.js");
 const { mountCaptureForm } = __hubRequire("lib/ui/capture-form.js");
+const { mountCaptureGuidance } = __hubRequire("lib/ui/inbox-guidance.js");
 const { linkFromText } = __hubRequire("lib/domain/inbox.js");
 
 class QuickAddModal extends CaptureModal {
@@ -12589,7 +12716,7 @@ class QuickAddModal extends CaptureModal {
         this.modalEl.classList.add("hub-quick-add-dialog");
         this.header("Quick Add", "Write down a thought, or add a file.");
         this.body = this.contentEl.createDiv({ cls: "hub-capture-body" });
-        this.textPath = this.body.createDiv({ cls: "hub-capture-input-path" });
+        this.textPath = this.body.createDiv({ cls: "hub-capture-input-path", attr: { "data-capture-field": "Content" } });
         this.label = this.textPath.createEl("label", { cls: "hub-capture-label", attr: { for: this.prefix + "-input" } }); this.label.hidden = true;
         this.textEditor = this.textPath.createDiv({ cls: "hub-capture-text-editor" });
         this.input = this.textEditor.createEl("textarea", { cls: "hub-quick-add-input", attr: { id: this.prefix + "-input", "aria-label": "Write something", rows: "3", placeholder: "Start typing..." } });
@@ -12604,7 +12731,7 @@ class QuickAddModal extends CaptureModal {
         this.input.addEventListener("keydown", event => {
             if (event.key === "Enter" && !event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey && !event.isComposing && event.keyCode !== 229) {
                 event.preventDefault();
-                if (!this.add.hidden && !this.add.disabled) void this.addDirect();
+                if (!this.add.hidden && !this.add.disabled && this.add.getAttribute("aria-disabled") !== "true") void this.addDirect();
                 else if (!this.send.disabled) void this.sendInbox();
             }
         });
@@ -12636,7 +12763,7 @@ class QuickAddModal extends CaptureModal {
             this.input.setRangeText(prefix + text, start, end, "end");
             this.draft.text = this.input.value; this.form?.update({ text: this.input.value }); this.sync(); this.input.focus();
         });
-        this.attachmentList = this.body.createDiv({ cls: "hub-capture-attachments" });
+        this.attachmentList = this.body.createDiv({ cls: "hub-capture-attachments", attr: { "data-capture-field": "File" } });
         this.fileInput = this.body.createEl("input", { attr: { type: "file", multiple: "", hidden: "", tabindex: "-1", "aria-label": "Choose a file" } });
         this.fileInput.addEventListener("change", () => { void this.addAttachments([...this.fileInput.files]); this.fileInput.value = ""; });
         this.attach = action(this.body, "Add a file", "paperclip", () => this.fileInput.click(), "hub-capture-attach");
@@ -12645,7 +12772,9 @@ class QuickAddModal extends CaptureModal {
         this.cancel = action(footer, "Cancel", null, () => this.close());
         this.more = action(footer, "More options", null, () => this.expand());
         this.send = action(footer, "Send to Inbox", null, () => { void this.sendInbox(); }, "mod-cta");
-        this.add = action(footer, "Add to Itacan", null, () => { void this.addDirect(); }, "mod-cta"); this.add.hidden = true;
+        this.add = action(footer, "Add to Itacan", null, () => { void this.addDirect(); }, "mod-cta hub-guided-submit"); this.add.hidden = true;
+        this.guidance = mountCaptureGuidance({ body: this.body,
+            completion: () => this.service.completion(this.form?.value() ?? this.draft, this.captureId) });
         this.sync(); this.input.focus();
     }
     expand() {
@@ -12680,8 +12809,10 @@ class QuickAddModal extends CaptureModal {
         this.more.disabled = waiting || !content;
         this.send.disabled = waiting || complete || !content;
         this.send.classList.toggle("mod-cta", !this.form);
-        this.add.disabled = waiting || !complete;
+        this.add.disabled = waiting;
+        this.add.setAttribute("aria-disabled", String(waiting || !complete));
         if (pendingNote) this.expanded.querySelectorAll("button,input,select,textarea").forEach(control => control.disabled = true);
+        this.guidance?.update();
     }
     renderAttachments() {
         attachments(this.attachmentList, this.draft.attachments, this.service, { remove: ref => {
@@ -12728,7 +12859,12 @@ class QuickAddModal extends CaptureModal {
     }
     addDirect() {
         if (this.busy || this.pendingImports) return;
-        if (!this.form?.valid()) return;
+        if (!this.form?.valid()) {
+            // Use the same required-field ordering as Inbox. Optional invalid
+            // edits retain meaningful errors without becoming amber targets.
+            if (!this.guidance?.guide()) this.error.textContent = this.service.completion(this.form?.value() ?? this.draft, this.captureId).error ?? "";
+            return;
+        }
         return this.run(async () => {
             const draft = this.form.value();
             const result = draft.type === "task" ? await this.service.makeTask(draft, this.captureId) : draft.type === "note" ?
@@ -12742,6 +12878,7 @@ class QuickAddModal extends CaptureModal {
     }
     close() { if (!this.pendingImports) super.close(); }
     onClose() {
+        this.guidance?.destroy();
         if (!this.saved && this.draft.attachments.length) void this.service.releaseAttachments(this.draft.attachments)
             .catch(error => new Notice(`Could not remove temporary attachment: ${error.message}`));
         super.onClose();

@@ -166,22 +166,24 @@ class HubInboxService {
         return capture;
     }
     completion(values = {}, captureId) {
-        const type = values.type || (values.attachments?.length ? "file" : null), requirements = [];
+        const type = values.type, requirements = [];
         const requireValue = (valid, message) => { if (!valid) throw Error(message); };
-        const check = (label, validate) => {
-            try { validate(); requirements.push({ label, complete: true }); }
-            catch (error) { requirements.push({ label, complete: false, error: error.message }); }
+        const check = (label, validate, progress = true) => {
+            try { validate(); requirements.push({ label, complete: true, progress }); }
+            catch (error) { requirements.push({ label, complete: false, progress, error: error.message }); }
         };
         let validationError = null;
         if (!["task", "note", "file"].includes(type)) validationError = "Choose Task or Note.";
         else {
-            if (type === "task") check("Content", () => taskFormValues({ text: values.taskTitle ?? values.text }));
-            else if (type === "note") check("Content", () => requireValue(String(values.text ?? "").trim(), "Write the note content."));
+            // Payload validity still gates creation and guides corrections, but
+            // its mere existence never earns an organisational progress step.
+            if (type === "task") check("Content", () => taskFormValues({ text: values.taskTitle ?? values.text }), false);
+            else if (type === "note") check("Content", () => requireValue(String(values.text ?? "").trim(), "Write the note content."), false);
             else check("File", () => {
                 requireValue(values.attachments?.length, "Add a file first.");
                 requireValue(values.attachments.every(ref => this.attachmentExists(ref)), "A file is no longer available.");
-            });
-            if (type !== "file") check("Type", () => requireValue(values.type === type, "Choose Task or Note."));
+            }, false);
+            // Type selects this schema; it is not an organisational detail.
             if (type === "note") check("Action", () => {}); // New note is the existing default route.
             check("Workspace", () => {
                 requireValue(values.workspaceId, "Choose a Project or Resource.");
@@ -212,7 +214,8 @@ class HubInboxService {
             } catch (error) { validationError = error.message; }
         }
         const missing = requirements.filter(item => !item.complete).map(item => item.label);
-        const completedRequired = requirements.length - missing.length, totalRequired = requirements.length;
+        const details = requirements.filter(item => item.progress);
+        const completedRequired = details.filter(item => item.complete).length, totalRequired = details.length;
         // Classification is the only known blocker before type-specific
         // requirements exist. Keep its untyped progress at zero.
         if (!totalRequired) missing.push("Type");

@@ -5,14 +5,16 @@ const { fileIcon } = require("../ui/file-icons");
 const canonical = new Set(["folder", "folder-open", "folder-symlink", "presentation", "monitor", "file", "file-type", "file-text", "notebook-text"]);
 const aliases = { folder: "folder-open", presentation: "monitor" };
 const lookups = [], rendered = [];
+const registered = new Map();
 const nativeGetIcon = name => {
     lookups.push(name);
+    if (registered.has(name)) return name;
     const resolved = name.startsWith("lucide-") ? name.slice(7) : aliases[name] ?? name;
     return canonical.has(resolved) || (!name.startsWith("lucide-") && ["custom-hub-icon", "legacy-only"].includes(resolved)) ? resolved : null;
 };
 const originalLoad = Module._load;
 Module._load = function(name) {
-    if (name === "obsidian") return { getIcon: nativeGetIcon, setIcon: (element, icon) => rendered.push(nativeGetIcon(icon)) };
+    if (name === "obsidian") return { getIcon: nativeGetIcon, setIcon: (element, icon) => rendered.push(nativeGetIcon(icon)), addIcon: (name, svg) => { assert(!registered.has(name), 'Exact sort icon is registered only once'); registered.set(name, svg); } };
     return originalLoad.apply(this, arguments);
 };
 let setHubIcon;
@@ -30,4 +32,10 @@ for (const name of ["custom-hub-icon", "legacy-only"]) {
 }
 setHubIcon({}, "missing-icon");
 assert.equal(rendered.at(-1), null, "Unknown names are not disguised as a different semantic icon");
+for (const name of ['list-sort-descending', 'list-sort-ascending']) {
+    setHubIcon({}, name); setHubIcon({}, name);
+    assert.equal(rendered.at(-1), name, 'Older Obsidian registries retain the exact sort icon name for triggers and native menus');
+    assert.equal((registered.get(name).match(/<path /g) || []).length, 3, 'Exact official Lucide icon keeps all three list strokes');
+    assert(registered.get(name).includes('scale(4.166666666666667)') && registered.get(name).includes('stroke="currentColor"'), 'Custom icon uses native 100-unit viewBox scaling and foreground color');
+}
 console.log("Hub icon resolution passed: canonical Lucide names, folder/presentation legacy collisions, custom and legacy fallback.");

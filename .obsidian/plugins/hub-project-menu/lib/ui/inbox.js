@@ -1,7 +1,7 @@
 "use strict";
-const { Notice, Menu, getIcon } = require("obsidian");
+const { Notice, Menu } = require("obsidian");
 const { CaptureModal, CaptureConfirmation, action, attachments } = require("./capture-modal");
-const { setHubIcon } = require("./icons");
+const { setHubIcon, ensureHubIcon } = require("./icons");
 const { disclosureIcons } = require("./disclosure");
 const { bindMenuToggle } = require("./menu-toggle");
 const { mountCaptureForm, mountCaptureTypeControl, noteTitle } = require("./capture-form");
@@ -10,15 +10,16 @@ const { linkFromText, captureDraft, sortedCaptures, INBOX_SORTS, inboxCounts } =
 const { mountTaskText } = require("./task-form");
 
 const SORT_ICONS = {
-    "most-complete": ["arrow-down-wide-narrow", "arrow-down-1-0"],
-    "least-complete": ["arrow-up-wide-narrow", "arrow-up-0-1"],
-    newest: ["calendar-arrow-down", "arrow-down-1-0"],
-    oldest: ["calendar-arrow-up", "arrow-up-0-1"],
-    type: ["shapes", "tags"]
+    "most-complete": "list-sort-descending",
+    "least-complete": "list-sort-ascending",
+    newest: "clock-arrow-down",
+    oldest: "clock-arrow-up",
+    type: "files"
 };
 function sortIcon(sort) {
-    const [preferred, fallback] = SORT_ICONS[sort];
-    return getIcon("lucide-" + preferred) || getIcon(preferred) ? preferred : fallback;
+    const icon = SORT_ICONS[sort];
+    ensureHubIcon(icon);
+    return icon;
 }
 
 function timestamp(value) { return new Date(value).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }); }
@@ -123,7 +124,7 @@ class InboxModal extends CaptureModal {
         const rect = this.sort.getBoundingClientRect(); menu.showAtPosition({ x: rect.left, y: rect.bottom });
     }
     canChangeType(capture) {
-        return !!capture && !capture.attachments.length && !capture.operation && [undefined, null, "task", "note"].includes(capture.intent?.type);
+        return !!capture && !capture.operation && (capture.attachments.length ? !capture.intent?.type : [undefined, null, "task", "note"].includes(capture.intent?.type));
     }
     showItemMenu(id, position) {
         const capture = this.service.get(id);
@@ -149,7 +150,7 @@ class InboxModal extends CaptureModal {
         if (!this.canChangeType(capture) || this.closed || this.busy || this.confirmation) return;
         const type = id === this.selectedId ? this.mode : capture.intent?.type;
         const menu = new Menu();
-        for (const [value, label, icon] of [["task", "Task", "square"], ["note", "Note", "notebook-text"]])
+        for (const [value, label, icon] of capture.attachments.length ? [["file", "File", "file"]] : [["task", "Task", "square"], ["note", "Note", "notebook-text"]])
             menu.addItem(item => item.setTitle(label).setIcon(icon).setChecked(type === value).onClick(async () => {
                 if (await this.openItem(id) && this.canChangeType(this.service.get(id))) await this.classify(value);
             }));
@@ -262,7 +263,7 @@ class InboxModal extends CaptureModal {
             const title = heading.createDiv({ cls: "hub-inbox-row-title" });
             const status = heading.createSpan({ cls: "hub-inbox-completion-label", attr: { "aria-hidden": "true" } });
             const metadata = copy.createDiv({ cls: "hub-capture-muted" });
-            const progress = copy.createEl("progress", { cls: "hub-inbox-completion-progress", attr: { id: `${this.prefix}-completion-${capture.id}` } });
+            const progress = copy.createDiv({ cls: "hub-inbox-completion-progress", attr: { id: `${this.prefix}-completion-${capture.id}`, role: "progressbar", "aria-valuemin": "0" } });
             row = { button, icon, title, status, metadata, progress }; this.rows.set(capture.id, row);
             button.addEventListener("click", () => { void this.select(capture.id); });
             button.addEventListener("contextmenu", event => {
@@ -292,9 +293,14 @@ class InboxModal extends CaptureModal {
         row.status.createSpan({ text: status });
         const description = ready ? "All required details complete" : !totalRequired ? "Type not selected" :
             `${status}${completion.missing.length ? ". Missing: " + completion.missing.join(", ") : completion.error ? ". " + completion.error : ""}`;
-        row.progress.max = totalRequired || 1; row.progress.value = completedRequired;
+        row.progress.setAttribute("aria-valuemax", String(totalRequired || 1)); row.progress.setAttribute("aria-valuenow", String(completedRequired));
         row.progress.setAttribute("aria-label", description); row.progress.setAttribute("aria-valuetext", description);
-        row.progress.textContent = description;
+        row.progress.style.setProperty("--hub-completion-segments", String(totalRequired || 1));
+        if (row.progress.children.length !== totalRequired) {
+            row.progress.empty();
+            for (let index = 0; index < totalRequired; index++) row.progress.createSpan({ cls: "hub-inbox-completion-segment", attr: { "aria-hidden": "true" } });
+        }
+        [...row.progress.children].forEach((segment, index) => segment.classList.toggle("is-complete", index < completedRequired));
         return row;
     }
     async select(id) {
@@ -307,10 +313,9 @@ class InboxModal extends CaptureModal {
         const capture = this.service.get(this.selectedId);
         if (!capture) { this.detail.createDiv({ cls: "hub-capture-empty", text: "Select an item to review it." }); return; }
         const pendingKind = capture.operation?.state !== "done" ? capture.operation?.kind : null;
-        const type = (pendingKind === "files" ? "file" : pendingKind === "note-insertion" ? "note" : pendingKind) ?? capture.intent?.type ??
-            (!capture.text.trim() && capture.attachments.length ? "file" : null);
+        const type = (pendingKind === "files" ? "file" : pendingKind === "note-insertion" ? "note" : pendingKind) ?? capture.intent?.type;
         if (type && (capture.operation?.state !== "done" || type !== "task")) { this.edit(type); return; }
-        if (!capture.attachments.length && (!capture.operation || capture.operation.state === "done")) { this.renderUnsorted(capture); return; }
+        if ((!capture.attachments.length || !capture.text.trim()) && (!capture.operation || capture.operation.state === "done")) { this.renderUnsorted(capture); return; }
         this.detail.classList.add("is-action-form");
         const body = this.detail.createDiv({ cls: "hub-inbox-action-body" });
         const title = detailTitle(capture);
@@ -362,22 +367,28 @@ class InboxModal extends CaptureModal {
     renderUnsorted(capture) {
         this.mode = "unsorted"; this.draft = captureDraft(capture);
         this.detail.classList.add("is-action-form");
-        this.detail.createEl("h3", { text: "Text", cls: "hub-inbox-detail-title hub-inbox-action-heading" });
+        const file = !!capture.attachments.length;
+        this.detail.createEl("h3", { text: file ? "File" : "Text", cls: "hub-inbox-detail-title hub-inbox-action-heading" });
         const body = this.detail.createDiv({ cls: "hub-inbox-action-body" });
-        const content = body.createDiv({ cls: "hub-field-group", attr: { "data-capture-field": "Content" } });
-        const input = content.createEl("textarea", { cls: "hub-quick-add-input", attr: { rows: "3", "aria-label": "Text" } });
-        input.value = this.draft.text;
-        input.addEventListener("input", () => { this.draft.text = input.value; this.sync(); this.persistDraft(this.draft); });
-        mountCaptureTypeControl({ host: body, disabledTypes: capture.operation?.state === "done" ? ["task"] : [], onSelect: type => { void this.classify(type); } });
+        if (file) attachments(body.createDiv({ cls: "hub-capture-attachments" }), capture.attachments, this.service, {
+            open: ref => { void this.run(async () => { if (await this.service.openAttachment(ref) !== false) this.finish(); }); }
+        });
+        else {
+            const content = body.createDiv({ cls: "hub-field-group", attr: { "data-capture-field": "Content" } });
+            const input = content.createEl("textarea", { cls: "hub-quick-add-input", attr: { rows: "3", "aria-label": "Text" } });
+            input.value = this.draft.text;
+            input.addEventListener("input", () => { this.draft.text = input.value; this.sync(); this.persistDraft(this.draft); });
+        }
+        mountCaptureTypeControl({ host: body, file, disabledTypes: capture.operation?.state === "done" ? ["task"] : [], onSelect: type => { void this.classify(type); } });
         this.guidance = mountInboxGuidance({ body, completion: () => this.service.getInboxCompletion(capture, this.draft) });
         this.guidance.update();
         const footer = this.detail.createDiv({ cls: "hub-capture-actions hub-inbox-action-footer hub-inbox-unsorted-footer" });
         action(footer, "Delete", "trash-2", () => { void this.remove(capture.id); }, "hub-capture-delete");
     }
     async classify(type) {
-        if (!["task", "note"].includes(type) || this.busy || this.confirmation || !await this.flushEdits()) return;
+        if (!["task", "note", "file"].includes(type) || this.busy || this.confirmation || !await this.flushEdits()) return;
         const capture = this.service.get(this.selectedId); if (!capture) return;
-        if (capture.attachments.length || this.mode === type || this.mode !== "unsorted" && capture.operation) return;
+        if (!!capture.attachments.length !== (type === "file") || this.mode === type || this.mode !== "unsorted" && capture.operation) return;
         if (type === "task" && capture.operation?.state === "done") return;
         const draft = this.form?.value() ?? this.draft;
         if (draft && hasTypeSpecificDetails(draft)) {
@@ -386,7 +397,7 @@ class InboxModal extends CaptureModal {
                 message: `Changing this item to a ${target} will clear its ${previous} details. The text and Save to destination will be kept.`,
                 confirmLabel: "Continue" }) || this.closed || this.selectedId !== capture.id) return;
         }
-        const saved = await this.run(() => this.service.updateCapture(capture.id, { type, intent: { type, inputPath: "text" } }));
+        const saved = await this.run(() => this.service.updateCapture(capture.id, { type, intent: { type, inputPath: type === "file" ? "file" : "text" } }));
         if (saved && !this.closed) { this.resetAction(); this.refresh(); }
     }
     persistDraft(values) {
@@ -498,7 +509,6 @@ class InboxModal extends CaptureModal {
         const blocked = this.busy || !this.form?.valid();
         this.save.disabled = this.busy;
         this.save.setAttribute("aria-disabled", String(blocked));
-        this.readyArrow.hidden = blocked;
     }
     sync() {
         if (this.needsRefresh && !this.busy) this.refresh();

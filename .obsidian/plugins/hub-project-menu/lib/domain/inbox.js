@@ -6,7 +6,7 @@ const INBOX_VERSION = 1;
 const INBOX_ATTACHMENT_ROOT = "Inbox/Attachments";
 const INBOX_SORTS = [
     ["most-complete", "Most complete"], ["least-complete", "Least complete"],
-    ["newest", "Newest first"], ["oldest", "Oldest first"], ["type", "Type"]
+    ["newest", "Newest first"], ["oldest", "Oldest first"], ["type", "Item type"]
 ];
 function inboxSort(value) { return INBOX_SORTS.some(([key]) => key === value) ? value : "most-complete"; }
 
@@ -99,7 +99,7 @@ function captureNoteTitle(value) {
 // keeps the decisions that can be resumed in the existing creation forms.
 function captureIntent(values = {}, attachments = []) {
     const input = { ...(values.intent ?? {}), ...values };
-    const type = attachments.length ? "file" : ["task", "note"].includes(input.type) ? input.type : null;
+    const type = attachments.length ? (["task", "note", "file"].includes(input.type) || input.workspaceId || input.folder ? "file" : null) : ["task", "note"].includes(input.type) ? input.type : null;
     if (!type) return null;
     const intent = { inputPath: attachments.length ? "file" : "text", type };
     const keys = type === "task" ? ["workspaceId", "location", "necessity", "fromDate", "dueDate", "fromTime", "dueTime", "phaseId", "linkedProjectId"] :
@@ -139,7 +139,6 @@ function captureDraft(capture = {}) {
         // Ready receipts always retain their already-created destination.
         if (operation.state === "prepared" && operation.kind !== "task" && !insertion && capture.intent) Object.assign(draft, capture.intent);
     }
-    if (draft.attachments.length && !operation) draft.type = "file";
     draft.inputPath = draft.attachments.length ? "file" : "text";
     if (Array.isArray(draft.steps)) draft.steps = draft.steps.map(step => ({ ...step }));
     delete draft.taskTitle;
