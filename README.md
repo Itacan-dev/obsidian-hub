@@ -41,6 +41,20 @@ Confirmation opens a fresh homepage, preserving no login request or POST body.
 See [the architecture](System/Hub-atlas-architecture.md) and
 [navigation/security review](System/Hub-atlas-security.md) for compatibility limits.
 
+Music starts disabled. Configure it in **Settings → Music**, enable the providers
+you use, and save streaming links or select local audio files. The bottom-bar
+**Music** button plays those configured references; names, ordering and enablement
+are private Hub data saved through the existing atomic store. Local files remain
+in their current location and continue playing when Music closes. YouTube uses
+its visible official player and pauses on close. Spotify uses Spotify Connect
+after authorization in Music settings, with playback on a Spotify device; its
+official Embed backend remains available for standalone Itacan. YouTube Music loads configured
+content through Atlas's browser infrastructure and still follows Atlas policy;
+shared album playlist links are preferable when an album page changes its URL
+during playback. Disabling Music or a provider retains the configured library.
+See [Music implementation and verification](System/Hub-music.md) for provider
+capabilities, runtime limits and the isolated Obsidian checks.
+
 ## Development
 
 - `.obsidian/plugins/hub-project-menu/plugin.js` and `lib/` are the plugin source.

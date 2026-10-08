@@ -12589,8 +12589,16 @@ module.exports = class HubProjectMenu extends Plugin {
         window.hubApplyTaskEdit = applyTaskEdit;
         this.taskEditor = new HubTaskEditor(this);
         const oathNativeModule = this.app.vault.adapter.getBasePath?.();
+        let strictOath = null;
+        if (oathNativeModule && window.electron?.remote && window.electronWindow) {
+            try {
+                // Default-disabled main-process coordinator; reuse ownership on plugin reload.
+                strictOath = window.electron.remote.require(require("path").join(oathNativeModule,
+                    this.manifest.dir, "lib/services/oath-strict-host.js")).getStrictCoordinator(window.electronWindow);
+            } catch (error) { console.error("Strict Oath host unavailable; ordinary Oaths remain available", error); }
+        }
         this.oath = new HubOathService(this, createOathFullscreen(window, oathNativeModule ?
-            require("path").join(oathNativeModule, this.manifest.dir, "lib/services/oath-fullscreen.js") : null));
+            require("path").join(oathNativeModule, this.manifest.dir, "lib/services/oath-fullscreen.js") : null), strictOath ? { strict: strictOath } : {});
         this.oathNavigation = new OathNavigationGuard(this, require("obsidian").WorkspaceLeaf);
         window.hubCreateWorkspaceCards = (root, component, renderImage, categories) =>
             createWorkspaceCards({ app: this.app, root, component, renderImage, categories, oath: this.oath });
@@ -12614,6 +12622,10 @@ module.exports = class HubProjectMenu extends Plugin {
         window.hubApplySearchFolder = root => this.contextSearch.applyFolder(root);
         this.dailyBrief = new DailyBriefService(this);
         this.inbox = new HubInboxService(this);
+        this.spotifyConnect = new (require("./lib/services/spotify-connect").SpotifyConnectBackend)(this);
+        await this.spotifyConnect.restore();
+        this.musicLibrary = new (require("./lib/services/music-library").MusicLibrary)(this);
+        this.music = new (require("./lib/services/music-controller").MusicController)(this, this.musicLibrary);
         this.app.workspace.onLayoutReady(() => {
             if (this.oath.disposed) return;
             this.oathControl = mountOathControl(this, this.oath);
@@ -12762,6 +12774,10 @@ module.exports = class HubProjectMenu extends Plugin {
         delete window.hubRegisterSearchWorkspace;
         delete window.hubApplySearchFolder;
         this.musicControl?.destroy();
+        const spotifyStopping = this.music?.destroy();
+        Promise.resolve(spotifyStopping).catch(() => {}).finally(() => {
+            this.spotifyConnect?.destroy(); this.musicLibrary?.destroy();
+        });
         this.settingsControl?.destroy();
         this.dailyBriefControl?.destroy();
         this.dailyBrief?.destroy();
@@ -17316,6 +17332,14 @@ module.exports = class HubProjectMenu extends Plugin {
             );
         }
 
+
+        if (this.oath?.active && this.oath.isStrict) {
+            // Strict shortcuts use the frozen executable policy; no title/PID focus workaround.
+            const executable = resolveExecutable(shortcut.type === "website" ? FIREFOX_EXECUTABLES : shortcut.executables ?? []);
+            if (!executable) throw new Error("Application executable could not be found.");
+            await this.oath.launchStrictApplication(executable, shortcut.type === "website" ? shortcut.url : null);
+            return;
+        }
 
         // ---------- WEBSITE ----------
 

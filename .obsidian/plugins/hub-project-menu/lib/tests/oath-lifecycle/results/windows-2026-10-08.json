@@ -1,0 +1,154 @@
+{
+    "phase":  3,
+    "runtime":  {
+                    "electron":  "39.8.3",
+                    "node":  "22.22.1",
+                    "platform":  "win32",
+                    "arch":  "x64",
+                    "obsidian":  "1.13.7"
+                },
+    "preventedHostSideEffects":  [
+                                     "setAsDefaultProtocolClient"
+                                 ],
+    "checks":  [
+                   {
+                       "name":  "real Obsidian loads Itacan in the synthetic vault",
+                       "status":  "pass",
+                       "detail":  {
+                                      "vault":  "C:\\Users\\EL_BAR~1\\AppData\\Local\\Temp\\itacan-oath-phase1-Ih1id2\\vault",
+                                      "oath":  null,
+                                      "footer":  true
+                                  }
+                   },
+                   {
+                       "name":  "existing Obsidian bridge reaches main process and correct BrowserWindow",
+                       "status":  "pass",
+                       "detail":  {
+                                      "windowId":  1,
+                                      "processType":  "browser",
+                                      "pid":  22448
+                                  }
+                   },
+                   {
+                       "name":  "BEFORE GUARDS: native local escape and state restoration",
+                       "status":  "pass",
+                       "detail":  {
+                                      "shortcut":  "Ctrl+Alt+Shift+F12",
+                                      "state":  {
+                                                    "full":  false,
+                                                    "kiosk":  false,
+                                                    "minimized":  false,
+                                                    "maximized":  false,
+                                                    "bounds":  {
+                                                                   "x":  40,
+                                                                   "y":  40,
+                                                                   "width":  900,
+                                                                   "height":  650
+                                                               },
+                                                    "closable":  true,
+                                                    "minimizable":  true,
+                                                    "top":  false
+                                                }
+                                  }
+                   },
+                   {
+                       "name":  "BEFORE GUARDS: watchdog restores without renderer input",
+                       "status":  "pass"
+                   },
+                   {
+                       "name":  "Phase 3: freshly built plugin keeps Strict disabled by default",
+                       "status":  "pass"
+                   },
+                   {
+                       "name":  "Phase 3: built-in Windows process observation runs without native addon",
+                       "status":  "pass"
+                   },
+                   {
+                       "name":  "Phase 3: confirmed service activation owns guarded fullscreen with normal stacking",
+                       "status":  "pass"
+                   },
+                   {
+                       "name":  "Phase 3: local Alt+Tab is not cancelled; external window can minimize and restore",
+                       "status":  "pass",
+                       "detail":  {
+                                      "physicalAltTabVerified":  false,
+                                      "foregroundOwnershipVerified":  false
+                                  }
+                   },
+                   {
+                       "name":  "Phase 3: early service exit and ordinary host close remain guarded",
+                       "status":  "pass"
+                   },
+                   {
+                       "name":  "Phase 3: fulfillment saves one history record before native restoration",
+                       "status":  "pass"
+                   },
+                   {
+                       "name":  "Phase 3: isolated development shortcut releases native guards and restores state",
+                       "status":  "pass"
+                   }
+               ],
+    "limitations":  [
+                        "Native lifecycle checks use the existing synthetic service/task fixture with temporary JSON persistence over real isolated Obsidian windows.",
+                        "The freshly built real plugin is checked for default-disabled behavior; end-to-end Strict setup UI is Phase 4.",
+                        "Process observation is scoped to owned fixture processes for activation so no unrelated user application needs to be closed.",
+                        "Physical Alt+Tab, global stacking and foreground ownership are not asserted; no native foreground dependency is loaded."
+                    ],
+    "display":  {
+                    "bounds":  {
+                                   "x":  0,
+                                   "y":  0,
+                                   "width":  1920,
+                                   "height":  1080
+                               },
+                    "workArea":  {
+                                     "x":  0,
+                                     "y":  0,
+                                     "width":  1920,
+                                     "height":  1032
+                                 },
+                    "scaleFactor":  2
+                },
+    "hostPreferences":  {
+                            "nodeIntegration":  true,
+                            "contextIsolation":  false,
+                            "sandbox":  false,
+                            "webSecurity":  true,
+                            "webviewTag":  true
+                        },
+    "observer":  {
+                     "processCountWithMainWindows":  9,
+                     "capabilities":  {
+                                          "inventory":  true,
+                                          "foreground":  false,
+                                          "externalControls":  false,
+                                          "complete":  false
+                                      }
+                 },
+    "preparedWindow":  {
+                           "full":  true,
+                           "kiosk":  true,
+                           "minimized":  false,
+                           "maximized":  false,
+                           "bounds":  {
+                                          "x":  40,
+                                          "y":  40,
+                                          "width":  900,
+                                          "height":  650
+                                      },
+                           "closable":  false,
+                           "minimizable":  false,
+                           "top":  false
+                       },
+    "developmentAudit":  {
+                             "reason":  "development-shortcut",
+                             "restored":  true
+                         },
+    "feasibilityMet":  true,
+    "launcher":  {
+                     "exitCode":  0,
+                     "copiedSourceUnchanged":  true,
+                     "temporaryProfileRemoved":  true,
+                     "source":  "Installed Obsidian archive in existing test Electron; not the installed launcher runtime"
+                 }
+}

@@ -1,0 +1,650 @@
+{
+    "phase":  2,
+    "runtime":  {
+                    "electron":  "39.8.3",
+                    "node":  "22.22.1",
+                    "platform":  "win32",
+                    "arch":  "x64",
+                    "obsidian":  "1.13.7"
+                },
+    "preventedHostSideEffects":  [
+                                     "setAsDefaultProtocolClient"
+                                 ],
+    "checks":  [
+                   {
+                       "name":  "Phase 2: upstream addon loads in separate utility process",
+                       "status":  "pass",
+                       "detail":  {
+                                      "pid":  15812,
+                                      "napi":  "10"
+                                  }
+                   },
+                   {
+                       "name":  "real Obsidian loads Itacan in the synthetic vault",
+                       "status":  "pass",
+                       "detail":  {
+                                      "vault":  "C:\\Users\\EL_BAR~1\\AppData\\Local\\Temp\\itacan-oath-phase1-NdvdJN\\vault",
+                                      "oath":  null,
+                                      "footer":  true
+                                  }
+                   },
+                   {
+                       "name":  "existing Obsidian bridge reaches main process and correct BrowserWindow",
+                       "status":  "pass",
+                       "detail":  {
+                                      "windowId":  1,
+                                      "processType":  "browser",
+                                      "pid":  5472
+                                  }
+                   },
+                   {
+                       "name":  "BEFORE GUARDS: native local escape and state restoration",
+                       "status":  "pass",
+                       "detail":  {
+                                      "shortcut":  "Ctrl+Alt+Shift+F12",
+                                      "state":  {
+                                                    "full":  false,
+                                                    "kiosk":  false,
+                                                    "minimized":  false,
+                                                    "maximized":  false,
+                                                    "bounds":  {
+                                                                   "x":  40,
+                                                                   "y":  40,
+                                                                   "width":  900,
+                                                                   "height":  650
+                                                               },
+                                                    "closable":  true,
+                                                    "minimizable":  true,
+                                                    "top":  false
+                                                }
+                                  }
+                   },
+                   {
+                       "name":  "BEFORE GUARDS: watchdog restores without renderer input",
+                       "status":  "pass"
+                   },
+                   {
+                       "name":  "external fixture is an ordinary independent top-level application",
+                       "status":  "pass",
+                       "detail":  {
+                                      "pid":  19232,
+                                      "handle":  1771140,
+                                      "focused":  true,
+                                      "minimized":  false,
+                                      "visible":  true,
+                                      "full":  false,
+                                      "bounds":  {
+                                                     "x":  660,
+                                                     "y":  316,
+                                                     "width":  600,
+                                                     "height":  400
+                                                 },
+                                      "contentBounds":  {
+                                                            "x":  666,
+                                                            "y":  371,
+                                                            "width":  587,
+                                                            "height":  339
+                                                        },
+                                      "parent":  null
+                                  }
+                   },
+                   {
+                       "name":  "Windows observation after external fixture is an ordinary independent top-level application",
+                       "status":  "fail",
+                       "detail":  "Adapter request timed out"
+                   },
+                   {
+                       "name":  "separate dock has isolated sandboxed renderer and no parent",
+                       "status":  "pass",
+                       "detail":  {
+                                      "require":  "undefined",
+                                      "keys":  [
+                                                   "focusHost",
+                                                   "stop"
+                                               ]
+                                  }
+                   },
+                   {
+                       "name":  "Windows observation after separate dock has isolated sandboxed renderer and no parent",
+                       "status":  "fail",
+                       "detail":  "Adapter unavailable; explicit bounded restart required"
+                   },
+                   {
+                       "name":  "fullscreen: ordinary close and fullscreen exit are blocked",
+                       "status":  "pass"
+                   },
+                   {
+                       "name":  "Windows observation after fullscreen: ordinary close and fullscreen exit are blocked",
+                       "status":  "fail",
+                       "detail":  "Adapter unavailable; explicit bounded restart required"
+                   },
+                   {
+                       "name":  "fullscreen: host recovers programmatic minimization",
+                       "status":  "pass"
+                   },
+                   {
+                       "name":  "Windows observation after fullscreen: host recovers programmatic minimization",
+                       "status":  "fail",
+                       "detail":  "Adapter unavailable; explicit bounded restart required"
+                   },
+                   {
+                       "name":  "fullscreen: external app focuses while Itacan stays fullscreen",
+                       "status":  "fail",
+                       "detail":  "{\"host\":{\"focused\":true,\"visible\":true,\"bounds\":{\"x\":0,\"y\":0,\"width\":1920,\"height\":1080},\"contentBounds\":{\"x\":0,\"y\":0,\"width\":1920,\"height\":1080}},\"external\":{\"pid\":19232,\"handle\":1771140,\"focused\":true,\"minimized\":false,\"visible\":true,\"full\":false,\"bounds\":{\"x\":180,\"y\":120,\"width\":640,\"height\":440},\"contentBounds\":{\"x\":186,\"y\":175,\"width\":627,\"height\":379},\"parent\":null}}\n\ntrue !== false\n"
+                   },
+                   {
+                       "name":  "Windows observation after fullscreen: external app focuses while Itacan stays fullscreen",
+                       "status":  "fail",
+                       "detail":  "Adapter unavailable; explicit bounded restart required"
+                   },
+                   {
+                       "name":  "fullscreen: external minimization and restore preserve fullscreen",
+                       "status":  "pass"
+                   },
+                   {
+                       "name":  "Windows observation after fullscreen: external minimization and restore preserve fullscreen",
+                       "status":  "fail",
+                       "detail":  "Adapter unavailable; explicit bounded restart required"
+                   },
+                   {
+                       "name":  "fullscreen: desktop pixels show external app above host and dock above app",
+                       "status":  "fail",
+                       "detail":  "host pixel: 7,73,114"
+                   },
+                   {
+                       "name":  "Windows observation after fullscreen: desktop pixels show external app above host and dock above app",
+                       "status":  "fail",
+                       "detail":  "Adapter unavailable; explicit bounded restart required"
+                   },
+                   {
+                       "name":  "fullscreen: Alt+Tab",
+                       "status":  "not-run",
+                       "detail":  "Run explicitly with --alt-tab on an idle interactive desktop"
+                   },
+                   {
+                       "name":  "fullscreen: nonfocusable dock button sends validated action",
+                       "status":  "pass",
+                       "detail":  {
+                                      "actionDelivered":  true,
+                                      "hostReportsFocus":  true,
+                                      "physicalClickVerified":  false
+                                  }
+                   },
+                   {
+                       "name":  "Windows observation after fullscreen: nonfocusable dock button sends validated action",
+                       "status":  "fail",
+                       "detail":  "Adapter unavailable; explicit bounded restart required"
+                   },
+                   {
+                       "name":  "fullscreen: development escape releases and restores exact state",
+                       "status":  "pass",
+                       "detail":  {
+                                      "full":  false,
+                                      "kiosk":  false,
+                                      "minimized":  false,
+                                      "maximized":  false,
+                                      "bounds":  {
+                                                     "x":  40,
+                                                     "y":  40,
+                                                     "width":  900,
+                                                     "height":  650
+                                                 },
+                                      "closable":  true,
+                                      "minimizable":  true,
+                                      "top":  false
+                                  }
+                   },
+                   {
+                       "name":  "Windows observation after fullscreen: development escape releases and restores exact state",
+                       "status":  "fail",
+                       "detail":  "Adapter unavailable; explicit bounded restart required"
+                   },
+                   {
+                       "name":  "kiosk: ordinary close and fullscreen exit are blocked",
+                       "status":  "pass"
+                   },
+                   {
+                       "name":  "Windows observation after kiosk: ordinary close and fullscreen exit are blocked",
+                       "status":  "fail",
+                       "detail":  "Adapter unavailable; explicit bounded restart required"
+                   },
+                   {
+                       "name":  "kiosk: host recovers programmatic minimization",
+                       "status":  "pass"
+                   },
+                   {
+                       "name":  "Windows observation after kiosk: host recovers programmatic minimization",
+                       "status":  "fail",
+                       "detail":  "Adapter unavailable; explicit bounded restart required"
+                   },
+                   {
+                       "name":  "kiosk: external app focuses while Itacan stays fullscreen",
+                       "status":  "fail",
+                       "detail":  "{\"host\":{\"focused\":true,\"visible\":true,\"bounds\":{\"x\":0,\"y\":0,\"width\":1920,\"height\":1080},\"contentBounds\":{\"x\":0,\"y\":0,\"width\":1920,\"height\":1080}},\"external\":{\"pid\":19232,\"handle\":1771140,\"focused\":true,\"minimized\":false,\"visible\":true,\"full\":false,\"bounds\":{\"x\":180,\"y\":80,\"width\":640,\"height\":1000},\"contentBounds\":{\"x\":186,\"y\":135,\"width\":627,\"height\":939},\"parent\":null}}\n\ntrue !== false\n"
+                   },
+                   {
+                       "name":  "Windows observation after kiosk: external app focuses while Itacan stays fullscreen",
+                       "status":  "fail",
+                       "detail":  "Adapter unavailable; explicit bounded restart required"
+                   },
+                   {
+                       "name":  "kiosk: external minimization and restore preserve fullscreen",
+                       "status":  "pass"
+                   },
+                   {
+                       "name":  "Windows observation after kiosk: external minimization and restore preserve fullscreen",
+                       "status":  "fail",
+                       "detail":  "Adapter unavailable; explicit bounded restart required"
+                   },
+                   {
+                       "name":  "kiosk: desktop pixels show external app above host and dock above app",
+                       "status":  "fail",
+                       "detail":  "host pixel: 7,73,114"
+                   },
+                   {
+                       "name":  "Windows observation after kiosk: desktop pixels show external app above host and dock above app",
+                       "status":  "fail",
+                       "detail":  "Adapter unavailable; explicit bounded restart required"
+                   },
+                   {
+                       "name":  "kiosk: Alt+Tab",
+                       "status":  "not-run",
+                       "detail":  "Run explicitly with --alt-tab on an idle interactive desktop"
+                   },
+                   {
+                       "name":  "kiosk: nonfocusable dock button sends validated action",
+                       "status":  "pass",
+                       "detail":  {
+                                      "actionDelivered":  true,
+                                      "hostReportsFocus":  true,
+                                      "physicalClickVerified":  false
+                                  }
+                   },
+                   {
+                       "name":  "Windows observation after kiosk: nonfocusable dock button sends validated action",
+                       "status":  "fail",
+                       "detail":  "Adapter unavailable; explicit bounded restart required"
+                   },
+                   {
+                       "name":  "kiosk: development escape releases and restores exact state",
+                       "status":  "pass",
+                       "detail":  {
+                                      "full":  false,
+                                      "kiosk":  false,
+                                      "minimized":  false,
+                                      "maximized":  false,
+                                      "bounds":  {
+                                                     "x":  40,
+                                                     "y":  40,
+                                                     "width":  900,
+                                                     "height":  650
+                                                 },
+                                      "closable":  true,
+                                      "minimizable":  true,
+                                      "top":  false
+                                  }
+                   },
+                   {
+                       "name":  "Windows observation after kiosk: development escape releases and restores exact state",
+                       "status":  "fail",
+                       "detail":  "Adapter unavailable; explicit bounded restart required"
+                   },
+                   {
+                       "name":  "Itacan Oath persistence and footer remain unchanged",
+                       "status":  "pass",
+                       "detail":  {
+                                      "oath":  null,
+                                      "footer":  true
+                                  }
+                   },
+                   {
+                       "name":  "Windows observation after Itacan Oath persistence and footer remain unchanged",
+                       "status":  "fail",
+                       "detail":  "Adapter unavailable; explicit bounded restart required"
+                   },
+                   {
+                       "name":  "Phase 2: conventional executable path agrees with fixture",
+                       "status":  "fail",
+                       "detail":  "Adapter unavailable; explicit bounded restart required"
+                   },
+                   {
+                       "name":  "Phase 2: two windows with duplicate titles have distinct tokens",
+                       "status":  "fail",
+                       "detail":  "Adapter unavailable; explicit bounded restart required"
+                   },
+                   {
+                       "name":  "Phase 2: minimized ordinary window remains inventoried",
+                       "status":  "fail",
+                       "detail":  "Adapter unavailable; explicit bounded restart required"
+                   },
+                   {
+                       "name":  "Phase 2: empty-title ordinary window remains inventoried",
+                       "status":  "fail",
+                       "detail":  "Adapter unavailable; explicit bounded restart required"
+                   },
+                   {
+                       "name":  "Phase 2 gate: blocked parent or owned modal stays discoverable",
+                       "status":  "fail",
+                       "detail":  "Adapter unavailable; explicit bounded restart required"
+                   },
+                   {
+                       "name":  "Phase 2: closed-window token rejected after fresh enumeration",
+                       "status":  "fail",
+                       "detail":  "Missing original token"
+                   },
+                   {
+                       "name":  "Phase 2: new window never inherits disappeared token",
+                       "status":  "fail",
+                       "detail":  "Adapter unavailable; explicit bounded restart required"
+                   },
+                   {
+                       "name":  "Phase 2: bounded polling stays serial and host event loop runs",
+                       "status":  "fail",
+                       "detail":  "Adapter unavailable; explicit bounded restart required"
+                   },
+                   {
+                       "name":  "Phase 2: unsupported controls fail explicitly",
+                       "status":  "fail",
+                       "detail":  "The input did not match the regular expression /Unsupported control/. Input:\n\n\u0027Error: Adapter unavailable; explicit bounded restart required\u0027\n"
+                   },
+                   {
+                       "name":  "Phase 2: helper exit rejects request and allows one explicit restart",
+                       "status":  "fail",
+                       "detail":  "The input did not match the regular expression /exited/. Input:\n\n\u0027Error: Adapter unavailable; explicit bounded restart required\u0027\n"
+                   },
+                   {
+                       "name":  "Phase 2: synchronous helper stall times out without hanging host",
+                       "status":  "fail",
+                       "detail":  "The input did not match the regular expression /timed out/. Input:\n\n\u0027Error: Adapter unavailable; explicit bounded restart required\u0027\n"
+                   },
+                   {
+                       "name":  "Phase 2 gate: source-built distributable controls",
+                       "status":  "fail",
+                       "detail":  "Pinned public nut.js libnut provider throws for minimize/restore. No source-build toolchain available. No custom native substitute introduced."
+                   },
+                   {
+                       "name":  "Phase 2: actual OS handle reuse",
+                       "status":  "not-run",
+                       "detail":  "Not established by this diagnostic fixture"
+                   },
+                   {
+                       "name":  "Phase 2: inaccessible/elevated process identity",
+                       "status":  "not-run",
+                       "detail":  "Not established by this diagnostic fixture"
+                   },
+                   {
+                       "name":  "Phase 2: physical Alt+Tab and dock hit-testing",
+                       "status":  "not-run",
+                       "detail":  "Not established by this diagnostic fixture"
+                   },
+                   {
+                       "name":  "Phase 2: sleep/wake and display changes",
+                       "status":  "not-run",
+                       "detail":  "Not established by this diagnostic fixture"
+                   },
+                   {
+                       "name":  "Phase 2: general app launch and denied native focus",
+                       "status":  "not-run",
+                       "detail":  "Not established by this diagnostic fixture"
+                   },
+                   {
+                       "name":  "Phase 2: installed Obsidian launcher runtime",
+                       "status":  "not-run",
+                       "detail":  "Not established by this diagnostic fixture"
+                   }
+               ],
+    "limitations":  [
+                        "Separate-process Electron companion is a controlled external app, not coverage of arbitrary third-party apps.",
+                        "Injected Alt+Tab is not a physical-keyboard acceptance test.",
+                        "Installed Obsidian archive runs in test Electron; installed-launcher equivalence is unproven.",
+                        "Phase 2 controls are unsupported by the pinned public provider; source builds not verified.",
+                        "get-windows filters some windows silently; a successful inventory is not proof of complete coverage.",
+                        "Direct upstream N-API loading tests binary compatibility, not the ESM wrapper or production packaging."
+                    ],
+    "dependencies":  {
+                         "getWindows":  {
+                                            "version":  "9.3.0",
+                                            "packageUrl":  "https://registry.npmjs.org/get-windows/-/get-windows-9.3.0.tgz",
+                                            "packageSha512":  "DrOfQSmIcsFax28FfSUjbLTfeOkAG7yeh6NCb/9zzRkDuClXaqYqHuQBPUqcqd1uYS70ygYERSooacMAwvbyVw==",
+                                            "binaryUrl":  "https://github.com/sindresorhus/get-windows/releases/download/v9.3.0/napi-9-win32-unknown-x64.tar.gz",
+                                            "binarySha256":  "3eecfad06ed44f379bc50e02d738fa5dde274ce0206ced4c58b8f776ec9d76b0"
+                                        },
+                         "nutJs":  {
+                                       "commit":  "e413fa1f19a19c4631812e4e1eaf47aa732b5cbe",
+                                       "version":  "4.2.0",
+                                       "provider":  "providers/libnut/lib/libnut-window.class.ts",
+                                       "controls":  {
+                                                        "focus":  "source-present-unverified",
+                                                        "minimize":  "not-implemented",
+                                                        "restore":  "not-implemented"
+                                                    }
+                                   },
+                         "route":  "Upstream N-API binary diagnostic only; reproducible source-build gate remains unmet"
+                     },
+    "adapterHealth":  [
+                          "started",
+                          "unavailable",
+                          "unavailable"
+                      ],
+    "windowsObservations":  [
+
+                            ],
+    "adapterCapabilities":  {
+                                "observation":  true,
+                                "focus":  false,
+                                "minimize":  false,
+                                "restore":  false,
+                                "launch":  false,
+                                "enumerationComplete":  false,
+                                "handleGeneration":  false,
+                                "minimizedState":  false,
+                                "provider":  "get-windows 9.3.0 upstream N-API addon (direct diagnostic loader)",
+                                "pid":  15812,
+                                "runtime":  {
+                                                "node":  "22.22.1",
+                                                "acorn":  "8.15.0",
+                                                "ada":  "2.9.2",
+                                                "amaro":  "1.1.5",
+                                                "ares":  "1.34.6",
+                                                "brotli":  "1.0.9",
+                                                "cjs_module_lexer":  "2.2.0",
+                                                "cldr":  "44.1",
+                                                "icu":  "74.2",
+                                                "llhttp":  "9.3.0",
+                                                "modules":  "140",
+                                                "napi":  "10",
+                                                "nbytes":  "0.1.1",
+                                                "ncrypto":  "0.0.1",
+                                                "nghttp2":  "1.64.0",
+                                                "openssl":  "0.0.0",
+                                                "simdjson":  "4.2.4",
+                                                "simdutf":  "7.3.3",
+                                                "sqlite":  "3.51.2",
+                                                "tz":  "2025b",
+                                                "undici":  "6.23.0",
+                                                "unicode":  "15.1",
+                                                "uv":  "1.51.0",
+                                                "uvwasi":  "0.0.23",
+                                                "v8":  "14.2.231.22-electron.0",
+                                                "zlib":  "1.3.1",
+                                                "zstd":  "1.5.8",
+                                                "electron":  "39.8.3",
+                                                "chrome":  "142.0.7444.265"
+                                            }
+                            },
+    "display":  {
+                    "bounds":  {
+                                   "x":  0,
+                                   "y":  0,
+                                   "width":  1920,
+                                   "height":  1080
+                               },
+                    "workArea":  {
+                                     "x":  0,
+                                     "y":  0,
+                                     "width":  1920,
+                                     "height":  1032
+                                 },
+                    "scaleFactor":  2
+                },
+    "hostPreferences":  {
+                            "nodeIntegration":  true,
+                            "contextIsolation":  false,
+                            "sandbox":  false,
+                            "webSecurity":  true,
+                            "webviewTag":  true
+                        },
+    "observations":  {
+                         "fullscreen":  {
+                                            "host":  {
+                                                         "focused":  true,
+                                                         "visible":  true,
+                                                         "bounds":  {
+                                                                        "x":  0,
+                                                                        "y":  0,
+                                                                        "width":  1920,
+                                                                        "height":  1080
+                                                                    },
+                                                         "contentBounds":  {
+                                                                               "x":  0,
+                                                                               "y":  0,
+                                                                               "width":  1920,
+                                                                               "height":  1080
+                                                                           }
+                                                     },
+                                            "external":  {
+                                                             "pid":  19232,
+                                                             "handle":  1771140,
+                                                             "focused":  true,
+                                                             "minimized":  false,
+                                                             "visible":  true,
+                                                             "full":  false,
+                                                             "bounds":  {
+                                                                            "x":  180,
+                                                                            "y":  120,
+                                                                            "width":  640,
+                                                                            "height":  440
+                                                                        },
+                                                             "contentBounds":  {
+                                                                                   "x":  186,
+                                                                                   "y":  175,
+                                                                                   "width":  627,
+                                                                                   "height":  379
+                                                                               },
+                                                             "parent":  null
+                                                         },
+                                            "pixels":  {
+                                                           "host":  [
+                                                                        7,
+                                                                        73,
+                                                                        114
+                                                                    ],
+                                                           "external":  [
+                                                                            39,
+                                                                            174,
+                                                                            96
+                                                                        ],
+                                                           "dock":  [
+                                                                        67,
+                                                                        21,
+                                                                        39
+                                                                    ]
+                                                       },
+                                            "captureSize":  {
+                                                                "width":  1920,
+                                                                "height":  1080
+                                                            },
+                                            "dockBounds":  {
+                                                               "x":  0,
+                                                               "y":  1016,
+                                                               "width":  1920,
+                                                               "height":  64
+                                                           },
+                                            "dockVisible":  true,
+                                            "hostRendererPixel":  [
+                                                                      36,
+                                                                      84,
+                                                                      166
+                                                                  ]
+                                        },
+                         "kiosk":  {
+                                       "host":  {
+                                                    "focused":  true,
+                                                    "visible":  true,
+                                                    "bounds":  {
+                                                                   "x":  0,
+                                                                   "y":  0,
+                                                                   "width":  1920,
+                                                                   "height":  1080
+                                                               },
+                                                    "contentBounds":  {
+                                                                          "x":  0,
+                                                                          "y":  0,
+                                                                          "width":  1920,
+                                                                          "height":  1080
+                                                                      }
+                                                },
+                                       "external":  {
+                                                        "pid":  19232,
+                                                        "handle":  1771140,
+                                                        "focused":  true,
+                                                        "minimized":  false,
+                                                        "visible":  true,
+                                                        "full":  false,
+                                                        "bounds":  {
+                                                                       "x":  180,
+                                                                       "y":  80,
+                                                                       "width":  640,
+                                                                       "height":  1000
+                                                                   },
+                                                        "contentBounds":  {
+                                                                              "x":  186,
+                                                                              "y":  135,
+                                                                              "width":  627,
+                                                                              "height":  939
+                                                                          },
+                                                        "parent":  null
+                                                    },
+                                       "pixels":  {
+                                                      "host":  [
+                                                                   7,
+                                                                   73,
+                                                                   114
+                                                               ],
+                                                      "external":  [
+                                                                       39,
+                                                                       174,
+                                                                       96
+                                                                   ],
+                                                      "dock":  [
+                                                                   67,
+                                                                   21,
+                                                                   39
+                                                               ]
+                                                  },
+                                       "captureSize":  {
+                                                           "width":  1920,
+                                                           "height":  1080
+                                                       },
+                                       "dockBounds":  {
+                                                          "x":  0,
+                                                          "y":  1016,
+                                                          "width":  1920,
+                                                          "height":  64
+                                                      },
+                                       "dockVisible":  true,
+                                       "hostRendererPixel":  [
+                                                                 36,
+                                                                 84,
+                                                                 166
+                                                             ]
+                                   }
+                     },
+    "feasibilityMet":  false,
+    "launcher":  {
+                     "exitCode":  1,
+                     "copiedSourceUnchanged":  true,
+                     "temporaryProfileRemoved":  true,
+                     "source":  "Installed Obsidian archive in existing test Electron; not the installed launcher runtime"
+                 }
+}

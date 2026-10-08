@@ -5,6 +5,8 @@ const { taskLineDetails, taskIdentity, applyTaskEdit, normalizedTaskText } = req
 const { isCommitted, validateOath, oathRequirements, oathTime, normalizeOath, fulfilmentTime } = require("../domain/oath");
 
 const { workspaceRef, validWorkspace, sameWorkspace, taskKey } = require("../domain/oath-workspace");
+const { StrictOathCoordinator } = require("./oath-strict");
+const { applications, strictPolicy, STRICT_TERMS } = require("../domain/oath-strict");
 
 class HubOathService {
     constructor(plugin, fullscreen, options = {}) {
@@ -15,6 +17,11 @@ class HubOathService {
         this.awaitingIndex = new Map(); this.needsRead = true;
         this.queue = Promise.resolve(); this.disposed = false; this.refreshing = null;
         this.notice = options.notice ?? (text => new (require("obsidian").Notice)(text));
+        // Product opt-in is device-local and off until explicitly saved.
+        this.strict = options.strict ?? new StrictOathCoordinator();
+        if (typeof this.bucket.strictEnabled === "boolean") this.strict.configureEnabled(this.bucket.strictEnabled || this.isStrict && this.committed);
+        this.strictReviews = new Map(); this.strictStatus = this.strict.health ?? { status: "idle", warnings: [] };
+        this.strict.onHealth(health => { this.strictStatus = health; this.emit(); });
     }
     get bucket() { return this.plugin.projectWizard.data.oathsByDevice?.[this.deviceId] ?? { current: null, history: [] }; }
     get current() { return normalizeOath(this.bucket.current); }
@@ -22,6 +29,46 @@ class HubOathService {
         !!this.pendingFulfilment && this.pendingFulfilment.id === this.current?.id; }
     get committed() { return isCommitted(this.current); }
     get active() { return this.current?.state === "active"; }
+    get isStrict() { return this.current?.policy?.mode === "strict"; }
+    get strictEnabled() { return this.bucket.strictEnabled ?? this.strict.enabled; }
+    get strictSupported() { return !!this.strict.host && this.strict.host.available !== false && !!this.strict.observer; }
+    setStrictEnabled(value) {
+        return this.enqueue(async () => {
+            if (value && !this.strictSupported) throw Error("Strict Oath requires the Windows desktop host.");
+            await this.persist(this.current, this.bucket.history ?? [], { strictEnabled: !!value });
+            // Disabling future setup never releases an existing commitment.
+            this.strict.configureEnabled(!!value || this.isStrict && this.committed); this.emit();
+        });
+    }
+    pickStrictApplication() { return this.strict.host?.pickApplication?.() ?? Promise.resolve(null); }
+    async launchStrictApplication(executable, url = null) {
+        if (!this.active || !this.isStrict) throw Error("No active Strict Oath.");
+        return this.strict.launch(executable, url);
+    }
+    get strictApplications() { return [...(this.bucket.strictApplications ?? [])]; }
+    setStrictApplications(values) {
+        return this.enqueue(async () => {
+            const verified = await this.strict.verifyApplications(applications(values));
+            await this.persist(this.current, this.bucket.history ?? [], { strictApplications: verified }); this.emit();
+            return verified;
+        });
+    }
+    strictSignature(draft) {
+        return JSON.stringify([draft.mode, draft.start, draft.scheduledAt, draft.durationMs, draft.workspace,
+            draft.tasks?.map(taskKey), draft.applications ?? null]);
+    }
+    async reviewStrict(draft) {
+        this.validateDraft(draft);
+        if (draft.mode !== "strict" || !this.strictEnabled || !this.strict.enabled) throw Error("Strict Oath is disabled. Enable it in Settings → The Oath first.");
+        const signature = this.strictSignature(draft);
+        const policy = strictPolicy(draft, this.strictApplications);
+        policy.applications = await this.strict.verifyApplications(policy.applications);
+        const nonce = randomUUID(), preflight = await this.strict.preflight(policy);
+        if (signature !== this.strictSignature(draft)) throw Error("Your Oath changed while checking applications. Review it again.");
+        this.strictReviews.clear(); // one review per setup, never an unbounded registry
+        this.strictReviews.set(nonce, { signature, policy, expires: this.now() + 15 * 60000 });
+        return { confirmation: { nonce, version: policy.confirmationVersion }, policy: JSON.parse(JSON.stringify(policy)), preflight, terms: STRICT_TERMS };
+    }
     api() { return this.app.plugins.getPlugin?.("dataview")?.api ?? this.app.plugins.plugins?.dataview?.api; }
     ready() { const api = this.api(); return !!api && api.index?.initialized !== false; }
     tasks() { return this.ready() ? this.plugin.taskData.readPages(this.api()).flatMap(page => page.file.tasks) : []; }
@@ -91,6 +138,10 @@ class HubOathService {
         return false;
     }
     async invalidateWorkspace() {
+        if (this.isStrict) {
+            this.strictStatus = { status: this.active ? "degraded" : "waiting", warnings: ["The selected workspace is unavailable. An active Strict Oath can still fulfill by time."] };
+            this.emit(); return;
+        }
         await this.persist({ ...this.current, state: "invalid", fullscreenOwned: false,
             invalidReason: "workspace-unavailable" });
         await this.fullscreen.exit();
@@ -106,17 +157,20 @@ class HubOathService {
     emit() { this.notify(this.listeners); this.tickDisplay(); }
     tickDisplay() { this.notify(this.clockListeners); }
     enqueue(work) { const result = this.queue.then(() => { if (!this.disposed) return work(); }); this.queue = result.catch(() => {}); return result; }
-    async persist(current, history = this.bucket.history ?? []) {
+    async persist(current, history = this.bucket.history ?? [], extra = {}) {
         const data = this.plugin.projectWizard.data, previous = data.oathsByDevice;
-        data.oathsByDevice = { ...previous, [this.deviceId]: { current, history } };
+        data.oathsByDevice = { ...previous, [this.deviceId]: { ...this.bucket, ...extra, current, history } };
         try { await this.plugin.dataStore.save(data); }
         catch (error) { data.oathsByDevice = previous; throw error; }
     }
     async start() {
         if (this.disposed) return;
-        this.fullscreen.restore(this.active && this.current?.fullscreenOwned);
+        this.fullscreen.restore(!this.isStrict && this.active && this.current?.fullscreenOwned);
         try {
-            if (this.active) {
+            if (this.active && this.isStrict) {
+                await this.recoverStrict();
+                if (this.active && this.workspace) await this.enterWorkspace();
+            } else if (this.active) {
                 if (!this.workspace) await this.invalidateWorkspace();
                 else { await this.returnToFullscreen(); await this.enterWorkspace(); }
             }
@@ -177,10 +231,16 @@ class HubOathService {
     }
     async reconcile(readTasks) {
         if (!this.committed || this.disposed) return;
+        if (this.isStrict && this.active && !this.strict.owns(this.current.id, this.current.strictSessionId)) {
+            await this.recoverStrict(); return;
+        }
+        if (this.isStrict && this.active && !this.workspace) await this.invalidateWorkspace();
         const starting = this.current.state === "scheduled" && this.now() >= this.current.scheduledAt;
         const changed = readTasks || starting ? await this.resolveWork() : false;
         if (starting) await this.activate();
         const fulfilled = await this.markFulfilled();
+        if (this.isStrict && this.active && this.now() - (this.current.lastObservedAt ?? this.current.startedAt) >= 30000)
+            await this.persist({ ...this.current, lastObservedAt: this.now() });
         if (changed && !fulfilled) this.emit();
     }
     captureFulfilment() {
@@ -197,6 +257,7 @@ class HubOathService {
         this.emit(); return true;
     }
     async activate() {
+        if (this.isStrict) return this.activateStrict();
         if (!this.resolveWorkspace(this.current?.workspace)) { await this.invalidateWorkspace(); return false; }
         const owned = await this.fullscreen.enter();
         if (!this.fullscreen.isFull() && !owned) throw Error("Enforced fullscreen is unavailable on this device.");
@@ -208,9 +269,23 @@ class HubOathService {
         this.emit();
     }
     take(draft) {
+        if (draft.mode === "strict") draft = { ...draft, workspace: { ...draft.workspace },
+            tasks: draft.tasks?.map(task => ({ ...task })), applications: draft.applications?.slice(), strictConfirmation: { ...draft.strictConfirmation } };
         return this.enqueue(async () => {
             if (this.committed) throw Error("There is already an active or scheduled Oath on this device.");
             this.validateDraft(draft);
+            let policy = strictPolicy(draft, this.strictApplications);
+            if (policy.mode === "strict") {
+                const review = this.strictReviews.get(draft.strictConfirmation?.nonce);
+                if (!this.strictEnabled || !this.strict.enabled || !review || review.expires < this.now() || review.signature !== this.strictSignature(draft) || draft.strictConfirmation.version !== review.policy.confirmationVersion)
+                    throw Error("Review and confirm the Strict Oath restrictions before taking it.");
+                policy = JSON.parse(JSON.stringify(review.policy));
+                const preflight = await this.strict.preflight(policy);
+                if (draft.start !== "scheduled" && !preflight.ready) {
+                    this.strictStatus = { ...preflight, status: "waiting" }; this.emit();
+                    throw Error(preflight.blockers.length ? "Close the detected unpermitted applications and retry." : preflight.warnings.join(" "));
+                }
+            }
             if (draft.tasks?.length && !this.ready()) throw Error("Wait for the task index to finish loading.");
             const selectedTasks = draft.tasks ?? [], indexed = selectedTasks.length ? this.tasks() : [];
             if (selectedTasks.some(task => task.hubTaskId && indexed.some(item => item.hubTaskId === task.hubTaskId && item.identityConflict))) {
@@ -245,7 +320,9 @@ class HubOathService {
             await this.persist({ id: randomUUID(), deviceId: this.deviceId, takenAt: now, createdAt: now,
                 scheduledAt: draft.start === "scheduled" ? draft.scheduledAt : now, startedAt: null,
                 durationMs: draft.durationMs, fulfilledAt: null, workspace: workspaceRef(this.resolveWorkspace(draft.workspace)),
-                tasks: refs, state: "scheduled", completedAt: null, fullscreenOwned: false });
+                tasks: refs, state: "scheduled", completedAt: null, fullscreenOwned: false,
+                ...(policy.mode === "strict" ? { policy, strictSessionId: null } : {}) });
+            this.strictReviews.clear();
             // The freshly marked lines may not be imported by Dataview yet.
             this.work = await this.readNewWork(refs, selectedTasks);
             this.awaitingIndex = new Map(this.work.filter(item => item.task).map(item => [item.ref.id, item.task]));
@@ -274,7 +351,11 @@ class HubOathService {
         const record = { ...this.current, state, completedAt, fullscreenOwned: false };
         record.elapsedMs = oathTime(record, completedAt).elapsedMs;
         await this.persist(record, [...(this.bucket.history ?? []), record]);
-        await this.fullscreen.exit();
+        if (record.policy?.mode === "strict") {
+            await this.strict.release(record.id);
+            this.strict.configureEnabled(this.strictEnabled);
+        }
+        else await this.fullscreen.exit();
         this.work = []; this.emit(); this.notice(state === "fulfilled" ? "Oath fulfilled." : "Oath broken.");
         this.awaitingIndex.clear();
     }
@@ -283,12 +364,13 @@ class HubOathService {
     end(id, outcome) {
         return this.enqueue(async () => {
             if (this.current?.id !== id || !this.committed) return "inactive";
-            if (this.current.state === "scheduled" && this.now() < this.current.scheduledAt) {
+            if (this.current.state === "scheduled" && (this.isStrict || this.now() < this.current.scheduledAt)) {
                 if (outcome !== "cancel") return "scheduled";
                 await this.persist(null); this.work = []; this.awaitingIndex.clear(); this.emit(); return "cancelled";
             }
             await this.reconcile(true);
             if (!this.committed) return "inactive";
+            if (this.isStrict && !this.fulfilled) return "strict-unfulfilled";
             if (!this.fulfilled && outcome !== "broken") return "confirmation-required";
             await this.#finish(this.fulfilled ? "fulfilled" : "broken");
             return "ended";
@@ -297,6 +379,7 @@ class HubOathService {
     returnToFullscreen() {
         return this.enqueue(async () => {
             if (!this.active) return;
+            if (this.isStrict) { if (!this.strict.owns(this.current.id, this.current.strictSessionId)) await this.recoverStrict(); return; }
             const owned = await this.fullscreen.enter();
             if (!owned && !this.fullscreen.isFull()) throw Error("Enforced fullscreen is unavailable on this device.");
             await this.persist({ ...this.current, fullscreenOwned: owned });
@@ -309,6 +392,34 @@ class HubOathService {
         this.captureFulfilment();
         this.emit(); void this.refresh();
     }
-    destroy() { this.disposed = true; clearInterval(this.timer); this.listeners.clear(); this.clockListeners.clear(); this.fullscreen.destroy(); }
+    async activateStrict() {
+        if (this.now() < (this.nextStrictAttempt ?? 0)) return false;
+        this.nextStrictAttempt = this.now() + 5000;
+        if (!this.resolveWorkspace(this.current?.workspace)) { await this.invalidateWorkspace(); return false; }
+        const oath = this.current;
+        try {
+            const prepared = await this.strict.prepare(oath);
+            if (!prepared.ready) { this.strictStatus = { ...prepared.preflight, status: "waiting" }; this.emit(); return false; }
+            if (this.disposed) { await this.strict.release(oath.id); return false; }
+            if (!this.resolveWorkspace(oath.workspace)) { await this.strict.release(oath.id); await this.invalidateWorkspace(); return false; }
+            await this.persist({ ...oath, state: "active", startedAt: this.now(), lastObservedAt: this.now(), strictSessionId: prepared.sessionId, fullscreenOwned: false });
+            this.strict.commit(oath.id);
+        } catch (error) {
+            await this.strict.release(oath.id);
+            this.strictStatus = { status: "waiting", warnings: [error.message] }; this.emit(); throw error;
+        }
+        await this.enterWorkspace(); this.emit(); return true;
+    }
+    async recoverStrict() {
+        const oath = this.current;
+        if (this.strict.owns(oath.id, oath.strictSessionId)) { this.strictStatus = this.strict.health; return; }
+        // Detect process interruption; never re-enter lockdown on startup.
+        const record = { ...oath, state: "interrupted", completedAt: oath.lastObservedAt ?? oath.startedAt ?? this.now(), interruptionDetectedAt: this.now(), interruptionTimeUnknown: true,
+            interruptionReason: "strict-host-session-unavailable", fullscreenOwned: false };
+        record.elapsedMs = oathTime(record, record.completedAt).elapsedMs;
+        await this.persist(record, [...(this.bucket.history ?? []), record]);
+        this.work = []; this.awaitingIndex.clear(); this.emit();
+    }
+    destroy() { this.disposed = true; clearInterval(this.timer); this.listeners.clear(); this.clockListeners.clear(); this.strict.detach(); this.fullscreen.destroy(); }
 }
 module.exports = { HubOathService };

@@ -21,10 +21,12 @@
 !/.obsidian/plugins/hub-project-menu/build.js
 !/.obsidian/plugins/hub-project-menu/build-atlas.js
 !/.obsidian/plugins/hub-project-menu/atlas-native.cjs
+!/.obsidian/plugins/hub-project-menu/strict-oath-assets.json
 !/.obsidian/plugins/hub-project-menu/plugin.js
 !/.obsidian/plugins/hub-project-menu/main.js
 !/.obsidian/plugins/hub-project-menu/manifest.json
 !/.obsidian/plugins/hub-project-menu/styles.css
+!/.obsidian/plugins/hub-project-menu/THIRD-PARTY-NOTICES.md
 !/.obsidian/plugins/hub-project-menu/lib/
 /.obsidian/snippets/*
 !/.obsidian/snippets/dashbboard.css

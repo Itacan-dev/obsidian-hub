@@ -1,0 +1,558 @@
+TAP version 13
+# Subtest: exclusive local owner refuses a second controller and foreign/stale-invalid locks
+ok 1 - exclusive local owner refuses a second controller and foreign/stale-invalid locks
+  ---
+  duration_ms: 146.0386
+  type: 'test'
+  ...
+# Subtest: CAS conflict never replaces authority or creates a journal
+ok 2 - CAS conflict never replaces authority or creates a journal
+  ---
+  duration_ms: 94.078
+  type: 'test'
+  ...
+# Subtest: failure before the journal is definitively NOT_WRITTEN; failure after it stays unresolved
+ok 3 - failure before the journal is definitively NOT_WRITTEN; failure after it stays unresolved
+  ---
+  duration_ms: 115.4983
+  type: 'test'
+  ...
+# Subtest: unresolved external replacement cannot be guessed as a committed write
+ok 4 - unresolved external replacement cannot be guessed as a committed write
+  ---
+  duration_ms: 90.7856
+  type: 'test'
+  ...
+# Subtest: known schema 1 migrates once through the same journal/CAS path
+ok 5 - known schema 1 migrates once through the same journal/CAS path
+  ---
+  duration_ms: 150.2094
+  type: 'test'
+  ...
+# Subtest: deleting initialized authority after a fresh process cannot expose setup
+ok 6 - deleting initialized authority after a fresh process cannot expose setup
+  ---
+  duration_ms: 134.5968
+  type: 'test'
+  ...
+# Subtest: an interrupted reclamation is fail-closed, rather than removing another owner
+ok 7 - an interrupted reclamation is fail-closed, rather than removing another owner
+  ---
+  duration_ms: 101.1423
+  type: 'test'
+  ...
+# Subtest: a cached READY view never authorizes a new request after disk replacement
+ok 8 - a cached READY view never authorizes a new request after disk replacement
+  ---
+  duration_ms: 98.8222
+  type: 'test'
+  ...
+# Subtest: UI cannot directly confirm raw IDs, mint Journeys or attach arbitrary target/scope facts
+ok 9 - UI cannot directly confirm raw IDs, mint Journeys or attach arbitrary target/scope facts
+  ---
+  duration_ms: 76.4599
+  type: 'test'
+  ...
+# Subtest: restart reconciles an applied uncertain grant without replaying its confirmation or opening a page
+ok 10 - restart reconciles an applied uncertain grant without replaying its confirmation or opening a page
+  ---
+  duration_ms: 306.1129
+  type: 'test'
+  ...
+# Subtest: Whitelist releases the original request only after Core commits
+ok 11 - Whitelist releases the original request only after Core commits
+  ---
+  duration_ms: 262.9396
+  type: 'test'
+  ...
+# Subtest: manual Blacklist beats overlapping Whitelist and blocks
+ok 12 - manual Blacklist beats overlapping Whitelist and blocks
+  ---
+  duration_ms: 81.5637
+  type: 'test'
+  ...
+# Subtest: Greylist does not create a request until explicit action, repeated Start keeps one frozen request
+ok 13 - Greylist does not create a request until explicit action, repeated Start keeps one frozen request
+  ---
+  duration_ms: 163.5641
+  type: 'test'
+  ...
+# Subtest: waiting alone never grants; explicit confirmation persists fixed grant and opens sanitized fresh home
+ok 14 - waiting alone never grants; explicit confirmation persists fixed grant and opens sanitized fresh home
+  ---
+  duration_ms: 242.2577
+  type: 'test'
+  ...
+# Subtest: expiry blocks navigation and removes retained temporary content
+ok 15 - expiry blocks navigation and removes retained temporary content
+  ---
+  duration_ms: 232.7293
+  type: 'test'
+  ...
+# Subtest: exact host grants and policy do not broaden apex, www, or subdomain scope
+ok 16 - exact host grants and policy do not broaden apex, www, or subdomain scope
+  ---
+  duration_ms: 108.8069
+  type: 'test'
+  ...
+# Subtest: malformed and ambiguous targets fail closed before release
+ok 17 - malformed and ambiguous targets fail closed before release
+  ---
+  duration_ms: 66.7583
+  type: 'test'
+  ...
+# Subtest: Vault wait does not apply policy; review and explicit confirmation apply persisted revision
+ok 18 - Vault wait does not apply policy; review and explicit confirmation apply persisted revision
+  ---
+  duration_ms: 169.3166
+  type: 'test'
+  ...
+# Subtest: Vault policy and settings share one frozen slot; settings preserve old in-flight terms
+ok 19 - Vault policy and settings share one frozen slot; settings preserve old in-flight terms
+  ---
+  duration_ms: 178.8034
+  type: 'test'
+  ...
+# Subtest: failed persistence never publishes Vault policy and blocks until explicit recovery
+ok 20 - failed persistence never publishes Vault policy and blocks until explicit recovery
+  ---
+  duration_ms: 154.2824
+  type: 'test'
+  ...
+# Subtest: lost acknowledgement reconciles written candidate without replaying confirmation
+ok 21 - lost acknowledgement reconciles written candidate without replaying confirmation
+  ---
+  duration_ms: 193.1577
+  type: 'test'
+  ...
+# Subtest: valid correlated redirect chain adopts intermediate before release and completes only on actual root arrival
+ok 22 - valid correlated redirect chain adopts intermediate before release and completes only on actual root arrival
+  ---
+  duration_ms: 282.069
+  type: 'test'
+  ...
+# Subtest: a physically loaded Whitelist root can attest one departure and intermediate POST continuation
+ok 23 - a physically loaded Whitelist root can attest one departure and intermediate POST continuation
+  ---
+  duration_ms: 297.473
+  type: 'test'
+  ...
+# Subtest: unrelated script/GET navigation terminates a Journey; blacklisted redirects never release
+ok 24 - unrelated script/GET navigation terminates a Journey; blacklisted redirects never release
+  ---
+  duration_ms: 269.5077
+  type: 'test'
+  ...
+# Subtest: iframe promotion and forged/mismatched source do not borrow a root departure
+ok 25 - iframe promotion and forged/mismatched source do not borrow a root departure
+  ---
+  duration_ms: 215.4233
+  type: 'test'
+  ...
+# Subtest: Journey lifetime and hop budget do not renew through reload or redirects
+ok 26 - Journey lifetime and hop budget do not renew through reload or redirects
+  ---
+  duration_ms: 211.2578
+  type: 'test'
+  ...
+# Subtest: a Journey never authorizes another webviewer; closed binding and stale UI command cannot be reused
+ok 27 - a Journey never authorizes another webviewer; closed binding and stale UI command cannot be reused
+  ---
+  duration_ms: 176.6966
+  type: 'test'
+  ...
+# Subtest: restart restores grants, requests, Vault and policy but ends old Journey bindings
+ok 28 - restart restores grants, requests, Vault and policy but ends old Journey bindings
+  ---
+  duration_ms: 362.9791
+  type: 'test'
+  ...
+# Subtest: policy revision invalidates old grants and loaded pages immediately
+ok 29 - policy revision invalidates old grants and loaded pages immediately
+  ---
+  duration_ms: 237.9741
+  type: 'test'
+  ...
+# Subtest: rollback, external replacement, corruption and deleted authority remain unavailable, never fresh setup
+ok 30 - rollback, external replacement, corruption and deleted authority remain unavailable, never fresh setup
+  ---
+  duration_ms: 95.0348
+  type: 'test'
+  ...
+# Subtest: clock elapsed floor cannot extend deadlines on wall-clock rewind
+ok 31 - clock elapsed floor cannot extend deadlines on wall-clock rewind
+  ---
+  duration_ms: 0.3558
+  type: 'test'
+  ...
+# Subtest: protected settings display preserves every safe integer millisecond exactly
+ok 32 - protected settings display preserves every safe integer millisecond exactly
+  ---
+  duration_ms: 0.3693
+  type: 'test'
+  ...
+# Music controller passed: single-source ownership, close/reopen continuity, delayed SDK cancellation, disable/removal, local queue, rename and volume.
+# Subtest: C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\music-controller.test.js
+ok 3 - C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\music-controller.test.js
+  ---
+  duration_ms: 409.2247
+  type: 'test'
+  ...
+# Music library passed: safe defaults, provider URL validation, atomic configuration, toggles, ordering, external/vault references, conflict rollback and optional metadata.
+# Subtest: C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\music-library.test.js
+ok 4 - C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\music-library.test.js
+  ---
+  duration_ms: 2229.1916
+  type: 'test'
+  ...
+# Subtest: guards require a prior recovery proof
+ok 35 - guards require a prior recovery proof
+  ---
+  duration_ms: 262.2551
+  type: 'test'
+  ...
+# Subtest: fullscreen: local escape restores state and removes vetoes
+ok 36 - fullscreen: local escape restores state and removes vetoes
+  ---
+  duration_ms: 204.6182
+  type: 'test'
+  ...
+# Subtest: kiosk: local escape restores state and removes vetoes
+ok 37 - kiosk: local escape restores state and removes vetoes
+  ---
+  duration_ms: 197.9874
+  type: 'test'
+  ...
+# Subtest: watchdog releases without renderer input
+ok 38 - watchdog releases without renderer input
+  ---
+  duration_ms: 230.3844
+  type: 'test'
+  ...
+# Subtest: restoration failure still removes guards and attempts remaining restoration
+ok 39 - restoration failure still removes guards and attempts remaining restoration
+  ---
+  duration_ms: 2046.5009
+  type: 'test'
+  ...
+# Subtest: preexisting kiosk/fullscreen and minimized state survive release
+ok 40 - preexisting kiosk/fullscreen and minimized state survive release
+  ---
+  duration_ms: 353.7679
+  type: 'test'
+  ...
+# Subtest: late native fullscreen geometry is repaired before recovery settles
+ok 41 - late native fullscreen geometry is repaired before recovery settles
+  ---
+  duration_ms: 234.7948
+  type: 'test'
+  ...
+# Subtest: development experiment is absent from production entrypoints and bundles
+ok 42 - development experiment is absent from production entrypoints and bundles
+  ---
+  duration_ms: 24.3881
+  type: 'test'
+  ...
+# Subtest: Obsidian protocol/login registration is intercepted before its startup executes
+ok 43 - Obsidian protocol/login registration is intercepted before its startup executes
+  ---
+  duration_ms: 2.7556
+  type: 'test'
+  ...
+# Subtest: GUI-mode launcher exits before creating a temporary fixture
+ok 44 - GUI-mode launcher exits before creating a temporary fixture
+  ---
+  duration_ms: 16.8191
+  type: 'test'
+  ...
+# Oath update failed Error: Dock failed
+#     at f.host.openDock (C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\oath-phase4.test.cjs:49:43)
+#     at StrictOathCoordinator.prepare (C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\services\\oath-strict.js:59:39)
+#     at async HubOathService.activateStrict (C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\services\\oath.js:401:30)
+#     at async C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\services\\oath.js:330:52
+# Oath update failed Error: Strict preparation was released.
+#     at StrictOathCoordinator.prepare (C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\services\\oath-strict.js:60:55)
+#     at async HubOathService.activateStrict (C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\services\\oath.js:401:30)
+#     at async C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\services\\oath.js:330:52
+# Subtest: device opt-in persists, survives reload, and failed save does not enable
+ok 45 - device opt-in persists, survives reload, and failed save does not enable
+  ---
+  duration_ms: 25.2676
+  type: 'test'
+  ...
+# Subtest: disabling future Strict setup preserves active and scheduled commitments
+ok 46 - disabling future Strict setup preserves active and scheduled commitments
+  ---
+  duration_ms: 78.5664
+  type: 'test'
+  ...
+# Subtest: launch requires an active frozen verified executable and rechecks after asynchronous verification
+ok 47 - launch requires an active frozen verified executable and rechecks after asynchronous verification
+  ---
+  duration_ms: 13.8449
+  type: 'test'
+  ...
+# Subtest: dock preparation failure rolls back host and leaves the Oath retryable
+ok 48 - dock preparation failure rolls back host and leaves the Oath retryable
+  ---
+  duration_ms: 5.546
+  type: 'test'
+  ...
+# Subtest: release during asynchronous dock preparation cannot commit a restored host
+ok 49 - release during asynchronous dock preparation cannot commit a restored host
+  ---
+  duration_ms: 24.1843
+  type: 'test'
+  ...
+# Subtest: implicit dock allowance matches only the participating process and dock handle
+ok 50 - implicit dock allowance matches only the participating process and dock handle
+  ---
+  duration_ms: 1.6592
+  type: 'test'
+  ...
+# Subtest: editing the draft during asynchronous application checks cannot issue a mismatched confirmation
+ok 51 - editing the draft during asynchronous application checks cannot issue a mismatched confirmation
+  ---
+  duration_ms: 5.2185
+  type: 'test'
+  ...
+# Subtest: permitted Firefox website shortcuts preserve URLs without exposing arbitrary process arguments
+ok 52 - permitted Firefox website shortcuts preserve URLs without exposing arbitrary process arguments
+  ---
+  duration_ms: 4.9692
+  type: 'test'
+  ...
+# Oath update failed Error: activation disk failure
+#     at f.plugin.dataStore.save (C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\oath-strict.test.cjs:66:120)
+#     at HubOathService.persist (C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\services\\oath.js:163:43)
+#     at HubOathService.activateStrict (C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\services\\oath.js:405:24)
+#     at async C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\services\\oath.js:330:52
+# Oath update failed Error: Disk unavailable
+#     at Object.save (C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\oath.test.js:33:74)
+#     at HubOathService.persist (C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\services\\oath.js:163:43)
+#     at HubOathService.recoverStrict (C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\services\\oath.js:420:20)
+#     at HubOathService.reconcile (C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\services\\oath.js:235:24)
+#     at C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\services\\oath.js:227:28
+#     at C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\services\\oath.js:159:87
+# Subtest: Strict remains disabled by default and confirmation is mandatory
+ok 53 - Strict remains disabled by default and confirmation is mandatory
+  ---
+  duration_ms: 58.8048
+  type: 'test'
+  ...
+# Subtest: persistent defaults, per-Oath replacement and frozen confirmed snapshots
+ok 54 - persistent defaults, per-Oath replacement and frozen confirmed snapshots
+  ---
+  duration_ms: 18.078
+  type: 'test'
+  ...
+# Subtest: modified review requires confirmation again; expired reviews cannot activate
+ok 55 - modified review requires confirmation again; expired reviews cannot activate
+  ---
+  duration_ms: 2.5123
+  type: 'test'
+  ...
+# Subtest: known blockers prevent immediate commitment without touching documents
+ok 56 - known blockers prevent immediate commitment without touching documents
+  ---
+  duration_ms: 1.6939
+  type: 'test'
+  ...
+# Subtest: due blocked schedules stay cancellable; actual activation starts the timer
+ok 57 - due blocked schedules stay cancellable; actual activation starts the timer
+  ---
+  duration_ms: 6.2993
+  type: 'test'
+  ...
+# Subtest: activation recheck catches a new blocker and rolls back preparation
+ok 58 - activation recheck catches a new blocker and rolls back preparation
+  ---
+  duration_ms: 3.5128
+  type: 'test'
+  ...
+# Subtest: activation save failure restores host and leaves a retryable schedule
+ok 59 - activation save failure restores host and leaves a retryable schedule
+  ---
+  duration_ms: 6.676
+  type: 'test'
+  ...
+# Subtest: Strict service refuses early break, retains fulfillment and saves history before release
+ok 60 - Strict service refuses early break, retains fulfillment and saves history before release
+  ---
+  duration_ms: 4.1189
+  type: 'test'
+  ...
+# Subtest: missing workspace does not end Strict; time still fulfills
+ok 61 - missing workspace does not end Strict; time still fulfills
+  ---
+  duration_ms: 2.2459
+  type: 'test'
+  ...
+# Subtest: same-process reattachment retains guards; lost session records interruption once
+ok 62 - same-process reattachment retains guards; lost session records interruption once
+  ---
+  duration_ms: 3.1739
+  type: 'test'
+  ...
+# Subtest: unknown identities warn; host matching is exact; titles do not grant allowance
+ok 63 - unknown identities warn; host matching is exact; titles do not grant allowance
+  ---
+  duration_ms: 0.6242
+  type: 'test'
+  ...
+# Subtest: observer failure keeps active commitment; new blockers trigger bounded nudges only
+ok 64 - observer failure keeps active commitment; new blockers trigger bounded nudges only
+  ---
+  duration_ms: 7.0488
+  type: 'test'
+  ...
+# Subtest: whitelist save failure restores previous defaults without changing other device data
+ok 65 - whitelist save failure restores previous defaults without changing other device data
+  ---
+  duration_ms: 0.7294
+  type: 'test'
+  ...
+# Subtest: selected task completion fulfills Strict and caller mutation cannot alter its snapshot
+ok 66 - selected task completion fulfills Strict and caller mutation cannot alter its snapshot
+  ---
+  duration_ms: 24.9237
+  type: 'test'
+  ...
+# Subtest: null observation blocks activation instead of treating the desktop as clear
+ok 67 - null observation blocks activation instead of treating the desktop as clear
+  ---
+  duration_ms: 1.6604
+  type: 'test'
+  ...
+# Subtest: interruption save failure retries without lockdown or duplicate history
+ok 68 - interruption save failure retries without lockdown or duplicate history
+  ---
+  duration_ms: 7.268
+  type: 'test'
+  ...
+# Subtest: fresh distribution bundles exclude Strict development infrastructure
+ok 69 - fresh distribution bundles exclude Strict development infrastructure
+  ---
+  duration_ms: 1167.8792
+  type: 'test'
+  ...
+# Subtest: identity uses verified executable plus PID/HWND, never title
+ok 70 - identity uses verified executable plus PID/HWND, never title
+  ---
+  duration_ms: 4.98
+  type: 'test'
+  ...
+# Subtest: unknown path failures remain visible and cannot resolve
+ok 71 - unknown path failures remain visible and cannot resolve
+  ---
+  duration_ms: 0.9354
+  type: 'test'
+  ...
+# Subtest: null enumeration fails closed and invalidates cached tokens
+ok 72 - null enumeration fails closed and invalidates cached tokens
+  ---
+  duration_ms: 0.5768
+  type: 'test'
+  ...
+# Subtest: disappearance, changed PID and changed executable invalidate old tokens
+ok 73 - disappearance, changed PID and changed executable invalidate old tokens
+  ---
+  duration_ms: 0.687
+  type: 'test'
+  ...
+# Subtest: observed handle reuse generates new token; empty title allowed
+ok 74 - observed handle reuse generates new token; empty title allowed
+  ---
+  duration_ms: 0.463
+  type: 'test'
+  ...
+# Subtest: supervisor rejects overlap, kills stalled helper and ignores old replies
+ok 75 - supervisor rejects overlap, kills stalled helper and ignores old replies
+  ---
+  duration_ms: 34.0591
+  type: 'test'
+  ...
+# Subtest: helper exit rejects pending work and does not auto-restart endlessly
+ok 76 - helper exit rejects pending work and does not auto-restart endlessly
+  ---
+  duration_ms: 1.4573
+  type: 'test'
+  ...
+# Subtest: pinned public provider explicitly lacks minimize and restore
+ok 77 - pinned public provider explicitly lacks minimize and restore
+  ---
+  duration_ms: 2.1896
+  type: 'test'
+  ...
+# PASS: scoped task order, stable identity, reload, invalid schedules, resources, continued lock, history, native navigation and cleanup.
+# Subtest: C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\oath-workspace.test.js
+ok 9 - C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\oath-workspace.test.js
+  ---
+  duration_ms: 1111.0272
+  type: 'test'
+  ...
+# PASS: duration validation, timer/tasks/monotonic fulfillment, continued time, centralized exits, schedules, legacy/reload, persistence failures, native fullscreen enforcement. Warning interactions are covered by oath.html.
+# Subtest: C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\oath.test.js
+ok 10 - C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\oath.test.js
+  ---
+  duration_ms: 548.6766
+  type: 'test'
+  ...
+# Hub plugin load checks passed.
+# Subtest: C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\plugin-load.test.js
+ok 11 - C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\plugin-load.test.js
+  ---
+  duration_ms: 643.804
+  type: 'test'
+  ...
+# Preset tests passed: actual native layout restoration, Project/Resource snapshots, folder state, discrete rail state, naming/rename/update/delete, restart persistence, moved and missing files, source isolation, shared transitions and unload safety.
+# Subtest: C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\presets.test.js
+ok 12 - C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\presets.test.js
+  ---
+  duration_ms: 1008.2861
+  type: 'test'
+  ...
+# Settings navigation passed: shipped categories, safe browser context, and explicit development Daily Brief access.
+# Subtest: C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\settings-navigation.test.js
+ok 13 - C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\settings-navigation.test.js
+  ---
+  duration_ms: 385.576
+  type: 'test'
+  ...
+# Statistics checks passed: ranges, DST, real completion semantics, clipped Oaths, stable identities, notes, filters, empty and 100k-event data.
+# Subtest: C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\statistics.test.js
+ok 14 - C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\statistics.test.js
+  ---
+  duration_ms: 1387.1456
+  type: 'test'
+  ...
+# Task-data tests passed: Home/Project/Resource loaders, note/full subscriptions, folder and file moves/renames, ownership, stale task links, indexed create/modify, deletion, coalescing and disposal.
+# Subtest: C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\task-data.test.js
+ok 15 - C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\task-data.test.js
+  ---
+  duration_ms: 359.9314
+  type: 'test'
+  ...
+# Task mutation tests passed: add/edit/delete at top/middle/bottom, CRLF, empty drafts, Markdown/LaTeX source preservation, continuations, child safety and stale-source checks.
+# Subtest: C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\task-mutations.test.js
+ok 16 - C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\task-mutations.test.js
+  ---
+  duration_ms: 354.4287
+  type: 'test'
+  ...
+# Task planning passed: date-first ordering, future activation, neutral fallback, nested discovery, copy conflicts, source-safe Steps, identity, CRLF, quick creation, reload/rename, rollback and deletion.
+# Subtest: C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\task-planning.test.js
+ok 17 - C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\task-planning.test.js
+  ---
+  duration_ms: 609.1908
+  type: 'test'
+  ...
+1..86
+# tests 86
+# suites 0
+# pass 86
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 4504.5702

@@ -6,7 +6,7 @@ const { SETTINGS_PAGES, renderSettingsPage } = require("./settings-pages");
 let instance = 0;
 
 class SettingsModal extends Modal {
-    constructor(app, onClose, plugin) { super(app); this.closed = onClose; this.plugin = plugin; this.prefix = `hub-settings-${++instance}`; }
+    constructor(app, onClose, plugin, initialPage = "appearance") { super(app); this.closed = onClose; this.plugin = plugin; this.initialPage = initialPage; this.prefix = `hub-settings-${++instance}`; }
     onOpen() {
         this.modalEl.classList.add("hub-settings-dialog");
         this.contentEl.classList.add("hub-settings-content", "hub-button-scope");
@@ -37,7 +37,7 @@ class SettingsModal extends Modal {
             event.preventDefault(); this.select(SETTINGS_PAGES[next].id); this.buttons[next].focus();
         });
         this.panel = body.createDiv({ cls: "hub-settings-panel", attr: { role: "tabpanel", id: `${this.prefix}-panel`, tabindex: "0" } });
-        this.select("appearance");
+        this.select(SETTINGS_PAGES.some(page => page.id === this.initialPage) ? this.initialPage : "appearance");
     }
     select(id) {
         const page = SETTINGS_PAGES.find(page => page.id === id);
@@ -58,12 +58,12 @@ function mountSettingsControl(plugin, host) {
     setIcon(button.createSpan({ cls: "hub-oath-icon", attr: { "aria-hidden": "true" } }), "settings");
     button.createSpan({ text: "Settings" }); setHubTooltip(button, "Settings", "top");
     let modal = null, destroyed = false;
-    const open = () => {
+    const open = (page = "appearance") => {
         if (destroyed) return;
-        if (modal) { modal.panel?.focus(); return; }
+        if (modal) { if (typeof page === "string") modal.select(page); modal.panel?.focus(); return; }
         // Keep existing modal/Oath interactions in charge while another window is open.
         if (button.ownerDocument.querySelector(".modal-container")) return;
-        modal = new SettingsModal(plugin.app, () => { modal = null; if (!destroyed && button.isConnected) button.focus(); }, plugin);
+        modal = new SettingsModal(plugin.app, () => { modal = null; if (!destroyed && button.isConnected) button.focus(); }, plugin, typeof page === "string" ? page : "appearance");
         modal.open();
     };
     plugin.registerDomEvent(button, "click", open);

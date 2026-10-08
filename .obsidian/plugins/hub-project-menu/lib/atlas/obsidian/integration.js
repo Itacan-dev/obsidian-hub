@@ -17,6 +17,7 @@ function installAtlasIntegration(plugin) {
             const result = await host.command(input); refresh(); publish(); return result;
         },
         subscribe(callback) { listeners.add(callback); return () => listeners.delete(callback); },
+        forget(nativeId) { host?.forget(nativeId); },
         open() {
             if (modal) return;
             modal = new class extends Modal {

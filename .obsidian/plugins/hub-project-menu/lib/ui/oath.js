@@ -13,6 +13,7 @@ const { createCardImageRenderer } = require("./card-images");
 const { mountWorkspaceThumbnail } = require("./workspace-thumbnail");
 const { workspaceRef, sameWorkspace, taskKey } = require("../domain/oath-workspace");
 const { isCommitted, oathTime, oathProgress, shortOathTime, fulfilmentLabel, oathDuration, validDuration } = require("../domain/oath");
+const { mountOathApplications } = require("./oath-applications");
 
 const dateLabel = time => new Date(time).toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
 const OATH_COPY = Object.freeze({
@@ -25,15 +26,15 @@ const OATH_COPY = Object.freeze({
 // Obsidian aliases bare "fullscreen" to "maximize"; the Lucide ID bypasses that alias.
 const duringOathRows = [
     ["lucide-fullscreen", "Itacan enters and remains in fullscreen"],
-    ["shield-user", "Only whitelisted apps and websites are accessible"],
-    ["bell-off", "Notifications from non-permitted apps and websites are silenced"]
+    ["shield-user", "Your selected workspace and tasks remain the focus"],
+    ["info", "External websites and notifications are not restricted"]
 ];
 function endingOathRows(draft) {
     return [
         ["circle-check", draft.tasks.length
             ? `Fulfilled after ${oathDuration(draft.durationMs)} or when all selected tasks are complete, whichever comes first`
             : `The Oath is fulfilled after ${oathDuration(draft.durationMs)}`],
-        ["triangle-alert", "Ending before fulfillment will break the Oath"],
+        ["triangle-alert", draft.mode === "strict" ? "Ordinary early exit is unavailable until fulfillment" : "Ending before fulfillment will break the Oath"],
         ["timer-off", "After fulfillment, you may remain Oathbound and continue working"],
         ["clipboard-clock", "The result is recorded in Oath History"]
     ];
@@ -250,6 +251,28 @@ function openOathSetup(service) {
             this.contentEl.classList.add("hub-oath-setup");
             const heading = createWindowTitle(this.contentEl, "Make an Oath", "shield-user");
             setWindowUndertext(heading, this.contentEl.createEl("p", { cls: "hub-oath-muted", text: "Set the terms of your commitment." }));
+            if (service.strictEnabled || draft.mode === "strict") {
+                const mode = this.section("Commitment mode");
+                this.choices(mode, "mode", [["ordinary", "Ordinary Oath", "Early exit records a broken Oath"], ["strict", "Strict Oath", "Ordinary early exit is unavailable"]], draft.mode ?? "ordinary", value => {
+                    draft.mode = value; delete draft.strictConfirmation; this.setup();
+                });
+                if (draft.mode === "strict") {
+                    const apps = this.section("Permitted desktop applications");
+                    const label = apps.createEl("label");
+                    const override = label.createEl("input", { type: "checkbox", attr: { "aria-label": "Override application defaults for this Oath" } });
+                    label.createSpan({ text: "Override application defaults for this Oath" });
+                    override.checked = Array.isArray(draft.applications);
+                    override.addEventListener("change", () => {
+                        if (override.checked) draft.applications = service.strictApplications; else delete draft.applications;
+                        delete draft.strictConfirmation; this.setup();
+                    });
+                    if (override.checked) this.stopApplications = mountOathApplications(apps, service, draft.applications, async values => {
+                        const verified = await service.strict.verifyApplications(values);
+                        draft.applications = verified; delete draft.strictConfirmation; return verified;
+                    });
+                    else apps.createEl("p", { text: service.strictApplications.length ? service.strictApplications.join("\n") : "Default: Itacan only.", cls: "hub-oath-muted hub-oath-application-paths" });
+                }
+            }
             const start = this.section(OATH_COPY.start);
             const startChoices = this.choices(start, "start", [["now", "Now"], ["scheduled", "Select date and time"]], draft.start, value => {
                 if (value === "now") { draft.start = "now"; this.setup(); }
@@ -553,8 +576,14 @@ function openOathSetup(service) {
                 syncStart();
             };
             this.updateNext();
-            next.addEventListener("click", () => {
-                try { this.review(); } catch (problem) {
+            next.addEventListener("click", async () => {
+                if (this.reviewing) return;
+                try {
+                    service.validateDraft(draft);
+                    this.reviewing = true; next.disabled = true;
+                    const review = draft.mode === "strict" ? await service.reviewStrict(draft) : null;
+                    if (!this.closed) this.review(review);
+                } catch (problem) {
                     const missing = service.setupRequirements(draft).find(item => !item.complete);
                     // An empty choice only needs guidance. Invalid populated
                     // values, unavailable destinations/tasks and index errors
@@ -572,10 +601,11 @@ function openOathSetup(service) {
                         hint.textContent = missing.error;
                         this.effects.pulse(this.guidedGroup, null, () => { hint.textContent = ""; });
                     }
-                }
+                } finally { this.reviewing = false; next.disabled = false; }
             });
         }
         clearSetupEffects() {
+            this.stopApplications?.(); this.stopApplications = null;
             this.customDisclosure?.destroy(); this.customDisclosure = null;
             this.nativeDatePicker?.close(); this.nativeDatePicker = null;
             this.dateDisclosure?.destroy(); this.dateDisclosure = null;
@@ -583,7 +613,7 @@ function openOathSetup(service) {
             this.effects?.destroy();
             this.guidedGroup = null;
         }
-        review() {
+        review(strictReview = null) {
             const draft = this.draft;
             service.validateDraft(draft);
             this.clearSetupEffects();
@@ -607,6 +637,33 @@ function openOathSetup(service) {
                 const group = this.section(heading).createDiv({ cls: "hub-oath-row-group" });
                 for (const [icon, text] of rows) oathRow(group, icon, text);
             }
+            let accepted = null, refresh = null;
+            if (draft.mode === "strict") {
+                if (!strictReview) throw Error("Refresh the Strict review before confirming.");
+                const section = this.section("Strict Oath confirmation");
+                section.createEl("p", { text: strictReview.terms, cls: "hub-oath-muted" });
+                section.createEl("p", { text: "The dock opens permitted applications and returns to Itacan. Use Alt+Tab to switch existing windows; external minimize and restore controls are unavailable.", cls: "hub-oath-muted" });
+                const findings = section.createDiv({ cls: "hub-oath-preflight", attr: { role: "status", "aria-live": "polite" } });
+                this.paintStrictReview = review => {
+                    strictReview = review; draft.strictConfirmation = review.confirmation;
+                    findings.empty();
+                    findings.createEl("p", { text: review.policy.applications.length ? "Permitted: " + review.policy.applications.join(", ") : "Permitted: Itacan only." });
+                    const grouped = new Map();
+                    for (const blocker of review.preflight.blockers ?? []) {
+                        const key = blocker.executable;
+                        grouped.set(key, [...(grouped.get(key) ?? []), blocker.title || "Untitled window"]);
+                    }
+                    for (const [executable, titles] of grouped) findings.createEl("p", { text: "Close before starting: " + executable + " — " + titles.join(", ") });
+                    for (const warning of review.preflight.warnings ?? []) findings.createEl("p", { text: warning });
+                    for (const unknown of review.preflight.unknown ?? []) findings.createEl("p", { text: "Identity unavailable: " + (unknown.title || "Untitled window") });
+                    findings.createEl("p", { text: review.preflight.ready ? "No known blockers detected. Applications will be checked again at activation." : draft.start === "scheduled" ? "This scheduled Oath will wait for checks to succeed and known blockers to close." : "Resolve blockers, then refresh these checks before taking the Oath." });
+                };
+                this.paintStrictReview(strictReview);
+                refresh = section.createEl("button", { text: "Refresh application checks", attr: { type: "button" } });
+                const label = section.createEl("label", { cls: "hub-oath-strict-accept" });
+                accepted = label.createEl("input", { type: "checkbox", attr: { "aria-label": "I understand and accept the Strict Oath restrictions" } });
+                label.createSpan({ text: "I understand and accept the Strict Oath restrictions" });
+            }
             const pledge = this.contentEl.createEl("blockquote", { cls: "hub-oath-pledge" });
             oathIcon(pledge, "scroll-text");
             pledge.createEl("p", { text: OATH_COPY.pledge });
@@ -614,15 +671,24 @@ function openOathSetup(service) {
             const actions = this.contentEl.createDiv({ cls: "hub-oath-actions" });
             const back = actions.createEl("button", { text: "Back" });
             const take = actions.createEl("button", { text: "Take the Oath", cls: "mod-cta" });
+            const updateTake = () => { take.disabled = !!accepted && (!accepted.checked || !draft.strictConfirmation || !strictReview.preflight.ready && draft.start !== "scheduled"); };
+            accepted?.addEventListener("change", updateTake); updateTake();
+            refresh?.addEventListener("click", async () => {
+                if (this.saving || this.reviewing) return;
+                this.reviewing = true; refresh.disabled = take.disabled = back.disabled = true; accepted.checked = false;
+                try { this.paintStrictReview(await service.reviewStrict(draft)); error.textContent = ""; }
+                catch (problem) { delete draft.strictConfirmation; error.textContent = problem.message; }
+                finally { this.reviewing = false; refresh.disabled = back.disabled = false; updateTake(); }
+            });
             back.addEventListener("click", () => this.setup());
             take.addEventListener("click", async () => {
-                if (this.saving) return; this.saving = true; take.disabled = back.disabled = true;
+                if (this.saving || this.reviewing || take.disabled) return; this.saving = true; take.disabled = back.disabled = true; if (refresh) refresh.disabled = true;
                 try { await service.take(draft); this.saving = false; this.close(); }
-                catch (problem) { this.saving = false; take.disabled = back.disabled = false; error.textContent = problem.message; }
+                catch (problem) { this.saving = false; back.disabled = false; if (refresh) refresh.disabled = false; updateTake(); error.textContent = problem.message; }
             });
         }
-        close() { if (!this.saving) super.close(); }
-        onClose() { this.clearSetupEffects(); this.picker?.close(); this.creator?.close(); this.taskOwner?.unload(); this.owner?.unload(); this.contentEl.empty(); }
+        close() { if (!this.saving && !this.reviewing) super.close(); }
+        onClose() { this.closed = true; this.clearSetupEffects(); this.picker?.close(); this.creator?.close(); this.taskOwner?.unload(); this.owner?.unload(); this.contentEl.empty(); }
     }
     const modal = new Setup(service.app); modal.open(); return modal;
 }
@@ -650,6 +716,11 @@ function openOathStatus(service) {
             this.clock = this.contentEl.createEl("p", { cls: "hub-oath-status-time" }); this.updateClock();
             setWindowUndertext(heading, this.clock);
             setWindowUndertext(heading, this.contentEl.createEl("p", { text: fulfilmentLabel(oath), cls: "hub-oath-muted" }));
+            if (service.isStrict) {
+                this.contentEl.createEl("p", { text: "Strict Oath: ordinary exit becomes available after fulfillment. Desktop application checks are best effort.", cls: "hub-oath-muted" });
+                for (const warning of service.strictStatus?.warnings ?? []) this.contentEl.createEl("p", { text: warning, cls: "hub-oath-muted" });
+                for (const blocker of service.strictStatus?.blockers ?? []) this.contentEl.createEl("p", { text: `Close before starting: ${blocker.title || blocker.executable || "Unknown application"}`, cls: "hub-oath-muted" });
+            }
             const work = this.contentEl.createDiv({ cls: "hub-oath-status-work" });
             for (const ref of oath.tasks) {
                 const task = service.work.find(item => item.ref.id === ref.id)?.task;
@@ -663,11 +734,28 @@ function openOathStatus(service) {
                 try { await fn(); this.saving = false; if (!service.committed) this.close(); }
                 catch (problem) { this.saving = false; error.textContent = problem.message; }
             };
-            if (oath.state === "scheduled" && service.now() < oath.scheduledAt) {
+            if (service.isStrict && service.active) {
+                const applications = this.contentEl.createEl("section", { cls: "hub-oath-section" });
+                applications.createEl("h3", { text: "Permitted applications" });
+                applications.createEl("p", { text: "Open may create another window. Use Alt+Tab to switch existing windows.", cls: "hub-oath-muted" });
+                for (const executable of oath.policy.applications) {
+                    const open = applications.createEl("button", { text: "Open " + executable.split("\\").pop(), attr: { type: "button" } });
+                    open.addEventListener("click", async () => {
+                        open.disabled = true;
+                        try { await service.launchStrictApplication(executable); }
+                        catch (problem) { error.textContent = problem.message; }
+                        finally { open.disabled = false; }
+                    });
+                }
+                applications.createEl("button", { text: "Return to Itacan", attr: { type: "button" } }).addEventListener("click", () => service.strict.host.focus());
+            }
+            if (oath.state === "scheduled" && (service.isStrict || service.now() < oath.scheduledAt)) {
                 actions.createEl("button", { text: "Cancel Oath" }).addEventListener("click", () => run(() => service.end(this.id, "cancel")));
                 actions.createEl("button", { text: "Close", cls: "mod-cta" }).addEventListener("click", () => this.close()); return;
             }
-            actions.createEl("button", { text: "End Oath" }).addEventListener("click", () => {
+            const end = actions.createEl("button", { text: service.isStrict && !service.fulfilled ? "Available after fulfillment" : "End Oath" });
+            end.disabled = service.isStrict && !service.fulfilled;
+            end.addEventListener("click", () => {
                 this.close(); void requestOathExit(service);
             });
             actions.createEl("button", { text: "Close", cls: "mod-cta" }).addEventListener("click", () => this.close());
@@ -738,6 +826,8 @@ function mountOathControl(plugin, service) {
         label.textContent = !isCommitted(oath) ? "The Oath" : oath.state === "scheduled" ? "The Oath · Scheduled" : service.fulfilled ?
             `The Oath · Fulfilled · ${shortOathTime(oathTime(oath, service.now()).elapsedMs)} Oathbound` :
             `The Oath · ${shortOathTime(oathTime(oath, service.now()).remainingMs)}${oath.tasks.length ? ` · ${oathProgress(service.work).completed} / ${oath.tasks.length}` : ""}`;
+        if (service.isStrict && service.strictStatus?.status === "waiting") label.textContent = "The Oath · Waiting to start";
+        if (service.isStrict && service.active && service.strictStatus?.status === "degraded") label.textContent += " · Desktop checks limited";
     };
     const stop = service.onChange(update, true); update();
     return { item, open, destroy() { stop(); service.fullscreen.onExitRequest?.(() => {}); exitUi.get(service)?.warning?.close(); modal?.close(); item.remove(); bar.classList.remove("hub-oath-statusbar"); if (fallback) bar.remove(); } };

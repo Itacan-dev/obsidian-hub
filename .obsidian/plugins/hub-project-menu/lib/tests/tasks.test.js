@@ -1,6 +1,6 @@
 "use strict";
 const assert = require("assert");
-const { editTaskContent, applyTaskEdit, taskLineMatchesText } = require("..");
+const { editTaskContent, applyTaskEdit, taskLineMatchesText } = require("../domain/tasks");
 const toggle = line => line.includes("[ ]")
     ? line.replace("[ ]", "[x]").trimEnd() + " ✅ 2026-09-06"
     : line.replace("[x]", "[ ]").replace(" ✅ 2026-09-06", "");

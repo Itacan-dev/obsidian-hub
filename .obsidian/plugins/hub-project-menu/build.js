@@ -5,7 +5,12 @@ const path = require("path");
 
 const pluginRoot = __dirname;
 const entryPath = path.join(pluginRoot, "plugin.js");
-const outputPath = path.join(pluginRoot, "main.js");
+// Build current sources into a disposable profile without replacing installed bundles.
+const outputFlag = process.argv.indexOf("--output-dir");
+if (outputFlag >= 0 && !process.argv[outputFlag + 1]) throw Error("--output-dir requires a directory");
+const outputDirectory = outputFlag < 0 ? pluginRoot : path.resolve(process.argv[outputFlag + 1]);
+fs.mkdirSync(outputDirectory, { recursive: true });
+const outputPath = path.join(outputDirectory, "main.js");
 const modules = new Map();
 // Refuse a stale or hand-edited Core artifact. Rebuilding Hub UI still needs
 // only Node; modifying Core first requires its normal TypeScript compiler.
@@ -152,4 +157,18 @@ console.log(
 
 buildBundle(entryPath, outputPath);
 buildBundle(path.join(pluginRoot, "lib/atlas/obsidian/native.js"),
-    path.join(pluginRoot, "atlas-native.cjs"));
+    path.join(outputDirectory, "atlas-native.cjs"));
+
+// Obsidian's main-process bridge loads these modules by path, outside main.js.
+// Ship an explicit production-only closure, including the sandbox preload/assets.
+const strictAssets = ["lib/services/oath-strict-host.js", "lib/services/oath-strict.js", "lib/services/oath-process-observer.js",
+    "lib/services/oath-dock.js", "lib/domain/oath-strict.js", "lib/ui/oath-dock/preload.cjs", "lib/ui/oath-dock/index.html",
+    "lib/ui/oath-dock/dock.js", "lib/ui/oath-dock/dock.css"];
+const strictManifest = {};
+for (const relative of strictAssets) {
+    const source = path.join(pluginRoot, relative), target = path.join(outputDirectory, relative);
+    const content = fs.readFileSync(source);
+    if (source !== target) { fs.mkdirSync(path.dirname(target), { recursive: true }); fs.writeFileSync(target, content); }
+    strictManifest[relative] = require("crypto").createHash("sha256").update(content).digest("hex");
+}
+fs.writeFileSync(path.join(outputDirectory, "strict-oath-assets.json"), JSON.stringify({ schemaVersion: 1, files: strictManifest }, null, 2));

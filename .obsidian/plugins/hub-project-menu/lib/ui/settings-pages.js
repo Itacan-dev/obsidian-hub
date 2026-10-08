@@ -1,7 +1,7 @@
 "use strict";
 
-// Page definitions and renderers are presentation only. A future settings store
-// can be wired to individual controls without replacing the window/navigation.
+// Each category uses the shared rows and sections. Active categories wire their
+// controls to existing services without changing the window/navigation.
 const SETTINGS_PAGES = [
     ["general", "General", "Core application preferences."],
     ["appearance", "Appearance", "Customize the visual presentation of Itacan."],
@@ -10,6 +10,7 @@ const SETTINGS_PAGES = [
     ["notes", "Notes & Editor", "Your note-writing environment."],
     ["tasks", "Tasks", "Task presentation and planning preferences."],
     ["atlas", "Atlas", "Your browsing workspace."],
+    ["music", "Music", "Configure the music you play while working."],
     ["oath", "The Oath", "Preferences for focused work."],
     ["daily-brief", "Daily brief", "Your daily orientation."],
     ["history", "History", "Your work history and reports."],
@@ -76,7 +77,9 @@ function renderSettingsPage(parent, page, plugin) {
     parent.createEl("p", { cls: "hub-settings-description", text: page.description });
     if (page.id === "appearance") return renderAppearance(parent);
     if (page.id === "atlas" && plugin?.atlas) return require("../atlas/obsidian/ui").mountAtlasOverview(parent, plugin.atlas);
+    if (page.id === "music" && plugin?.musicLibrary) return require("./music-settings").mountMusicSettings(parent, plugin.musicLibrary);
+    if (page.id === "oath" && plugin?.oath) return require("./oath-settings").mountOathSettings(parent, plugin.oath);
     parent.createEl("p", { cls: "hub-settings-preview-note", text: "No options available in this preview." });
     for (let i = 0; i < 2; i++) parent.createDiv({ cls: "hub-settings-empty-section", attr: { "aria-hidden": "true" } });
 }
-module.exports = { SETTINGS_PAGES, renderSettingsPage };
+module.exports = { SETTINGS_PAGES, renderSettingsPage, row, section };

@@ -1,0 +1,13 @@
+﻿{
+    "date":  "2026-10-08",
+    "bundles":  {
+                    "main.js":  "838dd84ec72cf66d6a0dc38b4c8e56ebf8cb6b8cd6d4675c42d4b78652e6cb05",
+                    "strict-oath-assets.json":  "92b854b916604d138738caf40d5fd5a266d5c2948a386cdfe30238dd6a614450",
+                    "atlas-native.cjs":  "e3ed257bc48962b283fba63c24d5dacc348906587827387ab4971b31db92681c"
+                },
+    "strictAssets":  9,
+    "dataUnchanged":  true,
+    "enabledDeviceBuckets":  0,
+    "previousBundles":  ".obsidian/plugins/hub-project-menu/.release-backups/strict-oath-phase5-2026-10-08/previous",
+    "normalObsidianRestarted":  false
+}

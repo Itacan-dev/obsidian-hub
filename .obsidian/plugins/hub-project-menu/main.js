@@ -26,6 +26,7 @@ function installAtlasIntegration(plugin) {
             const result = await host.command(input); refresh(); publish(); return result;
         },
         subscribe(callback) { listeners.add(callback); return () => listeners.delete(callback); },
+        forget(nativeId) { host?.forget(nativeId); },
         open() {
             if (modal) return;
             modal = new class extends Modal {
@@ -2113,6 +2114,130 @@ module.exports = { INBOX_VERSION, INBOX_ATTACHMENT_ROOT, linkFromText, isInboxOw
     INBOX_SORTS, inboxSort, inboxCounts, inboxItemType };
 
 },
+"lib/domain/music.js": function (module, exports, __hubRequire) {
+"use strict";
+const { randomUUID, createHash } = require("crypto");
+const nodePath = require("path");
+
+const MUSIC_VERSION = 1;
+const MUSIC_PROVIDERS = Object.freeze([
+    { id: "spotify", name: "Spotify", icon: "audio-lines" },
+    { id: "youtube", name: "YouTube", icon: "square-play" },
+    { id: "youtube-music", name: "YouTube Music", icon: "music-2" },
+    { id: "local", name: "Local files", icon: "file-audio" }
+].map(Object.freeze));
+const LOCAL_AUDIO_EXTENSIONS = Object.freeze(["mp3", "wav", "ogg", "oga", "m4a", "aac", "flac", "opus", "webm"]);
+const musicProvider = id => MUSIC_PROVIDERS.find(provider => provider.id === id) ?? null;
+const object = value => value && typeof value === "object" && !Array.isArray(value) ? value : {};
+const text = value => typeof value === "string" ? value.trim() : "";
+
+function musicDefaults() {
+    return { version: MUSIC_VERSION, enabled: false,
+        providers: Object.fromEntries(MUSIC_PROVIDERS.map(provider => [provider.id, true])), items: [] };
+}
+function normalizeMusicConfig(saved) {
+    saved = object(saved);
+    if (Number(saved.version) > MUSIC_VERSION) throw Error("This music library was saved by a newer version of Itacan.");
+    const providers = object(saved.providers), ids = new Set();
+    const items = (Array.isArray(saved.items) ? saved.items : []).filter(item => item && musicProvider(item.provider) && text(item.source)).map((item, index) => {
+        let id = text(item.id);
+        // Partially saved older configurations gain deterministic IDs on first
+        // edit, so reading defaults never creates new identities or writes data.
+        if (!id || ids.has(id)) id = "music-" + createHash("sha256").update(`${item.provider}:${item.source}:${index}`).digest("hex").slice(0, 24);
+        ids.add(id);
+        return { id, name: text(item.name) || musicDisplayName(item), provider: item.provider,
+            source: text(item.source), sourceType: text(item.sourceType) || (item.provider === "local" ? "file" : "video"),
+            enabled: item.enabled !== false, metadata: { ...object(item.metadata) },
+            ...(safeArtwork(item.artwork) ? { artwork: safeArtwork(item.artwork) } : {}) };
+    });
+    return { version: MUSIC_VERSION, enabled: saved.enabled === true,
+        providers: Object.fromEntries(MUSIC_PROVIDERS.map(provider => [provider.id, providers[provider.id] !== false])), items };
+}
+function safeArtwork(value) {
+    try { const url = new URL(text(value)); return url.protocol === "https:" && !url.username && !url.password ? url.href : null; }
+    catch (_) { return null; }
+}
+function sourceUrl(source) {
+    const input = text(source);
+    if (!input) throw Error("Paste a music URL.");
+    let url;
+    try { url = new URL(/^(?:www\.|m\.|music\.)?(?:youtube\.com|youtu\.be|open\.spotify\.com)\//i.test(input) ? "https://" + input : input); }
+    catch (_) { throw Error("Enter a valid music URL."); }
+    if (!["https:", "http:"].includes(url.protocol) || url.username || url.password || (url.port && url.port !== "443" && url.port !== "80")) {
+        throw Error("Enter a valid music URL.");
+    }
+    return url;
+}
+function startSeconds(value) {
+    value = String(value ?? "");
+    if (/^\d+(?:\.\d+)?s?$/.test(value)) return Math.floor(Number(value.replace(/s$/, "")));
+    const match = value.match(/^(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?$/);
+    return match ? Number(match[1] || 0) * 3600 + Number(match[2] || 0) * 60 + Number(match[3] || 0) : 0;
+}
+function normalizeMusicSource(provider, source) {
+    if (!musicProvider(provider)) throw Error("Choose a supported music source.");
+    if (provider === "local") {
+        const path = text(source);
+        if (!path || path.includes("\0") || /^[a-z][a-z0-9+.-]*:/i.test(path) && !/^[a-z]:[\\/]/i.test(path)) throw Error("Choose a local audio file.");
+        const extension = nodePath.extname(path).slice(1).toLowerCase();
+        if (!LOCAL_AUDIO_EXTENSIONS.includes(extension)) throw Error("Choose an MP3, WAV, OGG, M4A, AAC, FLAC, Opus or WebM audio file.");
+        if (!nodePath.isAbsolute(path) && !nodePath.win32.isAbsolute(path) && path.split(/[\\/]/).some(part => part === "..")) throw Error("Choose a local audio file.");
+        return { source: path, sourceType: "file", metadata: { extension } };
+    }
+    const url = sourceUrl(source), host = url.hostname.toLowerCase();
+    if (provider === "spotify") {
+        if (host !== "open.spotify.com") throw Error("Use an open.spotify.com track, album, playlist or artist URL.");
+        const parts = url.pathname.split("/").filter(Boolean);
+        if (/^intl-[a-z-]+$/i.test(parts[0] ?? "")) parts.shift();
+        if (parts[0] === "embed") parts.shift();
+        const [sourceType, spotifyId] = parts;
+        if (!["track", "album", "playlist", "artist"].includes(sourceType)) throw Error("Spotify supports track, album, playlist and artist links here.");
+        if (parts.length !== 2 || !/^[a-zA-Z0-9]{22}$/.test(spotifyId ?? "")) throw Error("Enter a complete Spotify URL.");
+        return { source: `https://open.spotify.com/${sourceType}/${spotifyId}`, sourceType,
+            metadata: { spotifyId, uri: `spotify:${sourceType}:${spotifyId}` } };
+    }
+    const music = provider === "youtube-music";
+    if (music ? host !== "music.youtube.com" : !["youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be", "www.youtu.be", "youtube-nocookie.com", "www.youtube-nocookie.com"].includes(host)) {
+        throw Error(music ? "Use a music.youtube.com song or playlist URL." : "Use a YouTube video or playlist URL.");
+    }
+    const parts = url.pathname.split("/").filter(Boolean);
+    if (music && parts.length === 2 && parts[0] === "browse" && /^MPRE[a-zA-Z0-9_-]{4,146}$/.test(parts[1])) {
+        return { source: `https://music.youtube.com/browse/${parts[1]}`, sourceType: "album", metadata: { browseId: parts[1] } };
+    }
+    let videoId = "", playlistId = url.searchParams.get("list") || "";
+    if (["youtu.be", "www.youtu.be"].includes(host) && parts.length === 1) videoId = parts[0];
+    else if (parts.length === 1 && parts[0] === "watch") videoId = url.searchParams.get("v") || "";
+    else if (!music && parts.length === 2 && ["shorts", "live", "embed", "v"].includes(parts[0]) && parts[1] !== "videoseries") videoId = parts[1];
+    else if (!(parts.length === 1 && parts[0] === "playlist") && !(parts.length === 2 && parts[0] === "embed" && parts[1] === "videoseries" && !music)) {
+        throw Error(music ? "Use a YouTube Music song, album or playlist URL." : "Use a YouTube video or playlist URL.");
+    }
+    if (videoId && !/^[a-zA-Z0-9_-]{11}$/.test(videoId)) throw Error("The YouTube video URL is incomplete.");
+    if (playlistId && !/^[a-zA-Z0-9_-]{10,150}$/.test(playlistId)) throw Error("The YouTube playlist URL is incomplete.");
+    if (!videoId && !playlistId) throw Error("The URL needs a video or playlist ID.");
+    const canonical = new URL(`https://${music ? "music.youtube.com" : "www.youtube.com"}/${videoId ? "watch" : "playlist"}`);
+    if (videoId) canonical.searchParams.set("v", videoId);
+    if (playlistId) canonical.searchParams.set("list", playlistId);
+    const seconds = startSeconds(url.searchParams.get("t") ?? url.searchParams.get("start") ?? url.hash.match(/^#t=(.*)$/)?.[1]);
+    if (seconds) canonical.searchParams.set("t", String(seconds));
+    const metadata = { ...(videoId ? { videoId } : {}), ...(playlistId ? { playlistId } : {}), ...(seconds ? { startSeconds: seconds } : {}) };
+    return { source: canonical.href, sourceType: playlistId ? "playlist" : "video", metadata,
+        ...(videoId ? { artwork: `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg` } : {}) };
+}
+function musicDisplayName(item) {
+    if (item.provider === "local") return String(item.source ?? "").split(/[\\/]/).pop().replace(/\.[^.]+$/, "") || "Local audio";
+    const name = musicProvider(item.provider)?.name || "Music";
+    const type = item.sourceType || "music", id = item.metadata?.spotifyId || item.metadata?.videoId || item.metadata?.playlistId || item.metadata?.browseId || "";
+    return `${name} ${type}${id ? " · " + id : ""}`;
+}
+function createMusicItem(values, id = randomUUID()) {
+    const normalized = normalizeMusicSource(values.provider, values.source);
+    return { id, provider: values.provider, ...normalized, name: text(values.name) || musicDisplayName({ provider: values.provider, ...normalized }),
+        enabled: values.enabled !== false };
+}
+module.exports = { MUSIC_VERSION, MUSIC_PROVIDERS, LOCAL_AUDIO_EXTENSIONS, musicProvider, musicDefaults,
+    normalizeMusicConfig, normalizeMusicSource, musicDisplayName, createMusicItem, safeArtwork };
+
+},
 "lib/domain/naming.js": function (module, exports, __hubRequire) {
 "use strict";
 
@@ -2477,6 +2602,46 @@ function noteLocationSummary(value) {
 module.exports = { NoteLocationError, noteLocation, parseNotePositions, resolveNoteLocation, insertNoteText, noteLocationSummary };
 
 },
+"lib/domain/oath-strict.js": function (module, exports, __hubRequire) {
+"use strict";
+const path = require("path");
+const STRICT_CONFIRMATION_VERSION = 1;
+const STRICT_TERMS = "Strict Oath keeps Itacan fullscreen and removes ordinary early exit until the timer or selected tasks fulfill it. Permitted desktop applications remain ordinary windows; Alt+Tab is available. Close detected unpermitted applications yourself. Application detection and returning focus are best effort; websites, notifications and Windows controls are not restricted. A scheduled Oath waits for detected blockers to clear and may then activate without another confirmation.";
+function applications(values) {
+    if (!Array.isArray(values)) throw Error("Applications must be a list of absolute executable paths.");
+    const result = new Set();
+    for (const value of values) {
+        if (typeof value !== "string" || !/^[a-z]:[\\/]/i.test(value) || !/\.exe$/i.test(value) || /[\0\r\n]/.test(value))
+            throw Error("Select a local Windows .exe file using its absolute path.");
+        result.add(path.win32.normalize(value).toLowerCase());
+    }
+    return [...result].sort();
+}
+function strictPolicy(draft, defaults = []) {
+    if (draft.mode != null && !["ordinary", "strict"].includes(draft.mode)) throw Error("Unknown Oath mode.");
+    if (draft.mode !== "strict") return { mode: "ordinary" };
+    return { mode: "strict", confirmationVersion: STRICT_CONFIRMATION_VERSION,
+        applications: applications(draft.applications === undefined ? defaults : draft.applications) };
+}
+function validPolicy(policy) {
+    if (policy?.mode !== "strict" || policy.confirmationVersion !== STRICT_CONFIRMATION_VERSION) return false;
+    try { return JSON.stringify(policy.applications) === JSON.stringify(applications(policy.applications)); } catch { return false; }
+}
+function classifyWindows(records, policy, host) {
+    if (!Array.isArray(records)) throw Error("Application observation unavailable.");
+    const allowed = new Set(policy.applications), blockers = [], unknown = [];
+    for (const record of records) {
+        if (record.pid === host?.pid && (String(record.handle) === String(host?.handle) || host?.dockHandle && String(record.handle) === String(host.dockHandle))) continue;
+        let executable;
+        try { executable = applications([record.executable])[0]; } catch { unknown.push(record); continue; }
+        if (!allowed.has(executable)) blockers.push({ ...record, executable });
+    }
+    return { blockers, unknown, warnings: ["Only one main window per process is observed; some dialogs, packaged apps and inaccessible windows may be missed.",
+        ...(unknown.length ? ["Some application identities could not be read."] : [])] };
+}
+module.exports = { applications, strictPolicy, validPolicy, classifyWindows, STRICT_CONFIRMATION_VERSION, STRICT_TERMS };
+
+},
 "lib/domain/oath-workspace.js": function (module, exports, __hubRequire) {
 "use strict";
 
@@ -2504,7 +2669,7 @@ const validDuration = ms => Number.isSafeInteger(ms) && ms >= 60000 && ms % 6000
 function normalizeOath(oath) {
     if (!isCommitted(oath)) return oath;
     const { fulfilment, autoExit, scope, ...current } = oath;
-    return { ...current, durationMs: validDuration(oath.durationMs) ? oath.durationMs : DEFAULT_DURATION_MS,
+    return { ...current, ...(oath.policy?.mode === "strict" ? { policy: { ...oath.policy, applications: Array.isArray(oath.policy.applications) ? [...oath.policy.applications] : oath.policy.applications } } : {}), durationMs: validDuration(oath.durationMs) ? oath.durationMs : DEFAULT_DURATION_MS,
         tasks: Array.isArray(oath.tasks) ? oath.tasks : [], fulfilledAt: Number.isFinite(oath.fulfilledAt) ? oath.fulfilledAt : null };
 }
 function oathRequirements(draft, now = Date.now()) {
@@ -3877,6 +4042,709 @@ module.exports = {
     ...__hubRequire("lib/ui/tooltips.js"),
     ...__hubRequire("lib/ui/header-image.js")
 };
+
+},
+"lib/music/browser-guard.js": function (module, exports, __hubRequire) {
+"use strict";
+
+function configuredMusicDestination(source, destination) {
+    let configured, target;
+    try { configured = new URL(source); target = new URL(destination); } catch (_) { return false; }
+    if (target.protocol !== "https:" || target.hostname !== "music.youtube.com" || target.port || target.username || target.password) return false;
+    if (target.searchParams.getAll("v").length > 1 || target.searchParams.getAll("list").length > 1) return false;
+    const playlist = configured.searchParams.get("list"), video = configured.searchParams.get("v");
+    if (playlist) return ["/watch", "/playlist"].includes(target.pathname) && target.searchParams.getAll("list").length === 1
+        && target.searchParams.get("list") === playlist;
+    // The service can add queue/radio context around the same saved song. Its
+    // video identity must stay exact; a different song still closes the guest.
+    if (video) return target.pathname === "/watch" && target.searchParams.getAll("v").length === 1 && target.searchParams.get("v") === video;
+    if (/^\/browse\/MPRE[a-zA-Z0-9_-]+$/.test(configured.pathname) && target.pathname === configured.pathname) {
+        return [...target.searchParams].every(([key, value]) => ["cbrd", "hl", "gl"].includes(key) || configured.searchParams.get(key) === value);
+    }
+    return target.pathname === configured.pathname && target.search === configured.search;
+}
+
+function configuredConsentDestination(source, destination) {
+    let target;
+    try { target = new URL(destination); } catch (_) { return false; }
+    if (target.protocol !== "https:" || target.hostname !== "consent.youtube.com" || target.port || target.username || target.password
+        || !["/m", "/ml"].includes(target.pathname) || target.searchParams.getAll("continue").length !== 1) return false;
+    return configuredMusicDestination(source, target.searchParams.get("continue"));
+}
+
+function consentSubmission(source, destination) {
+    let target;
+    try { target = new URL(destination); } catch (_) { return false; }
+    if (target.protocol !== "https:" || target.hostname !== "consent.youtube.com" || target.port || target.username || target.password
+        || target.pathname !== "/save") return false;
+    const returns = target.searchParams.getAll("continue");
+    return returns.length === 0 || returns.length === 1 && configuredMusicDestination(source, returns[0]);
+}
+
+// Loaded with the same MAIN-process remote.require mechanism as atlas-native.
+// It adds a configured-content fence to an already Atlas-protected guest. It
+// never creates a browser/session, changes Atlas policy or grants access.
+function constrainMusicGuest(nativeId, partition, source, onBlocked) {
+    const { webContents, session } = require("electron"), contents = webContents.fromId(nativeId);
+    if (!contents || contents.isDestroyed() || contents.getType() !== "webview" || contents.session !== session.fromPartition(partition)
+        || !configuredMusicDestination(source, source)) throw new Error("The protected Music browser is unavailable.");
+    let stopped = false, consentLoaded = false;
+    const permitted = destination => configuredMusicDestination(source, destination) || configuredConsentDestination(source, destination)
+        || consentLoaded && consentSubmission(source, destination);
+    const close = () => { if (!contents.isDestroyed()) { contents.stop(); contents.close({ waitForBeforeUnload: false }); } };
+    const block = () => {
+        if (stopped) return; stopped = true; close();
+        try { onBlocked?.(); } catch (_) { /* A closed renderer cannot receive status. */ }
+    };
+    const navigate = (event, legacyURL, _inPlace, legacyMain) => {
+        if ((event.isMainFrame ?? legacyMain ?? true) && !permitted(event.url ?? legacyURL)) {
+            event.preventDefault(); block();
+        }
+    };
+    const inPage = (event, url, isMainFrame) => {
+        if (!isMainFrame) return;
+        if (!permitted(url)) { block(); return; }
+        // Obsidian can report the initial consent document as an in-page
+        // arrival. Arm its form only after this same validated main-frame event.
+        arrived(event, url);
+    };
+    const arrived = (_event, url) => {
+        // The actual service can require regional cookie consent. Its initial
+        // screen must bind its return URL to the saved content. Atlas must
+        // independently permit consent.youtube.com; this fence grants nothing.
+        // Only after that screen loads may its own /save consent form submit. Every departure
+        // still passes the content fence AND Atlas's unchanged native policy.
+        if (configuredConsentDestination(source, url)) consentLoaded = true;
+        else if (configuredMusicDestination(source, url)) consentLoaded = false;
+    };
+    // Atlas already installs an immutable deny handler for its guests. State
+    // the Music requirement here too; no service link can open another player.
+    contents.setWindowOpenHandler(() => ({ action: "deny" }));
+    contents.on("will-frame-navigate", navigate);
+    contents.on("will-redirect", navigate);
+    contents.on("did-navigate", arrived);
+    // History API routing has no preventable will-navigate event in Electron.
+    // Close the service immediately if it routes into discovery/search.
+    contents.on("did-navigate-in-page", inPage);
+    return { destroy() {
+        stopped = true; close();
+        contents.removeListener("will-frame-navigate", navigate); contents.removeListener("will-redirect", navigate);
+        contents.removeListener("did-navigate-in-page", inPage); contents.removeListener("did-navigate", arrived);
+    } };
+}
+
+module.exports = { constrainMusicGuest, configuredMusicDestination, configuredConsentDestination };
+
+},
+"lib/music/iframe-api.js": function (module, exports, __hubRequire) {
+"use strict";
+
+const windows = new WeakMap();
+const descriptions = {
+    youtube: { callback: "onYouTubeIframeAPIReady", source: "https://www.youtube.com/iframe_api",
+        read: window => window.YT?.Player ? window.YT : null, label: "YouTube" },
+    spotify: { callback: "onSpotifyIframeApiReady", source: "https://open.spotify.com/embed/iframe-api/v1", label: "Spotify" }
+};
+
+// Share official API scripts within each Obsidian window, including reopened
+// Music dialogs. Preserve another plugin's ready callback if one is installed.
+function loadIframeAPI(document, provider) {
+    const window = document.defaultView, description = descriptions[provider];
+    let loaded = windows.get(window);
+    if (!loaded) { loaded = new Map(); windows.set(window, loaded); }
+    const available = description.read?.(window);
+    if (available) return Promise.resolve(available);
+    if (loaded.has(provider)) return loaded.get(provider);
+    const promise = new Promise((resolve, reject) => {
+        const script = document.createElement("script"), previous = window[description.callback];
+        let settled = false;
+        const restore = () => { if (window[description.callback] === ready) window[description.callback] = previous; };
+        const fail = () => {
+            if (settled) return; settled = true; clearTimeout(timer); restore(); script.remove();
+            loaded.delete(provider); reject(new Error(`${description.label} could not load. Check your connection and try again.`));
+        };
+        const ready = api => {
+            if (settled) return;
+            const value = api || description.read?.(window);
+            if (!value) { fail(); return; }
+            settled = true; clearTimeout(timer); restore();
+            try { previous?.(api); } catch (_) { /* Another plugin's callback does not own Music. */ }
+            resolve(value);
+        };
+        const timer = setTimeout(fail, 15000); timer.unref?.();
+        window[description.callback] = ready;
+        script.src = description.source; script.async = true;
+        script.addEventListener("error", fail, { once: true });
+        document.head.appendChild(script);
+    });
+    loaded.set(provider, promise); return promise;
+}
+
+module.exports = { loadIframeAPI };
+
+},
+"lib/music/local-audio.js": function (module, exports, __hubRequire) {
+"use strict";
+const { MusicProvider, clamp } = __hubRequire("lib/music/provider-base.js");
+
+async function localResource(plugin, item) {
+    const source = item.source, vault = plugin.app.vault;
+    const file = vault.getAbstractFileByPath?.(source);
+    if (file && !file.children) return vault.getResourcePath(file);
+    const path = require("path"), fs = require("fs"), { pathToFileURL } = require("url");
+    if (!path.isAbsolute(source)) throw new Error("This audio file is missing from the vault. Check its location in Settings → Music.");
+    let stat;
+    try {
+        await fs.promises.access(source, fs.constants.R_OK);
+        stat = await fs.promises.stat(source);
+        if (!stat.isFile()) throw new Error("Not a file");
+    } catch (_) { throw new Error("This audio file is missing or unreadable. Check its location in Settings → Music."); }
+    const fileURL = pathToFileURL(source).href, prefix = vault.adapter?.resourcePathPrefix;
+    // Raw file:// media is blocked by Obsidian's app:// renderer. Reuse its
+    // desktop adapter's existing native resource route and escaping convention
+    // without copying the file. getResourcePath accepts external references in
+    // newer Obsidian versions, but older adapters join them to the vault path.
+    if (typeof prefix === "string" && prefix.startsWith("app://")) {
+        const resource = fileURL.startsWith("file:///") ? fileURL.slice(8)
+            : fileURL.startsWith("file://") ? "%5C%5C" + fileURL.slice(7) : fileURL;
+        return prefix + resource + "?" + Math.round(stat.mtimeMs);
+    }
+    return fileURL;
+}
+
+class LocalAudioProvider extends MusicProvider {
+    constructor(plugin, item, options) {
+        super(plugin, item, options, { play: true, pause: true, seek: true, volume: true,
+            progress: true, persistent: true });
+        this.audio = this.document.createElement("audio");
+        this.audio.preload = "metadata"; this.audio.hidden = true; this.element.appendChild(this.audio);
+        const progress = () => this.emit({ currentTime: Number(this.audio.currentTime) || 0,
+            duration: Number.isFinite(this.audio.duration) ? this.audio.duration : 0, volume: this.audio.volume });
+        for (const event of ["timeupdate", "durationchange", "loadedmetadata", "volumechange", "seeked"]) this.listen(this.audio, event, progress);
+        this.listen(this.audio, "playing", () => this.emit({ status: "playing", message: "" }));
+        this.listen(this.audio, "pause", () => { if (!this.audio.ended) this.emit({ status: "paused" }); });
+        this.listen(this.audio, "waiting", () => this.emit({ status: "loading" }));
+        this.listen(this.audio, "ended", () => { this.emit({ status: "ended" }); this.options.onEnded?.(); });
+        this.listen(this.audio, "error", () => {
+            const message = this.audio.error?.code === 4 ? "This audio format cannot be played in Obsidian. Choose an MP3, WAV, OGG or compatible M4A file."
+                : "This audio file could not be read. Check its location in Settings → Music.";
+            this.rejectReady?.(new Error(message)); this.error(message);
+        });
+    }
+    mount() {
+        // Chromium pauses media when its connected DOM subtree is removed.
+        // Local audio needs no visible surface: keep this native media element
+        // detached for its entire plugin-owned lifetime, including modal reopen.
+    }
+    async load() {
+        this.emit({ status: "loading", title: this.item.name });
+        const source = await this.active(localResource(this.plugin, this.item));
+        const ready = this.readyPromise("This audio file could not be opened. Check its location and format in Settings → Music.");
+        this.listen(this.audio, "loadedmetadata", () => { this.emit({ status: "ready", message: "" }); this.resolveReady(); });
+        this.audio.src = source; this.audio.load();
+        await this.active(ready);
+    }
+    async play() {
+        if (this.destroyed) return;
+        try { await this.active(this.audio.play()); }
+        catch (error) {
+            if (error.cancelled) throw error;
+            const message = error.name === "NotAllowedError" ? "Press Play to start this audio file."
+                : "This audio file could not be played. Check its location and format in Settings → Music.";
+            this.error(message); throw new Error(message);
+        }
+    }
+    pause() { if (!this.destroyed) this.audio.pause(); }
+    seek(seconds) { if (!this.destroyed && Number.isFinite(this.audio.duration)) this.audio.currentTime = clamp(seconds, this.audio.duration); }
+    setVolume(value) { if (!this.destroyed) this.audio.volume = clamp(value); }
+    suspend() { /* Native audio deliberately continues while the Music dialog is closed. */ }
+    destroy() {
+        if (this.destroyed) return;
+        this.audio.pause(); super.destroy(); this.audio.removeAttribute("src"); this.audio.load();
+    }
+}
+
+module.exports = { LocalAudioProvider, localResource };
+
+},
+"lib/music/provider-base.js": function (module, exports, __hubRequire) {
+"use strict";
+
+function cancelled() { const error = new Error("Music playback was stopped."); error.cancelled = true; return error; }
+function clamp(value, maximum = 1) { return Math.max(0, Math.min(maximum, Number(value) || 0)); }
+
+class MusicProvider {
+    constructor(plugin, item, options = {}, capabilities = {}) {
+        this.plugin = plugin; this.item = item; this.options = options;
+        this.document = options.document || globalThis.document;
+        this.element = this.document.createElement("div");
+        this.element.className = "hub-music-provider-surface";
+        this.capabilities = { play: false, pause: false, previous: false, next: false, seek: false,
+            volume: false, progress: false, persistent: false, visiblePlayer: false, ...capabilities };
+        this.destroyed = false; this.cleanups = [];
+        this.stopped = new Promise(resolve => { this.resolveStopped = resolve; });
+    }
+    mount(host) { if (!this.destroyed && this.element.parentElement !== host) host.appendChild(this.element); }
+    emit(state) { if (!this.destroyed) this.options.onState?.(state); }
+    error(message) { if (!this.destroyed) { this.emit({ status: "error", message }); this.options.onError?.(message); } }
+    listen(target, event, callback) {
+        const guarded = (...args) => { if (!this.destroyed) callback(...args); };
+        target.addEventListener(event, guarded);
+        this.cleanups.push(() => target.removeEventListener(event, guarded));
+    }
+    async active(task) {
+        const result = await Promise.race([task, this.stopped.then(() => { throw cancelled(); })]);
+        if (this.destroyed) throw cancelled(); return result;
+    }
+    readyPromise(timeoutMessage, timeout = 20000) {
+        let settled = false, timer;
+        const promise = new Promise((resolve, reject) => {
+            this.resolveReady = () => { if (settled) return; settled = true; clearTimeout(timer); resolve(); };
+            this.rejectReady = error => { if (settled) return; settled = true; clearTimeout(timer); reject(error); };
+            timer = setTimeout(() => this.rejectReady(new Error(timeoutMessage)), timeout);
+            timer.unref?.();
+        });
+        // The operation may be cancelled while an asynchronous API is loading.
+        promise.catch(() => {});
+        this.cleanups.push(() => { clearTimeout(timer); this.rejectReady(cancelled()); });
+        return promise;
+    }
+    suspend() { this.pause?.(); }
+    destroy() {
+        if (this.destroyed) return;
+        this.destroyed = true; this.resolveStopped();
+        for (const cleanup of this.cleanups.splice(0)) { try { cleanup(); } catch (_) { /* Already detached. */ } }
+        this.element.remove();
+    }
+}
+
+module.exports = { MusicProvider, clamp, cancelled };
+
+},
+"lib/music/providers.js": function (module, exports, __hubRequire) {
+"use strict";
+const { LocalAudioProvider } = __hubRequire("lib/music/local-audio.js");
+const { YouTubeProvider } = __hubRequire("lib/music/youtube.js");
+const { SpotifyProvider } = __hubRequire("lib/music/spotify.js");
+const { YouTubeMusicProvider } = __hubRequire("lib/music/youtube-music.js");
+
+const providers = { local: LocalAudioProvider, youtube: YouTubeProvider, spotify: SpotifyProvider, "youtube-music": YouTubeMusicProvider };
+
+function createMusicProvider(plugin, item, options = {}) {
+    const Provider = providers[item.provider];
+    if (!Provider) throw new Error("This music source is not supported.");
+    return new Provider(plugin, item, options);
+}
+
+module.exports = { createMusicProvider };
+
+},
+"lib/music/spotify-embed.js": function (module, exports, __hubRequire) {
+"use strict";
+const { MusicProvider } = __hubRequire("lib/music/provider-base.js");
+const { loadIframeAPI } = __hubRequire("lib/music/iframe-api.js");
+
+const runtimeMessage = "Spotify may play previews in Obsidian when encrypted playback is unavailable.";
+
+class SpotifyEmbedBackend extends MusicProvider {
+    constructor(plugin, item, options) {
+        // Spotify documents play/pause and playback events. Its seek method is
+        // documented for podcast episodes; configured music uses the Embed's
+        // own supported seek/collection controls rather than invented APIs.
+        super(plugin, item, options, { play: true, pause: true, progress: true, visiblePlayer: true });
+        this.element.classList.add("hub-music-spotify-surface");
+        this.playbackActive = false;
+    }
+    async load() {
+        this.emit({ status: "loading", title: this.item.name, message: runtimeMessage });
+        const api = await this.active(this.options.spotifyAPI || loadIframeAPI(this.document, "spotify"));
+        const host = this.document.createElement("div"); this.element.appendChild(host);
+        const ready = this.readyPromise("The Spotify embed could not load. Check your connection and try again.");
+        // https://developer.spotify.com/documentation/embeds/references/iframe-api
+        api.createController(host, { url: this.item.source, width: "100%", height: 352 }, controller => {
+            if (this.destroyed) { controller.destroy(); return; }
+            this.controller = controller;
+            const onReady = () => { this.emit({ status: "ready", message: runtimeMessage }); this.resolveReady(); };
+            const onUpdate = event => {
+                if (this.destroyed) return;
+                const data = event.data || {}, duration = (Number(data.duration) || 0) / 1000, currentTime = (Number(data.position) || 0) / 1000;
+                this.playbackActive = data.isPaused === false;
+                this.emit({ status: data.isBuffering ? "loading" : data.isPaused ? "paused" : "playing",
+                    currentTime, duration, playingURI: data.playingURI,
+                    message: duration > 0 && duration <= 30 ? "Spotify may be playing a preview in this Obsidian runtime." : runtimeMessage });
+            };
+            const onStarted = event => { this.playbackActive = true; this.emit({ status: "playing", playingURI: event.data?.playingURI }); };
+            for (const [name, callback] of [["ready", onReady], ["playback_update", onUpdate], ["playback_started", onStarted]]) {
+                controller.addListener(name, callback);
+                this.cleanups.push(() => controller.removeListener?.(name, callback));
+            }
+            const frame = this.element.querySelector("iframe");
+            if (frame) { frame.title = "Spotify music player"; frame.setAttribute("allow", "autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"); }
+        });
+        await this.active(ready);
+    }
+    play() {
+        if (!this.destroyed && this.element.isConnected && this.controller) {
+            this.playbackActive = true; (this.controller.resume || this.controller.play)?.call(this.controller);
+        }
+    }
+    pause() {
+        if (!this.destroyed && this.playbackActive) { this.playbackActive = false; this.controller?.pause(); }
+    }
+    suspend() { this.pause(); this.emit({ status: "paused" }); }
+    destroy() {
+        if (this.destroyed) return;
+        this.pause(); super.destroy(); this.controller?.destroy(); this.controller = null;
+    }
+}
+
+module.exports = { SpotifyEmbedBackend };
+
+},
+"lib/music/spotify.js": function (module, exports, __hubRequire) {
+"use strict";
+const { MusicProvider, cancelled } = __hubRequire("lib/music/provider-base.js");
+const { SpotifyEmbedBackend } = __hubRequire("lib/music/spotify-embed.js");
+const { normalizeMusicSource, safeArtwork } = __hubRequire("lib/domain/music.js");
+
+// Official Spotify Embed backend retained for standalone Itacan. Obsidian's
+// Electron runtime lacks usable Widevine and receives preview-only playback;
+// this prototype chooses Spotify Connect directly, without an Embed fallback.
+class SpotifyProvider extends MusicProvider {
+    constructor(plugin, item, options = {}) {
+        if (options.spotifyBackend === "embed") return new SpotifyEmbedBackend(plugin, item, options);
+        super(plugin, item, options, { persistent: true });
+        this.service = plugin.spotifyConnect;
+        this.restoreVolumeOnLoad = false;
+        this.uri = normalizeMusicSource("spotify", item.source).metadata.uri;
+        this.visible = false; this.loaded = false; this.startedItem = false;
+        this.ownsPlayback = false; this.command = Promise.resolve();
+        this.now = options.now ?? (() => Date.now());
+        this.connected = !!this.service?.snapshot.connected;
+        if (this.service) this.cleanups.push(this.service.onChange(() => {
+            const connected = !!this.service.snapshot.connected;
+            // State reads also notify service listeners; only auth transitions
+            // need another query here.
+            if (connected === this.connected) return;
+            this.connected = connected;
+            if (!connected) {
+                this.stopTimers(); this.updateCapabilities(null);
+                this.error("Connect Spotify in Settings to play your saved music.");
+            } else if (this.visible) {
+                this.loaded = true;
+                void this.sync().then(() => this.startTimers()).catch(error => this.error(error.message));
+            }
+        }));
+        this.listen(this.document, "visibilitychange", () => {
+            if (!this.document.hidden && this.visible && this.loaded) {
+                void this.sync().then(() => this.startTimers()).catch(error => this.error(error.message));
+            } else this.stopTimers();
+        });
+    }
+    mount() {
+        this.visible = true;
+        if (this.loaded && this.connected) void this.sync().then(() => this.startTimers()).catch(error => this.error(error.message));
+    }
+    detach() { this.visible = false; this.stopTimers(); }
+    async load() {
+        this.emit({ status: "loading", title: this.item.name, message: "" });
+        if (!this.service || !this.connected) throw new Error("Connect Spotify in Settings to play your saved music.");
+        this.loaded = true; await this.active(this.sync()); this.startTimers();
+    }
+    updateCapabilities(state) {
+        const connected = !!this.service?.snapshot.connected, device = state?.device;
+        const usable = device && !device.is_restricted, disallows = state?.actions?.disallows ?? {};
+        Object.assign(this.capabilities, {
+            play: connected && (!this.startedItem || !disallows.resuming),
+            pause: connected && !!usable && !disallows.pausing,
+            previous: connected && !!usable && !!state?.item && !disallows.skipping_prev,
+            next: connected && !!usable && !!state?.item && !disallows.skipping_next,
+            seek: connected && !!usable && !!state?.item && !disallows.seeking,
+            volume: connected && !!usable && device.supports_volume === true,
+            progress: connected && !!state?.item
+        });
+    }
+    async sync() {
+        if (this.destroyed || !this.connected) return;
+        if (this.syncing) return this.syncing;
+        this.syncing = (async () => {
+            const state = await this.service.getPlaybackState();
+            if (this.destroyed) return;
+            const track = state?.item;
+            if (state?.context?.uri === this.uri || track?.uri === this.uri) this.startedItem = true;
+            this.updateCapabilities(state); this.receivedAt = this.now(); this.remoteState = state;
+            this.emit({
+                status: state ? state.is_playing ? "playing" : "paused" : "ready",
+                title: this.item.name, trackTitle: track?.name || "",
+                artist: (track?.artists ?? []).map(artist => artist.name).filter(Boolean).join(", "),
+                artwork: safeArtwork(track?.album?.images?.[0]?.url) || safeArtwork(track?.images?.[0]?.url) || "",
+                currentTime: Math.max(0, Number(state?.progress_ms) || 0) / 1000,
+                duration: Math.max(0, Number(track?.duration_ms) || 0) / 1000,
+                ...(Number.isFinite(state?.device?.volume_percent) ? { volume: state.device.volume_percent / 100 } : {}),
+                message: state ? "" : "Open Spotify on a device, then press Play."
+            });
+            return state;
+        })().finally(() => { this.syncing = null; });
+        return this.syncing;
+    }
+    startTimers() {
+        this.stopTimers();
+        if (this.destroyed || !this.visible || this.document.hidden || !this.connected) return;
+        const poll = async () => {
+            if (this.destroyed || !this.visible || this.document.hidden) return;
+            let wait = 5000;
+            try { await this.sync(); }
+            catch (error) { this.error(error.message); wait = Math.max(wait, error.retryAfterMs || 0); }
+            if (!this.destroyed && this.visible && !this.document.hidden) this.pollTimer = setTimeout(poll, wait);
+        };
+        this.pollTimer = setTimeout(poll, 5000);
+        this.progressTimer = setInterval(() => {
+            if (!this.remoteState?.is_playing || !this.remoteState.item) return;
+            const duration = Number(this.remoteState.item.duration_ms) / 1000;
+            const currentTime = Math.min(duration, ((Number(this.remoteState.progress_ms) || 0) + this.now() - this.receivedAt) / 1000);
+            this.emit({ currentTime: Math.max(0, currentTime) });
+        }, 1000);
+        this.pollTimer.unref?.(); this.progressTimer.unref?.();
+    }
+    stopTimers() {
+        clearTimeout(this.pollTimer); clearInterval(this.progressTimer);
+        this.pollTimer = this.progressTimer = null;
+    }
+    perform(method, ...args) {
+        const operation = this.command.catch(() => {}).then(async () => {
+            if (this.destroyed) throw cancelled();
+            // A lost response may still have applied the remote command.
+            if (["startItem", "resume", "previous", "next"].includes(method)) this.ownsPlayback = true;
+            await this.service[method](...args);
+            if (method === "startItem") this.startedItem = true;
+            if (method === "pause") this.ownsPlayback = false;
+            if (!this.destroyed) await this.sync();
+        });
+        this.command = operation;
+        return this.active(operation);
+    }
+    play() { return this.perform(this.startedItem ? "resume" : "startItem", ...(this.startedItem ? [] : [this.item])); }
+    pause() { return this.perform("pause"); }
+    previous() { return this.perform("previous"); }
+    next() { return this.perform("next"); }
+    seek(seconds) { return this.perform("seek", seconds); }
+    setVolume(value) {
+        // Slider drags retain only the latest value while a request is pending.
+        this.pendingVolume = value;
+        if (!this.volumeTask) {
+            this.volumeTask = (async () => {
+                while (this.pendingVolume !== undefined && !this.destroyed) {
+                    const requested = this.pendingVolume; this.pendingVolume = undefined;
+                    await this.perform("setVolume", requested);
+                }
+            })().finally(() => { this.volumeTask = null; });
+        }
+        return this.volumeTask;
+    }
+    suspend() {
+        this.detach(); this.pendingVolume = undefined;
+        // requestUrl is not abortable. Wait for any in-flight playback write
+        // before the final pause, even after destroy cancels the UI operation.
+        return this.command.catch(() => {}).then(async () => {
+            if (this.ownsPlayback) {
+                if (!this.service?.snapshot.connected) throw new Error("Connect Spotify in Settings, then try switching music again so Spotify can be paused.");
+                await this.service.pause();
+            }
+            this.ownsPlayback = false;
+        });
+    }
+    destroy() {
+        if (this.destroyed) return;
+        this.detach(); super.destroy();
+    }
+}
+
+module.exports = { SpotifyProvider, SpotifyEmbedBackend };
+
+},
+"lib/music/youtube-music.js": function (module, exports, __hubRequire) {
+"use strict";
+const { MusicProvider } = __hubRequire("lib/music/provider-base.js");
+const { configuredConsentDestination } = __hubRequire("lib/music/browser-guard.js");
+
+class YouTubeMusicProvider extends MusicProvider {
+    constructor(plugin, item, options) {
+        super(plugin, item, options, { visiblePlayer: true });
+        this.element.classList.add("hub-music-youtube-music-surface");
+    }
+    async load() {
+        const atlas = this.plugin.atlas, state = atlas?.view?.(), remote = this.document.defaultView.electron?.remote;
+        if (!remote || !this.plugin.app.getWebviewPartition || state?.status !== "READY" || !state.enabled)
+            throw new Error("YouTube Music needs the desktop Atlas browser. Set up Atlas, then reopen this item.");
+        this.playbackMessage = this.item.sourceType === "album"
+                ? "For album playback, save the album’s YouTube Music playlist link. Album pages can open here; playback stops when Music closes."
+                : "Use the YouTube Music player below. Playback stops when Music closes.";
+        this.emit({ status: "loading", title: this.item.name, message: this.playbackMessage });
+        // Atlas already protects every webview in this existing Obsidian
+        // partition. Keep the service's actual player; no scraping, injected
+        // DOM controls, alternative session or hidden player is used.
+        const webview = this.webview = this.document.createElement("webview");
+        const partition = this.plugin.app.getWebviewPartition();
+        webview.setAttribute("partition", partition); webview.setAttribute("src", "about:blank");
+        webview.setAttribute("webpreferences", "contextIsolation=yes,sandbox=yes,nodeIntegration=no");
+        webview.setAttribute("aria-label", "Configured YouTube Music player");
+        const ready = this.readyPromise("YouTube Music could not load. Check Atlas access and your connection.");
+        let attached = false;
+        this.listen(webview, "dom-ready", () => {
+            if (attached) return; attached = true;
+            try {
+                this.nativeId = webview.getWebContentsId();
+                const path = require("path"), directory = path.resolve(this.plugin.app.vault.adapter.getBasePath(), this.plugin.manifest.dir);
+                this.guard = remote.require(path.join(directory, "lib/music/browser-guard.js"))
+                    .constrainMusicGuest(this.nativeId, partition, this.item.source, () => {
+                        const message = "Music only opens the configured YouTube Music content. Choose the saved item again to return to it.";
+                        this.fail(message);
+                    });
+                Promise.resolve(webview.loadURL(this.item.source)).catch(() => {
+                    if (!this.destroyed) { const message = "YouTube Music could not open this item. Check Atlas access and the saved link.";
+                        this.fail(message); }
+                });
+            } catch (_) {
+                const message = "The protected YouTube Music browser is unavailable in this Obsidian runtime.";
+                this.fail(message);
+            }
+        });
+        this.listen(webview, "did-navigate", event => {
+            if (event.url === "about:blank") return;
+            this.emit({ status: "ready", message: configuredConsentDestination(this.item.source, event.url)
+                ? "Complete YouTube Music’s consent screen below to play the configured music." : this.playbackMessage }); this.resolveReady();
+        });
+        this.listen(webview, "did-fail-load", event => {
+            if (event.errorCode === -3 || event.isMainFrame === false) return;
+            const message = "YouTube Music could not load this item. Check Atlas access and your connection.";
+            this.fail(message);
+        });
+        this.listen(webview, "media-started-playing", () => this.emit({ status: "playing" }));
+        this.listen(webview, "media-paused", () => this.emit({ status: "paused" }));
+        this.listen(webview, "destroyed", () => {
+            if (this.nativeId != null) atlas.forget?.(this.nativeId);
+            const message = "Atlas stopped the YouTube Music browser. Check access in Atlas, then reopen the saved item.";
+            this.fail(message);
+        });
+        const checkAccess = () => {
+            const current = atlas.view(), context = current.contexts?.find(context => context.nativeId === this.nativeId);
+            if (context?.closed || ["BLOCKED", "ENFORCEMENT_FAILED"].includes(context?.phase)) {
+                const consent = context.origin === "https://consent.youtube.com/" || context.origin === "https://consent.youtube.com";
+                const message = consent ? "Atlas blocked required YouTube Music consent at consent.youtube.com. Review that exact hostname in Atlas, then reopen this item."
+                    : "Atlas has blocked YouTube Music. Review music.youtube.com in Atlas, then reopen this item.";
+                this.fail(message, true);
+            }
+        };
+        this.cleanups.push(atlas.subscribe(checkAccess));
+        this.element.appendChild(webview);
+        await this.active(ready);
+    }
+    fail(message, specific = false) {
+        if (!this.failureMessage || specific) this.failureMessage = message;
+        this.rejectReady?.(new Error(this.failureMessage)); this.error(this.failureMessage);
+    }
+    play() { /* The service has no supported JavaScript playback API; use its visible controls. */ }
+    suspend() { this.destroy(); }
+    destroy() {
+        if (this.destroyed) return;
+        // Removing the guest guarantees stop even when a service has no public
+        // pause API. Reopening reconstructs the saved source, never a hidden tab.
+        super.destroy(); this.guard?.destroy(); this.guard = null; this.webview?.remove(); this.webview = null;
+        if (this.nativeId != null) this.plugin.atlas?.forget?.(this.nativeId);
+    }
+}
+
+module.exports = { YouTubeMusicProvider };
+
+},
+"lib/music/youtube.js": function (module, exports, __hubRequire) {
+"use strict";
+const { MusicProvider, clamp } = __hubRequire("lib/music/provider-base.js");
+const { loadIframeAPI } = __hubRequire("lib/music/iframe-api.js");
+
+const errors = {
+    2: "This YouTube link is invalid. Check it in Settings → Music.",
+    5: "YouTube could not play this video in Obsidian.",
+    100: "This YouTube video is unavailable or private.",
+    101: "This video does not allow embedded playback.",
+    150: "This video does not allow embedded playback.",
+    153: "YouTube could not verify this Obsidian embed. Playback is unavailable in this runtime."
+};
+
+class YouTubeProvider extends MusicProvider {
+    constructor(plugin, item, options) {
+        const url = new URL(item.source), playlistId = item.metadata?.playlistId || url.searchParams.get("list");
+        super(plugin, item, options, { play: true, pause: true, seek: true, volume: true, progress: true,
+            previous: !!playlistId, next: !!playlistId, visiblePlayer: true });
+        this.videoId = item.metadata?.videoId || url.searchParams.get("v"); this.playlistId = playlistId;
+        this.startSeconds = Number(item.metadata?.startSeconds) || 0;
+        this.element.classList.add("hub-music-youtube-surface");
+    }
+    async load() {
+        this.emit({ status: "loading", title: this.item.name });
+        const api = await this.active(this.options.youtubeAPI || loadIframeAPI(this.document, "youtube"));
+        const host = this.document.createElement("div"); this.element.appendChild(host);
+        const ready = this.readyPromise("The YouTube player could not load. Check your connection and try again.");
+        const vars = { controls: 1, playsinline: 1, autoplay: 0, rel: 0, start: this.startSeconds };
+        if (this.playlistId) { vars.listType = "playlist"; vars.list = this.playlistId; }
+        const origin = this.document.defaultView.location?.origin;
+        if (/^https?:\/\//.test(origin || "")) vars.origin = origin;
+        // Official player, controls and branding stay visible. No background
+        // playback or unofficial media extraction is used.
+        // https://developers.google.com/youtube/iframe_api_reference
+        this.player = new api.Player(host, { width: "100%", height: "270", ...(this.videoId ? { videoId: this.videoId } : {}),
+            playerVars: vars, events: {
+                onReady: event => {
+                    if (this.destroyed) { event.target.destroy(); return; }
+                    this.player = event.target;
+                    if (this.playlistId && !this.videoId) this.player.cuePlaylist({ listType: "playlist", list: this.playlistId, startSeconds: this.startSeconds });
+                    this.emit({ status: "ready", message: "" }); this.resolveReady(); this.updateProgress();
+                },
+                onStateChange: event => {
+                    if (this.destroyed) return;
+                    const statuses = { "-1": "ready", 0: "ended", 1: "playing", 2: "paused", 3: "loading", 5: "ready" };
+                    this.emit({ status: statuses[event.data] || "ready", ...(event.data === 1 ? { message: "" } : {}) });
+                    this.updateProgress();
+                    if (event.data === 0 && !this.playlistId) this.options.onEnded?.();
+                },
+                onError: event => {
+                    const message = errors[event.data] || "YouTube could not load this video or playlist.";
+                    this.rejectReady?.(new Error(message)); this.error(message);
+                },
+                onAutoplayBlocked: () => this.emit({ status: "paused", message: "Press Play in the YouTube player to start playback." })
+            } });
+        const frame = this.player.getIframe?.();
+        if (frame) { frame.title = "YouTube music player"; frame.setAttribute("referrerpolicy", "strict-origin-when-cross-origin"); }
+        await this.active(ready);
+        const timer = setInterval(() => this.updateProgress(), 500); timer.unref?.();
+        this.cleanups.push(() => clearInterval(timer));
+        this.listen(this.document, "visibilitychange", () => { if (this.document.hidden) this.suspend(); });
+        // Focusing the embedded player's own controls blurs its parent window.
+        // Document visibility and modal lifetime determine visible playback.
+    }
+    updateProgress() {
+        if (this.destroyed || !this.player?.getCurrentTime) return;
+        try { this.emit({ currentTime: Number(this.player.getCurrentTime()) || 0, duration: Number(this.player.getDuration()) || 0,
+            volume: clamp(this.player.getVolume() / 100) }); } catch (_) { /* A frame may be initializing. */ }
+    }
+    play() {
+        if (this.destroyed || !this.player) return;
+        if (!this.element.isConnected || this.document.hidden) { this.emit({ status: "paused", message: "Keep Music open to play YouTube." }); return; }
+        this.player.playVideo();
+    }
+    pause() { if (!this.destroyed) this.player?.pauseVideo?.(); }
+    previous() { if (!this.destroyed && this.playlistId) this.player?.previousVideo?.(); }
+    next() { if (!this.destroyed && this.playlistId) this.player?.nextVideo?.(); }
+    seek(seconds) { if (!this.destroyed) this.player?.seekTo?.(Math.max(0, Number(seconds) || 0), true); }
+    setVolume(value) { if (!this.destroyed) this.player?.setVolume?.(Math.round(clamp(value) * 100)); }
+    suspend() { this.pause(); this.emit({ status: "paused", message: "YouTube pauses when Music closes." }); }
+    destroy() {
+        if (this.destroyed) return;
+        this.player?.pauseVideo?.(); super.destroy(); this.player?.destroy?.(); this.player = null;
+    }
+}
+
+module.exports = { YouTubeProvider };
 
 },
 "lib/services/context-search.js": function (module, exports, __hubRequire) {
@@ -5520,6 +6388,341 @@ class HubInboxService {
 module.exports = { HubInboxService };
 
 },
+"lib/services/music-controller.js": function (module, exports, __hubRequire) {
+"use strict";
+
+const { createMusicProvider } = __hubRequire("lib/music/providers.js");
+
+// Playback belongs to the plugin, never to a Modal. Only durable references
+// live in MusicLibrary; these handles and progress are intentionally transient.
+class MusicController {
+    constructor(plugin, library, options = {}) {
+        this.plugin = plugin; this.library = library;
+        this.factory = options.createProvider ?? createMusicProvider;
+        this.document = options.document ?? globalThis.document;
+        this.listeners = new Set(); this.generation = 0; this.disposed = false;
+        this.surface = null; this.provider = null; this.itemId = null; this.releasing = null;
+        this.state = { status: "idle", currentTime: 0, duration: 0, volume: 1, message: "" };
+        this.stopLibrary = library.onChange(() => this.reconcile());
+    }
+    get item() { return this.library.get(this.itemId); }
+    get entries() { return this.library.list({ enabledOnly: true }); }
+    get snapshot() {
+        const item = this.item;
+        const capabilities = { ...(this.provider?.capabilities ?? {}) };
+        if (item?.provider === "local") {
+            const queue = this.entries.filter(entry => entry.provider === "local");
+            const index = queue.findIndex(entry => entry.id === item.id);
+            capabilities.previous = index > 0; capabilities.next = index >= 0 && index < queue.length - 1;
+        }
+        return { ...this.state, item, title: this.state.trackTitle || this.state.title || item?.name || "", capabilities };
+    }
+    onChange(callback) { this.listeners.add(callback); return () => this.listeners.delete(callback); }
+    emit() {
+        if (this.disposed) return;
+        const state = this.snapshot;
+        for (const callback of this.listeners) callback(state);
+    }
+    update(patch) { this.state = { ...this.state, ...patch }; this.emit(); }
+    attach(surface) {
+        if (this.disposed) return;
+        this.surface = surface;
+        this.document = surface.ownerDocument;
+        if (this.provider) this.provider.mount(surface);
+        else if (this.itemId && this.entries.some(item => item.id === this.itemId)) {
+            // Visible streaming players were released on close. Reconnect without
+            // autoplay; local playback retains the exact same adapter/audio node.
+            void this.select(this.itemId, { autoplay: false, resumeAt: this.state.currentTime });
+        }
+        this.emit();
+    }
+    detach(surface) {
+        if (surface && this.surface !== surface) return;
+        this.surface = null;
+        if (!this.provider) return;
+        if (this.provider.capabilities.persistent) {
+            // Remote providers stop visible polling; local audio keeps playing.
+            this.provider.detach?.();
+            this.provider.element?.remove();
+            return;
+        }
+        void this.release().catch(error => this.update({ status: "error", message: error.message }));
+        if (this.itemId) this.update({ status: "paused" });
+    }
+    release() {
+        ++this.generation;
+        const previous = this.provider; this.provider = null;
+        if (!previous && this.releasing?.pending) return this.releasing.promise;
+        const target = previous || this.releasing?.provider;
+        if (!target) return Promise.resolve();
+        // Destruction also cancels pending SDK loads, so a late ready callback
+        // cannot resurrect a player after a switch, close or feature disable.
+        // Keep a failed remote pause available for retry. A replacement source
+        // must not start while the previously owned source may still be playing.
+        const record = { provider: target, pending: true };
+        this.releasing = record;
+        let stopping;
+        try { stopping = target.suspend?.(); } catch (error) { stopping = Promise.reject(error); }
+        try { target.destroy(); } catch (error) { console.warn("Could not release Music player", error); }
+        record.promise = Promise.resolve(stopping).then(() => {
+            if (this.releasing === record) this.releasing = null;
+        }, error => { record.pending = false; throw error; });
+        // Some releases happen without a selection (disable/unload).
+        record.promise.catch(() => {});
+        return record.promise;
+    }
+    async select(id, { autoplay = true, resumeAt = 0 } = {}) {
+        if (this.disposed) return;
+        const item = this.entries.find(entry => entry.id === id);
+        if (!this.library.state.enabled || !item) return;
+        if (this.provider && this.itemId === id && this.state.status !== "error") {
+            if (autoplay) await this.play();
+            return;
+        }
+        const stopping = this.release(); this.itemId = id;
+        const generation = this.generation;
+        const requestedVolume = this.state.volume;
+        this.state = { status: "loading", currentTime: 0, duration: 0, volume: requestedVolume, message: "", title: item.name };
+        const current = () => !this.disposed && generation === this.generation;
+        this.emit();
+        try {
+            await stopping;
+            if (!current()) return;
+            const provider = this.factory(this.plugin, item, {
+                document: this.document,
+                onState: patch => { if (current()) this.update(patch); },
+                onError: message => { if (current()) this.update({ status: "error", message }); },
+                onEnded: () => { if (current()) void this.ended(); }
+            });
+            this.provider = provider;
+            if (!this.surface && !provider.capabilities.persistent) {
+                void this.release().catch(error => this.update({ status: "error", message: error.message }));
+                this.update({ status: "paused" }); return;
+            }
+            if (this.surface) provider.mount(this.surface);
+            this.emit();
+            await provider.load();
+            if (!current()) return;
+            // Initial metadata reports the new player's default volume. Preserve
+            // the user's level across track switches and automatic queue advance.
+            if (provider.capabilities.volume && provider.restoreVolumeOnLoad !== false) {
+                // Native volumechange arrives asynchronously. Update the intent
+                // now so an immediate next/previous command also retains it.
+                this.update({ volume: requestedVolume });
+                await provider.setVolume(requestedVolume);
+            }
+            if (!current()) return;
+            if (resumeAt > 0 && provider.capabilities.seek) await provider.seek(resumeAt);
+            if (!current()) return;
+            if (autoplay && provider.capabilities.play) await provider.play();
+        } catch (error) {
+            if (current()) this.update({ status: "error", message: error.message || "This music could not be played. Try again or check its source in Settings." });
+        }
+    }
+    async call(method, ...args) {
+        const provider = this.provider, generation = this.generation;
+        if (!provider || this.disposed) return;
+        try { await provider[method]?.(...args); }
+        catch (error) { if (generation === this.generation) this.update({ status: "error", message: error.message || "The player is unavailable. Try selecting this music again." }); }
+    }
+    play() {
+        if (this.itemId && (!this.provider || this.state.status === "error")) return this.select(this.itemId, { resumeAt: this.state.currentTime });
+        return this.call("play");
+    }
+    pause() { return this.call("pause"); }
+    toggle() { return this.state.status === "playing" ? this.pause() : this.play(); }
+    seek(seconds) { if (Number.isFinite(seconds)) return this.call("seek", Math.max(0, seconds)); }
+    setVolume(value) {
+        if (!Number.isFinite(value)) return;
+        value = Math.max(0, Math.min(1, value));
+        this.state.volume = value;
+        return this.call("setVolume", value);
+    }
+    async step(direction) {
+        if (this.item?.provider !== "local") return this.call(direction < 0 ? "previous" : "next");
+        const queue = this.entries.filter(item => item.provider === "local");
+        const index = queue.findIndex(item => item.id === this.itemId), next = queue[index + direction];
+        if (index >= 0 && next) await this.select(next.id);
+    }
+    previous() { return this.step(-1); }
+    next() { return this.step(1); }
+    async ended() {
+        this.update({ status: "ended" });
+        if (this.item?.provider === "local" && this.snapshot.capabilities.next) await this.next();
+    }
+    reconcile() {
+        if (!this.library.state.enabled || this.itemId && !this.entries.some(item => item.id === this.itemId)) {
+            const stopping = this.release(), generation = this.generation; this.itemId = null;
+            stopping.catch(error => { if (generation === this.generation) this.update({ status: "error", message: error.message }); });
+            this.state = { status: "idle", currentTime: 0, duration: 0, volume: this.state.volume, message: "" };
+        } else if (this.item) this.state.title = this.item.name;
+        this.emit();
+    }
+    destroy() {
+        if (this.disposed) return;
+        this.stopLibrary(); const stopping = this.release(); this.disposed = true;
+        this.listeners.clear(); this.surface = null;
+        return stopping;
+    }
+}
+
+module.exports = { MusicController };
+
+},
+"lib/services/music-library.js": function (module, exports, __hubRequire) {
+"use strict";
+const fs = require("fs");
+const nodePath = require("path");
+const { musicProvider, musicDefaults, normalizeMusicConfig, createMusicItem, safeArtwork } = __hubRequire("lib/domain/music.js");
+
+class MusicLibrary {
+    constructor(plugin, options = {}) {
+        this.plugin = plugin; this.app = plugin.app; this.options = options;
+        this.listeners = new Set(); this.queue = Promise.resolve(); this.disposed = false;
+        this.compatibilityError = null; this.state;
+    }
+    get state() {
+        try { const state = normalizeMusicConfig(this.plugin.projectWizard.data.music); this.compatibilityError = null; return state; }
+        catch (error) {
+            // A future library must remain untouched and must not prevent Home,
+            // Settings or other services from loading in this older prototype.
+            this.compatibilityError = error.message; return musicDefaults();
+        }
+    }
+    get(id) { return this.state.items.find(item => item.id === id) ?? null; }
+    list({ enabledOnly = false } = {}) {
+        const state = this.state;
+        return enabledOnly ? state.items.filter(item => state.enabled && state.providers[item.provider] && item.enabled) : state.items;
+    }
+    onChange(listener) { this.listeners.add(listener); return () => this.listeners.delete(listener); }
+    emit() { for (const listener of this.listeners) { try { listener(this.state); } catch (error) { console.error("Could not refresh Music", error); } } }
+    enqueue(work) {
+        const result = this.queue.catch(() => {}).then(async () => {
+            if (this.disposed) throw Error("Music is no longer available.");
+            await this.plugin.dataStore.writeQueue?.catch(() => {});
+            this.state;
+            if (this.compatibilityError) throw Error(this.compatibilityError);
+            return work();
+        });
+        this.queue = result; return result;
+    }
+    async save(next) {
+        const data = this.plugin.projectWizard.data, previous = data.music;
+        data.music = next;
+        try { await this.plugin.dataStore.save(data); this.plugin.projectWizard.data.music = next; }
+        catch (error) {
+            if (data.music === next) { if (previous === undefined) delete data.music; else data.music = previous; }
+            throw error;
+        }
+        this.emit(); return next;
+    }
+    setEnabled(enabled) { return this.enqueue(() => this.save({ ...this.state, enabled: !!enabled })); }
+    setProviderEnabled(provider, enabled) {
+        return this.enqueue(() => {
+            if (!musicProvider(provider)) throw Error("Unknown music source.");
+            const state = this.state;
+            return this.save({ ...state, providers: { ...state.providers, [provider]: !!enabled } });
+        });
+    }
+    required(id) { const item = this.get(id); if (!item) throw Error("This music item is no longer available."); return item; }
+    update(id, values) {
+        return this.enqueue(() => {
+            const item = this.required(id), name = values.name === undefined ? item.name : String(values.name).trim();
+            if (!name) throw Error("Enter a display name.");
+            const next = { ...item, name, enabled: values.enabled === undefined ? item.enabled : !!values.enabled };
+            return this.save({ ...this.state, items: this.state.items.map(candidate => candidate.id === id ? next : candidate) });
+        });
+    }
+    rename(id, name) { return this.update(id, { name }); }
+    setItemEnabled(id, enabled) { return this.update(id, { enabled }); }
+    remove(id) {
+        return this.enqueue(() => { this.required(id); return this.save({ ...this.state, items: this.state.items.filter(item => item.id !== id) }); });
+    }
+    move(id, delta) {
+        return this.enqueue(() => {
+            const state = this.state, items = [...state.items], from = items.findIndex(item => item.id === id);
+            if (from < 0) throw Error("This music item is no longer available.");
+            const to = Math.max(0, Math.min(items.length - 1, from + Math.trunc(Number(delta) || 0)));
+            if (to === from) return state;
+            items.splice(to, 0, items.splice(from, 1)[0]); return this.save({ ...state, items });
+        });
+    }
+    reorder(ids) {
+        return this.enqueue(() => {
+            const state = this.state, requested = Array.isArray(ids) ? ids : [];
+            if (requested.length !== state.items.length || new Set(requested).size !== requested.length || requested.some(id => !state.items.some(item => item.id === id))) {
+                throw Error("The music library changed. Try reordering again.");
+            }
+            return this.save({ ...state, items: requested.map(id => state.items.find(item => item.id === id)) });
+        });
+    }
+    async metadata(item) {
+        if (this.options.metadata === false || item.provider === "local") return {};
+        let request = this.options.request;
+        if (!request) { try { request = require("obsidian").requestUrl; } catch (_) { return {}; } }
+        if (!request) return {};
+        // Official oEmbed needs no account or OAuth. Never insert returned HTML.
+        // https://developer.spotify.com/documentation/embeds/reference/oembed
+        const endpoint = item.provider === "spotify" ? "https://open.spotify.com/oembed?url=" : "https://www.youtube.com/oembed?format=json&url=";
+        const source = item.provider === "youtube-music" ? item.source.replace("music.youtube.com", "www.youtube.com") : item.source;
+        let timer;
+        try {
+            const response = await Promise.race([request({ url: endpoint + encodeURIComponent(source), throw: false }),
+                new Promise(resolve => { timer = setTimeout(() => resolve(null), 3500); })]);
+            const metadata = response?.json;
+            return response?.status === 200 && metadata ? { ...(typeof metadata.title === "string" && metadata.title.trim() ? { name: metadata.title.trim() } : {}),
+                ...(safeArtwork(metadata.thumbnail_url) ? { artwork: safeArtwork(metadata.thumbnail_url) } : {}) } : {};
+        } catch (_) { return {}; } // Metadata is optional; unavailable links still save.
+        finally { clearTimeout(timer); }
+    }
+    async add(values) {
+        const item = createMusicItem(values);
+        if (item.provider === "local") await this.assertLocalSource(item.source);
+        const metadata = await this.metadata(item);
+        Object.assign(item, metadata);
+        if (String(values.name ?? "").trim()) item.name = String(values.name).trim();
+        return this.enqueue(async () => { await this.save({ ...this.state, items: [...this.state.items, item] }); return item; });
+    }
+    sourcePath(source) {
+        if (typeof source === "string") return source;
+        if (this.plugin.inbox?.sourcePath) return this.plugin.inbox.sourcePath(source);
+        if (typeof source?.path === "string" && source.path) return source.path;
+        try { return require("electron").webUtils?.getPathForFile(source) || null; } catch (_) { return null; }
+    }
+    localReference(source) {
+        const path = this.sourcePath(source);
+        if (!path) throw Error("The file picker did not provide a local path. Choose the audio file again on desktop.");
+        const base = this.app.vault.adapter?.getBasePath?.();
+        if (base && nodePath.isAbsolute(path)) {
+            const relative = nodePath.relative(base, path);
+            if (relative && !relative.startsWith("..") && !nodePath.isAbsolute(relative)) {
+                const file = this.app.vault.getAbstractFileByPath(relative.replace(/\\/g, "/"));
+                if (file && !Array.isArray(file.children)) return file.path;
+            }
+        }
+        return path;
+    }
+    async assertLocalSource(source) {
+        const file = this.app.vault.getAbstractFileByPath(source);
+        if (file && !Array.isArray(file.children)) return;
+        if (!nodePath.isAbsolute(source) && !nodePath.win32.isAbsolute(source)) throw Error(`"${source}" is no longer available in the vault.`);
+        try { await fs.promises.access(source, fs.constants.R_OK); if (!(await fs.promises.stat(source)).isFile()) throw Error("Not a file"); }
+        catch (_) { throw Error(`"${source.split(/[\\/]/).pop()}" cannot be read. Choose an available audio file.`); }
+    }
+    addLocalFiles(sources) {
+        return this.enqueue(async () => {
+            if (!sources?.length) throw Error("Choose one or more audio files.");
+            const items = Array.from(sources).map(source => createMusicItem({ provider: "local", source: this.localReference(source) }));
+            // Validate the complete selection before writing any references.
+            for (const item of items) await this.assertLocalSource(item.source);
+            await this.save({ ...this.state, items: [...this.state.items, ...items] }); return items;
+        });
+    }
+    destroy() { this.disposed = true; this.listeners.clear(); }
+}
+module.exports = { MusicLibrary };
+
+},
 "lib/services/navigation-history.js": function (module, exports, __hubRequire) {
 "use strict";
 
@@ -5816,6 +7019,116 @@ class OathNavigationGuard {
 module.exports = { OathNavigationGuard };
 
 },
+"lib/services/oath-strict.js": function (module, exports, __hubRequire) {
+"use strict";
+const { randomUUID } = require("crypto");
+const { applications, validPolicy, classifyWindows } = __hubRequire("lib/domain/oath-strict.js");
+class StrictOathCoordinator {
+    constructor({ enabled = false, host = null, observer = null, now = Date.now, verifyExecutable = null } = {}) {
+        this.enabled = enabled; this.host = host; this.observer = observer; this.now = now;
+        this.sessionId = randomUUID(); this.current = null; this.lastFocus = -Infinity; this.generation = 0;
+        this.verifyExecutable = verifyExecutable ?? (async value => {
+            const fs = require("fs").promises;
+            const resolved = await fs.realpath(value);
+            if (!(await fs.stat(resolved)).isFile()) throw Error("Application is not a file.");
+            return resolved;
+        });
+        this.health = { status: "disabled", warnings: [] }; this.listener = null; this.polling = false;
+        this.host?.onLost?.(() => { void this.release(this.current?.id).catch(() => {}); });
+    }
+    onHealth(listener) { this.listener = listener; }
+    configureEnabled(value) { this.enabled = !!value; }
+    update(health) { this.health = health; try { this.host?.updateDock?.(health); } catch (_) {} try { this.listener?.(health); } catch (_) {} }
+    async retryRestoration() {
+        if (this.current) throw Error("An active Strict Oath still owns this window.");
+        await this.release();
+    }
+    async launch(executable, url = null) {
+        const current = this.current;
+        const requested = applications([executable])[0];
+        let args = [];
+        if (url != null) {
+            const target = new URL(url);
+            if (!requested.endsWith("\\firefox.exe") || !["https:", "http:"].includes(target.protocol)) throw Error("Website shortcuts require a permitted Firefox executable and an HTTP(S) address.");
+            args = ["-new-tab", target.href];
+        }
+        if (!this.committed || !current?.policy.applications.includes(requested)) throw Error("This application is not permitted by your current active Oath.");
+        const verified = await this.verifyApplications([requested]);
+        if (!this.committed || this.current !== current || verified[0] !== requested) throw Error("Application permission changed. Return to Itacan.");
+        if (!this.host.launch) throw Error("Application launch is unavailable in this host.");
+        return this.host.launch(requested, args);
+    }
+    async verifyApplications(values) { return applications(await Promise.all(applications(values).map(value => this.verifyExecutable(value)))); }
+    async preflight(policy) {
+        if (!validPolicy(policy)) return { ready: false, blockers: [], warnings: ["Strict confirmation is missing or outdated."] };
+        if (!this.enabled || !this.host) return { ready: false, blockers: [], warnings: ["Strict Oath is disabled pending review."] };
+        if (this.current) return { ready: false, blockers: [], warnings: ["A Strict Oath already owns this window."] };
+        try {
+            await this.verifyApplications(policy.applications);
+            const result = classifyWindows(await this.observer.listWindows(), policy, this.host.identity);
+            return { ...result, ready: result.blockers.length === 0 };
+        } catch (error) { return { ready: false, blockers: [], warnings: [error.message] }; }
+    }
+    owns(id, sessionId) { return this.current?.id === id && this.sessionId === sessionId; }
+    async prepare(oath) {
+        if (this.current) throw Error("A Strict Oath already owns this window.");
+        const generation = this.generation;
+        const preflight = await this.preflight(oath.policy);
+        if (!preflight.ready) return { ready: false, preflight };
+        try {
+            if (generation !== this.generation) throw Error("Strict preparation was released.");
+            await this.host.enter();
+            // Close the gap between the preflight and native preparation.
+            const recheck = classifyWindows(await this.observer.listWindows(), oath.policy, this.host.identity);
+            if (generation !== this.generation) throw Error("Strict preparation was released.");
+            if (recheck.blockers.length) { await this.host.release(); return { ready: false, preflight: { ...recheck, ready: false } }; }
+            this.current = JSON.parse(JSON.stringify(oath)); this.committed = false; this.seen = new Set();
+            await this.host.openDock?.(oath.policy, { launch: executable => this.launch(executable), focus: () => this.host.focus() });
+            if (generation !== this.generation) throw Error("Strict preparation was released.");
+            this.update({ status: "prepared", warnings: recheck.warnings });
+            return { ready: true, sessionId: this.sessionId };
+        } catch (error) { this.current = null; await this.host.release(); throw error; }
+    }
+    commit(id) {
+        if (this.current?.id !== id) throw Error("Strict preparation lost.");
+        this.committed = true;
+        this.update({ status: "best-effort", warnings: this.health.warnings });
+        this.schedule();
+    }
+    schedule() {
+        clearTimeout(this.timer);
+        if (this.current) { this.timer = setTimeout(() => void this.poll(), 5000); this.timer.unref?.(); }
+    }
+    async poll() {
+        if (!this.current || this.polling) return;
+        this.polling = true; const current = this.current;
+        try {
+            await this.host.maintain?.();
+            if (this.current !== current) return;
+            const result = classifyWindows(await this.observer.listWindows(), current.policy, this.host.identity);
+            if (this.current !== current) return;
+            const keys = new Set(result.blockers.map(item => `${item.pid}:${item.executable}`));
+            const newlyDetected = [...keys].some(key => !this.seen.has(key)); this.seen = keys;
+            const hostHealthy = this.host.healthy?.() ?? true;
+            this.update({ status: result.blockers.length || result.unknown.length || !hostHealthy ? "degraded" : "best-effort",
+                warnings: [...result.warnings, ...(!hostHealthy ? ["Fullscreen or the Oath dock could not be maintained. Your Oath remains active."] : []),
+                    ...(result.blockers.length ? ["An unpermitted application is open. Return to your work when ready."] : [])] });
+            // This is a nudge for a newly detected app, not a claim about foreground.
+            if (newlyDetected && this.now() - this.lastFocus >= 15000) { this.lastFocus = this.now(); this.host.focus(); }
+        } catch (error) { if (this.current === current) this.update({ status: "degraded", warnings: [error.message] }); }
+        finally { this.polling = false; this.schedule(); }
+    }
+    async release(id) {
+        if (this.current && this.current.id !== id) throw Error("Strict session mismatch.");
+        this.generation++; this.current = null; this.committed = false; clearTimeout(this.timer); this.observer?.cancel?.();
+        try { await this.host?.release(); this.update({ status: "idle", warnings: [] }); }
+        catch (error) { this.update({ status: "recovery-required", warnings: [error.message, "Window guards are released. Retry restoration in Settings → The Oath."] }); throw error; }
+    }
+    detach() { this.listener = null; } // main-process ownership can survive renderer/plugin reload
+}
+module.exports = { StrictOathCoordinator };
+
+},
 "lib/services/oath.js": function (module, exports, __hubRequire) {
 "use strict";
 const { randomUUID } = require("crypto");
@@ -5824,6 +7137,8 @@ const { taskLineDetails, taskIdentity, applyTaskEdit, normalizedTaskText } = __h
 const { isCommitted, validateOath, oathRequirements, oathTime, normalizeOath, fulfilmentTime } = __hubRequire("lib/domain/oath.js");
 
 const { workspaceRef, validWorkspace, sameWorkspace, taskKey } = __hubRequire("lib/domain/oath-workspace.js");
+const { StrictOathCoordinator } = __hubRequire("lib/services/oath-strict.js");
+const { applications, strictPolicy, STRICT_TERMS } = __hubRequire("lib/domain/oath-strict.js");
 
 class HubOathService {
     constructor(plugin, fullscreen, options = {}) {
@@ -5834,6 +7149,11 @@ class HubOathService {
         this.awaitingIndex = new Map(); this.needsRead = true;
         this.queue = Promise.resolve(); this.disposed = false; this.refreshing = null;
         this.notice = options.notice ?? (text => new (require("obsidian").Notice)(text));
+        // Product opt-in is device-local and off until explicitly saved.
+        this.strict = options.strict ?? new StrictOathCoordinator();
+        if (typeof this.bucket.strictEnabled === "boolean") this.strict.configureEnabled(this.bucket.strictEnabled || this.isStrict && this.committed);
+        this.strictReviews = new Map(); this.strictStatus = this.strict.health ?? { status: "idle", warnings: [] };
+        this.strict.onHealth(health => { this.strictStatus = health; this.emit(); });
     }
     get bucket() { return this.plugin.projectWizard.data.oathsByDevice?.[this.deviceId] ?? { current: null, history: [] }; }
     get current() { return normalizeOath(this.bucket.current); }
@@ -5841,6 +7161,46 @@ class HubOathService {
         !!this.pendingFulfilment && this.pendingFulfilment.id === this.current?.id; }
     get committed() { return isCommitted(this.current); }
     get active() { return this.current?.state === "active"; }
+    get isStrict() { return this.current?.policy?.mode === "strict"; }
+    get strictEnabled() { return this.bucket.strictEnabled ?? this.strict.enabled; }
+    get strictSupported() { return !!this.strict.host && this.strict.host.available !== false && !!this.strict.observer; }
+    setStrictEnabled(value) {
+        return this.enqueue(async () => {
+            if (value && !this.strictSupported) throw Error("Strict Oath requires the Windows desktop host.");
+            await this.persist(this.current, this.bucket.history ?? [], { strictEnabled: !!value });
+            // Disabling future setup never releases an existing commitment.
+            this.strict.configureEnabled(!!value || this.isStrict && this.committed); this.emit();
+        });
+    }
+    pickStrictApplication() { return this.strict.host?.pickApplication?.() ?? Promise.resolve(null); }
+    async launchStrictApplication(executable, url = null) {
+        if (!this.active || !this.isStrict) throw Error("No active Strict Oath.");
+        return this.strict.launch(executable, url);
+    }
+    get strictApplications() { return [...(this.bucket.strictApplications ?? [])]; }
+    setStrictApplications(values) {
+        return this.enqueue(async () => {
+            const verified = await this.strict.verifyApplications(applications(values));
+            await this.persist(this.current, this.bucket.history ?? [], { strictApplications: verified }); this.emit();
+            return verified;
+        });
+    }
+    strictSignature(draft) {
+        return JSON.stringify([draft.mode, draft.start, draft.scheduledAt, draft.durationMs, draft.workspace,
+            draft.tasks?.map(taskKey), draft.applications ?? null]);
+    }
+    async reviewStrict(draft) {
+        this.validateDraft(draft);
+        if (draft.mode !== "strict" || !this.strictEnabled || !this.strict.enabled) throw Error("Strict Oath is disabled. Enable it in Settings → The Oath first.");
+        const signature = this.strictSignature(draft);
+        const policy = strictPolicy(draft, this.strictApplications);
+        policy.applications = await this.strict.verifyApplications(policy.applications);
+        const nonce = randomUUID(), preflight = await this.strict.preflight(policy);
+        if (signature !== this.strictSignature(draft)) throw Error("Your Oath changed while checking applications. Review it again.");
+        this.strictReviews.clear(); // one review per setup, never an unbounded registry
+        this.strictReviews.set(nonce, { signature, policy, expires: this.now() + 15 * 60000 });
+        return { confirmation: { nonce, version: policy.confirmationVersion }, policy: JSON.parse(JSON.stringify(policy)), preflight, terms: STRICT_TERMS };
+    }
     api() { return this.app.plugins.getPlugin?.("dataview")?.api ?? this.app.plugins.plugins?.dataview?.api; }
     ready() { const api = this.api(); return !!api && api.index?.initialized !== false; }
     tasks() { return this.ready() ? this.plugin.taskData.readPages(this.api()).flatMap(page => page.file.tasks) : []; }
@@ -5910,6 +7270,10 @@ class HubOathService {
         return false;
     }
     async invalidateWorkspace() {
+        if (this.isStrict) {
+            this.strictStatus = { status: this.active ? "degraded" : "waiting", warnings: ["The selected workspace is unavailable. An active Strict Oath can still fulfill by time."] };
+            this.emit(); return;
+        }
         await this.persist({ ...this.current, state: "invalid", fullscreenOwned: false,
             invalidReason: "workspace-unavailable" });
         await this.fullscreen.exit();
@@ -5925,17 +7289,20 @@ class HubOathService {
     emit() { this.notify(this.listeners); this.tickDisplay(); }
     tickDisplay() { this.notify(this.clockListeners); }
     enqueue(work) { const result = this.queue.then(() => { if (!this.disposed) return work(); }); this.queue = result.catch(() => {}); return result; }
-    async persist(current, history = this.bucket.history ?? []) {
+    async persist(current, history = this.bucket.history ?? [], extra = {}) {
         const data = this.plugin.projectWizard.data, previous = data.oathsByDevice;
-        data.oathsByDevice = { ...previous, [this.deviceId]: { current, history } };
+        data.oathsByDevice = { ...previous, [this.deviceId]: { ...this.bucket, ...extra, current, history } };
         try { await this.plugin.dataStore.save(data); }
         catch (error) { data.oathsByDevice = previous; throw error; }
     }
     async start() {
         if (this.disposed) return;
-        this.fullscreen.restore(this.active && this.current?.fullscreenOwned);
+        this.fullscreen.restore(!this.isStrict && this.active && this.current?.fullscreenOwned);
         try {
-            if (this.active) {
+            if (this.active && this.isStrict) {
+                await this.recoverStrict();
+                if (this.active && this.workspace) await this.enterWorkspace();
+            } else if (this.active) {
                 if (!this.workspace) await this.invalidateWorkspace();
                 else { await this.returnToFullscreen(); await this.enterWorkspace(); }
             }
@@ -5996,10 +7363,16 @@ class HubOathService {
     }
     async reconcile(readTasks) {
         if (!this.committed || this.disposed) return;
+        if (this.isStrict && this.active && !this.strict.owns(this.current.id, this.current.strictSessionId)) {
+            await this.recoverStrict(); return;
+        }
+        if (this.isStrict && this.active && !this.workspace) await this.invalidateWorkspace();
         const starting = this.current.state === "scheduled" && this.now() >= this.current.scheduledAt;
         const changed = readTasks || starting ? await this.resolveWork() : false;
         if (starting) await this.activate();
         const fulfilled = await this.markFulfilled();
+        if (this.isStrict && this.active && this.now() - (this.current.lastObservedAt ?? this.current.startedAt) >= 30000)
+            await this.persist({ ...this.current, lastObservedAt: this.now() });
         if (changed && !fulfilled) this.emit();
     }
     captureFulfilment() {
@@ -6016,6 +7389,7 @@ class HubOathService {
         this.emit(); return true;
     }
     async activate() {
+        if (this.isStrict) return this.activateStrict();
         if (!this.resolveWorkspace(this.current?.workspace)) { await this.invalidateWorkspace(); return false; }
         const owned = await this.fullscreen.enter();
         if (!this.fullscreen.isFull() && !owned) throw Error("Enforced fullscreen is unavailable on this device.");
@@ -6027,9 +7401,23 @@ class HubOathService {
         this.emit();
     }
     take(draft) {
+        if (draft.mode === "strict") draft = { ...draft, workspace: { ...draft.workspace },
+            tasks: draft.tasks?.map(task => ({ ...task })), applications: draft.applications?.slice(), strictConfirmation: { ...draft.strictConfirmation } };
         return this.enqueue(async () => {
             if (this.committed) throw Error("There is already an active or scheduled Oath on this device.");
             this.validateDraft(draft);
+            let policy = strictPolicy(draft, this.strictApplications);
+            if (policy.mode === "strict") {
+                const review = this.strictReviews.get(draft.strictConfirmation?.nonce);
+                if (!this.strictEnabled || !this.strict.enabled || !review || review.expires < this.now() || review.signature !== this.strictSignature(draft) || draft.strictConfirmation.version !== review.policy.confirmationVersion)
+                    throw Error("Review and confirm the Strict Oath restrictions before taking it.");
+                policy = JSON.parse(JSON.stringify(review.policy));
+                const preflight = await this.strict.preflight(policy);
+                if (draft.start !== "scheduled" && !preflight.ready) {
+                    this.strictStatus = { ...preflight, status: "waiting" }; this.emit();
+                    throw Error(preflight.blockers.length ? "Close the detected unpermitted applications and retry." : preflight.warnings.join(" "));
+                }
+            }
             if (draft.tasks?.length && !this.ready()) throw Error("Wait for the task index to finish loading.");
             const selectedTasks = draft.tasks ?? [], indexed = selectedTasks.length ? this.tasks() : [];
             if (selectedTasks.some(task => task.hubTaskId && indexed.some(item => item.hubTaskId === task.hubTaskId && item.identityConflict))) {
@@ -6064,7 +7452,9 @@ class HubOathService {
             await this.persist({ id: randomUUID(), deviceId: this.deviceId, takenAt: now, createdAt: now,
                 scheduledAt: draft.start === "scheduled" ? draft.scheduledAt : now, startedAt: null,
                 durationMs: draft.durationMs, fulfilledAt: null, workspace: workspaceRef(this.resolveWorkspace(draft.workspace)),
-                tasks: refs, state: "scheduled", completedAt: null, fullscreenOwned: false });
+                tasks: refs, state: "scheduled", completedAt: null, fullscreenOwned: false,
+                ...(policy.mode === "strict" ? { policy, strictSessionId: null } : {}) });
+            this.strictReviews.clear();
             // The freshly marked lines may not be imported by Dataview yet.
             this.work = await this.readNewWork(refs, selectedTasks);
             this.awaitingIndex = new Map(this.work.filter(item => item.task).map(item => [item.ref.id, item.task]));
@@ -6093,7 +7483,11 @@ class HubOathService {
         const record = { ...this.current, state, completedAt, fullscreenOwned: false };
         record.elapsedMs = oathTime(record, completedAt).elapsedMs;
         await this.persist(record, [...(this.bucket.history ?? []), record]);
-        await this.fullscreen.exit();
+        if (record.policy?.mode === "strict") {
+            await this.strict.release(record.id);
+            this.strict.configureEnabled(this.strictEnabled);
+        }
+        else await this.fullscreen.exit();
         this.work = []; this.emit(); this.notice(state === "fulfilled" ? "Oath fulfilled." : "Oath broken.");
         this.awaitingIndex.clear();
     }
@@ -6102,12 +7496,13 @@ class HubOathService {
     end(id, outcome) {
         return this.enqueue(async () => {
             if (this.current?.id !== id || !this.committed) return "inactive";
-            if (this.current.state === "scheduled" && this.now() < this.current.scheduledAt) {
+            if (this.current.state === "scheduled" && (this.isStrict || this.now() < this.current.scheduledAt)) {
                 if (outcome !== "cancel") return "scheduled";
                 await this.persist(null); this.work = []; this.awaitingIndex.clear(); this.emit(); return "cancelled";
             }
             await this.reconcile(true);
             if (!this.committed) return "inactive";
+            if (this.isStrict && !this.fulfilled) return "strict-unfulfilled";
             if (!this.fulfilled && outcome !== "broken") return "confirmation-required";
             await this.#finish(this.fulfilled ? "fulfilled" : "broken");
             return "ended";
@@ -6116,6 +7511,7 @@ class HubOathService {
     returnToFullscreen() {
         return this.enqueue(async () => {
             if (!this.active) return;
+            if (this.isStrict) { if (!this.strict.owns(this.current.id, this.current.strictSessionId)) await this.recoverStrict(); return; }
             const owned = await this.fullscreen.enter();
             if (!owned && !this.fullscreen.isFull()) throw Error("Enforced fullscreen is unavailable on this device.");
             await this.persist({ ...this.current, fullscreenOwned: owned });
@@ -6128,7 +7524,35 @@ class HubOathService {
         this.captureFulfilment();
         this.emit(); void this.refresh();
     }
-    destroy() { this.disposed = true; clearInterval(this.timer); this.listeners.clear(); this.clockListeners.clear(); this.fullscreen.destroy(); }
+    async activateStrict() {
+        if (this.now() < (this.nextStrictAttempt ?? 0)) return false;
+        this.nextStrictAttempt = this.now() + 5000;
+        if (!this.resolveWorkspace(this.current?.workspace)) { await this.invalidateWorkspace(); return false; }
+        const oath = this.current;
+        try {
+            const prepared = await this.strict.prepare(oath);
+            if (!prepared.ready) { this.strictStatus = { ...prepared.preflight, status: "waiting" }; this.emit(); return false; }
+            if (this.disposed) { await this.strict.release(oath.id); return false; }
+            if (!this.resolveWorkspace(oath.workspace)) { await this.strict.release(oath.id); await this.invalidateWorkspace(); return false; }
+            await this.persist({ ...oath, state: "active", startedAt: this.now(), lastObservedAt: this.now(), strictSessionId: prepared.sessionId, fullscreenOwned: false });
+            this.strict.commit(oath.id);
+        } catch (error) {
+            await this.strict.release(oath.id);
+            this.strictStatus = { status: "waiting", warnings: [error.message] }; this.emit(); throw error;
+        }
+        await this.enterWorkspace(); this.emit(); return true;
+    }
+    async recoverStrict() {
+        const oath = this.current;
+        if (this.strict.owns(oath.id, oath.strictSessionId)) { this.strictStatus = this.strict.health; return; }
+        // Detect process interruption; never re-enter lockdown on startup.
+        const record = { ...oath, state: "interrupted", completedAt: oath.lastObservedAt ?? oath.startedAt ?? this.now(), interruptionDetectedAt: this.now(), interruptionTimeUnknown: true,
+            interruptionReason: "strict-host-session-unavailable", fullscreenOwned: false };
+        record.elapsedMs = oathTime(record, record.completedAt).elapsedMs;
+        await this.persist(record, [...(this.bucket.history ?? []), record]);
+        this.work = []; this.awaitingIndex.clear(); this.emit();
+    }
+    destroy() { this.disposed = true; clearInterval(this.timer); this.listeners.clear(); this.clockListeners.clear(); this.strict.detach(); this.fullscreen.destroy(); }
 }
 module.exports = { HubOathService };
 
@@ -6617,6 +8041,409 @@ class SharedProjectStore {
 }
 
 module.exports = { SHARED_STATE_PATH, SHARED_PROJECT_ROOTS, SHARED_IMAGE_ROOT, SharedProjectStore, sharedOwnership, selectShared, portablePath };
+
+},
+"lib/services/spotify-connect.js": function (module, exports, __hubRequire) {
+"use strict";
+// Backend portions adapted from caezium/obsidian-spotify-control (MIT):
+// src/auth.ts, src/api.ts, src/secure-storage.ts; commit
+// bcac3ccd3231ba879e3a3e8444b3f7fb3bae9464. Copyright (c) 2026 caezium.
+// Full copyright/permission notice: ../../THIRD-PARTY-NOTICES.md.
+
+const http = require("http");
+const { Buffer } = require("buffer");
+const { randomBytes, createHash, timingSafeEqual } = require("crypto");
+const { normalizeMusicSource } = __hubRequire("lib/domain/music.js");
+const { SpotifySecretStorage } = __hubRequire("lib/services/spotify-secret-storage.js");
+
+const SPOTIFY_REDIRECT_URI = "http://127.0.0.1:43827/itacan-spotify-callback";
+const SPOTIFY_SCOPES = "user-read-playback-state user-modify-playback-state";
+const AUTHORIZE_URL = "https://accounts.spotify.com/authorize";
+const TOKEN_URL = "https://accounts.spotify.com/api/token";
+const API_URL = "https://api.spotify.com/v1";
+const CONNECT_MESSAGE = "Connect Spotify in Settings.";
+const DEVICE_MESSAGE = "Open Spotify on a device, then try again.";
+const RESTRICTION_MESSAGE = "Spotify cannot control this playback right now. Check Spotify Premium, app access, and the device, then try again.";
+
+function expired(tokens, now = Date.now()) { return !tokens?.expires_at || now >= tokens.expires_at - 30000; }
+function pkce() {
+    const verifier = randomBytes(48).toString("base64url");
+    return { verifier, challenge: createHash("sha256").update(verifier).digest("base64url"), state: randomBytes(24).toString("base64url") };
+}
+function equalState(expected, received) {
+    const a = Buffer.from(expected || ""), b = Buffer.from(received || "");
+    return a.length > 0 && a.length === b.length && timingSafeEqual(a, b);
+}
+function responseBody(response) {
+    // Player writes legitimately return 204, including Obsidian responses
+    // with stray non-JSON bytes. Never touch .json on a 204 response.
+    if (response?.status === 204) return null;
+    try {
+        if (response?.text?.trim()) return JSON.parse(response.text);
+        return response?.json ?? null;
+    } catch (_) { return null; }
+}
+function retryAfter(response, now) {
+    const headers = response?.headers || {}, key = Object.keys(headers).find(name => name.toLowerCase() === "retry-after");
+    const value = key ? headers[key] : undefined, seconds = Number(value);
+    if (value !== undefined && Number.isFinite(seconds)) return Math.max(1000, seconds * 1000);
+    const date = Date.parse(value);
+    return Number.isFinite(date) ? Math.max(1000, date - now) : 30000;
+}
+function spotifyError(response, now = Date.now()) {
+    const status = Number(response?.status) || 0, raw = responseBody(response)?.error;
+    const reason = typeof raw?.reason === "string" ? raw.reason : undefined;
+    const restriction = status === 403 && /restriction violated/i.test(raw?.message || "");
+    const noDevice = status === 404 || reason === "NO_ACTIVE_DEVICE";
+    const noActiveDevice = reason === "NO_ACTIVE_DEVICE" || status === 404 && /no active device/i.test(raw?.message || "");
+    const message = status === 401 ? CONNECT_MESSAGE : noDevice ? DEVICE_MESSAGE : status === 403 ? RESTRICTION_MESSAGE :
+        status === 429 ? "Spotify is rate limiting requests. Wait and try again." : status === 400 ? "Spotify could not play this saved item. Check that it is available to your account." :
+            status >= 500 ? "Spotify is temporarily unavailable. Try again shortly." : "Spotify could not complete the request. Try again.";
+    // Do not propagate upstream response text, request objects or auth values
+    // into an error that UI/Obsidian might log.
+    return Object.assign(Error(message), { status, reason, noDevice, noActiveDevice, restriction, ...(status === 429 ? { retryAfterMs: retryAfter(response, now) } : {}) });
+}
+function selectDevice(devices) {
+    const usable = (Array.isArray(devices) ? devices : []).filter(device => typeof device?.id === "string" && device.id && !device.is_restricted);
+    return usable.find(device => device.is_active) || usable[0] || null;
+}
+function playbackPayload(item) {
+    // Existing saved URLs are authoritative; no library migration/re-add.
+    const source = normalizeMusicSource("spotify", item?.source);
+    return source.sourceType === "track" ? { uris: [source.metadata.uri] } : { context_uri: source.metadata.uri };
+}
+function tokensFrom(data, now, previous) {
+    if (typeof data?.access_token !== "string" || !data.access_token || !Number.isFinite(Number(data.expires_in)) || Number(data.expires_in) <= 0) {
+        throw Error("Spotify returned an incomplete authorization response. Connect again in Settings.");
+    }
+    const refresh_token = data.refresh_token || previous?.refresh_token;
+    if (typeof refresh_token !== "string" || !refresh_token) throw Error("Spotify did not provide a refresh token. Connect again in Settings.");
+    return { access_token: data.access_token, refresh_token, token_type: "Bearer", expires_at: now + Number(data.expires_in) * 1000 };
+}
+
+class SpotifyConnectBackend {
+    constructor(plugin, options = {}) {
+        this.plugin = plugin; this.options = options; this.now = options.now || Date.now;
+        this.sleep = options.sleep || (milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds)));
+        this.secretStorage = new SpotifySecretStorage(options.safeStorage);
+        this.listeners = new Set(); this.writeQueue = Promise.resolve(); this.generation = 0;
+        this.tokens = null; this.pending = null; this.exchanging = false; this.server = null; this.authTimer = null; this.authListenCancel = null; this.refreshPromise = null;
+        this.rateLimitUntil = 0; this.tokenRetryUntil = 0; this.refreshFailures = 0; this.playback = null; this.message = ""; this.destroyed = false;
+        this.redirectUri = options.callbackPort === undefined ? SPOTIFY_REDIRECT_URI : `http://127.0.0.1:${options.callbackPort}/itacan-spotify-callback`;
+    }
+    get config() {
+        const value = this.plugin.projectWizard.data.spotifyConnect;
+        return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+    }
+    get snapshot() {
+        return { clientId: String(this.config.clientId || ""), redirectUri: this.redirectUri, connected: !!this.tokens,
+            connecting: !!this.pending || this.exchanging, secureStorageAvailable: this.secretStorage.available,
+            status: this.pending || this.exchanging ? "connecting" : this.message ? "error" : this.tokens ? "connected" : "disconnected", message: this.message, playback: this.playback };
+    }
+    onChange(listener) { this.listeners.add(listener); return () => this.listeners.delete(listener); }
+    emit() { if (!this.destroyed) for (const listener of this.listeners) { try { listener(this.snapshot); } catch (_) { /* Detached view. */ } } }
+    active(generation = this.generation) {
+        if (this.destroyed || generation !== this.generation) { const error = Error("Spotify request was cancelled."); error.cancelled = true; throw error; }
+    }
+    async restore() {
+        this.active();
+        if (Number(this.config.version || 1) > 1) { this.message = "Spotify connection settings require a newer Itacan version."; this.emit(); return; }
+        const tokens = this.secretStorage.decrypt(this.config.tokensEnc);
+        if (tokens?.access_token && tokens?.refresh_token && Number.isFinite(tokens.expires_at)) this.tokens = tokens;
+        else if (this.config.tokensEnc) this.message = "Stored Spotify credentials cannot be unlocked on this device. Connect again in Settings.";
+        this.emit();
+    }
+    save(patch, generation = this.generation) {
+        const work = async () => {
+            this.active(generation);
+            if (Number(this.config.version || 1) > 1) throw Error("Spotify connection settings require a newer Itacan version.");
+            await this.plugin.dataStore.writeQueue?.catch(() => {}); this.active(generation);
+            const data = this.plugin.projectWizard.data, previous = data.spotifyConnect;
+            const next = { ...this.config, version: 1, ...patch };
+            if (next.tokensEnc === undefined) delete next.tokensEnc;
+            data.spotifyConnect = next;
+            try { await this.plugin.dataStore.save(data); this.plugin.projectWizard.data.spotifyConnect = next; }
+            catch (error) {
+                if (data.spotifyConnect === next) { if (previous === undefined) delete data.spotifyConnect; else data.spotifyConnect = previous; }
+                throw error;
+            }
+        };
+        // Reuse Music's existing serialized configuration owner, preserving
+        // concurrent library edits and the shared atomic conflict checks.
+        if (this.plugin.musicLibrary?.enqueue) return this.plugin.musicLibrary.enqueue(work);
+        const result = this.writeQueue.catch(() => {}).then(work); this.writeQueue = result; return result;
+    }
+    async setClientId(value) {
+        const clientId = String(value || "").trim();
+        if (clientId && !/^[a-fA-F0-9]{32}$/.test(clientId)) throw Error("Enter the 32-character Spotify Developer Client ID.");
+        if (clientId === this.snapshot.clientId) return;
+        this.cancelAuth(); this.generation++; this.tokens = null; this.playback = null; this.message = "";
+        this.rateLimitUntil = 0; this.tokenRetryUntil = 0; this.refreshFailures = 0;
+        try { await this.save({ clientId, tokensEnc: undefined }); } finally { this.emit(); }
+    }
+    cancelAuth(graceful = false) {
+        this.pending = null; this.exchanging = false; clearTimeout(this.authTimer); this.authTimer = null;
+        this.authListenCancel?.(); this.authListenCancel = null;
+        this.server?.close(); if (!graceful) this.server?.closeAllConnections?.(); this.server = null;
+    }
+    async connect() {
+        this.active();
+        if (!/^[a-fA-F0-9]{32}$/.test(this.snapshot.clientId)) throw Error("Enter your Spotify Client ID in Settings first.");
+        if (!this.secretStorage.available) throw Error("Secure token storage is unavailable. Connect Spotify on an Obsidian desktop with OS keychain support.");
+        this.cancelAuth(); const generation = ++this.generation;
+        const pending = { ...pkce(), clientId: this.snapshot.clientId, generation };
+        this.pending = pending; this.message = "Complete the Spotify connection in your browser."; this.emit();
+        try {
+            await this.listenForCallback(pending); this.active(generation);
+            const url = new URL(AUTHORIZE_URL);
+            for (const [key, value] of Object.entries({ response_type: "code", client_id: pending.clientId, redirect_uri: this.redirectUri,
+                scope: SPOTIFY_SCOPES, state: pending.state, code_challenge_method: "S256", code_challenge: pending.challenge })) url.searchParams.set(key, value);
+            const open = this.options.openExternal || (address => {
+                const shell = globalThis.window?.electron?.shell || require("electron").shell;
+                if (!shell?.openExternal) throw Error("The system browser is unavailable. Connect Spotify on Obsidian desktop.");
+                return shell.openExternal(address);
+            });
+            await open(url.toString());
+        } catch (error) {
+            if (generation === this.generation) { this.cancelAuth(); this.message = error.cancelled ? "" : "Spotify connection could not start. Try again."; this.emit(); }
+            if (error.code === "EADDRINUSE") throw Error("Spotify's local callback port is busy. Finish or cancel another connection attempt, then try again.");
+            if (error.cancelled) throw error;
+            throw Error(this.message || "Spotify connection could not start. Try again.");
+        }
+    }
+    listenForCallback(pending) {
+        // Spotify's current requirements permit HTTP only on IP-literal
+        // loopback. Upstream's obsidian:// callback is deliberately not copied.
+        // https://developer.spotify.com/documentation/web-api/concepts/redirect_uri
+        const address = new URL(this.redirectUri), port = Number(address.port);
+        return new Promise((resolve, reject) => {
+            const cancel = () => { const error = Error("Spotify connection was cancelled."); error.cancelled = true; reject(error); };
+            this.authListenCancel = cancel;
+            const server = (this.options.createServer || http.createServer)((request, response) => {
+                const finish = (status, message) => {
+                    response.writeHead(status, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store", "Referrer-Policy": "no-referrer",
+                        "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'", "Connection": "close" });
+                    response.end(`<!doctype html><title>Itacan Spotify</title><p>${message}</p>`);
+                };
+                let callback;
+                try { callback = new URL(request.url, this.redirectUri); } catch (_) { finish(400, "Invalid callback."); return; }
+                if (request.method !== "GET" || callback.pathname !== address.pathname || request.headers.host !== new URL(this.redirectUri).host ||
+                    request.socket.remoteAddress !== "127.0.0.1") { finish(404, "Not found."); return; }
+                if (this.pending !== pending || !equalState(pending.state, callback.searchParams.get("state"))) {
+                    finish(400, "The connection attempt does not match. Return to Itacan Settings and try again."); return;
+                }
+                if (callback.searchParams.has("error") || !callback.searchParams.get("code")) {
+                    finish(400, "Spotify connection was not approved. Return to Itacan Settings to try again.");
+                    this.cancelAuth(true); this.message = "Spotify connection was not approved. Try again in Settings."; this.emit(); return;
+                }
+                // Consume the pending attempt before exchanging; duplicate
+                // callbacks cannot replay an authorization code.
+                finish(200, "Return to Itacan Settings to check your Spotify connection. You may close this tab.");
+                this.cancelAuth(true); this.exchanging = true; this.emit();
+                void this.exchange(callback.searchParams.get("code"), pending).catch(error => {
+                    if (!this.destroyed && pending.generation === this.generation) { this.message = error.message; this.emit(); }
+                }).finally(() => { if (pending.generation === this.generation) { this.exchanging = false; this.emit(); } });
+            });
+            this.server = server; server.requestTimeout = 15000; server.headersTimeout = 15000; server.once("error", reject);
+            server.listen(port, "127.0.0.1", () => {
+                server.removeListener("error", reject);
+                if (this.destroyed || this.pending !== pending) { server.close(); server.closeAllConnections?.(); cancel(); return; }
+                if (this.authListenCancel === cancel) this.authListenCancel = null;
+                // Keep a diagnostic test's port=0 exact redirect consistent
+                // across authorize and token exchange; production is fixed.
+                this.redirectUri = `http://127.0.0.1:${server.address().port}${address.pathname}`;
+                server.on("error", () => { if (this.pending === pending) { this.cancelAuth(); this.message = "Spotify's callback listener stopped. Try connecting again."; this.emit(); } });
+                this.authTimer = setTimeout(() => {
+                    if (this.pending === pending) { this.cancelAuth(); this.message = "Spotify connection timed out. Try again in Settings."; this.emit(); }
+                }, this.options.authTimeoutMs || 300000);
+                this.authTimer.unref?.(); server.unref?.(); resolve();
+            });
+        });
+    }
+    async exchange(code, pending) {
+        const generation = pending.generation; this.active(generation);
+        const response = await this.send({ url: TOKEN_URL, method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: new URLSearchParams({ grant_type: "authorization_code", code, redirect_uri: this.redirectUri,
+                client_id: pending.clientId, code_verifier: pending.verifier }).toString(), throw: false });
+        this.active(generation);
+        if (response.status !== 200) throw Error("Spotify authorization failed. Check your Client ID, redirect URI, and app access, then connect again.");
+        await this.storeTokens(tokensFrom(responseBody(response), this.now()), generation);
+        this.message = ""; this.tokenRetryUntil = 0; this.refreshFailures = 0; this.emit();
+    }
+    async storeTokens(tokens, generation = this.generation) {
+        this.active(generation); const tokensEnc = this.secretStorage.encrypt(tokens);
+        await this.save({ tokensEnc }, generation); this.active(generation); this.tokens = tokens;
+    }
+    async disconnect() {
+        this.cancelAuth(); this.generation++; this.tokens = null; this.playback = null; this.message = ""; this.rateLimitUntil = 0; this.tokenRetryUntil = 0; this.refreshFailures = 0;
+        try { await this.save({ tokensEnc: undefined }); } finally { this.emit(); }
+        // Local credentials cleared; no undocumented Spotify revoke endpoint
+        // or claim of Spotify-side account revocation.
+    }
+    async send(options) {
+        let request = this.options.request;
+        if (!request) { try { request = require("obsidian").requestUrl; } catch (_) { /* Bare Node. */ } }
+        if (!request) throw Error("Spotify requests are unavailable in this host.");
+        try {
+            const response = await request(options);
+            if (!response || !Number.isFinite(Number(response.status))) throw Error("Incomplete response");
+            return response;
+        }
+        catch (_) { throw Error("Spotify could not be reached. Check your connection and try again."); }
+    }
+    async ensureFreshToken() {
+        this.active(); if (!this.tokens) throw Error(CONNECT_MESSAGE);
+        if (expired(this.tokens, this.now())) await this.refresh();
+        if (!this.tokens) throw Error(CONNECT_MESSAGE); return this.tokens.access_token;
+    }
+    refresh() {
+        if (this.refreshPromise) return this.refreshPromise;
+        const promise = this.doRefresh().finally(() => { if (this.refreshPromise === promise) this.refreshPromise = null; });
+        this.refreshPromise = promise; return promise;
+    }
+    refreshBackoff() {
+        // Upstream's bounded transient schedule, applied on demand instead
+        // of retaining a background timer while the Music window is closed.
+        const schedule = [30000, 60000, 120000, 300000];
+        const delay = schedule[Math.min(this.refreshFailures++, schedule.length - 1)];
+        this.tokenRetryUntil = this.now() + delay;
+    }
+    async doRefresh() {
+        this.active(); if (!this.tokens?.refresh_token) throw Error(CONNECT_MESSAGE);
+        if (this.tokenRetryUntil > this.now()) throw Object.assign(Error("Spotify token refresh is temporarily unavailable. Wait and try again."), { retryAfterMs: this.tokenRetryUntil - this.now() });
+        const generation = this.generation, previous = this.tokens;
+        let response;
+        try {
+            response = await this.send({ url: TOKEN_URL, method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                body: new URLSearchParams({ grant_type: "refresh_token", refresh_token: previous.refresh_token, client_id: this.snapshot.clientId }).toString(), throw: false });
+        } catch (error) { this.active(generation); this.refreshBackoff(); throw error; }
+        this.active(generation);
+        if (response.status === 429 || response.status >= 500) {
+            if (response.status === 429) this.tokenRetryUntil = this.now() + retryAfter(response, this.now()); else this.refreshBackoff();
+            throw spotifyError(response, this.now());
+        }
+        if (response.status >= 400) {
+            this.tokens = null; this.playback = null; this.message = "Spotify session expired. Connect again in Settings.";
+            await this.save({ tokensEnc: undefined }, generation); this.emit(); throw Error(this.message);
+        }
+        await this.storeTokens(tokensFrom(responseBody(response), this.now(), previous), generation); this.tokenRetryUntil = 0; this.refreshFailures = 0; this.message = ""; this.emit();
+    }
+    async request(method, path, { body, query } = {}) {
+        this.active();
+        if (this.rateLimitUntil > this.now()) throw Object.assign(Error("Spotify is rate limiting requests. Wait and try again."), { status: 429, retryAfterMs: this.rateLimitUntil - this.now() });
+        const generation = this.generation, token = await this.ensureFreshToken(); this.active(generation);
+        const issue = async accessToken => {
+            this.active(generation);
+            const url = new URL(API_URL + path);
+            for (const [key, value] of Object.entries(query || {})) if (value !== undefined) url.searchParams.set(key, String(value));
+            return this.send({ url: url.toString(), method, headers: { Authorization: `Bearer ${accessToken}`, ...(body !== undefined ? { "Content-Type": "application/json" } : {}) },
+                ...(body !== undefined ? { body: JSON.stringify(body) } : {}), throw: false });
+        };
+        let response = await issue(token); this.active(generation);
+        if (response.status === 401) { await this.refresh(); this.active(generation); response = await issue(this.tokens.access_token); this.active(generation); }
+        if (response.status >= 200 && response.status < 300) return responseBody(response);
+        const error = spotifyError(response, this.now());
+        if (response.status === 429) this.rateLimitUntil = this.now() + error.retryAfterMs;
+        throw error;
+    }
+    async getPlaybackState() {
+        const playback = await this.request("GET", "/me/player"); this.playback = playback; this.emit(); return playback;
+    }
+    async getAvailableDevices() { return (await this.request("GET", "/me/player/devices"))?.devices || []; }
+    async transferTo(deviceId, play = false) {
+        if (typeof deviceId !== "string" || !deviceId) throw Error(DEVICE_MESSAGE);
+        return this.request("PUT", "/me/player", { body: { device_ids: [deviceId], play: !!play } });
+    }
+    async command(method, path, options = {}, { transfer = true } = {}) {
+        const generation = this.generation;
+        try { return await this.request(method, path, options); }
+        catch (error) {
+            if (error.noActiveDevice && !transfer) return null;
+            if (error.noDevice && !transfer) throw error;
+            if (error.noDevice) {
+                const target = selectDevice(await this.getAvailableDevices()); this.active(generation);
+                if (!target) throw Error(DEVICE_MESSAGE);
+                await this.transferTo(target.id, false); await this.sleep(400); this.active(generation);
+                const retry = { ...options, query: { ...options.query, device_id: target.id } };
+                try { return await this.request(method, path, retry); }
+                catch (wakeError) {
+                    if (!wakeError.restriction && !wakeError.noDevice) throw wakeError;
+                    await this.sleep(1200); this.active(generation); return this.request(method, path, retry);
+                }
+            }
+            if (error.restriction) { await this.sleep(800); this.active(generation); return this.request(method, path, options); }
+            throw error;
+        }
+    }
+    async playCommand(body) {
+        const generation = this.generation;
+        const current = this.playback?.device;
+        let device = selectDevice(current?.is_active ? [current] : []);
+        if (!device) device = selectDevice(await this.getAvailableDevices());
+        this.active(generation);
+        if (!device) throw Error(DEVICE_MESSAGE);
+        if (!device.is_active) { await this.transferTo(device.id, false); await this.sleep(400); this.active(generation); }
+        return this.command("PUT", "/me/player/play", { ...(body ? { body } : {}), query: { device_id: device.id } });
+    }
+    startItem(item) { return this.playCommand(playbackPayload(item)); }
+    resume() { return this.playCommand(); }
+    pause() { return this.command("PUT", "/me/player/pause", {}, { transfer: false }); }
+    previous() { return this.command("POST", "/me/player/previous"); }
+    next() { return this.command("POST", "/me/player/next"); }
+    seek(seconds) { return this.command("PUT", "/me/player/seek", { query: { position_ms: Math.max(0, Math.round((Number(seconds) || 0) * 1000)) } }); }
+    setVolume(value) {
+        return this.command("PUT", "/me/player/volume", { query: { volume_percent: Math.max(0, Math.min(100, Math.round((Number(value) || 0) * 100))) } });
+    }
+    destroy() { this.destroyed = true; this.generation++; this.cancelAuth(); this.tokens = null; this.playback = null; this.listeners.clear(); }
+}
+
+module.exports = { SpotifyConnectBackend, SPOTIFY_REDIRECT_URI, SPOTIFY_SCOPES, playbackPayload, selectDevice, expired, pkce, responseBody };
+
+},
+"lib/services/spotify-secret-storage.js": function (module, exports, __hubRequire) {
+"use strict";
+// Adapted from caezium/obsidian-spotify-control src/secure-storage.ts (MIT).
+// Copyright (c) 2026 caezium. Full notice: ../../THIRD-PARTY-NOTICES.md.
+const { Buffer } = require("buffer");
+
+function usable(storage) {
+    try {
+        return !!storage && typeof storage.encryptString === "function" && typeof storage.decryptString === "function" &&
+            storage.isEncryptionAvailable() && storage.getSelectedStorageBackend?.() !== "basic_text";
+    } catch (_) { return false; }
+}
+
+function findStorage(value) {
+    for (const storage of [value?.safeStorage, value?.remote?.safeStorage, value]) if (usable(storage)) return storage;
+    return null;
+}
+
+function desktopStorage() {
+    // Atlas/Oath already use Obsidian's main-process Electron remote bridge.
+    const exposed = findStorage(globalThis.window?.electron);
+    if (exposed) return exposed;
+    try { const storage = findStorage(require("electron")); if (storage) return storage; } catch (_) { /* Node tests/mobile. */ }
+    try { return findStorage(require("@electron/remote")); } catch (_) { return null; }
+}
+
+class SpotifySecretStorage {
+    constructor(storage) { this.storage = storage === undefined ? desktopStorage() : findStorage(storage); }
+    get available() { return usable(this.storage); }
+    encrypt(tokens) {
+        if (!this.available) throw Error("Secure token storage is unavailable. Connect Spotify on an Obsidian desktop with OS keychain support.");
+        // Deliberately no upstream plaintext fallback: auth cannot silently
+        // become unprotected ordinary settings when an OS keychain fails.
+        try { return this.storage.encryptString(JSON.stringify(tokens)).toString("base64"); }
+        catch (_) { throw Error("Spotify credentials could not be saved securely. Try connecting again."); }
+    }
+    decrypt(ciphertext) {
+        if (!ciphertext || !this.available) return null;
+        try { return JSON.parse(this.storage.decryptString(Buffer.from(ciphertext, "base64"))); }
+        catch (_) { return null; }
+    }
+}
+
+module.exports = { SpotifySecretStorage };
 
 },
 "lib/services/statistics.js": function (module, exports, __hubRequire) {
@@ -7403,8 +9230,12 @@ function mountAppShortcuts(plugin, left) {
         const category = owner?.contextKind === "project" ? plugin.projectWizard.categories.find(item => item.id === owner.categoryId || item.name === owner.categoryId) : null;
         // Home retains its global shortcuts; workspaces retain category configuration.
         const selected = owner ? (category?.shortcuts ?? []) : APP_SHORTCUTS.map(item => item.id);
-        const shortcuts = selected.map(id => APP_SHORTCUTS.find(item => item.id === id)).filter(Boolean);
-        const next = shortcuts.map(item => item.id).join("|");
+        const strict = plugin.oath?.active && plugin.oath?.isStrict;
+        const shortcuts = strict ? [
+            { id: "strict-host", label: "Return to Itacan", focus: true },
+            ...plugin.oath.current.policy.applications.map(executable => ({ id: executable, executable, label: "Open " + executable.split("\\").pop() }))
+        ] : selected.map(id => APP_SHORTCUTS.find(item => item.id === id)).filter(Boolean);
+        const next = (strict ? "strict:" : "ordinary:") + shortcuts.map(item => item.id).join("|");
         if (next === signature && group.childElementCount === shortcuts.length) return;
         signature = next; group.empty(); group.hidden = !shortcuts.length;
         for (const shortcut of shortcuts) {
@@ -7416,7 +9247,11 @@ function mountAppShortcuts(plugin, left) {
             button.createSpan({ cls: "hub-shell-shortcut-label", text: shortcut.label });
             button.addEventListener("click", async () => {
                 button.disabled = true;
-                try { await plugin.openAppShortcut(shortcut.id); }
+                try {
+                    if (shortcut.focus) plugin.oath.strict.host.focus();
+                    else if (shortcut.executable) await plugin.oath.launchStrictApplication(shortcut.executable);
+                    else await plugin.openAppShortcut(shortcut.id);
+                }
                 catch (error) { new Notice(error.message || "Could not open app shortcut."); }
                 finally { button.disabled = false; }
             });
@@ -7449,7 +9284,8 @@ function mountAppShortcuts(plugin, left) {
     plugin.registerEvent(plugin.app.metadataCache.on("changed", render));
     plugin.registerEvent(plugin.app.workspace.on("layout-change", render));
     group.hidden = true; render();
-    return { refresh: render, destroy() { disposed = true; resize.disconnect(); mutation.disconnect(); group.remove(); } };
+    const stopOath = plugin.oath?.onChange(render);
+    return { refresh: render, destroy() { disposed = true; stopOath?.(); resize.disconnect(); mutation.disconnect(); group.remove(); } };
 }
 module.exports = { mountAppShortcuts };
 
@@ -10686,43 +12522,431 @@ function mountDisclosure({ trigger, panel, onOpen = () => {}, onClose = () => {}
 module.exports = { bindMenuToggle, mountDisclosure };
 
 },
+"lib/ui/music-item-editor.js": function (module, exports, __hubRequire) {
+"use strict";
+const { CaptureModal, action } = __hubRequire("lib/ui/capture-modal.js");
+const { MUSIC_PROVIDERS, LOCAL_AUDIO_EXTENSIONS, normalizeMusicSource } = __hubRequire("lib/domain/music.js");
+
+class MusicItemModal extends CaptureModal {
+    constructor(service, options = {}) { super(service.app, service, options); this.files = []; this.item = options.item ?? null; }
+    field(parent, label, name) {
+        const host = parent.createDiv({ cls: "hub-music-item-field" });
+        const id = this.prefix + "-" + name;
+        host.createEl("label", { cls: "hub-capture-label", text: label, attr: { for: id } });
+        return { host, id };
+    }
+    onOpen() {
+        this.modalEl.classList.add("hub-music-item-dialog", "hub-quick-add-dialog");
+        this.header(this.item ? "Rename music" : "Add music", this.item ? "Choose a name for this music." : "Save a music link or choose local files.", "music");
+        const form = this.contentEl.createEl("form", { cls: "hub-music-item-form hub-capture-content" });
+        const body = form.createDiv({ cls: "hub-capture-body hub-capture-form" });
+        if (!this.item) {
+            let field = this.field(body, "Source", "provider");
+            this.provider = field.host.createEl("select", { cls: "dropdown", attr: { id: field.id } });
+            for (const provider of MUSIC_PROVIDERS) this.provider.createEl("option", { text: provider.name, attr: { value: provider.id } });
+            this.provider.value = MUSIC_PROVIDERS.find(provider => this.service.state.providers[provider.id])?.id ?? "spotify";
+            this.provider.addEventListener("change", () => this.refreshSource());
+            field = this.field(body, "Music URL", "source"); this.sourceField = field.host;
+            this.source = field.host.createEl("input", { attr: { id: field.id, type: "text", inputmode: "url", spellcheck: "false", autocomplete: "off", placeholder: "Paste a music URL" } });
+            this.source.addEventListener("input", () => { this.error.textContent = ""; this.source.removeAttribute("aria-invalid"); });
+            this.sourceHelp = field.host.createDiv({ cls: "hub-capture-muted" });
+            this.localField = body.createDiv({ cls: "hub-music-item-field" });
+            this.localField.createDiv({ cls: "hub-capture-label", text: "Audio files" });
+            this.fileInput = this.localField.createEl("input", { attr: { type: "file", multiple: "", hidden: "", tabindex: "-1",
+                accept: LOCAL_AUDIO_EXTENSIONS.map(extension => "." + extension).join(","), "aria-label": "Choose audio files" } });
+            this.fileInput.addEventListener("change", () => {
+                this.files = [...this.fileInput.files]; this.fileInput.value = ""; this.error.textContent = ""; this.renderFiles();
+            });
+            this.chooseFileButton = action(this.localField, "Choose audio files", "folder-open", () => this.fileInput.click());
+            this.fileList = this.localField.createDiv({ cls: "hub-music-local-files hub-capture-attachments" });
+            this.localField.createDiv({ cls: "hub-capture-muted", text: "Files stay in their current location." });
+        }
+        const field = this.field(body, this.item ? "Display name" : "Display name (optional)", "name"); this.nameField = field.host;
+        this.name = field.host.createEl("input", { attr: { id: field.id, type: "text", placeholder: "Use the music title" } });
+        this.name.value = this.item?.name ?? "";
+        if (this.item) this.name.required = true;
+        const footer = form.createDiv({ cls: "hub-capture-actions" });
+        action(footer, "Cancel", null, () => this.close());
+        const save = footer.createEl("button", { cls: "mod-cta", text: this.item ? "Save" : "Add music", attr: { type: "submit" } });
+        form.addEventListener("submit", event => {
+            event.preventDefault();
+            if (!form.reportValidity()) return;
+            void this.run(async () => {
+                if (this.item) await this.service.rename(this.item.id, this.name.value);
+                else if (this.provider.value === "local") await this.service.addLocalFiles(this.files);
+                else {
+                    try { normalizeMusicSource(this.provider.value, this.source.value); }
+                    catch (error) { this.source.setAttribute("aria-invalid", "true"); this.source.focus(); throw error; }
+                    await this.service.add({ provider: this.provider.value, source: this.source.value, name: this.name.value });
+                }
+                this.finish();
+            });
+        });
+        save.setAttribute("aria-label", this.item ? "Save display name" : "Add music");
+        this.refreshSource(); (this.item ? this.name : this.provider.value === "local" ? this.chooseFileButton : this.source).focus();
+        if (this.item) this.name.select();
+    }
+    refreshSource() {
+        if (!this.provider) return;
+        const provider = this.provider.value, local = provider === "local";
+        this.sourceField.hidden = local; this.localField.hidden = !local; this.nameField.hidden = local;
+        this.source.required = !local;
+        this.sourceHelp.textContent = provider === "spotify" ? "Tracks, albums, playlists and artists." : provider === "youtube-music" ? "Songs, albums or playlists from music.youtube.com. An album's shared playlist link gives the most reliable playback." : "YouTube videos or playlists.";
+        this.source.placeholder = provider === "spotify" ? "https://open.spotify.com/..." : provider === "youtube-music" ? "https://music.youtube.com/..." : "https://www.youtube.com/...";
+        this.source.removeAttribute("aria-invalid"); this.error.textContent = "";
+    }
+    renderFiles() {
+        this.fileList.empty();
+        for (const file of this.files) {
+            const row = this.fileList.createDiv({ cls: "hub-capture-attachment" });
+            row.createSpan({ cls: "hub-capture-filename", text: file.name });
+            const remove = action(row, "", "x", () => { this.files = this.files.filter(candidate => candidate !== file); this.renderFiles(); }, "hub-capture-small-action");
+            remove.setAttribute("aria-label", "Remove " + file.name); remove.title = "Remove " + file.name;
+        }
+    }
+}
+function openMusicItemEditor(service, options = {}) { const modal = new MusicItemModal(service, options); modal.open(); return modal; }
+module.exports = { MusicItemModal, openMusicItemEditor };
+
+},
+"lib/ui/music-settings.js": function (module, exports, __hubRequire) {
+"use strict";
+const { ToggleComponent, Menu } = require("obsidian");
+const { MUSIC_PROVIDERS, musicProvider } = __hubRequire("lib/domain/music.js");
+const { row, section } = __hubRequire("lib/ui/settings-pages.js");
+const { setHubIcon } = __hubRequire("lib/ui/icons.js");
+const { action } = __hubRequire("lib/ui/capture-modal.js");
+const { openMusicItemEditor } = __hubRequire("lib/ui/music-item-editor.js");
+
+function mountMusicSettings(parent, service) {
+    const error = parent.createDiv({ cls: "hub-task-error", attr: { role: "alert" } });
+    const host = parent.createDiv({ cls: "hub-music-settings" });
+    const spotify = service.plugin?.spotifyConnect;
+    let clientIdDraft = spotify?.snapshot.clientId ?? "";
+    let clientIdDirty = false;
+    let disposed = false, busy = false, editor = null, toggles = [];
+    const toggle = (control, label, value, change) => {
+        const component = new ToggleComponent(control).setValue(value).onChange(value => { void run(() => change(value)); });
+        component.toggleEl?.setAttribute("aria-label", label); component.setDisabled(busy);
+        toggles.push(component);
+        return component;
+    };
+    const run = async work => {
+        if (disposed || busy) return;
+        busy = true; error.textContent = "";
+        host.setAttribute("aria-busy", "true");
+        const controls = [...host.querySelectorAll("button,input,select")], disabled = controls.map(control => control.disabled);
+        controls.forEach(control => control.disabled = true);
+        toggles.forEach(component => component.setDisabled(true));
+        try { await work(); }
+        catch (problem) { if (!disposed) error.textContent = problem.message || "Could not save music settings. Try again."; }
+        finally {
+            busy = false;
+            if (!disposed) { host.removeAttribute("aria-busy"); controls.forEach((control, index) => { control.disabled = disabled[index]; }); render(); }
+        }
+    };
+    const openEditor = options => {
+        if (disposed || busy || editor) return;
+        const returnKey = options.returnFocus?.dataset?.musicFocus;
+        editor = openMusicItemEditor(service, { ...options, onClose() {
+            editor = null;
+            if (!disposed) {
+                render();
+                if (returnKey) [...host.querySelectorAll("[data-music-focus]")].find(control => control.dataset.musicFocus === returnKey)?.focus({ preventScroll: true });
+            }
+        } });
+    };
+    function render() {
+        if (disposed || busy) return;
+        const active = host.ownerDocument.activeElement;
+        const focusKey = host.contains(active) ? active?.dataset?.musicFocus : null;
+        const selection = focusKey && typeof active.selectionStart === "number" ? [active.selectionStart, active.selectionEnd] : null;
+        host.empty(); toggles = [];
+        const state = service.state;
+        if (service.compatibilityError) {
+            host.createEl("p", { cls: "hub-task-error", text: service.compatibilityError + " Update Itacan to edit this library.", attr: { role: "alert" } });
+            return;
+        }
+        let group = section(host, "General");
+        const control = row(group, "Enable Music", "Show Music in the bottom bar. Your saved music is retained when disabled.");
+        const enabled = toggle(control, "Enable Music", state.enabled, value => service.setEnabled(value));
+        if (enabled.toggleEl) enabled.toggleEl.dataset.musicFocus = "enabled";
+        group = section(host, "Sources");
+        for (const provider of MUSIC_PROVIDERS) {
+            const control = row(group, provider.name);
+            const label = control.parentElement.querySelector(".hub-settings-label");
+            label.classList.add("hub-music-provider-label");
+            const icon = label.ownerDocument.createElement("span"); icon.className = "hub-capture-icon"; icon.setAttribute("aria-hidden", "true");
+            label.prepend(icon); setHubIcon(icon, provider.icon);
+            const component = toggle(control, provider.name, state.providers[provider.id], value => service.setProviderEnabled(provider.id, value));
+            if (component.toggleEl) component.toggleEl.dataset.musicFocus = provider.id;
+        }
+        if (spotify) {
+            const connection = spotify.snapshot;
+            if (!clientIdDirty) clientIdDraft = connection.clientId;
+            group = section(host, "Spotify");
+            const clientControl = row(group, "Client ID", "Use the Client ID from your Spotify Developer Dashboard app. No Client Secret is needed.");
+            const clientFields = clientControl.createDiv({ cls: "hub-music-client-control" });
+            const clientInput = clientFields.createEl("input", { attr: { type: "text", value: clientIdDraft,
+                "aria-label": "Spotify Client ID", placeholder: "Spotify Client ID", spellcheck: "false", autocomplete: "off" } });
+            clientInput.dataset.musicFocus = "spotify-client-id";
+            clientInput.disabled = connection.connecting;
+            const saveClientId = action(clientFields, "Save", "check", () => { void run(async () => {
+                await spotify.setClientId(clientIdDraft); clientIdDirty = false;
+            }); });
+            saveClientId.dataset.musicFocus = "spotify-save-client-id";
+            saveClientId.disabled = connection.connecting || clientIdDraft.trim() === connection.clientId;
+            clientInput.addEventListener("input", () => {
+                clientIdDraft = clientInput.value; clientIdDirty = true;
+                saveClientId.disabled = clientIdDraft.trim() === spotify.snapshot.clientId;
+                if (connect) connect.disabled = !clientIdDraft.trim() || !spotify.snapshot.secureStorageAvailable;
+            });
+            clientInput.addEventListener("keydown", event => {
+                if (event.key === "Enter" && !saveClientId.disabled) { event.preventDefault(); saveClientId.click(); }
+            });
+            const redirectControl = row(group, "Redirect URI", "Add this exact URI to the app's redirect URIs in Spotify Developer Dashboard, then save the app.");
+            redirectControl.createEl("input", { attr: { type: "text", value: connection.redirectUri, readonly: "",
+                "aria-label": "Spotify redirect URI", title: connection.redirectUri, spellcheck: "false" } }).dataset.musicFocus = "spotify-redirect-uri";
+            const accountControl = row(group, "Connection", connection.connecting ? "Waiting for Spotify authorization in your browser." : connection.connected ? "Connected to Spotify." : "Spotify is not connected.");
+            let connect = null;
+            if (!connection.connected && !connection.connecting) {
+                connect = action(accountControl, "Connect Spotify", "external-link", () => { void run(async () => {
+                    if (clientIdDraft.trim() !== spotify.snapshot.clientId) {
+                        await spotify.setClientId(clientIdDraft); clientIdDirty = false;
+                    }
+                    await spotify.connect();
+                }); });
+                connect.dataset.musicFocus = "spotify-connect";
+                connect.disabled = !clientIdDraft.trim() || !connection.secureStorageAvailable;
+            } else {
+                const disconnect = action(accountControl, connection.connecting ? "Cancel connection" : "Disconnect Spotify", "unlink", () => { void run(() => spotify.disconnect()); });
+                disconnect.dataset.musicFocus = "spotify-disconnect";
+            }
+            if (connection.message) group.createEl("p", { cls: connection.status === "error" ? "hub-task-error" : "hub-settings-description",
+                text: connection.message, attr: { role: connection.status === "error" ? "alert" : "status", "aria-live": "polite" } });
+            else if (!connection.secureStorageAvailable) group.createEl("p", { cls: "hub-task-error", text: "Secure credential storage is unavailable in this Obsidian runtime. Spotify cannot connect.", attr: { role: "alert" } });
+            group.createEl("p", { cls: "hub-settings-description", text: "Spotify Premium and a running Spotify app or another Spotify Connect device are required. Disconnect clears Itacan's local credentials." });
+        }
+        group = section(host, "Music library");
+        const add = action(row(group, "Configured music", "Save links and file references, then choose them in Music."), "Add music", "plus", () => openEditor({ returnFocus: add }));
+        add.dataset.musicFocus = "add";
+        const list = group.createDiv({ cls: "hub-music-library" });
+        if (!state.items.length) list.createEl("p", { cls: "hub-capture-muted", text: "No music configured. Add a music link or local audio files." });
+        state.items.forEach((item, index) => {
+            const entry = list.createDiv({ cls: "hub-music-library-row" });
+            const copy = entry.createDiv({ cls: "hub-music-library-copy" });
+            copy.createDiv({ cls: "hub-music-library-name", text: item.name });
+            copy.createDiv({ cls: "hub-music-library-source", text: `${musicProvider(item.provider)?.name ?? item.provider} · ${item.sourceType === "file" ? "Audio file" : item.sourceType}` });
+            copy.createDiv({ cls: "hub-music-library-source", text: item.source, attr: { title: item.source } });
+            const controls = entry.createDiv({ cls: "hub-music-library-actions" });
+            const component = toggle(controls, "Enable " + item.name, item.enabled, value => service.setItemEnabled(item.id, value));
+            if (component.toggleEl) component.toggleEl.dataset.musicFocus = "item-" + item.id;
+            const menuButton = action(controls, "", "ellipsis", () => {
+                const menu = new Menu();
+                menu.addItem(option => option.setTitle("Rename").setIcon("square-pen").onClick(() => openEditor({ item, returnFocus: menuButton })));
+                menu.addItem(option => option.setTitle("Move up").setIcon("arrow-up").setDisabled(index === 0).onClick(() => { void run(() => service.move(item.id, -1)); }));
+                menu.addItem(option => option.setTitle("Move down").setIcon("arrow-down").setDisabled(index === state.items.length - 1).onClick(() => { void run(() => service.move(item.id, 1)); }));
+                menu.addSeparator();
+                menu.addItem(option => option.setTitle("Remove").setIcon("trash-2").onClick(() => { void run(() => service.remove(item.id)); }));
+                const rect = menuButton.getBoundingClientRect(); menu.showAtPosition({ x: rect.left, y: rect.bottom });
+            }, "hub-music-library-menu");
+            menuButton.setAttribute("aria-label", "Options for " + item.name); menuButton.setAttribute("aria-haspopup", "menu"); menuButton.title = "Music options";
+            menuButton.dataset.musicFocus = "menu-" + item.id;
+        });
+        if (focusKey) {
+            const control = [...host.querySelectorAll("[data-music-focus]")].find(control => control.dataset.musicFocus === focusKey);
+            control?.focus({ preventScroll: true });
+            if (selection) control?.setSelectionRange?.(...selection);
+        }
+    }
+    const unsubscribe = service.onChange(render), unsubscribeSpotify = spotify?.onChange(render); render();
+    return () => { disposed = true; unsubscribe(); unsubscribeSpotify?.(); editor?.close(); };
+}
+module.exports = { mountMusicSettings };
+
+},
 "lib/ui/music.js": function (module, exports, __hubRequire) {
 "use strict";
-const { createWindowTitle } = __hubRequire("lib/ui/window-title.js");
-const { Modal, setIcon } = require("obsidian");
+const { createWindowTitle, setWindowUndertext } = __hubRequire("lib/ui/window-title.js");
+const { Modal } = require("obsidian");
+const { setHubIcon } = __hubRequire("lib/ui/icons.js");
+const { action } = __hubRequire("lib/ui/capture-modal.js");
+const { MUSIC_PROVIDERS } = __hubRequire("lib/domain/music.js");
 const { setHubTooltip } = __hubRequire("lib/ui/tooltips.js");
 let instance = 0;
 
 class MusicModal extends Modal {
-    constructor(app, onClose) { super(app); this.closed = onClose; this.titleId = `hub-music-${++instance}-title`; }
+    constructor(app, onClose, plugin) {
+        super(app); this.closed = onClose; this.plugin = plugin;
+        this.controller = plugin.music; this.library = plugin.musicLibrary;
+        this.titleId = `hub-music-${++instance}-title`;
+    }
     onOpen() {
         this.modalEl.classList.add("hub-oath-dialog", "hub-music-dialog");
-        this.contentEl.classList.add("hub-button-scope");
+        this.contentEl.classList.add("hub-button-scope", "hub-capture-content", "hub-music-content");
         this.contentEl.tabIndex = -1;
-        createWindowTitle(this.contentEl, "Music", "music", { attr: { id: this.titleId } });
+        const header = this.contentEl.createEl("header", { cls: "hub-capture-header" });
+        const heading = createWindowTitle(header, "Music", "music", { attr: { id: this.titleId } });
+        setWindowUndertext(heading, header.createEl("p", { cls: "hub-oath-muted", text: "Play your configured music." }));
         this.modalEl.setAttribute("aria-labelledby", this.titleId);
+        this.modalEl.querySelector(".modal-close-button")?.setAttribute("aria-label", "Close Music");
+        this.body = this.contentEl.createDiv({ cls: "hub-capture-body hub-music-body" });
+        this.empty = this.body.createDiv({ cls: "hub-music-empty" });
+        this.empty.createEl("p", { cls: "hub-oath-muted", text: "Add music in Settings, then choose it here when you work." });
+        action(this.empty, "Open Music settings", "settings", () => this.openSettings());
+        this.layout = this.body.createDiv({ cls: "hub-music-layout" });
+        const configured = this.layout.createEl("section", { cls: "hub-music-configured", attr: { "aria-label": "Configured music" } });
+        configured.createEl("h3", { text: "Your music" });
+        this.list = configured.createDiv({ cls: "hub-music-list" });
+        const playing = this.layout.createEl("section", { cls: "hub-music-now", attr: { "aria-label": "Now playing" } });
+        playing.createEl("h3", { text: "Now playing" });
+        this.artwork = playing.createEl("img", { cls: "hub-music-now-artwork", attr: { alt: "", referrerpolicy: "no-referrer" } });
+        this.artwork.hidden = true;
+        this.artwork.addEventListener("error", () => {
+            this.failedArtwork = this.artwork.getAttribute("src"); this.artwork.hidden = true;
+        });
+        this.name = playing.createDiv({ cls: "hub-music-now-title" });
+        this.artist = playing.createDiv({ cls: "hub-capture-muted" });
+        this.source = playing.createDiv({ cls: "hub-capture-muted" });
+        this.feedback = playing.createDiv({ cls: "hub-music-feedback hub-capture-muted", attr: { role: "status", "aria-live": "polite" } });
+        this.surface = playing.createDiv({ cls: "hub-music-player" });
+        this.transport = playing.createDiv({ cls: "hub-music-transport" });
+        this.progress = playing.createDiv({ cls: "hub-music-progress" });
+        this.volumeHost = playing.createDiv({ cls: "hub-music-volume" });
+        const footer = this.contentEl.createDiv({ cls: "hub-capture-actions hub-music-actions" });
+        action(footer, "Music settings", "settings", () => this.openSettings());
+        action(footer, "Close", null, () => this.close());
+        this.stop = this.controller.onChange(state => this.renderState(state));
+        this.stopLibrary = this.library.onChange(() => this.renderList());
+        this.renderList(); this.controller.attach(this.surface);
         this.contentEl.focus();
     }
-    onClose() { this.contentEl.empty(); this.closed?.(); }
+    openSettings() { this.close(); this.plugin.settingsControl?.open("music"); }
+    renderList() {
+        const entries = this.controller.entries;
+        this.empty.hidden = !!entries.length; this.layout.hidden = !entries.length;
+        this.list.empty(); this.rows = new Map();
+        for (const item of entries) {
+            const provider = MUSIC_PROVIDERS.find(provider => provider.id === item.provider);
+            const row = this.list.createEl("button", { cls: "hub-inbox-row hub-music-row", attr: { type: "button" } });
+            const graphic = row.createSpan({ cls: "hub-capture-icon hub-music-source-icon", attr: { "aria-hidden": "true" } });
+            setHubIcon(graphic, provider?.icon ?? "music");
+            if (item.artwork) {
+                const art = graphic.createEl("img", { cls: "hub-music-artwork", attr: { alt: "", loading: "lazy", referrerpolicy: "no-referrer" } });
+                art.addEventListener("load", () => { graphic.replaceChildren(art); art.classList.add("is-loaded"); }, { once: true });
+                art.addEventListener("error", () => art.remove(), { once: true });
+                art.src = item.artwork;
+            }
+            const copy = row.createSpan({ cls: "hub-inbox-row-copy" });
+            copy.createSpan({ cls: "hub-music-row-title", text: item.name });
+            copy.createSpan({ cls: "hub-capture-muted", text: `${provider?.name ?? item.provider} · ${sourceLabel(item.sourceType)}` });
+            row.addEventListener("click", () => { void this.controller.select(item.id); });
+            this.rows.set(item.id, row);
+        }
+        this.renderState(this.controller.snapshot);
+    }
+    renderState(state) {
+        const { item, capabilities } = state;
+        for (const [id, row] of this.rows ?? []) {
+            row.classList.toggle("is-selected", item?.id === id);
+            row.setAttribute("aria-current", item?.id === id ? "true" : "false");
+        }
+        this.name.textContent = item ? state.title : "Choose music to begin.";
+        this.artist.textContent = item ? state.artist || "" : "";
+        this.artist.hidden = !this.artist.textContent;
+        this.artwork.hidden = !item || !state.artwork || this.failedArtwork === state.artwork;
+        if (item && state.artwork && this.artwork.getAttribute("src") !== state.artwork) {
+            this.failedArtwork = null; this.artwork.src = state.artwork;
+        }
+        else if (!state.artwork) this.artwork.removeAttribute("src");
+        this.source.textContent = item ? MUSIC_PROVIDERS.find(provider => provider.id === item.provider)?.name ?? item.provider : "";
+        this.feedback.classList.toggle("hub-task-error", state.status === "error");
+        this.feedback.textContent = state.message || (state.status === "loading" ? "Loading player…" : "");
+        this.surface.hidden = !item || !capabilities.visiblePlayer;
+        const key = JSON.stringify([item?.id, capabilities]);
+        if (key !== this.controlsKey) { this.controlsKey = key; this.renderControls(capabilities); }
+        const loading = state.status === "loading";
+        this.transport.querySelectorAll("button").forEach(button => { button.disabled = loading; });
+        if (this.playButton) {
+            const isPlaying = state.status === "playing";
+            this.playButton.disabled = loading || !(isPlaying ? capabilities.pause : capabilities.play);
+            setHubIcon(this.playButton.querySelector(".hub-capture-icon"), isPlaying ? "pause" : "play");
+            this.playButton.setAttribute("aria-label", isPlaying ? "Pause" : "Play");
+            setHubTooltip(this.playButton, isPlaying ? "Pause" : "Play");
+        }
+        const duration = Number.isFinite(state.duration) ? Math.max(0, state.duration) : 0;
+        const time = Number.isFinite(state.currentTime) ? Math.max(0, state.currentTime) : 0;
+        if (this.seekInput) {
+            this.seekInput.max = String(duration || 1); this.seekInput.disabled = !duration || loading;
+            if (!this.seeking) this.seekInput.value = String(Math.min(duration, time));
+            this.seekInput.setAttribute("aria-valuetext", `${formatTime(time)} of ${formatTime(duration)}`);
+        }
+        if (this.time) this.time.textContent = `${formatTime(time)} / ${formatTime(duration)}`;
+        if (this.volumeInput) {
+            this.volumeInput.disabled = loading;
+            if (this.volumeInput.ownerDocument.activeElement !== this.volumeInput) this.volumeInput.value = String(state.volume ?? 1);
+        }
+    }
+    renderControls(capabilities) {
+        this.transport.empty(); this.progress.empty(); this.volumeHost.empty();
+        this.playButton = this.seekInput = this.time = this.volumeInput = null;
+        this.seeking = false;
+        const control = (label, icon, callback) => {
+            const button = action(this.transport, "", icon, callback, "hub-music-transport-button");
+            button.setAttribute("aria-label", label); setHubTooltip(button, label); return button;
+        };
+        if (capabilities.previous) control("Previous", "skip-back", () => { void this.controller.previous(); });
+        if (capabilities.play || capabilities.pause) this.playButton = control("Play", "play", () => { void this.controller.toggle(); });
+        if (capabilities.next) control("Next", "skip-forward", () => { void this.controller.next(); });
+        if (capabilities.seek) {
+            this.seekInput = this.progress.createEl("input", { attr: { type: "range", min: "0", max: "1", step: "0.1", "aria-label": "Playback position" } });
+            this.seekInput.addEventListener("pointerdown", () => { this.seeking = true; });
+            this.seekInput.addEventListener("input", () => { this.seeking = true; });
+            for (const event of ["pointerup", "pointercancel", "blur"]) this.seekInput.addEventListener(event, () => { this.seeking = false; });
+            this.seekInput.addEventListener("change", () => {
+                this.seeking = false;
+                void this.controller.seek(Number(this.seekInput.value));
+            });
+        }
+        if (capabilities.progress) this.time = this.progress.createSpan({ cls: "hub-capture-muted hub-music-time" });
+        if (capabilities.volume) {
+            setHubIcon(this.volumeHost.createSpan({ cls: "hub-capture-icon", attr: { "aria-hidden": "true" } }), "volume-2");
+            this.volumeInput = this.volumeHost.createEl("input", { attr: { type: "range", min: "0", max: "1", step: "0.01", "aria-label": "Volume" } });
+            this.volumeInput.addEventListener("input", () => { void this.controller.setVolume(Number(this.volumeInput.value)); });
+        }
+    }
+    onClose() {
+        this.stop?.(); this.stopLibrary?.(); this.controller.detach(this.surface);
+        this.contentEl.empty(); this.closed?.();
+    }
+}
+
+function sourceLabel(type) { return ({ file: "Audio file", video: "Video", track: "Track", playlist: "Playlist", album: "Album", artist: "Artist" })[type] ?? "Music"; }
+function formatTime(seconds) {
+    const value = Math.max(0, Math.floor(Number(seconds) || 0));
+    const minutes = Math.floor(value / 60), remainder = String(value % 60).padStart(2, "0");
+    return minutes >= 60 ? `${Math.floor(minutes / 60)}:${String(minutes % 60).padStart(2, "0")}:${remainder}` : `${minutes}:${remainder}`;
 }
 
 function mountMusicControl(plugin, host) {
     const button = host.createEl("button", { cls: "hub-oath-button hub-music-button",
         attr: { type: "button", "aria-label": "Music", "aria-haspopup": "dialog" } });
-    setIcon(button.createSpan({ cls: "hub-oath-icon", attr: { "aria-hidden": "true" } }), "music");
+    setHubIcon(button.createSpan({ cls: "hub-oath-icon", attr: { "aria-hidden": "true" } }), "music");
     button.createSpan({ text: "Music" }); setHubTooltip(button, "Music", "top");
     let modal = null, destroyed = false;
     const open = () => {
-        if (destroyed) return;
+        if (destroyed || !plugin.musicLibrary.state.enabled) return;
         if (modal) { modal.contentEl.focus(); return; }
         if (button.ownerDocument.querySelector(".modal-container")) return;
-        modal = new MusicModal(plugin.app, () => { modal = null; if (!destroyed && button.isConnected) button.focus(); });
+        modal = new MusicModal(plugin.app, () => { modal = null; if (!destroyed && button.isConnected && !button.hidden) button.focus(); }, plugin);
         modal.open();
     };
     plugin.registerDomEvent(button, "click", open);
-    return { button, open, destroy() { destroyed = true; modal?.close(); button.remove(); } };
+    const update = () => { button.hidden = !plugin.musicLibrary.state.enabled; if (button.hidden) modal?.close(); };
+    const stop = plugin.musicLibrary.onChange(update); update();
+    return { button, open, destroy() { destroyed = true; stop(); modal?.close(); button.remove(); } };
 }
-module.exports = { MusicModal, mountMusicControl };
+module.exports = { MusicModal, mountMusicControl, formatTime };
 
 },
 "lib/ui/note-position-picker.js": function (module, exports, __hubRequire) {
@@ -10969,6 +13193,93 @@ function mountNoteRail(pane, initialState = "full", onChange = () => {}) {
 module.exports = { mountNoteRail };
 
 },
+"lib/ui/oath-applications.js": function (module, exports, __hubRequire) {
+"use strict";
+// Shared Settings/setup editor. Paths are always rendered as text.
+function mountOathApplications(parent, service, values, save) {
+    const root = parent.createDiv({ cls: "hub-oath-applications" });
+    let current = [...values], disposed = false, busy = false;
+    const list = root.createEl("ul", { attr: { "aria-label": "Permitted desktop applications" } });
+    const controls = root.createDiv({ cls: "hub-oath-application-controls" });
+    const input = controls.createEl("input", { type: "text", attr: { "aria-label": "Application executable path", placeholder: "C:\\…\\application.exe" } });
+    const add = controls.createEl("button", { text: "Add path", attr: { type: "button" } });
+    const browse = controls.createEl("button", { text: "Browse…", attr: { type: "button" } });
+    const error = root.createDiv({ cls: "hub-task-error", attr: { role: "alert" } });
+    const paint = () => {
+        if (disposed) return;
+        list.empty();
+        if (!current.length) list.createEl("li", { text: "Itacan only. No external applications permitted." });
+        for (const value of current) {
+            const item = list.createEl("li"); item.createSpan({ text: value });
+            const remove = item.createEl("button", { text: "Remove", attr: { type: "button", "aria-label": "Remove " + value } });
+            remove.disabled = busy; remove.addEventListener("click", () => void update(current.filter(entry => entry !== value)));
+        }
+        input.disabled = add.disabled = browse.disabled = busy;
+    };
+    const update = async values => {
+        if (busy || disposed) return;
+        busy = true; error.textContent = ""; paint();
+        try { current = await save(values); if (!disposed) input.value = ""; }
+        catch (problem) { if (!disposed) error.textContent = problem.message; }
+        finally { busy = false; paint(); }
+    };
+    const addInput = () => void update([...current, input.value.trim()]);
+    add.addEventListener("click", addInput);
+    input.addEventListener("keydown", event => { if (event.key === "Enter") { event.preventDefault(); addInput(); } });
+    browse.addEventListener("click", async () => {
+        if (busy) return;
+        busy = true; paint();
+        let selected;
+        try { selected = await service.pickStrictApplication(); }
+        catch (problem) { if (!disposed) error.textContent = problem.message; }
+        finally { busy = false; paint(); }
+        if (selected && !disposed) void update([...current, selected]);
+    });
+    paint(); return () => { disposed = true; };
+}
+module.exports = { mountOathApplications };
+
+},
+"lib/ui/oath-settings.js": function (module, exports, __hubRequire) {
+"use strict";
+const { row, section } = __hubRequire("lib/ui/settings-pages.js");
+const { mountOathApplications } = __hubRequire("lib/ui/oath-applications.js");
+function mountOathSettings(parent, service) {
+    let disposed = false;
+    parent.createEl("p", { text: "Strict Oath is an optional behavioral commitment. Desktop checks and focus restoration are best effort; Windows controls remain available.", cls: "hub-settings-description" });
+    const control = row(section(parent, "Strict Oath"), "Enable Strict Oath on this device", "Off by default. Enables a choice in Oath setup; it does not start a commitment. Disabling affects future Oaths only.");
+    const toggle = control.createEl("input", { type: "checkbox", attr: { "aria-label": "Enable Strict Oath on this device" } });
+    toggle.checked = !!service.strictEnabled; toggle.disabled = !service.strictSupported;
+    const error = parent.createDiv({ cls: "hub-task-error", attr: { role: "alert" } });
+    const recovery = parent.createDiv({ attr: { role: "status" } });
+    const paintRecovery = () => {
+        recovery.empty();
+        if (service.strictStatus?.status !== "recovery-required") return;
+        recovery.createEl("p", { text: "Your Oath's window guards are released, but the original window state could not be fully restored." });
+        const retry = recovery.createEl("button", { text: "Restore window", attr: { type: "button" } });
+        retry.addEventListener("click", async () => {
+            retry.disabled = true;
+            try { await service.strict.retryRestoration(); error.textContent = ""; }
+            catch (problem) { error.textContent = problem.message; }
+            finally { retry.disabled = false; }
+        });
+    };
+    const stopHealth = service.onChange?.(paintRecovery); paintRecovery();
+    if (!service.strictSupported) parent.createEl("p", { text: "Strict Oath requires a supported Windows desktop host.", cls: "hub-settings-description" });
+    toggle.addEventListener("change", async () => {
+        toggle.disabled = true;
+        try { await service.setStrictEnabled(toggle.checked); error.textContent = ""; }
+        catch (problem) { error.textContent = problem.message; }
+        finally { if (!disposed) { toggle.checked = !!service.strictEnabled; toggle.disabled = !service.strictSupported; } }
+    });
+    const apps = section(parent, "Permitted desktop applications");
+    apps.createEl("p", { text: "Choose executable files for this device. Changes apply to future reviews. Each Oath can replace this default list; existing commitments keep their confirmed applications.", cls: "hub-settings-description" });
+    const stop = mountOathApplications(apps, service, service.strictApplications, values => service.setStrictApplications(values));
+    return () => { disposed = true; stop(); stopHealth?.(); };
+}
+module.exports = { mountOathSettings };
+
+},
 "lib/ui/oath-tasks.js": function (module, exports, __hubRequire) {
 "use strict";
 const { oathProgress, oathTime } = __hubRequire("lib/domain/oath.js");
@@ -11047,6 +13358,7 @@ const { createCardImageRenderer } = __hubRequire("lib/ui/card-images.js");
 const { mountWorkspaceThumbnail } = __hubRequire("lib/ui/workspace-thumbnail.js");
 const { workspaceRef, sameWorkspace, taskKey } = __hubRequire("lib/domain/oath-workspace.js");
 const { isCommitted, oathTime, oathProgress, shortOathTime, fulfilmentLabel, oathDuration, validDuration } = __hubRequire("lib/domain/oath.js");
+const { mountOathApplications } = __hubRequire("lib/ui/oath-applications.js");
 
 const dateLabel = time => new Date(time).toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
 const OATH_COPY = Object.freeze({
@@ -11059,15 +13371,15 @@ const OATH_COPY = Object.freeze({
 // Obsidian aliases bare "fullscreen" to "maximize"; the Lucide ID bypasses that alias.
 const duringOathRows = [
     ["lucide-fullscreen", "Itacan enters and remains in fullscreen"],
-    ["shield-user", "Only whitelisted apps and websites are accessible"],
-    ["bell-off", "Notifications from non-permitted apps and websites are silenced"]
+    ["shield-user", "Your selected workspace and tasks remain the focus"],
+    ["info", "External websites and notifications are not restricted"]
 ];
 function endingOathRows(draft) {
     return [
         ["circle-check", draft.tasks.length
             ? `Fulfilled after ${oathDuration(draft.durationMs)} or when all selected tasks are complete, whichever comes first`
             : `The Oath is fulfilled after ${oathDuration(draft.durationMs)}`],
-        ["triangle-alert", "Ending before fulfillment will break the Oath"],
+        ["triangle-alert", draft.mode === "strict" ? "Ordinary early exit is unavailable until fulfillment" : "Ending before fulfillment will break the Oath"],
         ["timer-off", "After fulfillment, you may remain Oathbound and continue working"],
         ["clipboard-clock", "The result is recorded in Oath History"]
     ];
@@ -11284,6 +13596,28 @@ function openOathSetup(service) {
             this.contentEl.classList.add("hub-oath-setup");
             const heading = createWindowTitle(this.contentEl, "Make an Oath", "shield-user");
             setWindowUndertext(heading, this.contentEl.createEl("p", { cls: "hub-oath-muted", text: "Set the terms of your commitment." }));
+            if (service.strictEnabled || draft.mode === "strict") {
+                const mode = this.section("Commitment mode");
+                this.choices(mode, "mode", [["ordinary", "Ordinary Oath", "Early exit records a broken Oath"], ["strict", "Strict Oath", "Ordinary early exit is unavailable"]], draft.mode ?? "ordinary", value => {
+                    draft.mode = value; delete draft.strictConfirmation; this.setup();
+                });
+                if (draft.mode === "strict") {
+                    const apps = this.section("Permitted desktop applications");
+                    const label = apps.createEl("label");
+                    const override = label.createEl("input", { type: "checkbox", attr: { "aria-label": "Override application defaults for this Oath" } });
+                    label.createSpan({ text: "Override application defaults for this Oath" });
+                    override.checked = Array.isArray(draft.applications);
+                    override.addEventListener("change", () => {
+                        if (override.checked) draft.applications = service.strictApplications; else delete draft.applications;
+                        delete draft.strictConfirmation; this.setup();
+                    });
+                    if (override.checked) this.stopApplications = mountOathApplications(apps, service, draft.applications, async values => {
+                        const verified = await service.strict.verifyApplications(values);
+                        draft.applications = verified; delete draft.strictConfirmation; return verified;
+                    });
+                    else apps.createEl("p", { text: service.strictApplications.length ? service.strictApplications.join("\n") : "Default: Itacan only.", cls: "hub-oath-muted hub-oath-application-paths" });
+                }
+            }
             const start = this.section(OATH_COPY.start);
             const startChoices = this.choices(start, "start", [["now", "Now"], ["scheduled", "Select date and time"]], draft.start, value => {
                 if (value === "now") { draft.start = "now"; this.setup(); }
@@ -11587,8 +13921,14 @@ function openOathSetup(service) {
                 syncStart();
             };
             this.updateNext();
-            next.addEventListener("click", () => {
-                try { this.review(); } catch (problem) {
+            next.addEventListener("click", async () => {
+                if (this.reviewing) return;
+                try {
+                    service.validateDraft(draft);
+                    this.reviewing = true; next.disabled = true;
+                    const review = draft.mode === "strict" ? await service.reviewStrict(draft) : null;
+                    if (!this.closed) this.review(review);
+                } catch (problem) {
                     const missing = service.setupRequirements(draft).find(item => !item.complete);
                     // An empty choice only needs guidance. Invalid populated
                     // values, unavailable destinations/tasks and index errors
@@ -11606,10 +13946,11 @@ function openOathSetup(service) {
                         hint.textContent = missing.error;
                         this.effects.pulse(this.guidedGroup, null, () => { hint.textContent = ""; });
                     }
-                }
+                } finally { this.reviewing = false; next.disabled = false; }
             });
         }
         clearSetupEffects() {
+            this.stopApplications?.(); this.stopApplications = null;
             this.customDisclosure?.destroy(); this.customDisclosure = null;
             this.nativeDatePicker?.close(); this.nativeDatePicker = null;
             this.dateDisclosure?.destroy(); this.dateDisclosure = null;
@@ -11617,7 +13958,7 @@ function openOathSetup(service) {
             this.effects?.destroy();
             this.guidedGroup = null;
         }
-        review() {
+        review(strictReview = null) {
             const draft = this.draft;
             service.validateDraft(draft);
             this.clearSetupEffects();
@@ -11641,6 +13982,33 @@ function openOathSetup(service) {
                 const group = this.section(heading).createDiv({ cls: "hub-oath-row-group" });
                 for (const [icon, text] of rows) oathRow(group, icon, text);
             }
+            let accepted = null, refresh = null;
+            if (draft.mode === "strict") {
+                if (!strictReview) throw Error("Refresh the Strict review before confirming.");
+                const section = this.section("Strict Oath confirmation");
+                section.createEl("p", { text: strictReview.terms, cls: "hub-oath-muted" });
+                section.createEl("p", { text: "The dock opens permitted applications and returns to Itacan. Use Alt+Tab to switch existing windows; external minimize and restore controls are unavailable.", cls: "hub-oath-muted" });
+                const findings = section.createDiv({ cls: "hub-oath-preflight", attr: { role: "status", "aria-live": "polite" } });
+                this.paintStrictReview = review => {
+                    strictReview = review; draft.strictConfirmation = review.confirmation;
+                    findings.empty();
+                    findings.createEl("p", { text: review.policy.applications.length ? "Permitted: " + review.policy.applications.join(", ") : "Permitted: Itacan only." });
+                    const grouped = new Map();
+                    for (const blocker of review.preflight.blockers ?? []) {
+                        const key = blocker.executable;
+                        grouped.set(key, [...(grouped.get(key) ?? []), blocker.title || "Untitled window"]);
+                    }
+                    for (const [executable, titles] of grouped) findings.createEl("p", { text: "Close before starting: " + executable + " — " + titles.join(", ") });
+                    for (const warning of review.preflight.warnings ?? []) findings.createEl("p", { text: warning });
+                    for (const unknown of review.preflight.unknown ?? []) findings.createEl("p", { text: "Identity unavailable: " + (unknown.title || "Untitled window") });
+                    findings.createEl("p", { text: review.preflight.ready ? "No known blockers detected. Applications will be checked again at activation." : draft.start === "scheduled" ? "This scheduled Oath will wait for checks to succeed and known blockers to close." : "Resolve blockers, then refresh these checks before taking the Oath." });
+                };
+                this.paintStrictReview(strictReview);
+                refresh = section.createEl("button", { text: "Refresh application checks", attr: { type: "button" } });
+                const label = section.createEl("label", { cls: "hub-oath-strict-accept" });
+                accepted = label.createEl("input", { type: "checkbox", attr: { "aria-label": "I understand and accept the Strict Oath restrictions" } });
+                label.createSpan({ text: "I understand and accept the Strict Oath restrictions" });
+            }
             const pledge = this.contentEl.createEl("blockquote", { cls: "hub-oath-pledge" });
             oathIcon(pledge, "scroll-text");
             pledge.createEl("p", { text: OATH_COPY.pledge });
@@ -11648,15 +14016,24 @@ function openOathSetup(service) {
             const actions = this.contentEl.createDiv({ cls: "hub-oath-actions" });
             const back = actions.createEl("button", { text: "Back" });
             const take = actions.createEl("button", { text: "Take the Oath", cls: "mod-cta" });
+            const updateTake = () => { take.disabled = !!accepted && (!accepted.checked || !draft.strictConfirmation || !strictReview.preflight.ready && draft.start !== "scheduled"); };
+            accepted?.addEventListener("change", updateTake); updateTake();
+            refresh?.addEventListener("click", async () => {
+                if (this.saving || this.reviewing) return;
+                this.reviewing = true; refresh.disabled = take.disabled = back.disabled = true; accepted.checked = false;
+                try { this.paintStrictReview(await service.reviewStrict(draft)); error.textContent = ""; }
+                catch (problem) { delete draft.strictConfirmation; error.textContent = problem.message; }
+                finally { this.reviewing = false; refresh.disabled = back.disabled = false; updateTake(); }
+            });
             back.addEventListener("click", () => this.setup());
             take.addEventListener("click", async () => {
-                if (this.saving) return; this.saving = true; take.disabled = back.disabled = true;
+                if (this.saving || this.reviewing || take.disabled) return; this.saving = true; take.disabled = back.disabled = true; if (refresh) refresh.disabled = true;
                 try { await service.take(draft); this.saving = false; this.close(); }
-                catch (problem) { this.saving = false; take.disabled = back.disabled = false; error.textContent = problem.message; }
+                catch (problem) { this.saving = false; back.disabled = false; if (refresh) refresh.disabled = false; updateTake(); error.textContent = problem.message; }
             });
         }
-        close() { if (!this.saving) super.close(); }
-        onClose() { this.clearSetupEffects(); this.picker?.close(); this.creator?.close(); this.taskOwner?.unload(); this.owner?.unload(); this.contentEl.empty(); }
+        close() { if (!this.saving && !this.reviewing) super.close(); }
+        onClose() { this.closed = true; this.clearSetupEffects(); this.picker?.close(); this.creator?.close(); this.taskOwner?.unload(); this.owner?.unload(); this.contentEl.empty(); }
     }
     const modal = new Setup(service.app); modal.open(); return modal;
 }
@@ -11684,6 +14061,11 @@ function openOathStatus(service) {
             this.clock = this.contentEl.createEl("p", { cls: "hub-oath-status-time" }); this.updateClock();
             setWindowUndertext(heading, this.clock);
             setWindowUndertext(heading, this.contentEl.createEl("p", { text: fulfilmentLabel(oath), cls: "hub-oath-muted" }));
+            if (service.isStrict) {
+                this.contentEl.createEl("p", { text: "Strict Oath: ordinary exit becomes available after fulfillment. Desktop application checks are best effort.", cls: "hub-oath-muted" });
+                for (const warning of service.strictStatus?.warnings ?? []) this.contentEl.createEl("p", { text: warning, cls: "hub-oath-muted" });
+                for (const blocker of service.strictStatus?.blockers ?? []) this.contentEl.createEl("p", { text: `Close before starting: ${blocker.title || blocker.executable || "Unknown application"}`, cls: "hub-oath-muted" });
+            }
             const work = this.contentEl.createDiv({ cls: "hub-oath-status-work" });
             for (const ref of oath.tasks) {
                 const task = service.work.find(item => item.ref.id === ref.id)?.task;
@@ -11697,11 +14079,28 @@ function openOathStatus(service) {
                 try { await fn(); this.saving = false; if (!service.committed) this.close(); }
                 catch (problem) { this.saving = false; error.textContent = problem.message; }
             };
-            if (oath.state === "scheduled" && service.now() < oath.scheduledAt) {
+            if (service.isStrict && service.active) {
+                const applications = this.contentEl.createEl("section", { cls: "hub-oath-section" });
+                applications.createEl("h3", { text: "Permitted applications" });
+                applications.createEl("p", { text: "Open may create another window. Use Alt+Tab to switch existing windows.", cls: "hub-oath-muted" });
+                for (const executable of oath.policy.applications) {
+                    const open = applications.createEl("button", { text: "Open " + executable.split("\\").pop(), attr: { type: "button" } });
+                    open.addEventListener("click", async () => {
+                        open.disabled = true;
+                        try { await service.launchStrictApplication(executable); }
+                        catch (problem) { error.textContent = problem.message; }
+                        finally { open.disabled = false; }
+                    });
+                }
+                applications.createEl("button", { text: "Return to Itacan", attr: { type: "button" } }).addEventListener("click", () => service.strict.host.focus());
+            }
+            if (oath.state === "scheduled" && (service.isStrict || service.now() < oath.scheduledAt)) {
                 actions.createEl("button", { text: "Cancel Oath" }).addEventListener("click", () => run(() => service.end(this.id, "cancel")));
                 actions.createEl("button", { text: "Close", cls: "mod-cta" }).addEventListener("click", () => this.close()); return;
             }
-            actions.createEl("button", { text: "End Oath" }).addEventListener("click", () => {
+            const end = actions.createEl("button", { text: service.isStrict && !service.fulfilled ? "Available after fulfillment" : "End Oath" });
+            end.disabled = service.isStrict && !service.fulfilled;
+            end.addEventListener("click", () => {
                 this.close(); void requestOathExit(service);
             });
             actions.createEl("button", { text: "Close", cls: "mod-cta" }).addEventListener("click", () => this.close());
@@ -11772,6 +14171,8 @@ function mountOathControl(plugin, service) {
         label.textContent = !isCommitted(oath) ? "The Oath" : oath.state === "scheduled" ? "The Oath · Scheduled" : service.fulfilled ?
             `The Oath · Fulfilled · ${shortOathTime(oathTime(oath, service.now()).elapsedMs)} Oathbound` :
             `The Oath · ${shortOathTime(oathTime(oath, service.now()).remainingMs)}${oath.tasks.length ? ` · ${oathProgress(service.work).completed} / ${oath.tasks.length}` : ""}`;
+        if (service.isStrict && service.strictStatus?.status === "waiting") label.textContent = "The Oath · Waiting to start";
+        if (service.isStrict && service.active && service.strictStatus?.status === "degraded") label.textContent += " · Desktop checks limited";
     };
     const stop = service.onChange(update, true); update();
     return { item, open, destroy() { stop(); service.fullscreen.onExitRequest?.(() => {}); exitUi.get(service)?.warning?.close(); modal?.close(); item.remove(); bar.classList.remove("hub-oath-statusbar"); if (fallback) bar.remove(); } };
@@ -13205,8 +15606,8 @@ module.exports = { renderScheduleToolbar };
 "lib/ui/settings-pages.js": function (module, exports, __hubRequire) {
 "use strict";
 
-// Page definitions and renderers are presentation only. A future settings store
-// can be wired to individual controls without replacing the window/navigation.
+// Each category uses the shared rows and sections. Active categories wire their
+// controls to existing services without changing the window/navigation.
 const SETTINGS_PAGES = [
     ["general", "General", "Core application preferences."],
     ["appearance", "Appearance", "Customize the visual presentation of Itacan."],
@@ -13215,6 +15616,7 @@ const SETTINGS_PAGES = [
     ["notes", "Notes & Editor", "Your note-writing environment."],
     ["tasks", "Tasks", "Task presentation and planning preferences."],
     ["atlas", "Atlas", "Your browsing workspace."],
+    ["music", "Music", "Configure the music you play while working."],
     ["oath", "The Oath", "Preferences for focused work."],
     ["daily-brief", "Daily brief", "Your daily orientation."],
     ["history", "History", "Your work history and reports."],
@@ -13281,10 +15683,12 @@ function renderSettingsPage(parent, page, plugin) {
     parent.createEl("p", { cls: "hub-settings-description", text: page.description });
     if (page.id === "appearance") return renderAppearance(parent);
     if (page.id === "atlas" && plugin?.atlas) return __hubRequire("lib/atlas/obsidian/ui.js").mountAtlasOverview(parent, plugin.atlas);
+    if (page.id === "music" && plugin?.musicLibrary) return __hubRequire("lib/ui/music-settings.js").mountMusicSettings(parent, plugin.musicLibrary);
+    if (page.id === "oath" && plugin?.oath) return __hubRequire("lib/ui/oath-settings.js").mountOathSettings(parent, plugin.oath);
     parent.createEl("p", { cls: "hub-settings-preview-note", text: "No options available in this preview." });
     for (let i = 0; i < 2; i++) parent.createDiv({ cls: "hub-settings-empty-section", attr: { "aria-hidden": "true" } });
 }
-module.exports = { SETTINGS_PAGES, renderSettingsPage };
+module.exports = { SETTINGS_PAGES, renderSettingsPage, row, section };
 
 },
 "lib/ui/settings.js": function (module, exports, __hubRequire) {
@@ -13296,7 +15700,7 @@ const { SETTINGS_PAGES, renderSettingsPage } = __hubRequire("lib/ui/settings-pag
 let instance = 0;
 
 class SettingsModal extends Modal {
-    constructor(app, onClose, plugin) { super(app); this.closed = onClose; this.plugin = plugin; this.prefix = `hub-settings-${++instance}`; }
+    constructor(app, onClose, plugin, initialPage = "appearance") { super(app); this.closed = onClose; this.plugin = plugin; this.initialPage = initialPage; this.prefix = `hub-settings-${++instance}`; }
     onOpen() {
         this.modalEl.classList.add("hub-settings-dialog");
         this.contentEl.classList.add("hub-settings-content", "hub-button-scope");
@@ -13327,7 +15731,7 @@ class SettingsModal extends Modal {
             event.preventDefault(); this.select(SETTINGS_PAGES[next].id); this.buttons[next].focus();
         });
         this.panel = body.createDiv({ cls: "hub-settings-panel", attr: { role: "tabpanel", id: `${this.prefix}-panel`, tabindex: "0" } });
-        this.select("appearance");
+        this.select(SETTINGS_PAGES.some(page => page.id === this.initialPage) ? this.initialPage : "appearance");
     }
     select(id) {
         const page = SETTINGS_PAGES.find(page => page.id === id);
@@ -13348,12 +15752,12 @@ function mountSettingsControl(plugin, host) {
     setIcon(button.createSpan({ cls: "hub-oath-icon", attr: { "aria-hidden": "true" } }), "settings");
     button.createSpan({ text: "Settings" }); setHubTooltip(button, "Settings", "top");
     let modal = null, destroyed = false;
-    const open = () => {
+    const open = (page = "appearance") => {
         if (destroyed) return;
-        if (modal) { modal.panel?.focus(); return; }
+        if (modal) { if (typeof page === "string") modal.select(page); modal.panel?.focus(); return; }
         // Keep existing modal/Oath interactions in charge while another window is open.
         if (button.ownerDocument.querySelector(".modal-container")) return;
-        modal = new SettingsModal(plugin.app, () => { modal = null; if (!destroyed && button.isConnected) button.focus(); }, plugin);
+        modal = new SettingsModal(plugin.app, () => { modal = null; if (!destroyed && button.isConnected) button.focus(); }, plugin, typeof page === "string" ? page : "appearance");
         modal.open();
     };
     plugin.registerDomEvent(button, "click", open);
@@ -28019,8 +30423,16 @@ module.exports = class HubProjectMenu extends Plugin {
         window.hubApplyTaskEdit = applyTaskEdit;
         this.taskEditor = new HubTaskEditor(this);
         const oathNativeModule = this.app.vault.adapter.getBasePath?.();
+        let strictOath = null;
+        if (oathNativeModule && window.electron?.remote && window.electronWindow) {
+            try {
+                // Default-disabled main-process coordinator; reuse ownership on plugin reload.
+                strictOath = window.electron.remote.require(require("path").join(oathNativeModule,
+                    this.manifest.dir, "lib/services/oath-strict-host.js")).getStrictCoordinator(window.electronWindow);
+            } catch (error) { console.error("Strict Oath host unavailable; ordinary Oaths remain available", error); }
+        }
         this.oath = new HubOathService(this, createOathFullscreen(window, oathNativeModule ?
-            require("path").join(oathNativeModule, this.manifest.dir, "lib/services/oath-fullscreen.js") : null));
+            require("path").join(oathNativeModule, this.manifest.dir, "lib/services/oath-fullscreen.js") : null), strictOath ? { strict: strictOath } : {});
         this.oathNavigation = new OathNavigationGuard(this, require("obsidian").WorkspaceLeaf);
         window.hubCreateWorkspaceCards = (root, component, renderImage, categories) =>
             createWorkspaceCards({ app: this.app, root, component, renderImage, categories, oath: this.oath });
@@ -28044,6 +30456,10 @@ module.exports = class HubProjectMenu extends Plugin {
         window.hubApplySearchFolder = root => this.contextSearch.applyFolder(root);
         this.dailyBrief = new DailyBriefService(this);
         this.inbox = new HubInboxService(this);
+        this.spotifyConnect = new (__hubRequire("lib/services/spotify-connect.js").SpotifyConnectBackend)(this);
+        await this.spotifyConnect.restore();
+        this.musicLibrary = new (__hubRequire("lib/services/music-library.js").MusicLibrary)(this);
+        this.music = new (__hubRequire("lib/services/music-controller.js").MusicController)(this, this.musicLibrary);
         this.app.workspace.onLayoutReady(() => {
             if (this.oath.disposed) return;
             this.oathControl = mountOathControl(this, this.oath);
@@ -28192,6 +30608,10 @@ module.exports = class HubProjectMenu extends Plugin {
         delete window.hubRegisterSearchWorkspace;
         delete window.hubApplySearchFolder;
         this.musicControl?.destroy();
+        const spotifyStopping = this.music?.destroy();
+        Promise.resolve(spotifyStopping).catch(() => {}).finally(() => {
+            this.spotifyConnect?.destroy(); this.musicLibrary?.destroy();
+        });
         this.settingsControl?.destroy();
         this.dailyBriefControl?.destroy();
         this.dailyBrief?.destroy();
@@ -32746,6 +35166,14 @@ module.exports = class HubProjectMenu extends Plugin {
             );
         }
 
+
+        if (this.oath?.active && this.oath.isStrict) {
+            // Strict shortcuts use the frozen executable policy; no title/PID focus workaround.
+            const executable = resolveExecutable(shortcut.type === "website" ? FIREFOX_EXECUTABLES : shortcut.executables ?? []);
+            if (!executable) throw new Error("Application executable could not be found.");
+            await this.oath.launchStrictApplication(executable, shortcut.type === "website" ? shortcut.url : null);
+            return;
+        }
 
         // ---------- WEBSITE ----------
 

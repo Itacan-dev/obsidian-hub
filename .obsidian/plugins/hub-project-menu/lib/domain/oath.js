@@ -7,7 +7,7 @@ const validDuration = ms => Number.isSafeInteger(ms) && ms >= 60000 && ms % 6000
 function normalizeOath(oath) {
     if (!isCommitted(oath)) return oath;
     const { fulfilment, autoExit, scope, ...current } = oath;
-    return { ...current, durationMs: validDuration(oath.durationMs) ? oath.durationMs : DEFAULT_DURATION_MS,
+    return { ...current, ...(oath.policy?.mode === "strict" ? { policy: { ...oath.policy, applications: Array.isArray(oath.policy.applications) ? [...oath.policy.applications] : oath.policy.applications } } : {}), durationMs: validDuration(oath.durationMs) ? oath.durationMs : DEFAULT_DURATION_MS,
         tasks: Array.isArray(oath.tasks) ? oath.tasks : [], fulfilledAt: Number.isFinite(oath.fulfilledAt) ? oath.fulfilledAt : null };
 }
 function oathRequirements(draft, now = Date.now()) {

@@ -1,0 +1,192 @@
+{
+  "phase": 4,
+  "runtime": {
+    "electron": "39.8.3",
+    "node": "22.22.1",
+    "platform": "win32",
+    "arch": "x64",
+    "obsidian": "1.13.7"
+  },
+  "preventedHostSideEffects": [
+    "setAsDefaultProtocolClient"
+  ],
+  "checks": [
+    {
+      "name": "real Obsidian loads Itacan in the synthetic vault",
+      "status": "pass",
+      "detail": {
+        "vault": "C:\\Users\\EL_BAR~1\\AppData\\Local\\Temp\\itacan-oath-phase1-z0XXk9\\vault",
+        "oath": null,
+        "footer": true
+      }
+    },
+    {
+      "name": "existing Obsidian bridge reaches main process and correct BrowserWindow",
+      "status": "pass",
+      "detail": {
+        "windowId": 1,
+        "processType": "browser",
+        "pid": 14484
+      }
+    },
+    {
+      "name": "BEFORE GUARDS: native local escape and state restoration",
+      "status": "pass",
+      "detail": {
+        "shortcut": "Ctrl+Alt+Shift+F12",
+        "state": {
+          "full": false,
+          "kiosk": false,
+          "minimized": false,
+          "maximized": false,
+          "bounds": {
+            "x": 40,
+            "y": 40,
+            "width": 900,
+            "height": 650
+          },
+          "closable": true,
+          "minimizable": true,
+          "top": false
+        }
+      }
+    },
+    {
+      "name": "BEFORE GUARDS: watchdog restores without renderer input",
+      "status": "pass"
+    },
+    {
+      "name": "Phase 4: freshly built plugin keeps product opt-in disabled by default",
+      "status": "pass"
+    },
+    {
+      "name": "Phase 4: real Settings opt-in and verified defaults persist in the isolated vault",
+      "status": "pass"
+    },
+    {
+      "name": "Phase 4: setup offers ordinary by default, per-Oath override, and task selection",
+      "status": "pass"
+    },
+    {
+      "name": "Phase 4: blocker review prevents immediate Take and refresh requires a fresh acknowledgment",
+      "status": "pass"
+    },
+    {
+      "name": "Phase 4: final confirmation activates the real plugin and a separate secure dock",
+      "status": "pass"
+    },
+    {
+      "name": "Phase 4: dock launches a permitted built-in executable and rejects unapproved actions",
+      "status": "pass"
+    },
+    {
+      "name": "Phase 4: ordinary external minimization/restore and Alt+Tab remain available",
+      "status": "pass"
+    },
+    {
+      "name": "Phase 4: real status UI refuses early exit and fulfillment restores state and removes dock",
+      "status": "pass"
+    },
+    {
+      "name": "Phase 4: confirmed second UI activation remains recoverable with isolated development escape",
+      "status": "pass"
+    }
+  ],
+  "limitations": [
+    "Actual freshly built Settings/setup/review/status and Oath service run in isolated Obsidian; tasks/workspace/index and navigation use synthetic fixture adapters.",
+    "Only owned fixture windows are included in preflight; no user application is closed or terminated.",
+    "Dock launch exercises Windows whoami.exe, a harmless short-lived built-in executable; arbitrary GUI launch behavior is not guaranteed.",
+    "External focus/stacking flags are observations, not OS foreground proof. Physical Alt+Tab and third-party desktop acceptance remain manual.",
+    "Installed Obsidian archive runs in existing test Electron 39.8.3; normal installed launcher was not changed."
+  ],
+  "display": {
+    "bounds": {
+      "x": 0,
+      "y": 0,
+      "width": 1920,
+      "height": 1080
+    },
+    "workArea": {
+      "x": 0,
+      "y": 0,
+      "width": 1920,
+      "height": 1032
+    },
+    "scaleFactor": 2
+  },
+  "hostPreferences": {
+    "nodeIntegration": true,
+    "contextIsolation": false,
+    "sandbox": false,
+    "webSecurity": true,
+    "webviewTag": true
+  },
+  "dockPreferences": {
+    "allowRunningInsecureContent": false,
+    "contextIsolation": true,
+    "disableDialogs": false,
+    "disablePopups": false,
+    "enableBlinkFeatures": "",
+    "experimentalFeatures": false,
+    "javascript": true,
+    "nodeIntegration": false,
+    "nodeIntegrationInSubFrames": false,
+    "safeDialogs": false,
+    "safeDialogsMessage": "",
+    "sandbox": true,
+    "webSecurity": true,
+    "webviewTag": false
+  },
+  "footer": [
+    {
+      "label": "Return to Itacan",
+      "tab": 0
+    },
+    {
+      "label": "Open electron.exe",
+      "tab": 0
+    },
+    {
+      "label": "Open whoami.exe",
+      "tab": 0
+    }
+  ],
+  "stacking": {
+    "hostFocused": false,
+    "external": {
+      "pid": 4900,
+      "handle": 4458174,
+      "focused": true,
+      "minimized": false,
+      "visible": true,
+      "full": false,
+      "bounds": {
+        "x": 180,
+        "y": 120,
+        "width": 640,
+        "height": 440
+      },
+      "contentBounds": {
+        "x": 186,
+        "y": 175,
+        "width": 627,
+        "height": 379
+      },
+      "parent": null
+    },
+    "dockVisible": true,
+    "physicalAltTabVerified": false
+  },
+  "developmentAudit": {
+    "reason": "development-shortcut",
+    "restored": true
+  },
+  "feasibilityMet": true,
+  "launcher": {
+    "exitCode": 0,
+    "copiedSourceUnchanged": true,
+    "temporaryProfileRemoved": true,
+    "source": "Installed Obsidian archive in existing test Electron; not the installed launcher runtime"
+  },
+  "log": "\r\nUpdates disabled.\nIgnored: Error: ENOENT: no such file or directory, open 'C:\\Users\\EL_BAR~1\\AppData\\Local\\Temp\\itacan-oath-phase1-z0XXk9\\profile\\oathphase1.json'\nPASS real Obsidian loads Itacan in the synthetic vault\nPASS existing Obsidian bridge reaches main process and correct BrowserWindow\nPASS BEFORE GUARDS: native local escape and state restoration\nPASS BEFORE GUARDS: watchdog restores without renderer input\nPASS Phase 4: freshly built plugin keeps product opt-in disabled by default\nPASS Phase 4: real Settings opt-in and verified defaults persist in the isolated vault\nPASS Phase 4: setup offers ordinary by default, per-Oath override, and task selection\nPASS Phase 4: blocker review prevents immediate Take and refresh requires a fresh acknowledgment\nPASS Phase 4: final confirmation activates the real plugin and a separate secure dock\nError occurred in handler for 'itacan-oath-dock-191ceff5-d4c6-4c29-b7ef-ee19d024a2ab': Error: Invalid dock action.\n    at request (C:\\Users\\EL_BAR~1\\AppData\\Local\\Temp\\itacan-oath-phase1-z0XXk9\\vault\\.obsidian\\plugins\\hub-project-menu\\lib\\services\\oath-dock.js:30:106)\n    at Session.<anonymous> (node:electron/js2c/browser_init:2:113107)\n    at Session.emit (node:events:519:28)\nError occurred in handler for 'itacan-oath-dock-191ceff5-d4c6-4c29-b7ef-ee19d024a2ab': Error: Invalid dock action.\n    at request (C:\\Users\\EL_BAR~1\\AppData\\Local\\Temp\\itacan-oath-phase1-z0XXk9\\vault\\.obsidian\\plugins\\hub-project-menu\\lib\\services\\oath-dock.js:30:106)\n    at Session.<anonymous> (node:electron/js2c/browser_init:2:113107)\n    at Session.emit (node:events:519:28)\nPASS Phase 4: dock launches a permitted built-in executable and rejects unapproved actions\nPASS Phase 4: ordinary external minimization/restore and Alt+Tab remain available\nPASS Phase 4: real status UI refuses early exit and fulfillment restores state and removes dock\nPASS Phase 4: confirmed second UI activation remains recoverable with isolated development escape\n"
+}

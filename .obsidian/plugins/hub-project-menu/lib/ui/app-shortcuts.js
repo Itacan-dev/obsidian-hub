@@ -18,8 +18,12 @@ function mountAppShortcuts(plugin, left) {
         const category = owner?.contextKind === "project" ? plugin.projectWizard.categories.find(item => item.id === owner.categoryId || item.name === owner.categoryId) : null;
         // Home retains its global shortcuts; workspaces retain category configuration.
         const selected = owner ? (category?.shortcuts ?? []) : APP_SHORTCUTS.map(item => item.id);
-        const shortcuts = selected.map(id => APP_SHORTCUTS.find(item => item.id === id)).filter(Boolean);
-        const next = shortcuts.map(item => item.id).join("|");
+        const strict = plugin.oath?.active && plugin.oath?.isStrict;
+        const shortcuts = strict ? [
+            { id: "strict-host", label: "Return to Itacan", focus: true },
+            ...plugin.oath.current.policy.applications.map(executable => ({ id: executable, executable, label: "Open " + executable.split("\\").pop() }))
+        ] : selected.map(id => APP_SHORTCUTS.find(item => item.id === id)).filter(Boolean);
+        const next = (strict ? "strict:" : "ordinary:") + shortcuts.map(item => item.id).join("|");
         if (next === signature && group.childElementCount === shortcuts.length) return;
         signature = next; group.empty(); group.hidden = !shortcuts.length;
         for (const shortcut of shortcuts) {
@@ -31,7 +35,11 @@ function mountAppShortcuts(plugin, left) {
             button.createSpan({ cls: "hub-shell-shortcut-label", text: shortcut.label });
             button.addEventListener("click", async () => {
                 button.disabled = true;
-                try { await plugin.openAppShortcut(shortcut.id); }
+                try {
+                    if (shortcut.focus) plugin.oath.strict.host.focus();
+                    else if (shortcut.executable) await plugin.oath.launchStrictApplication(shortcut.executable);
+                    else await plugin.openAppShortcut(shortcut.id);
+                }
                 catch (error) { new Notice(error.message || "Could not open app shortcut."); }
                 finally { button.disabled = false; }
             });
@@ -64,6 +72,7 @@ function mountAppShortcuts(plugin, left) {
     plugin.registerEvent(plugin.app.metadataCache.on("changed", render));
     plugin.registerEvent(plugin.app.workspace.on("layout-change", render));
     group.hidden = true; render();
-    return { refresh: render, destroy() { disposed = true; resize.disconnect(); mutation.disconnect(); group.remove(); } };
+    const stopOath = plugin.oath?.onChange(render);
+    return { refresh: render, destroy() { disposed = true; stopOath?.(); resize.disconnect(); mutation.disconnect(); group.remove(); } };
 }
 module.exports = { mountAppShortcuts };
