@@ -1,4 +1,6 @@
 "use strict";
+const { hasKeyboardFocus, focusAfterRowRemoval } = require("./focus-restoration");
+const { createWindowTitle, setWindowUndertext, layoutModal } = require("./window-title");
 const { Modal, FuzzySuggestModal } = require("obsidian");
 const { localISODate } = require("../domain/dates");
 
@@ -9,7 +11,9 @@ function openPlanningEditor(service, projectId, kind, value = null, dv, defaults
             this.modalEl.classList.add("hub-task-dialog");
             this.contentEl.classList.add("hub-button-scope", "hub-task-form", "hub-planning-form");
             const state = service.read(projectId), revision = state.revision;
-            this.contentEl.createEl("h2", { cls: "hub-task-dialog-title", text: (value ? "Edit " : "Add ") + noun });
+            const heading = createWindowTitle(this.contentEl, (value ? "Edit " : "Add ") + noun, phase ? "layers" : "flag", { cls: "hub-task-dialog-title" });
+            setWindowUndertext(heading, this.contentEl.createEl("p", { cls: "hub-oath-muted",
+                text: phase ? "Organise a stage of your project's roadmap." : "Set a key date in your project's roadmap." }));
             const form = this.contentEl.createEl("form");
             function section(text) { const section = form.createEl("section", { cls: "hub-task-section" }); section.createEl("h3", { text }); return section; }
             function field(host, text, type, initial) {
@@ -25,7 +29,7 @@ function openPlanningEditor(service, projectId, kind, value = null, dv, defaults
                 end = field(dates, "End", "date", value?.end ?? start.value);
                 start.addEventListener("change", () => { end.min = start.value; }); end.min = start.value;
                 const label = section("Description").createEl("label");
-                label.createSpan({ text: "Description (optional)", cls: "hub-task-help" });
+                label.createSpan({ text: "Description (optional)", cls: "hub-capture-label" });
                 description = label.createEl("textarea", { attr: { rows: "3", "aria-label": "Description (optional)" } }); description.value = value?.description ?? "";
                 const taskSection = section("Tasks"), list = taskSection.createDiv({ cls: "hub-phase-task-list" });
                 tasks = service.tasks(dv, projectId);
@@ -38,7 +42,11 @@ function openPlanningEditor(service, projectId, kind, value = null, dv, defaults
                         const info = row.createDiv(); info.createDiv({ text: task.text });
                         info.createDiv({ cls: "hub-task-help", text: task.path.replace(/\.md$/i, "").split("/").slice(2).join(" › ") });
                         const remove = row.createEl("button", { text: "Remove", attr: { type: "button", "aria-label": "Remove phase from " + task.text } });
-                        remove.addEventListener("click", () => { selected.delete(id); renderTasks(); });
+                        remove.addEventListener("click", event => {
+                            const restoreFocus = hasKeyboardFocus(remove, event), index = [...selected.keys()].indexOf(id);
+                            selected.delete(id); renderTasks();
+                            if (restoreFocus) focusAfterRowRemoval([...list.querySelectorAll(".hub-phase-task-item button")], index, add);
+                        });
                     }
                 };
                 renderTasks();
@@ -81,6 +89,7 @@ function openPlanningEditor(service, projectId, kind, value = null, dv, defaults
                 if (!armed) { armed = true; remove.textContent = "Confirm delete"; error.textContent = phase ? "Delete this phase? Its tasks will be kept with no phase." : "Delete this milestone?"; }
                 else void commit(true);
             });
+            layoutModal(this, { container: form, footer: actions });
             name.focus();
         }
         close() { if (!this.saving) super.close(); }

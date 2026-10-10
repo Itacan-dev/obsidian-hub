@@ -1699,6 +1699,65 @@ function parseLocalISODate(value) {
     return date;
 }
 
+// Presentation reads the caller's calendar fields, never converting zoned values
+// to another timezone. ISO date-only strings retain their local calendar day.
+const MONTHS = "January February March April May June July August September October November December".split(" ");
+const WEEKDAYS = "Sunday Monday Tuesday Wednesday Thursday Friday Saturday".split(" ");
+const pad = value => String(value).padStart(2, "0");
+function presentationParts(value) {
+    if (typeof value === "string") value = parseLocalISODate(value);
+    if (typeof value === "number") value = new Date(value);
+    if (!value || value.isValid === false || typeof value.isValid === "function" && !value.isValid()) return null;
+    if (typeof value.getFullYear === "function") return Number.isFinite(value.getTime()) ? {
+        year: value.getFullYear(), month: value.getMonth() + 1, day: value.getDate(),
+        weekday: value.getDay(), hour: value.getHours(), minute: value.getMinutes()
+    } : null;
+    // Moment keeps its zone in these accessors; Luxon exposes equivalent fields.
+    if (typeof value.year === "function") return { year: value.year(), month: value.month() + 1,
+        day: value.date(), weekday: value.day(), hour: value.hour(), minute: value.minute() };
+    if (Number.isInteger(value.year) && Number.isInteger(value.month) && Number.isInteger(value.day))
+        return { year: value.year, month: value.month, day: value.day, weekday: value.weekday % 7,
+            hour: value.hour, minute: value.minute };
+    return null;
+}
+
+function formatDate(value, style = "compact", includeYear = true) {
+    const date = presentationParts(value);
+    if (!date) return "";
+    const month = MONTHS[date.month - 1], year = includeYear ? " " + date.year : "";
+    if (style === "numeric") return [pad(date.day), pad(date.month), date.year].join("/");
+    if (style === "month" || style === "month-short") return (style === "month" ? month : month.slice(0, 3)) + year;
+    if (style === "short") return date.day + " " + month.slice(0, 3);
+    return date.day + " " + (style === "full" ? month : month.slice(0, 3)) + year;
+}
+
+function formatTime(value) {
+    const date = presentationParts(value);
+    return date ? pad(date.hour) + ":" + pad(date.minute) : "";
+}
+
+function formatDateTime(value) {
+    const date = formatDate(value);
+    return date ? date + ", " + formatTime(value) : "";
+}
+
+function formatWeekday(value, abbreviated = false) {
+    const date = presentationParts(value), weekday = date && WEEKDAYS[date.weekday];
+    return weekday ? abbreviated ? weekday.slice(0, 3) : weekday : "";
+}
+
+function formatDateRange(start, end, short = false, now = new Date()) {
+    const first = presentationParts(start), last = presentationParts(end);
+    if (!first || !last) return "";
+    const style = short && first.year === last.year && first.year === now.getFullYear() ? "short" : "compact";
+    return formatDate(start, style) + " \u2013 " + formatDate(end, style);
+}
+
+function historyDateLabel(value, now = new Date()) {
+    const date = presentationParts(value);
+    return date ? formatDate(value, date.year === now.getFullYear() ? "short" : "compact") : "";
+}
+
 function shortDateLabel(value) {
     const date = parseLocalISODate(value);
 
@@ -1706,11 +1765,7 @@ function shortDateLabel(value) {
         return "";
     }
 
-    return [
-        String(date.getDate()).padStart(2, "0"),
-        String(date.getMonth() + 1).padStart(2, "0"),
-        date.getFullYear()
-    ].join("/");
+    return formatDate(date, "numeric");
 }
 
 function validLocalTime(value) {
@@ -1733,16 +1788,15 @@ function taskDateLabel(date, time, relative = false, now = new Date(), includeYe
     const tomorrow = new Date(now); tomorrow.setDate(tomorrow.getDate() + 1);
     const label = relative && date === localISODate(now) ? "Today" :
         relative && date === localISODate(tomorrow) ? "Tomorrow" :
-        value.toLocaleDateString("en-US", { month: "short", day: "numeric",
-            ...(includeYear || value.getFullYear() !== now.getFullYear() ? { year: "numeric" } : {}) });
-    return (validLocalTime(time) ? localDateTime(date, time).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) + " \u00b7 " : "") + label;
+        formatDate(value, includeYear || value.getFullYear() !== now.getFullYear() ? "compact" : "short");
+    return label + (validLocalTime(time) ? ", " + formatTime(localDateTime(date, time)) : "");
 }
 
 function taskDateRangeLabel(fromDate, fromTime, dueDate, dueTime, now = new Date()) {
     if (fromDate === dueDate) {
         if (validLocalTime(fromTime) && validLocalTime(dueTime) && fromTime !== dueTime) {
-            const start = localDateTime(fromDate, fromTime).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-            return start + " \u2192 " + taskDateLabel(dueDate, dueTime, false, now);
+            const start = formatTime(localDateTime(fromDate, fromTime));
+            return taskDateLabel(fromDate, null, false, now) + ", " + start + " \u2192 " + formatTime(localDateTime(dueDate, dueTime));
         }
         return taskDateLabel(dueDate, dueTime || fromTime, false, now);
     }
@@ -1752,6 +1806,12 @@ function taskDateRangeLabel(fromDate, fromTime, dueDate, dueTime, now = new Date
 }
 
 module.exports = {
+    formatDate,
+    formatTime,
+    formatDateTime,
+    formatWeekday,
+    formatDateRange,
+    historyDateLabel,
     itacanDay,
     taskDateRangeLabel,
     validLocalTime,
@@ -5115,7 +5175,7 @@ class DailyBriefService {
         const day = { ...projects, reports: [...projects.reports, ...resources.reports] };
         if (!day.reports.length) return;
         this.modal?.close();
-        new DailyReportModal(this.app, { day, onEdit: () => this.plugin.openProgressEditor(date) }).open();
+        new DailyReportModal(this.app, { day, plugin: this.plugin, onEdit: () => this.plugin.openProgressEditor(date) }).open();
     }
     async validateTarget(target) {
         if (target?.kind === "home") return this.plugin.oath.active ? null : target;
@@ -9108,6 +9168,47 @@ module.exports = {
 };
 
 },
+"lib/services/window-minimum.js": function (module, exports, __hubRequire) {
+"use strict";
+
+// BrowserWindow dimensions are logical (device-independent) pixels, matching
+// CSS pixels at the normal 100% page zoom. This constrains the hosting window,
+// not its workspace pane, and never explicitly resizes or repositions it.
+function installWindowMinimum(win = globalThis.window) {
+    let native, original, changed = false;
+    const restore = () => {
+        if (!changed) return;
+        try {
+            if (!native.isDestroyed()) native.setMinimumSize(...original);
+            changed = false;
+        } catch (error) {
+            console.warn("Could not restore Itacan's window minimum size", error);
+        }
+    };
+    try {
+        native = win?.electronWindow || win?.electron?.remote?.getCurrentWindow?.();
+        if (!native || typeof native.isDestroyed !== "function" || native.isDestroyed() ||
+            typeof native.getMinimumSize !== "function" || typeof native.setMinimumSize !== "function") return restore;
+        original = native.getMinimumSize();
+        if (!Array.isArray(original) || original.length !== 2 ||
+            !original.every(value => Number.isInteger(value) && value >= 0)) return restore;
+        original = [...original];
+        if (original[0] < 1024) {
+            // Mark before calling so a partially failed native operation can
+            // still restore the captured constraints.
+            changed = true;
+            native.setMinimumSize(1024, original[1]);
+        }
+    } catch (error) {
+        restore();
+        console.warn("Could not apply Itacan's window minimum size", error);
+    }
+    return restore;
+}
+
+module.exports = { installWindowMinimum };
+
+},
 "lib/services/workspace-state.js": function (module, exports, __hubRequire) {
 "use strict";
 
@@ -9345,7 +9446,8 @@ function mountTransientEffects(root) {
             if (cls === "hub-attention") {
                 // Capture the actual theme/selection surfaces before applying
                 // one inherited CSS pulse. Foreground colors are never touched.
-                effect.surfaces = [...element.querySelectorAll(surfaceSelector)].map(node => ({
+                effect.surfaces = [...(element.matches(surfaceSelector) ? [element] : []),
+                    ...element.querySelectorAll(surfaceSelector)].map(node => ({
                     node, background: surfaceBackground(node),
                     value: node.style.getPropertyValue("--hub-attention-base-surface"),
                     priority: node.style.getPropertyPriority("--hub-attention-base-surface"),
@@ -10473,16 +10575,15 @@ module.exports = { mountDailyBriefControl };
 },
 "lib/ui/daily-brief.js": function (module, exports, __hubRequire) {
 "use strict";
-const { createWindowTitle, setWindowUndertext } = __hubRequire("lib/ui/window-title.js");
+const { createWindowTitle, setWindowUndertext, layoutModal } = __hubRequire("lib/ui/window-title.js");
 const { Modal, Component, setIcon } = require("obsidian");
-const { parseLocalISODate } = __hubRequire("lib/domain/dates.js");
+const { parseLocalISODate, formatDate, formatWeekday } = __hubRequire("lib/domain/dates.js");
 const { createHubMarkdown } = __hubRequire("lib/ui/markdown.js");
 const { renderTaskProgress } = __hubRequire("lib/ui/daily-report.js");
 
 function briefDateLabel(date, includeYear = false) {
-    return parseLocalISODate(date)?.toLocaleDateString([], {
-        weekday: "long", day: "numeric", month: "long", ...(includeYear ? { year: "numeric" } : {})
-    }) ?? "";
+    const value = parseLocalISODate(date);
+    return value ? formatWeekday(value) + ", " + formatDate(value, "full", includeYear || value.getFullYear() !== new Date().getFullYear()) : "";
 }
 
 // Presentation accepts provider results, never the concrete recommendation rules.
@@ -10521,7 +10622,7 @@ class DailyBriefModal extends Modal {
         setWindowUndertext(headingTitle, root.createDiv({ cls: "hub-brief-date", text: briefDateLabel(this.context.briefDate, true) }));
         if (historical) this.action(root, "Back to today's brief", () => this.showDate(this.context.lastWorkDate), "hub-brief-back");
         const day = this.context.days.find(day => day.date === this.selectedDate);
-        if (!day) return;
+        if (!day) { layoutModal(this); return; }
         const heading = root.createDiv({ cls: "hub-brief-section-heading" });
         heading.createEl("h3", { text: `${historical ? "Work" : "Last work"} \u00b7 ${briefDateLabel(day.date)}` });
         if (day.hasReport) this.action(heading, "View full report", () => this.onReport(day.date));
@@ -10550,6 +10651,7 @@ class DailyBriefModal extends Modal {
             }
         }
         this.error = root.createDiv({ cls: "hub-report-empty", attr: { role: "status" } });
+        layoutModal(this);
     }
     renderWorkspace(parent, workspace) {
         const card = parent.createEl("section", { cls: "hub-report-card" });
@@ -10580,10 +10682,12 @@ module.exports = { DailyBriefModal, briefDateLabel };
 },
 "lib/ui/daily-report.js": function (module, exports, __hubRequire) {
 "use strict";
-const { createWindowTitle } = __hubRequire("lib/ui/window-title.js");
+const { createWindowTitle, setWindowUndertext, layoutModal } = __hubRequire("lib/ui/window-title.js");
+
+const { renderReportWorkspaceHeader } = __hubRequire("lib/ui/report-workspace-header.js");
 
 const { Modal, Component, setIcon } = require("obsidian");
-const { parseLocalISODate } = __hubRequire("lib/domain/dates.js");
+const { parseLocalISODate, formatDate, formatTime, formatDateTime } = __hubRequire("lib/domain/dates.js");
 const { activitySummary } = __hubRequire("lib/domain/report-context.js");
 const { createHubMarkdown } = __hubRequire("lib/ui/markdown.js");
 const { renderHistoryIcon } = __hubRequire("lib/ui/dashboard-ui.js");
@@ -10597,9 +10701,7 @@ function reportText(parent, text, markdown, cls = "hub-report-text", sourcePath 
 function time(parent, timestamp) {
     const date = new Date(Number(timestamp));
     if (!(Number(timestamp) > 0) || !Number.isFinite(date.getTime())) return;
-    parent.createEl("time", { cls: "hub-report-time", text: date.toLocaleTimeString([], {
-        hour: "2-digit", minute: "2-digit"
-    }), attr: { datetime: date.toISOString(), title: date.toLocaleString() } });
+    parent.createEl("time", { cls: "hub-report-time", text: formatTime(date), attr: { datetime: date.toISOString(), title: formatDateTime(date) } });
 }
 
 function sectionIcon(parent, name) {
@@ -10617,13 +10719,12 @@ function focusSection(parent, heading, items, empty, markdown) {
     for (const text of items) reportText(section, text, markdown);
 }
 
-function renderTaskProgress(parent, items, markdown, { heading = "Task progress", showTimes = true } = {}) {
+function renderTaskProgress(parent, items, markdown, { heading = "Task progress", showTimes = true, hideEmptyHeading = false, component } = {}) {
     const tasks = parent.createDiv({ cls: "hub-report-section" });
-    tasks.createEl("h3", { text: heading });
+    if (items.length || !hideEmptyHeading) tasks.createEl("h3", { text: heading });
     if (!items.length) tasks.createDiv({ cls: "hub-report-empty", text: "No task progress recorded for this day." });
     // Visible, bounded context uses the modal's native scrollbars; no active task controls.
     const list = tasks.createDiv({ cls: "hub-report-task-list", attr: { role: "list", "aria-label": heading } });
-    if (items.length > 5) list.setAttribute("tabindex", "0");
     for (const task of [...items].sort((a, b) => a.timestamp - b.timestamp)) {
         const row = list.createDiv({ cls: "hub-report-evidence-row", attr: { role: "listitem" } });
         const icon = row.createSpan({ cls: "hub-report-check", attr: { "aria-hidden": "true" } });
@@ -10633,12 +10734,26 @@ function renderTaskProgress(parent, items, markdown, { heading = "Task progress"
         if (showTimes) time(row, task.timestamp);
     }
 
+    if (component) {
+        const update = () => {
+            if (list.scrollHeight > list.clientHeight && list.clientHeight > 0) list.setAttribute("tabindex", "0");
+            else list.removeAttribute("tabindex");
+        };
+        // Bounded lists can overflow with only a few wrapped items. Observe the
+        // rows as well as the list so async Markdown and width changes update it.
+        const observer = new list.ownerDocument.defaultView.ResizeObserver(update);
+        observer.observe(list);
+        for (const row of list.children) observer.observe(row);
+        component.register(() => observer.disconnect());
+        update();
+    } else if (items.length > 5) list.setAttribute("tabindex", "0");
+
     return tasks;
 }
 
-function renderReportEvidence(parent, context, markdown) {
+function renderReportEvidence(parent, context, markdown, component) {
     const evidence = parent.createDiv({ cls: "hub-report-evidence" });
-    renderTaskProgress(evidence, context.tasks, markdown);
+    renderTaskProgress(evidence, context.tasks, markdown, { hideEmptyHeading: true, component });
 
     if (!context.activity.length) {
         evidence.createDiv({ cls: "hub-report-empty hub-report-no-activity", text: "No activity recorded for this day." });
@@ -10669,19 +10784,19 @@ function renderReportEvidence(parent, context, markdown) {
 }
 
 // Reusable renderer: it knows nothing about the heatmap or the modal hosting it.
-function renderDailyReport(parent, day, markdown) {
+function renderDailyReport(parent, day, markdown, plugin, component) {
     for (const report of day.reports) {
         const card = parent.createEl("section", { cls: "hub-report-card" });
-        const heading = card.createDiv({ cls: "hub-report-heading" });
-        heading.createEl("h3", { cls: "hub-project-advancement-name", text: report.projectName });
+        const heading = renderReportWorkspaceHeader(card, report, plugin);
         heading.createSpan({ cls: "hub-report-rating", text: report.score === null ? "Unrated" : `${report.score}/4` });
-        // Short reflections are plain text: no Markdown paragraph margins or
-        // extra DOM newlines on top of pre-wrap. Normalize display only.
-        const summary = String(report.summary || "").replace(/\r\n?/g, "\n")
-            .replace(/\n(?:[ \t]*\n){2,}/g, "\n\n");
-        reportText(card, summary || "No summary recorded.", null,
-            report.summary ? "hub-report-text hub-report-summary" : "hub-report-empty");
-        renderReportEvidence(card, report.context, markdown);
+        const resource = report.contextKind === "resource" || !!report.resourceType || report.projectId?.startsWith("resource:");
+        const workspace = resource
+            ? plugin?.projectWizard?.getResourceById?.(report.resourceType || report.projectId?.slice(9))
+            : plugin?.projectWizard?.getProjectById?.(report.projectId);
+        reportText(card, report.summary || "No summary recorded.", markdown,
+            report.summary ? "hub-report-text hub-report-summary hub-report-reflection" : "hub-report-empty",
+            workspace?.path || workspace?.hubPath || report.path || report.hubPath || "Home.md");
+        renderReportEvidence(card, report.context, markdown, component);
         focusSection(card, "Focus for this day", report.context.focus, "No focus set for this day.", markdown);
         focusSection(card, "Next focus", day.nextFocus.filter(item => item.projectId === report.projectId)
             .map(item => item.text), "No next focus recorded.", markdown);
@@ -10697,22 +10812,25 @@ function renderDailyReport(parent, day, markdown) {
 }
 
 function reportTitle(date, editing = false) {
-    const label = parseLocalISODate(date).toLocaleDateString([], {
-        day: "numeric", month: "long", year: "numeric"
-    });
+    const label = formatDate(parseLocalISODate(date), "full");
     return `${editing ? "Edit progress report" : "Progress report"} — ${label}`;
 }
 
 class DailyReportModal extends Modal {
-    constructor(app, { day, onEdit }) { super(app); this.day = day; this.onEdit = onEdit; }
+    constructor(app, { day, onEdit, plugin }) { super(app); this.day = day; this.onEdit = onEdit; this.plugin = plugin; }
     onOpen() {
         this.contentEl.addClass("hub-project-advancement-modal", "hub-daily-report-modal", "hub-button-scope");
-        createWindowTitle(this.contentEl, reportTitle(this.day.date), "clipboard-check");
+        const heading = createWindowTitle(this.contentEl, reportTitle(this.day.date), "clipboard-check");
+        setWindowUndertext(heading, this.contentEl.createDiv({ cls: "hub-progress-rating-guidance",
+            text: "A summary of your work and progress for the day." }));
+        this.contentEl.createDiv({ cls: "hub-project-advancement-divider" });
         this.renderComponent = new Component();
         this.renderComponent.load();
         const markdown = createHubMarkdown({ app: this.app, component: this.renderComponent });
-        renderDailyReport(this.contentEl, this.day, markdown);
+        renderDailyReport(this.contentEl, this.day, markdown, this.plugin, this.renderComponent);
+        this.contentEl.addClass("hub-report-footer-layout");
         const actions = this.contentEl.createDiv({ cls: "hub-project-advancement-actions" });
+        layoutModal(this, { footer: actions, bodyClass: "hub-report-scroll" });
         if (this.onEdit) actions.createEl("button", { text: "Edit progress" }).addEventListener("click", () => {
             this.close(); this.onEdit();
         });
@@ -10785,6 +10903,7 @@ module.exports = { createDashboardFrame };
 "lib/ui/dashboard-ui.js": function (module, exports, __hubRequire) {
 "use strict";
 const { disclosureIcons } = __hubRequire("lib/ui/disclosure.js");
+const { formatDate, formatTime, formatDateTime, formatWeekday, formatDateRange, historyDateLabel } = __hubRequire("lib/domain/dates.js");
 const { setHubTooltip } = __hubRequire("lib/ui/tooltips.js");
 const { progressColors, progressColor } = __hubRequire("lib/ui/progress-colors.js");
 
@@ -11014,9 +11133,15 @@ function createDashboardUi({
         createFrame: (container, component, className) => __hubRequire("lib/ui/dashboard-frame.js").createDashboardFrame(container, component, className),
         el,
         historyHeading,
+        makeActionableRow: __hubRequire("lib/ui/row-activation.js").makeActionableRow,
         historyKind: __hubRequire("lib/domain/history.js").historyKind,
         createHistoryPager: __hubRequire("lib/ui/history-pager.js").createHistoryPager,
-        historyDate: when => when.format("D MMM"),
+        historyDate: historyDateLabel,
+        formatDate,
+        formatTime,
+        formatDateTime,
+        formatWeekday,
+        formatDateRange,
         lastFileTooltip,
         lastNavigationInfo,
         markDashboardRow,
@@ -11041,7 +11166,8 @@ module.exports = {
 "lib/ui/date-time.js": function (module, exports, __hubRequire) {
 "use strict";
 const { Modal } = require("obsidian");
-const { parseLocalISODate, validLocalTime } = __hubRequire("lib/domain/dates.js");
+const { layoutModal } = __hubRequire("lib/ui/window-title.js");
+const { parseLocalISODate, validLocalTime, formatDate } = __hubRequire("lib/domain/dates.js");
 const { setHubIcon } = __hubRequire("lib/ui/icons.js");
 
 // The native calendar/time interaction is shared with The Oath. Showing the
@@ -11086,7 +11212,7 @@ function mountTaskDateTime({ app, host, label, state, dateKey, timeKey, onChange
     const sync = () => {
         const date = parseLocalISODate(state[dateKey]);
         const time = date && validLocalTime(state[timeKey]) ? state[timeKey] : "";
-        const text = date ? `${date.getDate()} ${date.toLocaleDateString("en-US", { month: "short" })} ${date.getFullYear()}${time ? ", " + time : ""}` : "Select date and time";
+        const text = date ? `${formatDate(date)}${time ? ", " + time : ""}` : "Select date and time";
         display.textContent = text;
         picker?.refresh();
     };
@@ -11121,6 +11247,7 @@ function mountTaskDateTime({ app, host, label, state, dateKey, timeKey, onChange
             actions.createEl("button", { text: "Done", attr: { type: "button" } }).onclick = () => {
                 if (this.date.reportValidity() && this.time.reportValidity()) this.close();
             };
+            layoutModal(this, { footer: actions });
             this.refresh(); this.date.focus();
         }
         refresh() {
@@ -11186,6 +11313,43 @@ function fileIcon(file) {
 }
 
 module.exports = { fileIcon };
+
+},
+"lib/ui/focus-restoration.js": function (module, exports, __hubRequire) {
+"use strict";
+
+function hasKeyboardFocus(control, event) {
+    return !!control && control.ownerDocument.activeElement === control &&
+        control.matches(":focus-visible") && (!event || event.detail === 0);
+}
+
+function focusControl(control) {
+    if (!control?.isConnected || control.disabled || control.tabIndex < 0 || !control.getClientRects().length) return false;
+    control.focus({ preventScroll: true });
+    if (control.ownerDocument.activeElement !== control) return false;
+    control.scrollIntoView({ block: "nearest", inline: "nearest" });
+    return true;
+}
+
+function focusAfterRowRemoval(controls, index, fallback) {
+    for (const control of [...controls.slice(index), ...controls.slice(0, index).reverse(), fallback]) {
+        if (focusControl(control)) return;
+    }
+}
+
+function revealHorizontalKeyboardFocus(control, scroll) {
+    if (!scroll?.isConnected || !scroll.contains(control) || !hasKeyboardFocus(control)) return;
+    const bounds = scroll.getBoundingClientRect();
+    const target = control.getBoundingClientRect();
+    const left = bounds.left + scroll.clientLeft;
+    const right = left + scroll.clientWidth;
+    // Change only this region's horizontal offset; scrollIntoView can move
+    // ancestor panes, and native Tab revealing may leave a wide control clipped.
+    if (target.left < left) scroll.scrollLeft += target.left - left;
+    else if (target.right > right) scroll.scrollLeft += target.right - right;
+}
+
+module.exports = { hasKeyboardFocus, focusControl, focusAfterRowRemoval, revealHorizontalKeyboardFocus };
 
 },
 "lib/ui/full-view-layout.js": function (module, exports, __hubRequire) {
@@ -11515,7 +11679,7 @@ module.exports = { createHistoryPager };
 },
 "lib/ui/home-covers.js": function (module, exports, __hubRequire) {
 "use strict";
-const { createWindowTitle, setWindowUndertext } = __hubRequire("lib/ui/window-title.js");
+const { createWindowTitle, setWindowUndertext, layoutModal } = __hubRequire("lib/ui/window-title.js");
 const { HOME_COVER_PERIODS } = __hubRequire("lib/services/home-covers.js");
 const { mountHeaderImage } = __hubRequire("lib/ui/header-image.js");
 
@@ -11578,6 +11742,7 @@ function openHomeCoverEditor(service, sourceCover) {
             });
             const actions = this.contentEl.createDiv({ cls: "hub-project-wizard-actions" });
             actions.createEl("button", { text: "Close" }).addEventListener("click", () => this.close());
+            layoutModal(this, { footer: actions });
         }
         resizePreviews() {
             if (sourceCover.clientWidth && sourceCover.clientHeight) {
@@ -11597,21 +11762,29 @@ function openHomeCoverEditor(service, sourceCover) {
             }
         }
         async renderPreview(preview) {
-            const file = service.plugin.app.vault.getAbstractFileByPath(service.config(preview.name).path);
+            const request = preview.request = (preview.request ?? 0) + 1;
             const image = preview.surface.ownerDocument.createElement("img");
             image.className = "home-cover-image hub-home-cover-staging"; image.alt = "";
             try {
-                if (!file) throw Error("Cover image is missing. Right-click to choose an image.");
+                const path = service.config(preview.name).path;
+                const file = typeof path === "string" && path.trim() ? service.plugin.app.vault.getAbstractFileByPath(path) : null;
+                if (!file || file.children) throw Error("Cover image is missing. Right-click to choose an image.");
                 image.src = service.plugin.app.vault.getResourcePath(file);
                 await image.decode();
-                if (this.closed) return;
+                if (this.closed || preview.request !== request) return;
+                preview.unavailable?.remove(); preview.unavailable = null;
                 preview.editor?.dispose(); preview.surface.replaceChildren(image);
                 preview.editor = mountHeaderImage({ cover: preview.surface, image, component: this.owner,
                     controlsHost: preview.frame, manageMenu: false, ...service.placementOptions(preview.name) });
                 await preview.editor.prepare();
                 image.classList.remove("hub-home-cover-staging");
             } catch (error) {
-                if (!this.closed) new Notice(error.message || "Could not load cover preview.");
+                if (!this.closed && preview.request === request) {
+                    preview.editor?.dispose(); preview.editor = null;
+                    preview.surface.empty(); preview.unavailable?.remove();
+                    preview.unavailable = preview.frame.createDiv({ cls: "hub-home-cover-unavailable hub-capture-muted", text: "Image unavailable. Use Change image to choose a replacement.", attr: { role: "status" } });
+                    new Notice(error.message || "Could not load cover preview.");
+                }
             }
         }
         chooseImage(preview) {
@@ -11785,6 +11958,7 @@ module.exports = { mountInboxGuidance, mountCaptureGuidance };
 "lib/ui/inbox.js": function (module, exports, __hubRequire) {
 "use strict";
 const { Notice, Menu } = require("obsidian");
+const { formatDateTime } = __hubRequire("lib/domain/dates.js");
 const { CaptureModal, CaptureConfirmation, action, attachments } = __hubRequire("lib/ui/capture-modal.js");
 const { setHubIcon, ensureHubIcon } = __hubRequire("lib/ui/icons.js");
 const { disclosureIcons } = __hubRequire("lib/ui/disclosure.js");
@@ -11807,7 +11981,7 @@ function sortIcon(sort) {
     return icon;
 }
 
-function timestamp(value) { return new Date(value).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }); }
+function timestamp(value) { return formatDateTime(new Date(value)); }
 function preview(capture) { return String(capture.text ?? "").trim() || capture.attachments.map(ref => ref.name).join(", ") || "Untitled item"; }
 function detailTitle(capture) {
     const line = preview(capture).split(/\r?\n/)[0];
@@ -12416,7 +12590,7 @@ module.exports = { bindListReorder };
 "use strict";
 
 // One native Markdown/MathJax rendering lifecycle for compact Hub text.
-function createHubMarkdown({ app, component }) {
+function createHubMarkdown({ app, component, interactive = true }) {
     const { Component, MarkdownRenderer } = require("obsidian");
     const children = new Set();
     let disposed = false;
@@ -12436,6 +12610,7 @@ function createHubMarkdown({ app, component }) {
         const preview = element.ownerDocument.createElement("div");
         const current = () => !disposed && children.has(child) && canCommit();
         const click = event => {
+            if (!interactive) return;
             const link = event.target.closest("a.internal-link");
             if (link) {
                 event.preventDefault(); event.stopPropagation();
@@ -12451,6 +12626,21 @@ function createHubMarkdown({ app, component }) {
         })
             .then(() => {
                 if (!current()) return;
+                // Oath status shares native formatting without navigation or
+                // embedded task controls. Keep its text in the accessibility tree.
+                if (!interactive) {
+                    for (const link of preview.querySelectorAll("a")) {
+                        const text = preview.ownerDocument.createElement("span");
+                        text.replaceChildren(...link.childNodes);
+                        link.replaceWith(text);
+                    }
+                    for (const control of preview.querySelectorAll("input, button, select, textarea")) {
+                        const text = preview.ownerDocument.createElement("span");
+                        text.textContent = control.type === "checkbox"
+                            ? (control.checked ? "Completed: " : "Incomplete: ") : control.textContent || control.value || "";
+                        control.replaceWith(text);
+                    }
+                }
                 // A single paragraph needs no extra block box in an existing
                 // title/summary. Plain text keeps the exact inherited styling.
                 const content = preview.childNodes.length === 1 && preview.firstElementChild?.tagName === "P"
@@ -12520,6 +12710,27 @@ function mountDisclosure({ trigger, panel, onOpen = () => {}, onClose = () => {}
 }
 
 module.exports = { bindMenuToggle, mountDisclosure };
+
+},
+"lib/ui/modal-save.js": function (module, exports, __hubRequire) {
+"use strict";
+
+// Match CaptureModal's pending-save controls without changing modal ownership.
+// Call only after validation; the owning modal guards close() while saving.
+function lockModalControls(modal) {
+    const controls = [...modal.contentEl.querySelectorAll("button,input,textarea,select")];
+    const disabled = controls.map(control => control.disabled);
+    const busy = modal.modalEl.getAttribute("aria-busy");
+    controls.forEach(control => { control.disabled = true; });
+    modal.modalEl.setAttribute("aria-busy", "true");
+    return () => {
+        controls.forEach((control, index) => { control.disabled = disabled[index]; });
+        if (busy === null) modal.modalEl.removeAttribute("aria-busy");
+        else modal.modalEl.setAttribute("aria-busy", busy);
+    };
+}
+
+module.exports = { lockModalControls };
 
 },
 "lib/ui/music-item-editor.js": function (module, exports, __hubRequire) {
@@ -12617,6 +12828,8 @@ const { row, section } = __hubRequire("lib/ui/settings-pages.js");
 const { setHubIcon } = __hubRequire("lib/ui/icons.js");
 const { action } = __hubRequire("lib/ui/capture-modal.js");
 const { openMusicItemEditor } = __hubRequire("lib/ui/music-item-editor.js");
+const { bindMenuToggle } = __hubRequire("lib/ui/menu-toggle.js");
+const { hasKeyboardFocus, focusControl } = __hubRequire("lib/ui/focus-restoration.js");
 
 function mountMusicSettings(parent, service) {
     const error = parent.createDiv({ cls: "hub-task-error", attr: { role: "alert" } });
@@ -12631,7 +12844,8 @@ function mountMusicSettings(parent, service) {
         toggles.push(component);
         return component;
     };
-    const run = async work => {
+    let itemMenu = null, itemMenuButton = null, menuToggles = [];
+    const run = async (work, returnKey = null) => {
         if (disposed || busy) return;
         busy = true; error.textContent = "";
         host.setAttribute("aria-busy", "true");
@@ -12642,7 +12856,8 @@ function mountMusicSettings(parent, service) {
         catch (problem) { if (!disposed) error.textContent = problem.message || "Could not save music settings. Try again."; }
         finally {
             busy = false;
-            if (!disposed) { host.removeAttribute("aria-busy"); controls.forEach((control, index) => { control.disabled = disabled[index]; }); render(); }
+            if (!disposed) { host.removeAttribute("aria-busy"); controls.forEach((control, index) => { control.disabled = disabled[index]; }); render();
+                if (returnKey && (host.ownerDocument.activeElement === host.ownerDocument.body || host.contains(host.ownerDocument.activeElement))) focusControl([...host.querySelectorAll("[data-music-focus]")].find(control => control.dataset.musicFocus === returnKey) ?? host.querySelector('[data-music-focus="add"]')); }
         }
     };
     const openEditor = options => {
@@ -12658,6 +12873,7 @@ function mountMusicSettings(parent, service) {
     };
     function render() {
         if (disposed || busy) return;
+        itemMenu?.hide(); menuToggles.splice(0).forEach(stop => stop());
         const active = host.ownerDocument.activeElement;
         const focusKey = host.contains(active) ? active?.dataset?.musicFocus : null;
         const selection = focusKey && typeof active.selectionStart === "number" ? [active.selectionStart, active.selectionEnd] : null;
@@ -12741,17 +12957,33 @@ function mountMusicSettings(parent, service) {
             const controls = entry.createDiv({ cls: "hub-music-library-actions" });
             const component = toggle(controls, "Enable " + item.name, item.enabled, value => service.setItemEnabled(item.id, value));
             if (component.toggleEl) component.toggleEl.dataset.musicFocus = "item-" + item.id;
-            const menuButton = action(controls, "", "ellipsis", () => {
-                const menu = new Menu();
+            const menuButton = action(controls, "", "ellipsis", event => {
+                if (itemMenu && itemMenuButton === menuButton) { itemMenu.hide(); return; }
+                itemMenu?.hide(); itemMenuButton = menuButton;
+                let keyboard = hasKeyboardFocus(menuButton, event);
+                const menu = itemMenu = new Menu(), doc = host.ownerDocument;
+                const onKey = () => { keyboard = true; }, onPointer = () => { keyboard = false; };
+                doc.addEventListener("keydown", onKey, true); doc.addEventListener("pointerdown", onPointer, true);
+                menu.onHide(() => {
+                    doc.removeEventListener("keydown", onKey, true); doc.removeEventListener("pointerdown", onPointer, true);
+                    if (itemMenu === menu) { itemMenu = null; itemMenuButton = null; }
+                    menuButton.setAttribute("aria-expanded", "false");
+                    const focused = doc.activeElement;
+                    if (!disposed && !editor && keyboard && (focused === doc.body || menu.dom?.contains(focused))) focusControl(menuButton);
+                });
+                const manage = work => { void run(work, keyboard ? menuButton.dataset.musicFocus : null); };
+                menuButton.setAttribute("aria-expanded", "true");
                 menu.addItem(option => option.setTitle("Rename").setIcon("square-pen").onClick(() => openEditor({ item, returnFocus: menuButton })));
-                menu.addItem(option => option.setTitle("Move up").setIcon("arrow-up").setDisabled(index === 0).onClick(() => { void run(() => service.move(item.id, -1)); }));
-                menu.addItem(option => option.setTitle("Move down").setIcon("arrow-down").setDisabled(index === state.items.length - 1).onClick(() => { void run(() => service.move(item.id, 1)); }));
+                menu.addItem(option => option.setTitle("Move up").setIcon("arrow-up").setDisabled(index === 0).onClick(() => { manage(() => service.move(item.id, -1)); }));
+                menu.addItem(option => option.setTitle("Move down").setIcon("arrow-down").setDisabled(index === state.items.length - 1).onClick(() => { manage(() => service.move(item.id, 1)); }));
                 menu.addSeparator();
-                menu.addItem(option => option.setTitle("Remove").setIcon("trash-2").onClick(() => { void run(() => service.remove(item.id)); }));
+                menu.addItem(option => option.setTitle("Remove").setIcon("trash-2").onClick(() => { manage(() => service.remove(item.id)); }));
                 const rect = menuButton.getBoundingClientRect(); menu.showAtPosition({ x: rect.left, y: rect.bottom });
             }, "hub-music-library-menu");
             menuButton.setAttribute("aria-label", "Options for " + item.name); menuButton.setAttribute("aria-haspopup", "menu"); menuButton.title = "Music options";
             menuButton.dataset.musicFocus = "menu-" + item.id;
+            menuButton.setAttribute("aria-expanded", "false");
+            menuToggles.push(bindMenuToggle(menuButton, { isOpen: () => !!itemMenu && itemMenuButton === menuButton, close: () => itemMenu?.hide() }));
         });
         if (focusKey) {
             const control = [...host.querySelectorAll("[data-music-focus]")].find(control => control.dataset.musicFocus === focusKey);
@@ -12760,7 +12992,7 @@ function mountMusicSettings(parent, service) {
         }
     }
     const unsubscribe = service.onChange(render), unsubscribeSpotify = spotify?.onChange(render); render();
-    return () => { disposed = true; unsubscribe(); unsubscribeSpotify?.(); editor?.close(); };
+    return () => { disposed = true; itemMenu?.hide(); menuToggles.splice(0).forEach(stop => stop()); unsubscribe(); unsubscribeSpotify?.(); editor?.close(); };
 }
 module.exports = { mountMusicSettings };
 
@@ -13210,7 +13442,7 @@ function mountOathApplications(parent, service, values, save) {
         list.empty();
         if (!current.length) list.createEl("li", { text: "Itacan only. No external applications permitted." });
         for (const value of current) {
-            const item = list.createEl("li"); item.createSpan({ text: value });
+            const item = list.createEl("li").createDiv({ cls: "hub-oath-application-row" }); item.createSpan({ text: value });
             const remove = item.createEl("button", { text: "Remove", attr: { type: "button", "aria-label": "Remove " + value } });
             remove.disabled = busy; remove.addEventListener("click", () => void update(current.filter(entry => entry !== value)));
         }
@@ -13344,14 +13576,17 @@ module.exports = { createOathTaskSection };
 },
 "lib/ui/oath.js": function (module, exports, __hubRequire) {
 "use strict";
-const { createWindowTitle, setWindowUndertext } = __hubRequire("lib/ui/window-title.js");
-const { createTaskUi, createTaskRow } = __hubRequire("lib/ui/tasks.js");
-const { parseLocalISODate } = __hubRequire("lib/domain/dates.js");
+const { hasKeyboardFocus, focusControl } = __hubRequire("lib/ui/focus-restoration.js");
+const { createWindowTitle, setWindowUndertext, layoutModal } = __hubRequire("lib/ui/window-title.js");
+const { createTaskUi, createTaskRow, renderReadOnlyTask } = __hubRequire("lib/ui/tasks.js");
+const { createHubMarkdown } = __hubRequire("lib/ui/markdown.js");
+const { parseLocalISODate, formatDate, formatDateTime } = __hubRequire("lib/domain/dates.js");
 const { bindNativeDateTimePicker } = __hubRequire("lib/ui/date-time.js");
 const { disclosureIcons } = __hubRequire("lib/ui/disclosure.js");
 const { mountTransientEffects } = __hubRequire("lib/ui/attention.js");
 const { bindMenuToggle, mountDisclosure } = __hubRequire("lib/ui/menu-toggle.js");
 const { setHubTooltip } = __hubRequire("lib/ui/tooltips.js");
+const { setHubIcon } = __hubRequire("lib/ui/icons.js");
 const { openTaskCreator } = __hubRequire("lib/ui/task-editor.js");
 const { createWorkspaceCards } = __hubRequire("lib/ui/workspace-cards.js");
 const { createCardImageRenderer } = __hubRequire("lib/ui/card-images.js");
@@ -13360,7 +13595,7 @@ const { workspaceRef, sameWorkspace, taskKey } = __hubRequire("lib/domain/oath-w
 const { isCommitted, oathTime, oathProgress, shortOathTime, fulfilmentLabel, oathDuration, validDuration } = __hubRequire("lib/domain/oath.js");
 const { mountOathApplications } = __hubRequire("lib/ui/oath-applications.js");
 
-const dateLabel = time => new Date(time).toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
+const dateLabel = time => formatDateTime(new Date(time));
 const OATH_COPY = Object.freeze({
     start: "When will your Oath begin?",
     work: "What will you work on?",
@@ -13387,7 +13622,8 @@ function endingOathRows(draft) {
 
 function oathIcon(parent, name) {
     const icon = parent.createSpan({ cls: "hub-oath-row-icon", attr: { "aria-hidden": "true" } });
-    require("obsidian").setIcon(icon, name);
+    if (name === "folder") setHubIcon(icon, name);
+    else require("obsidian").setIcon(icon, name);
     return icon;
 }
 function oathRow(group, icon, text, label = null) {
@@ -13419,7 +13655,7 @@ function selectionRow(ui, body, task) {
     return parts.row;
 }
 
-function openOathWorkspacePicker(service, type, onSelect) {
+function openOathWorkspacePicker(service, type, selected, onSelect, restoreFocus) {
     const { Modal, Component } = require("obsidian");
     class Picker extends Modal {
         onOpen() {
@@ -13444,19 +13680,25 @@ function openOathWorkspacePicker(service, type, onSelect) {
                 if (type === "project") contexts.sort((a, b) =>
                     (positions.indexOf(a.projectId) < 0 ? Infinity : positions.indexOf(a.projectId)) -
                     (positions.indexOf(b.projectId) < 0 ? Infinity : positions.indexOf(b.projectId)));
-                for (const context of contexts) cards.render(body, context, () => {
-                    const ref = workspaceRef(context);
-                    if (!service.resolveWorkspace(ref)) { render(); return; }
-                    onSelect(ref); this.close();
-                });
-                if (!contexts.length) body.createEl("p", { cls: "hub-oath-muted", text: "No matching Active Projects." });
+                for (const context of contexts) {
+                    const card = cards.render(body, context, (event, card) => {
+                        const ref = workspaceRef(context);
+                        if (!service.resolveWorkspace(ref)) { render(); return; }
+                        this.keyboardSelection = hasKeyboardFocus(card, event);
+                        onSelect(ref); this.close();
+                    });
+                    const isSelected = sameWorkspace(selected, workspaceRef(context));
+                    card.classList.toggle("is-selected", isSelected);
+                    card.setAttribute("aria-pressed", String(isSelected));
+                }
+                if (!contexts.length) body.createEl("p", { cls: "hub-oath-muted", text: type === "project" ? "No matching Active Projects." : "No matching Resources." });
             };
             search?.addEventListener("input", render);
             service.plugin.taskData.subscribe(this.owner, render);
             this.contentEl.createDiv({ cls: "hub-oath-actions" }).createEl("button", { text: "Cancel" }).addEventListener("click", () => this.close());
-            render(); (search ?? body.querySelector('[tabindex="0"]'))?.focus();
+            render(); layoutModal(this, { headerEnd: search ?? this.contentEl.querySelector("h2"), body }); (search ?? body.querySelector('[tabindex="0"]'))?.focus();
         }
-        onClose() { this.owner?.unload(); this.contentEl.empty(); }
+        onClose() { this.owner?.unload(); this.contentEl.empty(); if (this.keyboardSelection) restoreFocus?.(); }
     }
     const modal = new Picker(service.app); modal.open(); return modal;
 }
@@ -13514,7 +13756,7 @@ function openOathPicker(service, workspace, selected, onSelect) {
             });
             search.addEventListener("input", render);
             service.plugin.taskData.subscribe(this.owner, render);
-            render(); search.focus();
+            render(); layoutModal(this, { headerEnd: search, body }); search.focus();
         }
         onClose() { this.owner?.unload(); this.contentEl.empty(); }
     }
@@ -13596,6 +13838,7 @@ function openOathSetup(service) {
             this.contentEl.classList.add("hub-oath-setup");
             const heading = createWindowTitle(this.contentEl, "Make an Oath", "shield-user");
             setWindowUndertext(heading, this.contentEl.createEl("p", { cls: "hub-oath-muted", text: "Set the terms of your commitment." }));
+            const headerEnd = this.contentEl.createDiv({ cls: "hub-oath-header-divider" });
             if (service.strictEnabled || draft.mode === "strict") {
                 const mode = this.section("Commitment mode");
                 this.choices(mode, "mode", [["ordinary", "Ordinary Oath", "Early exit records a broken Oath"], ["strict", "Strict Oath", "Ordinary early exit is unavailable"]], draft.mode ?? "ordinary", value => {
@@ -13652,7 +13895,7 @@ function openOathSetup(service) {
                 scheduledRadio.checked = opened || draft.start === "scheduled" && startValid();
                 scheduledRadio.setAttribute("aria-expanded", String(opened));
                 const [date = "", time = ""] = dateInput.value.split("T"), local = parseLocalISODate(date);
-                const label = local && time ? `${local.getDate()} ${local.toLocaleDateString("en-US", { month: "short" })} ${local.getFullYear()}, ${time}` : "Select date and time";
+                const label = local && time ? `${formatDate(local)}, ${time}` : "Select date and time";
                 scheduledCard.querySelector(".hub-oath-choice-title").textContent = label;
                 dateInput.setAttribute("aria-label", `Scheduled Oath start: ${label}`);
             };
@@ -13689,10 +13932,10 @@ function openOathSetup(service) {
             const work = this.section(OATH_COPY.work);
             const choose = type => {
                 this.dateDisclosure.close(); this.unitMenu?.hide();
-                this.picker = openOathWorkspacePicker(service, type, ref => {
+                this.picker = openOathWorkspacePicker(service, type, draft.workspace, ref => {
                     this.selectWorkspace(ref);
                     this.setup();
-                });
+                }, () => focusControl(this.contentEl.querySelector(`.hub-oath-workspace-choices input[value="${type}"]`)));
             };
             const workspaceName = service.resolveWorkspace(draft.workspace)?.name ?? draft.workspace?.name;
             this.choices(work, "workspace", [
@@ -13921,6 +14164,7 @@ function openOathSetup(service) {
                 syncStart();
             };
             this.updateNext();
+            layoutModal(this, { headerEnd, footer: actions });
             next.addEventListener("click", async () => {
                 if (this.reviewing) return;
                 try {
@@ -13944,7 +14188,7 @@ function openOathSetup(service) {
                         this.effects.cancel(this.guidedGroup);
                         this.guidedGroup = this.requirementGroups[missing.key];
                         hint.textContent = missing.error;
-                        this.effects.pulse(this.guidedGroup, null, () => { hint.textContent = ""; });
+                        this.effects.pulse(this.guidedGroup, this.contentEl.querySelector(".hub-modal-body"), () => { hint.textContent = ""; });
                     }
                 } finally { this.reviewing = false; next.disabled = false; }
             });
@@ -13968,6 +14212,7 @@ function openOathSetup(service) {
             this.contentEl.classList.add("hub-oath-review");
             const heading = createWindowTitle(this.contentEl, OATH_COPY.confirmation, "shield-user");
             setWindowUndertext(heading, this.contentEl.createEl("p", { text: "Review the terms of your commitment before taking the Oath.", cls: "hub-oath-muted" }));
+            const headerEnd = this.contentEl.createDiv({ cls: "hub-oath-header-divider" });
             const summary = this.section("Your Oath").createDiv({ cls: "hub-oath-row-group" });
             for (const [icon, label, value] of [
                 ["clock", "Start time", draft.start === "now" ? "Now" : dateLabel(draft.scheduledAt)],
@@ -14025,6 +14270,7 @@ function openOathSetup(service) {
                 catch (problem) { delete draft.strictConfirmation; error.textContent = problem.message; }
                 finally { this.reviewing = false; refresh.disabled = back.disabled = false; updateTake(); }
             });
+            layoutModal(this, { headerEnd, footer: actions });
             back.addEventListener("click", () => this.setup());
             take.addEventListener("click", async () => {
                 if (this.saving || this.reviewing || take.disabled) return; this.saving = true; take.disabled = back.disabled = true; if (refresh) refresh.disabled = true;
@@ -14039,7 +14285,7 @@ function openOathSetup(service) {
 }
 
 function openOathStatus(service) {
-    const { Modal } = require("obsidian");
+    const { Modal, Component } = require("obsidian");
     class Status extends Modal {
         onOpen() {
             this.modalEl.classList.add("hub-oath-dialog", "hub-oath-status"); this.contentEl.classList.add("hub-button-scope");
@@ -14056,6 +14302,9 @@ function openOathStatus(service) {
             this.clock.textContent = oath.state === "scheduled" ? `Starts ${dateLabel(oath.scheduledAt)}` : service.fulfilled ? `Fulfilled · ${shortOathTime(time.elapsedMs)} Oathbound` : `${shortOathTime(time.remainingMs)} remaining`;
         }
         render() {
+            this.taskOwner?.unload();
+            this.taskOwner = new Component(); this.taskOwner.load();
+            const markdown = createHubMarkdown({ app: service.app, component: this.taskOwner, interactive: false });
             const oath = service.current; this.contentEl.empty();
             const heading = createWindowTitle(this.contentEl, oath.state === "scheduled" ? "Scheduled Oath" : "Oathbound", "shield-user");
             this.clock = this.contentEl.createEl("p", { cls: "hub-oath-status-time" }); this.updateClock();
@@ -14069,11 +14318,9 @@ function openOathStatus(service) {
             const work = this.contentEl.createDiv({ cls: "hub-oath-status-work" });
             for (const ref of oath.tasks) {
                 const task = service.work.find(item => item.ref.id === ref.id)?.task;
-                const row = work.createDiv({ cls: "hub-oath-selected" });
-                row.createSpan({ text: task ? (task.completed ? "✓ " : "○ ") + task.text : ref.text + " — source unavailable" });
+                renderReadOnlyTask(work, task || { text: ref.text, path: ref.path }, markdown, { unavailable: !task });
             }
             const error = this.contentEl.createDiv({ cls: "hub-task-error", attr: { role: "alert" } });
-            const actions = this.contentEl.createDiv({ cls: "hub-oath-actions" });
             const run = async fn => {
                 if (this.saving) return; this.saving = true;
                 try { await fn(); this.saving = false; if (!service.committed) this.close(); }
@@ -14094,9 +14341,11 @@ function openOathStatus(service) {
                 }
                 applications.createEl("button", { text: "Return to Itacan", attr: { type: "button" } }).addEventListener("click", () => service.strict.host.focus());
             }
+            const actions = this.contentEl.createDiv({ cls: "hub-oath-actions" });
             if (oath.state === "scheduled" && (service.isStrict || service.now() < oath.scheduledAt)) {
                 actions.createEl("button", { text: "Cancel Oath" }).addEventListener("click", () => run(() => service.end(this.id, "cancel")));
-                actions.createEl("button", { text: "Close", cls: "mod-cta" }).addEventListener("click", () => this.close()); return;
+                actions.createEl("button", { text: "Close", cls: "mod-cta" }).addEventListener("click", () => this.close());
+                layoutModal(this, { footer: actions }); return;
             }
             const end = actions.createEl("button", { text: service.isStrict && !service.fulfilled ? "Available after fulfillment" : "End Oath" });
             end.disabled = service.isStrict && !service.fulfilled;
@@ -14104,8 +14353,9 @@ function openOathStatus(service) {
                 this.close(); void requestOathExit(service);
             });
             actions.createEl("button", { text: "Close", cls: "mod-cta" }).addEventListener("click", () => this.close());
+            layoutModal(this, { footer: actions });
         }
-        onClose() { this.dispose?.(); this.clockDispose?.(); this.contentEl.empty(); }
+        onClose() { this.dispose?.(); this.clockDispose?.(); this.taskOwner?.unload(); this.contentEl.empty(); }
     }
     const modal = new Status(service.app); modal.open(); return modal;
 }
@@ -14182,6 +14432,8 @@ module.exports = { openOathPicker, openOathSetup, openOathStatus, mountOathContr
 },
 "lib/ui/planning-editor.js": function (module, exports, __hubRequire) {
 "use strict";
+const { hasKeyboardFocus, focusAfterRowRemoval } = __hubRequire("lib/ui/focus-restoration.js");
+const { createWindowTitle, setWindowUndertext, layoutModal } = __hubRequire("lib/ui/window-title.js");
 const { Modal, FuzzySuggestModal } = require("obsidian");
 const { localISODate } = __hubRequire("lib/domain/dates.js");
 
@@ -14192,7 +14444,9 @@ function openPlanningEditor(service, projectId, kind, value = null, dv, defaults
             this.modalEl.classList.add("hub-task-dialog");
             this.contentEl.classList.add("hub-button-scope", "hub-task-form", "hub-planning-form");
             const state = service.read(projectId), revision = state.revision;
-            this.contentEl.createEl("h2", { cls: "hub-task-dialog-title", text: (value ? "Edit " : "Add ") + noun });
+            const heading = createWindowTitle(this.contentEl, (value ? "Edit " : "Add ") + noun, phase ? "layers" : "flag", { cls: "hub-task-dialog-title" });
+            setWindowUndertext(heading, this.contentEl.createEl("p", { cls: "hub-oath-muted",
+                text: phase ? "Organise a stage of your project's roadmap." : "Set a key date in your project's roadmap." }));
             const form = this.contentEl.createEl("form");
             function section(text) { const section = form.createEl("section", { cls: "hub-task-section" }); section.createEl("h3", { text }); return section; }
             function field(host, text, type, initial) {
@@ -14208,7 +14462,7 @@ function openPlanningEditor(service, projectId, kind, value = null, dv, defaults
                 end = field(dates, "End", "date", value?.end ?? start.value);
                 start.addEventListener("change", () => { end.min = start.value; }); end.min = start.value;
                 const label = section("Description").createEl("label");
-                label.createSpan({ text: "Description (optional)", cls: "hub-task-help" });
+                label.createSpan({ text: "Description (optional)", cls: "hub-capture-label" });
                 description = label.createEl("textarea", { attr: { rows: "3", "aria-label": "Description (optional)" } }); description.value = value?.description ?? "";
                 const taskSection = section("Tasks"), list = taskSection.createDiv({ cls: "hub-phase-task-list" });
                 tasks = service.tasks(dv, projectId);
@@ -14221,7 +14475,11 @@ function openPlanningEditor(service, projectId, kind, value = null, dv, defaults
                         const info = row.createDiv(); info.createDiv({ text: task.text });
                         info.createDiv({ cls: "hub-task-help", text: task.path.replace(/\.md$/i, "").split("/").slice(2).join(" › ") });
                         const remove = row.createEl("button", { text: "Remove", attr: { type: "button", "aria-label": "Remove phase from " + task.text } });
-                        remove.addEventListener("click", () => { selected.delete(id); renderTasks(); });
+                        remove.addEventListener("click", event => {
+                            const restoreFocus = hasKeyboardFocus(remove, event), index = [...selected.keys()].indexOf(id);
+                            selected.delete(id); renderTasks();
+                            if (restoreFocus) focusAfterRowRemoval([...list.querySelectorAll(".hub-phase-task-item button")], index, add);
+                        });
                     }
                 };
                 renderTasks();
@@ -14264,6 +14522,7 @@ function openPlanningEditor(service, projectId, kind, value = null, dv, defaults
                 if (!armed) { armed = true; remove.textContent = "Confirm delete"; error.textContent = phase ? "Delete this phase? Its tasks will be kept with no phase." : "Delete this milestone?"; }
                 else void commit(true);
             });
+            layoutModal(this, { container: form, footer: actions });
             name.focus();
         }
         close() { if (!this.saving) super.close(); }
@@ -14596,6 +14855,7 @@ module.exports = { createPreparedNoteRails, NOTE_RAIL_VIEW, HOME_VIEW };
 "lib/ui/presets.js": function (module, exports, __hubRequire) {
 "use strict";
 const { createWindowTitle } = __hubRequire("lib/ui/window-title.js");
+const { lockModalControls } = __hubRequire("lib/ui/modal-save.js");
 
 function showPresetsMenu(anchor, presets) {
     const { Menu, Modal, Notice, setIcon } = require("obsidian");
@@ -14619,7 +14879,9 @@ function showPresetsMenu(anchor, presets) {
         closed = true; menu.remove(); anchor.setAttribute("aria-expanded", "false");
         contextMenu?.hide();
         doc.removeEventListener("pointerdown", outside, true);
-        doc.defaultView.removeEventListener("resize", close);
+        doc.defaultView.removeEventListener("resize", position);
+        doc.defaultView.visualViewport?.removeEventListener("resize", position);
+        doc.defaultView.visualViewport?.removeEventListener("scroll", position);
     }
     function outside(event) {
         if (reorder.busy) return;
@@ -14635,6 +14897,18 @@ function showPresetsMenu(anchor, presets) {
     function manage(action) {
         return run(async () => { await action(); render(); focusMenu(); });
     }
+    function move(preset, direction, restoreFocus) {
+        return run(async () => {
+            const ids = presets.items.map(item => item.id), index = ids.indexOf(preset.id), next = index + direction;
+            if (index < 0 || next < 0 || next >= ids.length) return;
+            [ids[index], ids[next]] = [ids[next], ids[index]];
+            await presets.reorder(ids); render();
+            if (restoreFocus && !closed) {
+                const row = [...menu.querySelectorAll('[data-preset-id]')].find(row => row.dataset.presetId === preset.id);
+                row?.focus({ preventScroll: true }); row?.scrollIntoView({ block: "nearest" });
+            }
+        });
+    }
     function namePrompt(title, value, save) {
         class NameModal extends Modal {
             onOpen() {
@@ -14646,12 +14920,17 @@ function showPresetsMenu(anchor, presets) {
                 const cancel = actions.createEl("button", { text: "Cancel" });
                 const done = actions.createEl("button", { text: "Save", cls: "mod-cta" });
                 cancel.type = done.type = "button";
-                let saving = false;
+                this.saving = false;
                 const commit = async () => {
-                    if (saving) return;
-                    saving = true; done.disabled = true;
-                    try { await save(input.value); render(); this.close(); }
-                    catch (error) { new Notice(error.message); saving = false; done.disabled = false; }
+                    if (this.saving) return;
+                    this.saving = true;
+                    const restoreControls = lockModalControls(this);
+                    try {
+                        await save(input.value); render();
+                        this.saving = false; restoreControls(); this.close();
+                    } catch (error) {
+                        this.saving = false; restoreControls(); new Notice(error.message);
+                    }
                 };
                 cancel.addEventListener("click", () => this.close());
                 done.addEventListener("click", commit);
@@ -14660,6 +14939,7 @@ function showPresetsMenu(anchor, presets) {
                 });
                 input.focus(); input.select();
             }
+            close() { if (!this.saving) super.close(); }
             onClose() { this.contentEl.empty(); if (nameModal === this) nameModal = null; focusMenu(); }
         }
         nameModal = new NameModal(presets.modes.app);
@@ -14705,13 +14985,26 @@ function showPresetsMenu(anchor, presets) {
             if (reorder.active) return;
             reorder.cancel();
             contextMenu?.hide();
+            let restoreFocus = event.type === "keydown" || (event.type === "click" && event.detail === 0);
             const context = new Menu();
             contextMenu = context;
-            context.onHide(() => { if (contextMenu === context) contextMenu = null; });
+            const keyboard = () => { restoreFocus = true; }, pointer = () => { restoreFocus = false; };
+            doc.addEventListener("keydown", keyboard, true); doc.addEventListener("pointerdown", pointer, true);
+            context.onHide(() => {
+                doc.removeEventListener("keydown", keyboard, true); doc.removeEventListener("pointerdown", pointer, true);
+                if (contextMenu === context) contextMenu = null;
+                const focused = doc.activeElement;
+                if (restoreFocus && !closed && !nameModal && (focused === doc.body || context.dom?.contains(focused))) item.focus({ preventScroll: true });
+            });
             context.addItem(item => item.setTitle("Rename").setIcon("pencil").onClick(() =>
                 namePrompt("Rename preset", preset.name, name => presets.rename(preset.id, name))));
             context.addItem(item => item.setTitle("Update preset").setIcon("save").setDisabled(!presets.canSave)
                 .onClick(() => { void manage(() => presets.update(preset.id)); }));
+            const index = presets.items.findIndex(item => item.id === preset.id);
+            context.addItem(item => item.setTitle("Move up").setIcon("arrow-up").setDisabled(index <= 0)
+                .onClick(() => { void move(preset, -1, restoreFocus); }));
+            context.addItem(item => item.setTitle("Move down").setIcon("arrow-down").setDisabled(index < 0 || index === presets.items.length - 1)
+                .onClick(() => { void move(preset, 1, restoreFocus); }));
             context.addSeparator();
             context.addItem(item => item.setTitle("Delete").setIcon("trash-2").setWarning(true)
                 .onClick(() => { void manage(() => presets.delete(preset.id)); }));
@@ -14749,15 +15042,27 @@ function showPresetsMenu(anchor, presets) {
     });
     doc.body.append(menu);
     function position() {
+    if (closed) return;
+    const win = doc.defaultView, viewport = win.visualViewport;
+    const left = (viewport?.offsetLeft ?? 0) + 8, top = (viewport?.offsetTop ?? 0) + 8;
+    const right = left + (viewport?.width ?? win.innerWidth) - 16;
+    const bottom = top + (viewport?.height ?? win.innerHeight) - 16;
     const rect = anchor.getBoundingClientRect();
-    menu.style.left = `${Math.max(8, Math.min(rect.left, doc.defaultView.innerWidth - menu.offsetWidth - 8))}px`;
-    menu.style.top = `${rect.bottom + 6}px`;
-    menu.style.maxHeight = `${Math.max(80, doc.defaultView.innerHeight - rect.bottom - 14)}px`;
+    menu.style.maxWidth = `${Math.min(320, Math.max(0, right - left))}px`;
+    menu.style.minWidth = `${Math.min(200, Math.max(0, right - left))}px`;
+    menu.style.maxHeight = "";
+    const below = Math.max(0, bottom - Math.max(top, rect.bottom + 6)), above = Math.max(0, Math.min(bottom, rect.top - 6) - top);
+    const placeAbove = menu.offsetHeight > below && above > below;
+    menu.style.maxHeight = `${placeAbove ? above : below}px`;
+    menu.style.left = `${Math.max(left, Math.min(rect.left, right - menu.offsetWidth))}px`;
+    menu.style.top = `${Math.max(top, Math.min(placeAbove ? rect.top - 6 - menu.offsetHeight : rect.bottom + 6, bottom - menu.offsetHeight))}px`;
     }
     render();
     anchor.setAttribute("aria-expanded", "true");
     doc.addEventListener("pointerdown", outside, true);
-    doc.defaultView.addEventListener("resize", close);
+    doc.defaultView.addEventListener("resize", position);
+    doc.defaultView.visualViewport?.addEventListener("resize", position);
+    doc.defaultView.visualViewport?.addEventListener("scroll", position);
     focusMenu();
     return { close, destroy() { close(); nameModal?.close(); } };
 }
@@ -15082,7 +15387,7 @@ module.exports = { ProjectDeletionModal };
 "lib/ui/project-roadmap.js": function (module, exports, __hubRequire) {
 "use strict";
 const { Notice, Menu, setIcon } = require("obsidian");
-const { localISODate, parseLocalISODate } = __hubRequire("lib/domain/dates.js");
+const { localISODate, parseLocalISODate, formatDate } = __hubRequire("lib/domain/dates.js");
 const { roadmapViewport, roadmapZoom, panRoadmap, roadmapToday, phasePlacement } = __hubRequire("lib/domain/project-planning.js");
 const { button, iconButton } = __hubRequire("lib/ui/task-view-primitives.js");
 const { openPlanningEditor } = __hubRequire("lib/ui/planning-editor.js");
@@ -15104,8 +15409,8 @@ function mountProjectRoadmap({ plugin, component, dv, host, workspace, state }) 
     let disposed = false, cancelReorder = () => {}, cancelMilestoneLayout = () => {}, activeMenu = null;
     const edit = (kind, value, defaults) => openPlanningEditor(service, workspace.projectId, kind, value, dv, defaults);
     const closeMenu = () => { activeMenu?.hide(); activeMenu = null; };
-    const month = date => date.toLocaleDateString("en-US", { month: "short", year: "numeric" });
-    const dateLabel = iso => new Date(iso + "T12:00:00").toLocaleDateString("en-US", { day: "numeric", month: "short", year: "numeric" });
+    const month = date => formatDate(date, "month-short");
+    const dateLabel = iso => formatDate(new Date(iso + "T12:00:00"));
     function render() {
         if (disposed) return;
         const previous = panel.querySelector(".hub-roadmap-scroll"), scroll = { left: previous?.scrollLeft ?? 0, top: previous?.scrollTop ?? 0 };
@@ -15210,7 +15515,7 @@ function mountProjectRoadmap({ plugin, component, dv, host, workspace, state }) 
         for (const item of visibleMilestones) {
             const marker = button(milestones.track, "", () => edit("milestones", item), "hub-button-plain hub-roadmap-milestone" + (item.achieved ? " is-achieved" : ""));
             marker.dataset.planningId = item.id;
-            const exactDate = parseLocalISODate(item.date).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+            const exactDate = formatDate(parseLocalISODate(item.date));
             const tooltip = item.name + " — " + exactDate + (item.achieved ? ", achieved" : "");
             setHubTooltip(marker, tooltip); marker.dataset.hubFocusTooltip = exactDate;
             // The native button remains the editing/focus target; its glyph and
@@ -15566,9 +15871,62 @@ class QuickAddModal extends CaptureModal {
 module.exports = { QuickAddModal };
 
 },
+"lib/ui/report-workspace-header.js": function (module, exports, __hubRequire) {
+"use strict";
+const { mountWorkspaceThumbnail } = __hubRequire("lib/ui/workspace-thumbnail.js");
+
+function renderReportWorkspaceHeader(parent, record, plugin) {
+    const id = record.projectId || "";
+    const resource = record.contextKind === "resource" || !!record.resourceType || id.startsWith("resource:");
+    const wizard = plugin?.projectWizard;
+    const workspace = (resource
+        ? wizard?.getResourceById?.(record.resourceType || id.slice(9))
+        : wizard?.getProjectById?.(id)) || record;
+    const category = wizard?.getCategories?.().find(item =>
+        item.id === workspace.categoryId || item.name === workspace.categoryId);
+    const heading = parent.createDiv({ cls: "hub-report-heading" });
+    if (plugin) mountWorkspaceThumbnail(heading, plugin, {
+        ...workspace, contextKind: resource ? "resource" : "project"
+    });
+    const copy = heading.createDiv({ cls: "hub-report-workspace-copy" });
+    copy.createEl("h3", { cls: "hub-project-advancement-name", text: record.projectName || record.name });
+    copy.createDiv({ cls: "hub-report-workspace-subtitle", text: resource ? "Resource" : category?.name || workspace.categoryId || "Project" });
+    return heading;
+}
+
+module.exports = { renderReportWorkspaceHeader };
+
+},
+"lib/ui/row-activation.js": function (module, exports, __hubRequire) {
+"use strict";
+
+// Keep embedded Markdown links and controls independent of their history row.
+const interactiveDescendant = "a, input, textarea, button, select, summary, [contenteditable]:not([contenteditable=false]), [role=button], [role=link], [tabindex], .home-task-location, .project-task-location";
+
+function makeActionableRow(row, activate) {
+    row.tabIndex = 0;
+    row.setAttribute("role", "button");
+    row.classList.add("hub-actionable-row");
+    row.addEventListener("click", event => {
+        const control = event.target.closest?.(interactiveDescendant);
+        if (control && control !== row && row.contains(control)) return;
+        activate(event);
+    });
+    row.addEventListener("keydown", event => {
+        if (event.target !== row || event.altKey || event.ctrlKey || event.metaKey || (event.key !== "Enter" && event.key !== " ")) return;
+        event.preventDefault();
+        event.stopPropagation();
+        if (!event.repeat) row.click();
+    });
+}
+
+module.exports = { makeActionableRow };
+
+},
 "lib/ui/schedule-toolbar.js": function (module, exports, __hubRequire) {
 "use strict";
 const { calendarRange, shiftDay } = __hubRequire("lib/domain/task-views.js");
+const { formatDate } = __hubRequire("lib/domain/dates.js");
 const { setHubIcon } = __hubRequire("lib/ui/icons.js");
 const { button, iconButton } = __hubRequire("lib/ui/task-view-primitives.js");
 
@@ -15581,21 +15939,22 @@ function renderScheduleToolbar(panel, context, state) {
     const navigation = contextHeader.createDiv({ cls: "hub-planning-navigation" });
     const view = state.scheduleView;
     if (view !== "upcoming") {
-        const move = direction => {
+        const move = (direction, event) => {
             state.anchor = view === "week" ? shiftDay(state.anchor, 7 * direction) : new Date(state.anchor.getFullYear(), state.anchor.getMonth() + direction, 1);
-            context.render();
+            context.render(event);
         };
-        iconButton(navigation, "Previous " + view, "chevron-left", () => move(-1));
-        iconButton(navigation, "Next " + view, "chevron-right", () => move(1));
-        button(navigation, "Today", () => { state.anchor = new Date(); context.render(); }, "hub-panel-action");
+        iconButton(navigation, "Previous " + view, "chevron-left", event => move(-1, event)).dataset.scheduleControl = "previous";
+        iconButton(navigation, "Next " + view, "chevron-right", event => move(1, event)).dataset.scheduleControl = "next";
+        button(navigation, "Today", event => { state.anchor = new Date(); context.render(event); }, "hub-panel-action").dataset.scheduleControl = "today";
         const days = calendarRange(state.anchor, view);
-        const format = date => date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-        navigation.createEl("h3", { text: view === "month" ? state.anchor.toLocaleDateString("en-US", { month: "long", year: "numeric" }) : format(days[0]) + " \u2013 " + format(days.at(-1)) });
+        const format = date => formatDate(date);
+        navigation.createEl("h3", { text: view === "month" ? formatDate(state.anchor, "month") : format(days[0]) + " \u2013 " + format(days.at(-1)) });
     }
     const actions = toolbar.createDiv({ cls: "hub-planning-actions" });
     const modes = actions.createDiv({ cls: "hub-panel-selectors hub-equal-selectors", attr: { role: "group", "aria-label": "Schedule view" } });
     for (const [value, label] of [["upcoming", "Overview"], ["week", "Week"], ["month", "Month"]]) {
-        const choice = button(modes, label, () => { state.scheduleView = value; context.render(); }, view === value ? "is-active" : "");
+        const choice = button(modes, label, event => { state.scheduleView = value; context.render(event); }, view === value ? "is-active" : "");
+        choice.dataset.scheduleControl = "view-" + value;
         choice.setAttribute("aria-pressed", String(view === value));
     }
     button(actions, "Task", () => context.create({}), "hub-full-add-task hub-panel-action", "plus");
@@ -15770,6 +16129,7 @@ module.exports = { SettingsModal, mountSettingsControl };
 "use strict";
 
 const { formatDuration } = __hubRequire("lib/domain/statistics.js");
+const { formatDate } = __hubRequire("lib/domain/dates.js");
 const SVG_NS = "http://www.w3.org/2000/svg";
 
 function svgElement(parent, tag, attrs = {}, text) {
@@ -15780,7 +16140,7 @@ function svgElement(parent, tag, attrs = {}, text) {
 }
 
 function dateLabel(time, year = false) {
-    return new Date(time).toLocaleDateString([], { month: "short", day: "numeric", ...(year ? { year: "numeric" } : {}) });
+    return formatDate(new Date(time), year ? "compact" : "short");
 }
 
 function binLabel(bin) {
@@ -15827,9 +16187,10 @@ function renderBarChart(parent, { range, values, label, color = "accent", durati
             bars.push({ bar, index, seriesIndex }); offset += value;
         });
     });
+    const axisYear = range.days > 366 || new Date(range.bins[0].start).getFullYear() !== new Date(range.bins.at(-1).start).getFullYear();
     for (const index of [...new Set([0, Math.floor((values.length - 1) / 2), values.length - 1])]) {
         const tick = svgElement(plot, "text", { x: left + (index + .5) * stride, y: plotHeight - 8,
-            "text-anchor": index === 0 ? "start" : index === values.length - 1 ? "end" : "middle" }, dateLabel(range.bins[index].start, range.days > 366));
+            "text-anchor": index === 0 ? "start" : index === values.length - 1 ? "end" : "middle" }, dateLabel(range.bins[index].start, axisYear));
         ticks.push({ tick, index });
     }
     const layout = () => {
@@ -15877,6 +16238,9 @@ function renderBarChart(parent, { range, values, label, color = "accent", durati
     });
     plot.addEventListener("focus", () => show(selected));
     plot.addEventListener("keydown", event => {
+        if (event.key === "Escape" && !detail.hidden) {
+            hide(); event.preventDefault(); event.stopPropagation(); return;
+        }
         if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
         event.preventDefault();
         show(event.key === "Home" ? 0 : event.key === "End" ? values.length - 1 : selected + (event.key === "ArrowRight" ? 1 : -1));
@@ -15929,9 +16293,10 @@ module.exports = { renderBarChart, renderDonut, renderLegend, emptyChart, dateLa
 },
 "lib/ui/statistics.js": function (module, exports, __hubRequire) {
 "use strict";
-const { createWindowTitle } = __hubRequire("lib/ui/window-title.js");
+const { createWindowTitle, layoutModal } = __hubRequire("lib/ui/window-title.js");
 
 const { Modal, setIcon } = require("obsidian");
+const { formatDateTime } = __hubRequire("lib/domain/dates.js");
 const { createImmediateHubTooltip } = __hubRequire("lib/ui/tooltips.js");
 const { RANGES, aggregateStatistics, seriesFor, formatDuration } = __hubRequire("lib/domain/statistics.js");
 const { readStatistics } = __hubRequire("lib/services/statistics.js");
@@ -15981,6 +16346,7 @@ class StatisticsModal extends Modal {
             return [key, button];
         });
         this.grid = this.contentEl.createDiv({ cls: "hub-statistics-grid" });
+        layoutModal(this);
         this.render();
     }
     card(id, title, { wide = false } = {}) {
@@ -15991,15 +16357,11 @@ class StatisticsModal extends Modal {
     }
     hint(parent, text) {
         const heading = parent.querySelector(".hub-statistics-card-heading");
-        if (["oaths", "notes", "comparison"].includes(parent.dataset.statistic)) {
-            const help = heading.createEl("button", { cls: "hub-panel-action hub-panel-action-icon hub-statistics-help",
-                attr: { type: "button", "aria-label": "About " + heading.textContent } });
-            setIcon(help, "circle-help");
-            this.helpTooltips.bind(help, { title: heading.querySelector("h3").textContent, description: text });
-        } else {
-            heading.setAttribute("title", text);
-            heading.setAttribute("aria-description", text);
-        }
+        const title = heading.querySelector("h3").textContent;
+        const help = heading.createEl("button", { cls: "hub-panel-action hub-panel-action-icon hub-statistics-help",
+            attr: { type: "button", "aria-label": "About " + title } });
+        setIcon(help, "circle-help");
+        this.helpTooltips.bind(help, { title, description: text });
     }
     chart(parent, values, label, empty, extra = {}) {
         const cleanup = renderBarChart(parent, { range: this.model.range, values, label, empty, ...extra });
@@ -16025,7 +16387,7 @@ class StatisticsModal extends Modal {
             .map(([kind, label]) => ({ label, color: kind, values: seriesFor(model, "activity", this.workspace === "all" ? kind : this.workspace) }));
         if (categories.length > 1) renderLegend(activity, categories);
         this.chart(activity, null, "Work records", "No work activity in this period.", { series: categories, stacked: true });
-        this.hint(activity, "Note creations, recorded edits, and task or step completions. Mixed activity stacks Projects and Resources within each date bin.");
+        this.hint(activity, "Counts recorded note creations, note edits, and task or step completions in the selected period and workspace. Records are grouped into date bins; All workspaces stacks Projects and Resources within each bin.");
         const completed = this.card("completions", "Tasks & steps completed", { wide: true });
         const completionSeries = [["tasks", "Tasks", "green"], ["steps", "Steps", "blue"]]
             .map(([metric, label, color]) => ({ label, color, values: seriesFor(model, metric, this.workspace) }));
@@ -16038,6 +16400,7 @@ class StatisticsModal extends Modal {
     }
     renderDistribution() {
         const card = this.card("distribution", "Work distribution");
+        this.hint(card, "Progress report rating points (0–4 per workspace/report), summed by workspace for the selected period and workspace filter. Percentages show each workspace's share of those points, not hours worked or time spent.");
         const rows = this.model.rows.filter(row => (this.workspace === "all" || row.key === this.workspace) && row.progressPoints > 0)
             .sort((a, b) => b.progressPoints - a.progressPoints || a.name.localeCompare(b.name) || a.key.localeCompare(b.key));
         if (!rows.length) { emptyChart(card, "No progress report data in this period."); return; }
@@ -16082,6 +16445,7 @@ class StatisticsModal extends Modal {
 
     renderProjects() {
         const card = this.card("projects", "Project activity"), projects = this.model.projects;
+        this.hint(card, "Projects in all states, independent of the workspace filter. Last active is the latest recorded note creation, note edit, task or step completion, or ended Oath, across all dates. Oathbound time is time from fulfilled or broken Oaths overlapping the selected period.");
         if (!projects.length) { emptyChart(card, "No project activity recorded yet."); return; }
         const scroll = card.createDiv({ cls: "hub-statistics-project-list", attr: { tabindex: "0", "aria-label": "Project activity", role: "region" } });
         const table = scroll.createEl("table");
@@ -16092,10 +16456,9 @@ class StatisticsModal extends Modal {
             const row = body.createEl("tr"), name = workspaceLabel(project);
             row.createEl("th", { attr: { scope: "row" } }).createSpan({ cls: "hub-statistics-name", text: name, attr: { title: name } });
             row.createEl("td", { text: project.lastActive ? dateLabel(project.lastActive, new Date(project.lastActive).getFullYear() !== new Date(this.source.now).getFullYear()) : "No activity",
-                attr: { title: project.lastActive ? new Date(project.lastActive).toLocaleString() : "No recorded work activity" } });
+                attr: { title: project.lastActive ? formatDateTime(new Date(project.lastActive)) : "No recorded work activity" } });
             row.createEl("td", { text: formatDuration(project.time) });
         }
-        this.hint(card, "All project states. Last active is all-time; time follows the selected period.");
     }
     onClose() { this.helpTooltips?.dispose(); this.chartCleanups.splice(0).forEach(cleanup => cleanup()); this.cache.clear(); this.contentEl.empty(); this.closed?.(); }
 }
@@ -16105,7 +16468,7 @@ module.exports = { StatisticsModal };
 },
 "lib/ui/task-editor.js": function (module, exports, __hubRequire) {
 "use strict";
-const { createWindowTitle } = __hubRequire("lib/ui/window-title.js");
+const { createWindowTitle, layoutModal } = __hubRequire("lib/ui/window-title.js");
 const { taskFormValues } = __hubRequire("lib/domain/task-form.js");
 const { taskSection, mountTaskText, mountTaskFields, mountTaskRelationshipFields } = __hubRequire("lib/ui/task-form.js");
 
@@ -16182,6 +16545,7 @@ function openTaskEditor(service, task, onEdit = () => {}, creation = null) {
                     errorEl.textContent = snapshot.steps.length ? "Delete this task and its Steps from the note?" : "Delete this task from the note?"; return; }
                 void commit(true);
             });
+            layoutModal(this, { container: form, footer: actions });
             input.focus(); input.setSelectionRange(input.value.length, input.value.length);
         }
         close() { if (!this.saving) super.close(); }
@@ -16226,6 +16590,7 @@ module.exports = { openTaskEditor, openTaskCreator };
 },
 "lib/ui/task-form.js": function (module, exports, __hubRequire) {
 "use strict";
+const { hasKeyboardFocus, focusAfterRowRemoval } = __hubRequire("lib/ui/focus-restoration.js");
 const { setHubIcon } = __hubRequire("lib/ui/icons.js");
 const { bindCompletionSound, playStepCompletionSound } = __hubRequire("lib/ui/completion-audio.js");
 const { mountTaskDateTime } = __hubRequire("lib/ui/date-time.js");
@@ -16284,11 +16649,13 @@ function mountTaskFields({ app, host, state, onChange = () => {}, section = (tit
             const input = row.createEl("input", { type: "text", attr: { "aria-label": "Step text", required: "" } }); input.value = step.text ?? "";
             input.addEventListener("input", () => { step.text = input.value; onChange({ steps: state.steps }); });
             const remove = row.createEl("button", { attr: { type: "button", "aria-label": "Remove step " + (index + 1) } }); setHubIcon(remove, "x");
-            remove.addEventListener("click", () => {
+            remove.addEventListener("click", event => {
+                const restoreFocus = hasKeyboardFocus(remove, event);
                 // Removing an existing Markdown Step also removes its nested
                 // descendants, exactly as in the ordinary editor.
                 state.steps = state.steps.filter(child => child !== step && !(step.line != null && child.line > step.line && child.line < step.end));
                 renderSteps(); onChange({ steps: state.steps });
+                if (restoreFocus) focusAfterRowRemoval([...list.querySelectorAll(".hub-task-step > button")], index, add);
             });
         });
     };
@@ -16310,7 +16677,7 @@ function mountTaskRelationshipFields({ host, state, service, location, onChange 
     const association = project.createEl("select", { attr: { "aria-label": "Project (optional)" } });
     const phaseSection = section("Phase");
     const phaseLabel = phaseSection.createEl("label");
-    phaseLabel.createSpan({ text: "Project phase (optional)", cls: "hub-task-help" });
+    phaseLabel.createSpan({ text: "Project phase (optional)", cls: "hub-capture-label" });
     const phase = phaseLabel.createEl("select", { attr: { "aria-label": "Project phase (optional)" } });
     const options = (select, items, selected, placeholder) => {
         select.replaceChildren(); select.createEl("option", { text: placeholder, attr: { value: "" } });
@@ -16410,7 +16777,7 @@ module.exports = { createTaskSteps };
 "lib/ui/task-view-calendar.js": function (module, exports, __hubRequire) {
 "use strict";
 const { calendarRange } = __hubRequire("lib/domain/task-views.js");
-const { localISODate } = __hubRequire("lib/domain/dates.js");
+const { localISODate, formatDate } = __hubRequire("lib/domain/dates.js");
 const { iconButton, taskCard } = __hubRequire("lib/ui/task-view-primitives.js");
 
 const { renderScheduleToolbar } = __hubRequire("lib/ui/schedule-toolbar.js");
@@ -16420,7 +16787,7 @@ function renderTaskCalendar(host, tasks, context, state) {
     state.calendarMode = state.scheduleView;
     renderScheduleToolbar(panel, context, state);
     const days = calendarRange(state.anchor, state.calendarMode);
-    const format = date => date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+    const format = date => formatDate(date);
     const scroll = panel.createDiv({ cls: "hub-task-local-scroll" });
     const grid = scroll.createDiv({ cls: "hub-task-calendar is-" + state.calendarMode });
     grid.style.setProperty("--hub-calendar-weeks", String(days.length / 7));
@@ -16578,6 +16945,7 @@ module.exports = { renderUpcoming };
 },
 "lib/ui/task-workspace.js": function (module, exports, __hubRequire) {
 "use strict";
+const { hasKeyboardFocus, focusControl, revealHorizontalKeyboardFocus } = __hubRequire("lib/ui/focus-restoration.js");
 const { createTaskUi } = __hubRequire("lib/ui/tasks.js");
 const { openTaskEditor, openTaskCreator } = __hubRequire("lib/ui/task-editor.js");
 const { applyTaskEdit } = __hubRequire("lib/domain/tasks.js");
@@ -16635,8 +17003,19 @@ function mountTaskWorkspace({ plugin, component, dv, root, toolbar, filesGrid, f
     host.after(roadmapHost);
     let roadmap;
     const content = host.createDiv({ cls: "hub-task-view-content", attr: { role: "region" } });
+    const revealFocusedControl = event => {
+        const control = event.target;
+        const scroll = control.closest(".hub-task-local-scroll");
+        if (!scroll || !content.contains(scroll) || !hasKeyboardFocus(control)) return;
+        // Let Chromium finish its normal focus scrolling before correcting the
+        // remaining horizontal clipping. Pointer focus never requests this.
+        content.ownerDocument.defaultView.requestAnimationFrame(() => revealHorizontalKeyboardFocus(control, scroll));
+    };
+    content.addEventListener("focusin", revealFocusedControl);
+    component.register(() => content.removeEventListener("focusin", revealFocusedControl));
     let tasks = [], locations = [], workspaces = [], dirty = true, disposed = false;
     const pending = new Set();
+    let scheduleFocusRequest;
     const inNoteRail = () => !!root.closest(".hub-project-rail");
     // Derive the mode boundary from the rendered Files grid, including its
     // responsive split and borders. Never change the explorer to fit the modes.
@@ -16697,8 +17076,11 @@ function mountTaskWorkspace({ plugin, component, dv, root, toolbar, filesGrid, f
         }
         dirty = false; render();
     }
-    function render() {
+    function render(event) {
         if (disposed || state.mode !== "schedule" || inNoteRail()) return;
+        // Preserve navigation intent if the shared renderer defers this rebuild.
+        if (event) scheduleFocusRequest = { control: event.currentTarget,
+            key: hasKeyboardFocus(event.currentTarget, event) ? event.currentTarget.dataset.scheduleControl : null };
         if (!ui.beginRender(render)) return;
         // Schedules existing start-time boundaries without changing panel semantics.
         ui.groups(tasks);
@@ -16706,6 +17088,11 @@ function mountTaskWorkspace({ plugin, component, dv, root, toolbar, filesGrid, f
         const selection = { ...state, status: "open", necessity: "", date: "" };
         const now = new Date();
         const visible = filterTasks(tasks, selection, now, task => describe(task) + " " + projectLabel(task));
+        const focused = content.ownerDocument.activeElement;
+        const requestedFocus = scheduleFocusRequest?.control === focused ? scheduleFocusRequest.key : undefined;
+        const focusKey = requestedFocus !== undefined ? requestedFocus :
+            content.contains(focused) && hasKeyboardFocus(focused) ? focused.dataset.scheduleControl : null;
+        scheduleFocusRequest = undefined;
         content.empty();
         const context = { workspace, resource, folders: locations.filter(item => item.folder), now,
             ui, pending, currentPath, locationLabel: describe, projectLabel, phaseLabel: task => plugin.planning?.phaseFor(task)?.name, apply, edit, create, render,
@@ -16717,9 +17104,11 @@ function mountTaskWorkspace({ plugin, component, dv, root, toolbar, filesGrid, f
             renderScheduleToolbar(panel, context, state);
             renderUpcoming(panel, visible, context);
         }
+        if (focusKey) focusControl(content.querySelector(`[data-schedule-control="${focusKey}"]`));
     }
     function mode(value, initial = false) {
         syncHeaderHeight();
+        scheduleFocusRequest = undefined;
         state.mode = value;
         const active = value === "schedule";
         root.classList.toggle("is-task-workspace", active);
@@ -16787,6 +17176,21 @@ function createTaskRow(parent, task, completed = task.completed) {
     const textEl = info.createDiv({ cls: "project-task-text", text: task.text });
     info.createDiv({ cls: "project-task-location" });
     return { row, checkbox, info, textEl };
+}
+
+// Presentation only: no checkbox, edit bindings, menus or navigation.
+function renderReadOnlyTask(parent, task, markdown, { unavailable = false } = {}) {
+    const { setIcon } = require("obsidian");
+    const row = parent.createDiv({ cls: "hub-oath-selected hub-readonly-task" });
+    const status = unavailable ? "Source unavailable" : task.completed ? "Completed" : "Incomplete";
+    const icon = row.createSpan({ cls: "hub-report-section-icon" + (!unavailable && task.completed ? " hub-report-check" : ""),
+        attr: { role: "img", "aria-label": status } });
+    setIcon(icon, unavailable ? "circle-help" : task.completed ? "square-check" : "square");
+    icon.querySelector("svg")?.setAttribute("aria-hidden", "true");
+    const text = row.createDiv({ cls: "project-task-info project-task-text", text: task.text });
+    void markdown.render(text, task.text, task.path || "Home.md");
+    if (unavailable) row.createSpan({ cls: "hub-oath-muted", text: "Source unavailable" });
+    return row;
 }
 
 function createTaskUi({ app, component, body, mutate, onEdit, editTask, createTask, oath, phaseLabel }) {
@@ -17049,7 +17453,43 @@ function createTaskUi({ app, component, body, mutate, onEdit, editTask, createTa
     return { bind, beginRender, defer, groups, group, addButton, partitionOath: oathSection.partition, renderOath: oathSection.render };
 }
 
-module.exports = { createTaskUi, createTaskRow, taskSourceLabel };
+module.exports = { createTaskUi, createTaskRow, renderReadOnlyTask, taskSourceLabel };
+
+},
+"lib/ui/text-field-focus.js": function (module, exports, __hubRequire) {
+"use strict";
+
+const textFields = ":is(.hub-button-scope, .home-dashboard, .project-dashboard) :is(input:not([type]), input[type=text], input[type=search], input[type=email], input[type=url], input[type=tel], input[type=password], textarea)";
+
+// Chromium also matches :focus-visible for pointer-focused text fields. Remember
+// navigation intent so typing and modal autofocus retain their neutral styling.
+function trackTextFieldFocus(doc) {
+    let keyboardNavigation = false;
+    let focused = null;
+    const clear = () => {
+        focused?.classList.remove("hub-keyboard-focus");
+        focused = null;
+    };
+    const key = event => {
+        if (event.key === "Tab") keyboardNavigation = true;
+    };
+    const pointer = () => { keyboardNavigation = false; clear(); };
+    const focus = event => {
+        clear();
+        if (keyboardNavigation && event.target.matches?.(textFields)) {
+            focused = event.target;
+            focused.classList.add("hub-keyboard-focus");
+        }
+    };
+    const listeners = [["keydown", key], ["pointerdown", pointer], ["focusin", focus], ["focusout", clear]];
+    listeners.forEach(([type, fn]) => doc.addEventListener(type, fn, true));
+    return () => {
+        listeners.forEach(([type, fn]) => doc.removeEventListener(type, fn, true));
+        clear();
+    };
+}
+
+module.exports = { trackTextFieldFocus };
 
 },
 "lib/ui/tooltips.js": function (module, exports, __hubRequire) {
@@ -17123,10 +17563,16 @@ function createImmediateHubTooltip(root) {
     const doc = root.ownerDocument, win = doc.defaultView;
     const definitions = new WeakMap(), cleanups = [];
     let hovered = null, focused = null, active = null, tooltip = null;
-    let keyboardNavigation = false;
+    let keyboardNavigation = false, activeDescription = null;
     const id = `hub-detail-tooltip-${++detailTooltipId}`;
     function hide() {
-        active?.removeAttribute('aria-describedby');
+        if (active) {
+            const descriptions = (active.getAttribute('aria-describedby') ?? '').split(/\s+/).filter(value => value && value !== id);
+            if (descriptions.length) active.setAttribute('aria-describedby', descriptions.join(' '));
+            else active.removeAttribute('aria-describedby');
+            if (activeDescription !== null) active.setAttribute('aria-description', activeDescription);
+        }
+        activeDescription = null;
         tooltip?.remove(); tooltip = null; active = null;
     }
     function show() {
@@ -17144,7 +17590,9 @@ function createImmediateHubTooltip(root) {
         description.className = 'hub-detail-tooltip-description';
         description.textContent = definition.description;
         doc.body.append(tooltip);
-        button.setAttribute('aria-describedby', id);
+        activeDescription = button.getAttribute('aria-description');
+        button.removeAttribute('aria-description');
+        button.setAttribute('aria-describedby', [button.getAttribute('aria-describedby'), id].filter(Boolean).join(' '));
         const rect = button.getBoundingClientRect(), bounds = tooltip.getBoundingClientRect();
         tooltip.style.left = `${Math.max(8, Math.min(rect.left + rect.width / 2 - bounds.width / 2, win.innerWidth - bounds.width - 8))}px`;
         const below = rect.bottom + 6;
@@ -17193,9 +17641,18 @@ function createImmediateHubTooltip(root) {
     listen(doc, 'scroll', hide, true);
     return {
         bind(button, definition) {
-            setHubTooltip(button, null); // No browser title or delayed duplicate.
+            // Suppress the native duplicate without erasing the control's name.
+            button.removeAttribute('title');
+            button.removeAttribute('data-tooltip-position');
+            // Obsidian checks this property before showing aria-label tooltips.
+            const nativeTooltip = button.style.getPropertyValue('--no-tooltip'), priority = button.style.getPropertyPriority('--no-tooltip');
+            button.style.setProperty('--no-tooltip', 'true');
+            cleanups.push(() => {
+                if (nativeTooltip) button.style.setProperty('--no-tooltip', nativeTooltip, priority);
+                else button.style.removeProperty('--no-tooltip');
+            });
             definitions.set(button, definition);
-            button.setAttribute('aria-description', `${definition.title} ${definition.description}`);
+            if (!button.hasAttribute('aria-description')) button.setAttribute('aria-description', `${definition.title} ${definition.description}`);
         },
         dispose() { hide(); cleanups.splice(0).forEach(cleanup => cleanup()); }
     };
@@ -17271,7 +17728,7 @@ function createWindowTitle(parent, text, icon, options = {}) {
     copy.append(title);
     title.classList.add("hub-window-title");
     title.style.margin = "0";
-    headers.set(title, { header, copy, bottomMargin: margins[2], tightenedBy: 0 });
+    headers.set(title, { header, copy, bottomMargin: margins[2] });
     return title;
 }
 
@@ -17279,25 +17736,47 @@ function setWindowUndertext(title, undertext) {
     const state = headers.get(title);
     const { header, copy, bottomMargin } = state;
     const style = undertext.ownerDocument.defaultView.getComputedStyle(undertext);
-    // These previously adjacent block elements collapsed their vertical margins.
-    const gap = Math.max(parseFloat(bottomMargin), parseFloat(style.marginTop));
+    // All first subtitles use Quick Add's shared gap; subsequent status lines
+    // retain their intentional spacing.
+    const firstUndertext = copy.children.length === 1;
+    const gap = firstUndertext
+        ? parseFloat(header.ownerDocument.defaultView.getComputedStyle(header).getPropertyValue("--hub-window-subtitle-gap")) || 6
+        : Math.max(parseFloat(bottomMargin), parseFloat(style.marginTop));
     state.bottomMargin = style.marginBottom;
     header.style.marginBottom = style.marginBottom;
     undertext.style.margin = "0";
     undertext.style.marginTop = gap + "px";
     undertext.classList.add("hub-window-undertext");
     copy.append(undertext);
-    // Keep the existing header footprint, so tightening the text group does not
-    // pull separators or modal content upward. Only the first undertext gap changes.
-    header.style.minHeight = Math.max(32, copy.getBoundingClientRect().height + state.tightenedBy) + "px";
-    if (copy.children.length === 2) {
-        state.tightenedBy = Math.min(4, gap);
-        undertext.style.marginTop = (gap - state.tightenedBy) + "px";
-    }
+    // Center the icon on the complete text group.
+    header.style.minHeight = Math.max(32, copy.getBoundingClientRect().height) + "px";
     return undertext;
 }
 
-module.exports = { createWindowTitle, setWindowUndertext };
+// Keep native chrome and existing form ownership; only the middle region scrolls.
+function layoutModal(modal, { container = modal.contentEl, headerEnd, footer, body, bodyClass = "" } = {}) {
+    const root = modal.contentEl;
+    headerEnd ??= root.querySelector(":scope > .hub-window-header, :scope > h2, :scope > .hub-statistics-header");
+    if (headerEnd?.nextElementSibling?.classList.contains("hub-project-advancement-divider"))
+        headerEnd = headerEnd.nextElementSibling;
+    footer ??= container.querySelector(":scope > .hub-capture-actions, :scope > .hub-task-dialog-actions, :scope > .hub-oath-actions, :scope > .hub-project-advancement-actions, :scope > .hub-project-wizard-actions");
+    if (!body) {
+        const children = [...container.children];
+        const start = container === root && headerEnd ? children.indexOf(headerEnd) + 1 : 0;
+        const contents = children.slice(start).filter(child => child !== footer);
+        body = container.createDiv();
+        container.insertBefore(body, contents[0] ?? footer ?? null);
+        body.append(...contents);
+    }
+    body.classList.add("hub-modal-body");
+    if (bodyClass) body.classList.add(bodyClass);
+    root.classList.add("hub-modal-layout");
+    modal.modalEl.classList.add("hub-modal-window");
+    if (container !== root) container.classList.add("hub-modal-form");
+    return body;
+}
+
+module.exports = { createWindowTitle, setWindowUndertext, layoutModal };
 
 },
 "lib/ui/workspace-cards.js": function (module, exports, __hubRequire) {
@@ -17383,11 +17862,12 @@ module.exports = { createWorkspaceCards };
 
 const { workspaceTree, filterWorkspaceTree, sortExplorerChildren, rewriteExplorerPaths } = __hubRequire("lib/domain/workspace-explorer.js");
 const { fileIcon } = __hubRequire("lib/ui/file-icons.js");
+const { formatDateTime } = __hubRequire("lib/domain/dates.js");
 
 function mountWorkspaceExplorer({ parent, workspacePath, dashboardPath, descriptors, getByPath,
     states, persist, setIcon, openFile, createItem, contextMenu, decorateRow = () => {},
     selectItem = () => false, clearSelection = () => {}, selectedPaths = new Set(),
-    decorateFolder = () => {}, isNoteView = () => !!parent.closest(".hub-project-rail"), formatTime = value => new Date(value).toLocaleString() }) {
+    decorateFolder = () => {}, isNoteView = () => !!parent.closest(".hub-project-rail"), formatTime = value => formatDateTime(new Date(value)) }) {
     const doc = parent.ownerDocument;
     function el(parent, tag, cls, text) {
         const element = doc.createElement(tag);
@@ -17619,7 +18099,7 @@ function mountWorkspaceExplorer({ parent, workspacePath, dashboardPath, descript
             for (const field of ["mtime", "ctime"]) {
                 const value = child.folder ? null : child.item.stat?.[field];
                 const cell = el(row, "span", "hub-explorer-time", value ? formatTime(value) : "—");
-                cell.title = value ? new Date(value).toLocaleString() : "Folder timestamps are not available";
+                cell.title = value ? formatDateTime(new Date(value)) : "Folder timestamps are not available";
             }
             bindRow(row, child, "details");
             row.setAttribute("role", "option");
@@ -17808,7 +18288,7 @@ module.exports = { mountWorkspaceExplorer };
 },
 "lib/ui/workspace-thumbnail.js": function (module, exports, __hubRequire) {
 "use strict";
-const { WIP_IMAGE_PATH } = __hubRequire("lib/config.js");
+const { WIP_IMAGE_PATH, RESOURCE_TYPES } = __hubRequire("lib/config.js");
 
 // Use the same source as the workspace cover, without its large-card mask or
 // editable placement. Capture selectors deliberately use a simple square crop.
@@ -17821,18 +18301,37 @@ function workspaceImagePath(plugin, workspace) {
     return workspace.cover || frontmatter?.cover || category?.image || WIP_IMAGE_PATH;
 }
 function mountWorkspaceThumbnail(host, plugin, workspace) {
-    const path = workspaceImagePath(plugin, workspace);
-    const file = path && plugin.app.vault.getAbstractFileByPath(path);
-    return host.createEl("img", { cls: "hub-capture-workspace-thumbnail", attr: {
-        src: file ? plugin.app.vault.getResourcePath(file) : path,
-        alt: "", "aria-hidden": "true"
-    } });
+    const resource = workspace.contextKind === "resource";
+    const type = RESOURCE_TYPES.find(item => item.id === String(workspace.resourceType ?? workspace.id ?? workspace.projectId ?? "").replace(/^resource:/, ""));
+    const paths = [...new Set([workspaceImagePath(plugin, workspace), resource ? type?.image : WIP_IMAGE_PATH])];
+    const image = host.createEl("img", { cls: "hub-capture-workspace-thumbnail", attr: { alt: "", "aria-hidden": "true" } });
+    let index = 0, fallback = null;
+    const loadNext = () => {
+        while (index < paths.length) {
+            const path = paths[index++];
+            if (typeof path !== "string" || !path.trim()) continue;
+            try {
+                const file = plugin.app.vault.getAbstractFileByPath(path);
+                if (file?.children) continue;
+                const url = file ? plugin.app.vault.getResourcePath(file) : /^(?:https?:\/\/|data:image\/|blob:)/i.test(path) ? path : null;
+                if (typeof url !== "string" || !url) continue;
+                image.src = url; return;
+            } catch (_) { /* Invalid paths fall through to the established imagery. */ }
+        }
+        image.removeEventListener("error", loadNext);
+        fallback = host.createSpan({ cls: "hub-capture-workspace-thumbnail hub-capture-icon", attr: { "aria-hidden": "true" } });
+        __hubRequire("lib/ui/icons.js").setHubIcon(fallback, resource ? workspace.icon ?? type?.icon ?? "library" : "folder");
+        image.replaceWith(fallback);
+    };
+    image.addEventListener("error", loadNext);
+    loadNext();
+    return fallback ?? image;
 }
 module.exports = { workspaceImagePath, mountWorkspaceThumbnail };
 
 },
 "plugin.js": function (module, exports, __hubRequire) {
-const { createWindowTitle, setWindowUndertext } = __hubRequire("lib/ui/window-title.js");
+const { createWindowTitle, setWindowUndertext, layoutModal } = __hubRequire("lib/ui/window-title.js");
 const { dispose: disposeCompletionAudio } = __hubRequire("lib/ui/completion-audio.js");
 const { mountMusicControl } = __hubRequire("lib/ui/music.js");
 const { mountSettingsControl } = __hubRequire("lib/ui/settings.js");
@@ -17858,6 +18357,7 @@ const {
     normalizePath,
     setIcon,
     Modal,
+    Component,
     FuzzySuggestModal,
     TFile,
     TFolder
@@ -17866,6 +18366,12 @@ const {
 const { taskProgressMutation } = __hubRequire("lib/domain/task-progress.js");
 const { queryHistory } = __hubRequire("lib/domain/history.js");
 const { savedReportContext, reportDay } = __hubRequire("lib/domain/report-context.js");
+const { mountTransientEffects } = __hubRequire("lib/ui/attention.js");
+const { lockModalControls } = __hubRequire("lib/ui/modal-save.js");
+const { trackTextFieldFocus } = __hubRequire("lib/ui/text-field-focus.js");
+const { installWindowMinimum } = __hubRequire("lib/services/window-minimum.js");
+const { hasKeyboardFocus, focusAfterRowRemoval } = __hubRequire("lib/ui/focus-restoration.js");
+const { renderReportWorkspaceHeader } = __hubRequire("lib/ui/report-workspace-header.js");
 const { reportTitle, DailyReportModal, renderReportEvidence, focusSection } = __hubRequire("lib/ui/daily-report.js");
 const { ProjectDeletionModal } = __hubRequire("lib/ui/project-deletion.js");
 const { createPreparedNoteRails, NOTE_RAIL_VIEW } = __hubRequire("lib/ui/prepared-note-rail.js");
@@ -17953,6 +18459,8 @@ const {
     reduceActivityLog,
     replacePathRoot,
     shortDateLabel,
+    formatDate,
+    formatWeekday,
     setHubTooltip,
     watchHubTooltips,
     mountHeaderImage,
@@ -18403,7 +18911,7 @@ class ConfirmModal extends Modal {
 
 
         requestAnimationFrame(() => {
-            confirm.focus();
+            (confirm.classList.contains("mod-warning") ? cancel : confirm).focus();
         });
     }
 
@@ -18437,10 +18945,12 @@ class FocusListEditor {
     constructor(
         parent,
         projects,
-        items
+        items,
+        label = "Focus"
     ) {
 
         this.parent = parent;
+        this.label = label;
         this.projects =
             (
                 Array.isArray(projects)
@@ -18452,6 +18962,7 @@ class FocusListEditor {
                     project?.name
             );
         this.rows = [];
+        this.effects = mountTransientEffects(parent);
 
 
         for (
@@ -18606,16 +19117,23 @@ class FocusListEditor {
             row,
             number,
             projectSelect,
-            input
+            input,
+            remove
         };
 
 
         this.rows.push(entry);
 
+        projectSelect.addEventListener("change", () => {
+            if (projectSelect.value) this.clearWarning(entry);
+            this.syncRows();
+        });
+
 
         input.addEventListener(
             "input",
             () => {
+                if (!input.value.trim() || projectSelect.value) this.clearWarning(entry);
                 this.ensureSuggestionRow();
                 this.syncRows();
             }
@@ -18624,8 +19142,11 @@ class FocusListEditor {
 
         remove.addEventListener(
             "click",
-            () => {
+            event => {
 
+                const restoreFocus = hasKeyboardFocus(remove, event);
+                const index = this.rows.indexOf(entry);
+                this.clearWarning(entry);
                 row.remove();
 
 
@@ -18636,8 +19157,10 @@ class FocusListEditor {
                     );
 
 
+                const survivingRows = this.rows.slice();
                 this.ensureSuggestionRow();
                 this.syncRows();
+                if (restoreFocus) focusAfterRowRemoval(survivingRows.map(item => item.remove), index, this.rows[0]?.input);
             }
         );
 
@@ -18671,12 +19194,39 @@ class FocusListEditor {
                 entry.number.setText(
                     `${index + 1}.`
                 );
+                entry.projectSelect.setAttribute("aria-label", `Project or Resource for ${this.label.toLowerCase()} intention ${index + 1}`);
+                const workspace = entry.projectSelect.value ? entry.projectSelect.selectedOptions[0]?.textContent : "";
+                entry.input.setAttribute("aria-label", `${this.label} intention ${index + 1}${workspace ? ` for ${workspace}` : ""}`);
             }
         );
     }
 
 
+    clearWarning(entry) {
+        this.effects.cancel(entry.projectSelect);
+        entry.projectSelect.removeAttribute("aria-invalid");
+    }
+
+    validate(reveal = true) {
+        let first = null;
+        for (const entry of this.rows) {
+            if (entry.input.value.trim() && !entry.projectSelect.value) {
+                entry.projectSelect.setAttribute("aria-invalid", "true");
+                this.effects.run(entry.projectSelect, "hub-attention");
+                first ??= entry.projectSelect;
+            } else this.clearWarning(entry);
+        }
+        if (first && reveal) {
+            this.effects.reveal(first, this.parent.closest(".hub-modal-body, .modal-content"));
+            first.focus({ preventScroll: true });
+        }
+        return first === null;
+    }
+
+    destroy() { this.effects.destroy(); }
+
     getValue() {
+        if (!this.validate()) throw new Error("Choose a Project or Resource for each focus.");
 
         const items = [];
 
@@ -18697,13 +19247,6 @@ class FocusListEditor {
 
             const projectId =
                 entry.projectSelect.value;
-
-
-            if (!projectId) {
-                throw new Error(
-                    "Choose a Project or Resource for each focus."
-                );
-            }
 
 
             const projectName =
@@ -18734,6 +19277,7 @@ class ProjectAdvancementModal
         {
             projects,
             resources = [],
+            plugin,
             currentScores,
             currentSummaries = {},
             reportContexts = {},
@@ -18747,6 +19291,7 @@ class ProjectAdvancementModal
             title =
                 "How much did you advance the project today?",
             requireEveryProject = true,
+            requireExplicitRatings = false,
             allowNoProgress = false,
             saveLabel = "Save & close",
             showCancel = false
@@ -18768,6 +19313,8 @@ class ProjectAdvancementModal
                 : [];
 
 
+        this.requireExplicitRatings = requireExplicitRatings;
+        this.plugin = plugin;
         this.progressItems = [
             ...this.projects,
             ...this.resources
@@ -18876,14 +19423,26 @@ class ProjectAdvancementModal
 
     onOpen() {
         this.evidenceRows = new Map();
+        this.evidenceComponents = new Map();
+        this.renderEvidence = (parent, context, id) => {
+            this.evidenceComponents.get(id)?.unload();
+            const component = new Component();
+            component.load();
+            this.evidenceComponents.set(id, component);
+            const markdown = createHubMarkdown({ app: this.app, component });
+            const evidence = renderReportEvidence(parent, context, markdown, component);
+            if (context.focus.length) focusSection(evidence, "Focus for this day", context.focus, "", markdown);
+            return evidence;
+        };
+        this.ratingRows = new Map();
+        if (this.requireExplicitRatings) this.ratingEffects = mountTransientEffects(this.contentEl);
         this.refreshEvidence = () => {
             if (!this.getReportContexts) return;
             this.reportContexts = this.getReportContexts();
             for (const [id, previous] of this.evidenceRows) {
                 const context = this.reportContexts[id];
                 if (!context) continue;
-                const evidence = renderReportEvidence(previous.parentElement, context);
-                if (context.focus.length) focusSection(evidence, "Focus for this day", context.focus, "");
+                const evidence = this.renderEvidence(previous.parentElement, context, id);
                 previous.replaceWith(evidence);
                 this.evidenceRows.set(id, evidence);
             }
@@ -18901,7 +19460,6 @@ class ProjectAdvancementModal
 
         const guidance = this.contentEl.createDiv({ cls: 'hub-progress-rating-guidance' });
         guidance.createDiv({ text: "Rate the significance of today's work in each workspace." });
-        guidance.createDiv({ cls: 'hub-progress-rating-hint', text: 'Hover over a rating for details.' });
         setWindowUndertext(heading, guidance);
         this.ratingTooltips?.dispose();
         this.ratingTooltips = createImmediateHubTooltip(this.contentEl);
@@ -18961,28 +19519,26 @@ class ProjectAdvancementModal
                 project.projectId;
 
 
-            row.createDiv({
-                cls:
-                    "hub-project-advancement-name",
-
-                text:
-                    project.name
-            });
+            renderReportWorkspaceHeader(row, project, this.plugin);
 
 
             const context = this.reportContexts[project.projectId];
             if (context) {
-                const evidence = renderReportEvidence(row, context);
+                const evidence = this.renderEvidence(row, context, project.projectId);
                 this.evidenceRows.set(project.projectId, evidence);
-                if (context.focus.length) focusSection(evidence, "Focus for this day", context.focus, "");
             }
 
-            const choices =
+            const ratingSection =
                 row.createDiv({
                     cls:
                         "hub-project-advancement-choices"
                 });
 
+
+            const choices = ratingSection.createDiv({ cls: "hub-project-advancement-rating-buttons" });
+            choices.setAttribute("role", "group");
+            choices.setAttribute("aria-label", `Rating for ${project.name}`);
+            this.ratingRows.set(project.projectId, choices);
 
             if (this.allowNoProgress) {
 
@@ -19123,8 +19679,9 @@ class ProjectAdvancementModal
                         attr: {
                             rows: "3",
                             maxlength: "1000",
+                            "aria-label": `Comments for ${project.name}`,
                             placeholder:
-                                `Summarise progress on ${project.name}`
+                                "Comments\u2026"
                         }
                     }
                 );
@@ -19180,10 +19737,13 @@ class ProjectAdvancementModal
                 new FocusListEditor(
                     this.focusList,
                     this.focusProjects,
-                    this.currentFocus
+                    this.currentFocus,
+                    "Next focus"
                 );
         }
 
+
+        this.contentEl.addClass("hub-report-footer-layout");
 
         // ---------- ACTIONS ----------
 
@@ -19192,6 +19752,7 @@ class ProjectAdvancementModal
                 cls:
                     "hub-project-advancement-actions"
             });
+        layoutModal(this, { footer: actions, bodyClass: "hub-report-scroll" });
 
 
         if (this.showCancel) {
@@ -19249,6 +19810,11 @@ class ProjectAdvancementModal
         projectId,
         score
     ) {
+        if (score !== null) {
+            const choices = this.ratingRows.get(projectId);
+            this.ratingEffects?.cancel(choices);
+            choices?.removeAttribute("aria-invalid");
+        }
         if (score === 0) {
             const input = this.summaryInputs.get(projectId);
             if (input) input.value = "";
@@ -19318,10 +19884,16 @@ class ProjectAdvancementModal
         }
 
 
+        if (this.requireExplicitRatings) {
+            this.saveButton.addClass("hub-guided-submit");
+            this.saveButton.setAttribute("aria-disabled", String(this.saving ||
+                this.progressItems.some(item => !this.selectedScores.has(item.projectId))));
+        }
+
         this.saveButton.disabled =
             this.saving ||
             (
-                this.requireEveryProject &&
+                this.requireEveryProject && !this.requireExplicitRatings &&
                 this.selectedScores.size !==
                     this.progressItems.length
             );
@@ -19329,24 +19901,29 @@ class ProjectAdvancementModal
 
 
     async save() {
+        if (!this.saving && this.requireExplicitRatings) {
+            const missing = this.progressItems.filter(item => !this.selectedScores.has(item.projectId));
+            for (const item of missing) {
+                const choices = this.ratingRows.get(item.projectId);
+                choices.setAttribute("aria-invalid", "true");
+                this.ratingEffects.run(choices, "hub-attention");
+            }
+            if (missing.length) {
+                this.ratingEffects.reveal(this.ratingRows.get(missing[0].projectId), this.contentEl.querySelector(".hub-report-scroll"));
+                return;
+            }
+        }
 
         if (
             this.saving ||
             (
-                this.requireEveryProject &&
+                this.requireEveryProject && !this.requireExplicitRatings &&
                 this.selectedScores.size !==
                     this.progressItems.length
             )
         ) {
             return;
         }
-
-
-        this.saving =
-            true;
-
-
-        this.updateSaveButton();
 
 
         const scores =
@@ -19381,10 +19958,6 @@ class ProjectAdvancementModal
 
         } catch (error) {
 
-            this.saving = false;
-            this.updateSaveButton();
-
-
             new Notice(
                 error.message
             );
@@ -19392,6 +19965,10 @@ class ProjectAdvancementModal
             return;
         }
 
+
+        this.saving = true;
+        const restoreControls = lockModalControls(this);
+        this.updateSaveButton();
 
         try {
 
@@ -19405,6 +19982,8 @@ class ProjectAdvancementModal
             this.settled =
                 true;
 
+            this.saving = false;
+            restoreControls();
 
             this.close();
 
@@ -19423,6 +20002,7 @@ class ProjectAdvancementModal
             this.saving =
                 false;
 
+            restoreControls();
 
             this.updateSaveButton();
 
@@ -19434,10 +20014,16 @@ class ProjectAdvancementModal
     }
 
 
+    close() { if (!this.saving) super.close(); }
+
     onClose() {
+        this.focusEditor?.destroy();
+        this.evidenceComponents?.forEach(component => component.unload());
+        this.evidenceComponents?.clear();
         if (this.refreshEvidence) document.removeEventListener("hub-completed-tasks-changed", this.refreshEvidence);
 
         this.ratingTooltips?.dispose();
+        this.ratingEffects?.destroy();
         this.contentEl.empty();
 
 
@@ -19523,7 +20109,8 @@ class DailyFocusModal
             new FocusListEditor(
                 this.list,
                 this.projects,
-                this.items
+                this.items,
+                "Focus for today"
             );
 
 
@@ -19541,7 +20128,7 @@ class DailyFocusModal
 
 
         nextSection.createEl(
-            "h2",
+            "h3",
             {
                 text:
                     "Edit focus for next day"
@@ -19560,7 +20147,8 @@ class DailyFocusModal
             new FocusListEditor(
                 nextList,
                 this.projects,
-                this.nextItems
+                this.nextItems,
+                "Focus for next day"
             );
 
 
@@ -19570,6 +20158,8 @@ class DailyFocusModal
                     "hub-project-advancement-actions"
             });
 
+
+        layoutModal(this, { footer: actions });
 
         const cancel =
             actions.createEl(
@@ -19616,11 +20206,12 @@ class DailyFocusModal
         }
 
 
-        this.saving = true;
-        this.saveButton.disabled = true;
-
+        let restoreControls;
 
         try {
+            const valid = this.focusEditor.validate();
+            const nextValid = this.nextFocusEditor.validate(valid);
+            if (!valid || !nextValid) throw new Error("Choose a Project or Resource for each focus.");
 
             const items =
                 this.focusEditor
@@ -19630,11 +20221,16 @@ class DailyFocusModal
                 this.nextFocusEditor
                     .getValue();
 
+            this.saving = true;
+            restoreControls = lockModalControls(this);
+
             await this.onSave({
                 items,
                 nextItems
             });
             this.settled = true;
+            this.saving = false;
+            restoreControls();
             this.close();
             this.onSaved?.();
 
@@ -19647,7 +20243,7 @@ class DailyFocusModal
 
 
             this.saving = false;
-            this.saveButton.disabled = false;
+            restoreControls?.();
 
 
             new Notice(
@@ -19658,7 +20254,11 @@ class DailyFocusModal
     }
 
 
+    close() { if (!this.saving) super.close(); }
+
     onClose() {
+        this.focusEditor?.destroy();
+        this.nextFocusEditor?.destroy();
         this.contentEl.empty();
 
 
@@ -19777,6 +20377,7 @@ class ProjectCategoryModal
             );
         }
 
+        layoutModal(this);
         requestAnimationFrame(() => {
             this.contentEl
                 .querySelector(".mod-cta")
@@ -19902,6 +20503,7 @@ class HubDataAuditModal extends Modal {
         const actions = this.contentEl.createDiv({
             cls: "hub-project-wizard-actions"
         });
+        layoutModal(this, { footer: actions });
         const close = actions.createEl("button", {
             text: "Close"
         });
@@ -19997,6 +20599,7 @@ class ResourceFolderPickerModal extends Modal {
         const actions = this.contentEl.createDiv({ cls: "hub-project-wizard-actions" });
         const cancel = actions.createEl("button", { text: "Cancel" });
         const save = actions.createEl("button", { text: "Save changes" });
+        layoutModal(this, { footer: actions });
         save.addClass("mod-cta");
         cancel.addEventListener("click", () => this.close());
         save.addEventListener("click", async () => {
@@ -20077,9 +20680,11 @@ class ProjectWizardModal extends Modal {
     }
 
     actions() {
-        return this.contentEl.createDiv({
+        const actions = this.contentEl.createDiv({
             cls: "hub-project-wizard-actions"
         });
+        layoutModal(this, { footer: actions });
+        return actions;
     }
 
 
@@ -20318,6 +20923,7 @@ class ProjectWizardModal extends Modal {
                 );
             }
         );
+        layoutModal(this);
     }
 
 
@@ -29728,6 +30334,18 @@ module.exports = class HubProjectMenu extends Plugin {
 
     async onload() {
 
+        this.register(installWindowMinimum(window));
+
+        const focusDocuments = new Set();
+        const trackDocumentFocus = doc => {
+            if (!doc || focusDocuments.has(doc)) return;
+            focusDocuments.add(doc);
+            this.register(trackTextFieldFocus(doc));
+        };
+        trackDocumentFocus(document);
+        this.app.workspace.iterateAllLeaves(leaf => trackDocumentFocus(leaf.containerEl?.ownerDocument));
+        this.registerEvent(this.app.workspace.on("window-open", (_workspaceWindow, win) => trackDocumentFocus(win.document)));
+
         this.atlas = installAtlasIntegration(this);
 
         this.dataStore =
@@ -31628,6 +32246,8 @@ module.exports = class HubProjectMenu extends Plugin {
         new ProjectAdvancementModal(
             this.app,
             {
+                plugin: this,
+                requireExplicitRatings: true,
                 getReportContexts: () => Object.fromEntries([...projects, ...resources].map(workspace => {
                     const id = workspace.projectId ?? `resource:${workspace.resourceType}`;
                     const previous = id.startsWith("resource:")
@@ -33722,27 +34342,13 @@ module.exports = class HubProjectMenu extends Plugin {
 
 
         const dateLabel =
-            parsedDate.toLocaleDateString(
-                undefined,
-                {
-                    weekday:
-                        "long",
-
-                    year:
-                        "numeric",
-
-                    month:
-                        "long",
-
-                    day:
-                        "numeric"
-                }
-            );
+            formatWeekday(parsedDate) + ", " + formatDate(parsedDate, "full");
 
 
         new ProjectAdvancementModal(
             this.app,
             {
+                plugin: this,
                 getReportContexts: () => Object.fromEntries([...projects, ...resources].map(workspace => {
                     const id = workspace.projectId ?? `resource:${workspace.resourceType}`;
                     const previous = id.startsWith("resource:")
@@ -33892,17 +34498,7 @@ module.exports = class HubProjectMenu extends Plugin {
 
 
             const dateLabel =
-                [
-                    String(
-                        cellDate.getDate()
-                    ).padStart(2, "0"),
-
-                    String(
-                        cellDate.getMonth() + 1
-                    ).padStart(2, "0"),
-
-                    cellDate.getFullYear()
-                ].join("/");
+                shortDateLabel(date);
 
 
             const isFuture =
@@ -34097,7 +34693,7 @@ module.exports = class HubProjectMenu extends Plugin {
                 const scope = calendar.hubProgressEditorOptions?.projectId ?? null;
                 const day = reportDay(this.projectWizard, cell.dataset.date, scope);
                 if (day.reports.length) {
-                    new DailyReportModal(this.app, { day,
+                    new DailyReportModal(this.app, { day, plugin: this,
                         onEdit: () => window.hubOpenProgressEditor?.(day.date, scope)
                     }).open();
                 } else {

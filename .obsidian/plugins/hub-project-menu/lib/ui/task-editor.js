@@ -1,5 +1,5 @@
 "use strict";
-const { createWindowTitle } = require("./window-title");
+const { createWindowTitle, layoutModal } = require("./window-title");
 const { taskFormValues } = require("../domain/task-form");
 const { taskSection, mountTaskText, mountTaskFields, mountTaskRelationshipFields } = require("./task-form");
 
@@ -76,6 +76,7 @@ function openTaskEditor(service, task, onEdit = () => {}, creation = null) {
                     errorEl.textContent = snapshot.steps.length ? "Delete this task and its Steps from the note?" : "Delete this task from the note?"; return; }
                 void commit(true);
             });
+            layoutModal(this, { container: form, footer: actions });
             input.focus(); input.setSelectionRange(input.value.length, input.value.length);
         }
         close() { if (!this.saving) super.close(); }

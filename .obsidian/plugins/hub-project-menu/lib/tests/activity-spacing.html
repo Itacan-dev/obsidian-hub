@@ -1,0 +1,46 @@
+<!doctype html><meta charset="utf-8"><title>History and workspace activity rhythm</title>
+<link rel="stylesheet" href="../../styles.css">
+<link rel="stylesheet" href="../../../../../System/Dashboards/Home/view.css">
+<link rel="stylesheet" href="../../../../../System/Dashboards/Project/view.css">
+<style>
+body{margin:16px;background:#222;color:#ddd;font:14px Arial;--text-muted:#aaa;--text-faint:#777;--background-modifier-border:#444;--background-modifier-hover:#333;--interactive-accent:#8955ed}
+#fixtures{display:grid;gap:16px;grid-template-columns:repeat(auto-fill,minmax(min(100%,300px),1fr))}
+.surface{min-width:0;display:block}.surface h2{font-size:16px}a{color:var(--interactive-accent)}
+</style>
+<div id="fixtures"></div><pre id="result">RUNNING</pre>
+<script type="module">
+const check=(value,message)=>{if(!value)throw Error(message)},key=value=>new Promise(resolve=>{window.hubTestKeyDone=resolve;window.hubTestKeyRequest=value});
+async function pointer(element){element.scrollIntoView({block:'center'});await new Promise(requestAnimationFrame);const box=element.getBoundingClientRect();await new Promise(resolve=>{window.hubTestPointerDone=resolve;window.hubTestPointerRequest={x:box.left+box.width/2,y:box.top+box.height/2}})}
+try{
+ const module={exports:{}};new Function('module',await(await fetch('../ui/row-activation.js')).text())(module);
+ const samples=['Short activity','A long activity title spanning several lines with enough detail to test wrapping and alignment alongside the date and timestamp'];
+ let activations=0,links=0;
+ for(const context of ['Home','Project','Resource']){
+  const home=context==='Home',prefix=home?'home-recent':'project-activity';
+  const surface=document.createElement('section');surface.className='surface hub-button-scope '+(home?'home-dashboard':'project-dashboard');surface.innerHTML='<h2>'+context+'</h2>';fixtures.append(surface);
+  const rows=[];
+  for(const [index,text]of samples.entries()){
+   const row=document.createElement('div');row.className=prefix+'-row '+(home?'home-recent-clickable':'is-clickable');
+   const icon='<span class="'+(home?'home-recent-action-icon':'project-activity-icon')+' is-edited" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 20L20 4M4 20h5" fill="none" stroke="currentColor" stroke-width="2"/></svg></span>';
+   const title='<div class="'+prefix+'-title">'+text+'</div>';
+   row.innerHTML=(home?'':icon)+'<div class="'+prefix+'-info">'+(home?'<div class="home-recent-title-row">'+icon+title+'</div>':title)+'<div class="'+(home?'home-recent-type':'project-activity-location')+'">Workspace › Note</div></div><div class="'+prefix+'-time"><div class="'+prefix+'-date">7 Oct</div><div class="'+prefix+'-clock">14:12</div></div>';
+   if(index===0){const link=document.createElement('a');link.href='#independent';link.textContent=' Link';link.onclick=event=>{event.preventDefault();links++};row.querySelector('.'+prefix+'-title').append(link)}
+   surface.append(row);module.exports.makeActionableRow(row,()=>activations++);rows.push(row);
+   const style=getComputedStyle(row),titleStyle=getComputedStyle(row.querySelector('.'+prefix+'-title')),timeStyle=getComputedStyle(row.querySelector('.'+prefix+'-time'));
+   check(style.paddingTop==='8px'&&style.paddingBottom==='8px'&&style.paddingLeft==='6px'&&style.paddingRight==='6px',context+': Home padding');
+   check(Math.abs(parseFloat(titleStyle.lineHeight)/parseFloat(titleStyle.fontSize)-1.3)<.001,context+': title line height');
+   check(Math.abs(parseFloat(timeStyle.lineHeight)/parseFloat(timeStyle.fontSize)-1.25)<.001&&timeStyle.marginTop==='2px',context+': timestamp line height and offset');
+   check(getComputedStyle(row.querySelector('.'+(home?'home-recent-type':'project-activity-location'))).marginTop==='2px'&&getComputedStyle(row.querySelector('.'+prefix+'-clock')).marginTop==='2px',context+': metadata spacing retained');
+   const svg=row.querySelector('svg');check(getComputedStyle(svg).width==='14px'&&getComputedStyle(svg).height==='14px',context+': icon dimensions retained');
+   check(style.columnGap===(home?'12px':'7px')&&style.display===(home?'flex':'grid'),context+': context columns retained');
+   check(row.scrollWidth<=row.clientWidth+1,context+': content fits row');
+   const wrapped=row.querySelector('.'+prefix+'-title');if(index)check(wrapped.clientHeight>parseFloat(titleStyle.lineHeight),context+': long title wraps');
+  }
+  check(getComputedStyle(rows[0]).borderBottomWidth==='1px'&&getComputedStyle(rows[1]).borderBottomWidth==='0px',context+': row separators retained');
+  for(const row of rows){await key('Tab');row.focus();check(row.matches(':focus-visible')&&getComputedStyle(row).outlineWidth==='2px',context+': visible keyboard focus');let before=activations;await key('Enter');await key(' ');check(activations===before+2,context+': Enter/Space once');await pointer(row.querySelector('.'+prefix+'-time'));check(activations===before+3,context+': ordinary pointer activation');await Promise.all(row.getAnimations().map(animation=>animation.finished));check(getComputedStyle(row).backgroundColor==='rgb(51, 51, 51)',context+': hover background retained')}
+  const link=rows[0].querySelector('a');let before=activations;link.focus();await key('Enter');await pointer(link);check(links>0&&activations===before,context+': independent nested link');
+  const empty=document.createElement('div');empty.className=home?'home-empty':'project-empty';empty.textContent='No activity';surface.append(empty);check(!empty.hasAttribute('tabindex')&&empty.getClientRects().length,context+': empty state unchanged');
+ }
+ result.textContent='PASS: Home/Project/Resource shared padding, title/time line heights, timestamp offset; preserved metadata gaps, 14px icons, column layouts, separators, long wrapping, empty states, hover, pointer activation, Enter/Space and independent links at '+innerWidth+'px.';
+}catch(error){result.textContent='FAIL '+error.stack}
+</script>

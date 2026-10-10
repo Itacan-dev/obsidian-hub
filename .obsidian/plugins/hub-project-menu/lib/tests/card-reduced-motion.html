@@ -1,0 +1,42 @@
+<!doctype html><meta charset="utf-8"><title>Workspace card reduced-motion checks</title>
+<link rel="stylesheet" href="../../styles.css">
+<link rel="stylesheet" href="../../../../../System/Dashboards/Home/view.css">
+<style>
+body{background:#262626;color:#ddd;font:16px Arial;--background-primary:#1e1e1e;--background-secondary:#262626;--background-modifier-border:#444;--interactive-accent:#8955ed}
+#cards{display:flex;gap:30px;padding:30px}.home-project-card,.home-resource-card{flex:none;width:250px}#outside{margin:30px}#result{white-space:normal;pointer-events:none}
+</style><main id="cards" class="hub-button-scope"></main><button id="outside">Outside</button><pre id="result">RUNNING</pre>
+<script type="module">
+HTMLElement.prototype.createEl=function(tag,o={}){const el=document.createElement(tag);el.className=o.cls||'';el.textContent=o.text??'';for(const[k,v]of Object.entries(o.attr||{}))el.setAttribute(k,v);this.append(el);return el};
+HTMLElement.prototype.createDiv=function(o){return this.createEl('div',o)};HTMLElement.prototype.createSpan=function(o){return this.createEl('span',o)};
+const assert=(value,message)=>{if(!value)throw Error(message)};
+const key=value=>new Promise(resolve=>{window.hubTestKeyDone=resolve;window.hubTestKeyRequest=value});
+async function pointer(el){const r=el.getBoundingClientRect();await new Promise(resolve=>{window.hubTestPointerDone=resolve;window.hubTestPointerRequest={x:r.left+r.width/2,y:r.top+r.height/2}})}
+const finish=async()=>{await new Promise(requestAnimationFrame);await Promise.all([...document.getAnimations()].map(animation=>animation.finished))};
+try{
+ const domain={exports:{}},ui={exports:{}},cleanup=[],calls=[];
+ new Function('module',await(await fetch('../domain/oath-workspace.js')).text())(domain);
+ new Function('module','require',await(await fetch('../ui/workspace-cards.js')).text())(ui,name=>name==='obsidian'?{setIcon(el){el.textContent='Icon'}}:domain.exports);
+ const renderer=ui.exports.createWorkspaceCards({app:{vault:{getAbstractFileByPath:()=>null}},root:cards,component:{register:fn=>cleanup.push(fn)},renderImage(){}});
+ const contexts=[{projectId:'p',name:'Project',path:'Projects/P/P.md',status:'active'},{contextKind:'resource',resourceType:'r',name:'Resource',label:'Resource',path:'Resources/R/R.md'}];
+ const elements=contexts.map(context=>renderer.render(cards,context,()=>calls.push(context.name)));
+ const reduced=matchMedia('(prefers-reduced-motion: reduce)').matches;
+ const surfaces=elements.map(card=>card.firstElementChild),rest=surfaces.map(surface=>{const s=getComputedStyle(surface);return {border:s.borderColor,background:s.backgroundColor,shadow:s.boxShadow,transform:s.transform}});
+ const layers=['::before','::after'].map(pseudo=>getComputedStyle(elements[1],pseudo).transform);
+ for(let i=0;i<elements.length;i++){
+  const card=elements[i],surface=surfaces[i],bounds=card.getBoundingClientRect();
+  await pointer(card);await finish();const style=getComputedStyle(surface),matrix=new DOMMatrix(style.transform);
+  assert(style.borderColor!==rest[i].border&&style.boxShadow!==rest[i].shadow,'Static border and shadow hover feedback retained for '+contexts[i].name);
+  if(i===1)assert(style.backgroundColor!==rest[i].background,'Resource background highlight retained');
+  if(reduced){assert(style.transform==='none','Reduced motion removes card transform');assert(style.transitionDuration==='0s'&&style.transitionProperty==='none','Reduced motion removes movement transitions');assert(surface.getAnimations().length===0,'No reduced-motion hover animation');}
+  else{assert(Math.abs(matrix.a-(i===0?1.015:1.006))<.00001,'Normal card scaling preserved');assert(matrix.f===(i===0?0:-2),'Normal Resource translation preserved');assert(style.transitionProperty.includes('transform')&&style.transitionDuration.includes('0.14s'),'Normal 140ms movement transition preserved');}
+  const after=card.getBoundingClientRect();assert(after.x===bounds.x&&after.y===bounds.y&&after.width===bounds.width&&after.height===bounds.height,'Hover preserves outer card layout');
+  assert(calls.at(-1)===contexts[i].name&&calls.length===i*3+1,'Pointer click invokes only corresponding card');
+  card.focus();await key('Enter');await key(' ');assert(calls.length===(i+1)*3&&calls.slice(-3).every(name=>name===contexts[i].name),'Enter and Space select each card once');
+  await pointer(outside);await finish();assert(getComputedStyle(surface).borderColor===rest[i].border&&getComputedStyle(surface).boxShadow===rest[i].shadow,'Hover-out restores static appearance');
+  assert(getComputedStyle(surface).transform===rest[i].transform,'Hover-out restores resting transform');
+ }
+ assert(['::before','::after'].every((pseudo,i)=>getComputedStyle(elements[1],pseudo).transform===layers[i]),'Fixed Resource stack artwork remains unchanged');
+ cleanup.forEach(fn=>fn());
+ result.textContent='PASS: '+(reduced?'reduced':'normal')+' motion; both real workspace card types, transforms/transitions, static hover feedback, stable layout, pointer selection and Enter/Space activation, unchanged Resource stack.';
+}catch(error){result.textContent='FAIL: '+error.stack}
+</script>

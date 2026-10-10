@@ -1,6 +1,7 @@
 "use strict";
 
 const { formatDuration } = require("../domain/statistics");
+const { formatDate } = require("../domain/dates");
 const SVG_NS = "http://www.w3.org/2000/svg";
 
 function svgElement(parent, tag, attrs = {}, text) {
@@ -11,7 +12,7 @@ function svgElement(parent, tag, attrs = {}, text) {
 }
 
 function dateLabel(time, year = false) {
-    return new Date(time).toLocaleDateString([], { month: "short", day: "numeric", ...(year ? { year: "numeric" } : {}) });
+    return formatDate(new Date(time), year ? "compact" : "short");
 }
 
 function binLabel(bin) {
@@ -58,9 +59,10 @@ function renderBarChart(parent, { range, values, label, color = "accent", durati
             bars.push({ bar, index, seriesIndex }); offset += value;
         });
     });
+    const axisYear = range.days > 366 || new Date(range.bins[0].start).getFullYear() !== new Date(range.bins.at(-1).start).getFullYear();
     for (const index of [...new Set([0, Math.floor((values.length - 1) / 2), values.length - 1])]) {
         const tick = svgElement(plot, "text", { x: left + (index + .5) * stride, y: plotHeight - 8,
-            "text-anchor": index === 0 ? "start" : index === values.length - 1 ? "end" : "middle" }, dateLabel(range.bins[index].start, range.days > 366));
+            "text-anchor": index === 0 ? "start" : index === values.length - 1 ? "end" : "middle" }, dateLabel(range.bins[index].start, axisYear));
         ticks.push({ tick, index });
     }
     const layout = () => {
@@ -108,6 +110,9 @@ function renderBarChart(parent, { range, values, label, color = "accent", durati
     });
     plot.addEventListener("focus", () => show(selected));
     plot.addEventListener("keydown", event => {
+        if (event.key === "Escape" && !detail.hidden) {
+            hide(); event.preventDefault(); event.stopPropagation(); return;
+        }
         if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
         event.preventDefault();
         show(event.key === "Home" ? 0 : event.key === "End" ? values.length - 1 : selected + (event.key === "ArrowRight" ? 1 : -1));

@@ -20,6 +20,21 @@ function createTaskRow(parent, task, completed = task.completed) {
     return { row, checkbox, info, textEl };
 }
 
+// Presentation only: no checkbox, edit bindings, menus or navigation.
+function renderReadOnlyTask(parent, task, markdown, { unavailable = false } = {}) {
+    const { setIcon } = require("obsidian");
+    const row = parent.createDiv({ cls: "hub-oath-selected hub-readonly-task" });
+    const status = unavailable ? "Source unavailable" : task.completed ? "Completed" : "Incomplete";
+    const icon = row.createSpan({ cls: "hub-report-section-icon" + (!unavailable && task.completed ? " hub-report-check" : ""),
+        attr: { role: "img", "aria-label": status } });
+    setIcon(icon, unavailable ? "circle-help" : task.completed ? "square-check" : "square");
+    icon.querySelector("svg")?.setAttribute("aria-hidden", "true");
+    const text = row.createDiv({ cls: "project-task-info project-task-text", text: task.text });
+    void markdown.render(text, task.text, task.path || "Home.md");
+    if (unavailable) row.createSpan({ cls: "hub-oath-muted", text: "Source unavailable" });
+    return row;
+}
+
 function createTaskUi({ app, component, body, mutate, onEdit, editTask, createTask, oath, phaseLabel }) {
     const { Menu, Notice, setIcon } = require("obsidian");
     const document = body.ownerDocument;
@@ -280,4 +295,4 @@ function createTaskUi({ app, component, body, mutate, onEdit, editTask, createTa
     return { bind, beginRender, defer, groups, group, addButton, partitionOath: oathSection.partition, renderOath: oathSection.render };
 }
 
-module.exports = { createTaskUi, createTaskRow, taskSourceLabel };
+module.exports = { createTaskUi, createTaskRow, renderReadOnlyTask, taskSourceLabel };

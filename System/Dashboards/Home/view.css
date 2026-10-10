@@ -113,7 +113,7 @@
     justify-content: space-between;
     gap: 12px;
 
-    padding: 8px 6px;
+    padding: var(--hub-activity-row-padding, 8px 6px);
 
     border-bottom: 1px solid var(--background-modifier-border);
     border-radius: 5px;
@@ -143,7 +143,7 @@
 
     font-size: var(--hub-font-body);
     font-weight: 400;
-    line-height: 1.3;
+    line-height: var(--hub-activity-title-line-height, 1.3);
 
     white-space: normal;
     overflow-wrap: break-word;
@@ -190,10 +190,10 @@
 .home-recent-time {
     flex: 0 0 auto;
 
-    margin-top: 2px;
+    margin-top: var(--hub-activity-time-offset, 2px);
 
     text-align: right;
-    line-height: 1.25;
+    line-height: var(--hub-activity-time-line-height, 1.25);
 
 }
 
@@ -850,6 +850,17 @@
 .home-calendar-title {
     font-size: var(--hub-font-body);
     font-weight: 550;
+}
+
+a.home-calendar-title {
+    color: inherit;
+    text-decoration: none;
+}
+
+a.home-calendar-title:focus-visible {
+    outline: 2px solid var(--interactive-accent);
+    outline-offset: 2px;
+    border-radius: 3px;
 }
 
 .home-calendar-title.is-clickable {

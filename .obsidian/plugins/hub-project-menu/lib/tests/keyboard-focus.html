@@ -1,0 +1,70 @@
+<!doctype html><meta charset="utf-8"><title>Itacan keyboard focus and calendar links</title>
+<style>
+body{background:#222;color:#ddd;font:14px Arial;--text-normal:#ddd;--text-muted:#aaa;--text-faint:#777;--background-primary:#222;--background-modifier-border:#444;--background-modifier-border-hover:#777;--interactive-accent:#8955ed;--input-shadow:none}
+input,textarea{background:#333;color:#ddd;border:1px solid #444;margin:8px;width:180px;height:30px}
+input:focus,textarea:focus{border-color:var(--interactive-accent);outline:1px solid var(--interactive-accent);box-shadow:0 0 0 1px var(--interactive-accent)}
+#fixture{width:600px;padding:12px}.home-calendar-row{margin:12px}.hub-explorer-search{display:flex!important}
+/* A deliberately specified search surface must retain its own focus color. */
+.hub-button-scope .search-input-container input[type=search].intentional-search:focus{border-color:var(--interactive-accent);box-shadow:none}
+</style>
+<link rel="stylesheet" href="../../styles.css">
+<link rel="stylesheet" href="../../../../../System/Dashboards/Home/view.css">
+<link rel="stylesheet" href="../../../../../System/Dashboards/Project/view.css">
+<div id="fixture"></div><pre id="result">RUNNING</pre>
+<script type="module">
+const assert=(v,m)=>{if(!v)throw Error(m)},paint=()=>new Promise(requestAnimationFrame);
+const key=value=>new Promise(resolve=>{window.hubTestKeyDone=resolve;window.hubTestKeyRequest=value});
+async function click(element){element.scrollIntoView({block:'center'});await paint();const box=element.getBoundingClientRect();await new Promise(resolve=>{window.hubTestPointerDone=resolve;window.hubTestPointerRequest={x:box.left+box.width/2,y:box.top+box.height/2}})}
+HTMLElement.prototype.createEl=function(tag,o={}){const e=document.createElement(tag);e.className=o.cls||'';e.textContent=o.text||'';this.append(e);return e};
+HTMLElement.prototype.createDiv=function(o){return this.createEl('div',o)};HTMLElement.prototype.addClass=function(c){this.classList.add(c)};
+async function load(file){const module={exports:{}};new Function('module',await(await fetch(file)).text())(module);return module.exports}
+try{
+ const {trackTextFieldFocus}=await load('../ui/text-field-focus.js'),dispose=trackTextFieldFocus(document);
+ for(const scope of ['hub-button-scope hub-capture-form-scope','home-dashboard','project-dashboard']){
+  fixture.className=scope;fixture.replaceChildren();
+  const before=fixture.createEl('button',{text:'Start'});
+  const fields=[null,'text','search','email','url','tel','password','textarea'].map(type=>{const field=fixture.createEl(type==='textarea'?'textarea':'input');if(type&&type!=='textarea')field.type=type;return field});
+  for(const field of fields){
+   await click(field);assert(document.activeElement===field,scope+': pointer focuses field');
+   assert(getComputedStyle(field).outlineStyle==='none'&&!field.classList.contains('hub-keyboard-focus'),scope+': pointer focus stays neutral');
+   await key('a');assert(getComputedStyle(field).outlineStyle==='none',scope+': typing keeps neutral focus');
+  }
+  await click(before);
+  for(const field of fields){await key('Tab');assert(document.activeElement===field,scope+': sequential keyboard traversal');const style=getComputedStyle(field);assert(field.matches(':focus-visible')&&style.outlineStyle==='solid'&&style.outlineWidth==='2px'&&style.outlineOffset==='2px'&&style.outlineColor==='rgb(119, 119, 119)',scope+': established neutral keyboard ring');assert(style.borderColor==='rgb(68, 68, 68)'&&style.boxShadow==='none',scope+': no accent text focus surface');await key('a');assert(getComputedStyle(field).outlineStyle==='solid',scope+': typing after Tab retains keyboard ring')}
+  await click(fields.at(-1));assert(getComputedStyle(fields.at(-1)).outlineStyle==='none',scope+': mouse clears existing keyboard ring');
+ }
+ fixture.className='project-dashboard hub-button-scope';fixture.replaceChildren();
+ for(const [outer,inner,name] of [['hub-context-bar','hub-context-search','hub-context-search-input'],['hub-workspace-explorer','hub-explorer-search','hub-explorer-search-input'],['','search-input-container','intentional-search']]){
+  fixture.replaceChildren();const before=fixture.createEl('button',{text:'Search start'}),region=fixture.createDiv({cls:outer}).createDiv({cls:inner}),field=region.createEl('input',{cls:name});field.type='search';
+  await click(field);assert(getComputedStyle(field).outlineStyle==='none',name+': pointer neutral');
+  const pointerBorder=getComputedStyle(field).borderColor;await click(before);await key('Tab');assert(document.activeElement===field&&getComputedStyle(field).outlineWidth==='2px',name+': keyboard ring beats later dashboard CSS');
+  assert(getComputedStyle(field).borderColor===pointerBorder,name+': existing search surface preserved');
+  if(name==='intentional-search')assert(pointerBorder==='rgb(137, 85, 237)','Intentionally purple search focus preserved');
+ }
+ fixture.replaceChildren();const before=fixture.createEl('button',{text:'Validation start'}),field=fixture.createEl('textarea');
+ const {mountTransientEffects}=await load('../ui/attention.js'),effects=mountTransientEffects(fixture);effects.run(field,'hub-attention');field.style.animationPlayState='paused';field.style.setProperty('--hub-attention-strength','1');await paint();
+ const yellow=getComputedStyle(field).backgroundColor;assert(field.hasAttribute('data-hub-attention-surface')&&yellow!=='rgb(51, 51, 51)','Actual yellow validation surface applied');
+ await click(before);await key('Tab');assert(getComputedStyle(field).backgroundColor===yellow&&getComputedStyle(field).outlineWidth==='2px','Keyboard ring preserves yellow validation');effects.cancel(field);effects.destroy();
+ dispose();assert(!field.classList.contains('hub-keyboard-focus'),'Tracker cleanup clears focus marker');await click(before);await key('Tab');assert(!field.classList.contains('hub-keyboard-focus'),'Tracker cleanup removes document listeners');
+
+ fixture.className='home-dashboard hub-button-scope';fixture.replaceChildren();
+ const source=await(await fetch('../../../../../System/Dashboards/Home/view.js')).text(),start=source.indexOf('function renderCalendarEvent('),end=source.indexOf('function renderCalendarWeek(',start);
+ const dates=await load('../domain/dates.js');
+ const render=new Function('formatTime','el',source.slice(start,end)+';return renderCalendarEvent')(dates.formatTime,(parent,tag,cls,text)=>parent.createEl(tag,{cls,text}));
+ const opened=[],originalOpen=window.open;window.open=(...args)=>opened.push(args);
+ const event={title:'Calendar event',allDay:false,start:new Date(2026,9,7,9),calendarColor:'#80c8c8',location:'Room'};
+ for(const extra of [{link:'https://example.test/event'},{meetUrl:'https://meet.example.test/room',link:'https://example.test/ignored'},{link:'obsidian://open?vault=fixture&file=Note'},{},{link:'not a URL'}]){
+  const initial=fixture.children.length;render(fixture,{...event,...extra});const row=fixture.children[initial],title=row.querySelector('.home-calendar-title'),url=extra.meetUrl||extra.link,valid=url&&url!=='not a URL';
+  assert(title.tagName===(valid?'A':'SPAN'),'Only valid URLs become semantic anchors');assert(row.querySelector('.home-calendar-location').textContent==='Room'&&title.textContent===event.title,'Existing event content preserved');
+  if(valid){assert(title.getAttribute('href')===url&&getComputedStyle(title).textDecorationLine==='none'&&getComputedStyle(title).color===getComputedStyle(row.querySelector('.home-calendar-info')).color,'Existing link appearance and URL priority');title.focus();await key('Enter');assert(opened.at(-1)[0]===url&&opened.at(-1)[1]==='_blank','Enter keeps existing window.open handling');assert(getComputedStyle(title).outlineWidth==='2px'&&getComputedStyle(title).outlineColor==='rgb(137, 85, 237)','Calendar link keyboard focus');const count=opened.length;await click(title);assert(opened.length===count+1,'Pointer opens exactly once')}
+  else{const count=opened.length;title.click();assert(opened.length===count&&!title.hasAttribute('tabindex'),'URL-free events remain noninteractive')}
+ }
+ window.open=originalOpen;
+ const pluginSource=(await(await fetch('../../plugin.js')).text()).replace(/\r\n/g,'\n'),onload=pluginSource.indexOf('    async onload() {'),focusStart=pluginSource.indexOf('        const focusDocuments',onload),focusEnd=pluginSource.indexOf('        this.atlas =',focusStart);
+ const mainDoc={},popDoc={},newDoc={},tracked=[],cleanups=[];let onWindow;
+ const fakePlugin={register:fn=>cleanups.push(fn),registerEvent:()=>{},app:{workspace:{iterateAllLeaves(fn){for(const doc of [mainDoc,mainDoc,popDoc])fn({containerEl:{ownerDocument:doc}})},on(name,fn){assert(name==='window-open','Obsidian window-open focus hook');onWindow=fn;return {}}}}};
+ new Function('document','trackTextFieldFocus',pluginSource.slice(focusStart,focusEnd)).call(fakePlugin,mainDoc,doc=>{tracked.push(doc);return ()=>tracked.splice(tracked.indexOf(doc),1)});
+ assert(tracked.length===2&&tracked[0]===mainDoc&&tracked[1]===popDoc,'Startup tracks existing main and pop-out documents exactly once');onWindow({}, {document:newDoc});onWindow({}, {document:newDoc});assert(tracked.length===3,'New pop-outs tracked once');cleanups.forEach(fn=>fn());assert(!tracked.length,'Plugin unload disposes all document listeners');
+ result.textContent='PASS: real mouse/Tab/typing focus for eight text-field types in modal/Home/Project scopes; cascade and search surfaces, purple search styling, yellow validation, tracker cleanup and pop-out lifecycle; actual calendar anchors, Enter/pointer opening, meet URL priority, URL-free and malformed events.';
+}catch(error){result.textContent='FAIL '+error.stack}
+</script>

@@ -1,8 +1,10 @@
 "use strict";
-const { createWindowTitle } = require("./window-title");
+const { createWindowTitle, setWindowUndertext, layoutModal } = require("./window-title");
+
+const { renderReportWorkspaceHeader } = require("./report-workspace-header");
 
 const { Modal, Component, setIcon } = require("obsidian");
-const { parseLocalISODate } = require("../domain/dates");
+const { parseLocalISODate, formatDate, formatTime, formatDateTime } = require("../domain/dates");
 const { activitySummary } = require("../domain/report-context");
 const { createHubMarkdown } = require("./markdown");
 const { renderHistoryIcon } = require("./dashboard-ui");
@@ -16,9 +18,7 @@ function reportText(parent, text, markdown, cls = "hub-report-text", sourcePath 
 function time(parent, timestamp) {
     const date = new Date(Number(timestamp));
     if (!(Number(timestamp) > 0) || !Number.isFinite(date.getTime())) return;
-    parent.createEl("time", { cls: "hub-report-time", text: date.toLocaleTimeString([], {
-        hour: "2-digit", minute: "2-digit"
-    }), attr: { datetime: date.toISOString(), title: date.toLocaleString() } });
+    parent.createEl("time", { cls: "hub-report-time", text: formatTime(date), attr: { datetime: date.toISOString(), title: formatDateTime(date) } });
 }
 
 function sectionIcon(parent, name) {
@@ -36,13 +36,12 @@ function focusSection(parent, heading, items, empty, markdown) {
     for (const text of items) reportText(section, text, markdown);
 }
 
-function renderTaskProgress(parent, items, markdown, { heading = "Task progress", showTimes = true } = {}) {
+function renderTaskProgress(parent, items, markdown, { heading = "Task progress", showTimes = true, hideEmptyHeading = false, component } = {}) {
     const tasks = parent.createDiv({ cls: "hub-report-section" });
-    tasks.createEl("h3", { text: heading });
+    if (items.length || !hideEmptyHeading) tasks.createEl("h3", { text: heading });
     if (!items.length) tasks.createDiv({ cls: "hub-report-empty", text: "No task progress recorded for this day." });
     // Visible, bounded context uses the modal's native scrollbars; no active task controls.
     const list = tasks.createDiv({ cls: "hub-report-task-list", attr: { role: "list", "aria-label": heading } });
-    if (items.length > 5) list.setAttribute("tabindex", "0");
     for (const task of [...items].sort((a, b) => a.timestamp - b.timestamp)) {
         const row = list.createDiv({ cls: "hub-report-evidence-row", attr: { role: "listitem" } });
         const icon = row.createSpan({ cls: "hub-report-check", attr: { "aria-hidden": "true" } });
@@ -52,12 +51,26 @@ function renderTaskProgress(parent, items, markdown, { heading = "Task progress"
         if (showTimes) time(row, task.timestamp);
     }
 
+    if (component) {
+        const update = () => {
+            if (list.scrollHeight > list.clientHeight && list.clientHeight > 0) list.setAttribute("tabindex", "0");
+            else list.removeAttribute("tabindex");
+        };
+        // Bounded lists can overflow with only a few wrapped items. Observe the
+        // rows as well as the list so async Markdown and width changes update it.
+        const observer = new list.ownerDocument.defaultView.ResizeObserver(update);
+        observer.observe(list);
+        for (const row of list.children) observer.observe(row);
+        component.register(() => observer.disconnect());
+        update();
+    } else if (items.length > 5) list.setAttribute("tabindex", "0");
+
     return tasks;
 }
 
-function renderReportEvidence(parent, context, markdown) {
+function renderReportEvidence(parent, context, markdown, component) {
     const evidence = parent.createDiv({ cls: "hub-report-evidence" });
-    renderTaskProgress(evidence, context.tasks, markdown);
+    renderTaskProgress(evidence, context.tasks, markdown, { hideEmptyHeading: true, component });
 
     if (!context.activity.length) {
         evidence.createDiv({ cls: "hub-report-empty hub-report-no-activity", text: "No activity recorded for this day." });
@@ -88,19 +101,19 @@ function renderReportEvidence(parent, context, markdown) {
 }
 
 // Reusable renderer: it knows nothing about the heatmap or the modal hosting it.
-function renderDailyReport(parent, day, markdown) {
+function renderDailyReport(parent, day, markdown, plugin, component) {
     for (const report of day.reports) {
         const card = parent.createEl("section", { cls: "hub-report-card" });
-        const heading = card.createDiv({ cls: "hub-report-heading" });
-        heading.createEl("h3", { cls: "hub-project-advancement-name", text: report.projectName });
+        const heading = renderReportWorkspaceHeader(card, report, plugin);
         heading.createSpan({ cls: "hub-report-rating", text: report.score === null ? "Unrated" : `${report.score}/4` });
-        // Short reflections are plain text: no Markdown paragraph margins or
-        // extra DOM newlines on top of pre-wrap. Normalize display only.
-        const summary = String(report.summary || "").replace(/\r\n?/g, "\n")
-            .replace(/\n(?:[ \t]*\n){2,}/g, "\n\n");
-        reportText(card, summary || "No summary recorded.", null,
-            report.summary ? "hub-report-text hub-report-summary" : "hub-report-empty");
-        renderReportEvidence(card, report.context, markdown);
+        const resource = report.contextKind === "resource" || !!report.resourceType || report.projectId?.startsWith("resource:");
+        const workspace = resource
+            ? plugin?.projectWizard?.getResourceById?.(report.resourceType || report.projectId?.slice(9))
+            : plugin?.projectWizard?.getProjectById?.(report.projectId);
+        reportText(card, report.summary || "No summary recorded.", markdown,
+            report.summary ? "hub-report-text hub-report-summary hub-report-reflection" : "hub-report-empty",
+            workspace?.path || workspace?.hubPath || report.path || report.hubPath || "Home.md");
+        renderReportEvidence(card, report.context, markdown, component);
         focusSection(card, "Focus for this day", report.context.focus, "No focus set for this day.", markdown);
         focusSection(card, "Next focus", day.nextFocus.filter(item => item.projectId === report.projectId)
             .map(item => item.text), "No next focus recorded.", markdown);
@@ -116,22 +129,25 @@ function renderDailyReport(parent, day, markdown) {
 }
 
 function reportTitle(date, editing = false) {
-    const label = parseLocalISODate(date).toLocaleDateString([], {
-        day: "numeric", month: "long", year: "numeric"
-    });
+    const label = formatDate(parseLocalISODate(date), "full");
     return `${editing ? "Edit progress report" : "Progress report"} — ${label}`;
 }
 
 class DailyReportModal extends Modal {
-    constructor(app, { day, onEdit }) { super(app); this.day = day; this.onEdit = onEdit; }
+    constructor(app, { day, onEdit, plugin }) { super(app); this.day = day; this.onEdit = onEdit; this.plugin = plugin; }
     onOpen() {
         this.contentEl.addClass("hub-project-advancement-modal", "hub-daily-report-modal", "hub-button-scope");
-        createWindowTitle(this.contentEl, reportTitle(this.day.date), "clipboard-check");
+        const heading = createWindowTitle(this.contentEl, reportTitle(this.day.date), "clipboard-check");
+        setWindowUndertext(heading, this.contentEl.createDiv({ cls: "hub-progress-rating-guidance",
+            text: "A summary of your work and progress for the day." }));
+        this.contentEl.createDiv({ cls: "hub-project-advancement-divider" });
         this.renderComponent = new Component();
         this.renderComponent.load();
         const markdown = createHubMarkdown({ app: this.app, component: this.renderComponent });
-        renderDailyReport(this.contentEl, this.day, markdown);
+        renderDailyReport(this.contentEl, this.day, markdown, this.plugin, this.renderComponent);
+        this.contentEl.addClass("hub-report-footer-layout");
         const actions = this.contentEl.createDiv({ cls: "hub-project-advancement-actions" });
+        layoutModal(this, { footer: actions, bodyClass: "hub-report-scroll" });
         if (this.onEdit) actions.createEl("button", { text: "Edit progress" }).addEventListener("click", () => {
             this.close(); this.onEdit();
         });

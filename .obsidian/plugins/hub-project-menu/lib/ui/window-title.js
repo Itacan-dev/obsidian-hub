@@ -19,7 +19,7 @@ function createWindowTitle(parent, text, icon, options = {}) {
     copy.append(title);
     title.classList.add("hub-window-title");
     title.style.margin = "0";
-    headers.set(title, { header, copy, bottomMargin: margins[2], tightenedBy: 0 });
+    headers.set(title, { header, copy, bottomMargin: margins[2] });
     return title;
 }
 
@@ -27,22 +27,44 @@ function setWindowUndertext(title, undertext) {
     const state = headers.get(title);
     const { header, copy, bottomMargin } = state;
     const style = undertext.ownerDocument.defaultView.getComputedStyle(undertext);
-    // These previously adjacent block elements collapsed their vertical margins.
-    const gap = Math.max(parseFloat(bottomMargin), parseFloat(style.marginTop));
+    // All first subtitles use Quick Add's shared gap; subsequent status lines
+    // retain their intentional spacing.
+    const firstUndertext = copy.children.length === 1;
+    const gap = firstUndertext
+        ? parseFloat(header.ownerDocument.defaultView.getComputedStyle(header).getPropertyValue("--hub-window-subtitle-gap")) || 6
+        : Math.max(parseFloat(bottomMargin), parseFloat(style.marginTop));
     state.bottomMargin = style.marginBottom;
     header.style.marginBottom = style.marginBottom;
     undertext.style.margin = "0";
     undertext.style.marginTop = gap + "px";
     undertext.classList.add("hub-window-undertext");
     copy.append(undertext);
-    // Keep the existing header footprint, so tightening the text group does not
-    // pull separators or modal content upward. Only the first undertext gap changes.
-    header.style.minHeight = Math.max(32, copy.getBoundingClientRect().height + state.tightenedBy) + "px";
-    if (copy.children.length === 2) {
-        state.tightenedBy = Math.min(4, gap);
-        undertext.style.marginTop = (gap - state.tightenedBy) + "px";
-    }
+    // Center the icon on the complete text group.
+    header.style.minHeight = Math.max(32, copy.getBoundingClientRect().height) + "px";
     return undertext;
 }
 
-module.exports = { createWindowTitle, setWindowUndertext };
+// Keep native chrome and existing form ownership; only the middle region scrolls.
+function layoutModal(modal, { container = modal.contentEl, headerEnd, footer, body, bodyClass = "" } = {}) {
+    const root = modal.contentEl;
+    headerEnd ??= root.querySelector(":scope > .hub-window-header, :scope > h2, :scope > .hub-statistics-header");
+    if (headerEnd?.nextElementSibling?.classList.contains("hub-project-advancement-divider"))
+        headerEnd = headerEnd.nextElementSibling;
+    footer ??= container.querySelector(":scope > .hub-capture-actions, :scope > .hub-task-dialog-actions, :scope > .hub-oath-actions, :scope > .hub-project-advancement-actions, :scope > .hub-project-wizard-actions");
+    if (!body) {
+        const children = [...container.children];
+        const start = container === root && headerEnd ? children.indexOf(headerEnd) + 1 : 0;
+        const contents = children.slice(start).filter(child => child !== footer);
+        body = container.createDiv();
+        container.insertBefore(body, contents[0] ?? footer ?? null);
+        body.append(...contents);
+    }
+    body.classList.add("hub-modal-body");
+    if (bodyClass) body.classList.add(bodyClass);
+    root.classList.add("hub-modal-layout");
+    modal.modalEl.classList.add("hub-modal-window");
+    if (container !== root) container.classList.add("hub-modal-form");
+    return body;
+}
+
+module.exports = { createWindowTitle, setWindowUndertext, layoutModal };

@@ -14,7 +14,7 @@ function mountOathApplications(parent, service, values, save) {
         list.empty();
         if (!current.length) list.createEl("li", { text: "Itacan only. No external applications permitted." });
         for (const value of current) {
-            const item = list.createEl("li"); item.createSpan({ text: value });
+            const item = list.createEl("li").createDiv({ cls: "hub-oath-application-row" }); item.createSpan({ text: value });
             const remove = item.createEl("button", { text: "Remove", attr: { type: "button", "aria-label": "Remove " + value } });
             remove.disabled = busy; remove.addEventListener("click", () => void update(current.filter(entry => entry !== value)));
         }

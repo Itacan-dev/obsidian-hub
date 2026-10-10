@@ -1,6 +1,6 @@
 "use strict";
 const { timelinePlacement, dayNumber, shiftDay } = require("../domain/task-views");
-const { localISODate, taskDateLabel } = require("../domain/dates");
+const { localISODate, taskDateLabel, formatDate } = require("../domain/dates");
 const { button, iconButton, bindTask, empty } = require("./task-view-primitives");
 
 function renderTaskTimeline(host, tasks, context, state) {
@@ -12,7 +12,7 @@ function renderTaskTimeline(host, tasks, context, state) {
     button(toolbar, "Today", () => { state.timelineAnchor = new Date(context.now.getFullYear(), context.now.getMonth(), 1); context.render(); });
     const start = new Date(state.timelineAnchor.getFullYear(), state.timelineAnchor.getMonth(), 1);
     const end = new Date(start.getFullYear(), start.getMonth() + state.months, 1);
-    const monthLabel = date => date.toLocaleDateString("en-US", { month: "short", year: "numeric" });
+    const monthLabel = date => formatDate(date, "month-short");
     toolbar.createEl("h3", { text: monthLabel(start) + " – " + monthLabel(shiftDay(end, -1)) });
     const scale = toolbar.createEl("select", { attr: { "aria-label": "Timeline range" } });
     for (const months of [3, 6, 12]) scale.createEl("option", { attr: { value: String(months) }, text: months + " months" });

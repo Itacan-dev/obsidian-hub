@@ -56,8 +56,8 @@ const iconShapes={
  'list-todo':'<rect x="3" y="4" width="4" height="4" rx="1"/><path d="m3 16 2 2 3-4M11 6h10M11 16h10"/>'
 };
 Object.assign(iconShapes,{'chevron-right':'<path d="m9 6 6 6-6 6"/>','chevron-down':'<path d="m6 9 6 6 6-6"/>'});
-obsidian.getIcon=()=>null;
-const fallbackIcon=obsidian.setIcon;obsidian.setIcon=(el,name)=>{el.dataset.icon=name;name=name.startsWith('lucide-')?name.slice(7):name==='fullscreen'?'maximize':name;if(iconShapes[name])el.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'+iconShapes[name]+'</svg>';else fallbackIcon(el,name)};
+obsidian.getIcon=name=>name==='lucide-folder'?document.createElementNS('http://www.w3.org/2000/svg','svg'):null;
+const fallbackIcon=obsidian.setIcon;obsidian.setIcon=(el,name)=>{el.dataset.icon=name==='folder'?'folder-open':name;name=name.startsWith('lucide-')?name.slice(7):name==='fullscreen'?'maximize':name;if(iconShapes[name])el.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'+iconShapes[name]+'</svg>';else fallbackIcon(el,name)};
 const assert=(ok,message)=>{if(!ok)throw Error(message)};
 const isBlocked=button=>button.disabled||button.getAttribute('aria-disabled')==='true';
 const click=(scope,text)=>{const button=[...scope.querySelectorAll('button')].find(el=>el.textContent===text||el.getAttribute('aria-label')===text)||[...scope.querySelectorAll('.hub-oath-choice')].find(el=>(el.querySelector('.hub-oath-choice-title')?.textContent===text||el.querySelector('input[type=radio]')?.value===text.toLowerCase()))?.querySelector('input');assert(button,'Missing control '+text);button.click();return button};
@@ -69,7 +69,7 @@ window.addEventListener('error',event=>runtimeErrors.push(event.message));
 window.addEventListener('unhandledrejection',event=>runtimeErrors.push(String(event.reason)));
 window.onload=async()=>{try{
  window.process={platform:'win32',env:{}};
- const names=["ui/window-title",'domain/tasks','domain/dates','domain/task-planning','domain/task-form','domain/task-views','domain/oath','domain/oath-workspace','domain/oath-strict','config','ui/workspace-cards','ui/workspace-thumbnail','ui/card-images','ui/header-image','ui/tooltips','services/oath','services/oath-strict','services/task-data','services/task-writes','services/task-locations','services/task-editor','services/oath-fullscreen','ui/markdown','ui/completion-audio','ui/task-steps','ui/oath-tasks','ui/tasks','ui/icons','ui/date-time','ui/disclosure','ui/attention','ui/menu-toggle','ui/task-form','ui/task-editor','ui/oath-applications','ui/oath'];
+ const names=["ui/focus-restoration","ui/window-title",'domain/tasks','domain/dates','domain/task-planning','domain/task-form','domain/task-views','domain/oath','domain/oath-workspace','domain/oath-strict','config','ui/workspace-cards','ui/workspace-thumbnail','ui/card-images','ui/header-image','ui/tooltips','services/oath','services/oath-strict','services/task-data','services/task-writes','services/task-locations','services/task-editor','services/oath-fullscreen','ui/markdown','ui/completion-audio','ui/task-steps','ui/oath-tasks','ui/tasks','ui/icons','ui/date-time','ui/disclosure','ui/attention','ui/menu-toggle','ui/task-form','ui/task-editor','ui/oath-applications','ui/oath'];
  const sources=Object.fromEntries(await Promise.all(names.map(async name=>[name,await(await fetch('../'+name+'.js')).text()]))),cache={};
  const load=name=>{if(name==='obsidian')return obsidian;if(name==='crypto')return{randomUUID:()=>crypto.randomUUID()};if(name==='path')return{win32:{normalize:value=>value.replaceAll('/','\\')}};if(cache[name])return cache[name].exports;assert(sources[name],'Missing module '+name);const mod=cache[name]={exports:{}};new Function('module','require',sources[name])(mod,request=>{if(!request.startsWith('.'))return load(request);const out=[];for(const part of(name.slice(0,name.lastIndexOf('/'))+'/'+request).split('/')){if(part==='..')out.pop();else if(part!=='.')out.push(part)}return load(out.join('/'))});return mod.exports};
  const domain=load('domain/tasks'),planning=load('domain/task-planning'),{HubOathService}=load('services/oath'),{createTaskUi}=load('ui/tasks'),{mountOathControl}=load('ui/oath');
@@ -169,6 +169,47 @@ window.onload=async()=>{try{
  const reviewButton=screen=>[...screen.contentEl.querySelectorAll('button')].find(el=>el.textContent==='Review Oath');
  const openSetup=()=>load('ui/oath').openOathSetup(service);
  const resource=resources.find(item=>item.resourceType==='literature');
+ if(new URLSearchParams(location.search).get('preview')==='focus-restoration'){
+  const key=value=>new Promise(resolve=>{window.hubTestKeyDone=resolve;window.hubTestKeyRequest=value});
+  const pointer=async element=>{element.scrollIntoView({block:'center'});await new Promise(requestAnimationFrame);const box=element.getBoundingClientRect();await new Promise(resolve=>{window.hubTestPointerDone=resolve;window.hubTestPointerRequest={x:box.left+box.width/2,y:box.top+box.height/2}})};
+  const fixedRegions=async root=>{
+   const body=root.querySelector('.hub-modal-body'),header=root.querySelector(':scope > .hub-window-header,:scope > h2'),footer=root.querySelector('.hub-oath-actions'),close=root.closest('.modal').querySelector('.modal-close-button');
+   assert(body&&header&&!body.contains(header)&&!body.contains(footer),'Oath header/body/footer regions distinct');
+   const filler=body.createDiv();filler.style.height='1000px';await new Promise(requestAnimationFrame);
+   const positions=()=>[header,footer,close].map(el=>el.getBoundingClientRect().top).join('|'),before=positions();
+   for(const fraction of [0,.5,1,0]){body.scrollTop=(body.scrollHeight-body.clientHeight)*fraction;await new Promise(requestAnimationFrame);assert(positions()===before&&root.scrollTop===0&&root.closest('.modal').scrollTop===0,'Oath regions stay fixed while body scrolls at '+fraction)}
+   const bounds=root.closest('.modal').getBoundingClientRect();assert(bounds.top>=0&&bounds.bottom<=innerHeight,'Oath modal stays within viewport');filler.remove();body.scrollTop=0;
+  };
+  for(const input of ['keyboard','pointer'])for(const type of ['project','resource']){
+   setContext('Home.md');const screen=openSetup();await settle();const before={mode:screen.draft.mode,start:screen.draft.start,durationMs:screen.draft.durationMs};await fixedRegions(screen.contentEl);
+   const trigger=screen.contentEl.querySelector('.hub-oath-workspace-choices input[value="'+type+'"]');
+   if(input==='keyboard'){await key('Tab');trigger.focus();await key(' ')}else await pointer(trigger.closest('.hub-oath-choice'));
+   await settle();const picker=modal(),card=picker.querySelector(type==='project'?'.home-project-card':'.home-resource-card');assert(card,'Picker contains '+type);await fixedRegions(picker.querySelector('.modal-content') ?? picker);
+   if(input==='keyboard'){card.focus();assert(card.matches(':focus-visible'),'Keyboard picker selection');await key('Enter')}else await pointer(card);
+   await settle();const after=screen.contentEl.querySelector('.hub-oath-workspace-choices input[value="'+type+'"]');
+   assert(!trigger.isConnected&&after&&screen.draft.workspace.type===type,'Selection rebuilds setup and preserves workspace');assert(input==='keyboard'?document.activeElement===after:document.activeElement!==after,'Oath '+type+' '+input+' restoration intent');
+   assert(after.checked&&!after.disabled&&after.tabIndex>=0,'Corresponding workspace control usable');assert(screen.draft.mode===before.mode&&screen.draft.start===before.start&&screen.draft.durationMs===before.durationMs&&!screen.draft.tasks.length,'Unrelated setup state preserved');
+   // Reopen with the existing selection, then switch it without taking an Oath.
+   const reopen=async()=>{const control=screen.contentEl.querySelector('.hub-oath-workspace-choices input[value="'+type+'"]');if(input==='keyboard'){control.focus();control.click()}else await pointer(control.closest('.hub-oath-choice'));await settle();return modal()};
+   let selectedPicker=await reopen(),selectedCard=selectedPicker.querySelector('.is-selected');
+   assert(selectedCard&&selectedCard.getAttribute('aria-pressed')==='true','Existing '+type+' selection exposed');
+   const surface=selectedCard.querySelector('.home-project-surface,.home-resource-face');assert(getComputedStyle(surface).borderColor==='rgb(89, 87, 218)','Selected card reuses Capture accent border');
+   assert(selectedPicker.querySelector('[aria-pressed="false"]'),'Alternative workspace not pressed');
+   if(type==='project'){const search=selectedPicker.querySelector('input[type=search]');search.value='no-such-project';search.dispatchEvent(new Event('input'));assert(!selectedPicker.querySelector('.home-project-card')&&selectedPicker.textContent.includes('No matching Active Projects.'),'Project filtering unchanged');search.value='';search.dispatchEvent(new Event('input'));}
+   const replacement=selectedPicker.querySelector('[aria-pressed="false"]'),replacementId=type==='project'?replacement.dataset.projectId:replacement.dataset.resourceType;
+   if(input==='keyboard'){replacement.focus();await key('Enter')}else await pointer(replacement);await settle();
+   const replacementControl=screen.contentEl.querySelector('.hub-oath-workspace-choices input[value="'+type+'"]');assert(screen.draft.workspace.id===replacementId&&(input==='keyboard'?document.activeElement===replacementControl:document.activeElement!==replacementControl),'Workspace changes preserve keyboard-only focus restoration');
+   selectedPicker=await reopen();assert(selectedPicker.querySelectorAll('[aria-pressed="true"]').length===1&&selectedPicker.querySelector('.is-selected').dataset[type==='project'?'projectId':'resourceType']===replacementId,'Reopened picker shows only the new selection');await key('Escape');assert(screen.containerEl.isConnected,'Picker Escape preserves setup');
+   if(input==='keyboard'&&type==='project'){
+    const scheduledAt=+new Date(2030,9,7,14,30);screen.draft.start='scheduled';screen.draft.scheduledAt=scheduledAt;screen.setup();await settle();
+    const dateInput=screen.contentEl.querySelector('input[type=datetime-local]');assert(dateInput.value==='2030-10-07T14:30'&&dateInput.getAttribute('aria-label')==='Scheduled Oath start: 7 Oct 2030, 14:30','Oath setup date and native local value');
+    screen.draft.tasks=service.workspaceTasks(screen.draft.workspace).slice(0,1);screen.draft.durationMs=25*60000;screen.review();await fixedRegions(screen.contentEl);const projectRow=[...screen.contentEl.querySelectorAll('.hub-oath-review-row')].find(row=>row.querySelector('strong')?.textContent==='Selected project');assert(projectRow.querySelector('.hub-oath-row-icon').dataset.icon==='lucide-folder','Review bypasses Obsidian folder-open alias with canonical Project icon');assert(screen.contentEl.textContent.includes('7 Oct 2030, 14:30')&&screen.draft.scheduledAt===scheduledAt,'Oath review formats the same scheduled instant');assert(!service.active&&!service.committed,'Read-only review never takes or schedules an Oath');
+   }
+   await key('Escape');assert(!screen.containerEl.isConnected,'Make an Oath Escape still dismisses');
+  }
+  result.textContent='PASS: actual Make an Oath setup and Project/Resource pickers; keyboard Space/Enter versus real pointer selection, mounted replacement radio focus, preserved setup/selection state and Escape; no Oath activation.';return;
+ }
+
  for(const [path,id] of [['Home.md',null],[contexts[0].path,'itacan'],[sourcePath,'itacan'],
   [resource.path,'literature'],['Resources/Research/Tasks.md','literature'],
   [contexts[2].path,null],[contexts[3].path,null],['Unrelated.md',null]]){

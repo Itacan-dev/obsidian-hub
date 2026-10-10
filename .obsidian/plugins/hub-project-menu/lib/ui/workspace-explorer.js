@@ -2,11 +2,12 @@
 
 const { workspaceTree, filterWorkspaceTree, sortExplorerChildren, rewriteExplorerPaths } = require("../domain/workspace-explorer");
 const { fileIcon } = require("./file-icons");
+const { formatDateTime } = require("../domain/dates");
 
 function mountWorkspaceExplorer({ parent, workspacePath, dashboardPath, descriptors, getByPath,
     states, persist, setIcon, openFile, createItem, contextMenu, decorateRow = () => {},
     selectItem = () => false, clearSelection = () => {}, selectedPaths = new Set(),
-    decorateFolder = () => {}, isNoteView = () => !!parent.closest(".hub-project-rail"), formatTime = value => new Date(value).toLocaleString() }) {
+    decorateFolder = () => {}, isNoteView = () => !!parent.closest(".hub-project-rail"), formatTime = value => formatDateTime(new Date(value)) }) {
     const doc = parent.ownerDocument;
     function el(parent, tag, cls, text) {
         const element = doc.createElement(tag);
@@ -238,7 +239,7 @@ function mountWorkspaceExplorer({ parent, workspacePath, dashboardPath, descript
             for (const field of ["mtime", "ctime"]) {
                 const value = child.folder ? null : child.item.stat?.[field];
                 const cell = el(row, "span", "hub-explorer-time", value ? formatTime(value) : "—");
-                cell.title = value ? new Date(value).toLocaleString() : "Folder timestamps are not available";
+                cell.title = value ? formatDateTime(new Date(value)) : "Folder timestamps are not available";
             }
             bindRow(row, child, "details");
             row.setAttribute("role", "option");

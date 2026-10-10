@@ -1,0 +1,80 @@
+<!doctype html><meta charset="utf-8"><title>Phase 4E content presentation</title>
+<link rel="stylesheet" href="../../styles.css">
+<link rel="stylesheet" href="../../../../../System/Dashboards/Home/view.css">
+<link rel="stylesheet" href="../../../../../System/Dashboards/Project/view.css">
+<style>
+body{margin:0;font:14px Arial;color:#ddd;background:#222;--background-primary:#222;--background-secondary:#292929;--background-modifier-border:#555;--text-normal:#ddd;--text-muted:#aaa;--interactive-accent:#8955ed;--text-on-accent:#fff;--color-green:#6c9;--input-shadow:none}
+*{box-sizing:border-box}.modal-container{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:#0008}.modal{position:relative;padding:24px;background:#292929;border:1px solid #555;border-radius:12px;max-height:94vh;overflow:auto;width:min(680px,calc(100vw - 48px))}.modal-close-button{position:absolute;top:8px;right:8px}button,input,select,textarea{font:inherit;color:inherit;background:#333}#result{position:fixed;bottom:0;font-size:10px;pointer-events:none}
+</style><div id="fixture"></div><pre id="result">RUNNING</pre>
+<script type="module">
+const assert=(value,message)=>{if(!value)throw Error(message)},settle=()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r))),AsyncFunction=Object.getPrototypeOf(async function(){}).constructor;
+const key=value=>new Promise(resolve=>{window.hubTestKeyDone=resolve;window.hubTestKeyRequest=value});
+const accessibility=()=>new Promise(resolve=>{window.hubTestAccessibilityDone=resolve;window.hubTestAccessibilityRequest=true});
+try {
+ const parser={exports:{}};new Function('module',await(await fetch('markdown-fixture.js')).text())(parser);
+ const html=await(await fetch('daily-report.html')).text(),script=html.match(/<script type="module">([\s\S]*?)<\/script>/)[1];
+ const {ui,native,Component,markdown,empty,date}=await new AsyncFunction(script.slice(0,script.indexOf('\ntry{'))+';return {ui,native,Component,markdown,empty,date};')();
+ native.MarkdownRenderer.render=async(...args)=>parser.exports.renderFixtureMarkdown(...args);
+ const opened=[],app={workspace:{openLinkText(...args){opened.push(args)}}},path='Projects/P/P.md';
+ const raw='**Reflection** with *emphasis* and [[Note]].\n\nAnother paragraph with [Guide](https://example.test/guide).\n\n- First item\n- Second item\n\n1. Ordered item';
+ const report={projectId:'p',projectName:'Project',score:3,summary:raw,context:empty};
+ const before=JSON.stringify(report),plugin={app:{vault:{getAbstractFileByPath:()=>null}},projectWizard:{getProjectById:()=>({path}),getResourceById:()=>({path:'Resources/R/R.md'})}};
+ const viewer=new ui.DailyReportModal(app,{day:{date,reports:[report],nextFocus:[]},plugin});viewer.open();await settle();
+ const summary=viewer.contentEl.querySelector('.hub-report-summary'),expected=summary.innerHTML;
+ assert(summary.querySelector('strong')&&summary.querySelector('em')&&summary.querySelector('ul')&&summary.querySelector('ol')&&summary.querySelectorAll('p').length===2,'Viewer supports emphasis, paragraphs and lists');
+ summary.querySelector('a.internal-link').click();assert(opened.at(-1)[1]===path,'Viewer internal link uses workspace source path');
+ assert(summary.querySelector('a:not(.internal-link)').href==='https://example.test/guide','External link retains navigation URL');
+ for(const node of summary.querySelectorAll('p,ul,ol'))assert(parseFloat(getComputedStyle(node).marginTop)<=5,'Compact Markdown block spacing');
+ const home=await(await fetch('../../../../../System/Dashboards/Home/view.js')).text(),project=await(await fetch('../../../../../System/Dashboards/Project/view.js')).text();
+ const rowModule={exports:{}};new Function('module',await(await fetch('../ui/row-activation.js')).text())(rowModule);
+ const owner=new Component();owner.load();const renderer=markdown.createHubMarkdown({app,component:owner});let edits=0;
+ for(const place of ['Home Project','Home Resource','Project','Resource']){
+  const homeSurface=place.startsWith('Home'),resource=place.includes('Resource');
+  fixture.className=homeSurface?'home-dashboard':'project-dashboard';
+  const row=fixture.createDiv(),preview=row.createDiv({cls:homeSurface?'home-progress-report-summary':'project-progress-report-summary'});
+  rowModule.exports.makeActionableRow(row,()=>edits++);
+  const value={...report,targetKind:resource?'resource':'project',resourceId:'r'};
+  const start=homeSurface?home.indexOf('        if (report.summary) {',home.indexOf('function renderRecentReports')):project.indexOf('        if (report.summary) {',project.indexOf('function renderProjectReports'));
+  const source=(homeSurface?home:project).slice(start,(homeSurface?home:project).indexOf('\n        }',start)+10);
+  assert(start>=0,'Actual preview rendering block found');
+  new Function('summary','report','recentBody','activityBody','resourceTypes','projects','current',source)(preview,value,{hubMarkdown:renderer},{hubMarkdown:renderer},[{id:'r',path}],[{projectId:'p',path}],{file:{path}});
+  await settle();assert(preview.innerHTML===expected&&preview.classList.contains('hub-report-reflection'),place+': identical Markdown reflection DOM');
+  const link=preview.querySelector('a.internal-link'),count=edits;link.click();assert(edits===count,'Markdown click does not activate report row');link.focus();await key('Enter');assert(edits===count,'Markdown Enter does not activate report row');preview.click();assert(edits===count+1,'Ordinary report area remains actionable');
+  renderer.clear();row.remove();
+ }
+ owner.unload();assert(JSON.stringify(report)===before,'Viewer and previews leave report data untouched');viewer.close();
+ const resourceView=new ui.DailyReportModal(app,{day:{date,reports:[{...report,projectId:'resource:r',contextKind:'resource'}],nextFocus:[]},plugin});resourceView.open();await settle();resourceView.contentEl.querySelector('a.internal-link').click();assert(opened.at(-1)[1]==='Resources/R/R.md','Resource viewer resolves relative links in its workspace');resourceView.close();
+ const longView=new ui.DailyReportModal(app,{day:{date,reports:[{...report,summary:Array(30).fill(raw).join('\n\n')}],nextFocus:[]}});longView.open();await settle();
+ const body=longView.contentEl.querySelector('.hub-modal-body'),header=longView.contentEl.querySelector('.hub-window-header'),footer=longView.contentEl.querySelector('.hub-project-advancement-actions');
+ const tops=[header,footer].map(node=>node.getBoundingClientRect().top);body.scrollTop=body.scrollHeight;await settle();assert(body.scrollHeight>body.clientHeight&&[header,footer].every((node,i)=>node.getBoundingClientRect().top===tops[i]),'Long Markdown preserves fixed modal regions');longView.close();
+ // Reuse only the inert UI bootstrap, stopping before the Oath service fixture.
+ const oathHTML=await(await fetch('oath.html')).text(),oathScript=oathHTML.match(/<script>([\s\S]*?)<\/script>/)[1];
+ const bootstrap=oathScript.slice(0,oathScript.indexOf('window.onload=async'))+oathScript.slice(oathScript.indexOf(' window.process='),oathScript.indexOf(' const domain='));
+ const {load,obsidian}=await new AsyncFunction(bootstrap+';return {load,obsidian};')();
+ const oathIcon=obsidian.setIcon;obsidian.setIcon=(element,name)=>name==='square-check'?native.setIcon(element,name):oathIcon(element,name);
+ obsidian.MarkdownRenderer.render=async(...args)=>parser.exports.renderFixtureMarkdown(...args);
+ const {openOathStatus}=load('ui/oath');
+ for(const strict of [false,true]){
+  const tasks=[{text:'**Incomplete** [[Note]] and [Guide](https://example.test)',completed:false,path},{text:'**Completed** '+ 'Long wrapped task description '.repeat(18),completed:true,path}];
+  const current={id:'inert',state:'active',startedAt:Date.now(),durationMinutes:60,tasks:[{id:'a'},{id:'b'},{id:'missing',text:'**Deleted task**'}],policy:{applications:[]}};
+  let change;const service={app,current,work:tasks.map((task,i)=>({ref:{id:i?'b':'a'},task})),committed:true,isStrict:strict,active:false,fulfilled:false,now:()=>Date.now(),onChange(fn,clock){if(!clock)change=fn;return()=>{}},end(){throw Error('Fixture must not end/activate Oath')}};
+  const snapshot=JSON.stringify({current,tasks}),status=openOathStatus(service);await settle();const work=status.contentEl.querySelector('.hub-oath-status-work'),rows=[...work.children];
+  assert(rows.length===3&&rows[0].querySelector('[aria-label=Incomplete]')&&rows[1].querySelector('[aria-label=Completed]')&&rows[2].querySelector('[aria-label="Source unavailable"]'),'Ordered completion and missing-source states');
+  assert(rows[0].querySelector('[data-icon=square]')&&rows[1].querySelector('[data-icon=square-check]'),'Existing Lucide incomplete/completed indicators');
+  assert(rows.every(row=>row.querySelector('strong'))&&!work.querySelector('a,button,input,select,textarea,[tabindex]'),'Formatted Oath tasks expose no links or task controls');
+  const linkCount=opened.length;rows[0].querySelector('.project-task-text').click();await key('Tab');assert(opened.length===linkCount&&!work.contains(document.activeElement),'Oath text cannot navigate or enter keyboard traversal');
+  const tree=await accessibility();for(const name of ['Incomplete','Completed','Source unavailable'])assert(tree.some(node=>node.role==='image'&&node.name===name),'Accessible Oath status '+name);
+  for(const row of rows)assert(row.scrollWidth<=row.clientWidth+1,'Wrapped Oath task has no horizontal overflow');
+  const oldOwner=status.taskOwner;change();await settle();assert(oldOwner.children.size===0,'Status rebuild unloads previous Markdown owner');
+  assert(JSON.stringify({current,tasks})===snapshot,'Status rendering does not alter Oath or task state');status.close();assert(status.taskOwner.children.size===0,'Status close unloads Markdown owner');
+  const longRefs=Array.from({length:20},(_,i)=>({id:'long-'+i}));
+  const longStatus=openOathStatus({...service,current:{...current,tasks:longRefs},work:longRefs.map(ref=>({ref,task:tasks[1]}))});await settle();
+  const scroll=longStatus.contentEl.querySelector('.hub-modal-body'),fixed=[longStatus.contentEl.querySelector('.hub-window-header'),longStatus.contentEl.querySelector('.hub-oath-actions')],positions=fixed.map(node=>node.getBoundingClientRect().top);
+  scroll.scrollTop=scroll.scrollHeight;await settle();assert(scroll.scrollHeight>scroll.clientHeight&&fixed.every((node,i)=>node.getBoundingClientRect().top===positions[i]),'Long Standard/Strict status retains fixed header/footer');
+  assert(longStatus.modalEl.getBoundingClientRect().height<=Math.min(900,innerHeight*.85)+1,'Oath status retains shared height limit');await key('Escape');assert(!longStatus.containerEl.isConnected,'Oath status dismissal stays available without ending Oath');
+  if(strict&&new URLSearchParams(location.search).get('preview')==='oath'){openOathStatus({...service,isStrict:false});await settle()}
+ }
+ if(new URLSearchParams(location.search).get('preview')==='report'){new ui.DailyReportModal(app,{day:{date,reports:[{...report,summary:Array(5).fill(raw).join('\n\n')}],nextFocus:[]}}).open();await settle()}
+ result.textContent='PASS: identical viewer/Home/Project/Resource Markdown, compact paragraphs/lists, relative links, independent row activation, immutable reports, long-report fixed regions; inert Standard/Strict Oath status, completed/incomplete/missing icons and accessibility, wrapping, noninteractive links, rebuild/close cleanup.';
+}catch(error){result.textContent='FAIL '+error.stack}
+</script>

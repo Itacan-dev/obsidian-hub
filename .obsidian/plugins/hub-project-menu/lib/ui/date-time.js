@@ -1,6 +1,7 @@
 "use strict";
 const { Modal } = require("obsidian");
-const { parseLocalISODate, validLocalTime } = require("../domain/dates");
+const { layoutModal } = require("./window-title");
+const { parseLocalISODate, validLocalTime, formatDate } = require("../domain/dates");
 const { setHubIcon } = require("./icons");
 
 // The native calendar/time interaction is shared with The Oath. Showing the
@@ -45,7 +46,7 @@ function mountTaskDateTime({ app, host, label, state, dateKey, timeKey, onChange
     const sync = () => {
         const date = parseLocalISODate(state[dateKey]);
         const time = date && validLocalTime(state[timeKey]) ? state[timeKey] : "";
-        const text = date ? `${date.getDate()} ${date.toLocaleDateString("en-US", { month: "short" })} ${date.getFullYear()}${time ? ", " + time : ""}` : "Select date and time";
+        const text = date ? `${formatDate(date)}${time ? ", " + time : ""}` : "Select date and time";
         display.textContent = text;
         picker?.refresh();
     };
@@ -80,6 +81,7 @@ function mountTaskDateTime({ app, host, label, state, dateKey, timeKey, onChange
             actions.createEl("button", { text: "Done", attr: { type: "button" } }).onclick = () => {
                 if (this.date.reportValidity() && this.time.reportValidity()) this.close();
             };
+            layoutModal(this, { footer: actions });
             this.refresh(); this.date.focus();
         }
         refresh() {

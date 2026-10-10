@@ -30,7 +30,7 @@ Object.assign(icons, {"clock-alert":"M12 6v6l4 2 M20 12v5 M20 21h.01 M21.25 8.2A
 const obsidian={getIcon:()=>null,Component,Modal,FuzzySuggestModal,Menu,Notice:class{constructor(text){notices.push(text)}},setIcon(el,name){el.replaceChildren();el.dataset.icon=name;const svg=document.createElementNS("http://www.w3.org/2000/svg","svg");for(const[k,v]of Object.entries({viewBox:"0 0 24 24",fill:"none",stroke:"currentColor","stroke-width":"1.7","stroke-linecap":"round","stroke-linejoin":"round"}))svg.setAttribute(k,v);const p=document.createElementNS(svg.namespaceURI,"path");p.setAttribute("d",icons[name]||icons.folder);svg.append(p);el.append(svg)},MarkdownRenderer:{render:async(app,text,el)=>el.createEl("p",{text})}};
 window.onerror=(message,source,line,col,error)=>document.getElementById("result").textContent="FAIL: "+(error?.stack||message);
 window.onload=async()=>{try{
- const names=["ui/window-title","config","domain/files","domain/workspace-explorer","ui/file-icons","ui/workspace-explorer","domain/tasks","domain/dates","domain/task-planning","domain/task-form","ui/date-time","ui/task-form","domain/task-views","domain/task-progress","domain/oath","domain/oath-workspace",
+ const names=["ui/focus-restoration","ui/window-title","config","domain/files","domain/workspace-explorer","ui/file-icons","ui/workspace-explorer","domain/tasks","domain/dates","domain/task-planning","domain/task-form","ui/date-time","ui/task-form","domain/task-views","domain/task-progress","domain/oath","domain/oath-workspace",
  "domain/roadmap-milestones","ui/disclosure","domain/project-planning","services/project-planning","ui/planning-editor","ui/project-roadmap","ui/tooltips","ui/list-reorder","ui/pointer-list-reorder","ui/schedule-toolbar","ui/full-view-layout","domain/context-search","services/context-search","ui/context-search","ui/icons","services/task-writes","services/task-locations","services/task-data","services/task-editor","ui/markdown","ui/completion-audio","ui/task-steps","ui/oath-tasks","ui/tasks","ui/task-editor","ui/task-view-primitives","ui/task-view-upcoming","ui/task-view-table","ui/task-view-location","ui/task-view-calendar","ui/task-view-timeline","ui/task-workspace","ui/app-shortcuts"];
  const sources=Object.fromEntries(await Promise.all(names.map(async name=>[name,await(await fetch("../"+name+".js")).text()]))),cache={};
  const load=name=>{if(name==="obsidian")return obsidian;if(name==="crypto")return{randomUUID:()=>crypto.randomUUID()};if(cache[name])return cache[name].exports;const module=cache[name]={exports:{}};if(!sources[name])throw Error("Missing module "+name);new Function("module","require","process",sources[name])(module,request=>{if(["obsidian","crypto"].includes(request))return load(request);const parts=(name.slice(0,name.lastIndexOf("/"))+"/"+request).split("/"),out=[];for(const part of parts){if(part==="..")out.pop();else if(part!==".")out.push(part)}return load(out.join("/"))},{env:{}});return module.exports};
@@ -61,6 +61,8 @@ window.onload=async()=>{try{
  assert(sharedState.steps.length===1&&sharedState.steps[0].text==="Sibling Step","Shared Step removal preserves Markdown descendant deletion rule");
  mountTaskRelationshipFields({host:sharedHost,state:sharedState,service:{context:()=>{throw Error("No location must not query a workspace")},phases:()=>{throw Error("No location must not query phases")}},location:()=>undefined});
  sharedHost.remove();
+ let scheduleUi;
+ if(new URLSearchParams(location.search).has('focus-test')){const tasksUi=load('ui/tasks'),factory=tasksUi.createTaskUi;tasksUi.createTaskUi=options=>(scheduleUi=factory(options))}
  const {HubTaskDataService}=load("services/task-data"),{HubTaskEditor}=load("services/task-editor"),{mountTaskWorkspace}=load("ui/task-workspace");
  const project={root:"Projects/Thesis",projectId:"p1",name:"Master’s thesis",contextKind:"project",status:"active",categoryId:"research"};
  const resource={root:"Resources/Knowledge",projectId:"resource:study",name:"Knowledge",contextKind:"resource"};
@@ -222,6 +224,38 @@ window.onload=async()=>{try{
  assert(!root.querySelector('select[aria-label="Location"]')&&!root.querySelector(".hub-task-planning-controls"),"No standalone locations row");
  assert(root.querySelector(".hub-task-phase"),"Overview shows neutral phase chip");
  assert(root.textContent.includes("Solve problem set 4"),"Schedule includes canonical linked Resource tasks");
+ if(new URLSearchParams(location.search).has('focus-test')){
+  const key=value=>new Promise(resolve=>{window.hubTestKeyDone=resolve;window.hubTestKeyRequest=value});
+  const pointer=async element=>{element.scrollIntoView({block:'center'});await new Promise(requestAnimationFrame);const box=element.getBoundingClientRect();await new Promise(resolve=>{window.hubTestPointerDone=resolve;window.hubTestPointerRequest={x:box.left+box.width/2,y:box.top+box.height/2}})};
+  async function activate(id,input){
+   const before=root.querySelector('[data-schedule-control="'+id+'"]');assert(before,'Schedule control '+id);
+   if(input==='keyboard'){await key('Tab');before.focus();assert(before.matches(':focus-visible'),'Schedule keyboard focus');await key(id==='next'?' ':'Enter')}else await pointer(before);
+   await settle();const after=root.querySelector('[data-schedule-control="'+id+'"]');assert(after&&!before.isConnected,'Toolbar rebuilt before restoration');
+   assert(input==='keyboard'?document.activeElement===after:document.activeElement!==after,'Schedule '+id+' '+input+' focus intent');
+   if(input==='keyboard')assert(after.matches(':focus-visible')&&!after.disabled&&after.getClientRects().length,'Visible enabled keyboard destination');
+  }
+  for(const input of ['keyboard','pointer'])for(const view of ['week','month','upcoming']){
+   await activate('view-'+view,input);assert(controller.state.scheduleView===view,'View semantics preserved');
+   const first=root.querySelector('[data-schedule-control="'+(view==='upcoming'?'view-upcoming':'previous')+'"]');first.focus();await key('Tab');assert(document.activeElement.dataset.scheduleControl===(view==='upcoming'?'view-week':'next'),'Schedule Tab order');
+   if(view!=='upcoming'){
+    const anchor=new Date(controller.state.anchor);await activate('previous',input);assert(view==='week'?Math.round((anchor-controller.state.anchor)/86400000)===7:controller.state.anchor.getMonth()===(anchor.getMonth()+11)%12,'Previous date semantics');
+    await activate('next',input);assert(controller.state.anchor.getFullYear()===anchor.getFullYear()&&controller.state.anchor.getMonth()===anchor.getMonth(),'Next date semantics');
+    await activate('today',input);const today=new Date();assert(controller.state.anchor.toDateString()===today.toDateString(),'Today semantics');
+   }
+  }
+  const begin=scheduleUi.beginRender;
+  for(const input of ['keyboard','pointer']){
+   let deferred;scheduleUi.beginRender=render=>{deferred=render;return false};
+   const old=root.querySelector('[data-schedule-control=view-week]');await key('Tab');old.focus();
+   if(input==='keyboard')await key('Enter');else await pointer(old);
+   assert(old.isConnected&&deferred,'Shared renderer deferred toolbar replacement');scheduleUi.beginRender=begin;deferred();
+   const replacement=root.querySelector('[data-schedule-control=view-week]');assert(input==='keyboard'?document.activeElement===replacement:document.activeElement!==replacement,'Deferred '+input+' navigation intent preserved');
+  }
+  let deferred;scheduleUi.beginRender=render=>{deferred=render;return false};const old=root.querySelector('[data-schedule-control=view-month]');await key('Tab');old.focus();await key('Enter');
+  const surviving=root.querySelector('[data-workspace-mode=schedule]');surviving.focus();scheduleUi.beginRender=begin;deferred();assert(document.activeElement===surviving,'Deferred navigation does not steal focus after user moves away');
+  const schedule=root.querySelector('[data-workspace-mode=schedule]');schedule.focus();await key('ArrowLeft');assert(controller.state.mode==='work'&&document.activeElement.dataset.workspaceMode==='work','Existing workspace keyboard mode navigation');await key('ArrowRight');assert(controller.state.mode==='schedule'&&document.activeElement.dataset.workspaceMode==='schedule','Schedule mode shortcut preserved');
+  component.unload();document.getElementById('result').textContent='PASS: actual mounted Schedule; Overview/Week/Month and previous/next/Today rebuilds with Enter/Space and real pointer input; keyboard focus restoration, Tab traversal, unchanged dates, deferred render intent/cancellation and workspace arrow navigation.';return;
+ }
  const scheduleHeight=root.querySelector(".hub-schedule-toolbar").getBoundingClientRect().height;
  assert(toolbar.getBoundingClientRect().height===barHeight,"Context bar stable across modes");
  click("Week");assert(root.querySelectorAll(".hub-task-calendar-day").length===7,"Week calendar supported");

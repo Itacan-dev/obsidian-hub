@@ -10,9 +10,15 @@ const current =
 const {
     el,
     historyHeading,
+    makeActionableRow,
     historyKind,
     createHistoryPager,
     historyDate,
+    formatDate,
+    formatTime,
+    formatDateTime,
+    formatWeekday,
+    formatDateRange,
     createFrame,
     placeHeatmapNavigation,
     progressColors,
@@ -502,9 +508,7 @@ el(
     dateBox,
     "div",
     "",
-    today.toFormat(
-        "cccc, d LLLL, yyyy"
-    )
+    formatWeekday(today) + ", " + formatDate(today, "full")
 );
 
 
@@ -1722,11 +1726,7 @@ function formatFileTime(
     timestamp
 ) {
 
-    return moment(
-        timestamp
-    ).format(
-        "HH:mm, DD/MM/YY"
-    );
+    return formatDateTime(moment(timestamp));
 }
 
 let draggedFolderPath =
@@ -4633,7 +4633,10 @@ function renderProjectReports() {
             report.summary ||
                 "No summary recorded."
         );
-        if (report.summary) void activityBody.hubMarkdown?.render(summary, report.summary, current.file.path);
+        if (report.summary) {
+            summary.classList.add("hub-report-reflection");
+            void activityBody.hubMarkdown?.render(summary, report.summary, current.file.path);
+        }
 
 
         const meta =
@@ -4654,15 +4657,17 @@ function renderProjectReports() {
 
 
         const time = meta.createDiv({ cls: "project-activity-time" });
+        time.title = Number.isFinite(report.timestamp)
+            ? formatDateTime(moment(report.timestamp)) : formatDate(moment(report.date, "YYYY-MM-DD"));
         el(time, "div", "project-activity-date", historyDate(moment(report.date, "YYYY-MM-DD")));
         if (Number.isFinite(report.timestamp)) {
-            el(time, "div", "project-activity-clock", moment(report.timestamp).format("HH:mm"));
+            el(time, "div", "project-activity-clock", formatTime(moment(report.timestamp)));
         }
 
 
-        row.addEventListener(
-            "click",
-            () => {
+        makeActionableRow(
+            row,
+            event => {
                 window.hubOpenProgressEditor?.(
                     report.date,
                     isResourceContext
@@ -4806,6 +4811,7 @@ function renderProjectTaskHistory() {
             });
 
 
+        time.title = formatDateTime(when);
         el(
             time,
             "div",
@@ -4818,7 +4824,7 @@ function renderProjectTaskHistory() {
             time,
             "div",
             "project-activity-clock",
-            when.format("HH:mm")
+            formatTime(when)
         );
 
 
@@ -4836,8 +4842,8 @@ function renderProjectTaskHistory() {
             );
 
 
-            row.addEventListener(
-                "click",
+            makeActionableRow(
+                row,
                 async () => {
 
                     const currentFile =
@@ -5088,6 +5094,7 @@ function renderProjectActivity() {
             });
 
 
+        time.title = formatDateTime(when);
         el(
             time,
             "div",
@@ -5100,9 +5107,7 @@ function renderProjectActivity() {
             time,
             "div",
             "project-activity-clock",
-            when.format(
-                "HH:mm"
-            )
+            formatTime(when)
         );
 
 
@@ -5129,8 +5134,8 @@ function renderProjectActivity() {
                 );
 
 
-                row.addEventListener(
-                    "click",
+                makeActionableRow(
+                    row,
                     async () => {
 
                         const currentFile =

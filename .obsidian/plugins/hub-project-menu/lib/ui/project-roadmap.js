@@ -1,6 +1,6 @@
 "use strict";
 const { Notice, Menu, setIcon } = require("obsidian");
-const { localISODate, parseLocalISODate } = require("../domain/dates");
+const { localISODate, parseLocalISODate, formatDate } = require("../domain/dates");
 const { roadmapViewport, roadmapZoom, panRoadmap, roadmapToday, phasePlacement } = require("../domain/project-planning");
 const { button, iconButton } = require("./task-view-primitives");
 const { openPlanningEditor } = require("./planning-editor");
@@ -22,8 +22,8 @@ function mountProjectRoadmap({ plugin, component, dv, host, workspace, state }) 
     let disposed = false, cancelReorder = () => {}, cancelMilestoneLayout = () => {}, activeMenu = null;
     const edit = (kind, value, defaults) => openPlanningEditor(service, workspace.projectId, kind, value, dv, defaults);
     const closeMenu = () => { activeMenu?.hide(); activeMenu = null; };
-    const month = date => date.toLocaleDateString("en-US", { month: "short", year: "numeric" });
-    const dateLabel = iso => new Date(iso + "T12:00:00").toLocaleDateString("en-US", { day: "numeric", month: "short", year: "numeric" });
+    const month = date => formatDate(date, "month-short");
+    const dateLabel = iso => formatDate(new Date(iso + "T12:00:00"));
     function render() {
         if (disposed) return;
         const previous = panel.querySelector(".hub-roadmap-scroll"), scroll = { left: previous?.scrollLeft ?? 0, top: previous?.scrollTop ?? 0 };
@@ -128,7 +128,7 @@ function mountProjectRoadmap({ plugin, component, dv, host, workspace, state }) 
         for (const item of visibleMilestones) {
             const marker = button(milestones.track, "", () => edit("milestones", item), "hub-button-plain hub-roadmap-milestone" + (item.achieved ? " is-achieved" : ""));
             marker.dataset.planningId = item.id;
-            const exactDate = parseLocalISODate(item.date).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+            const exactDate = formatDate(parseLocalISODate(item.date));
             const tooltip = item.name + " — " + exactDate + (item.achieved ? ", achieved" : "");
             setHubTooltip(marker, tooltip); marker.dataset.hubFocusTooltip = exactDate;
             // The native button remains the editing/focus target; its glyph and

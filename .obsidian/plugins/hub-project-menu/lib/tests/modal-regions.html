@@ -1,0 +1,80 @@
+<!doctype html><meta charset="utf-8"><title>Fixed modal regions</title>
+<link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../../../../../System/Dashboards/Home/view.css">
+<style>
+body{margin:0;font:14px Arial;color:#ddd;background:#222;--background-primary:#222;--background-secondary:#292929;--background-modifier-border:#555;--text-normal:#ddd;--text-muted:#aaa;--interactive-accent:#8955ed;--text-on-accent:#fff;--input-shadow:none}
+*{box-sizing:border-box}.modal{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);margin:0;padding:24px;background:#292929;border:1px solid #555;border-radius:12px;max-height:calc(100dvh - 48px);overflow:auto;width:min(680px,calc(100vw - 48px))}.modal-close-button{position:absolute;top:8px;right:8px;z-index:1}button,input,select,textarea{font:inherit;color:inherit;background:#333}button{height:32px;padding:4px 12px}textarea{width:100%}#result{position:fixed;bottom:0;font-size:10px;background:#222;white-space:normal;pointer-events:none}
+</style><pre id="result">RUNNING</pre>
+<script type="module">
+let checks=0;const check=(v,m)=>{checks++;if(!v)throw Error(m)},settle=()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+try{
+ const html=await(await fetch('daily-report.html')).text(),script=html.match(/<script type="module">([\s\S]*?)<\/script>/)[1],bootstrap=script.slice(0,script.indexOf('\ntry{'));
+ const AsyncFunction=Object.getPrototypeOf(async function(){}).constructor;
+ const {Report,ui,empty,date,Modal,windowTitle,native}=await new AsyncFunction(bootstrap+';return {Report,ui,empty,date,Modal,windowTitle,native};')();
+ const open=Modal.prototype.open;Modal.prototype.open=function(){this.contentEl.classList.add('modal-content');this.modalEl.createEl('button',{cls:'modal-close-button',text:'Close',attr:{'aria-label':'Close window'}}).onclick=()=>this.close();return open.call(this)};
+ async function regions(modal,long=true){
+  await settle();const root=modal.contentEl,body=root.querySelector('.hub-modal-body'),header=root.querySelector(':scope > .hub-window-header, :scope > h2, :scope > .hub-statistics-header'),footer=root.querySelector('.hub-project-advancement-actions,.hub-task-dialog-actions,.hub-project-wizard-actions'),close=modal.modalEl.querySelector('.modal-close-button');
+  check(body&&header&&!body.contains(header)&&(!footer||!body.contains(footer)),'Header and actions outside body');
+  const bounds=node=>{const b=node.getBoundingClientRect();return[b.top,b.bottom,b.left,b.right]},initial=[header,footer,close].filter(Boolean).map(bounds);
+  const modalBounds=modal.modalEl.getBoundingClientRect(),limit=Math.min(900,innerHeight*.85,innerHeight-48);
+  check(modalBounds.top>=0&&modalBounds.bottom<=innerHeight,'Modal bounded to viewport');
+  check(modalBounds.height<=limit+1,'Shared 900px/85vh outer cap enforced');
+
+  if(!long&&body.scrollHeight<=body.clientHeight){modal.modalEl.style.maxHeight='none';await settle();const natural=modal.modalEl.getBoundingClientRect().height;modal.modalEl.style.maxHeight='';await settle();check(Math.abs(natural-modalBounds.height)<1,'Short dialog retains its natural height');}
+  check(body.getBoundingClientRect().top>=header.getBoundingClientRect().bottom,'Body begins below visible header');
+  check(!footer||body.getBoundingClientRect().bottom<=footer.getBoundingClientRect().top,'Body ends above visible footer');
+  if(long)check(body.scrollHeight>body.clientHeight,'Overflow belongs to body');
+  for(const fraction of [0,.5,1,0]){
+   body.scrollTop=(body.scrollHeight-body.clientHeight)*fraction;await settle();
+   check(JSON.stringify([header,footer,close].filter(Boolean).map(bounds))===JSON.stringify(initial),'Header/footer/close stay stationary at '+fraction);
+   check(root.scrollTop===0&&modal.modalEl.scrollTop===0,'No outer scrolling');
+  }
+  check(modal.modalEl.scrollHeight<=modal.modalEl.clientHeight+1,'No double scroll overflow');
+  check(!footer||footer.getBoundingClientRect().bottom<=innerHeight,'Actions visible');
+  const field=body.querySelector('button,input,select,textarea');if(field){field.focus();await settle();check(document.activeElement===field,'Keyboard focus reaches body controls')}
+ }
+ for(const editing of [false,true])for(const count of [1,16]){
+  const workspaces=Array.from({length:count},(_,i)=>({projectId:'w'+i,name:'Workspace '+i})),entries=workspaces.map(w=>({projectId:w.projectId,projectName:w.name,score:2,summary:'Useful report context.\n'.repeat(3),context:empty}));
+  const modal=editing?new Report({}, {projects:workspaces,currentScores:Object.fromEntries(workspaces.map(w=>[w.projectId,2])),allowNoProgress:true,showCancel:true,onSave:async()=>{}}):new ui.DailyReportModal({}, {day:{date,reports:entries,nextFocus:[]}});
+  modal.open();await regions(modal,count>1);if(count>1)check(Math.abs(modal.modalEl.getBoundingClientRect().height-Math.min(900,innerHeight*.85,innerHeight-48))<1,'Long report uses the shared maximum');if(count===1&&innerHeight>=800)check(modal.contentEl.querySelector('.hub-modal-body').scrollHeight<=modal.contentEl.querySelector('.hub-modal-body').clientHeight,'Short report needs no scrollbar');modal.close();
+ }
+ // Exit validation must reveal later missing fields without shifting the header.
+ const workspaces=Array.from({length:12},(_,i)=>({projectId:'e'+i,name:'Exit workspace '+i}));let saves=0;
+ const exit=new Report({}, {projects:workspaces,requireExplicitRatings:true,onSave:async()=>saves++});exit.open();
+ for(const w of workspaces.slice(0,-1))exit.ratingRows.get(w.projectId).querySelector('button').click();
+ const body=exit.contentEl.querySelector('.hub-modal-body'),header=exit.contentEl.querySelector('.hub-window-header'),headerTop=header.getBoundingClientRect().top;
+ await exit.save();await new Promise(r=>setTimeout(r,600));const missing=exit.ratingRows.get('e11'),field=missing.getBoundingClientRect(),viewport=body.getBoundingClientRect();
+ check(!saves&&!exit.saving&&missing.getAttribute('aria-invalid')==='true','Exit validation stays unlocked and warns only missing rating');check(body.scrollTop>0&&field.top>=viewport.top-1&&field.bottom<=viewport.bottom+1,'Missing rating revealed inside body');check(header.getBoundingClientRect().top===headerTop,'Rating reveal leaves header fixed');exit.close();
+ // Render actual Task and planning editors, keeping actions within their form.
+ const cache={'obsidian':native,'ui/window-title':windowTitle};const source={};
+ function resolve(from,request){const parts=(from.slice(0,from.lastIndexOf('/'))+'/'+request).split('/'),out=[];for(const p of parts){if(p==='..')out.pop();else if(p!=='.')out.push(p)}return out.join('/')}
+ async function fetchModule(name){if(cache[name]||source[name])return;const text=await(await fetch('../'+name+'.js')).text();source[name]=text;for(const match of text.matchAll(/require\("(\.[^"]+)"\)/g))await fetchModule(resolve(name,match[1]))}
+ function load(name){if(cache[name])return cache[name];const module={exports:{}};cache[name]=module.exports;new Function('module','require',source[name])(module,n=>load(n==='obsidian'?n:resolve(name,n)));return cache[name]=module.exports}
+ await fetchModule('ui/task-editor');await fetchModule('ui/planning-editor');
+ const app={workspace:{getActiveFile:()=>null},vault:{getMarkdownFiles:()=>[]}},taskService={app,locations:()=>[{path:'Projects/P/Tasks.md',label:'Tasks'}],context:()=>({root:'Projects/P'}),phases:()=>[],create:async()=>{}};
+ const task=load('ui/task-editor').openTaskCreator(taskService,{root:'Projects/P'});await settle();
+ const taskBody=task.contentEl.querySelector('.hub-modal-body');for(let i=0;i<20;i++)taskBody.querySelector('.hub-task-add-step').click();await regions(task);check(taskBody.closest('form')===task.contentEl.querySelector('.hub-task-dialog-actions').closest('form'),'Task fields and submit actions keep form ownership');task.close();
+ const service={plugin:{app},read:()=>({revision:1,phases:[]}),tasks:()=>Array.from({length:20},(_,i)=>({hubTaskId:'t'+i,text:'Associated task '+i,path:'Projects/P/Tasks.md',phaseId:'phase'}))};
+ const phase=load('ui/planning-editor').openPlanningEditor(service,'p','phases',{id:'phase',name:'Phase',start:'2026-10-01',end:'2026-10-31'},{});await regions(phase,false);const associated=phase.contentEl.querySelector('.hub-phase-task-list');check(associated.scrollHeight>associated.clientHeight,'Phase associated tasks retain their intentional nested scroll');check(phase.contentEl.querySelector('.hub-modal-body').closest('form')===phase.contentEl.querySelector('.hub-task-dialog-actions').closest('form'),'Phase fields and actions keep form ownership');phase.close();
+ const milestone=load('ui/planning-editor').openPlanningEditor(service,'p','milestones',null,{});await regions(milestone,false);milestone.close();
+ // Native close/dismiss behavior remains delegated to Modal.
+ const final=new ui.DailyReportModal({}, {day:{date,reports:[],nextFocus:[]}});final.open();await regions(final,false);final.modalEl.querySelector('.modal-close-button').click();check(!final.modalEl.isConnected,'Close button retains existing dismissal');
+ // Exercise the shipped family selectors, including later Settings/Music/Statistics rules.
+ for(const family of ['hub-quick-add-dialog','hub-inbox-dialog','hub-settings-dialog','hub-statistics-window','hub-music-dialog','hub-music-item-dialog','hub-capture-workspace-picker','hub-capture-location-picker']){
+  const modal=new Modal();modal.onOpen=()=>{};modal.modalEl.classList.add(family);const root=modal.contentEl;
+  root.classList.add('hub-button-scope','hub-capture-content');if(family==='hub-statistics-window')root.classList.add('hub-statistics-modal');
+  windowTitle.createWindowTitle(root,'Short dialog','clipboard-pen');const body=root.createDiv({cls:'hub-capture-body'});body.createDiv({text:'A short message.'});
+  const footer=root.createDiv({cls:'hub-capture-actions'});footer.createEl('button',{text:'Close'});if(family==='hub-statistics-window')windowTitle.layoutModal(modal,{body,footer});modal.open();await settle();
+  const limit=Math.min(900,innerHeight*.85,innerHeight-48),shortHeight=modal.modalEl.getBoundingClientRect().height;
+  check(shortHeight<=limit+1,family+' shares outer cap');
+  const pane=family==='hub-inbox-dialog'?700:family==='hub-settings-dialog'?780:null;
+  if(pane)check(Math.abs(shortHeight-Math.min(pane,limit))<1,family+' preserves existing comfortable pane height');
+  else{modal.modalEl.style.maxHeight='none';await settle();check(Math.abs(modal.modalEl.getBoundingClientRect().height-shortHeight)<1,family+' remains content-driven');modal.modalEl.style.maxHeight='';}
+  const filler=body.createDiv();filler.style.height='2000px';await settle();
+  check(modal.modalEl.getBoundingClientRect().height<=limit+1&&body.scrollHeight>body.clientHeight,family+' long content scrolls inside capped window');
+  const heading=root.querySelector('.hub-window-header'),before=[heading,footer].map(node=>node.getBoundingClientRect().top).join('|');body.scrollTop=body.scrollHeight;await settle();
+  check([heading,footer].map(node=>node.getBoundingClientRect().top).join('|')===before&&modal.modalEl.scrollTop===0,family+' header/footer fixed without outer scrolling');modal.modalEl.remove();
+ }
+ result.textContent='PASS: '+checks+' region checks at '+innerWidth+'x'+innerHeight+': short/long editor and viewer, viewport bounds, fixed header/footer/close at top/middle/bottom, exit validation scrolling, real Task/Phase/Milestone form ownership, focus and dismissal.';
+ if(new URLSearchParams(location.search).get('preview')){const preview=new Report({}, {projects:workspaces,currentScores:Object.fromEntries(workspaces.map(w=>[w.projectId,2])),allowNoProgress:true,showCancel:true});preview.open();await settle();preview.contentEl.querySelector('.hub-modal-body').scrollTop=400;}
+}catch(error){result.textContent='FAIL: '+error.stack}
+</script>

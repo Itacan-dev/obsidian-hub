@@ -138,9 +138,15 @@ let projectCardOrderSaveQueue =
 const {
     el,
     historyHeading,
+    makeActionableRow,
     historyKind,
     createHistoryPager,
     historyDate,
+    formatDate,
+    formatTime,
+    formatDateTime,
+    formatWeekday,
+    formatDateRange,
     createFrame,
     placeHeatmapNavigation,
     progressColors,
@@ -595,7 +601,7 @@ el(
     dateBox,
     "div",
     "",
-    today.toFormat("cccc, d LLLL, yyyy")
+    formatWeekday(today) + ", " + formatDate(today, "full")
 );
 
 el(
@@ -1385,9 +1391,9 @@ function updateCalendarNow() {
         const next = [...todayGroup.querySelectorAll(".home-calendar-row")].find(row =>
             row.dataset.calendarStart && Number(row.dataset.calendarStart) > now.valueOf()
         ) ?? todayGroup.querySelector(".home-calendar-day-empty");
-        calendarNowTime.textContent = now.format("HH:mm");
+        calendarNowTime.textContent = formatTime(now);
         calendarNowTime.dateTime = now.format();
-        calendarNowRow.setAttribute("aria-label", `Current time ${now.format("HH:mm")}`);
+        calendarNowRow.setAttribute("aria-label", `Current time ${formatTime(now)}`);
         // An ongoing event remains a single entry. All-day rows keep their
         // existing positions; only timed start instants determine insertion.
         if (calendarNowRow.parentElement !== todayGroup || calendarNowRow.nextSibling !== next) {
@@ -1526,9 +1532,7 @@ function renderCalendarEvent(
     const time =
         event.allDay
             ? "All day"
-            : event.start.format(
-                "HH:mm"
-            );
+            : formatTime(event.start);
 
 
     el(
@@ -1546,9 +1550,18 @@ function renderCalendarEvent(
         });
 
 
+    const url =
+        event.meetUrl ||
+        event.link;
+
+    let linkUrl = null;
+    if (typeof url === "string") {
+        try { new URL(url); linkUrl = url; } catch {}
+    }
+
     const title =
         info.createEl(
-            "span",
+            linkUrl ? "a" : "span",
             {
                 cls:
                     "home-calendar-title",
@@ -1559,15 +1572,12 @@ function renderCalendarEvent(
         );
 
 
-    const url =
-        event.meetUrl ||
-        event.link;
-
-
-    if (url) {
+    if (linkUrl) {
+        title.setAttribute("href", linkUrl);
         title.addEventListener(
             "click",
-            () => {
+            event => {
+                event.preventDefault();
                 window.open(
                     url,
                     "_blank"
@@ -1642,7 +1652,7 @@ function renderCalendarWeek(
         weekHeading,
         "span",
         "home-calendar-week-range",
-        `${weekStart.format("D MMM")} – ${weekEnd.format("D MMM")}`
+        formatDateRange(weekStart, weekEnd, true)
     );
 
 
@@ -1711,7 +1721,7 @@ function renderCalendarWeek(
             dayHeading,
             "span",
             "home-calendar-weekday",
-            day.format("ddd")
+            formatWeekday(day, true)
         );
 
 
@@ -1719,7 +1729,7 @@ function renderCalendarWeek(
             dayHeading,
             "span",
             "home-calendar-day-date",
-            day.format("D MMM")
+            historyDate(day)
         );
 
 
@@ -1867,8 +1877,8 @@ async function loadNextCalendarWeek() {
 
             use24HourTime: true,
 
-            dateHeadingFormat: "dddd, MMMM D",
-            tableDateFormat: "YYYY-MM-DD",
+            dateHeadingFormat: "dddd, D MMMM YYYY",
+            tableDateFormat: "DD/MM/YYYY",
 
             descriptionLength: 0,
             emptyMessage: "Nothing scheduled.",
@@ -4767,6 +4777,7 @@ function renderRecentReports() {
             const context = report.targetKind === "resource"
                 ? resourceTypes.find(type => (type.id ?? type.resourceType) === report.resourceId)
                 : projects.find(project => project.projectId === report.projectId);
+            summary.classList.add("hub-report-reflection");
             void recentBody.hubMarkdown?.render(summary, report.summary,
                 context?.path || context?.hubPath || "Home.md");
         }
@@ -4779,6 +4790,8 @@ function renderRecentReports() {
             });
 
 
+        reportTime.title = Number.isFinite(report.timestamp)
+            ? formatDateTime(moment(report.timestamp)) : formatDate(moment(report.date, "YYYY-MM-DD"));
         el(
             reportTime,
             "div",
@@ -4796,16 +4809,14 @@ function renderRecentReports() {
                 reportTime,
                 "div",
                 "home-recent-clock",
-                moment(
-                    report.timestamp
-                ).format("HH:mm")
+                formatTime(moment(report.timestamp))
             );
         }
 
 
-        row.addEventListener(
-            "click",
-            () => {
+        makeActionableRow(
+            row,
+            event => {
                 window.hubOpenProgressEditor?.(
                     report.date,
                     report.targetKind === "resource"
@@ -4967,6 +4978,7 @@ function renderCompletedTaskHistory() {
             });
 
 
+        time.title = formatDateTime(when);
         el(
             time,
             "div",
@@ -4979,7 +4991,7 @@ function renderCompletedTaskHistory() {
             time,
             "div",
             "home-recent-clock",
-            when.format("HH:mm")
+            formatTime(when)
         );
 
 
@@ -4997,8 +5009,8 @@ function renderCompletedTaskHistory() {
             );
 
 
-            row.addEventListener(
-                "click",
+            makeActionableRow(
+                row,
                 async () => {
 
                     await openFileFromHome(
@@ -5403,6 +5415,7 @@ function renderRecentActivity() {
             );
 
 
+        timestamp.title = formatDateTime(when);
         el(
             timestamp,
             "div",
@@ -5415,9 +5428,7 @@ function renderRecentActivity() {
             timestamp,
             "div",
             "home-recent-clock",
-            when.format(
-                "HH:mm"
-            )
+            formatTime(when)
         );
 
 
@@ -5454,8 +5465,8 @@ function renderRecentActivity() {
                 );
 
 
-                row.addEventListener(
-                    "click",
+                makeActionableRow(
+                    row,
                     async () => {
 
                         await openFileFromHome(

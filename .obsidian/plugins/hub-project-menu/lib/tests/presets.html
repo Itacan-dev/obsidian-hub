@@ -13,7 +13,7 @@ HTMLElement.prototype.createDiv=function(o){return this.createEl('div',o)};
 HTMLElement.prototype.createSpan=function(o){return this.createEl('span',o)};
 HTMLElement.prototype.addClass=function(...cls){this.classList.add(...cls)};
 HTMLElement.prototype.empty=function(){this.replaceChildren()};
-class Modal{constructor(){this.contentEl=document.body.createDiv({cls:'modal'})}open(){this.onOpen()}close(){this.onClose();this.contentEl.remove()}}
+class Modal{constructor(){this.contentEl=document.body.createDiv({cls:'modal'});this.modalEl=this.contentEl}open(){this.onOpen()}close(){this.onClose();this.contentEl.remove()}}
 let context;
 class Menu{
  constructor(){this.items=[];this.separators=0;this.dom=document.createElement('div');this.dom.className='menu';context=this}
@@ -25,7 +25,8 @@ class Menu{
 const notices=[];
 const pointerReorder={exports:{}};new Function('module',await(await fetch('../ui/pointer-list-reorder.js')).text())(pointerReorder);
 const windowTitle={exports:{}};new Function('module','require',await(await fetch('../ui/window-title.js')).text())(windowTitle,()=>({setIcon(el,name){el.dataset.icon=name;el.innerHTML='<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor"/></svg>'}}));
-const module={exports:{}};new Function('module','require',await(await fetch('../ui/presets.js')).text())(module,name=>name==='./window-title'?windowTitle.exports:name==='./pointer-list-reorder'?pointerReorder.exports:({Modal,Menu,setIcon(el,name){el.dataset.icon=name;el.innerHTML='<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor"/></svg>'},Notice:class{constructor(m){notices.push(m)}}}));
+const saveState={exports:{}};new Function('module',await(await fetch('../ui/modal-save.js')).text())(saveState);
+const module={exports:{}};new Function('module','require',await(await fetch('../ui/presets.js')).text())(module,name=>name==='./window-title'?windowTitle.exports:name==='./modal-save'?saveState.exports:name==='./pointer-list-reorder'?pointerReorder.exports:({Modal,Menu,setIcon(el,name){el.dataset.icon=name;el.innerHTML='<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor"/></svg>'},Notice:class{constructor(m){notices.push(m)}}}));
 const tooltips={exports:{}},ui={exports:{}};
 new Function('module',await(await fetch('../ui/tooltips.js')).text())(tooltips);
 const disclosure={exports:{}};new Function('module','require',await(await fetch('../ui/disclosure.js')).text())(disclosure,()=>({setIcon(el,name){el.dataset.icon=name;el.innerHTML='<svg viewBox=\"0 0 24 24\"></svg>'}}));
@@ -66,8 +67,8 @@ try{
  key(document.activeElement,'Enter');await settle();check(calls.at(-1)[0]==='open','Enter opens saved preset');
  checkChevron(button,false);check(!document.querySelector('.hub-presets-menu'),'Opening a preset closes dropdown');
  button.click();rows()[1].dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true}));
- check(context.items.map(i=>i.title).join(',')==='Rename,Update preset,Delete','Conventional context menu order');
- check(context.items[2].warning&&context.separators===1,'Delete uses native red warning style and destructive separator');
+ check(context.items.map(i=>i.title).join(',')==='Rename,Update preset,Move up,Move down,Delete','Conventional context menu order');
+ check(context.items[4].warning&&context.separators===1,'Delete uses native red warning style and destructive separator');
  const originalMenu=document.querySelector('.hub-presets-menu');
  context.items[0].click();checkChevron(button,true);
  document.querySelector('.hub-preset-name').dispatchEvent(new PointerEvent('pointerdown',{bubbles:true}));checkChevron(button,true);
@@ -79,7 +80,7 @@ try{
  rows()[0].dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true}));check(context.items[1].disabled,'Update disabled outside note mode');
  document.body.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true}));check(!document.querySelector('.hub-presets-menu'),'Outside closes');
  checkChevron(button,false);
- button.click();rows()[0].dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true}));context.items[2].click();await settle();check(!presets.items.length,'Delete preset only');
+ button.click();rows()[0].dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true}));context.items[4].click();await settle();check(!presets.items.length,'Delete preset only');
  checkChevron(button,true);check(rows()[0].textContent==='No presets','Deleting last preset refreshes empty state without closing');
  component.cleanup.forEach(fn=>fn());check(!document.querySelector('.hub-presets-menu'),'View lifecycle cleanup');
  checkChevron(button,false);
@@ -111,7 +112,8 @@ try{
  cancel.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true}));cancel.click();checkChevron(noteButton,true);
  check(document.querySelector('.hub-presets-menu')===noteMenu,'Note-view rename cancellation and update preserve dropdown identity');
  noteButton.click();checkChevron(noteButton,false);check(!document.querySelector('.hub-presets-menu'),'Button toggles menu closed');
- noteButton.click();window.dispatchEvent(new Event('resize'));checkChevron(noteButton,false);
+ noteButton.click();window.dispatchEvent(new Event('resize'));checkChevron(noteButton,true);
+ const resizedMenu=document.querySelector('.hub-presets-menu').getBoundingClientRect();check(resizedMenu.top>=8&&resizedMenu.bottom<=innerHeight-8,'Resize preserves the menu within available viewport space');noteButton.click();checkChevron(noteButton,false);
  button.click();
  handle.close();
  presets.items=['a','b','c','d','e'].map(id=>({id,name:'Preset '+id}));button.click();
@@ -159,11 +161,11 @@ try{
  // Headless Firefox has no focused OS window; Chromium also checks focus styling here.
  check(!document.hasFocus() || getComputedStyle(managed.querySelector('.hub-preset-more')).opacity==='1','Management control visible on focused row: '+JSON.stringify({active:document.activeElement===managed,within:managed.matches(':focus-within'),opacity:getComputedStyle(managed.querySelector('.hub-preset-more')).opacity,focus:document.hasFocus()}));
  check(getComputedStyle(saved()[0].querySelector('.hub-preset-more')).opacity==='0','Management controls hidden on unfocused rows');
- managed.querySelector('.hub-preset-more').click();check(context.items.map(i=>i.title).join(',')==='Rename,Update preset,Delete','Ellipsis opens the existing management menu');
+ managed.querySelector('.hub-preset-more').click();check(context.items.map(i=>i.title).join(',')==='Rename,Update preset,Move up,Move down,Delete','Ellipsis opens the existing management menu');
  context.items[0].click();document.querySelector('.hub-preset-name').value='Moved and renamed';key(document.querySelector('.hub-preset-name'),'Enter');await settle();
  check(presets.items[3].name==='Moved and renamed'&&ids()==='acdbe','Rename targets reordered identity and preserves order');
  saved()[3].querySelector('.hub-preset-more').click();context.items[1].click();await settle();check(calls.at(-1).join(',')==='update,b','Update targets reordered identity');
- saved()[3].dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true}));context.items[2].click();await settle();check(order()==='acde'&&ids()==='acde','Right-click Delete targets reordered identity');
+ saved()[3].dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true}));context.items[4].click();await settle();check(order()==='acde'&&ids()==='acde','Right-click Delete targets reordered identity');
  handle.close();presets.items=Array.from({length:35},(_,i)=>({id:String(i),name:'Saved reading workspace '+i}));button.click();
  s=start('0');const longMenu=document.querySelector('.hub-presets-menu'),longRect=longMenu.getBoundingClientRect();
  check(longMenu.scrollHeight>longMenu.clientHeight,'Many presets stay inside a scrollable dropdown');

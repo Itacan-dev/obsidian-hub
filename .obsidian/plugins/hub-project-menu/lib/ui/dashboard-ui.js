@@ -1,5 +1,6 @@
 "use strict";
 const { disclosureIcons } = require("./disclosure");
+const { formatDate, formatTime, formatDateTime, formatWeekday, formatDateRange, historyDateLabel } = require("../domain/dates");
 const { setHubTooltip } = require("./tooltips");
 const { progressColors, progressColor } = require("./progress-colors");
 
@@ -229,9 +230,15 @@ function createDashboardUi({
         createFrame: (container, component, className) => require("./dashboard-frame").createDashboardFrame(container, component, className),
         el,
         historyHeading,
+        makeActionableRow: require("./row-activation").makeActionableRow,
         historyKind: require("../domain/history").historyKind,
         createHistoryPager: require("./history-pager").createHistoryPager,
-        historyDate: when => when.format("D MMM"),
+        historyDate: historyDateLabel,
+        formatDate,
+        formatTime,
+        formatDateTime,
+        formatWeekday,
+        formatDateRange,
         lastFileTooltip,
         lastNavigationInfo,
         markDashboardRow,

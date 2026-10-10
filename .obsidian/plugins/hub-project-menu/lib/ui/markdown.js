@@ -1,7 +1,7 @@
 "use strict";
 
 // One native Markdown/MathJax rendering lifecycle for compact Hub text.
-function createHubMarkdown({ app, component }) {
+function createHubMarkdown({ app, component, interactive = true }) {
     const { Component, MarkdownRenderer } = require("obsidian");
     const children = new Set();
     let disposed = false;
@@ -21,6 +21,7 @@ function createHubMarkdown({ app, component }) {
         const preview = element.ownerDocument.createElement("div");
         const current = () => !disposed && children.has(child) && canCommit();
         const click = event => {
+            if (!interactive) return;
             const link = event.target.closest("a.internal-link");
             if (link) {
                 event.preventDefault(); event.stopPropagation();
@@ -36,6 +37,21 @@ function createHubMarkdown({ app, component }) {
         })
             .then(() => {
                 if (!current()) return;
+                // Oath status shares native formatting without navigation or
+                // embedded task controls. Keep its text in the accessibility tree.
+                if (!interactive) {
+                    for (const link of preview.querySelectorAll("a")) {
+                        const text = preview.ownerDocument.createElement("span");
+                        text.replaceChildren(...link.childNodes);
+                        link.replaceWith(text);
+                    }
+                    for (const control of preview.querySelectorAll("input, button, select, textarea")) {
+                        const text = preview.ownerDocument.createElement("span");
+                        text.textContent = control.type === "checkbox"
+                            ? (control.checked ? "Completed: " : "Incomplete: ") : control.textContent || control.value || "";
+                        control.replaceWith(text);
+                    }
+                }
                 // A single paragraph needs no extra block box in an existing
                 // title/summary. Plain text keeps the exact inherited styling.
                 const content = preview.childNodes.length === 1 && preview.firstElementChild?.tagName === "P"

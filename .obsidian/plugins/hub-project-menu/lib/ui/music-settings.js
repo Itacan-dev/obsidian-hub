@@ -5,6 +5,8 @@ const { row, section } = require("./settings-pages");
 const { setHubIcon } = require("./icons");
 const { action } = require("./capture-modal");
 const { openMusicItemEditor } = require("./music-item-editor");
+const { bindMenuToggle } = require("./menu-toggle");
+const { hasKeyboardFocus, focusControl } = require("./focus-restoration");
 
 function mountMusicSettings(parent, service) {
     const error = parent.createDiv({ cls: "hub-task-error", attr: { role: "alert" } });
@@ -19,7 +21,8 @@ function mountMusicSettings(parent, service) {
         toggles.push(component);
         return component;
     };
-    const run = async work => {
+    let itemMenu = null, itemMenuButton = null, menuToggles = [];
+    const run = async (work, returnKey = null) => {
         if (disposed || busy) return;
         busy = true; error.textContent = "";
         host.setAttribute("aria-busy", "true");
@@ -30,7 +33,8 @@ function mountMusicSettings(parent, service) {
         catch (problem) { if (!disposed) error.textContent = problem.message || "Could not save music settings. Try again."; }
         finally {
             busy = false;
-            if (!disposed) { host.removeAttribute("aria-busy"); controls.forEach((control, index) => { control.disabled = disabled[index]; }); render(); }
+            if (!disposed) { host.removeAttribute("aria-busy"); controls.forEach((control, index) => { control.disabled = disabled[index]; }); render();
+                if (returnKey && (host.ownerDocument.activeElement === host.ownerDocument.body || host.contains(host.ownerDocument.activeElement))) focusControl([...host.querySelectorAll("[data-music-focus]")].find(control => control.dataset.musicFocus === returnKey) ?? host.querySelector('[data-music-focus="add"]')); }
         }
     };
     const openEditor = options => {
@@ -46,6 +50,7 @@ function mountMusicSettings(parent, service) {
     };
     function render() {
         if (disposed || busy) return;
+        itemMenu?.hide(); menuToggles.splice(0).forEach(stop => stop());
         const active = host.ownerDocument.activeElement;
         const focusKey = host.contains(active) ? active?.dataset?.musicFocus : null;
         const selection = focusKey && typeof active.selectionStart === "number" ? [active.selectionStart, active.selectionEnd] : null;
@@ -129,17 +134,33 @@ function mountMusicSettings(parent, service) {
             const controls = entry.createDiv({ cls: "hub-music-library-actions" });
             const component = toggle(controls, "Enable " + item.name, item.enabled, value => service.setItemEnabled(item.id, value));
             if (component.toggleEl) component.toggleEl.dataset.musicFocus = "item-" + item.id;
-            const menuButton = action(controls, "", "ellipsis", () => {
-                const menu = new Menu();
+            const menuButton = action(controls, "", "ellipsis", event => {
+                if (itemMenu && itemMenuButton === menuButton) { itemMenu.hide(); return; }
+                itemMenu?.hide(); itemMenuButton = menuButton;
+                let keyboard = hasKeyboardFocus(menuButton, event);
+                const menu = itemMenu = new Menu(), doc = host.ownerDocument;
+                const onKey = () => { keyboard = true; }, onPointer = () => { keyboard = false; };
+                doc.addEventListener("keydown", onKey, true); doc.addEventListener("pointerdown", onPointer, true);
+                menu.onHide(() => {
+                    doc.removeEventListener("keydown", onKey, true); doc.removeEventListener("pointerdown", onPointer, true);
+                    if (itemMenu === menu) { itemMenu = null; itemMenuButton = null; }
+                    menuButton.setAttribute("aria-expanded", "false");
+                    const focused = doc.activeElement;
+                    if (!disposed && !editor && keyboard && (focused === doc.body || menu.dom?.contains(focused))) focusControl(menuButton);
+                });
+                const manage = work => { void run(work, keyboard ? menuButton.dataset.musicFocus : null); };
+                menuButton.setAttribute("aria-expanded", "true");
                 menu.addItem(option => option.setTitle("Rename").setIcon("square-pen").onClick(() => openEditor({ item, returnFocus: menuButton })));
-                menu.addItem(option => option.setTitle("Move up").setIcon("arrow-up").setDisabled(index === 0).onClick(() => { void run(() => service.move(item.id, -1)); }));
-                menu.addItem(option => option.setTitle("Move down").setIcon("arrow-down").setDisabled(index === state.items.length - 1).onClick(() => { void run(() => service.move(item.id, 1)); }));
+                menu.addItem(option => option.setTitle("Move up").setIcon("arrow-up").setDisabled(index === 0).onClick(() => { manage(() => service.move(item.id, -1)); }));
+                menu.addItem(option => option.setTitle("Move down").setIcon("arrow-down").setDisabled(index === state.items.length - 1).onClick(() => { manage(() => service.move(item.id, 1)); }));
                 menu.addSeparator();
-                menu.addItem(option => option.setTitle("Remove").setIcon("trash-2").onClick(() => { void run(() => service.remove(item.id)); }));
+                menu.addItem(option => option.setTitle("Remove").setIcon("trash-2").onClick(() => { manage(() => service.remove(item.id)); }));
                 const rect = menuButton.getBoundingClientRect(); menu.showAtPosition({ x: rect.left, y: rect.bottom });
             }, "hub-music-library-menu");
             menuButton.setAttribute("aria-label", "Options for " + item.name); menuButton.setAttribute("aria-haspopup", "menu"); menuButton.title = "Music options";
             menuButton.dataset.musicFocus = "menu-" + item.id;
+            menuButton.setAttribute("aria-expanded", "false");
+            menuToggles.push(bindMenuToggle(menuButton, { isOpen: () => !!itemMenu && itemMenuButton === menuButton, close: () => itemMenu?.hide() }));
         });
         if (focusKey) {
             const control = [...host.querySelectorAll("[data-music-focus]")].find(control => control.dataset.musicFocus === focusKey);
@@ -148,6 +169,6 @@ function mountMusicSettings(parent, service) {
         }
     }
     const unsubscribe = service.onChange(render), unsubscribeSpotify = spotify?.onChange(render); render();
-    return () => { disposed = true; unsubscribe(); unsubscribeSpotify?.(); editor?.close(); };
+    return () => { disposed = true; itemMenu?.hide(); menuToggles.splice(0).forEach(stop => stop()); unsubscribe(); unsubscribeSpotify?.(); editor?.close(); };
 }
 module.exports = { mountMusicSettings };

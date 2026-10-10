@@ -1,14 +1,13 @@
 "use strict";
-const { createWindowTitle, setWindowUndertext } = require("./window-title");
+const { createWindowTitle, setWindowUndertext, layoutModal } = require("./window-title");
 const { Modal, Component, setIcon } = require("obsidian");
-const { parseLocalISODate } = require("../domain/dates");
+const { parseLocalISODate, formatDate, formatWeekday } = require("../domain/dates");
 const { createHubMarkdown } = require("./markdown");
 const { renderTaskProgress } = require("./daily-report");
 
 function briefDateLabel(date, includeYear = false) {
-    return parseLocalISODate(date)?.toLocaleDateString([], {
-        weekday: "long", day: "numeric", month: "long", ...(includeYear ? { year: "numeric" } : {})
-    }) ?? "";
+    const value = parseLocalISODate(date);
+    return value ? formatWeekday(value) + ", " + formatDate(value, "full", includeYear || value.getFullYear() !== new Date().getFullYear()) : "";
 }
 
 // Presentation accepts provider results, never the concrete recommendation rules.
@@ -47,7 +46,7 @@ class DailyBriefModal extends Modal {
         setWindowUndertext(headingTitle, root.createDiv({ cls: "hub-brief-date", text: briefDateLabel(this.context.briefDate, true) }));
         if (historical) this.action(root, "Back to today's brief", () => this.showDate(this.context.lastWorkDate), "hub-brief-back");
         const day = this.context.days.find(day => day.date === this.selectedDate);
-        if (!day) return;
+        if (!day) { layoutModal(this); return; }
         const heading = root.createDiv({ cls: "hub-brief-section-heading" });
         heading.createEl("h3", { text: `${historical ? "Work" : "Last work"} \u00b7 ${briefDateLabel(day.date)}` });
         if (day.hasReport) this.action(heading, "View full report", () => this.onReport(day.date));
@@ -76,6 +75,7 @@ class DailyBriefModal extends Modal {
             }
         }
         this.error = root.createDiv({ cls: "hub-report-empty", attr: { role: "status" } });
+        layoutModal(this);
     }
     renderWorkspace(parent, workspace) {
         const card = parent.createEl("section", { cls: "hub-report-card" });

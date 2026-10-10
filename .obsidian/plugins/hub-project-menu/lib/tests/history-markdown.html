@@ -13,20 +13,47 @@ HTMLElement.prototype.empty=function(){this.replaceChildren()};
 HTMLElement.prototype.setText=function(t){this.textContent=t};
 HTMLElement.prototype.addClass=function(c){this.classList.add(c)};
 class Component{constructor(){this.children=new Set();this.cleanup=[]}register(f){this.cleanup.push(f)}addChild(c){this.children.add(c)}removeChild(c){c.unload();this.children.delete(c)}unload(){this.cleanup.splice(0).forEach(f=>f());this.children.forEach(c=>c.unload());this.children.clear()}}
-const calls=[];let editorCalls=0,linkCalls=0,hold=null;
+const key=value=>new Promise(resolve=>{window.hubTestKeyDone=resolve;window.hubTestKeyRequest=value});
+async function pointer(element){element.scrollIntoView({block:'center'});await new Promise(requestAnimationFrame);const box=element.getBoundingClientRect();await new Promise(resolve=>{window.hubTestPointerDone=resolve;window.hubTestPointerRequest={x:box.left+box.width/2,y:box.top+box.height/2}})}
+const rowModule={exports:{}};new Function('module',await(await fetch('../ui/row-activation.js')).text())(rowModule);
+const {makeActionableRow}=rowModule.exports;
+const datesModule={exports:{}};new Function('module',await(await fetch('../domain/dates.js')).text())(datesModule);const dates=datesModule.exports;
+const calls=[];let editorCalls=0,linkCalls=0,opened=0,hold=null;
+async function verifyRows(body,selector,actionCount,place){
+ const rows=[...body.querySelectorAll(selector)],actionable=rows.filter(row=>row.classList.contains('hub-actionable-row'));
+ assert(actionable.length&&rows.every(row=>row.classList.contains('hub-actionable-row')?(row.tabIndex===0&&row.getAttribute('role')==='button'):!row.hasAttribute('tabindex')),place+': only live actionable rows focusable');
+ await key('Tab');assert(document.activeElement===actionable[0],place+': keyboard traversal enters first row');
+ for(const row of actionable){
+  row.focus();assert(getComputedStyle(row).outlineStyle==='solid'&&getComputedStyle(row).outlineWidth==='2px',place+': visible row focus');
+  let before=actionCount();await key('Enter');assert(actionCount()===before+1,place+': Enter once');
+  before=actionCount();const scroll=body.scrollTop;await key(' ');assert(actionCount()===before+1&&body.scrollTop===scroll,place+': Space once without scrolling');
+  const repeat=new KeyboardEvent('keydown',{key:'Enter',repeat:true,bubbles:true,cancelable:true});row.dispatchEvent(repeat);assert(repeat.defaultPrevented&&actionCount()===before+1,place+': repeated key ignored');
+  for(const modifier of ['ctrlKey','metaKey','altKey']){const shortcut=new KeyboardEvent('keydown',{key:' ',[modifier]:true,bubbles:true,cancelable:true});row.dispatchEvent(shortcut);assert(!shortcut.defaultPrevented&&actionCount()===before+1,place+': application shortcuts pass through')}
+  before=actionCount();row.querySelector('[class*=title],[class*=summary]')?.click();assert(actionCount()===before+1,place+': ordinary pointer area opens row');
+ }
+ const row=actionable[0];let pointerBefore=actionCount();await pointer(row.querySelector('[class*=-time]')||row);assert(actionCount()===pointerBefore+1,place+': real pointer activates ordinary row area');const before=actionCount();
+ for(const tag of ['a','button','input','textarea','select','summary']){
+  const control=row.createEl(tag,{text:'Independent control'});if(tag==='a')control.href='#independent';
+  let clicks=0;control.addEventListener('click',e=>{clicks++;if(tag==='a')e.preventDefault()});control.click();assert(clicks===1&&actionCount()===before,place+': '+tag+' pointer independence');
+  if(tag==='a'||tag==='button'){control.focus();await key('Enter');assert(clicks===2&&actionCount()===before,place+': nested '+tag+' Enter independence');if(tag==='button'){await key(' ');assert(clicks===3&&actionCount()===before,place+': nested button Space independence')}}
+  control.remove();
+ }
+ const custom=row.createDiv({text:'Custom interactive child'});custom.setAttribute('role','button');custom.tabIndex=0;let childKeys=0;custom.addEventListener('keydown',e=>{if(e.key==='Enter')childKeys++});custom.focus();await key('Enter');assert(childKeys===1&&actionCount()===before,place+': descendant key is not swallowed');custom.remove();
+ row.focus();
+}
 const obsidian={Component,MarkdownRenderer:{async render(app,text,el,path){
  calls.push({text,path});if(hold)await hold;
  const p=el.createEl('p');
  // Fixture for the native MarkdownRenderer contract; production uses Obsidian/MathJax.
- if(text.startsWith('**')){p.createEl('strong',{text:'Rich'});const math=document.createElementNS('http://www.w3.org/1998/Math/MathML','math');math.innerHTML='<msup><mi>x</mi><mn>2</mn></msup>';p.append(math);const a=p.createEl('a',{cls:'internal-link',text:'Note'});a.setAttribute('data-href','Note')}
+ if(text.startsWith('**')){p.createEl('strong',{text:'Rich'});const math=document.createElementNS('http://www.w3.org/1998/Math/MathML','math');math.innerHTML='<msup><mi>x</mi><mn>2</mn></msup>';p.append(math);const a=p.createEl('a',{cls:'internal-link',text:'Note'});a.setAttribute('data-href','Note');a.setAttribute('href','Note')}
  else p.textContent=text;
 }}};
 const readiness={exports:{}};new Function('module',await(await fetch('../ui/render-readiness.js')).text())(readiness);
 const module={exports:{}};new Function('module','require',await(await fetch('../ui/markdown.js')).text())(module,name=>name==='./render-readiness'?readiness.exports:obsidian);
-const app={vault:{getAbstractFileByPath:p=>({path:p})},workspace:{openLinkText:async()=>linkCalls++}};
+const app={vault:{getAbstractFileByPath:p=>p.endsWith("Missing.md")?null:({path:p})},workspace:{openLinkText:async()=>linkCalls++}};
 window.hubSetIcon=(el,name)=>{el.dataset.icon=name};window.hubOpenProgressEditor=()=>editorCalls++;
-const home=await(await fetch('../../../../../System/Dashboards/Home/view.js')).text();
-const project=await(await fetch('../../../../../System/Dashboards/Project/view.js')).text();
+const home=(await(await fetch('../../../../../System/Dashboards/Home/view.js')).text()).replace(/\r\n/g,'\n');
+const project=(await(await fetch('../../../../../System/Dashboards/Project/view.js')).text()).replace(/\r\n/g,'\n');
 const paging={exports:{}},historyData={exports:{}};
 new Function('module',await(await fetch('../ui/history-pager.js')).text())(paging);
 new Function('module',await(await fetch('../domain/history.js')).text())(historyData);
@@ -42,14 +69,15 @@ try{
   const reports=[rich,'Ordinary progress.',''].map(summary=>Object.freeze({summary,score:2,date:'2026-09-08',timestamp:1,targetKind:resource?'resource':'project',projectStatus:'active',projectId:id,resourceId:'study',projectName:'P'}));
   const history=[rich,'Ordinary completed task.'].map(text=>Object.freeze({text,path:root+'/Tasks.md',projectId:id,contextKind:resource?'resource':'project',resourceType:resource?'study':null,projectPath:path,projectRoot:root,projectName:'P',timestamp:1}));
   history.push(Object.freeze({...history[0],kind:'step',parentText:'Assignment 5',text:'1a',timestamp:0.5}));
+  history.push(Object.freeze({...history[1],path:root+'/Missing.md',timestamp:0}));
   const saved=JSON.stringify({reports,history});window.hubGetCompletedTaskHistory=()=>history;
   const env={recentBody:body,activityBody:body,progressReports:reports,projectReports:reports,completedTaskHistory:history,
-   historyPager:paging.exports.createHistoryPager(body,owner),historyKind:historyData.exports.historyKind,
-   historyDate:when=>when.format('D MMM'),
+   historyPager:paging.exports.createHistoryPager(body,owner),historyKind:historyData.exports.historyKind,makeActionableRow,
+   historyDate:when=>dates.historyDateLabel(when,new Date(2026,8,8)),formatTime:dates.formatTime,formatDate:dates.formatDate,formatDateTime:dates.formatDateTime,
    progressScope:resource?'resources':'projects',resourceTypes:[{id:'study',resourceType:'study',label:'Knowledge',path}],projects:[{projectId:id,path,name:'P'}],
    isResourceContext:resource,current:{projectId:id,resourceType:'study',file:{path}},projectRoot:root,
-   displayProjectName:s=>s,el:(p,t,c,s)=>p.createEl(t,{cls:c,text:s}),moment:()=>({format:()=> '8 Sep'}),app,
-   openFileFromHome:async()=>{},openProjectNote:async()=>{}};
+   displayProjectName:s=>s,el:(p,t,c,s)=>p.createEl(t,{cls:c,text:s}),moment:()=>new Date(2026,8,8),app,
+   openFileFromHome:async()=>opened++,openProjectNote:async()=>opened++};
   const renderReports=extract(isHome?home:project,isHome?'renderRecentReports':'renderProjectReports',isHome?'renderCompletedTaskHistory':'renderProjectTaskHistory',env);
   const renderHistory=extract(isHome?home:project,isHome?'renderCompletedTaskHistory':'renderProjectTaskHistory',isHome?'renderActiveProgressView':'renderProjectProgressView',env);
   renderReports();const summaries=body.querySelectorAll('[class*="progress-report-summary"]'),before=style(summaries[1]);await settle();
@@ -59,21 +87,31 @@ try{
   const clicks=editorCalls;summaries[0].querySelector('a').click();assert(editorCalls===clicks&&linkCalls>0,'Link does not also open report editor');
   summaries[1].click();assert(editorCalls===clicks+1,'Normal report click still edits');
   assert(calls.at(-1).path===path,'Report-relative link source is its workspace note');
+  await verifyRows(body,'[class*=progress-report-row]',()=>editorCalls,place+' reports');
+  const markdownLink=summaries[0].querySelector('a'),linksBefore=linkCalls,editsBefore=editorCalls;markdownLink.focus();await key('Enter');assert(linkCalls===linksBefore+1&&editorCalls===editsBefore,place+': Markdown link keyboard navigation stays independent');
   renderHistory();const titles=body.querySelectorAll(isHome?'.home-recent-title':'.project-activity-title'),plain=style(titles[1]);await settle();
   assert(titles[0].querySelector('strong')&&titles[0].querySelector('math'),place+': task History uses same renderer');
   assert(style(titles[1])===plain&&titles[1].textContent==='Ordinary completed task.','Plain task History unchanged');
   assert(titles[2].textContent==='Assignment 5 \u00b7 1a',place+': Step retains parent context');
   assert(body.querySelector('[data-icon=circle-check].is-step-progress'),place+': purple CircleCheck class');
   assert(body.querySelector('[data-icon=square-check].is-completed-task'),place+': whole task icon retained');
-  assert(calls.at(-1).path===root+'/Tasks.md','History links use original task note');
+  assert(calls.at(-1).path===root+'/Missing.md','History links use original task note');
+  document.activeElement?.blur();await verifyRows(body,isHome?'.home-recent-row':'.project-activity-row',()=>opened,place+' task History');
   for(let i=0;i<3;i++){renderReports();await settle();renderHistory();await settle()}
-  assert(owner.children.size===3,'Refreshes/filter changes release old Markdown components');
+  assert(owner.children.size===4,'Refreshes/filter changes release old Markdown components');
   assert(JSON.stringify({reports,history})===saved,'Stored text and report values remain untouched');
+  const activity=[{action:'edited',title:'Existing',path:root+'/Tasks.md',projectId:id,contextKind:resource?'resource':'project',resourceType:resource?'study':null,timestamp:3},{action:'deleted',title:'Deleted',path:root+'/Tasks.md',projectId:id,contextKind:resource?'resource':'project',resourceType:resource?'study':null,timestamp:2},{action:'edited',title:'Missing',path:root+'/Missing.md',projectId:id,contextKind:resource?'resource':'project',resourceType:resource?'study':null,timestamp:1}];
+  window.hubGetActivityLog=()=>activity;
+  const activityEnv={...env,recentItems:activity,activityIcon:()=> 'file',activityLocationParts:()=>[],resourceActivityLocationParts:()=>[],belongsToCurrentProject:()=>true,projectActivityIcon:()=> 'file',projectActivityTitle:item=>item.title,projectActivityLocationParts:()=>[]};
+  const name=isHome?'renderRecentActivity':'renderProjectActivity',source=isHome?home:project;
+  const start=source.indexOf('function '+name+'('),end=source.indexOf(isHome?'\nroot.addEventListener(\n    "hub-activity-changed"':'\nframe.defer(() => renderProjectProgressView());',start);
+  const renderActivity=new Function(...Object.keys(activityEnv),source.slice(start,end)+';return '+name)(...Object.values(activityEnv));
+  renderActivity();document.activeElement?.blur();await verifyRows(body,isHome?'.home-recent-row':'.project-activity-row',()=>opened,place+' activity');
   owner.unload();assert(owner.children.size===0,'View cleanup releases render components');
  }
  const owner=new Component(),renderer=module.exports.createHubMarkdown({app,component:owner}),target=document.createElement('div');
  let release;hold=new Promise(r=>release=r);const pending=renderer.render(target,'Old','Old.md');await Promise.resolve();renderer.clear();hold=null;
  await renderer.render(target,'New','New.md');release();await pending;assert(target.textContent==='New','Late old rendering cannot overwrite refreshed text');owner.unload();
- result.textContent='PASS: actual Home/Project/Resource report and task History renderers; Markdown/LaTeX contract, plain-text geometry/style, link/edit actions, source paths, immutable data, refresh/disposal and stale-render protection.';
+ result.textContent='PASS: actual Home/Project/Resource report and task History renderers; Markdown/LaTeX contract, plain-text geometry/style, Enter/Space/Tab and visible focus, nested controls, deleted/missing rows, pointer/link/edit actions, source paths, immutable data, refresh/disposal and stale-render protection.';
 }catch(error){result.textContent='FAIL '+error.stack}
 </script>

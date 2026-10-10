@@ -1,5 +1,6 @@
 "use strict";
 const { createWindowTitle } = require("./window-title");
+const { lockModalControls } = require("./modal-save");
 
 function showPresetsMenu(anchor, presets) {
     const { Menu, Modal, Notice, setIcon } = require("obsidian");
@@ -23,7 +24,9 @@ function showPresetsMenu(anchor, presets) {
         closed = true; menu.remove(); anchor.setAttribute("aria-expanded", "false");
         contextMenu?.hide();
         doc.removeEventListener("pointerdown", outside, true);
-        doc.defaultView.removeEventListener("resize", close);
+        doc.defaultView.removeEventListener("resize", position);
+        doc.defaultView.visualViewport?.removeEventListener("resize", position);
+        doc.defaultView.visualViewport?.removeEventListener("scroll", position);
     }
     function outside(event) {
         if (reorder.busy) return;
@@ -39,6 +42,18 @@ function showPresetsMenu(anchor, presets) {
     function manage(action) {
         return run(async () => { await action(); render(); focusMenu(); });
     }
+    function move(preset, direction, restoreFocus) {
+        return run(async () => {
+            const ids = presets.items.map(item => item.id), index = ids.indexOf(preset.id), next = index + direction;
+            if (index < 0 || next < 0 || next >= ids.length) return;
+            [ids[index], ids[next]] = [ids[next], ids[index]];
+            await presets.reorder(ids); render();
+            if (restoreFocus && !closed) {
+                const row = [...menu.querySelectorAll('[data-preset-id]')].find(row => row.dataset.presetId === preset.id);
+                row?.focus({ preventScroll: true }); row?.scrollIntoView({ block: "nearest" });
+            }
+        });
+    }
     function namePrompt(title, value, save) {
         class NameModal extends Modal {
             onOpen() {
@@ -50,12 +65,17 @@ function showPresetsMenu(anchor, presets) {
                 const cancel = actions.createEl("button", { text: "Cancel" });
                 const done = actions.createEl("button", { text: "Save", cls: "mod-cta" });
                 cancel.type = done.type = "button";
-                let saving = false;
+                this.saving = false;
                 const commit = async () => {
-                    if (saving) return;
-                    saving = true; done.disabled = true;
-                    try { await save(input.value); render(); this.close(); }
-                    catch (error) { new Notice(error.message); saving = false; done.disabled = false; }
+                    if (this.saving) return;
+                    this.saving = true;
+                    const restoreControls = lockModalControls(this);
+                    try {
+                        await save(input.value); render();
+                        this.saving = false; restoreControls(); this.close();
+                    } catch (error) {
+                        this.saving = false; restoreControls(); new Notice(error.message);
+                    }
                 };
                 cancel.addEventListener("click", () => this.close());
                 done.addEventListener("click", commit);
@@ -64,6 +84,7 @@ function showPresetsMenu(anchor, presets) {
                 });
                 input.focus(); input.select();
             }
+            close() { if (!this.saving) super.close(); }
             onClose() { this.contentEl.empty(); if (nameModal === this) nameModal = null; focusMenu(); }
         }
         nameModal = new NameModal(presets.modes.app);
@@ -109,13 +130,26 @@ function showPresetsMenu(anchor, presets) {
             if (reorder.active) return;
             reorder.cancel();
             contextMenu?.hide();
+            let restoreFocus = event.type === "keydown" || (event.type === "click" && event.detail === 0);
             const context = new Menu();
             contextMenu = context;
-            context.onHide(() => { if (contextMenu === context) contextMenu = null; });
+            const keyboard = () => { restoreFocus = true; }, pointer = () => { restoreFocus = false; };
+            doc.addEventListener("keydown", keyboard, true); doc.addEventListener("pointerdown", pointer, true);
+            context.onHide(() => {
+                doc.removeEventListener("keydown", keyboard, true); doc.removeEventListener("pointerdown", pointer, true);
+                if (contextMenu === context) contextMenu = null;
+                const focused = doc.activeElement;
+                if (restoreFocus && !closed && !nameModal && (focused === doc.body || context.dom?.contains(focused))) item.focus({ preventScroll: true });
+            });
             context.addItem(item => item.setTitle("Rename").setIcon("pencil").onClick(() =>
                 namePrompt("Rename preset", preset.name, name => presets.rename(preset.id, name))));
             context.addItem(item => item.setTitle("Update preset").setIcon("save").setDisabled(!presets.canSave)
                 .onClick(() => { void manage(() => presets.update(preset.id)); }));
+            const index = presets.items.findIndex(item => item.id === preset.id);
+            context.addItem(item => item.setTitle("Move up").setIcon("arrow-up").setDisabled(index <= 0)
+                .onClick(() => { void move(preset, -1, restoreFocus); }));
+            context.addItem(item => item.setTitle("Move down").setIcon("arrow-down").setDisabled(index < 0 || index === presets.items.length - 1)
+                .onClick(() => { void move(preset, 1, restoreFocus); }));
             context.addSeparator();
             context.addItem(item => item.setTitle("Delete").setIcon("trash-2").setWarning(true)
                 .onClick(() => { void manage(() => presets.delete(preset.id)); }));
@@ -153,15 +187,27 @@ function showPresetsMenu(anchor, presets) {
     });
     doc.body.append(menu);
     function position() {
+    if (closed) return;
+    const win = doc.defaultView, viewport = win.visualViewport;
+    const left = (viewport?.offsetLeft ?? 0) + 8, top = (viewport?.offsetTop ?? 0) + 8;
+    const right = left + (viewport?.width ?? win.innerWidth) - 16;
+    const bottom = top + (viewport?.height ?? win.innerHeight) - 16;
     const rect = anchor.getBoundingClientRect();
-    menu.style.left = `${Math.max(8, Math.min(rect.left, doc.defaultView.innerWidth - menu.offsetWidth - 8))}px`;
-    menu.style.top = `${rect.bottom + 6}px`;
-    menu.style.maxHeight = `${Math.max(80, doc.defaultView.innerHeight - rect.bottom - 14)}px`;
+    menu.style.maxWidth = `${Math.min(320, Math.max(0, right - left))}px`;
+    menu.style.minWidth = `${Math.min(200, Math.max(0, right - left))}px`;
+    menu.style.maxHeight = "";
+    const below = Math.max(0, bottom - Math.max(top, rect.bottom + 6)), above = Math.max(0, Math.min(bottom, rect.top - 6) - top);
+    const placeAbove = menu.offsetHeight > below && above > below;
+    menu.style.maxHeight = `${placeAbove ? above : below}px`;
+    menu.style.left = `${Math.max(left, Math.min(rect.left, right - menu.offsetWidth))}px`;
+    menu.style.top = `${Math.max(top, Math.min(placeAbove ? rect.top - 6 - menu.offsetHeight : rect.bottom + 6, bottom - menu.offsetHeight))}px`;
     }
     render();
     anchor.setAttribute("aria-expanded", "true");
     doc.addEventListener("pointerdown", outside, true);
-    doc.defaultView.addEventListener("resize", close);
+    doc.defaultView.addEventListener("resize", position);
+    doc.defaultView.visualViewport?.addEventListener("resize", position);
+    doc.defaultView.visualViewport?.addEventListener("scroll", position);
     focusMenu();
     return { close, destroy() { close(); nameModal?.close(); } };
 }

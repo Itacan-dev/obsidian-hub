@@ -1,4 +1,5 @@
 "use strict";
+const { hasKeyboardFocus, focusControl, revealHorizontalKeyboardFocus } = require("./focus-restoration");
 const { createTaskUi } = require("./tasks");
 const { openTaskEditor, openTaskCreator } = require("./task-editor");
 const { applyTaskEdit } = require("../domain/tasks");
@@ -56,8 +57,19 @@ function mountTaskWorkspace({ plugin, component, dv, root, toolbar, filesGrid, f
     host.after(roadmapHost);
     let roadmap;
     const content = host.createDiv({ cls: "hub-task-view-content", attr: { role: "region" } });
+    const revealFocusedControl = event => {
+        const control = event.target;
+        const scroll = control.closest(".hub-task-local-scroll");
+        if (!scroll || !content.contains(scroll) || !hasKeyboardFocus(control)) return;
+        // Let Chromium finish its normal focus scrolling before correcting the
+        // remaining horizontal clipping. Pointer focus never requests this.
+        content.ownerDocument.defaultView.requestAnimationFrame(() => revealHorizontalKeyboardFocus(control, scroll));
+    };
+    content.addEventListener("focusin", revealFocusedControl);
+    component.register(() => content.removeEventListener("focusin", revealFocusedControl));
     let tasks = [], locations = [], workspaces = [], dirty = true, disposed = false;
     const pending = new Set();
+    let scheduleFocusRequest;
     const inNoteRail = () => !!root.closest(".hub-project-rail");
     // Derive the mode boundary from the rendered Files grid, including its
     // responsive split and borders. Never change the explorer to fit the modes.
@@ -118,8 +130,11 @@ function mountTaskWorkspace({ plugin, component, dv, root, toolbar, filesGrid, f
         }
         dirty = false; render();
     }
-    function render() {
+    function render(event) {
         if (disposed || state.mode !== "schedule" || inNoteRail()) return;
+        // Preserve navigation intent if the shared renderer defers this rebuild.
+        if (event) scheduleFocusRequest = { control: event.currentTarget,
+            key: hasKeyboardFocus(event.currentTarget, event) ? event.currentTarget.dataset.scheduleControl : null };
         if (!ui.beginRender(render)) return;
         // Schedules existing start-time boundaries without changing panel semantics.
         ui.groups(tasks);
@@ -127,6 +142,11 @@ function mountTaskWorkspace({ plugin, component, dv, root, toolbar, filesGrid, f
         const selection = { ...state, status: "open", necessity: "", date: "" };
         const now = new Date();
         const visible = filterTasks(tasks, selection, now, task => describe(task) + " " + projectLabel(task));
+        const focused = content.ownerDocument.activeElement;
+        const requestedFocus = scheduleFocusRequest?.control === focused ? scheduleFocusRequest.key : undefined;
+        const focusKey = requestedFocus !== undefined ? requestedFocus :
+            content.contains(focused) && hasKeyboardFocus(focused) ? focused.dataset.scheduleControl : null;
+        scheduleFocusRequest = undefined;
         content.empty();
         const context = { workspace, resource, folders: locations.filter(item => item.folder), now,
             ui, pending, currentPath, locationLabel: describe, projectLabel, phaseLabel: task => plugin.planning?.phaseFor(task)?.name, apply, edit, create, render,
@@ -138,9 +158,11 @@ function mountTaskWorkspace({ plugin, component, dv, root, toolbar, filesGrid, f
             renderScheduleToolbar(panel, context, state);
             renderUpcoming(panel, visible, context);
         }
+        if (focusKey) focusControl(content.querySelector(`[data-schedule-control="${focusKey}"]`));
     }
     function mode(value, initial = false) {
         syncHeaderHeight();
+        scheduleFocusRequest = undefined;
         state.mode = value;
         const active = value === "schedule";
         root.classList.toggle("is-task-workspace", active);

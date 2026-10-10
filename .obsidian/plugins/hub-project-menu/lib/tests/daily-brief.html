@@ -61,7 +61,7 @@ try{
  assert(root.textContent.includes('Earlier meaningful work.'),'Earlier date renders its own factual summary');
  root.querySelector('.hub-brief-back').click();await settle();assert(root.querySelector('.hub-brief-next'),'Return restores current recommendation');
  assert(Math.abs(modal.modalEl.getBoundingClientRect().width-720)<1,'Same 720px modal width as reports');
- modal.modalEl.style.width='310px';await settle();assert(root.scrollWidth<=root.clientWidth+1,'Narrow content wraps without horizontal overflow');
+ modal.modalEl.style.width='310px';await settle();assert(modal.modalEl.scrollWidth<=modal.modalEl.clientWidth+1,'Narrow content wraps without horizontal overflow (body focus-ring gutter retained)');
  modal.modalEl.style.width='';
  assert(root.querySelectorAll('.hub-brief-day').length===3,'Earlier days limited to three');
  result.textContent='PASS: native report-card reuse, 3+N workspaces, read-only historical indicators, provider action, report date, earlier browsing/back, no fillers/branding/gradient, modal width and narrow wrapping.';
