@@ -1,0 +1,2 @@
+PASS: shared footer, all 15 shipped categories, developer-only Daily brief hidden, keyboard navigation, initial Appearance, inert preview controls/search, zero store/navigation access, stable underlying views, independent scrolling, narrow layouts and Atlas bridge/subscription/style cleanup. 
+Screenshot: C:\Users\EL_BAR~1\AppData\Local\Temp\hub-settings-verified.png

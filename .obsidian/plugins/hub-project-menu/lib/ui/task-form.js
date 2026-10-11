@@ -1,4 +1,5 @@
 "use strict";
+const { hasKeyboardFocus, focusAfterRowRemoval } = require("./focus-restoration");
 const { setHubIcon } = require("./icons");
 const { bindCompletionSound, playStepCompletionSound } = require("./completion-audio");
 const { mountTaskDateTime } = require("./date-time");
@@ -57,11 +58,13 @@ function mountTaskFields({ app, host, state, onChange = () => {}, section = (tit
             const input = row.createEl("input", { type: "text", attr: { "aria-label": "Step text", required: "" } }); input.value = step.text ?? "";
             input.addEventListener("input", () => { step.text = input.value; onChange({ steps: state.steps }); });
             const remove = row.createEl("button", { attr: { type: "button", "aria-label": "Remove step " + (index + 1) } }); setHubIcon(remove, "x");
-            remove.addEventListener("click", () => {
+            remove.addEventListener("click", event => {
+                const restoreFocus = hasKeyboardFocus(remove, event);
                 // Removing an existing Markdown Step also removes its nested
                 // descendants, exactly as in the ordinary editor.
                 state.steps = state.steps.filter(child => child !== step && !(step.line != null && child.line > step.line && child.line < step.end));
                 renderSteps(); onChange({ steps: state.steps });
+                if (restoreFocus) focusAfterRowRemoval([...list.querySelectorAll(".hub-task-step > button")], index, add);
             });
         });
     };
@@ -83,7 +86,7 @@ function mountTaskRelationshipFields({ host, state, service, location, onChange 
     const association = project.createEl("select", { attr: { "aria-label": "Project (optional)" } });
     const phaseSection = section("Phase");
     const phaseLabel = phaseSection.createEl("label");
-    phaseLabel.createSpan({ text: "Project phase (optional)", cls: "hub-task-help" });
+    phaseLabel.createSpan({ text: "Project phase (optional)", cls: "hub-capture-label" });
     const phase = phaseLabel.createEl("select", { attr: { "aria-label": "Project phase (optional)" } });
     const options = (select, items, selected, placeholder) => {
         select.replaceChildren(); select.createEl("option", { text: placeholder, attr: { value: "" } });

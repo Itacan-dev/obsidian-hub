@@ -16,13 +16,14 @@ const runtimeErrors=[];window.addEventListener('error',e=>runtimeErrors.push(e.m
 let clock=new Date(2026,8,22,14,0).getTime();
 const pad=n=>String(n).padStart(2,'0');
 class LocalMoment {
- constructor(value){this.date=new Date(value instanceof LocalMoment?value.valueOf():value===undefined?clock:typeof value==='string'&&value.length===10?value+'T00:00:00':value)}
- clone(){return new LocalMoment(this)} valueOf(){return this.date.getTime()}
- add(n,unit){assert(unit==='days','Only calendar-day additions');this.date.setDate(this.date.getDate()+n);return this}
- startOf(unit){this.date.setHours(0,0,0,0);if(unit==='isoWeek')this.date.setDate(this.date.getDate()-(this.date.getDay()+6)%7);else assert(unit==='day','Known start unit');return this}
- endOf(unit){assert(unit==='day','Known end unit');this.date.setHours(23,59,59,999);return this}
+ constructor(value){this._date=new Date(value instanceof LocalMoment?value.valueOf():value===undefined?clock:typeof value==='string'&&value.length===10?value+'T00:00:00':value)}
+ year(){return this._date.getFullYear()} month(){return this._date.getMonth()} date(){return this._date.getDate()} day(){return this._date.getDay()} hour(){return this._date.getHours()} minute(){return this._date.getMinutes()}
+ clone(){return new LocalMoment(this)} valueOf(){return this._date.getTime()}
+ add(n,unit){assert(unit==='days','Only calendar-day additions');this._date.setDate(this._date.getDate()+n);return this}
+ startOf(unit){this._date.setHours(0,0,0,0);if(unit==='isoWeek')this._date.setDate(this._date.getDate()-(this._date.getDay()+6)%7);else assert(unit==='day','Known start unit');return this}
+ endOf(unit){assert(unit==='day','Known end unit');this._date.setHours(23,59,59,999);return this}
  isoWeek(){return 39}
- format(pattern){const d=this.date;if(pattern==='YYYY-MM-DD')return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;if(pattern==='HH:mm')return `${pad(d.getHours())}:${pad(d.getMinutes())}`;if(pattern==='ddd')return d.toLocaleDateString('en',{weekday:'short'});if(pattern==='D MMM')return `${d.getDate()} ${d.toLocaleDateString('en',{month:'short'})}`;assert(pattern===undefined,'Known date format');return d.toISOString()}
+ format(pattern){const d=this._date;if(pattern==='YYYY-MM-DD')return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;if(pattern==='HH:mm')return `${pad(d.getHours())}:${pad(d.getMinutes())}`;if(pattern==='ddd')return d.toLocaleDateString('en',{weekday:'short'});if(pattern==='D MMM')return `${d.getDate()} ${d.toLocaleDateString('en',{month:'short'})}`;assert(pattern===undefined,'Known date format');return d.toISOString()}
 }
 const moment=value=>new LocalMoment(value);
 const timers=new Map();let timerId=0;
@@ -30,10 +31,11 @@ const every=(fn,delay)=>{assert(delay===60000,'Exactly one minute interval');con
 const tick=async value=>{clock=new Date(value).getTime();for(const fn of [...timers.values()])fn();await settle()};
 const event=(time,title,extra={})=>({start:moment(`2026-09-22T${time}:00`),title,calendarColor:'#80c8c8',...extra});
 window.onload=async()=>{try{
+ const dates={exports:{}};new Function('module',await(await fetch('../domain/dates.js')).text())(dates);
  const source=await(await fetch('../../../../../System/Dashboards/Home/view.js')).text();
  const agenda=source.slice(source.indexOf('calendarTodayButton.disabled = true;'),source.indexOf('// ---------- PROJECTS ----------'));
  const frameModule={exports:{}};new Function('module','require',await(await fetch('../ui/dashboard-frame.js')).text())(frameModule,()=>({refreshHeaderImages(){}}));
- const build=new Function('dv','app','frame','calendar','calendarHeader','calendarTodayButton','moment','el','setInterval','clearInterval',
+ const build=new Function('dv','app','frame','calendar','calendarHeader','calendarTodayButton','moment','el','setInterval','clearInterval','formatTime','formatDateRange','formatWeekday','historyDate',
   'let homeCalendarEventCount=null;const updateHomeContext=()=>{};'+agenda+';return {body:calendarBody,refresh:refreshCalendarNow,update:updateCalendarNow,render:renderCalendarWeek,get summary(){return homeCalendarEventCount}}');
  const views=[];
  async function mount(events=[],host=null,enabled=true){
@@ -43,7 +45,7 @@ window.onload=async()=>{try{
   const panel=frame.root.createDiv({cls:'home-panel home-calendar'}),header=panel.createDiv({cls:'home-panel-title',text:'Calendar'}),today=header.createEl('button',{cls:'home-calendar-today hub-panel-action',text:'Today'});
   const queries=[],scrolls=[];const nativeScroll=panel.scrollTo.bind(panel);panel.scrollTo=options=>{scrolls.push(options);nativeScroll(options)};
   const app={plugins:{plugins:enabled?{'google-calendar-agenda':{async runQuery(query){queries.push(query);return {events:events.filter(e=>e.start.valueOf()>=query.from.valueOf()&&e.start.valueOf()<=query.to.valueOf()),warnings:[]}}}}:{}}};
-  const controls=build({container:host,component:owner},app,frame,panel,header,today,moment,(p,t,c,text)=>p.createEl(t,{cls:c,text}),every,id=>timers.delete(id));
+  const controls=build({container:host,component:owner},app,frame,panel,header,today,moment,(p,t,c,text)=>p.createEl(t,{cls:c,text}),every,id=>timers.delete(id),dates.exports.formatTime,dates.exports.formatDateRange,dates.exports.formatWeekday,dates.exports.historyDateLabel);
   const view={...controls,host,owner,frame,panel,header,today,queries,scrolls,events};views.push(view);frame.commit();await settle();return view;
  }
  const nowRow=v=>v.body.querySelector('.home-calendar-now');
@@ -95,6 +97,8 @@ window.onload=async()=>{try{
  clock=new Date(2026,2,29,1,59).getTime();v=await mount([]);await tick('2026-03-29T03:00:00');assert(day(v).dataset.calendarDate==='2026-03-29'&&nowRow(v).textContent==='03:00','Local daylight-saving transition preserves date and wall time');v.owner.unload();v.host.remove();
  v=await mount([],null,false);assert(v.body.textContent.includes('Google Calendar Agenda is not enabled.')&&!nowRow(v),'Disabled integration retains existing message');v.owner.unload();v.host.remove();
  assert(timers.size===0&&!runtimeErrors.length,'All clocks cleaned up, no runtime errors: '+runtimeErrors.join(';'));
+ v=await mount([]);v.host.style.width='320px';v.body.replaceChildren();v.render(moment('2026-12-28'),[]);await settle();
+ assert(v.body.querySelector('.home-calendar-week-range').textContent==='28 Dec 2026 \u2013 3 Jan 2027','Home cross-year week identifies both years');assert(v.body.querySelector('.home-calendar-weekday').textContent==='Mon','English calendar weekdays');assert(v.panel.scrollWidth<=v.panel.clientWidth+1,'Cross-year labels fit compact calendar');v.owner.unload();v.host.remove();
  // Leave a compact representative preview using the production rendering/CSS.
  clock=new Date(2026,8,22,23,5).getTime();v=await mount([event('00:30','Clases de ingl\u00e9s'),event('16:00','Lilly',{location:'Skogsfrugr\u00e4nd 36, 167 62 Bromma, Suecia'})]);
  v.panel.scrollTop+=day(v).getBoundingClientRect().top-v.panel.getBoundingClientRect().top-v.header.getBoundingClientRect().height-4;await settle();v.owner.unload();

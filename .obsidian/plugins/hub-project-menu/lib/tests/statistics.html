@@ -9,7 +9,7 @@ HTMLElement.prototype.createEl=function(tag,o={}){const e=document.createElement
 HTMLElement.prototype.createDiv=function(o){return this.createEl('div',o)};HTMLElement.prototype.createSpan=function(o){return this.createEl('span',o)};HTMLElement.prototype.empty=function(){this.replaceChildren()};
 class Modal{constructor(app){this.app=app;this.containerEl=document.body.createDiv({cls:'modal-container'});this.modalEl=this.containerEl.createDiv({cls:'modal'});this.contentEl=this.modalEl.createDiv({cls:'modal-content'});this.modalEl.createEl('button',{cls:'modal-close-button',text:'×',attr:{'aria-label':'Close'}}).onclick=()=>this.close();this.escape=e=>{if(e.key==='Escape')this.close()}}open(){this.onOpen();document.addEventListener('keydown',this.escape)}close(){this.onClose();document.removeEventListener('keydown',this.escape);this.containerEl.remove()}}
 const native={Modal,setIcon:(el,name)=>{el.dataset.icon=name;el.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="10"/><path d="M12 10v7M12 7v1"/></svg>'}};
-const names=['domain/dates','domain/history','domain/contexts','domain/statistics','services/statistics','ui/statistics-charts','ui/tooltips','ui/statistics'],sources={},cache={};
+const names=["ui/window-title",'domain/dates','domain/history','domain/contexts','domain/statistics','services/statistics','ui/statistics-charts','ui/tooltips','ui/statistics'],sources={},cache={};
 for(const name of names)sources[name]=await(await fetch('../'+name+'.js')).text();
 function load(name){if(name==='obsidian')return native;if(cache[name])return cache[name].exports;const m=cache[name]={exports:{}};new Function('module','require',sources[name])(m,n=>{if(n==='obsidian')return native;const path=(name.slice(0,name.lastIndexOf('/'))+'/'+n).split('/'),out=[];for(const p of path){if(p==='..')out.pop();else if(p!=='.')out.push(p)}return load(out.join('/'))});return m.exports}
 const assert=(v,m)=>{if(!v)throw Error(m)},settle=()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
@@ -56,14 +56,15 @@ try{
  assert(modal.workspaceSelect.selectedOptions[0].textContent==='All workspaces','Default label');
  assert([...modal.workspaceSelect.querySelectorAll('optgroup')].map(g=>g.label).join(',')==='Projects,Resources','Both workspace categories available');
  const controlRect=modal.workspaceSelect.getBoundingClientRect(),rangesRect=root.querySelector('.hub-statistics-ranges').getBoundingClientRect();
- assert(Math.abs(root.querySelector('.hub-statistics-header h2').getBoundingClientRect().top+root.querySelector('.hub-statistics-header h2').getBoundingClientRect().height/2-controlRect.top-controlRect.height/2)<1,'Statistics title and controls share the desktop header row');
- assert(controlRect.right<rangesRect.left&&Math.abs(controlRect.top-rangesRect.top)<1,'Workspace filter is left of aligned time ranges');
- assert(rangesRect.left-controlRect.right>rangeButtons[1].getBoundingClientRect().left-rangeButtons[0].getBoundingClientRect().right,'Groups have a larger separation');
+ if(root.clientWidth>720){
+  assert(Math.abs(root.querySelector('.hub-statistics-header h2').getBoundingClientRect().top+root.querySelector('.hub-statistics-header h2').getBoundingClientRect().height/2-controlRect.top-controlRect.height/2)<1,'Statistics title and controls share the desktop header row');
+  assert(controlRect.right<rangesRect.left&&Math.abs(controlRect.top-rangesRect.top)<1,'Workspace filter is left of aligned time ranges');
+  assert(rangesRect.left-controlRect.right>rangeButtons[1].getBoundingClientRect().left-rangeButtons[0].getBoundingClientRect().right,'Groups have a larger separation');
+ }else assert(modal.modalEl.scrollWidth<=modal.modalEl.clientWidth+1,'Wrapped narrow header has no horizontal overflow');
  assert(!grid.querySelector('select,[data-filter]'),'No panel selectors');
  const rowHeight=id=>root.querySelector('[data-statistic='+id+']').getBoundingClientRect().height;
  const distributionHeight=rowHeight('distribution');
- assert(Math.abs(rowHeight('distribution')-rowHeight('activity'))<1,'Full top-row card height');
- assert(Math.abs(rowHeight('comparison')-rowHeight('projects'))<1,'Full comparison card height');
+ if(root.clientWidth>720){assert(Math.abs(rowHeight('distribution')-rowHeight('activity'))<1,'Full top-row card height');assert(Math.abs(rowHeight('comparison')-rowHeight('projects'))<1,'Full comparison card height');}
  const initialTaskCount=seriesFor(modal.model,'tasks','project').reduce((a,b)=>a+b,0);
  for(const [range]of RANGES){modal.rangeButtons.find(([key])=>key===range)[1].click();assert(modal.range===range,'Range state');assert(root.querySelectorAll('.hub-statistics-ranges [aria-pressed=true]').length===1,'Range accessible state');assert(!/NaN|Infinity/.test(root.textContent+root.innerHTML),'Finite chart geometry');}
  modal.rangeButtons.find(([key])=>key==='7d')[1].click();assert(seriesFor(modal.model,'tasks','project').reduce((a,b)=>a+b,0)<initialTaskCount,'Period actually updates values');
@@ -121,7 +122,10 @@ try{
  ranking.scrollTop=80;assert(ranking.scrollTop===80,'Ranking scroll works');ranking.scrollTop=0;
  assert(root.querySelector('[title^="A project with a very long"]').scrollWidth>root.querySelector('[title^="A project with a very long"]').clientWidth,'Long names truncate and expose title');
  assert(root.textContent.includes('(Future)')&&root.textContent.includes('(Shelved)')&&root.textContent.includes('(Deleted)'),'Historical/state distinctions');
- assert(getComputedStyle(root).overflowY==='auto','Native content retains vertical scrolling when needed');
+ const scrollBody=root.querySelector('.hub-modal-body'),modalHeader=root.querySelector('.hub-statistics-header');
+ assert(getComputedStyle(root).overflowY!=='auto'&&getComputedStyle(scrollBody).overflowY==='auto','Only Statistics body scrolls');
+ const headerTop=modalHeader.getBoundingClientRect().top;
+ for(const fraction of [0,.5,1,0]){scrollBody.scrollTop=(scrollBody.scrollHeight-scrollBody.clientHeight)*fraction;await settle();assert(modalHeader.getBoundingClientRect().top===headerTop&&root.scrollTop===0,'Statistics header stays visible at '+fraction);}
  const chart=root.querySelector('.hub-statistics-plot');chart.focus();const before=chart.getAttribute('aria-label');chart.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowRight',bubbles:true}));assert(chart.getAttribute('aria-label')!==before,'Keyboard chart details');
  assert(!root.querySelector('details,summary,.hub-statistics-hint'),'No visible disclosure or permanent methodology');
  assert(root.querySelector('.hub-statistics-sr-only table').querySelectorAll('tbody tr').length===modal.model.range.bins.length,'Accessible aggregated chart data');
@@ -131,7 +135,14 @@ try{
  assert(document.querySelector('.hub-statistics-point-tooltip:not([hidden])'),'Hover exposes exact value');
  chart.dispatchEvent(new PointerEvent('pointerleave'));assert(!document.querySelector('.hub-statistics-point-tooltip:not([hidden])'),'Leaving hides tooltip');
  assert(root.querySelectorAll('[data-statistic=oaths] .hub-statistics-metrics > div').length===3&&root.querySelectorAll('[data-statistic=notes] .hub-statistics-metrics > div').length===2,'Three Oath tiles and exactly two Notes tiles');
- assert(root.querySelectorAll('.hub-statistics-help').length===3,'Oaths, Notes and comparison use existing help pattern');
+ assert(root.querySelectorAll('.hub-statistics-help').length===6,'Six approved metric headings use existing help pattern');
+ for(const id of ['activity','projects','distribution','oaths','notes','comparison']){
+  const heading=root.querySelector('[data-statistic='+id+'] .hub-statistics-card-heading'),help=heading.querySelector('button');
+  assert(help.getAttribute('aria-label')==='About '+heading.querySelector('h3').textContent&&help.hasAttribute('aria-description'),'Help retains accessible name and shared description');
+  assert(!heading.hasAttribute('title')&&!help.hasAttribute('title')&&!help.hasAttribute('aria-labelledby')&&!help.hasAttribute('aria-describedby'),'No duplicate native tooltip or conflicting naming');
+ }
+ assert(!root.querySelector('[data-statistic=completions] .hub-statistics-help'),'Completions intentionally has no help button');
+ assert(root.querySelector('[data-statistic=distribution] button').getAttribute('aria-description').includes('0–4 per workspace/report'),'Distribution describes rating points rather than time');
  assert(getComputedStyle(root.querySelector('.hub-statistics-metrics > div')).backgroundColor==='rgb(30, 30, 30)','Dark metric tiles preserved');
  assert(root.querySelector('.hub-statistics-workspace').getBoundingClientRect().height===rangeButtons[0].getBoundingClientRect().height,'Global filter matches compact controls');
  const denseHeight=grid.getBoundingClientRect().height;
@@ -140,7 +151,7 @@ try{
  const few=new StatisticsModal({},null,{source:fewSource});few.open();await settle();
  const unassigned=few.contentEl.querySelector('.is-unassigned');assert(unassigned&&unassigned.textContent.includes('67%'),'Unassigned remains sorted and in denominator');
  assert(getComputedStyle(unassigned.querySelector('.hub-statistics-fill')).backgroundColor==='rgb(119, 119, 119)','Unassigned has muted bar');
- assert(Math.abs(few.grid.querySelector('[data-statistic=distribution]').getBoundingClientRect().height-few.grid.querySelector('[data-statistic=activity]').getBoundingClientRect().height)<1,'Sparse cards fill row');few.close();
+ if(few.contentEl.clientWidth>720)assert(Math.abs(few.grid.querySelector('[data-statistic=distribution]').getBoundingClientRect().height-few.grid.querySelector('[data-statistic=activity]').getBoundingClientRect().height)<1,'Sparse cards fill row');few.close();
 
  const mixed=new StatisticsModal({},null,{source:prepareStatistics({workspaces:[workspaces[0]],completions:[{id:'one',projectId:'p0',timestamp:now-hour}]},now)});mixed.open();await settle();
  const filled=mixed.contentEl.querySelector('[data-statistic=completions]');
@@ -148,7 +159,7 @@ try{
  const comparisonHelp=root.querySelector('[data-statistic=comparison] .hub-statistics-help');
  comparisonHelp.dispatchEvent(new PointerEvent('pointermove',{bubbles:true}));
  assert(document.querySelector('.hub-detail-tooltip:not(.hub-statistics-point-tooltip)')?.textContent.includes('Share of progress report points'),'Comparison basis is in help');comparisonHelp.dispatchEvent(new PointerEvent('pointerout',{bubbles:true}));
- const help=root.querySelector('.hub-statistics-help');
+ const help=root.querySelector('[data-statistic=oaths] .hub-statistics-help');
  help.dispatchEvent(new PointerEvent('pointermove',{bubbles:true}));
  assert(document.querySelector('.hub-detail-tooltip:not(.hub-statistics-point-tooltip)')?.textContent.includes('Ended sessions'),'Methodology appears only on interaction');
  help.dispatchEvent(new PointerEvent('pointerout',{bubbles:true}));
@@ -156,7 +167,7 @@ try{
  const initialWidth=modal.modalEl.getBoundingClientRect().width;
  for(const width of [1000,680,420,310]){
   modal.modalEl.style.width=width+'px';await settle();
-  assert(root.scrollWidth<=root.clientWidth+1,'No horizontal overflow at '+width);
+  assert(modal.modalEl.scrollWidth<=modal.modalEl.clientWidth+1,'No horizontal overflow at '+width);
   for(const button of rangeButtons)assert(Math.abs(button.getBoundingClientRect().width-rangeWidth)<1&&getComputedStyle(button).whiteSpace==='nowrap','Range labels keep equal natural widths without wrapping at '+width);
   for(const plot of root.querySelectorAll('.hub-statistics-plot'))assert(Math.abs(plot.viewBox.baseVal.width-plot.getBoundingClientRect().width)<1,'Chart text keeps native proportions at '+width);
   const cols=getComputedStyle(grid).gridTemplateColumns.split(' ').length;

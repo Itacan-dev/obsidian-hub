@@ -1,0 +1,125 @@
+<!doctype html><meta charset="utf-8"><title>Editor saving and focus validation</title>
+<link rel="stylesheet" href="../../styles.css">
+<link rel="stylesheet" href="../../../../../System/Dashboards/Home/view.css">
+<link rel="stylesheet" href="../../../../../System/Dashboards/Project/view.css">
+<style>
+body{font:14px Arial;background:#1e1e1e;color:#ddd;--text-normal:#ddd;--text-muted:#999;--text-faint:#777;--background-primary:#1e1e1e;--background-secondary:#262626;--background-modifier-border:#444;--interactive-accent:#8955ed}
+.modal{width:650px;margin:20px;padding:24px;background:#262626}.modal-content{max-height:260px;overflow:auto}
+button,input,textarea,select{background:#333;color:#ddd}textarea{width:100%}
+</style><pre id="result">RUNNING</pre>
+<script type="module">
+const assert=(ok,message)=>{if(!ok)throw Error(message)},settle=async()=>{for(let i=0;i<12;i++)await Promise.resolve();await new Promise(requestAnimationFrame);await new Promise(requestAnimationFrame)};
+window.addEventListener('error',e=>result.textContent='FAIL '+(e.error?.stack||e.message));
+window.addEventListener('unhandledrejection',e=>result.textContent='FAIL '+e.reason?.stack);
+HTMLElement.prototype.createEl=function(tag,o={}){const e=document.createElement(tag);e.className=o.cls||'';e.textContent=o.text||'';for(const[k,v]of Object.entries(o.attr||{}))e.setAttribute(k,v);if(o.type)e.type=o.type;this.append(e);return e};
+HTMLElement.prototype.createDiv=function(o){return this.createEl('div',o)};HTMLElement.prototype.createSpan=function(o){return this.createEl('span',o)};
+HTMLElement.prototype.addClass=function(...names){this.classList.add(...names)};HTMLElement.prototype.toggleClass=function(name,value){this.classList.toggle(name,value)};
+HTMLElement.prototype.empty=function(){this.replaceChildren()};HTMLElement.prototype.setText=function(text){this.textContent=text};
+const notices=[],opened=[];
+class Modal{
+ constructor(){this.containerEl=document.createElement('div');this.modalEl=this.containerEl.createDiv({cls:'modal'});this.closeButton=this.modalEl.createEl('button',{text:'Close window',cls:'modal-close-button'});this.closeButton.onclick=()=>this.close();this.contentEl=this.modalEl.createDiv({cls:'modal-content'});this.escape=e=>{if(e.key==='Escape'&&opened.at(-1)===this)this.close()};this.containerEl.onclick=e=>{if(e.target===this.containerEl)this.close()}}
+ open(){opened.push(this);document.body.append(this.containerEl);document.addEventListener('keydown',this.escape);this.onOpen()}
+ close(){this.onClose?.();this.containerEl.remove();opened.splice(opened.indexOf(this),1);document.removeEventListener('keydown',this.escape)}
+}
+const key=key=>new Promise(resolve=>{window.hubTestKeyDone=resolve;window.hubTestKeyRequest=key});
+const defer=()=>{let resolve,reject;const promise=new Promise((yes,no)=>{resolve=yes;reject=no});return{promise,resolve,reject}};
+const sources={};
+async function load(name,require=()=>{}){const module={exports:{}};new Function('module','require','process',await(await fetch('../'+name+'.js')).text())(module,require,{env:{}});return sources[name]=module.exports}
+const config=await load('config'),focus=await load('domain/focus'),attention=await load('ui/attention'),save=await load('ui/modal-save'),tooltips=await load('ui/tooltips');
+const title=await load('ui/window-title',()=>({setIcon(){}})),thumbnail=await load('ui/workspace-thumbnail',()=>config),header=await load('ui/report-workspace-header',()=>thumbnail);
+const focusRestore=await load('ui/focus-restoration');
+const Notice=class{constructor(message){notices.push(message)}},source=await(await fetch('../../plugin.js')).text();
+const code=source.slice(source.indexOf('class FocusListEditor'),source.indexOf('function confirmAction('));
+const classes=new Function('hasKeyboardFocus','focusAfterRowRemoval','Modal','Notice','normalizeFocusItems','mountTransientEffects','lockModalControls','PROJECT_ADVANCEMENT_OPTIONS','progressRatingOptions','createImmediateHubTooltip','setIcon','createWindowTitle','setWindowUndertext','renderReportWorkspaceHeader','layoutModal',code+';return {ProjectAdvancementModal,DailyFocusModal};')(
+ focusRestore.hasKeyboardFocus,focusRestore.focusAfterRowRemoval,Modal,Notice,focus.normalizeFocusItems,attention.mountTransientEffects,save.lockModalControls,config.PROJECT_ADVANCEMENT_OPTIONS,config.progressRatingOptions,tooltips.createImmediateHubTooltip,()=>{},title.createWindowTitle,title.setWindowUndertext,header.renderReportWorkspaceHeader,title.layoutModal);
+const projects=[{projectId:'p',name:'Project'},{projectId:'resource:study',name:'Knowledge',contextKind:'resource'}];
+const intention=(editor,text,workspace='')=>{const entry=editor.rows.find(row=>!row.input.value.trim());entry.input.value=text;entry.input.dispatchEvent(new Event('input'));entry.projectSelect.value=workspace;entry.projectSelect.dispatchEvent(new Event('change'));return entry};
+async function pendingChecks(modal,field,count,label){
+ assert(modal.saving&&modal.modalEl.getAttribute('aria-busy')==='true',label+': pending state');
+ assert([...modal.contentEl.querySelectorAll('button,input,textarea,select')].every(control=>control.disabled),label+': every content control locked');
+ const text=field.value;field.focus();await key('x');assert(field.value===text,label+': browser typing cannot edit disabled field');
+ modal.closeButton.click();await key('Escape');modal.containerEl.click();modal.close();
+ assert(modal.containerEl.isConnected,label+': close button, Escape, backdrop and direct close blocked');
+ modal.saveButton?.click();if(modal.save)await modal.save();else field.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}));
+ assert(count()===1,label+': rapid submissions persist once');
+}
+try{
+ // Exercise the actual report and daily-focus modal classes with controlled persistence.
+ for(const kind of ['historical','exit','daily']){
+  let gate=defer(),calls=0,payload,saved=0,cancelled=0;
+  const onSave=value=>{calls++;payload=value;return gate.promise},onSaved=()=>saved++,onCancel=()=>cancelled++;
+  const modal=kind==='daily'?new classes.DailyFocusModal({}, {date:'2026-10-09',projects,items:[],onSave,onSaved,onCancel}):new classes.ProjectAdvancementModal({}, {
+   projects:[projects[0]],resources:[projects[1]],currentScores:kind==='historical'?{p:3,'resource:study':2}:{},currentSummaries:{p:'Keep these comments'},
+   showNextFocus:true,focusProjects:projects,requireEveryProject:kind==='exit',requireExplicitRatings:kind==='exit',allowNoProgress:true,showCancel:kind==='historical',onSave,onSaved,onCancel});
+  modal.open();
+  if(kind==='exit'){
+   assert(!modal.saveButton.disabled&&modal.saveButton.getAttribute('aria-disabled')==='true','Exit Save remains dimmed and clickable');
+   modal.saveButton.click();await settle();assert(calls===0&&!modal.saving&&!modal.modalEl.hasAttribute('aria-busy'),'Missing ratings never lock or persist');
+   assert(modal.contentEl.querySelectorAll('.hub-attention').length===2,'Exit only missing rating groups pulse');
+   modal.contentEl.querySelector('[data-project-id="p"] [data-score="0"]').click();
+   modal.contentEl.querySelector('[data-project-id="resource:study"] [data-score="4"]').click();
+   assert(modal.saveButton.getAttribute('aria-disabled')==='false','Explicit zero and positive ratings satisfy exit validation');
+  }
+  const entry=intention(modal.focusEditor,'Keep this intention','p');
+  if(kind==='daily')intention(modal.nextFocusEditor,'Keep next intention','resource:study');
+  const field=kind==='daily'?entry.input:modal.summaryInputs.get('p');
+  if(kind!=='exit')field.value='Preserved input';
+  const original=field.value,sentinel=modal.contentEl.createEl('button',{text:'Previously disabled'});sentinel.disabled=true;
+  const before=[...modal.contentEl.querySelectorAll('button,input,textarea,select')].map(control=>[control,control.disabled]);
+  modal.saveButton.click();modal.saveButton.click();await pendingChecks(modal,field,()=>calls,kind);
+  assert(saved===0&&cancelled===0,kind+': callbacks wait for persistence');
+  gate.reject(Error('Simulated write failure'));await settle();
+  assert(!modal.saving&&!modal.modalEl.hasAttribute('aria-busy')&&modal.containerEl.isConnected,kind+': failure unlocks and keeps window');
+  assert(before.every(([control,disabled])=>control.disabled===disabled),kind+': exact disabled states restored');
+  assert(field.value===original&&entry.input.value===(kind==='daily'?original:'Keep this intention'),kind+': input survives failure');
+  if(kind==='exit')assert(!('p' in payload.scores)&&payload.scores['resource:study']===4&&payload.summaries.p==='','Exit zero fallback and optional comments unchanged');
+  gate=defer();modal.saveButton.click();await settle();assert(calls===2&&modal.saving,kind+': retry starts');gate.resolve();await settle();
+  assert(!modal.containerEl.isConnected&&saved===1&&cancelled===0,kind+': successful retry closes and runs saved callback once');
+ }
+ // Several invalid intentions, including both daily-focus lists, are independent.
+ for(const kind of ['report','daily']){
+  let calls=0;
+  const modal=kind==='report'?new classes.ProjectAdvancementModal({}, {projects:[projects[0]],currentScores:{p:2},showNextFocus:true,focusProjects:projects,requireEveryProject:false,onSave:async()=>calls++}):
+   new classes.DailyFocusModal({}, {date:'2026-10-09',projects,items:[],onSave:async()=>calls++});
+  modal.open();
+  const filler=modal.contentEl.createDiv();filler.style.height='500px';modal.focusEditor.parent.before(filler);
+  const first=intention(modal.focusEditor,'First missing workspace'),second=intention(modal.focusEditor,'Second missing workspace');
+  const third=kind==='daily'?intention(modal.nextFocusEditor,'Next day missing workspace'):null;
+  const baseline=getComputedStyle(first.projectSelect).backgroundColor;
+  await modal.save();await settle();
+  assert(calls===0&&!modal.saving&&!modal.modalEl.hasAttribute('aria-busy'),'Invalid focus never locks or persists');
+  const invalid=[first,second,...(third?[third]:[])];
+  assert(invalid.every(row=>row.projectSelect.getAttribute('aria-invalid')==='true'&&row.projectSelect.classList.contains('hub-attention')),'Every incomplete intention independently warned');
+  assert(document.activeElement===first.projectSelect&&(modal.contentEl.querySelector(".hub-modal-body") ?? modal.contentEl).scrollTop>0,'First invalid selector revealed and focused');
+  assert(!modal.contentEl.querySelector('.hub-project-advancement-focus-item.hub-attention')&&!modal.contentEl.querySelector('input[data-hub-attention-surface]'),'Warnings do not paint rows, inputs or sections');
+  for(const row of invalid)for(const animation of row.projectSelect.getAnimations()){animation.pause();animation.currentTime=450}
+  await settle();assert(getComputedStyle(first.projectSelect).backgroundColor!==baseline&&first.projectSelect.hasAttribute('data-hub-attention-surface'),'Native selector receives actual shared yellow background');
+  first.projectSelect.value='p';first.projectSelect.dispatchEvent(new Event('change'));
+  assert(!first.projectSelect.hasAttribute('aria-invalid')&&!first.projectSelect.classList.contains('hub-attention')&&!first.projectSelect.hasAttribute('data-hub-attention-surface'),'Correction clears immediately');
+  assert(second.projectSelect.classList.contains('hub-attention'),'Other incomplete intention retains its own warning');
+  second.input.value='   ';second.input.dispatchEvent(new Event('input'));
+  assert(!second.projectSelect.hasAttribute('aria-invalid')&&!second.projectSelect.classList.contains('hub-attention'),'An emptied optional intention clears its warning');
+  if(third){third.projectSelect.value='resource:study';third.projectSelect.dispatchEvent(new Event('change'))}
+  await modal.save();await settle();assert(calls===1&&!modal.containerEl.isConnected,'Valid intentions and optional empty rows save normally');
+  const empty=kind==='report'?new classes.ProjectAdvancementModal({}, {projects:[projects[0]],currentScores:{p:2},showNextFocus:true,focusProjects:projects,onSave:async()=>calls++}):new classes.DailyFocusModal({}, {date:'2026-10-09',projects,items:[],onSave:async()=>calls++});
+  empty.open();await empty.save();assert(!empty.containerEl.isConnected,'Completely empty optional intentions remain valid');
+ }
+ // Run the real preset menu/name editor; isolate only native menu and pointer plumbing.
+ class Menu{constructor(){this.items=[]}addItem(build){const item={setTitle(value){this.title=value;return this},setIcon(){return this},setDisabled(){return this},setWarning(){return this},onClick(fn){this.action=fn;return this}};build(item);this.items.push(item);return this}addSeparator(){}onHide(fn){this.onhide=fn}showAtPosition(){window.lastMenu=this}showAtMouseEvent(){this.showAtPosition()}hide(){this.onhide?.()}}
+ const presetsUI=await load('ui/presets',name=>name==='obsidian'?{Modal,Menu,Notice,setIcon(){}}:name==='./window-title'?title:name==='./modal-save'?save:{createPointerListReorder:()=>({cancel(){},begin(){}})});
+ for(const mode of ['create','rename']){
+  const anchor=document.body.createEl('button',{text:'Presets'});let gate=defer(),calls=0,value;
+  const persist=name=>{calls++;value=name;return gate.promise};
+  const presets={modes:{app:{}},items:mode==='rename'?[{id:'p',name:'Previous name'}]:[],canSave:true,defaultName:()=> 'Default',create:persist,rename:(_,name)=>persist(name)};
+  const menu=presetsUI.showPresetsMenu(anchor,presets);
+  const rows=[...document.querySelectorAll('.hub-presets-menu [role="menuitem"]')];
+  if(mode==='create')rows[0].click();else{rows.at(-1).dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowRight',bubbles:true,cancelable:true}));window.lastMenu.items.find(item=>item.title==='Rename').action()}
+  const modal=opened.at(-1),field=modal.contentEl.querySelector('input'),buttons=modal.contentEl.querySelectorAll('button');
+  field.value='Keep preset name';field.focus();await key('Enter');buttons[1].click();await pendingChecks(modal,field,()=>calls,'preset '+mode);
+  gate.reject(Error('Preset write failed'));await settle();assert(!modal.saving&&field.value==='Keep preset name'&&[...buttons].every(button=>!button.disabled),'Preset failure restores input and actions');
+  gate=defer();field.focus();await key('Enter');await settle();assert(calls===2&&value==='Keep preset name','Preset Enter retry uses retained name');gate.resolve();await settle();assert(!modal.containerEl.isConnected,'Preset success closes normally');menu.destroy();anchor.remove();
+ }
+ assert(opened.length===0&&!document.querySelector('.hub-attention'),'Modal and attention cleanup complete');
+ result.textContent='PASS: report exit/historical, daily focus, preset create/rename; deferred success/failure/retry, duplicate submission, native typing/Enter/Escape, close/backdrop guards, exact control restoration; field-only yellow focus validation, multiple intentions, correction, scroll/focus, optional empty rows and cleanup.';
+}catch(error){result.textContent='FAIL '+error.stack}
+</script>

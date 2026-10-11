@@ -1,0 +1,16 @@
+{
+  "getWindows": {
+    "version": "9.3.0",
+    "packageUrl": "https://registry.npmjs.org/get-windows/-/get-windows-9.3.0.tgz",
+    "packageSha512": "DrOfQSmIcsFax28FfSUjbLTfeOkAG7yeh6NCb/9zzRkDuClXaqYqHuQBPUqcqd1uYS70ygYERSooacMAwvbyVw==",
+    "binaryUrl": "https://github.com/sindresorhus/get-windows/releases/download/v9.3.0/napi-9-win32-unknown-x64.tar.gz",
+    "binarySha256": "3eecfad06ed44f379bc50e02d738fa5dde274ce0206ced4c58b8f776ec9d76b0"
+  },
+  "nutJs": {
+    "commit": "e413fa1f19a19c4631812e4e1eaf47aa732b5cbe",
+    "version": "4.2.0",
+    "provider": "providers/libnut/lib/libnut-window.class.ts",
+    "controls": { "focus": "source-present-unverified", "minimize": "not-implemented", "restore": "not-implemented" }
+  },
+  "route": "Upstream N-API binary diagnostic only; reproducible source-build gate remains unmet"
+}

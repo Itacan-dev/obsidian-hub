@@ -1,0 +1,57 @@
+<!doctype html><meta charset="utf-8"><title>Modal and form consistency checks</title>
+<link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../../../../../System/Dashboards/Home/view.css">
+<style>
+body{margin:0;font:14px Arial;background:#222;color:#ddd;--text-normal:#ddd;--text-muted:#aaa;--background-primary:#222;--background-secondary:#292929;--background-modifier-border:#555;--interactive-accent:#8955ed;--text-on-accent:#fff;--input-shadow:none}
+*{box-sizing:border-box}.modal-container{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:#0008}.modal{padding:16px;background:#292929;max-height:90vh;overflow:auto}.modal-content{width:100%}button,input,textarea,select{font:inherit;color:inherit;background:#333}#host{width:min(600px,calc(100vw - 32px));margin:16px}#result{position:fixed;bottom:0;z-index:9;background:#222;white-space:normal;pointer-events:none;font-size:10px}
+</style><main id="host"></main><pre id="result">RUNNING</pre>
+<script type="module">
+HTMLElement.prototype.createEl=function(tag,o={}){const el=document.createElement(tag);el.className=o.cls||'';el.textContent=o.text??'';if(o.type)el.type=o.type;for(const[k,v]of Object.entries(o.attr||{}))el.setAttribute(k,v);this.append(el);return el};
+HTMLElement.prototype.createDiv=function(o){return this.createEl('div',o)};HTMLElement.prototype.createSpan=function(o){return this.createEl('span',o)};HTMLElement.prototype.empty=function(){this.replaceChildren()};
+let count=0;const assert=(ok,message)=>{count++;if(!ok)throw Error(message)},settle=async()=>{for(let i=0;i<12;i++)await Promise.resolve();await new Promise(requestAnimationFrame)};
+const key=value=>new Promise(resolve=>{window.hubTestKeyDone=resolve;window.hubTestKeyRequest=value});
+class Modal{constructor(app){this.app=app;this.containerEl=document.body.createDiv({cls:'modal-container'});this.modalEl=this.containerEl.createDiv({cls:'modal'});this.contentEl=this.modalEl.createDiv({cls:'modal-content'});this.escape=e=>{if(e.key==='Escape')this.close()}}open(){this.onOpen();document.addEventListener('keydown',this.escape)}close(){this.onClose?.();this.containerEl.remove();document.removeEventListener('keydown',this.escape)}}
+const icons={setHubIcon(el,name){el.dataset.icon=name;el.innerHTML='<svg width="16" height="16" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>'}};
+async function load(name,require=()=>{}){const m={exports:{}};new Function('module','require',await(await fetch('../'+name+'.js')).text())(m,require);return m.exports}
+try{
+ const dates=await load('domain/dates'),focus=await load('ui/focus-restoration'),datetime=await load('ui/date-time',name=>name==='obsidian'?{Modal}:name==='./icons'?icons:dates);
+ const task=await load('ui/task-form',name=>name==='./focus-restoration'?focus:name==='./icons'?icons:name==='./date-time'?datetime:{bindCompletionSound(){},playStepCompletionSound(){}});
+ const title=await load('ui/window-title',()=>({setIcon(){}}));
+ const planning=await load('ui/planning-editor',name=>name==='obsidian'?{Modal,FuzzySuggestModal:class{}}:name==='./focus-restoration'?focus:name==='./window-title'?title:dates);
+ const host=document.getElementById('host');
+ const labelStyle=span=>{const s=getComputedStyle(span);return [s.fontSize,s.fontWeight,s.color,s.marginBottom].join('|')};
+ let taskGap;
+ for(const family of ['Task','Quick Add','Inbox']){
+  host.className='hub-button-scope hub-task-form'+(family==='Task'?'':' hub-capture-form');host.replaceChildren();
+  const state={text:'Task',steps:[],fromDate:'2026-10-10',dueDate:'2026-10-11'},changes=[];
+  const fields=task.mountTaskFields({app:{},host,state,onChange:patch=>changes.push(patch)});
+  const relationship=task.mountTaskRelationshipFields({host,state,service:{context:()=>({contextKind:'project',projectId:'p'}),phases:()=>[{id:'phase',name:'Phase'}]},location:()=> 'Projects/P/Tasks.md'});
+  const phase=host.querySelector('[aria-label="Project phase (optional)"]'),label=phase.previousElementSibling;
+  const reference=label.parentElement.createSpan({cls:'hub-capture-label',text:'Reference label'});
+  assert(label.classList.contains('hub-capture-label')&&!label.classList.contains('hub-task-help'),family+' Project phase uses shared label class');assert(labelStyle(label)===labelStyle(reference),family+' label typography, color and gap match shared labels: '+labelStyle(label)+' / '+labelStyle(reference));reference.remove();
+  assert(phase.value===''&&label.textContent.endsWith('(optional)'),family+' optional Phase unchanged');
+  phase.value='phase';phase.dispatchEvent(new Event('change'));assert(state.phaseId==='phase',family+' Phase selection unchanged');
+  const add=host.querySelector('.hub-task-add-step'),s=getComputedStyle(add);assert(s.justifyContent==='center'&&s.height==='44px'&&s.columnGap==='10px',family+' shared centered Add step preserves height/gap');
+  const r=add.getBoundingClientRect(),first=add.firstElementChild.getBoundingClientRect(),last=add.lastElementChild.getBoundingClientRect();assert(Math.abs((first.left+last.right)/2-(r.left+r.right)/2)<1,family+' icon/text group visibly centered');
+  add.focus();await key('Enter');assert(state.steps.length===1&&document.activeElement.getAttribute('aria-label')==='Step text',family+' keyboard Add step retains creation/focus');
+  const text=document.activeElement;text.value='Required step';text.dispatchEvent(new Event('input'));assert(state.steps[0].text==='Required step',family+' step edits retained');
+  const remove=host.querySelector('.hub-task-step button');remove.focus();await key(' ');assert(state.steps.length===0&&document.activeElement===add,family+' keyboard removal retains earlier focus improvement');
+  const help=host.createEl('p',{cls:'hub-task-help',text:'Supporting help'});assert(getComputedStyle(help).color!==getComputedStyle(label).color&&parseFloat(getComputedStyle(help).fontSize)<parseFloat(getComputedStyle(label).fontSize),family+' supporting help remains distinct');help.remove();
+  if(family==='Task')taskGap=getComputedStyle(host.querySelector('.hub-task-date-fields')).gap;
+  assert(host.scrollWidth<=host.clientWidth+1,family+' controls fit viewport');fields.destroy();
+ }
+ host.replaceChildren();host.className='';
+ const saves=[],service={plugin:{app:{}},read:()=>({revision:1,phases:[]}),tasks:()=>[],async savePhase(id,value,assignments,revision){saves.push({kind:'phase',value,assignments,revision})},async saveMilestone(id,value,revision){saves.push({kind:'milestone',value,revision})}};
+ for(const kind of ['phases','milestones']){
+  const modal=planning.openPlanningEditor(service,'p',kind,null,{}),root=modal.contentEl;
+  const fields=root.querySelector('.hub-task-date-fields');assert(getComputedStyle(fields).gap===taskGap,'Planning date gap inherits shared Task spacing');assert(getComputedStyle(fields).display==='flex'&&getComputedStyle(fields).flexWrap==='wrap','Planning retains compact wrapping layout');
+  for(const label of root.querySelectorAll('label:not(.hub-milestone-achieved-label)'))assert(getComputedStyle(label.firstElementChild).marginBottom==='8px','Planning labels retain shared 8px control gap');
+  const description=root.querySelector('textarea');if(description){const label=description.previousElementSibling,reference=label.parentElement.createSpan({cls:'hub-capture-label',text:'Reference'});assert(labelStyle(label)===labelStyle(reference),'Phase description uses established label typography');assert(label.textContent==='Description (optional)'&&!description.required,'Description remains optional');reference.remove();description.value='Optional text';}
+  const title=root.querySelector('input[type=text]');assert(!root.querySelector('form').checkValidity(),'Empty title still fails native validation');title.value='Planning title';assert(root.querySelector('form').checkValidity(),'Valid title and dates retain validation');
+  if(kind==='phases'){const [start,end]=root.querySelectorAll('input[type=date]');start.value='2026-11-01';start.dispatchEvent(new Event('change'));assert(end.min===start.value,'Phase end-date minimum still follows start');end.value='2026-11-02';}
+  assert(modal.modalEl.scrollWidth<=modal.modalEl.clientWidth+1&&modal.modalEl.getBoundingClientRect().width<=innerWidth-32+1,'Planning modal fits normal/narrow viewport');
+  root.querySelector('form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));await settle();assert(!modal.containerEl.isConnected&&saves.at(-1).value.name==='Planning title','Planning save and close behavior unchanged');
+  if(description)assert(saves.at(-1).value.description==='Optional text','Description persistence unchanged');
+ }
+ result.textContent='PASS: '+count+' form consistency checks at '+innerWidth+'px: real shared Task/Quick Add/Inbox fields, centered Add step, labels/help, Phase/Milestone spacing and wrapping, validation, persistence and keyboard focus.';
+}catch(error){result.textContent='FAIL: '+error.stack}
+</script>

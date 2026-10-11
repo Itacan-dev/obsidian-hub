@@ -1,0 +1,40 @@
+<!doctype html><meta charset="utf-8"><title>Modal footer consistency</title>
+<link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../../../../../System/Dashboards/Home/view.css">
+<style>
+body{margin:0;font:14px Arial;color:#ddd;background:#222;--background-primary:#222;--background-secondary:#292929;--background-modifier-border:#555;--text-normal:#ddd;--text-muted:#aaa;--interactive-accent:#8955ed;--text-on-accent:#fff;--input-shadow:none}
+*{box-sizing:border-box}button,input,select,textarea{font:inherit;color:inherit;background:#333}button{height:32px;padding:4px 12px}button.mod-cta{background:var(--interactive-accent)}.modal{margin:20px auto;padding:24px;background:#292929;display:flex;flex-direction:column;max-height:calc(100vh - 40px);overflow:hidden}.modal-content{min-height:0;overflow:auto}#families{padding:10px}#result{position:fixed;bottom:0;background:#222;font-size:10px;white-space:normal;z-index:20;pointer-events:none}
+</style><main id="families" class="hub-button-scope"></main><pre id="result">RUNNING</pre>
+<script type="module">
+let checks=0;const check=(v,m)=>{checks++;if(!v)throw Error(m)},settle=()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+try{
+ const families=document.getElementById('families');
+ for(const family of ['hub-capture-actions','hub-task-dialog-actions','hub-oath-actions','hub-project-advancement-actions','hub-project-wizard-actions']){
+  const footer=document.createElement('div');footer.className=family;families.append(footer);
+  for(const text of ['Cancel','Primary']){const button=document.createElement('button');button.textContent=text;if(text==='Primary')button.className='mod-cta';footer.append(button)}
+  const capture=family==='hub-capture-actions',narrow=innerWidth<=680;
+  const style=getComputedStyle(footer);check(style.gap===(capture&&narrow?'6px':'8px'),family+' correct normal/narrow gap');
+  for(const button of footer.children){const s=getComputedStyle(button);check(s.minHeight==='36px'&&button.getBoundingClientRect().height===36,family+' 36px ordinary action');check(s.paddingLeft===(capture&&narrow?'10px':'16px')&&s.paddingRight===s.paddingLeft,family+' consistent padding with narrow Capture exception');}
+  const primary=getComputedStyle(footer.lastElementChild);check(primary.borderTopWidth==='0px'&&primary.backgroundColor===(family==='hub-oath-actions'?'rgb(113, 80, 204)':'rgb(137, 85, 237)'),family+' borderless purple primary preserves existing color');
+ }
+ const compact=document.createElement('div');compact.className='hub-inbox-detail-actions';compact.innerHTML='<button>Make task</button>';families.append(compact);check(getComputedStyle(compact.firstElementChild).minHeight==='30px','Compact Inbox action remains exempt');
+ const small=document.createElement('div');small.className='hub-capture-confirmation';small.innerHTML='<div class="hub-capture-actions"><button>Cancel</button></div>';families.append(small);check(getComputedStyle(small.firstElementChild).borderTopWidth==='0px','Small confirmation stays separator-free');families.replaceChildren();
+ // Reuse the existing report fixture's source loaders and Obsidian stubs only.
+ const html=await(await fetch('daily-report.html')).text(),script=html.match(/<script type="module">([\s\S]*?)<\/script>/)[1],bootstrap=script.slice(0,script.indexOf('\ntry{'));
+ const AsyncFunction=Object.getPrototypeOf(async function(){}).constructor;
+ const {Report,ui,empty,date}=await new AsyncFunction(bootstrap+';return {Report,ui,empty,date};')();
+ for(const editing of [false,true])for(const count of [1,16]){
+  const workspaces=Array.from({length:count},(_,i)=>({projectId:'w'+i,name:'Workspace '+i})),entries=workspaces.map(w=>({projectId:w.projectId,projectName:w.name,score:2,summary:'A report with useful context.\n'.repeat(5),context:empty}));
+  let edited=0,saved=0;
+  const modal=editing?new Report({}, {projects:workspaces,currentScores:Object.fromEntries(workspaces.map(w=>[w.projectId,2])),allowNoProgress:true,showCancel:true,onSave:async()=>saved++}):new ui.DailyReportModal({}, {day:{date,reports:entries,nextFocus:[]},onEdit:()=>edited++});
+  modal.open();await settle();const root=modal.contentEl,body=root.querySelector('.hub-report-scroll'),footer=root.querySelector('.hub-project-advancement-actions');
+  check(body?.parentElement===root&&footer.parentElement===root&&!body.contains(footer),'Report footer is outside scrolling body');
+  const s=getComputedStyle(footer);check(s.borderTopWidth==='1px'&&s.borderTopColor==='rgb(85, 85, 85)'&&s.paddingTop==='16px'&&s.marginTop==='16px','Both reports use Capture separator and balanced 16px spacing');
+  check(Math.abs(footer.getBoundingClientRect().width-(body.getBoundingClientRect().width-parseFloat(getComputedStyle(body).paddingLeft)-parseFloat(getComputedStyle(body).paddingRight)))<1,'Report separator follows content horizontal alignment');
+  if(count>1){check(body.scrollHeight>body.clientHeight,'Long report scrolls in body');const before=footer.getBoundingClientRect();body.scrollTop=body.scrollHeight;await settle();check(body.scrollTop>0&&footer.getBoundingClientRect().top===before.top,'Footer stays visible and stationary during report scroll');}
+  const box=footer.getBoundingClientRect();check(box.bottom<=innerHeight&&box.right<=innerWidth&&modal.modalEl.scrollWidth<=modal.modalEl.clientWidth+1,'Footer and report fit normal/narrow window');
+  check(!saved&&!edited,'Layout checks do not invoke actions');
+  if(editing){modal.saveButton.click();await settle();check(saved===1,'Report save action unchanged');}else{footer.querySelector('button').click();check(edited===1,'Read-only report edit action unchanged');}
+ }
+ result.textContent='PASS: '+checks+' footer checks at '+innerWidth+'px: shared dimensions, purple borderless primaries, compact/narrow exceptions, real short/long report editor and viewer, aligned separators, independent scrolling and unchanged actions.';
+}catch(error){result.textContent='FAIL: '+error.stack}
+</script>

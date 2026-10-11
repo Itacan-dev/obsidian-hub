@@ -1,0 +1,79 @@
+TAP version 13
+# [1008/194044.421:ERROR:third_party\\crashpad\\crashpad\\util\\win\\registration_protocol_win.cc:108] CreateFile: Access is denied. (0x5)
+# Subtest: guards require a prior recovery proof
+ok 1 - guards require a prior recovery proof
+  ---
+  duration_ms: 183.1856
+  type: 'test'
+  ...
+# Subtest: fullscreen: local escape restores state and removes vetoes
+ok 2 - fullscreen: local escape restores state and removes vetoes
+  ---
+  duration_ms: 163.0432
+  type: 'test'
+  ...
+# Subtest: kiosk: local escape restores state and removes vetoes
+ok 3 - kiosk: local escape restores state and removes vetoes
+  ---
+  duration_ms: 166.3307
+  type: 'test'
+  ...
+# Subtest: watchdog releases without renderer input
+ok 4 - watchdog releases without renderer input
+  ---
+  duration_ms: 183.2031
+  type: 'test'
+  ...
+# Subtest: restoration failure still removes guards and attempts remaining restoration
+ok 5 - restoration failure still removes guards and attempts remaining restoration
+  ---
+  duration_ms: 2033.3371
+  type: 'test'
+  ...
+# Subtest: preexisting kiosk/fullscreen and minimized state survive release
+ok 6 - preexisting kiosk/fullscreen and minimized state survive release
+  ---
+  duration_ms: 332.0623
+  type: 'test'
+  ...
+# Subtest: late native fullscreen geometry is repaired before recovery settles
+ok 7 - late native fullscreen geometry is repaired before recovery settles
+  ---
+  duration_ms: 217.9663
+  type: 'test'
+  ...
+# Subtest: development experiment is absent from production entrypoints and bundles
+ok 8 - development experiment is absent from production entrypoints and bundles
+  ---
+  duration_ms: 16.1543
+  type: 'test'
+  ...
+# Subtest: Obsidian protocol/login registration is intercepted before its startup executes
+ok 9 - Obsidian protocol/login registration is intercepted before its startup executes
+  ---
+  duration_ms: 0.7005
+  type: 'test'
+  ...
+# Subtest: GUI-mode launcher exits before creating a temporary fixture
+ok 10 - GUI-mode launcher exits before creating a temporary fixture
+  ---
+  duration_ms: 8.1046
+  type: 'test'
+  ...
+# [1008/194044.442:ERROR:third_party\\crashpad\\crashpad\\util\\win\\registration_protocol_win.cc:108] CreateFile: Access is denied. (0x5)
+# Hub plugin load checks passed.
+# Subtest: C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\plugin-load.test.js
+ok 2 - C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\plugin-load.test.js
+  ---
+  duration_ms: 256.7465
+  type: 'test'
+  ...
+1..11
+# tests 11
+# suites 0
+# pass 11
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 3504.2277

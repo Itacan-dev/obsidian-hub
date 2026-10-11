@@ -479,7 +479,7 @@ window.onload = async () => {
         assert(quick.attach.getBoundingClientRect().height === attachRect.height, "Resizing the textarea does not resize the file surface"); quick.input.style.height = "";
         assert(getComputedStyle(quick.attach).transitionDuration === "0s" && getComputedStyle(quick.attach).transform === "none", "Neutral file action has no animation or decorative motion");
         const quickHeader = quick.contentEl.querySelector(".hub-capture-header");
-        assert(quickHeader && !quickHeader.querySelector("svg,[data-icon]") && quickHeader.querySelector("h2").textContent === "Quick Add", "Quick Add title has no leading decorative icon");
+        assert(quickHeader && quickHeader.querySelector(".hub-window-header [data-icon=zap]") && quickHeader.querySelector("h2").textContent === "Quick Add", "Quick Add title uses its feature icon");
         assert(document.activeElement === quick.input, "Content field receives initial focus");
         const focusedInputStyle = getComputedStyle(quick.input);
         const focusBorder = focusedInputStyle.borderTopColor.match(/\d+/g)?.map(Number);
@@ -1568,7 +1568,7 @@ async function verifyInbox({ service, plugin, memory, project, resource, openQui
         assert(buttons.every(button => button.getBoundingClientRect().width <= group.clientWidth + 1) && inbox.detail.scrollWidth <= inbox.detail.clientWidth + 1, "Context actions remain inside the detail pane at the current viewport");
     };
     const inboxHeader = inbox.contentEl.querySelector(".hub-capture-header");
-    assert(inboxHeader && !inboxHeader.querySelector("svg,[data-icon]") && inboxHeader.querySelector("h2").textContent === "Inbox", "Inbox title has no leading decorative icon");
+    assert(inboxHeader && inboxHeader.querySelector(".hub-window-header [data-icon=inbox]") && inboxHeader.querySelector("h2").textContent === "Inbox", "Inbox title uses its feature icon");
     assert(inboxHeader.querySelector("p").textContent === "Saved items awaiting organisation", "Inbox subtitle describes saved items using the exact requested wording");
     assert(rows().length === count() && inbox.filterButtons[0].button.textContent.trim() === `All (${count()})`, "Inbox list and All count show every unresolved item");
     assert(!inbox.contentEl.querySelector(".hub-inbox-count") && !/\d+ captures?$/.test(inbox.contentEl.textContent), "Inbox has no footer statistic");

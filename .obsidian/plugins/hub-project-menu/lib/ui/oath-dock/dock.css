@@ -1,0 +1,5 @@
+:root { color-scheme: dark; font: 13px system-ui, sans-serif; background: #242329; color: #eee; }
+body { margin: 8px; } nav, #apps { display: flex; gap: 6px; } nav { overflow-x: auto; }
+button { flex-shrink: 0; background: #37353f; color: inherit; border: 1px solid #55515e; border-radius: 6px; padding: 8px 12px; cursor: pointer; }
+button:focus-visible { outline: 2px solid #b4a5ed; } button:disabled { opacity: .5; }
+p { margin: 8px 2px 0; font-size: 12px; }

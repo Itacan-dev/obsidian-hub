@@ -1,0 +1,26 @@
+
+Electron 39.8.3, Chromium 142.0.7444.265
+PASS initial Whitelist document passes; native guest hardening is installed
+PASS Strict fullscreen and dock preserve focused Atlas guest authorization and sandbox
+PASS initial Greylist URL is held before the server sees it
+PASS programmatic loadURL and another guest cannot bypass policy
+PASS script navigation from a temporary page is governed by Core
+PASS reload after grant expiry closes the guest before another request
+PASS correlated HTTP redirect is a bounded Journey; Blacklist redirect is denied
+PASS native main-frame root departure and POST preserve the actual request body
+PASS iframe top promotion cannot attest a Whitelist root departure
+PASS window.open and target blank cannot create ungoverned native contents
+PASS native history cannot retain a prior page; host URL restoration still passes Fetch
+PASS service worker navigation responses cannot bypass the Document gate
+PASS downloads from governed guests are cancelled
+PASS old grant deadline survives a stalled Whitelist destination
+PASS same-document changes retain authority and fragments do not miscorrelate arrival
+PASS debugger detachment and unsupported programmatic protocols fail closed
+PASS blank replacement retires loaded source and old redirect/Journey identity
+PASS failed native interception setup withholds the initial document
+PASS a second native window shares authority and cannot borrow another viewer's Journey
+PASS hot activation closes existing content without adopting its browser provenance
+PASS retained intermediate closes at Journey expiry without granting anything
+PASS renderer setup, one Greylist workflow, fresh home, typed recovery, reader fencing, Vault and shared ownership
+PASS Obsidian renderer bridge and functional Atlas UI
+Native Atlas tests: 22 passed

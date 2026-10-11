@@ -19,16 +19,24 @@ HTMLElement.prototype.addClass=function(...c){this.classList.add(...c)};
 HTMLElement.prototype.toggleClass=function(c,v){this.classList.toggle(c,v)};
 HTMLElement.prototype.empty=function(){this.replaceChildren()};
 HTMLElement.prototype.setText=function(t){this.textContent=t};
-class Modal{constructor(){this.contentEl=document.body.createDiv({cls:'modal'})}open(){this.onOpen()}close(){this.onClose();this.contentEl.remove()}}
+class Modal{constructor(){this.contentEl=document.body.createDiv({cls:'modal'});this.modalEl=this.contentEl}open(){this.onOpen()}close(){this.onClose();this.contentEl.remove()}}
 const config={exports:{}},tooltips={exports:{}};
 const focus={exports:{}};
 new Function('module',await(await fetch('../domain/focus.js')).text())(focus);
 new Function('module','process',await(await fetch('../config.js')).text())(config,{env:{}});
 new Function('module',await(await fetch('../ui/tooltips.js')).text())(tooltips);
+const windowTitle={exports:{}};new Function('module','require',await(await fetch('../ui/window-title.js')).text())(windowTitle,()=>({setIcon(){}}));
+const headerConfig={exports:{}},thumbnail={exports:{}},workspaceHeader={exports:{}};
+new Function('module','process',await(await fetch('../config.js')).text())(headerConfig,{env:{}});
+new Function('module','require',await(await fetch('../ui/workspace-thumbnail.js')).text())(thumbnail,()=>headerConfig.exports);
+new Function('module','require',await(await fetch('../ui/report-workspace-header.js')).text())(workspaceHeader,()=>thumbnail.exports);
+const attention={exports:{}};new Function('module',await(await fetch('../ui/attention.js')).text())(attention);
+const focusRestore={exports:{}};new Function('module',await(await fetch('../ui/focus-restoration.js')).text())(focusRestore);
 const source=await(await fetch('../../plugin.js')).text();
 const code=source.slice(source.indexOf('class FocusListEditor'),source.indexOf('class DailyFocusModal'));
-const Report=new Function('Modal','PROJECT_ADVANCEMENT_OPTIONS','progressRatingOptions','createImmediateHubTooltip','setIcon','Notice','normalizeFocusItems',code+';return ProjectAdvancementModal;')(
- Modal,config.exports.PROJECT_ADVANCEMENT_OPTIONS,config.exports.progressRatingOptions,tooltips.exports.createImmediateHubTooltip,()=>{},class{constructor(message){throw Error(message)}},focus.exports.normalizeFocusItems);
+const saveState={exports:{}};new Function('module',await(await fetch('../ui/modal-save.js')).text())(saveState);
+const Report=new Function('hasKeyboardFocus','focusAfterRowRemoval','Modal','PROJECT_ADVANCEMENT_OPTIONS','progressRatingOptions','createImmediateHubTooltip','setIcon','Notice','normalizeFocusItems','createWindowTitle','setWindowUndertext','renderReportWorkspaceHeader','mountTransientEffects','lockModalControls','layoutModal',code+';return ProjectAdvancementModal;')(
+ focusRestore.exports.hasKeyboardFocus,focusRestore.exports.focusAfterRowRemoval,Modal,config.exports.PROJECT_ADVANCEMENT_OPTIONS,config.exports.progressRatingOptions,tooltips.exports.createImmediateHubTooltip,()=>{},class{constructor(message){throw Error(message)}},focus.exports.normalizeFocusItems,windowTitle.exports.createWindowTitle,windowTitle.exports.setWindowUndertext,workspaceHeader.exports.renderReportWorkspaceHeader,attention.exports.mountTransientEffects,saveState.exports.lockModalControls,windowTitle.exports.layoutModal);
 const project={projectId:'p',name:'Project A',contextKind:'project'},resource={projectId:'resource:study',name:'Knowledge',resourceType:'study'};
 const tooltip=()=>document.querySelector('.hub-detail-tooltip');
 const hover=button=>button.dispatchEvent(new PointerEvent('pointermove',{bubbles:true,pointerType:'mouse'}));
@@ -49,12 +57,17 @@ try{
   assert(!tooltip(),'Opening underneath a stationary pointer does not count as intentional hover');
   initial.blur();
   assert(!root.querySelector('.hub-project-advancement-scale'),'Old visible rubric removed');
-  assert(root.querySelector('h2').nextElementSibling.textContent==="Rate the significance of today's work in each workspace.Hover over a rating for details.",'Exact compact guidance directly follows title');
+  assert(root.querySelector('h2').nextElementSibling.textContent==="Rate the significance of today's work in each workspace.",'Exact compact guidance directly follows title');
   assert([...root.querySelectorAll('.hub-project-advancement-name')].map(e=>e.textContent).join(',')==='Project A,Knowledge','Workspace ordering and visible titles unchanged');
   for(const [index,workspace] of [project,resource].entries()){
    const row=root.querySelectorAll('.hub-project-advancement-row')[index];
    const buttons=[...row.querySelectorAll('.hub-project-advancement-score')];
    assert(buttons.length===(editing?5:4),'Existing zero-rating availability preserved');
+   const bounds=buttons.map(b=>b.getBoundingClientRect()),group=row.querySelector('.hub-project-advancement-choices').getBoundingClientRect();
+   assert(bounds.every(b=>Math.abs(b.width-bounds[0].width)<1),'Equal rating button widths');
+   assert(Math.abs(bounds[0].left-group.left)<1&&Math.abs(bounds.at(-1).right-group.right)<1,'Ratings fill card width');
+   for(const button of buttons){button.click();assert(button.getAttribute('aria-pressed')==='true','All choices select');}
+
    for(const button of buttons){
     const score=Number(button.dataset.score),definition=config.exports.progressRatingOptions(workspace).find(o=>o.score===score);
     hover(button);
@@ -76,6 +89,7 @@ try{
     assert(!tooltip(),'Mouse-focused rating does not keep tooltip open after pointer exit');button.blur();
    }
   }
+  modal.summaryInputs.get('p').value='Keep project summary';modal.summaryInputs.get(resource.projectId).value='Keep resource summary';
   const p=root.querySelector('[data-project-id=p]'),r=root.querySelector('[data-project-id="resource:study"]');
   p.querySelector('[data-score="3"]').click();r.querySelector('[data-score="4"]').click();
   assert(modal.selectedScores.get('p')===3&&modal.selectedScores.get(resource.projectId)===4,'Rating selection unchanged');
@@ -86,6 +100,49 @@ try{
   assert(saved.scores[resource.projectId]===4&&(editing?!('p' in saved.scores):saved.scores.p===3),'Stored score semantics unchanged');
   assert(saved.summaries[resource.projectId]==='Keep resource summary'&&saved.focus[0].text==='Next step','Summaries and focus persist unchanged');
  }
+ // Exit-only rating validation: zero, one and several missing choices.
+ assert((source.match(/requireExplicitRatings: true/g)||[]).length===1,'Only exit entry point opts into validation');
+ for(const missingCount of [0,1,3]){
+  const workspaces=Array.from({length:3},(_,i)=>({projectId:'w'+i,name:'Workspace '+i}));
+  let saved,calls=0;
+  const scores=Object.fromEntries(workspaces.slice(missingCount).map(w=>[w.projectId,2]));
+  const exit=new Report({}, {projects:workspaces,currentScores:scores,allowNoProgress:true,requireExplicitRatings:true,onSave:async value=>{saved=value;calls++}});exit.open();
+  assert(!exit.saveButton.disabled,'Exit save remains clickable to show validation');
+  assert(exit.saveButton.getAttribute('aria-disabled')===String(!!missingCount),'Missing ratings mark the exit action visually unavailable');
+  const oath=document.body.createDiv({cls:'hub-oath-actions'}),reference=oath.createEl('button',{cls:'mod-cta hub-guided-submit',attr:{'aria-disabled':'true'}});
+  if(missingCount)assert(getComputedStyle(exit.saveButton).opacity===getComputedStyle(reference).opacity,'Exit action reuses Review Oath dimming');oath.remove();
+  const rows=[...exit.contentEl.querySelectorAll('.hub-project-advancement-row')];
+  rows.forEach(row=>assert(row.querySelector('textarea').placeholder==='Comments\u2026','Optional comments placeholder'));
+  if(missingCount){
+   rows[0].querySelector('textarea').value='Optional comments cannot satisfy a rating';
+   exit.saveButton.click();await new Promise(requestAnimationFrame);
+   assert(calls===0&&!exit.settled,'Missing explicit ratings prevent save and close');
+   assert(exit.contentEl.querySelectorAll('.hub-attention').length===missingCount,'Only missing rows highlighted');
+   for(const group of exit.contentEl.querySelectorAll('.hub-attention')){
+    const animation=group.getAnimations()[0];if(animation){animation.pause();animation.currentTime=450;}
+    assert(parseFloat(getComputedStyle(group,'::after').opacity)>.5,'Yellow validation paint is visible');
+    assert(group.querySelectorAll('[data-hub-attention-surface]').length===5,'All five rating surfaces receive shared yellow treatment');
+   }
+   for(const row of rows){assert(!row.classList.contains('hub-attention')&&!row.querySelector('textarea').hasAttribute('data-hub-attention-surface'),'Card and comments never highlighted');}
+   for(let i=0;i<missingCount;i++){
+    const row=rows[i],choice=row.querySelector('[data-score="'+i+'"]');choice.click();
+    assert(!row.querySelector('.hub-project-advancement-rating-buttons').classList.contains('hub-attention')&&!row.querySelector('[aria-invalid]'),'Selection including zero clears warning immediately');
+    assert(choice.getAttribute('aria-pressed')==='true','Explicit zero and positive choices visibly selected');
+   }
+  }
+  assert(exit.saveButton.getAttribute('aria-disabled')==='false'&&getComputedStyle(exit.saveButton).opacity==='1','All ratings restore normal purple action');
+  await exit.save();assert(calls===1&&exit.settled,'Complete ratings save once with optional blank comments');
+  assert(!('w0' in saved.scores)||missingCount===0,'Explicit zero preserves existing persistence fallback');
+ }
+ for(const score of [0,1,2,3,4]){
+  let saved;const modal=new Report({}, {projects:[project],currentScores:{},allowNoProgress:true,requireExplicitRatings:true,onSave:async value=>saved=value});modal.open();
+  const button=modal.contentEl.querySelector('[data-score="'+score+'"]');assert(!button.classList.contains('is-selected'),'Unrated starts unselected');button.click();
+  assert(button.classList.contains('is-selected')&&getComputedStyle(button).backgroundColor==='rgb(137, 85, 237)','All five selections use purple');
+  await modal.save();assert(score===0?!('p' in saved.scores):saved.scores.p===score,'All five saved rating choices preserve semantics');
+ }
+ // Manual editor still allows unrated workspaces and preserves fallback behavior.
+ let manualSaved;const manual=new Report({}, {projects:[project],currentScores:{p:0},allowNoProgress:true,requireEveryProject:false,onSave:async value=>manualSaved=value});manual.open();
+ assert(!manual.contentEl.querySelector('.is-selected'),'Stored zero fallback remains visually unselected');await manual.save();assert(manualSaved&&!manualSaved.scores.p,'Manual editing has no exit validation');
  const external=document.body.appendChild(document.createElement('button'));tooltips.exports.setHubTooltip(external,'Ordinary delayed tooltip');hover(external);
  assert(!tooltip()&&external.getAttribute('aria-label')==='Ordinary delayed tooltip','Unrelated tooltip mechanism unchanged');
  const modal=new Report({}, {projects:[project],resources:[resource],currentScores:{},allowNoProgress:true,onSave:async()=>{}});modal.open();
@@ -94,6 +151,6 @@ try{
  // Leave a representative Resource tooltip for visual inspection.
  const sample=new Report({}, {projects:[project],resources:[resource],title:"Today's progress report",currentScores:{},allowNoProgress:true,onSave:async()=>{}});sample.open();
  hover(sample.contentEl.querySelector('[data-project-id="resource:study"] [data-score="4"]'));
- result.textContent='PASS: shared creation/editing modal; exact contextual 0–4 definitions, synchronous hover/focus, compact native tooltip surface, unchanged selection/summary/focus/save semantics, cleanup and unrelated tooltip isolation.';
+ result.textContent='PASS: shared creation/editing modal; exact contextual 0–4 definitions, synchronous hover/focus, compact native tooltip surface, unchanged selection/summary/focus/save semantics, exit-only validation for zero/one/several missing ratings, immediate warning clearing including zero, optional comments, all five saved choices, equal full-width buttons, cleanup and unrelated tooltip isolation.';
 }catch(error){result.textContent='FAIL '+error.stack}
 </script>

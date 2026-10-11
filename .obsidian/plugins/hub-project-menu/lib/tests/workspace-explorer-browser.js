@@ -29,7 +29,7 @@ const runtimeErrors = [];
 window.onerror = (message, source, line, column, error) => runtimeErrors.push(error?.stack ?? message);
 window.addEventListener("unhandledrejection", event => runtimeErrors.push(String(event.reason?.stack ?? event.reason)));
 window.onload = async () => { try {
-    const names = ["domain/files", "domain/workspace-explorer", "ui/file-icons", "ui/icons", "ui/workspace-explorer", "ui/note-rail", "ui/tooltips"];
+    const names = ["domain/dates", "domain/files", "domain/workspace-explorer", "ui/file-icons", "ui/icons", "ui/workspace-explorer", "ui/note-rail", "ui/tooltips"];
     const sources = Object.fromEntries(await Promise.all(names.map(async name => [name, await (await fetch("../" + name + ".js")).text()]))), cache = {};
     function load(name) {
         if (name === "obsidian") return { setIcon, getIcon };
@@ -106,12 +106,12 @@ window.onload = async () => { try {
         const grid = root.createDiv({ cls: "project-main-grid" }), left = grid.createDiv({ cls: "project-left-column" });
         const dv = { component }, resourceTypes = [{ id: "study", label: "Knowledge" }], resourceType = resourceTypes[0];
         const el = (parent, tag, cls, text) => parent.createEl(tag, { cls, text });
-        controller = new Function("app", "dv", "left", "root", "current", "projectRoot", "contextId", "isResourceContext", "resourceTypes", "resourceType", "fileDomain", "el", "moment", "openProjectNote", `
+        controller = new Function("app", "dv", "left", "root", "current", "projectRoot", "contextId", "isResourceContext", "resourceTypes", "resourceType", "fileDomain", "el", "moment", "formatDateTime", "openProjectNote", `
             const {directFiles,directFolders,isFolder,projectChildPath,projectItemPath,selectedRootPaths,availableExternalFilePath}=fileDomain;
             ${folderSource}
             return workspaceExplorer;
         `)(app, dv, left, root, current, projectRoot, contextId, isResourceContext, resourceTypes, resourceType, fileDomain, el,
-            value => ({ format: () => new Date(value).toLocaleDateString("en-GB") }), (file, placement = "replace") => { opens.push({ file, placement }); });
+            value => new Date(value), load("domain/dates").formatDateTime, (file, placement = "replace") => { opens.push({ file, placement }); });
         const right = grid.createDiv({ cls: "project-right-column" });
         tasks = right.createDiv({ cls: "project-panel project-tasks" });
         tasks.createDiv({ cls: "project-panel-title", text: "Tasks" });

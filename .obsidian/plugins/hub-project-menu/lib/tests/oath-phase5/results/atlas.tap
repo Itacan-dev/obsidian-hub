@@ -1,0 +1,204 @@
+TAP version 13
+# [1008/193359.933:ERROR:third_party\\crashpad\\crashpad\\util\\win\\registration_protocol_win.cc:108] CreateFile: Access is denied. (0x5)
+# Subtest: exclusive local owner refuses a second controller and foreign/stale-invalid locks
+ok 1 - exclusive local owner refuses a second controller and foreign/stale-invalid locks
+  ---
+  duration_ms: 142.5033
+  type: 'test'
+  ...
+# Subtest: CAS conflict never replaces authority or creates a journal
+ok 2 - CAS conflict never replaces authority or creates a journal
+  ---
+  duration_ms: 90.1015
+  type: 'test'
+  ...
+# Subtest: failure before the journal is definitively NOT_WRITTEN; failure after it stays unresolved
+ok 3 - failure before the journal is definitively NOT_WRITTEN; failure after it stays unresolved
+  ---
+  duration_ms: 130.0397
+  type: 'test'
+  ...
+# Subtest: unresolved external replacement cannot be guessed as a committed write
+ok 4 - unresolved external replacement cannot be guessed as a committed write
+  ---
+  duration_ms: 101.0543
+  type: 'test'
+  ...
+# Subtest: known schema 1 migrates once through the same journal/CAS path
+ok 5 - known schema 1 migrates once through the same journal/CAS path
+  ---
+  duration_ms: 116.7275
+  type: 'test'
+  ...
+# Subtest: deleting initialized authority after a fresh process cannot expose setup
+ok 6 - deleting initialized authority after a fresh process cannot expose setup
+  ---
+  duration_ms: 104.6959
+  type: 'test'
+  ...
+# Subtest: an interrupted reclamation is fail-closed, rather than removing another owner
+ok 7 - an interrupted reclamation is fail-closed, rather than removing another owner
+  ---
+  duration_ms: 101.1111
+  type: 'test'
+  ...
+# Subtest: a cached READY view never authorizes a new request after disk replacement
+ok 8 - a cached READY view never authorizes a new request after disk replacement
+  ---
+  duration_ms: 110.7737
+  type: 'test'
+  ...
+# Subtest: UI cannot directly confirm raw IDs, mint Journeys or attach arbitrary target/scope facts
+ok 9 - UI cannot directly confirm raw IDs, mint Journeys or attach arbitrary target/scope facts
+  ---
+  duration_ms: 91.6953
+  type: 'test'
+  ...
+# Subtest: restart reconciles an applied uncertain grant without replaying its confirmation or opening a page
+ok 10 - restart reconciles an applied uncertain grant without replaying its confirmation or opening a page
+  ---
+  duration_ms: 204.9484
+  type: 'test'
+  ...
+# [1008/193359.957:ERROR:third_party\\crashpad\\crashpad\\util\\win\\registration_protocol_win.cc:108] CreateFile: Access is denied. (0x5)
+# Subtest: Whitelist releases the original request only after Core commits
+ok 11 - Whitelist releases the original request only after Core commits
+  ---
+  duration_ms: 209.0396
+  type: 'test'
+  ...
+# Subtest: manual Blacklist beats overlapping Whitelist and blocks
+ok 12 - manual Blacklist beats overlapping Whitelist and blocks
+  ---
+  duration_ms: 107.5118
+  type: 'test'
+  ...
+# Subtest: Greylist does not create a request until explicit action, repeated Start keeps one frozen request
+ok 13 - Greylist does not create a request until explicit action, repeated Start keeps one frozen request
+  ---
+  duration_ms: 135.3901
+  type: 'test'
+  ...
+# Subtest: waiting alone never grants; explicit confirmation persists fixed grant and opens sanitized fresh home
+ok 14 - waiting alone never grants; explicit confirmation persists fixed grant and opens sanitized fresh home
+  ---
+  duration_ms: 169.9298
+  type: 'test'
+  ...
+# Subtest: expiry blocks navigation and removes retained temporary content
+ok 15 - expiry blocks navigation and removes retained temporary content
+  ---
+  duration_ms: 232.8983
+  type: 'test'
+  ...
+# Subtest: exact host grants and policy do not broaden apex, www, or subdomain scope
+ok 16 - exact host grants and policy do not broaden apex, www, or subdomain scope
+  ---
+  duration_ms: 89.052
+  type: 'test'
+  ...
+# Subtest: malformed and ambiguous targets fail closed before release
+ok 17 - malformed and ambiguous targets fail closed before release
+  ---
+  duration_ms: 72.1738
+  type: 'test'
+  ...
+# Subtest: Vault wait does not apply policy; review and explicit confirmation apply persisted revision
+ok 18 - Vault wait does not apply policy; review and explicit confirmation apply persisted revision
+  ---
+  duration_ms: 156.2394
+  type: 'test'
+  ...
+# Subtest: Vault policy and settings share one frozen slot; settings preserve old in-flight terms
+ok 19 - Vault policy and settings share one frozen slot; settings preserve old in-flight terms
+  ---
+  duration_ms: 120.2969
+  type: 'test'
+  ...
+# Subtest: failed persistence never publishes Vault policy and blocks until explicit recovery
+ok 20 - failed persistence never publishes Vault policy and blocks until explicit recovery
+  ---
+  duration_ms: 114.676
+  type: 'test'
+  ...
+# Subtest: lost acknowledgement reconciles written candidate without replaying confirmation
+ok 21 - lost acknowledgement reconciles written candidate without replaying confirmation
+  ---
+  duration_ms: 101.1813
+  type: 'test'
+  ...
+# Subtest: valid correlated redirect chain adopts intermediate before release and completes only on actual root arrival
+ok 22 - valid correlated redirect chain adopts intermediate before release and completes only on actual root arrival
+  ---
+  duration_ms: 153.6761
+  type: 'test'
+  ...
+# Subtest: a physically loaded Whitelist root can attest one departure and intermediate POST continuation
+ok 23 - a physically loaded Whitelist root can attest one departure and intermediate POST continuation
+  ---
+  duration_ms: 171.477
+  type: 'test'
+  ...
+# Subtest: unrelated script/GET navigation terminates a Journey; blacklisted redirects never release
+ok 24 - unrelated script/GET navigation terminates a Journey; blacklisted redirects never release
+  ---
+  duration_ms: 152.5016
+  type: 'test'
+  ...
+# Subtest: iframe promotion and forged/mismatched source do not borrow a root departure
+ok 25 - iframe promotion and forged/mismatched source do not borrow a root departure
+  ---
+  duration_ms: 129.1287
+  type: 'test'
+  ...
+# Subtest: Journey lifetime and hop budget do not renew through reload or redirects
+ok 26 - Journey lifetime and hop budget do not renew through reload or redirects
+  ---
+  duration_ms: 212.4238
+  type: 'test'
+  ...
+# Subtest: a Journey never authorizes another webviewer; closed binding and stale UI command cannot be reused
+ok 27 - a Journey never authorizes another webviewer; closed binding and stale UI command cannot be reused
+  ---
+  duration_ms: 114.1028
+  type: 'test'
+  ...
+# Subtest: restart restores grants, requests, Vault and policy but ends old Journey bindings
+ok 28 - restart restores grants, requests, Vault and policy but ends old Journey bindings
+  ---
+  duration_ms: 237.2168
+  type: 'test'
+  ...
+# Subtest: policy revision invalidates old grants and loaded pages immediately
+ok 29 - policy revision invalidates old grants and loaded pages immediately
+  ---
+  duration_ms: 222.1783
+  type: 'test'
+  ...
+# Subtest: rollback, external replacement, corruption and deleted authority remain unavailable, never fresh setup
+ok 30 - rollback, external replacement, corruption and deleted authority remain unavailable, never fresh setup
+  ---
+  duration_ms: 80.4308
+  type: 'test'
+  ...
+# Subtest: clock elapsed floor cannot extend deadlines on wall-clock rewind
+ok 31 - clock elapsed floor cannot extend deadlines on wall-clock rewind
+  ---
+  duration_ms: 0.2429
+  type: 'test'
+  ...
+# Subtest: protected settings display preserves every safe integer millisecond exactly
+ok 32 - protected settings display preserves every safe integer millisecond exactly
+  ---
+  duration_ms: 0.1963
+  type: 'test'
+  ...
+1..32
+# tests 32
+# suites 0
+# pass 32
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 3433.7199

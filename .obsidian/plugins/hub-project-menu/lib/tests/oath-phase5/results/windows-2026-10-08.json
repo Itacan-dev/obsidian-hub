@@ -1,0 +1,144 @@
+{
+  "phase": 5,
+  "runtime": {
+    "electron": "39.8.3",
+    "node": "22.22.1",
+    "platform": "win32",
+    "arch": "x64",
+    "obsidian": "1.13.7"
+  },
+  "preventedHostSideEffects": [
+    "setAsDefaultProtocolClient"
+  ],
+  "checks": [
+    {
+      "name": "real Obsidian loads Itacan in the synthetic vault",
+      "status": "pass",
+      "detail": {
+        "vault": "C:\\Users\\EL_BAR~1\\AppData\\Local\\Temp\\itacan-oath-phase1-LjMNoB\\vault",
+        "oath": null,
+        "footer": true
+      }
+    },
+    {
+      "name": "existing Obsidian bridge reaches main process and correct BrowserWindow",
+      "status": "pass",
+      "detail": {
+        "windowId": 1,
+        "processType": "browser",
+        "pid": 18352
+      }
+    },
+    {
+      "name": "BEFORE GUARDS: native local escape and state restoration",
+      "status": "pass",
+      "detail": {
+        "shortcut": "Ctrl+Alt+Shift+F12",
+        "state": {
+          "full": false,
+          "kiosk": false,
+          "minimized": false,
+          "maximized": false,
+          "bounds": {
+            "x": 40,
+            "y": 40,
+            "width": 900,
+            "height": 650
+          },
+          "closable": true,
+          "minimizable": true,
+          "top": false
+        }
+      }
+    },
+    {
+      "name": "BEFORE GUARDS: watchdog restores without renderer input",
+      "status": "pass"
+    },
+    {
+      "name": "Phase 4: freshly built plugin keeps product opt-in disabled by default",
+      "status": "pass"
+    },
+    {
+      "name": "Phase 4: real Settings opt-in and verified defaults persist in the isolated vault",
+      "status": "pass"
+    },
+    {
+      "name": "Phase 4: setup offers ordinary by default, per-Oath override, and task selection",
+      "status": "pass"
+    },
+    {
+      "name": "Phase 4: blocker review prevents immediate Take and refresh requires a fresh acknowledgment",
+      "status": "pass"
+    },
+    {
+      "name": "Phase 4: final confirmation activates the real plugin and a separate secure dock",
+      "status": "pass"
+    },
+    {
+      "name": "Phase 4: dock launches a permitted built-in executable and rejects unapproved actions",
+      "status": "pass"
+    },
+    {
+      "name": "Phase 4: ordinary external minimization/restore and Alt+Tab remain available",
+      "status": "pass"
+    },
+    {
+      "name": "Phase 4: real status UI refuses early exit and fulfillment restores state and removes dock",
+      "status": "pass"
+    },
+    {
+      "name": "Phase 4: confirmed second UI activation remains recoverable with isolated development escape",
+      "status": "pass"
+    },
+    {
+      "name": "Phase 5: real plugin reload reattaches active ownership without duplicate guards or docks",
+      "status": "pass"
+    },
+    {
+      "name": "Phase 5: resume and display events preserve fullscreen and reposition the dock",
+      "status": "pass",
+      "detail": {
+        "simulatedEvents": true,
+        "physicalSleepOrDisplayRemoval": false
+      }
+    },
+    {
+      "name": "Phase 5: separate popout cannot acquire a second Strict owner",
+      "status": "pass"
+    },
+    {
+      "name": "Phase 5: actual dock renderer crash is reconstructed with the same policy",
+      "status": "pass"
+    },
+    {
+      "name": "Phase 5: renderer-loss handling releases guards and records interruption",
+      "status": "pass",
+      "detail": {
+        "hostCrashEventSimulated": true
+      }
+    },
+    {
+      "name": "Phase 5: failed restoration disarms guards and the real Settings retry restores the snapshot",
+      "status": "pass"
+    },
+    {
+      "name": "Phase 5: fresh process recovers a persisted active commitment once without re-entering fullscreen",
+      "status": "pass"
+    }
+  ],
+  "limitations": [
+    "Actual plugin reload, dock renderer crash and fresh-process startup were exercised in disposable Obsidian.",
+    "Host renderer-loss, power resume and display change events are simulated; physical hardware/OS transitions require manual acceptance.",
+    "Synthetic task/workspace/index adapters and fixture-scoped preflight protect ordinary applications and user data.",
+    "Physical Alt+Tab, foreground ownership and arbitrary external-window stacking are not asserted by automation."
+  ],
+  "feasibilityMet": true,
+  "launcher": {
+    "exitCode": 0,
+    "copiedSourceUnchanged": true,
+    "temporaryProfileRemoved": true,
+    "source": "Installed Obsidian archive in existing test Electron; not the installed launcher runtime"
+  },
+  "log": "\r\nUpdates disabled.\nIgnored: Error: ENOENT: no such file or directory, open 'C:\\Users\\EL_BAR~1\\AppData\\Local\\Temp\\itacan-oath-phase1-LjMNoB\\profile\\oathphase1.json'\nPASS real Obsidian loads Itacan in the synthetic vault\nPASS existing Obsidian bridge reaches main process and correct BrowserWindow\nPASS BEFORE GUARDS: native local escape and state restoration\nPASS BEFORE GUARDS: watchdog restores without renderer input\nPASS Phase 4: freshly built plugin keeps product opt-in disabled by default\nPASS Phase 4: real Settings opt-in and verified defaults persist in the isolated vault\nPASS Phase 4: setup offers ordinary by default, per-Oath override, and task selection\nPASS Phase 4: blocker review prevents immediate Take and refresh requires a fresh acknowledgment\nPASS Phase 4: final confirmation activates the real plugin and a separate secure dock\nError occurred in handler for 'itacan-oath-dock-aa3dc55c-5bff-4c37-8587-e5276040b67c': Error: Invalid dock action.\n    at request (C:\\Users\\EL_BAR~1\\AppData\\Local\\Temp\\itacan-oath-phase1-LjMNoB\\vault\\.obsidian\\plugins\\hub-project-menu\\lib\\services\\oath-dock.js:33:106)\n    at Session.<anonymous> (node:electron/js2c/browser_init:2:113107)\n    at Session.emit (node:events:519:28)\nError occurred in handler for 'itacan-oath-dock-aa3dc55c-5bff-4c37-8587-e5276040b67c': Error: Invalid dock action.\n    at request (C:\\Users\\EL_BAR~1\\AppData\\Local\\Temp\\itacan-oath-phase1-LjMNoB\\vault\\.obsidian\\plugins\\hub-project-menu\\lib\\services\\oath-dock.js:33:106)\n    at Session.<anonymous> (node:electron/js2c/browser_init:2:113107)\n    at Session.emit (node:events:519:28)\nPASS Phase 4: dock launches a permitted built-in executable and rejects unapproved actions\nPASS Phase 4: ordinary external minimization/restore and Alt+Tab remain available\nPASS Phase 4: real status UI refuses early exit and fulfillment restores state and removes dock\nPASS Phase 4: confirmed second UI activation remains recoverable with isolated development escape\nRELOAD_DATA {\"apiRevision\":23,\"diskRevision\":23}\nPASS Phase 5: real plugin reload reattaches active ownership without duplicate guards or docks\nPASS Phase 5: resume and display events preserve fullscreen and reposition the dock\nPASS Phase 5: separate popout cannot acquire a second Strict owner\nPASS Phase 5: actual dock renderer crash is reconstructed with the same policy\nPASS Phase 5: renderer-loss handling releases guards and records interruption\nPASS Phase 5: failed restoration disarms guards and the real Settings retry restores the snapshot\n\r\nUpdates disabled.\nIgnored: Error: ENOENT: no such file or directory, open 'C:\\Users\\EL_BAR~1\\AppData\\Local\\Temp\\itacan-oath-phase1-LjMNoB\\profile\\oathphase1.json'\nPASS Phase 5: fresh process recovers a persisted active commitment once without re-entering fullscreen\n"
+}

@@ -1,5 +1,6 @@
 "use strict";
 const { Notice, Menu } = require("obsidian");
+const { formatDateTime } = require("../domain/dates");
 const { CaptureModal, CaptureConfirmation, action, attachments } = require("./capture-modal");
 const { setHubIcon, ensureHubIcon } = require("./icons");
 const { disclosureIcons } = require("./disclosure");
@@ -22,7 +23,7 @@ function sortIcon(sort) {
     return icon;
 }
 
-function timestamp(value) { return new Date(value).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }); }
+function timestamp(value) { return formatDateTime(new Date(value)); }
 function preview(capture) { return String(capture.text ?? "").trim() || capture.attachments.map(ref => ref.name).join(", ") || "Untitled item"; }
 function detailTitle(capture) {
     const line = preview(capture).split(/\r?\n/)[0];
@@ -45,7 +46,7 @@ function hasTypeSpecificDetails(draft) {
 class InboxModal extends CaptureModal {
     onOpen() {
         this.modalEl.classList.add("hub-inbox-dialog");
-        this.header("Inbox", "Saved items awaiting organisation");
+        this.header("Inbox", "Saved items awaiting organisation", "inbox");
         this.filter = "all"; this.sortOrder = this.service.sortPreference; this.selectedId = null;
         this.rows = new Map(); this.checkingPositions = new Set();
         const body = this.contentEl.createDiv({ cls: "hub-inbox-body" });

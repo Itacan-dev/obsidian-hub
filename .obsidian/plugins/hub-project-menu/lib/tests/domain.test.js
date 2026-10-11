@@ -17,7 +17,10 @@ const {
     reduceActivityLog,
     slugify,
     validateFocusItems
-} = require("..");
+} = { ...require("../config"), ...require("../domain/audit"), ...require("../domain/contexts"), ...require("../domain/activity"),
+    ...require("../domain/tasks"), ...require("../domain/files"), ...require("../domain/dates"),
+    ...require("../domain/focus"), ...require("../domain/navigation"), ...require("../domain/progress"),
+    ...require("../domain/naming"), ...require("../services/data-store") };
 
 assert.strictEqual(localISODate(new Date(2026, 8, 4)), "2026-09-04");
 assert.strictEqual(parseLocalISODate("2026-02-30"), null);

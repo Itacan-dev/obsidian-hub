@@ -6,7 +6,7 @@ const os = require("os");
 const path = require("path");
 const {
     HubDataStore
-} = require("..");
+} = require("../services/data-store");
 
 async function run() {
     const root = await fs.promises.mkdtemp(

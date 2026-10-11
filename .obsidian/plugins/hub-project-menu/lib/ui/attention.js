@@ -52,7 +52,8 @@ function mountTransientEffects(root) {
             if (cls === "hub-attention") {
                 // Capture the actual theme/selection surfaces before applying
                 // one inherited CSS pulse. Foreground colors are never touched.
-                effect.surfaces = [...element.querySelectorAll(surfaceSelector)].map(node => ({
+                effect.surfaces = [...(element.matches(surfaceSelector) ? [element] : []),
+                    ...element.querySelectorAll(surfaceSelector)].map(node => ({
                     node, background: surfaceBackground(node),
                     value: node.style.getPropertyValue("--hub-attention-base-surface"),
                     priority: node.style.getPropertyPriority("--hub-attention-base-surface"),

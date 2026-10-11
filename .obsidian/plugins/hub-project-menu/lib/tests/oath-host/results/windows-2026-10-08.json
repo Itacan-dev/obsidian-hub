@@ -1,0 +1,395 @@
+{
+    "phase":  1,
+    "runtime":  {
+                    "electron":  "39.8.3",
+                    "node":  "22.22.1",
+                    "platform":  "win32",
+                    "arch":  "x64",
+                    "obsidian":  "1.13.7"
+                },
+    "preventedHostSideEffects":  [
+
+                                 ],
+    "checks":  [
+                   {
+                       "name":  "real Obsidian loads Itacan in the synthetic vault",
+                       "status":  "pass",
+                       "detail":  {
+                                      "vault":  "C:\\Users\\EL_BAR~1\\AppData\\Local\\Temp\\itacan-oath-phase1-rre6CO\\vault",
+                                      "oath":  null,
+                                      "footer":  true
+                                  }
+                   },
+                   {
+                       "name":  "existing Obsidian bridge reaches main process and correct BrowserWindow",
+                       "status":  "pass",
+                       "detail":  {
+                                      "windowId":  1,
+                                      "processType":  "browser",
+                                      "pid":  10652
+                                  }
+                   },
+                   {
+                       "name":  "BEFORE GUARDS: native local escape and state restoration",
+                       "status":  "pass",
+                       "detail":  {
+                                      "shortcut":  "Ctrl+Alt+Shift+F12",
+                                      "state":  {
+                                                    "full":  false,
+                                                    "kiosk":  false,
+                                                    "minimized":  false,
+                                                    "maximized":  false,
+                                                    "bounds":  {
+                                                                   "x":  40,
+                                                                   "y":  40,
+                                                                   "width":  900,
+                                                                   "height":  650
+                                                               },
+                                                    "closable":  true,
+                                                    "minimizable":  true,
+                                                    "top":  false
+                                                }
+                                  }
+                   },
+                   {
+                       "name":  "BEFORE GUARDS: watchdog restores without renderer input",
+                       "status":  "pass"
+                   },
+                   {
+                       "name":  "external fixture is an ordinary independent top-level application",
+                       "status":  "pass",
+                       "detail":  {
+                                      "pid":  5804,
+                                      "focused":  true,
+                                      "minimized":  false,
+                                      "visible":  true,
+                                      "full":  false,
+                                      "bounds":  {
+                                                     "x":  660,
+                                                     "y":  316,
+                                                     "width":  600,
+                                                     "height":  400
+                                                 },
+                                      "contentBounds":  {
+                                                            "x":  666,
+                                                            "y":  371,
+                                                            "width":  587,
+                                                            "height":  339
+                                                        },
+                                      "parent":  null
+                                  }
+                   },
+                   {
+                       "name":  "separate dock has isolated sandboxed renderer and no parent",
+                       "status":  "pass",
+                       "detail":  {
+                                      "require":  "undefined",
+                                      "keys":  [
+                                                   "focusHost",
+                                                   "stop"
+                                               ]
+                                  }
+                   },
+                   {
+                       "name":  "fullscreen: ordinary close and fullscreen exit are blocked",
+                       "status":  "pass"
+                   },
+                   {
+                       "name":  "fullscreen: host recovers programmatic minimization",
+                       "status":  "pass"
+                   },
+                   {
+                       "name":  "fullscreen: external app focuses while Itacan stays fullscreen",
+                       "status":  "fail",
+                       "detail":  "{\"host\":{\"focused\":true,\"visible\":true,\"bounds\":{\"x\":0,\"y\":0,\"width\":1920,\"height\":1080},\"contentBounds\":{\"x\":0,\"y\":0,\"width\":1920,\"height\":1080}},\"external\":{\"pid\":5804,\"focused\":true,\"minimized\":false,\"visible\":true,\"full\":false,\"bounds\":{\"x\":180,\"y\":120,\"width\":640,\"height\":440},\"contentBounds\":{\"x\":186,\"y\":175,\"width\":627,\"height\":379},\"parent\":null}}\n\ntrue !== false\n"
+                   },
+                   {
+                       "name":  "fullscreen: external minimization and restore preserve fullscreen",
+                       "status":  "pass"
+                   },
+                   {
+                       "name":  "fullscreen: desktop pixels show external app above host and dock above app",
+                       "status":  "fail",
+                       "detail":  "host pixel: 7,73,114"
+                   },
+                   {
+                       "name":  "fullscreen: repeated OS-injected Alt+Tab switches host and external app",
+                       "status":  "fail",
+                       "detail":  "Contradictory or unchanged focus: [{\"host\":true,\"external\":true,\"dock\":false,\"full\":true}]\n\ntrue !== false\n"
+                   },
+                   {
+                       "name":  "fullscreen: nonfocusable dock button sends validated action",
+                       "status":  "pass",
+                       "detail":  {
+                                      "actionDelivered":  true,
+                                      "hostReportsFocus":  true,
+                                      "physicalClickVerified":  false
+                                  }
+                   },
+                   {
+                       "name":  "fullscreen: development escape releases and restores exact state",
+                       "status":  "pass",
+                       "detail":  {
+                                      "full":  false,
+                                      "kiosk":  false,
+                                      "minimized":  false,
+                                      "maximized":  false,
+                                      "bounds":  {
+                                                     "x":  40,
+                                                     "y":  40,
+                                                     "width":  900,
+                                                     "height":  650
+                                                 },
+                                      "closable":  true,
+                                      "minimizable":  true,
+                                      "top":  false
+                                  }
+                   },
+                   {
+                       "name":  "kiosk: ordinary close and fullscreen exit are blocked",
+                       "status":  "pass"
+                   },
+                   {
+                       "name":  "kiosk: host recovers programmatic minimization",
+                       "status":  "pass"
+                   },
+                   {
+                       "name":  "kiosk: external app focuses while Itacan stays fullscreen",
+                       "status":  "fail",
+                       "detail":  "{\"host\":{\"focused\":true,\"visible\":true,\"bounds\":{\"x\":0,\"y\":0,\"width\":1920,\"height\":1080},\"contentBounds\":{\"x\":0,\"y\":0,\"width\":1920,\"height\":1080}},\"external\":{\"pid\":5804,\"focused\":true,\"minimized\":false,\"visible\":true,\"full\":false,\"bounds\":{\"x\":180,\"y\":80,\"width\":640,\"height\":1000},\"contentBounds\":{\"x\":186,\"y\":135,\"width\":627,\"height\":939},\"parent\":null}}\n\ntrue !== false\n"
+                   },
+                   {
+                       "name":  "kiosk: external minimization and restore preserve fullscreen",
+                       "status":  "pass"
+                   },
+                   {
+                       "name":  "kiosk: desktop pixels show external app above host and dock above app",
+                       "status":  "fail",
+                       "detail":  "host pixel: 7,73,114"
+                   },
+                   {
+                       "name":  "kiosk: repeated OS-injected Alt+Tab switches host and external app",
+                       "status":  "fail",
+                       "detail":  "Contradictory or unchanged focus: [{\"host\":true,\"external\":false,\"dock\":false,\"full\":true},{\"host\":true,\"external\":true,\"dock\":false,\"full\":true}]\n\ntrue !== false\n"
+                   },
+                   {
+                       "name":  "kiosk: nonfocusable dock button sends validated action",
+                       "status":  "pass",
+                       "detail":  {
+                                      "actionDelivered":  true,
+                                      "hostReportsFocus":  true,
+                                      "physicalClickVerified":  false
+                                  }
+                   },
+                   {
+                       "name":  "kiosk: development escape releases and restores exact state",
+                       "status":  "pass",
+                       "detail":  {
+                                      "full":  false,
+                                      "kiosk":  false,
+                                      "minimized":  false,
+                                      "maximized":  false,
+                                      "bounds":  {
+                                                     "x":  40,
+                                                     "y":  40,
+                                                     "width":  900,
+                                                     "height":  650
+                                                 },
+                                      "closable":  true,
+                                      "minimizable":  true,
+                                      "top":  false
+                                  }
+                   },
+                   {
+                       "name":  "Itacan Oath persistence and footer remain unchanged",
+                       "status":  "pass",
+                       "detail":  {
+                                      "oath":  null,
+                                      "footer":  true
+                                  }
+                   }
+               ],
+    "limitations":  [
+                        "Separate-process Electron companion is a controlled external app, not coverage of arbitrary third-party apps.",
+                        "Injected Alt+Tab is not a physical-keyboard acceptance test.",
+                        "Installed Obsidian archive runs in test Electron; installed-launcher equivalence is unproven."
+                    ],
+    "display":  {
+                    "bounds":  {
+                                   "x":  0,
+                                   "y":  0,
+                                   "width":  1920,
+                                   "height":  1080
+                               },
+                    "workArea":  {
+                                     "x":  0,
+                                     "y":  0,
+                                     "width":  1920,
+                                     "height":  1032
+                                 },
+                    "scaleFactor":  2
+                },
+    "hostPreferences":  {
+                            "nodeIntegration":  true,
+                            "contextIsolation":  false,
+                            "sandbox":  false,
+                            "webSecurity":  true,
+                            "webviewTag":  true
+                        },
+    "observations":  {
+                         "fullscreen":  {
+                                            "host":  {
+                                                         "focused":  true,
+                                                         "visible":  true,
+                                                         "bounds":  {
+                                                                        "x":  0,
+                                                                        "y":  0,
+                                                                        "width":  1920,
+                                                                        "height":  1080
+                                                                    },
+                                                         "contentBounds":  {
+                                                                               "x":  0,
+                                                                               "y":  0,
+                                                                               "width":  1920,
+                                                                               "height":  1080
+                                                                           }
+                                                     },
+                                            "external":  {
+                                                             "pid":  5804,
+                                                             "focused":  true,
+                                                             "minimized":  false,
+                                                             "visible":  true,
+                                                             "full":  false,
+                                                             "bounds":  {
+                                                                            "x":  180,
+                                                                            "y":  120,
+                                                                            "width":  640,
+                                                                            "height":  440
+                                                                        },
+                                                             "contentBounds":  {
+                                                                                   "x":  186,
+                                                                                   "y":  175,
+                                                                                   "width":  627,
+                                                                                   "height":  379
+                                                                               },
+                                                             "parent":  null
+                                                         },
+                                            "pixels":  {
+                                                           "host":  [
+                                                                        7,
+                                                                        73,
+                                                                        114
+                                                                    ],
+                                                           "external":  [
+                                                                            39,
+                                                                            174,
+                                                                            96
+                                                                        ],
+                                                           "dock":  [
+                                                                        67,
+                                                                        21,
+                                                                        39
+                                                                    ]
+                                                       },
+                                            "captureSize":  {
+                                                                "width":  1920,
+                                                                "height":  1080
+                                                            },
+                                            "dockBounds":  {
+                                                               "x":  0,
+                                                               "y":  1016,
+                                                               "width":  1920,
+                                                               "height":  64
+                                                           },
+                                            "dockVisible":  true,
+                                            "hostRendererPixel":  [
+                                                                      36,
+                                                                      84,
+                                                                      166
+                                                                  ]
+                                        },
+                         "kiosk":  {
+                                       "host":  {
+                                                    "focused":  true,
+                                                    "visible":  true,
+                                                    "bounds":  {
+                                                                   "x":  0,
+                                                                   "y":  0,
+                                                                   "width":  1920,
+                                                                   "height":  1080
+                                                               },
+                                                    "contentBounds":  {
+                                                                          "x":  0,
+                                                                          "y":  0,
+                                                                          "width":  1920,
+                                                                          "height":  1080
+                                                                      }
+                                                },
+                                       "external":  {
+                                                        "pid":  5804,
+                                                        "focused":  true,
+                                                        "minimized":  false,
+                                                        "visible":  true,
+                                                        "full":  false,
+                                                        "bounds":  {
+                                                                       "x":  180,
+                                                                       "y":  80,
+                                                                       "width":  640,
+                                                                       "height":  1000
+                                                                   },
+                                                        "contentBounds":  {
+                                                                              "x":  186,
+                                                                              "y":  135,
+                                                                              "width":  627,
+                                                                              "height":  939
+                                                                          },
+                                                        "parent":  null
+                                                    },
+                                       "pixels":  {
+                                                      "host":  [
+                                                                   7,
+                                                                   73,
+                                                                   114
+                                                               ],
+                                                      "external":  [
+                                                                       39,
+                                                                       174,
+                                                                       96
+                                                                   ],
+                                                      "dock":  [
+                                                                   67,
+                                                                   21,
+                                                                   39
+                                                               ]
+                                                  },
+                                       "captureSize":  {
+                                                           "width":  1920,
+                                                           "height":  1080
+                                                       },
+                                       "dockBounds":  {
+                                                          "x":  0,
+                                                          "y":  1016,
+                                                          "width":  1920,
+                                                          "height":  64
+                                                      },
+                                       "dockVisible":  true,
+                                       "hostRendererPixel":  [
+                                                                 36,
+                                                                 84,
+                                                                 166
+                                                             ]
+                                   }
+                     },
+    "feasibilityMet":  false,
+    "launcher":  {
+                     "exitCode":  1,
+                     "copiedSourceUnchanged":  true,
+                     "temporaryProfileRemoved":  true,
+                     "source":  "Installed Obsidian archive in existing test Electron; not the installed launcher runtime"
+                 },
+    "reviewNotes":  [
+                        "Final implementation run: 17 checks passed, 6 failed; Phase 1 feasibility not met.",
+                        "An earlier harness version allowed Obsidian startup to register the test executable for obsidian://. The final harness blocks that call. With explicit user approval the handler was repaired to C:\\Program Files\\Obsidian\\Obsidian.exe and the repair command returned the expected value.",
+                        "Final read-only verification after continuation confirmed Administrator token: False, the repaired Obsidian URL command, and zero test Electron processes. Two identified temporary directories from early GUI-mode launcher attempts were removed; GUI-mode entry is now refused before fixture creation."
+                    ]
+}

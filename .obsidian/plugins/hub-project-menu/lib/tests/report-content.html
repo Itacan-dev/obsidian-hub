@@ -1,0 +1,106 @@
+<!doctype html><meta charset="utf-8"><title>Report evidence and field accessibility</title>
+<link rel="stylesheet" href="../../styles.css">
+<style>
+body{margin:0;font:14px Arial;color:#ddd;background:#222;--background-primary:#222;--background-secondary:#292929;--background-modifier-border:#555;--text-normal:#ddd;--text-muted:#aaa;--interactive-accent:#8955ed;--text-on-accent:#fff;--input-shadow:none}
+*{box-sizing:border-box}.modal{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);padding:24px;background:#292929;border:1px solid #555;border-radius:12px;max-height:calc(100vh - 48px);overflow:auto;width:min(680px,calc(100vw - 48px))}.modal-close-button{position:absolute;top:8px;right:8px}button,input,select,textarea{font:inherit;color:inherit;background:#333}textarea{width:100%}#result{position:fixed;bottom:0;font-size:10px;pointer-events:none}
+</style><pre id="result">RUNNING</pre>
+<script type="module">
+const assert=(value,message)=>{if(!value)throw Error(message)},settle=()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+try {
+ const html=await(await fetch('daily-report.html')).text(),script=html.match(/<script type="module">([\s\S]*?)<\/script>/)[1];
+ window.testNotices=[];
+ const bootstrap=script.slice(0,script.indexOf('\ntry{')).replace('class{constructor(message){throw Error(message)}}','class{constructor(message){window.testNotices.push(message)}}'),AsyncFunction=Object.getPrototypeOf(async function(){}).constructor;
+ const {Report,Focus,DailyFocus,ui,empty,date,Modal,native}=await new AsyncFunction(bootstrap+';return {Report,Focus,DailyFocus,ui,empty,date,Modal,native};')();
+ const calls=[],opened=[];
+ const app={workspace:{openLinkText(...args){opened.push(args)}}};
+ // The fixture emulates Obsidian's rendering boundary. Product code continues
+ // to use the installed MarkdownRenderer, not this small test parser.
+ const parser={exports:{}};new Function('module',await(await fetch('markdown-fixture.js')).text())(parser);
+ native.MarkdownRenderer.render=async(app,text,element,path)=>{calls.push({text,path});parser.exports.renderFixtureMarkdown(app,text,element)};
+ const observers=new Set(),RealObserver=ResizeObserver;
+ window.ResizeObserver=class extends RealObserver{constructor(fn){super(fn);observers.add(this)}disconnect(){super.disconnect();observers.delete(this)}};
+ const key=async value=>{await new Promise(resolve=>{window.hubTestKeyDone=resolve;window.hubTestKeyRequest=value});await settle()};
+ const accessibility=()=>new Promise(resolve=>{window.hubTestAccessibilityDone=resolve;window.hubTestAccessibilityRequest=true});
+ const long='A completed task with a long explanation and additional context about all of the required outcomes. '.repeat(12);
+ const context={...empty,tasks:[1,2,3].map(i=>({text:long+' [Details](https://example.test) Task '+i,path:'Tasks.md',timestamp:Date.now()+i}))};
+ const records=[{projectId:'p',projectName:'Itacan',score:2,summary:'Reflection',context}];
+ const open=Modal.prototype.open,close=Modal.prototype.close;
+ Modal.prototype.open=function(){this.contentEl.classList.add('modal-content');this.modalEl.createEl('button',{cls:'modal-close-button',text:'Close',attr:{'aria-label':'Close window'}}).onclick=()=>this.close();this.escape=event=>{if(event.key==='Escape')this.close()};document.addEventListener('keydown',this.escape);return open.call(this)};
+ Modal.prototype.close=function(){document.removeEventListener('keydown',this.escape);return close.call(this)};
+ const outcomes=[];
+ for(const kind of ['editor','viewer']) {
+  const modal=kind==='editor'?new Report(app, {projects:[{projectId:'p',name:'Itacan'}],reportContexts:{p:context},showNextFocus:false,onSave:async()=>{}}):new ui.DailyReportModal(app, {day:{date,reports:records,nextFocus:[]}});
+  modal.open();await settle();
+  const list=modal.contentEl.querySelector('.hub-report-task-list');
+  const before=list.parentElement.createEl('button',{text:'Before evidence'});list.before(before);before.focus();
+  await key('Tab');
+  outcomes.push({kind,items:3,height:list.clientHeight,extent:list.scrollHeight,tabindex:list.getAttribute('tabindex'),label:list.getAttribute('aria-label'),tabReachedList:document.activeElement===list});
+  assert(document.activeElement===list,'Tab reaches independently scrollable evidence');
+  assert((await accessibility()).some(node=>node.role==='list'&&node.name==='Task progress'),'Scrollable evidence has an accessible list name');
+  const body=modal.contentEl.querySelector('.hub-modal-body'),top=body.scrollTop;list.scrollTop=0;await key('ArrowDown');await new Promise(r=>setTimeout(r,200));
+  assert(list.scrollTop>0&&body.scrollTop===top,'ArrowDown scrolls evidence without scrolling modal body');
+  list.querySelector('a').focus();assert(document.activeElement===list.querySelector('a'),'Evidence links remain keyboard focusable');
+  const header=modal.contentEl.querySelector('.hub-window-header'),footer=modal.contentEl.querySelector('.hub-project-advancement-actions'),headerTop=header.getBoundingClientRect().top,footerTop=footer.getBoundingClientRect().top;
+  body.scrollTop=body.scrollHeight;await settle();assert(header.getBoundingClientRect().top===headerTop&&footer.getBoundingClientRect().top===footerTop,'Header/footer stay fixed');
+  assert(modal.modalEl.getBoundingClientRect().height<=Math.min(900,innerHeight*.85)+1,'Shared modal cap retained');
+  modal.close();assert(observers.size===0,'Report observers disconnected on close');
+ }
+ if(new URLSearchParams(location.search).get('preview')==='probe') {result.textContent='PASS: evidence overflow reproduction '+JSON.stringify(outcomes);}
+ else {
+  assert(outcomes.every(item=>item.extent>item.height&&item.tabindex==='0'),'Every overflowing three-item list is explicitly keyboard accessible: '+JSON.stringify(outcomes));
+  const project={projectId:'p',name:'Itacan'},resource={projectId:'r',name:'Knowledge'};
+  const text='**Complete** [guide](https://example.test/guide) and [[Note]]; 2 < 3 & 5 > 4';
+  let live={p:{...empty,tasks:[{text,path:'Projects/Itacan/Tasks.md',timestamp:Date.now()}],focus:['**Review** [[Note]]']}};
+  const snapshot=JSON.stringify(live),reflections='**A reflection**\n\n- Keep literal formatting';
+  const editor=new Report(app,{projects:[project],getReportContexts:()=>live,currentSummaries:{p:reflections},showNextFocus:true,focusProjects:[project,resource],currentFocus:[],onSave:async()=>{}});editor.open();await settle();
+  const evidence=editor.contentEl.querySelector('.hub-report-evidence');
+  assert(evidence.querySelectorAll('strong').length===2&&evidence.querySelectorAll('a').length===3,'Task and focus evidence share Markdown rendering');
+  assert(evidence.textContent.includes('2 < 3 & 5 > 4')&&!evidence.querySelector('img'),'Plain special characters are preserved');
+  const textarea=editor.contentEl.querySelector('textarea');assert(textarea.placeholder==='Comments\u2026'&&textarea.getAttribute('aria-label')==='Comments for Itacan','Contextual comments label and placeholder');
+  assert((await accessibility()).some(node=>node.role==='textbox'&&node.name==='Comments for Itacan'),'Comments name is exposed in the browser accessibility tree');
+  assert(textarea.value===reflections&&JSON.stringify(live)===snapshot,'Rendering leaves comments and evidence data untouched');
+  assert(editor.contentEl.querySelector('.hub-report-task-list').getAttribute('tabindex')===null,'Short evidence has no extra Tab stop');
+  evidence.querySelector('a.internal-link').click();assert(opened.at(-1)[0]==='Note'&&opened.at(-1)[1]==='Projects/Itacan/Tasks.md','Internal links retain source navigation');
+  const expected=evidence.querySelector('.hub-report-task-list').innerHTML;
+  const viewer=new ui.DailyReportModal(app,{day:{date,reports:[{...records[0],context:live.p,summary:reflections}],nextFocus:[]}});viewer.open();await settle();
+  assert(viewer.contentEl.querySelector('.hub-report-task-list').innerHTML===expected&&viewer.contentEl.querySelector('.hub-report-focus strong').textContent==='Review','Editor and viewer render identical task and focus evidence');
+  assert(viewer.contentEl.querySelector('.hub-report-summary strong')&&viewer.contentEl.querySelector('.hub-report-summary li'),'Reflections use shared Markdown while editing stays plain text');
+  viewer.close();
+  live={p:context};document.dispatchEvent(new CustomEvent('hub-completed-tasks-changed'));await settle();
+  assert(!evidence.isConnected&&editor.contentEl.querySelector('.hub-report-task-list').tabIndex===0,'Refresh replaces evidence and updates overflow focusability');
+  assert(textarea.value===reflections&&textarea.getAttribute('aria-label')==='Comments for Itacan','Refresh preserves unsaved comments and labels');
+  live={p:{...empty,tasks:[{text:'Short again',timestamp:Date.now()}]}};document.dispatchEvent(new CustomEvent('hub-completed-tasks-changed'));await settle();
+  assert(editor.contentEl.querySelector('.hub-report-task-list').getAttribute('tabindex')===null&&observers.size===1,'Short refresh removes extra Tab stop and releases old observers');
+  editor.close();assert(!observers.size,'All editor rendering resources cleaned up');
+  const short=new ui.DailyReportModal(app,{day:{date,reports:[{...records[0],context:{...empty,tasks:Array.from({length:6},()=>({text:'Short task',timestamp:Date.now()}))}}],nextFocus:[]}});short.open();await settle();
+  const shortList=short.contentEl.querySelector('.hub-report-task-list');assert(shortList.scrollHeight<=shortList.clientHeight&&shortList.getAttribute('tabindex')===null,'Six fitting items no longer create a needless Tab stop');short.close();
+  const mediumText='A medium task describing research results and the remaining steps needed to complete the project.';
+  const responsive=new ui.DailyReportModal(app,{day:{date,reports:[{...records[0],context:{...empty,tasks:Array.from({length:3},()=>({text:mediumText,timestamp:Date.now()}))}}],nextFocus:[]}});responsive.open();await settle();
+  const responsiveList=responsive.contentEl.querySelector('.hub-report-task-list');assert(!responsiveList.hasAttribute('tabindex'),'Wide fitting list is not a Tab stop');responsive.modalEl.style.width='360px';await settle();assert(responsiveList.scrollHeight>responsiveList.clientHeight&&responsiveList.tabIndex===0,'Width changes and wrapping update scroll-region accessibility');responsive.modalEl.style.width='680px';await settle();assert(!responsiveList.hasAttribute('tabindex'),'Widening removes unnecessary Tab stop');responsive.close();
+  const daily=new DailyFocus(app,{date,projects:[project,resource],items:[{projectId:'p',text:'Today'}],nextItems:[{projectId:'r',text:'Tomorrow'}],onSave:async()=>{}});daily.open();await settle();
+  const today=daily.focusEditor,tomorrow=daily.nextFocusEditor;
+  assert(today.rows[0].input.getAttribute('aria-label')==='Focus for today intention 1 for Itacan'&&tomorrow.rows[0].input.getAttribute('aria-label')==='Focus for next day intention 1 for Knowledge','Today/next-day names are distinct and contextual');
+  assert(today.rows[0].projectSelect.getAttribute('aria-label').includes('focus for today intention 1'),'Selector named independently of placeholder');
+  const names=await accessibility();for(const expected of ['Focus for today intention 1 for Itacan','Focus for next day intention 1 for Knowledge','Project or Resource for focus for today intention 1'])assert(names.some(node=>node.name===expected),'Browser accessibility name: '+expected);
+  today.rows[0].projectSelect.value='r';today.rows[0].projectSelect.dispatchEvent(new Event('change'));assert(today.rows[0].input.getAttribute('aria-label').endsWith('for Knowledge'),'Label follows changed workspace');
+  today.rows[1].input.value='Another intention';today.rows[1].input.dispatchEvent(new Event('input'));assert(today.rows[2].input.getAttribute('aria-label')==='Focus for today intention 3','Added rows get unique labels');
+  today.rows[0].remove.click();assert(today.rows[0].input.getAttribute('aria-label')==='Focus for today intention 1','Removal renumbers names');
+  tomorrow.rows[1].input.value='Another next focus';tomorrow.rows[1].input.dispatchEvent(new Event('input'));
+  assert(!today.validate()&&!tomorrow.validate(false)&&today.rows[0].projectSelect.getAttribute('aria-invalid')==='true'&&tomorrow.rows[1].projectSelect.getAttribute('aria-invalid')==='true'&&document.activeElement===today.rows[0].projectSelect,'Multiple missing workspaces validated independently with focus preserved');
+  today.rows[0].projectSelect.value='p';today.rows[0].projectSelect.dispatchEvent(new Event('change'));assert(today.validate()&&!today.rows[0].projectSelect.hasAttribute('aria-invalid')&&tomorrow.rows[1].projectSelect.hasAttribute('aria-invalid'),'Correction clears only the relevant warning');
+  tomorrow.rows[1].input.value='';tomorrow.rows[1].input.dispatchEvent(new Event('input'));assert(!tomorrow.rows[1].projectSelect.hasAttribute('aria-invalid'),'Optional empty intention clears warning');
+  assert(today.rows.at(-1).input.value===''&&today.validate(),'Empty suggestion intentions remain optional');
+  let reject,resolve,saves=0;daily.onSave=()=>{saves++;return new Promise((ok,no)=>{resolve=ok;reject=no})};let pending=daily.save();daily.save();assert(saves===1&&daily.saving&&[...daily.contentEl.querySelectorAll('input,select')].every(el=>el.disabled),'Daily Focus pending-save lock and duplicate guard');
+  daily.modalEl.querySelector('.modal-close-button').click();await key('Escape');assert(daily.modalEl.isConnected,'Dismissal blocked while saving');reject(Error('Synthetic failure'));await pending;assert(!daily.saving&&today.rows[0].input.value==='Another intention'&&!today.rows[0].input.disabled,'Failure restores interactivity and input');
+  pending=daily.save();resolve();await pending;assert(!daily.modalEl.isConnected&&saves===2,'Retry completes existing save/close flow');
+  let reportResolve,reportReject,reportSaves=0;
+  const historical=new Report(app,{projects:[project],currentScores:{p:2},currentSummaries:{p:'Draft reflection'},reportContexts:{p:context},showNextFocus:false,onSave:()=>{reportSaves++;return new Promise((ok,no)=>{reportResolve=ok;reportReject=no})}});historical.open();await settle();
+  pending=historical.save();historical.save();historical.modalEl.querySelector('.modal-close-button').click();await key('Escape');assert(reportSaves===1&&historical.saving&&historical.modalEl.isConnected&&historical.summaryInputs.get('p').disabled,'Historical report pending-save lock, duplicate and dismissal guards');
+  reportReject(Error('Synthetic report failure'));await pending;assert(!historical.saving&&!historical.summaryInputs.get('p').disabled&&historical.summaryInputs.get('p').value==='Draft reflection'&&historical.contentEl.querySelector('.hub-report-task-list').tabIndex===0,'Failed report save preserves fields, evidence and keyboard scroll');
+  pending=historical.save();reportResolve();await pending;assert(reportSaves===2&&!historical.modalEl.isConnected&&!observers.size,'Historical retry closes and releases evidence resources');
+  let persisted=0;const exit=new Report(app,{projects:[project],requireExplicitRatings:true,allowNoProgress:true,showNextFocus:false,reportContexts:{p:context},onSave:async()=>{persisted++}});exit.open();await exit.save();assert(!persisted&&!exit.saving&&exit.ratingRows.get('p').getAttribute('aria-invalid')==='true','Exit rating validation precedes save lock');exit.ratingRows.get('p').querySelector('[data-score="0"]').click();await exit.save();assert(persisted===1&&!exit.modalEl.isConnected,'Explicit zero rating remains valid');
+  assert(!observers.size&&calls.some(call=>call.text===text&&call.path==='Projects/Itacan/Tasks.md'),'All resources disposed; Markdown uses original source text and path');
+  result.textContent='PASS: consistent evidence and reflection Markdown; plain-text editing; scoped field names; overflow-aware Tab/Arrow scrolling; short lists; observer cleanup; Daily Focus validation/save failure/retry/dismissal; explicit exit ratings. '+JSON.stringify(outcomes);
+ }
+} catch(error){result.textContent='FAIL '+error.stack;}
+</script>

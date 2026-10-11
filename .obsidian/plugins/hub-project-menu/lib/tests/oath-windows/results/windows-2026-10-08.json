@@ -1,0 +1,2708 @@
+{
+    "phase":  2,
+    "runtime":  {
+                    "electron":  "39.8.3",
+                    "node":  "22.22.1",
+                    "platform":  "win32",
+                    "arch":  "x64",
+                    "obsidian":  "1.13.7"
+                },
+    "preventedHostSideEffects":  [
+                                     "setAsDefaultProtocolClient"
+                                 ],
+    "checks":  [
+                   {
+                       "name":  "Phase 2: upstream addon loads in separate utility process",
+                       "status":  "pass",
+                       "detail":  {
+                                      "pid":  10388,
+                                      "napi":  "10"
+                                  }
+                   },
+                   {
+                       "name":  "real Obsidian loads Itacan in the synthetic vault",
+                       "status":  "pass",
+                       "detail":  {
+                                      "vault":  "C:\\Users\\EL_BAR~1\\AppData\\Local\\Temp\\itacan-oath-phase1-o2B3KA\\vault",
+                                      "oath":  null,
+                                      "footer":  true
+                                  }
+                   },
+                   {
+                       "name":  "existing Obsidian bridge reaches main process and correct BrowserWindow",
+                       "status":  "pass",
+                       "detail":  {
+                                      "windowId":  1,
+                                      "processType":  "browser",
+                                      "pid":  2884
+                                  }
+                   },
+                   {
+                       "name":  "BEFORE GUARDS: native local escape and state restoration",
+                       "status":  "pass",
+                       "detail":  {
+                                      "shortcut":  "Ctrl+Alt+Shift+F12",
+                                      "state":  {
+                                                    "full":  false,
+                                                    "kiosk":  false,
+                                                    "minimized":  false,
+                                                    "maximized":  false,
+                                                    "bounds":  {
+                                                                   "x":  40,
+                                                                   "y":  40,
+                                                                   "width":  900,
+                                                                   "height":  650
+                                                               },
+                                                    "closable":  true,
+                                                    "minimizable":  true,
+                                                    "top":  false
+                                                }
+                                  }
+                   },
+                   {
+                       "name":  "BEFORE GUARDS: watchdog restores without renderer input",
+                       "status":  "pass"
+                   },
+                   {
+                       "name":  "external fixture is an ordinary independent top-level application",
+                       "status":  "pass",
+                       "detail":  {
+                                      "pid":  15148,
+                                      "handle":  1049500,
+                                      "focused":  true,
+                                      "minimized":  false,
+                                      "visible":  true,
+                                      "full":  false,
+                                      "bounds":  {
+                                                     "x":  660,
+                                                     "y":  316,
+                                                     "width":  600,
+                                                     "height":  400
+                                                 },
+                                      "contentBounds":  {
+                                                            "x":  666,
+                                                            "y":  371,
+                                                            "width":  587,
+                                                            "height":  339
+                                                        },
+                                      "parent":  null
+                                  }
+                   },
+                   {
+                       "name":  "Windows observation after external fixture is an ordinary independent top-level application",
+                       "status":  "pass",
+                       "detail":  {
+                                      "recorded":  true
+                                  }
+                   },
+                   {
+                       "name":  "separate dock has isolated sandboxed renderer and no parent",
+                       "status":  "pass",
+                       "detail":  {
+                                      "require":  "undefined",
+                                      "keys":  [
+                                                   "focusHost",
+                                                   "stop"
+                                               ]
+                                  }
+                   },
+                   {
+                       "name":  "Windows observation after separate dock has isolated sandboxed renderer and no parent",
+                       "status":  "pass",
+                       "detail":  {
+                                      "recorded":  true
+                                  }
+                   },
+                   {
+                       "name":  "fullscreen: ordinary close and fullscreen exit are blocked",
+                       "status":  "pass"
+                   },
+                   {
+                       "name":  "Windows observation after fullscreen: ordinary close and fullscreen exit are blocked",
+                       "status":  "pass",
+                       "detail":  {
+                                      "recorded":  true
+                                  }
+                   },
+                   {
+                       "name":  "fullscreen: host recovers programmatic minimization",
+                       "status":  "pass"
+                   },
+                   {
+                       "name":  "Windows observation after fullscreen: host recovers programmatic minimization",
+                       "status":  "pass",
+                       "detail":  {
+                                      "recorded":  true
+                                  }
+                   },
+                   {
+                       "name":  "fullscreen: external app focuses while Itacan stays fullscreen",
+                       "status":  "fail",
+                       "detail":  "{\"host\":{\"focused\":true,\"visible\":true,\"bounds\":{\"x\":0,\"y\":0,\"width\":1920,\"height\":1080},\"contentBounds\":{\"x\":0,\"y\":0,\"width\":1920,\"height\":1080}},\"external\":{\"pid\":15148,\"handle\":1049500,\"focused\":true,\"minimized\":false,\"visible\":true,\"full\":false,\"bounds\":{\"x\":180,\"y\":120,\"width\":640,\"height\":440},\"contentBounds\":{\"x\":186,\"y\":175,\"width\":627,\"height\":379},\"parent\":null}}\n\ntrue !== false\n"
+                   },
+                   {
+                       "name":  "Windows observation after fullscreen: external app focuses while Itacan stays fullscreen",
+                       "status":  "pass",
+                       "detail":  {
+                                      "recorded":  true
+                                  }
+                   },
+                   {
+                       "name":  "fullscreen: external minimization and restore preserve fullscreen",
+                       "status":  "pass"
+                   },
+                   {
+                       "name":  "Windows observation after fullscreen: external minimization and restore preserve fullscreen",
+                       "status":  "pass",
+                       "detail":  {
+                                      "recorded":  true
+                                  }
+                   },
+                   {
+                       "name":  "fullscreen: desktop pixels show external app above host and dock above app",
+                       "status":  "fail",
+                       "detail":  "host pixel: 7,73,114"
+                   },
+                   {
+                       "name":  "Windows observation after fullscreen: desktop pixels show external app above host and dock above app",
+                       "status":  "pass",
+                       "detail":  {
+                                      "recorded":  true
+                                  }
+                   },
+                   {
+                       "name":  "fullscreen: Alt+Tab",
+                       "status":  "not-run",
+                       "detail":  "Run explicitly with --alt-tab on an idle interactive desktop"
+                   },
+                   {
+                       "name":  "fullscreen: nonfocusable dock button sends validated action",
+                       "status":  "pass",
+                       "detail":  {
+                                      "actionDelivered":  true,
+                                      "hostReportsFocus":  true,
+                                      "physicalClickVerified":  false
+                                  }
+                   },
+                   {
+                       "name":  "Windows observation after fullscreen: nonfocusable dock button sends validated action",
+                       "status":  "pass",
+                       "detail":  {
+                                      "recorded":  true
+                                  }
+                   },
+                   {
+                       "name":  "fullscreen: development escape releases and restores exact state",
+                       "status":  "pass",
+                       "detail":  {
+                                      "full":  false,
+                                      "kiosk":  false,
+                                      "minimized":  false,
+                                      "maximized":  false,
+                                      "bounds":  {
+                                                     "x":  40,
+                                                     "y":  40,
+                                                     "width":  900,
+                                                     "height":  650
+                                                 },
+                                      "closable":  true,
+                                      "minimizable":  true,
+                                      "top":  false
+                                  }
+                   },
+                   {
+                       "name":  "Windows observation after fullscreen: development escape releases and restores exact state",
+                       "status":  "pass",
+                       "detail":  {
+                                      "recorded":  true
+                                  }
+                   },
+                   {
+                       "name":  "kiosk: ordinary close and fullscreen exit are blocked",
+                       "status":  "pass"
+                   },
+                   {
+                       "name":  "Windows observation after kiosk: ordinary close and fullscreen exit are blocked",
+                       "status":  "pass",
+                       "detail":  {
+                                      "recorded":  true
+                                  }
+                   },
+                   {
+                       "name":  "kiosk: host recovers programmatic minimization",
+                       "status":  "pass"
+                   },
+                   {
+                       "name":  "Windows observation after kiosk: host recovers programmatic minimization",
+                       "status":  "pass",
+                       "detail":  {
+                                      "recorded":  true
+                                  }
+                   },
+                   {
+                       "name":  "kiosk: external app focuses while Itacan stays fullscreen",
+                       "status":  "fail",
+                       "detail":  "{\"host\":{\"focused\":true,\"visible\":true,\"bounds\":{\"x\":0,\"y\":0,\"width\":1920,\"height\":1080},\"contentBounds\":{\"x\":0,\"y\":0,\"width\":1920,\"height\":1080}},\"external\":{\"pid\":15148,\"handle\":1049500,\"focused\":true,\"minimized\":false,\"visible\":true,\"full\":false,\"bounds\":{\"x\":180,\"y\":80,\"width\":640,\"height\":1000},\"contentBounds\":{\"x\":186,\"y\":135,\"width\":627,\"height\":939},\"parent\":null}}\n\ntrue !== false\n"
+                   },
+                   {
+                       "name":  "Windows observation after kiosk: external app focuses while Itacan stays fullscreen",
+                       "status":  "pass",
+                       "detail":  {
+                                      "recorded":  true
+                                  }
+                   },
+                   {
+                       "name":  "kiosk: external minimization and restore preserve fullscreen",
+                       "status":  "pass"
+                   },
+                   {
+                       "name":  "Windows observation after kiosk: external minimization and restore preserve fullscreen",
+                       "status":  "pass",
+                       "detail":  {
+                                      "recorded":  true
+                                  }
+                   },
+                   {
+                       "name":  "kiosk: desktop pixels show external app above host and dock above app",
+                       "status":  "fail",
+                       "detail":  "host pixel: 7,73,114"
+                   },
+                   {
+                       "name":  "Windows observation after kiosk: desktop pixels show external app above host and dock above app",
+                       "status":  "pass",
+                       "detail":  {
+                                      "recorded":  true
+                                  }
+                   },
+                   {
+                       "name":  "kiosk: Alt+Tab",
+                       "status":  "not-run",
+                       "detail":  "Run explicitly with --alt-tab on an idle interactive desktop"
+                   },
+                   {
+                       "name":  "kiosk: nonfocusable dock button sends validated action",
+                       "status":  "pass",
+                       "detail":  {
+                                      "actionDelivered":  true,
+                                      "hostReportsFocus":  true,
+                                      "physicalClickVerified":  false
+                                  }
+                   },
+                   {
+                       "name":  "Windows observation after kiosk: nonfocusable dock button sends validated action",
+                       "status":  "pass",
+                       "detail":  {
+                                      "recorded":  true
+                                  }
+                   },
+                   {
+                       "name":  "kiosk: development escape releases and restores exact state",
+                       "status":  "pass",
+                       "detail":  {
+                                      "full":  false,
+                                      "kiosk":  false,
+                                      "minimized":  false,
+                                      "maximized":  false,
+                                      "bounds":  {
+                                                     "x":  40,
+                                                     "y":  40,
+                                                     "width":  900,
+                                                     "height":  650
+                                                 },
+                                      "closable":  true,
+                                      "minimizable":  true,
+                                      "top":  false
+                                  }
+                   },
+                   {
+                       "name":  "Windows observation after kiosk: development escape releases and restores exact state",
+                       "status":  "pass",
+                       "detail":  {
+                                      "recorded":  true
+                                  }
+                   },
+                   {
+                       "name":  "Itacan Oath persistence and footer remain unchanged",
+                       "status":  "pass",
+                       "detail":  {
+                                      "oath":  null,
+                                      "footer":  true
+                                  }
+                   },
+                   {
+                       "name":  "Windows observation after Itacan Oath persistence and footer remain unchanged",
+                       "status":  "pass",
+                       "detail":  {
+                                      "recorded":  true
+                                  }
+                   },
+                   {
+                       "name":  "Phase 2: bounded inventory diagnostic",
+                       "status":  "pass",
+                       "detail":  {
+                                      "count":  7,
+                                      "durationMs":  20.64940000000024
+                                  }
+                   },
+                   {
+                       "name":  "Phase 2: conventional executable path agrees with fixture",
+                       "status":  "pass"
+                   },
+                   {
+                       "name":  "Phase 2: two windows with duplicate titles have distinct tokens",
+                       "status":  "pass"
+                   },
+                   {
+                       "name":  "Phase 2: minimized ordinary window remains inventoried",
+                       "status":  "pass"
+                   },
+                   {
+                       "name":  "Phase 2: empty-title ordinary window remains inventoried",
+                       "status":  "pass"
+                   },
+                   {
+                       "name":  "Phase 2 gate: blocked parent or owned modal stays discoverable",
+                       "status":  "fail",
+                       "detail":  "Neither disabled parent nor owned modal returned by inventory"
+                   },
+                   {
+                       "name":  "Phase 2: closed-window token rejected after fresh enumeration",
+                       "status":  "pass"
+                   },
+                   {
+                       "name":  "Phase 2: new window never inherits disappeared token",
+                       "status":  "pass",
+                       "detail":  {
+                                      "actualHandleReuseForced":  false,
+                                      "samePidSameHandleBetweenPolls":  "unsupported"
+                                  }
+                   },
+                   {
+                       "name":  "Phase 2: exited external process disappears and its token is rejected",
+                       "status":  "pass"
+                   },
+                   {
+                       "name":  "Phase 2: bounded polling stays serial and host event loop runs",
+                       "status":  "pass",
+                       "detail":  {
+                                      "ticks":  132,
+                                      "durations":  [
+                                                        {
+                                                            "foregroundMs":  2.1633999999976368,
+                                                            "inventoryMs":  15.664400000001478
+                                                        },
+                                                        {
+                                                            "foregroundMs":  3.2216999999982363
+                                                        },
+                                                        {
+                                                            "foregroundMs":  3.1948000000011234
+                                                        },
+                                                        {
+                                                            "foregroundMs":  3.8931999999986147
+                                                        },
+                                                        {
+                                                            "foregroundMs":  3.004899999999907,
+                                                            "inventoryMs":  20.174699999999575
+                                                        },
+                                                        {
+                                                            "foregroundMs":  3.1199999999989814
+                                                        },
+                                                        {
+                                                            "foregroundMs":  3.7633999999998196
+                                                        },
+                                                        {
+                                                            "foregroundMs":  3.286599999999453
+                                                        }
+                                                    ],
+                                      "foregroundDelayAfterReplyMs":  250,
+                                      "inventoryEveryFourthCycle":  true
+                                  }
+                   },
+                   {
+                       "name":  "Phase 2: unsupported controls fail explicitly",
+                       "status":  "pass"
+                   },
+                   {
+                       "name":  "Phase 2: helper exit rejects request and allows one explicit restart",
+                       "status":  "pass"
+                   },
+                   {
+                       "name":  "Phase 2: synchronous helper stall times out without hanging host",
+                       "status":  "pass"
+                   },
+                   {
+                       "name":  "Phase 2 gate: source-built distributable controls",
+                       "status":  "fail",
+                       "detail":  "Pinned public nut.js libnut provider throws for minimize/restore. No source-build toolchain available. No custom native substitute introduced."
+                   },
+                   {
+                       "name":  "Phase 2: actual OS handle reuse",
+                       "status":  "not-run",
+                       "detail":  "Not established by this diagnostic fixture"
+                   },
+                   {
+                       "name":  "Phase 2: inaccessible/elevated process identity",
+                       "status":  "not-run",
+                       "detail":  "Not established by this diagnostic fixture"
+                   },
+                   {
+                       "name":  "Phase 2: physical Alt+Tab and dock hit-testing",
+                       "status":  "not-run",
+                       "detail":  "Not established by this diagnostic fixture"
+                   },
+                   {
+                       "name":  "Phase 2: sleep/wake and display changes",
+                       "status":  "not-run",
+                       "detail":  "Not established by this diagnostic fixture"
+                   },
+                   {
+                       "name":  "Phase 2: general app launch and denied native focus",
+                       "status":  "not-run",
+                       "detail":  "Not established by this diagnostic fixture"
+                   },
+                   {
+                       "name":  "Phase 2: installed Obsidian launcher runtime",
+                       "status":  "not-run",
+                       "detail":  "Not established by this diagnostic fixture"
+                   }
+               ],
+    "limitations":  [
+                        "Separate-process Electron companion is a controlled external app, not coverage of arbitrary third-party apps.",
+                        "Injected Alt+Tab is not a physical-keyboard acceptance test.",
+                        "Installed Obsidian archive runs in test Electron; installed-launcher equivalence is unproven.",
+                        "Phase 2 controls are unsupported by the pinned public provider; source builds not verified.",
+                        "get-windows filters some windows silently; a successful inventory is not proof of complete coverage.",
+                        "Direct upstream N-API loading tests binary compatibility, not the ESM wrapper or production packaging."
+                    ],
+    "dependencies":  {
+                         "getWindows":  {
+                                            "version":  "9.3.0",
+                                            "packageUrl":  "https://registry.npmjs.org/get-windows/-/get-windows-9.3.0.tgz",
+                                            "packageSha512":  "DrOfQSmIcsFax28FfSUjbLTfeOkAG7yeh6NCb/9zzRkDuClXaqYqHuQBPUqcqd1uYS70ygYERSooacMAwvbyVw==",
+                                            "binaryUrl":  "https://github.com/sindresorhus/get-windows/releases/download/v9.3.0/napi-9-win32-unknown-x64.tar.gz",
+                                            "binarySha256":  "3eecfad06ed44f379bc50e02d738fa5dde274ce0206ced4c58b8f776ec9d76b0"
+                                        },
+                         "nutJs":  {
+                                       "commit":  "e413fa1f19a19c4631812e4e1eaf47aa732b5cbe",
+                                       "version":  "4.2.0",
+                                       "provider":  "providers/libnut/lib/libnut-window.class.ts",
+                                       "controls":  {
+                                                        "focus":  "source-present-unverified",
+                                                        "minimize":  "not-implemented",
+                                                        "restore":  "not-implemented"
+                                                    }
+                                   },
+                         "route":  "Upstream N-API binary diagnostic only; reproducible source-build gate remains unmet"
+                     },
+    "adapterHealth":  [
+                          "started",
+                          "exited",
+                          "started",
+                          "unavailable",
+                          "started",
+                          "unavailable"
+                      ],
+    "windowsObservations":  [
+                                {
+                                    "label":  "external fixture is an ordinary independent top-level application",
+                                    "durationMs":  2.4601999999995314,
+                                    "foreground":  {
+                                                       "handle":  1049500,
+                                                       "pid":  15148,
+                                                       "executable":  "\u003cverified test Electron executable\u003e",
+                                                       "title":  "Oath Phase 1 external fixture",
+                                                       "bounds":  {
+                                                                      "x":  360,
+                                                                      "y":  240,
+                                                                      "width":  1280,
+                                                                      "height":  880
+                                                                  },
+                                                       "identity":  "observed",
+                                                       "reason":  null,
+                                                       "minimized":  null
+                                                   },
+                                    "windows":  [
+
+                                                ],
+                                    "unrelatedCount":  0,
+                                    "unknownIdentityCount":  0,
+                                    "host":  {
+                                                 "handle":  919508,
+                                                 "electronFocused":  false,
+                                                 "fullscreen":  false
+                                             },
+                                    "external":  {
+                                                     "pid":  15148,
+                                                     "handle":  1049500,
+                                                     "focused":  true,
+                                                     "minimized":  false,
+                                                     "visible":  true,
+                                                     "full":  false,
+                                                     "bounds":  {
+                                                                    "x":  180,
+                                                                    "y":  120,
+                                                                    "width":  640,
+                                                                    "height":  440
+                                                                },
+                                                     "contentBounds":  {
+                                                                           "x":  186,
+                                                                           "y":  175,
+                                                                           "width":  627,
+                                                                           "height":  379
+                                                                       },
+                                                     "parent":  null
+                                                 }
+                                },
+                                {
+                                    "label":  "separate dock has isolated sandboxed renderer and no parent",
+                                    "durationMs":  1.5801999999994223,
+                                    "foreground":  {
+                                                       "handle":  1049500,
+                                                       "pid":  15148,
+                                                       "executable":  "\u003cverified test Electron executable\u003e",
+                                                       "title":  "Oath Phase 1 external fixture",
+                                                       "bounds":  {
+                                                                      "x":  360,
+                                                                      "y":  240,
+                                                                      "width":  1280,
+                                                                      "height":  880
+                                                                  },
+                                                       "identity":  "observed",
+                                                       "reason":  null,
+                                                       "minimized":  null
+                                                   },
+                                    "windows":  [
+
+                                                ],
+                                    "unrelatedCount":  0,
+                                    "unknownIdentityCount":  0,
+                                    "host":  {
+                                                 "handle":  919508,
+                                                 "electronFocused":  false,
+                                                 "fullscreen":  false
+                                             },
+                                    "external":  {
+                                                     "pid":  15148,
+                                                     "handle":  1049500,
+                                                     "focused":  true,
+                                                     "minimized":  false,
+                                                     "visible":  true,
+                                                     "full":  false,
+                                                     "bounds":  {
+                                                                    "x":  180,
+                                                                    "y":  120,
+                                                                    "width":  640,
+                                                                    "height":  440
+                                                                },
+                                                     "contentBounds":  {
+                                                                           "x":  186,
+                                                                           "y":  175,
+                                                                           "width":  627,
+                                                                           "height":  379
+                                                                       },
+                                                     "parent":  null
+                                                 }
+                                },
+                                {
+                                    "label":  "fullscreen: ordinary close and fullscreen exit are blocked",
+                                    "durationMs":  5.481099999999969,
+                                    "foreground":  {
+                                                       "handle":  1049500,
+                                                       "pid":  15148,
+                                                       "executable":  "\u003cverified test Electron executable\u003e",
+                                                       "title":  "Oath Phase 1 external fixture",
+                                                       "bounds":  {
+                                                                      "x":  360,
+                                                                      "y":  240,
+                                                                      "width":  1280,
+                                                                      "height":  880
+                                                                  },
+                                                       "identity":  "observed",
+                                                       "reason":  null,
+                                                       "minimized":  null
+                                                   },
+                                    "windows":  [
+
+                                                ],
+                                    "unrelatedCount":  0,
+                                    "unknownIdentityCount":  0,
+                                    "host":  {
+                                                 "handle":  919508,
+                                                 "electronFocused":  false,
+                                                 "fullscreen":  true
+                                             },
+                                    "external":  {
+                                                     "pid":  15148,
+                                                     "handle":  1049500,
+                                                     "focused":  true,
+                                                     "minimized":  false,
+                                                     "visible":  true,
+                                                     "full":  false,
+                                                     "bounds":  {
+                                                                    "x":  180,
+                                                                    "y":  120,
+                                                                    "width":  640,
+                                                                    "height":  440
+                                                                },
+                                                     "contentBounds":  {
+                                                                           "x":  186,
+                                                                           "y":  175,
+                                                                           "width":  627,
+                                                                           "height":  379
+                                                                       },
+                                                     "parent":  null
+                                                 }
+                                },
+                                {
+                                    "label":  "fullscreen: host recovers programmatic minimization",
+                                    "durationMs":  1.944800000000214,
+                                    "foreground":  {
+                                                       "handle":  1049500,
+                                                       "pid":  15148,
+                                                       "executable":  "\u003cverified test Electron executable\u003e",
+                                                       "title":  "Oath Phase 1 external fixture",
+                                                       "bounds":  {
+                                                                      "x":  360,
+                                                                      "y":  240,
+                                                                      "width":  1280,
+                                                                      "height":  880
+                                                                  },
+                                                       "identity":  "observed",
+                                                       "reason":  null,
+                                                       "minimized":  null
+                                                   },
+                                    "windows":  [
+
+                                                ],
+                                    "unrelatedCount":  0,
+                                    "unknownIdentityCount":  0,
+                                    "host":  {
+                                                 "handle":  919508,
+                                                 "electronFocused":  true,
+                                                 "fullscreen":  true
+                                             },
+                                    "external":  {
+                                                     "pid":  15148,
+                                                     "handle":  1049500,
+                                                     "focused":  true,
+                                                     "minimized":  false,
+                                                     "visible":  true,
+                                                     "full":  false,
+                                                     "bounds":  {
+                                                                    "x":  180,
+                                                                    "y":  120,
+                                                                    "width":  640,
+                                                                    "height":  440
+                                                                },
+                                                     "contentBounds":  {
+                                                                           "x":  186,
+                                                                           "y":  175,
+                                                                           "width":  627,
+                                                                           "height":  379
+                                                                       },
+                                                     "parent":  null
+                                                 }
+                                },
+                                {
+                                    "label":  "fullscreen: external app focuses while Itacan stays fullscreen",
+                                    "durationMs":  1.1935000000003129,
+                                    "foreground":  {
+                                                       "handle":  1049500,
+                                                       "pid":  15148,
+                                                       "executable":  "\u003cverified test Electron executable\u003e",
+                                                       "title":  "Oath Phase 1 external fixture",
+                                                       "bounds":  {
+                                                                      "x":  360,
+                                                                      "y":  240,
+                                                                      "width":  1280,
+                                                                      "height":  880
+                                                                  },
+                                                       "identity":  "observed",
+                                                       "reason":  null,
+                                                       "minimized":  null
+                                                   },
+                                    "windows":  [
+
+                                                ],
+                                    "unrelatedCount":  0,
+                                    "unknownIdentityCount":  0,
+                                    "host":  {
+                                                 "handle":  919508,
+                                                 "electronFocused":  true,
+                                                 "fullscreen":  true
+                                             },
+                                    "external":  {
+                                                     "pid":  15148,
+                                                     "handle":  1049500,
+                                                     "focused":  true,
+                                                     "minimized":  false,
+                                                     "visible":  true,
+                                                     "full":  false,
+                                                     "bounds":  {
+                                                                    "x":  180,
+                                                                    "y":  120,
+                                                                    "width":  640,
+                                                                    "height":  440
+                                                                },
+                                                     "contentBounds":  {
+                                                                           "x":  186,
+                                                                           "y":  175,
+                                                                           "width":  627,
+                                                                           "height":  379
+                                                                       },
+                                                     "parent":  null
+                                                 }
+                                },
+                                {
+                                    "label":  "fullscreen: external minimization and restore preserve fullscreen",
+                                    "durationMs":  3.3523999999997613,
+                                    "foreground":  {
+                                                       "handle":  1049500,
+                                                       "pid":  15148,
+                                                       "executable":  "\u003cverified test Electron executable\u003e",
+                                                       "title":  "Oath Phase 1 external fixture",
+                                                       "bounds":  {
+                                                                      "x":  360,
+                                                                      "y":  240,
+                                                                      "width":  1280,
+                                                                      "height":  880
+                                                                  },
+                                                       "identity":  "observed",
+                                                       "reason":  null,
+                                                       "minimized":  null
+                                                   },
+                                    "windows":  [
+
+                                                ],
+                                    "unrelatedCount":  0,
+                                    "unknownIdentityCount":  0,
+                                    "host":  {
+                                                 "handle":  919508,
+                                                 "electronFocused":  true,
+                                                 "fullscreen":  true
+                                             },
+                                    "external":  {
+                                                     "pid":  15148,
+                                                     "handle":  1049500,
+                                                     "focused":  true,
+                                                     "minimized":  false,
+                                                     "visible":  true,
+                                                     "full":  false,
+                                                     "bounds":  {
+                                                                    "x":  180,
+                                                                    "y":  120,
+                                                                    "width":  640,
+                                                                    "height":  440
+                                                                },
+                                                     "contentBounds":  {
+                                                                           "x":  186,
+                                                                           "y":  175,
+                                                                           "width":  627,
+                                                                           "height":  379
+                                                                       },
+                                                     "parent":  null
+                                                 }
+                                },
+                                {
+                                    "label":  "fullscreen: desktop pixels show external app above host and dock above app",
+                                    "durationMs":  1.7034000000003289,
+                                    "foreground":  {
+                                                       "handle":  1049500,
+                                                       "pid":  15148,
+                                                       "executable":  "\u003cverified test Electron executable\u003e",
+                                                       "title":  "Oath Phase 1 external fixture",
+                                                       "bounds":  {
+                                                                      "x":  360,
+                                                                      "y":  160,
+                                                                      "width":  1280,
+                                                                      "height":  2000
+                                                                  },
+                                                       "identity":  "observed",
+                                                       "reason":  null,
+                                                       "minimized":  null
+                                                   },
+                                    "windows":  [
+
+                                                ],
+                                    "unrelatedCount":  0,
+                                    "unknownIdentityCount":  0,
+                                    "host":  {
+                                                 "handle":  919508,
+                                                 "electronFocused":  true,
+                                                 "fullscreen":  true
+                                             },
+                                    "external":  {
+                                                     "pid":  15148,
+                                                     "handle":  1049500,
+                                                     "focused":  true,
+                                                     "minimized":  false,
+                                                     "visible":  true,
+                                                     "full":  false,
+                                                     "bounds":  {
+                                                                    "x":  180,
+                                                                    "y":  80,
+                                                                    "width":  640,
+                                                                    "height":  1000
+                                                                },
+                                                     "contentBounds":  {
+                                                                           "x":  186,
+                                                                           "y":  135,
+                                                                           "width":  627,
+                                                                           "height":  939
+                                                                       },
+                                                     "parent":  null
+                                                 }
+                                },
+                                {
+                                    "label":  "fullscreen: nonfocusable dock button sends validated action",
+                                    "durationMs":  1.9429000000000087,
+                                    "foreground":  {
+                                                       "handle":  1049500,
+                                                       "pid":  15148,
+                                                       "executable":  "\u003cverified test Electron executable\u003e",
+                                                       "title":  "Oath Phase 1 external fixture",
+                                                       "bounds":  {
+                                                                      "x":  360,
+                                                                      "y":  160,
+                                                                      "width":  1280,
+                                                                      "height":  2000
+                                                                  },
+                                                       "identity":  "observed",
+                                                       "reason":  null,
+                                                       "minimized":  null
+                                                   },
+                                    "windows":  [
+
+                                                ],
+                                    "unrelatedCount":  0,
+                                    "unknownIdentityCount":  0,
+                                    "host":  {
+                                                 "handle":  919508,
+                                                 "electronFocused":  true,
+                                                 "fullscreen":  true
+                                             },
+                                    "external":  {
+                                                     "pid":  15148,
+                                                     "handle":  1049500,
+                                                     "focused":  true,
+                                                     "minimized":  false,
+                                                     "visible":  true,
+                                                     "full":  false,
+                                                     "bounds":  {
+                                                                    "x":  180,
+                                                                    "y":  80,
+                                                                    "width":  640,
+                                                                    "height":  1000
+                                                                },
+                                                     "contentBounds":  {
+                                                                           "x":  186,
+                                                                           "y":  135,
+                                                                           "width":  627,
+                                                                           "height":  939
+                                                                       },
+                                                     "parent":  null
+                                                 }
+                                },
+                                {
+                                    "label":  "fullscreen: development escape releases and restores exact state",
+                                    "durationMs":  1.855599999998958,
+                                    "foreground":  {
+                                                       "handle":  1049500,
+                                                       "pid":  15148,
+                                                       "executable":  "\u003cverified test Electron executable\u003e",
+                                                       "title":  "Oath Phase 1 external fixture",
+                                                       "bounds":  {
+                                                                      "x":  360,
+                                                                      "y":  160,
+                                                                      "width":  1280,
+                                                                      "height":  2000
+                                                                  },
+                                                       "identity":  "observed",
+                                                       "reason":  null,
+                                                       "minimized":  null
+                                                   },
+                                    "windows":  [
+
+                                                ],
+                                    "unrelatedCount":  0,
+                                    "unknownIdentityCount":  0,
+                                    "host":  {
+                                                 "handle":  919508,
+                                                 "electronFocused":  true,
+                                                 "fullscreen":  false
+                                             },
+                                    "external":  {
+                                                     "pid":  15148,
+                                                     "handle":  1049500,
+                                                     "focused":  true,
+                                                     "minimized":  false,
+                                                     "visible":  true,
+                                                     "full":  false,
+                                                     "bounds":  {
+                                                                    "x":  180,
+                                                                    "y":  80,
+                                                                    "width":  640,
+                                                                    "height":  1000
+                                                                },
+                                                     "contentBounds":  {
+                                                                           "x":  186,
+                                                                           "y":  135,
+                                                                           "width":  627,
+                                                                           "height":  939
+                                                                       },
+                                                     "parent":  null
+                                                 }
+                                },
+                                {
+                                    "label":  "kiosk: ordinary close and fullscreen exit are blocked",
+                                    "durationMs":  2.227600000000166,
+                                    "foreground":  {
+                                                       "handle":  1049500,
+                                                       "pid":  15148,
+                                                       "executable":  "\u003cverified test Electron executable\u003e",
+                                                       "title":  "Oath Phase 1 external fixture",
+                                                       "bounds":  {
+                                                                      "x":  360,
+                                                                      "y":  160,
+                                                                      "width":  1280,
+                                                                      "height":  2000
+                                                                  },
+                                                       "identity":  "observed",
+                                                       "reason":  null,
+                                                       "minimized":  null
+                                                   },
+                                    "windows":  [
+
+                                                ],
+                                    "unrelatedCount":  0,
+                                    "unknownIdentityCount":  0,
+                                    "host":  {
+                                                 "handle":  919508,
+                                                 "electronFocused":  true,
+                                                 "fullscreen":  true
+                                             },
+                                    "external":  {
+                                                     "pid":  15148,
+                                                     "handle":  1049500,
+                                                     "focused":  true,
+                                                     "minimized":  false,
+                                                     "visible":  true,
+                                                     "full":  false,
+                                                     "bounds":  {
+                                                                    "x":  180,
+                                                                    "y":  80,
+                                                                    "width":  640,
+                                                                    "height":  1000
+                                                                },
+                                                     "contentBounds":  {
+                                                                           "x":  186,
+                                                                           "y":  135,
+                                                                           "width":  627,
+                                                                           "height":  939
+                                                                       },
+                                                     "parent":  null
+                                                 }
+                                },
+                                {
+                                    "label":  "kiosk: host recovers programmatic minimization",
+                                    "durationMs":  1.1564999999991414,
+                                    "foreground":  {
+                                                       "handle":  1049500,
+                                                       "pid":  15148,
+                                                       "executable":  "\u003cverified test Electron executable\u003e",
+                                                       "title":  "Oath Phase 1 external fixture",
+                                                       "bounds":  {
+                                                                      "x":  360,
+                                                                      "y":  160,
+                                                                      "width":  1280,
+                                                                      "height":  2000
+                                                                  },
+                                                       "identity":  "observed",
+                                                       "reason":  null,
+                                                       "minimized":  null
+                                                   },
+                                    "windows":  [
+
+                                                ],
+                                    "unrelatedCount":  0,
+                                    "unknownIdentityCount":  0,
+                                    "host":  {
+                                                 "handle":  919508,
+                                                 "electronFocused":  true,
+                                                 "fullscreen":  true
+                                             },
+                                    "external":  {
+                                                     "pid":  15148,
+                                                     "handle":  1049500,
+                                                     "focused":  true,
+                                                     "minimized":  false,
+                                                     "visible":  true,
+                                                     "full":  false,
+                                                     "bounds":  {
+                                                                    "x":  180,
+                                                                    "y":  80,
+                                                                    "width":  640,
+                                                                    "height":  1000
+                                                                },
+                                                     "contentBounds":  {
+                                                                           "x":  186,
+                                                                           "y":  135,
+                                                                           "width":  627,
+                                                                           "height":  939
+                                                                       },
+                                                     "parent":  null
+                                                 }
+                                },
+                                {
+                                    "label":  "kiosk: external app focuses while Itacan stays fullscreen",
+                                    "durationMs":  1.1823000000003958,
+                                    "foreground":  {
+                                                       "handle":  1049500,
+                                                       "pid":  15148,
+                                                       "executable":  "\u003cverified test Electron executable\u003e",
+                                                       "title":  "Oath Phase 1 external fixture",
+                                                       "bounds":  {
+                                                                      "x":  360,
+                                                                      "y":  160,
+                                                                      "width":  1280,
+                                                                      "height":  2000
+                                                                  },
+                                                       "identity":  "observed",
+                                                       "reason":  null,
+                                                       "minimized":  null
+                                                   },
+                                    "windows":  [
+
+                                                ],
+                                    "unrelatedCount":  0,
+                                    "unknownIdentityCount":  0,
+                                    "host":  {
+                                                 "handle":  919508,
+                                                 "electronFocused":  true,
+                                                 "fullscreen":  true
+                                             },
+                                    "external":  {
+                                                     "pid":  15148,
+                                                     "handle":  1049500,
+                                                     "focused":  true,
+                                                     "minimized":  false,
+                                                     "visible":  true,
+                                                     "full":  false,
+                                                     "bounds":  {
+                                                                    "x":  180,
+                                                                    "y":  80,
+                                                                    "width":  640,
+                                                                    "height":  1000
+                                                                },
+                                                     "contentBounds":  {
+                                                                           "x":  186,
+                                                                           "y":  135,
+                                                                           "width":  627,
+                                                                           "height":  939
+                                                                       },
+                                                     "parent":  null
+                                                 }
+                                },
+                                {
+                                    "label":  "kiosk: external minimization and restore preserve fullscreen",
+                                    "durationMs":  2.911599999999453,
+                                    "foreground":  {
+                                                       "handle":  1049500,
+                                                       "pid":  15148,
+                                                       "executable":  "\u003cverified test Electron executable\u003e",
+                                                       "title":  "Oath Phase 1 external fixture",
+                                                       "bounds":  {
+                                                                      "x":  360,
+                                                                      "y":  160,
+                                                                      "width":  1280,
+                                                                      "height":  2000
+                                                                  },
+                                                       "identity":  "observed",
+                                                       "reason":  null,
+                                                       "minimized":  null
+                                                   },
+                                    "windows":  [
+
+                                                ],
+                                    "unrelatedCount":  0,
+                                    "unknownIdentityCount":  0,
+                                    "host":  {
+                                                 "handle":  919508,
+                                                 "electronFocused":  true,
+                                                 "fullscreen":  true
+                                             },
+                                    "external":  {
+                                                     "pid":  15148,
+                                                     "handle":  1049500,
+                                                     "focused":  true,
+                                                     "minimized":  false,
+                                                     "visible":  true,
+                                                     "full":  false,
+                                                     "bounds":  {
+                                                                    "x":  180,
+                                                                    "y":  80,
+                                                                    "width":  640,
+                                                                    "height":  1000
+                                                                },
+                                                     "contentBounds":  {
+                                                                           "x":  186,
+                                                                           "y":  135,
+                                                                           "width":  627,
+                                                                           "height":  939
+                                                                       },
+                                                     "parent":  null
+                                                 }
+                                },
+                                {
+                                    "label":  "kiosk: desktop pixels show external app above host and dock above app",
+                                    "durationMs":  1.7863999999990483,
+                                    "foreground":  {
+                                                       "handle":  1049500,
+                                                       "pid":  15148,
+                                                       "executable":  "\u003cverified test Electron executable\u003e",
+                                                       "title":  "Oath Phase 1 external fixture",
+                                                       "bounds":  {
+                                                                      "x":  360,
+                                                                      "y":  160,
+                                                                      "width":  1280,
+                                                                      "height":  2000
+                                                                  },
+                                                       "identity":  "observed",
+                                                       "reason":  null,
+                                                       "minimized":  null
+                                                   },
+                                    "windows":  [
+
+                                                ],
+                                    "unrelatedCount":  0,
+                                    "unknownIdentityCount":  0,
+                                    "host":  {
+                                                 "handle":  919508,
+                                                 "electronFocused":  true,
+                                                 "fullscreen":  true
+                                             },
+                                    "external":  {
+                                                     "pid":  15148,
+                                                     "handle":  1049500,
+                                                     "focused":  true,
+                                                     "minimized":  false,
+                                                     "visible":  true,
+                                                     "full":  false,
+                                                     "bounds":  {
+                                                                    "x":  180,
+                                                                    "y":  80,
+                                                                    "width":  640,
+                                                                    "height":  1000
+                                                                },
+                                                     "contentBounds":  {
+                                                                           "x":  186,
+                                                                           "y":  135,
+                                                                           "width":  627,
+                                                                           "height":  939
+                                                                       },
+                                                     "parent":  null
+                                                 }
+                                },
+                                {
+                                    "label":  "kiosk: nonfocusable dock button sends validated action",
+                                    "durationMs":  1.9827000000004773,
+                                    "foreground":  {
+                                                       "handle":  1049500,
+                                                       "pid":  15148,
+                                                       "executable":  "\u003cverified test Electron executable\u003e",
+                                                       "title":  "Oath Phase 1 external fixture",
+                                                       "bounds":  {
+                                                                      "x":  360,
+                                                                      "y":  160,
+                                                                      "width":  1280,
+                                                                      "height":  2000
+                                                                  },
+                                                       "identity":  "observed",
+                                                       "reason":  null,
+                                                       "minimized":  null
+                                                   },
+                                    "windows":  [
+
+                                                ],
+                                    "unrelatedCount":  0,
+                                    "unknownIdentityCount":  0,
+                                    "host":  {
+                                                 "handle":  919508,
+                                                 "electronFocused":  true,
+                                                 "fullscreen":  true
+                                             },
+                                    "external":  {
+                                                     "pid":  15148,
+                                                     "handle":  1049500,
+                                                     "focused":  true,
+                                                     "minimized":  false,
+                                                     "visible":  true,
+                                                     "full":  false,
+                                                     "bounds":  {
+                                                                    "x":  180,
+                                                                    "y":  80,
+                                                                    "width":  640,
+                                                                    "height":  1000
+                                                                },
+                                                     "contentBounds":  {
+                                                                           "x":  186,
+                                                                           "y":  135,
+                                                                           "width":  627,
+                                                                           "height":  939
+                                                                       },
+                                                     "parent":  null
+                                                 }
+                                },
+                                {
+                                    "label":  "kiosk: development escape releases and restores exact state",
+                                    "durationMs":  2.701600000000326,
+                                    "foreground":  {
+                                                       "handle":  1049500,
+                                                       "pid":  15148,
+                                                       "executable":  "\u003cverified test Electron executable\u003e",
+                                                       "title":  "Oath Phase 1 external fixture",
+                                                       "bounds":  {
+                                                                      "x":  360,
+                                                                      "y":  160,
+                                                                      "width":  1280,
+                                                                      "height":  2000
+                                                                  },
+                                                       "identity":  "observed",
+                                                       "reason":  null,
+                                                       "minimized":  null
+                                                   },
+                                    "windows":  [
+
+                                                ],
+                                    "unrelatedCount":  0,
+                                    "unknownIdentityCount":  0,
+                                    "host":  {
+                                                 "handle":  919508,
+                                                 "electronFocused":  true,
+                                                 "fullscreen":  false
+                                             },
+                                    "external":  {
+                                                     "pid":  15148,
+                                                     "handle":  1049500,
+                                                     "focused":  true,
+                                                     "minimized":  false,
+                                                     "visible":  true,
+                                                     "full":  false,
+                                                     "bounds":  {
+                                                                    "x":  180,
+                                                                    "y":  80,
+                                                                    "width":  640,
+                                                                    "height":  1000
+                                                                },
+                                                     "contentBounds":  {
+                                                                           "x":  186,
+                                                                           "y":  135,
+                                                                           "width":  627,
+                                                                           "height":  939
+                                                                       },
+                                                     "parent":  null
+                                                 }
+                                },
+                                {
+                                    "label":  "Itacan Oath persistence and footer remain unchanged",
+                                    "durationMs":  2.507999999999811,
+                                    "foreground":  {
+                                                       "handle":  1049500,
+                                                       "pid":  15148,
+                                                       "executable":  "\u003cverified test Electron executable\u003e",
+                                                       "title":  "Oath Phase 1 external fixture",
+                                                       "bounds":  {
+                                                                      "x":  360,
+                                                                      "y":  160,
+                                                                      "width":  1280,
+                                                                      "height":  2000
+                                                                  },
+                                                       "identity":  "observed",
+                                                       "reason":  null,
+                                                       "minimized":  null
+                                                   },
+                                    "windows":  [
+
+                                                ],
+                                    "unrelatedCount":  0,
+                                    "unknownIdentityCount":  0,
+                                    "host":  {
+                                                 "handle":  919508,
+                                                 "electronFocused":  true,
+                                                 "fullscreen":  false
+                                             },
+                                    "external":  {
+                                                     "pid":  15148,
+                                                     "handle":  1049500,
+                                                     "focused":  true,
+                                                     "minimized":  false,
+                                                     "visible":  true,
+                                                     "full":  false,
+                                                     "bounds":  {
+                                                                    "x":  180,
+                                                                    "y":  80,
+                                                                    "width":  640,
+                                                                    "height":  1000
+                                                                },
+                                                     "contentBounds":  {
+                                                                           "x":  186,
+                                                                           "y":  135,
+                                                                           "width":  627,
+                                                                           "height":  939
+                                                                       },
+                                                     "parent":  null
+                                                 }
+                                },
+                                {
+                                    "label":  "inventory diagnostic",
+                                    "durationMs":  20.64940000000024,
+                                    "coverage":  "partial: upstream silently filters some windows and metadata failures",
+                                    "foreground":  {
+                                                       "handle":  1049500,
+                                                       "pid":  15148,
+                                                       "executable":  "\u003cverified test Electron executable\u003e",
+                                                       "title":  "Oath Phase 1 external fixture",
+                                                       "bounds":  {
+                                                                      "x":  360,
+                                                                      "y":  160,
+                                                                      "width":  1280,
+                                                                      "height":  2000
+                                                                  },
+                                                       "identity":  "observed",
+                                                       "reason":  null,
+                                                       "minimized":  null
+                                                   },
+                                    "windows":  [
+                                                    {
+                                                        "handle":  4327984,
+                                                        "pid":  2884,
+                                                        "executable":  "\u003cverified test Electron executable\u003e",
+                                                        "title":  "Oath Phase 1 â€” development dock",
+                                                        "bounds":  {
+                                                                       "x":  0,
+                                                                       "y":  2032,
+                                                                       "width":  3840,
+                                                                       "height":  128
+                                                                   },
+                                                        "identity":  "observed",
+                                                        "reason":  null,
+                                                        "minimized":  null,
+                                                        "token":  "9007d303-bb08-4351-aba6-ef1487055864"
+                                                    },
+                                                    {
+                                                        "handle":  1049500,
+                                                        "pid":  15148,
+                                                        "executable":  "\u003cverified test Electron executable\u003e",
+                                                        "title":  "Oath Phase 1 external fixture",
+                                                        "bounds":  {
+                                                                       "x":  360,
+                                                                       "y":  160,
+                                                                       "width":  1280,
+                                                                       "height":  2000
+                                                                   },
+                                                        "identity":  "observed",
+                                                        "reason":  null,
+                                                        "minimized":  null,
+                                                        "token":  "feab111f-1196-4736-8a0f-0f169b8b9ef9"
+                                                    },
+                                                    {
+                                                        "handle":  919508,
+                                                        "pid":  2884,
+                                                        "executable":  "\u003cverified test Electron executable\u003e",
+                                                        "title":  "New tab - vault - Obsidian 1.13.7",
+                                                        "bounds":  {
+                                                                       "x":  80,
+                                                                       "y":  80,
+                                                                       "width":  1800,
+                                                                       "height":  1300
+                                                                   },
+                                                        "identity":  "observed",
+                                                        "reason":  null,
+                                                        "minimized":  null,
+                                                        "token":  "bdb439df-36d8-4869-99d5-ccf4d38827a9"
+                                                    }
+                                                ],
+                                    "unrelatedCount":  4,
+                                    "unknownIdentityCount":  0,
+                                    "host":  {
+                                                 "handle":  919508,
+                                                 "electronFocused":  true,
+                                                 "fullscreen":  false
+                                             },
+                                    "external":  {
+                                                     "pid":  15148,
+                                                     "handle":  1049500,
+                                                     "focused":  true,
+                                                     "minimized":  false,
+                                                     "visible":  true,
+                                                     "full":  false,
+                                                     "bounds":  {
+                                                                    "x":  180,
+                                                                    "y":  80,
+                                                                    "width":  640,
+                                                                    "height":  1000
+                                                                },
+                                                     "contentBounds":  {
+                                                                           "x":  186,
+                                                                           "y":  135,
+                                                                           "width":  627,
+                                                                           "height":  939
+                                                                       },
+                                                     "parent":  null
+                                                 }
+                                },
+                                {
+                                    "label":  "identity agreement",
+                                    "durationMs":  16.727999999999156,
+                                    "coverage":  "partial: upstream silently filters some windows and metadata failures",
+                                    "foreground":  {
+                                                       "handle":  1049500,
+                                                       "pid":  15148,
+                                                       "executable":  "\u003cverified test Electron executable\u003e",
+                                                       "title":  "Oath Phase 1 external fixture",
+                                                       "bounds":  {
+                                                                      "x":  360,
+                                                                      "y":  160,
+                                                                      "width":  1280,
+                                                                      "height":  2000
+                                                                  },
+                                                       "identity":  "observed",
+                                                       "reason":  null,
+                                                       "minimized":  null
+                                                   },
+                                    "windows":  [
+                                                    {
+                                                        "handle":  4327984,
+                                                        "pid":  2884,
+                                                        "executable":  "\u003cverified test Electron executable\u003e",
+                                                        "title":  "Oath Phase 1 â€” development dock",
+                                                        "bounds":  {
+                                                                       "x":  0,
+                                                                       "y":  2032,
+                                                                       "width":  3840,
+                                                                       "height":  128
+                                                                   },
+                                                        "identity":  "observed",
+                                                        "reason":  null,
+                                                        "minimized":  null,
+                                                        "token":  "9007d303-bb08-4351-aba6-ef1487055864"
+                                                    },
+                                                    {
+                                                        "handle":  1049500,
+                                                        "pid":  15148,
+                                                        "executable":  "\u003cverified test Electron executable\u003e",
+                                                        "title":  "Oath Phase 1 external fixture",
+                                                        "bounds":  {
+                                                                       "x":  360,
+                                                                       "y":  160,
+                                                                       "width":  1280,
+                                                                       "height":  2000
+                                                                   },
+                                                        "identity":  "observed",
+                                                        "reason":  null,
+                                                        "minimized":  null,
+                                                        "token":  "feab111f-1196-4736-8a0f-0f169b8b9ef9"
+                                                    },
+                                                    {
+                                                        "handle":  919508,
+                                                        "pid":  2884,
+                                                        "executable":  "\u003cverified test Electron executable\u003e",
+                                                        "title":  "New tab - vault - Obsidian 1.13.7",
+                                                        "bounds":  {
+                                                                       "x":  80,
+                                                                       "y":  80,
+                                                                       "width":  1800,
+                                                                       "height":  1300
+                                                                   },
+                                                        "identity":  "observed",
+                                                        "reason":  null,
+                                                        "minimized":  null,
+                                                        "token":  "bdb439df-36d8-4869-99d5-ccf4d38827a9"
+                                                    }
+                                                ],
+                                    "unrelatedCount":  4,
+                                    "unknownIdentityCount":  0,
+                                    "host":  {
+                                                 "handle":  919508,
+                                                 "electronFocused":  true,
+                                                 "fullscreen":  false
+                                             },
+                                    "external":  {
+                                                     "pid":  15148,
+                                                     "handle":  1049500,
+                                                     "focused":  true,
+                                                     "minimized":  false,
+                                                     "visible":  true,
+                                                     "full":  false,
+                                                     "bounds":  {
+                                                                    "x":  180,
+                                                                    "y":  80,
+                                                                    "width":  640,
+                                                                    "height":  1000
+                                                                },
+                                                     "contentBounds":  {
+                                                                           "x":  186,
+                                                                           "y":  135,
+                                                                           "width":  627,
+                                                                           "height":  939
+                                                                       },
+                                                     "parent":  null
+                                                 }
+                                },
+                                {
+                                    "label":  "duplicate titles",
+                                    "durationMs":  22.931300000000192,
+                                    "coverage":  "partial: upstream silently filters some windows and metadata failures",
+                                    "foreground":  {
+                                                       "handle":  1049500,
+                                                       "pid":  15148,
+                                                       "executable":  "\u003cverified test Electron executable\u003e",
+                                                       "title":  "Oath Phase 1 external fixture",
+                                                       "bounds":  {
+                                                                      "x":  360,
+                                                                      "y":  160,
+                                                                      "width":  1280,
+                                                                      "height":  2000
+                                                                  },
+                                                       "identity":  "observed",
+                                                       "reason":  null,
+                                                       "minimized":  null
+                                                   },
+                                    "windows":  [
+                                                    {
+                                                        "handle":  4327984,
+                                                        "pid":  2884,
+                                                        "executable":  "\u003cverified test Electron executable\u003e",
+                                                        "title":  "Oath Phase 1 â€” development dock",
+                                                        "bounds":  {
+                                                                       "x":  0,
+                                                                       "y":  2032,
+                                                                       "width":  3840,
+                                                                       "height":  128
+                                                                   },
+                                                        "identity":  "observed",
+                                                        "reason":  null,
+                                                        "minimized":  null,
+                                                        "token":  "9007d303-bb08-4351-aba6-ef1487055864"
+                                                    },
+                                                    {
+                                                        "handle":  1049500,
+                                                        "pid":  15148,
+                                                        "executable":  "\u003cverified test Electron executable\u003e",
+                                                        "title":  "Oath Phase 1 external fixture",
+                                                        "bounds":  {
+                                                                       "x":  360,
+                                                                       "y":  160,
+                                                                       "width":  1280,
+                                                                       "height":  2000
+                                                                   },
+                                                        "identity":  "observed",
+                                                        "reason":  null,
+                                                        "minimized":  null,
+                                                        "token":  "feab111f-1196-4736-8a0f-0f169b8b9ef9"
+                                                    },
+                                                    {
+                                                        "handle":  2163782,
+                                                        "pid":  2884,
+                                                        "executable":  "\u003cverified test Electron executable\u003e",
+                                                        "title":  "Duplicate Phase 2 title",
+                                                        "bounds":  {
+                                                                       "x":  1560,
+                                                                       "y":  812,
+                                                                       "width":  720,
+                                                                       "height":  440
+                                                                   },
+                                                        "identity":  "observed",
+                                                        "reason":  null,
+                                                        "minimized":  null,
+                                                        "token":  "7b10f365-335e-438e-97af-a95f953b5d20"
+                                                    },
+                                                    {
+                                                        "handle":  984158,
+                                                        "pid":  2884,
+                                                        "executable":  "\u003cverified test Electron executable\u003e",
+                                                        "title":  "Duplicate Phase 2 title",
+                                                        "bounds":  {
+                                                                       "x":  1560,
+                                                                       "y":  812,
+                                                                       "width":  720,
+                                                                       "height":  440
+                                                                   },
+                                                        "identity":  "observed",
+                                                        "reason":  null,
+                                                        "minimized":  null,
+                                                        "token":  "ec47df92-b035-45c5-ac65-3e1a740099d6"
+                                                    },
+                                                    {
+                                                        "handle":  919508,
+                                                        "pid":  2884,
+                                                        "executable":  "\u003cverified test Electron executable\u003e",
+                                                        "title":  "New tab - vault - Obsidian 1.13.7",
+                                                        "bounds":  {
+                                                                       "x":  80,
+                                                                       "y":  80,
+                                                                       "width":  1800,
+                                                                       "height":  1300
+                                                                   },
+                                                        "identity":  "observed",
+                                                        "reason":  null,
+                                                        "minimized":  null,
+                                                        "token":  "bdb439df-36d8-4869-99d5-ccf4d38827a9"
+                                                    }
+                                                ],
+                                    "unrelatedCount":  4,
+                                    "unknownIdentityCount":  0,
+                                    "host":  {
+                                                 "handle":  919508,
+                                                 "electronFocused":  false,
+                                                 "fullscreen":  false
+                                             },
+                                    "external":  {
+                                                     "pid":  15148,
+                                                     "handle":  1049500,
+                                                     "focused":  true,
+                                                     "minimized":  false,
+                                                     "visible":  true,
+                                                     "full":  false,
+                                                     "bounds":  {
+                                                                    "x":  180,
+                                                                    "y":  80,
+                                                                    "width":  640,
+                                                                    "height":  1000
+                                                                },
+                                                     "contentBounds":  {
+                                                                           "x":  186,
+                                                                           "y":  135,
+                                                                           "width":  627,
+                                                                           "height":  939
+                                                                       },
+                                                     "parent":  null
+                                                 }
+                                },
+                                {
+                                    "label":  "minimized window",
+                                    "durationMs":  19.659200000000055,
+                                    "coverage":  "partial: upstream silently filters some windows and metadata failures",
+                                    "foreground":  {
+                                                       "handle":  1049500,
+                                                       "pid":  15148,
+                                                       "executable":  "\u003cverified test Electron executable\u003e",
+                                                       "title":  "Oath Phase 1 external fixture",
+                                                       "bounds":  {
+                                                                      "x":  360,
+                                                                      "y":  160,
+                                                                      "width":  1280,
+                                                                      "height":  2000
+                                                                  },
+                                                       "identity":  "observed",
+                                                       "reason":  null,
+                                                       "minimized":  null
+                                                   },
+                                    "windows":  [
+                                                    {
+                                                        "handle":  4327984,
+                                                        "pid":  2884,
+                                                        "executable":  "\u003cverified test Electron executable\u003e",
+                                                        "title":  "Oath Phase 1 â€” development dock",
+                                                        "bounds":  {
+                                                                       "x":  0,
+                                                                       "y":  2032,
+                                                                       "width":  3840,
+                                                                       "height":  128
+                                                                   },
+                                                        "identity":  "observed",
+                                                        "reason":  null,
+                                                        "minimized":  null,
+                                                        "token":  "9007d303-bb08-4351-aba6-ef1487055864"
+                                                    },
+                                                    {
+                                                        "handle":  1049500,
+                                                        "pid":  15148,
+                                                        "executable":  "\u003cverified test Electron executable\u003e",
+                                                        "title":  "Oath Phase 1 external fixture",
+                                                        "bounds":  {
+                                                                       "x":  360,
+                                                                       "y":  160,
+                                                                       "width":  1280,
+                                                                       "height":  2000
+                                                                   },
+                                                        "identity":  "observed",
+                                                        "reason":  null,
+                                                        "minimized":  null,
+                                                        "token":  "feab111f-1196-4736-8a0f-0f169b8b9ef9"
+                                                    },
+                                                    {
+                                                        "handle":  2163782,
+                                                        "pid":  2884,
+                                                        "executable":  "\u003cverified test Electron executable\u003e",
+                                                        "title":  "Duplicate Phase 2 title",
+                                                        "bounds":  {
+                                                                       "x":  1560,
+                                                                       "y":  812,
+                                                                       "width":  720,
+                                                                       "height":  440
+                                                                   },
+                                                        "identity":  "observed",
+                                                        "reason":  null,
+                                                        "minimized":  null,
+                                                        "token":  "7b10f365-335e-438e-97af-a95f953b5d20"
+                                                    },
+                                                    {
+                                                        "handle":  919508,
+                                                        "pid":  2884,
+                                                        "executable":  "\u003cverified test Electron executable\u003e",
+                                                        "title":  "New tab - vault - Obsidian 1.13.7",
+                                                        "bounds":  {
+                                                                       "x":  80,
+                                                                       "y":  80,
+                                                                       "width":  1800,
+                                                                       "height":  1300
+                                                                   },
+                                                        "identity":  "observed",
+                                                        "reason":  null,
+                                                        "minimized":  null,
+                                                        "token":  "bdb439df-36d8-4869-99d5-ccf4d38827a9"
+                                                    },
+                                                    {
+                                                        "handle":  984158,
+                                                        "pid":  2884,
+                                                        "executable":  "\u003cverified test Electron executable\u003e",
+                                                        "title":  "Duplicate Phase 2 title",
+                                                        "bounds":  {
+                                                                       "x":  -32000,
+                                                                       "y":  -32000,
+                                                                       "width":  314,
+                                                                       "height":  50
+                                                                   },
+                                                        "identity":  "observed",
+                                                        "reason":  null,
+                                                        "minimized":  null,
+                                                        "token":  "ec47df92-b035-45c5-ac65-3e1a740099d6"
+                                                    }
+                                                ],
+                                    "unrelatedCount":  4,
+                                    "unknownIdentityCount":  0,
+                                    "host":  {
+                                                 "handle":  919508,
+                                                 "electronFocused":  false,
+                                                 "fullscreen":  false
+                                             },
+                                    "external":  {
+                                                     "pid":  15148,
+                                                     "handle":  1049500,
+                                                     "focused":  true,
+                                                     "minimized":  false,
+                                                     "visible":  true,
+                                                     "full":  false,
+                                                     "bounds":  {
+                                                                    "x":  180,
+                                                                    "y":  80,
+                                                                    "width":  640,
+                                                                    "height":  1000
+                                                                },
+                                                     "contentBounds":  {
+                                                                           "x":  186,
+                                                                           "y":  135,
+                                                                           "width":  627,
+                                                                           "height":  939
+                                                                       },
+                                                     "parent":  null
+                                                 }
+                                },
+                                {
+                                    "label":  "empty title",
+                                    "durationMs":  17.266100000000733,
+                                    "coverage":  "partial: upstream silently filters some windows and metadata failures",
+                                    "foreground":  {
+                                                       "handle":  1049500,
+                                                       "pid":  15148,
+                                                       "executable":  "\u003cverified test Electron executable\u003e",
+                                                       "title":  "Oath Phase 1 external fixture",
+                                                       "bounds":  {
+                                                                      "x":  360,
+                                                                      "y":  160,
+                                                                      "width":  1280,
+                                                                      "height":  2000
+                                                                  },
+                                                       "identity":  "observed",
+                                                       "reason":  null,
+                                                       "minimized":  null
+                                                   },
+                                    "windows":  [
+                                                    {
+                                                        "handle":  4327984,
+                                                        "pid":  2884,
+                                                        "executable":  "\u003cverified test Electron executable\u003e",
+                                                        "title":  "Oath Phase 1 â€” development dock",
+                                                        "bounds":  {
+                                                                       "x":  0,
+                                                                       "y":  2032,
+                                                                       "width":  3840,
+                                                                       "height":  128
+                                                                   },
+                                                        "identity":  "observed",
+                                                        "reason":  null,
+                                                        "minimized":  null,
+                                                        "token":  "9007d303-bb08-4351-aba6-ef1487055864"
+                                                    },
+                                                    {
+                                                        "handle":  1049500,
+                                                        "pid":  15148,
+                                                        "executable":  "\u003cverified test Electron executable\u003e",
+                                                        "title":  "Oath Phase 1 external fixture",
+                                                        "bounds":  {
+                                                                       "x":  360,
+                                                                       "y":  160,
+                                                                       "width":  1280,
+                                                                       "height":  2000
+                                                                   },
+                                                        "identity":  "observed",
+                                                        "reason":  null,
+                                                        "minimized":  null,
+                                                        "token":  "feab111f-1196-4736-8a0f-0f169b8b9ef9"
+                                                    },
+                                                    {
+                                                        "handle":  984158,
+                                                        "pid":  2884,
+                                                        "executable":  "\u003cverified test Electron executable\u003e",
+                                                        "title":  "Duplicate Phase 2 title",
+                                                        "bounds":  {
+                                                                       "x":  1560,
+                                                                       "y":  812,
+                                                                       "width":  720,
+                                                                       "height":  440
+                                                                   },
+                                                        "identity":  "observed",
+                                                        "reason":  null,
+                                                        "minimized":  null,
+                                                        "token":  "ec47df92-b035-45c5-ac65-3e1a740099d6"
+                                                    },
+                                                    {
+                                                        "handle":  2163782,
+                                                        "pid":  2884,
+                                                        "executable":  "\u003cverified test Electron executable\u003e",
+                                                        "title":  "",
+                                                        "bounds":  {
+                                                                       "x":  1560,
+                                                                       "y":  812,
+                                                                       "width":  720,
+                                                                       "height":  440
+                                                                   },
+                                                        "identity":  "observed",
+                                                        "reason":  null,
+                                                        "minimized":  null,
+                                                        "token":  "7b10f365-335e-438e-97af-a95f953b5d20"
+                                                    },
+                                                    {
+                                                        "handle":  919508,
+                                                        "pid":  2884,
+                                                        "executable":  "\u003cverified test Electron executable\u003e",
+                                                        "title":  "New tab - vault - Obsidian 1.13.7",
+                                                        "bounds":  {
+                                                                       "x":  80,
+                                                                       "y":  80,
+                                                                       "width":  1800,
+                                                                       "height":  1300
+                                                                   },
+                                                        "identity":  "observed",
+                                                        "reason":  null,
+                                                        "minimized":  null,
+                                                        "token":  "bdb439df-36d8-4869-99d5-ccf4d38827a9"
+                                                    }
+                                                ],
+                                    "unrelatedCount":  4,
+                                    "unknownIdentityCount":  0,
+                                    "host":  {
+                                                 "handle":  919508,
+                                                 "electronFocused":  false,
+                                                 "fullscreen":  false
+                                             },
+                                    "external":  {
+                                                     "pid":  15148,
+                                                     "handle":  1049500,
+                                                     "focused":  true,
+                                                     "minimized":  false,
+                                                     "visible":  true,
+                                                     "full":  false,
+                                                     "bounds":  {
+                                                                    "x":  180,
+                                                                    "y":  80,
+                                                                    "width":  640,
+                                                                    "height":  1000
+                                                                },
+                                                     "contentBounds":  {
+                                                                           "x":  186,
+                                                                           "y":  135,
+                                                                           "width":  627,
+                                                                           "height":  939
+                                                                       },
+                                                     "parent":  null
+                                                 }
+                                },
+                                {
+                                    "label":  "owned modal disables parent",
+                                    "durationMs":  15.683600000000297,
+                                    "coverage":  "partial: upstream silently filters some windows and metadata failures",
+                                    "foreground":  {
+                                                       "handle":  1049500,
+                                                       "pid":  15148,
+                                                       "executable":  "\u003cverified test Electron executable\u003e",
+                                                       "title":  "Oath Phase 1 external fixture",
+                                                       "bounds":  {
+                                                                      "x":  360,
+                                                                      "y":  160,
+                                                                      "width":  1280,
+                                                                      "height":  2000
+                                                                  },
+                                                       "identity":  "observed",
+                                                       "reason":  null,
+                                                       "minimized":  null
+                                                   },
+                                    "windows":  [
+                                                    {
+                                                        "handle":  4327984,
+                                                        "pid":  2884,
+                                                        "executable":  "\u003cverified test Electron executable\u003e",
+                                                        "title":  "Oath Phase 1 â€” development dock",
+                                                        "bounds":  {
+                                                                       "x":  0,
+                                                                       "y":  2032,
+                                                                       "width":  3840,
+                                                                       "height":  128
+                                                                   },
+                                                        "identity":  "observed",
+                                                        "reason":  null,
+                                                        "minimized":  null,
+                                                        "token":  "9007d303-bb08-4351-aba6-ef1487055864"
+                                                    },
+                                                    {
+                                                        "handle":  1049500,
+                                                        "pid":  15148,
+                                                        "executable":  "\u003cverified test Electron executable\u003e",
+                                                        "title":  "Oath Phase 1 external fixture",
+                                                        "bounds":  {
+                                                                       "x":  360,
+                                                                       "y":  160,
+                                                                       "width":  1280,
+                                                                       "height":  2000
+                                                                   },
+                                                        "identity":  "observed",
+                                                        "reason":  null,
+                                                        "minimized":  null,
+                                                        "token":  "feab111f-1196-4736-8a0f-0f169b8b9ef9"
+                                                    },
+                                                    {
+                                                        "handle":  2163782,
+                                                        "pid":  2884,
+                                                        "executable":  "\u003cverified test Electron executable\u003e",
+                                                        "title":  "",
+                                                        "bounds":  {
+                                                                       "x":  1560,
+                                                                       "y":  812,
+                                                                       "width":  720,
+                                                                       "height":  440
+                                                                   },
+                                                        "identity":  "observed",
+                                                        "reason":  null,
+                                                        "minimized":  null,
+                                                        "token":  "7b10f365-335e-438e-97af-a95f953b5d20"
+                                                    },
+                                                    {
+                                                        "handle":  919508,
+                                                        "pid":  2884,
+                                                        "executable":  "\u003cverified test Electron executable\u003e",
+                                                        "title":  "New tab - vault - Obsidian 1.13.7",
+                                                        "bounds":  {
+                                                                       "x":  80,
+                                                                       "y":  80,
+                                                                       "width":  1800,
+                                                                       "height":  1300
+                                                                   },
+                                                        "identity":  "observed",
+                                                        "reason":  null,
+                                                        "minimized":  null,
+                                                        "token":  "bdb439df-36d8-4869-99d5-ccf4d38827a9"
+                                                    }
+                                                ],
+                                    "unrelatedCount":  4,
+                                    "unknownIdentityCount":  0,
+                                    "host":  {
+                                                 "handle":  919508,
+                                                 "electronFocused":  false,
+                                                 "fullscreen":  false
+                                             },
+                                    "external":  {
+                                                     "pid":  15148,
+                                                     "handle":  1049500,
+                                                     "focused":  true,
+                                                     "minimized":  false,
+                                                     "visible":  true,
+                                                     "full":  false,
+                                                     "bounds":  {
+                                                                    "x":  180,
+                                                                    "y":  80,
+                                                                    "width":  640,
+                                                                    "height":  1000
+                                                                },
+                                                     "contentBounds":  {
+                                                                           "x":  186,
+                                                                           "y":  135,
+                                                                           "width":  627,
+                                                                           "height":  939
+                                                                       },
+                                                     "parent":  null
+                                                 }
+                                },
+                                {
+                                    "label":  "new lifetime",
+                                    "durationMs":  29.024499999999534,
+                                    "coverage":  "partial: upstream silently filters some windows and metadata failures",
+                                    "foreground":  {
+                                                       "handle":  1049500,
+                                                       "pid":  15148,
+                                                       "executable":  "\u003cverified test Electron executable\u003e",
+                                                       "title":  "Oath Phase 1 external fixture",
+                                                       "bounds":  {
+                                                                      "x":  360,
+                                                                      "y":  160,
+                                                                      "width":  1280,
+                                                                      "height":  2000
+                                                                  },
+                                                       "identity":  "observed",
+                                                       "reason":  null,
+                                                       "minimized":  null
+                                                   },
+                                    "windows":  [
+                                                    {
+                                                        "handle":  4327984,
+                                                        "pid":  2884,
+                                                        "executable":  "\u003cverified test Electron executable\u003e",
+                                                        "title":  "Oath Phase 1 â€” development dock",
+                                                        "bounds":  {
+                                                                       "x":  0,
+                                                                       "y":  2032,
+                                                                       "width":  3840,
+                                                                       "height":  128
+                                                                   },
+                                                        "identity":  "observed",
+                                                        "reason":  null,
+                                                        "minimized":  null,
+                                                        "token":  "9007d303-bb08-4351-aba6-ef1487055864"
+                                                    },
+                                                    {
+                                                        "handle":  1049500,
+                                                        "pid":  15148,
+                                                        "executable":  "\u003cverified test Electron executable\u003e",
+                                                        "title":  "Oath Phase 1 external fixture",
+                                                        "bounds":  {
+                                                                       "x":  360,
+                                                                       "y":  160,
+                                                                       "width":  1280,
+                                                                       "height":  2000
+                                                                   },
+                                                        "identity":  "observed",
+                                                        "reason":  null,
+                                                        "minimized":  null,
+                                                        "token":  "feab111f-1196-4736-8a0f-0f169b8b9ef9"
+                                                    },
+                                                    {
+                                                        "handle":  1705592,
+                                                        "pid":  2884,
+                                                        "executable":  "\u003cverified test Electron executable\u003e",
+                                                        "title":  "Duplicate Phase 2 title",
+                                                        "bounds":  {
+                                                                       "x":  1560,
+                                                                       "y":  812,
+                                                                       "width":  720,
+                                                                       "height":  440
+                                                                   },
+                                                        "identity":  "observed",
+                                                        "reason":  null,
+                                                        "minimized":  null,
+                                                        "token":  "004f07c7-1d85-47e2-9074-c759e6e6a13b"
+                                                    },
+                                                    {
+                                                        "handle":  2163782,
+                                                        "pid":  2884,
+                                                        "executable":  "\u003cverified test Electron executable\u003e",
+                                                        "title":  "",
+                                                        "bounds":  {
+                                                                       "x":  1560,
+                                                                       "y":  812,
+                                                                       "width":  720,
+                                                                       "height":  440
+                                                                   },
+                                                        "identity":  "observed",
+                                                        "reason":  null,
+                                                        "minimized":  null,
+                                                        "token":  "7b10f365-335e-438e-97af-a95f953b5d20"
+                                                    },
+                                                    {
+                                                        "handle":  919508,
+                                                        "pid":  2884,
+                                                        "executable":  "\u003cverified test Electron executable\u003e",
+                                                        "title":  "New tab - vault - Obsidian 1.13.7",
+                                                        "bounds":  {
+                                                                       "x":  80,
+                                                                       "y":  80,
+                                                                       "width":  1800,
+                                                                       "height":  1300
+                                                                   },
+                                                        "identity":  "observed",
+                                                        "reason":  null,
+                                                        "minimized":  null,
+                                                        "token":  "bdb439df-36d8-4869-99d5-ccf4d38827a9"
+                                                    }
+                                                ],
+                                    "unrelatedCount":  4,
+                                    "unknownIdentityCount":  0,
+                                    "host":  {
+                                                 "handle":  919508,
+                                                 "electronFocused":  false,
+                                                 "fullscreen":  false
+                                             },
+                                    "external":  {
+                                                     "pid":  15148,
+                                                     "handle":  1049500,
+                                                     "focused":  true,
+                                                     "minimized":  false,
+                                                     "visible":  true,
+                                                     "full":  false,
+                                                     "bounds":  {
+                                                                    "x":  180,
+                                                                    "y":  80,
+                                                                    "width":  640,
+                                                                    "height":  1000
+                                                                },
+                                                     "contentBounds":  {
+                                                                           "x":  186,
+                                                                           "y":  135,
+                                                                           "width":  627,
+                                                                           "height":  939
+                                                                       },
+                                                     "parent":  null
+                                                 }
+                                }
+                            ],
+    "adapterStages":  [
+                          {
+                              "stage":  "foreground-native-start"
+                          },
+                          {
+                              "stage":  "foreground-native-complete",
+                              "durationMs":  1.3834999999999127
+                          },
+                          {
+                              "stage":  "foreground-native-start"
+                          },
+                          {
+                              "stage":  "foreground-native-complete",
+                              "durationMs":  0.8526999999994587
+                          },
+                          {
+                              "stage":  "foreground-native-start"
+                          },
+                          {
+                              "stage":  "foreground-native-complete",
+                              "durationMs":  3.5870999999997366
+                          },
+                          {
+                              "stage":  "foreground-native-start"
+                          },
+                          {
+                              "stage":  "foreground-native-complete",
+                              "durationMs":  1.1685999999999694
+                          },
+                          {
+                              "stage":  "foreground-native-start"
+                          },
+                          {
+                              "stage":  "foreground-native-complete",
+                              "durationMs":  0.6865999999999985
+                          },
+                          {
+                              "stage":  "foreground-native-start"
+                          },
+                          {
+                              "stage":  "foreground-native-complete",
+                              "durationMs":  1.6685999999999694
+                          },
+                          {
+                              "stage":  "foreground-native-start"
+                          },
+                          {
+                              "stage":  "foreground-native-complete",
+                              "durationMs":  0.9529999999995198
+                          },
+                          {
+                              "stage":  "foreground-native-start"
+                          },
+                          {
+                              "stage":  "foreground-native-complete",
+                              "durationMs":  0.9646000000011554
+                          },
+                          {
+                              "stage":  "foreground-native-start"
+                          },
+                          {
+                              "stage":  "foreground-native-complete",
+                              "durationMs":  0.9570999999996275
+                          },
+                          {
+                              "stage":  "foreground-native-start"
+                          },
+                          {
+                              "stage":  "foreground-native-complete",
+                              "durationMs":  1.171700000000783
+                          },
+                          {
+                              "stage":  "foreground-native-start"
+                          },
+                          {
+                              "stage":  "foreground-native-complete",
+                              "durationMs":  0.6658999999999651
+                          },
+                          {
+                              "stage":  "foreground-native-start"
+                          },
+                          {
+                              "stage":  "foreground-native-complete",
+                              "durationMs":  0.7672000000002299
+                          },
+                          {
+                              "stage":  "foreground-native-start"
+                          },
+                          {
+                              "stage":  "foreground-native-complete",
+                              "durationMs":  1.2573999999985972
+                          },
+                          {
+                              "stage":  "foreground-native-start"
+                          },
+                          {
+                              "stage":  "foreground-native-complete",
+                              "durationMs":  0.9364999999997963
+                          },
+                          {
+                              "stage":  "foreground-native-start"
+                          },
+                          {
+                              "stage":  "foreground-native-complete",
+                              "durationMs":  1.106499999999869
+                          },
+                          {
+                              "stage":  "foreground-native-start"
+                          },
+                          {
+                              "stage":  "foreground-native-complete",
+                              "durationMs":  1.5641999999988911
+                          },
+                          {
+                              "stage":  "foreground-native-start"
+                          },
+                          {
+                              "stage":  "foreground-native-complete",
+                              "durationMs":  1.345999999999549
+                          },
+                          {
+                              "stage":  "inventory-native-start"
+                          },
+                          {
+                              "stage":  "inventory-native-complete",
+                              "durationMs":  12.6895999999997
+                          },
+                          {
+                              "stage":  "inventory-identity-complete",
+                              "durationMs":  18.795900000000984
+                          },
+                          {
+                              "stage":  "inventory-native-start"
+                          },
+                          {
+                              "stage":  "inventory-native-complete",
+                              "durationMs":  9.835900000000038
+                          },
+                          {
+                              "stage":  "inventory-identity-complete",
+                              "durationMs":  14.675899999998364
+                          },
+                          {
+                              "stage":  "inventory-native-start"
+                          },
+                          {
+                              "stage":  "inventory-native-complete",
+                              "durationMs":  13.740599999999176
+                          },
+                          {
+                              "stage":  "inventory-identity-complete",
+                              "durationMs":  21.042099999998754
+                          },
+                          {
+                              "stage":  "inventory-native-start"
+                          },
+                          {
+                              "stage":  "inventory-native-complete",
+                              "durationMs":  12.347200000000157
+                          },
+                          {
+                              "stage":  "inventory-identity-complete",
+                              "durationMs":  18.302300000001196
+                          },
+                          {
+                              "stage":  "inventory-native-start"
+                          },
+                          {
+                              "stage":  "inventory-native-complete",
+                              "durationMs":  9.44170000000122
+                          },
+                          {
+                              "stage":  "inventory-identity-complete",
+                              "durationMs":  15.404700000000958
+                          },
+                          {
+                              "stage":  "inventory-native-start"
+                          },
+                          {
+                              "stage":  "inventory-native-complete",
+                              "durationMs":  10.129200000003038
+                          },
+                          {
+                              "stage":  "inventory-identity-complete",
+                              "durationMs":  14.758300000001327
+                          },
+                          {
+                              "stage":  "inventory-native-start"
+                          },
+                          {
+                              "stage":  "inventory-native-complete",
+                              "durationMs":  19.15009999999893
+                          },
+                          {
+                              "stage":  "inventory-identity-complete",
+                              "durationMs":  26.794200000000274
+                          },
+                          {
+                              "stage":  "inventory-native-start"
+                          },
+                          {
+                              "stage":  "inventory-native-complete",
+                              "durationMs":  12.329999999998108
+                          },
+                          {
+                              "stage":  "inventory-identity-complete",
+                              "durationMs":  16.11070000000109
+                          },
+                          {
+                              "stage":  "inventory-native-start"
+                          },
+                          {
+                              "stage":  "inventory-native-complete",
+                              "durationMs":  12.624399999996967
+                          },
+                          {
+                              "stage":  "inventory-identity-complete",
+                              "durationMs":  18.690199999997276
+                          },
+                          {
+                              "stage":  "foreground-native-start"
+                          },
+                          {
+                              "stage":  "foreground-native-complete",
+                              "durationMs":  1.4660000000003492
+                          },
+                          {
+                              "stage":  "inventory-native-start"
+                          },
+                          {
+                              "stage":  "inventory-native-complete",
+                              "durationMs":  8.329700000002049
+                          },
+                          {
+                              "stage":  "inventory-identity-complete",
+                              "durationMs":  13.156200000001263
+                          },
+                          {
+                              "stage":  "foreground-native-start"
+                          },
+                          {
+                              "stage":  "foreground-native-complete",
+                              "durationMs":  2.2190000000009604
+                          },
+                          {
+                              "stage":  "foreground-native-start"
+                          },
+                          {
+                              "stage":  "foreground-native-complete",
+                              "durationMs":  2.1841999999996915
+                          },
+                          {
+                              "stage":  "foreground-native-start"
+                          },
+                          {
+                              "stage":  "foreground-native-complete",
+                              "durationMs":  2.730599999998958
+                          },
+                          {
+                              "stage":  "foreground-native-start"
+                          },
+                          {
+                              "stage":  "foreground-native-complete",
+                              "durationMs":  1.9759000000012747
+                          },
+                          {
+                              "stage":  "inventory-native-start"
+                          },
+                          {
+                              "stage":  "inventory-native-complete",
+                              "durationMs":  12.23359999999957
+                          },
+                          {
+                              "stage":  "inventory-identity-complete",
+                              "durationMs":  17.745899999998073
+                          },
+                          {
+                              "stage":  "foreground-native-start"
+                          },
+                          {
+                              "stage":  "foreground-native-complete",
+                              "durationMs":  2.1651999999994587
+                          },
+                          {
+                              "stage":  "foreground-native-start"
+                          },
+                          {
+                              "stage":  "foreground-native-complete",
+                              "durationMs":  2.5921000000016647
+                          },
+                          {
+                              "stage":  "foreground-native-start"
+                          },
+                          {
+                              "stage":  "foreground-native-complete",
+                              "durationMs":  2.298499999997148
+                          }
+                      ],
+    "adapterCapabilities":  {
+                                "observation":  true,
+                                "focus":  false,
+                                "minimize":  false,
+                                "restore":  false,
+                                "launch":  false,
+                                "enumerationComplete":  false,
+                                "handleGeneration":  false,
+                                "minimizedState":  false,
+                                "provider":  "get-windows 9.3.0 upstream N-API addon (direct diagnostic loader)",
+                                "pid":  10388,
+                                "runtime":  {
+                                                "node":  "22.22.1",
+                                                "acorn":  "8.15.0",
+                                                "ada":  "2.9.2",
+                                                "amaro":  "1.1.5",
+                                                "ares":  "1.34.6",
+                                                "brotli":  "1.0.9",
+                                                "cjs_module_lexer":  "2.2.0",
+                                                "cldr":  "44.1",
+                                                "icu":  "74.2",
+                                                "llhttp":  "9.3.0",
+                                                "modules":  "140",
+                                                "napi":  "10",
+                                                "nbytes":  "0.1.1",
+                                                "ncrypto":  "0.0.1",
+                                                "nghttp2":  "1.64.0",
+                                                "openssl":  "0.0.0",
+                                                "simdjson":  "4.2.4",
+                                                "simdutf":  "7.3.3",
+                                                "sqlite":  "3.51.2",
+                                                "tz":  "2025b",
+                                                "undici":  "6.23.0",
+                                                "unicode":  "15.1",
+                                                "uv":  "1.51.0",
+                                                "uvwasi":  "0.0.23",
+                                                "v8":  "14.2.231.22-electron.0",
+                                                "zlib":  "1.3.1",
+                                                "zstd":  "1.5.8",
+                                                "electron":  "39.8.3",
+                                                "chrome":  "142.0.7444.265"
+                                            }
+                            },
+    "display":  {
+                    "bounds":  {
+                                   "x":  0,
+                                   "y":  0,
+                                   "width":  1920,
+                                   "height":  1080
+                               },
+                    "workArea":  {
+                                     "x":  0,
+                                     "y":  0,
+                                     "width":  1920,
+                                     "height":  1032
+                                 },
+                    "scaleFactor":  2
+                },
+    "hostPreferences":  {
+                            "nodeIntegration":  true,
+                            "contextIsolation":  false,
+                            "sandbox":  false,
+                            "webSecurity":  true,
+                            "webviewTag":  true
+                        },
+    "observations":  {
+                         "fullscreen":  {
+                                            "host":  {
+                                                         "focused":  true,
+                                                         "visible":  true,
+                                                         "bounds":  {
+                                                                        "x":  0,
+                                                                        "y":  0,
+                                                                        "width":  1920,
+                                                                        "height":  1080
+                                                                    },
+                                                         "contentBounds":  {
+                                                                               "x":  0,
+                                                                               "y":  0,
+                                                                               "width":  1920,
+                                                                               "height":  1080
+                                                                           }
+                                                     },
+                                            "external":  {
+                                                             "pid":  15148,
+                                                             "handle":  1049500,
+                                                             "focused":  true,
+                                                             "minimized":  false,
+                                                             "visible":  true,
+                                                             "full":  false,
+                                                             "bounds":  {
+                                                                            "x":  180,
+                                                                            "y":  120,
+                                                                            "width":  640,
+                                                                            "height":  440
+                                                                        },
+                                                             "contentBounds":  {
+                                                                                   "x":  186,
+                                                                                   "y":  175,
+                                                                                   "width":  627,
+                                                                                   "height":  379
+                                                                               },
+                                                             "parent":  null
+                                                         },
+                                            "pixels":  {
+                                                           "host":  [
+                                                                        7,
+                                                                        73,
+                                                                        114
+                                                                    ],
+                                                           "external":  [
+                                                                            39,
+                                                                            174,
+                                                                            96
+                                                                        ],
+                                                           "dock":  [
+                                                                        67,
+                                                                        21,
+                                                                        39
+                                                                    ]
+                                                       },
+                                            "captureSize":  {
+                                                                "width":  1920,
+                                                                "height":  1080
+                                                            },
+                                            "dockBounds":  {
+                                                               "x":  0,
+                                                               "y":  1016,
+                                                               "width":  1920,
+                                                               "height":  64
+                                                           },
+                                            "dockVisible":  true,
+                                            "hostRendererPixel":  [
+                                                                      36,
+                                                                      84,
+                                                                      166
+                                                                  ]
+                                        },
+                         "kiosk":  {
+                                       "host":  {
+                                                    "focused":  true,
+                                                    "visible":  true,
+                                                    "bounds":  {
+                                                                   "x":  0,
+                                                                   "y":  0,
+                                                                   "width":  1920,
+                                                                   "height":  1080
+                                                               },
+                                                    "contentBounds":  {
+                                                                          "x":  0,
+                                                                          "y":  0,
+                                                                          "width":  1920,
+                                                                          "height":  1080
+                                                                      }
+                                                },
+                                       "external":  {
+                                                        "pid":  15148,
+                                                        "handle":  1049500,
+                                                        "focused":  true,
+                                                        "minimized":  false,
+                                                        "visible":  true,
+                                                        "full":  false,
+                                                        "bounds":  {
+                                                                       "x":  180,
+                                                                       "y":  80,
+                                                                       "width":  640,
+                                                                       "height":  1000
+                                                                   },
+                                                        "contentBounds":  {
+                                                                              "x":  186,
+                                                                              "y":  135,
+                                                                              "width":  627,
+                                                                              "height":  939
+                                                                          },
+                                                        "parent":  null
+                                                    },
+                                       "pixels":  {
+                                                      "host":  [
+                                                                   7,
+                                                                   73,
+                                                                   114
+                                                               ],
+                                                      "external":  [
+                                                                       39,
+                                                                       174,
+                                                                       96
+                                                                   ],
+                                                      "dock":  [
+                                                                   67,
+                                                                   21,
+                                                                   39
+                                                               ]
+                                                  },
+                                       "captureSize":  {
+                                                           "width":  1920,
+                                                           "height":  1080
+                                                       },
+                                       "dockBounds":  {
+                                                          "x":  0,
+                                                          "y":  1016,
+                                                          "width":  1920,
+                                                          "height":  64
+                                                      },
+                                       "dockVisible":  true,
+                                       "hostRendererPixel":  [
+                                                                 36,
+                                                                 84,
+                                                                 166
+                                                             ]
+                                   }
+                     },
+    "modalCoverage":  {
+                          "parentListed":  false,
+                          "modalListed":  false,
+                          "foregroundIsModal":  false
+                      },
+    "feasibilityMet":  false,
+    "launcher":  {
+                     "exitCode":  1,
+                     "copiedSourceUnchanged":  true,
+                     "temporaryProfileRemoved":  true,
+                     "source":  "Installed Obsidian archive in existing test Electron; not the installed launcher runtime"
+                 }
+}

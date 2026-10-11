@@ -22,6 +22,7 @@ function installAtlasIntegration(plugin) {
         },
         subscribe(callback) { listeners.add(callback); return () => listeners.delete(callback); },
         isSettingsOpen: () => !!modal,
+        forget(nativeId) { host?.forget(nativeId); },
         open() {
             if (modal) return;
             modal = new class extends Modal {

@@ -175,7 +175,7 @@ class DailyBriefService {
         const day = { ...projects, reports: [...projects.reports, ...resources.reports] };
         if (!day.reports.length) return;
         this.modal?.close();
-        new DailyReportModal(this.app, { day, onEdit: () => this.plugin.openProgressEditor(date) }).open();
+        new DailyReportModal(this.app, { day, plugin: this.plugin, onEdit: () => this.plugin.openProgressEditor(date) }).open();
     }
     async validateTarget(target) {
         if (target?.kind === "home") return this.plugin.oath.active ? null : target;

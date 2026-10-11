@@ -1,0 +1,831 @@
+TAP version 13
+# [1008/193116.090:ERROR:third_party\\crashpad\\crashpad\\util\\win\\registration_protocol_win.cc:108] CreateFile: Access is denied. (0x5)
+# Hub backlog checks passed: native layout data, contextual navigation, opening policy, Resource identities/Focus, image limits, active task history and score-zero clearing.
+# Subtest: C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\backlog.test.js
+ok 1 - C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\backlog.test.js
+  ---
+  duration_ms: 1389.3814
+  type: 'test'
+  ...
+# [1008/193116.117:ERROR:third_party\\crashpad\\crashpad\\util\\win\\registration_protocol_win.cc:108] CreateFile: Access is denied. (0x5)
+# Browser layout tests passed: files-only, browser-only, interspersed tabs, URL/title whitelist, ordering/active tabs, invalid URLs, unavailable provider, input immutability and file-only rename.
+# Subtest: C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\browser-layout.test.js
+ok 2 - C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\browser-layout.test.js
+  ---
+  duration_ms: 307.9454
+  type: 'test'
+  ...
+# [1008/193116.148:ERROR:third_party\\crashpad\\crashpad\\util\\win\\registration_protocol_win.cc:108] CreateFile: Access is denied. (0x5)
+# Card images passed: high-quality lossless downsampling, exact centered crops, shared cache, resize, DPR, source replacement races, failure fallback, no upscaling and disposal.
+# Subtest: C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\card-images.test.js
+ok 3 - C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\card-images.test.js
+  ---
+  duration_ms: 644.1482
+  type: 'test'
+  ...
+# [1008/193116.194:ERROR:third_party\\crashpad\\crashpad\\util\\win\\registration_protocol_win.cc:108] CreateFile: Access is denied. (0x5)
+# PASS: completion intent, silence on restore/programmatic/uncheck, envelopes, overlap, reuse, cleanup, preferences and silent audio failures
+# Subtest: C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\completion-audio.test.js
+ok 4 - C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\completion-audio.test.js
+  ---
+  duration_ms: 745.2739
+  type: 'test'
+  ...
+# [1008/193116.231:ERROR:third_party\\crashpad\\crashpad\\util\\win\\registration_protocol_win.cc:108] CreateFile: Access is denied. (0x5)
+# PASS: context search ranking, aliases, global/four Resource/Project scopes, linked canonical tasks, content caching/invalidation, rename/delete and navigation guards.
+# Subtest: C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\context-search.test.js
+ok 5 - C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\context-search.test.js
+  ---
+  duration_ms: 862.6726
+  type: 'test'
+  ...
+# [1008/193116.314:ERROR:third_party\\crashpad\\crashpad\\util\\win\\registration_protocol_win.cc:108] CreateFile: Access is denied. (0x5)
+# PASS: real task/Step writes vs editor work, pre-day configuration anchoring/restart, native Preset restoration, multiple files, Atlas, active selection, deleted panes, rename resolution, Full-view fallback, Shelved and Oath guards.
+# Subtest: C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\daily-brief-configuration.test.js
+ok 6 - C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\daily-brief-configuration.test.js
+  ---
+  duration_ms: 1518.5982
+  type: 'test'
+  ...
+# [1008/193116.339:ERROR:third_party\\crashpad\\crashpad\\util\\win\\registration_protocol_win.cc:108] CreateFile: Access is denied. (0x5)
+# PASS: Daily Brief navigation revalidates raw task state, start dates, project state, missing/moved targets, provider replacement, persistence rollback and active Oath/shared-resource scope.
+# Subtest: C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\daily-brief-navigation.test.js
+ok 7 - C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\daily-brief-navigation.test.js
+  ---
+  duration_ms: 872.5756
+  type: 'test'
+  ...
+# [1008/193116.711:ERROR:third_party\\crashpad\\crashpad\\util\\win\\registration_protocol_win.cc:108] CreateFile: Access is denied. (0x5)
+# [Hub Daily Brief] Target could not be opened; using the current task surface. TypeError: modes.openProjectFull is not a function
+#     at DailyBriefService.navigate (C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\services\\daily-brief.js:256:31)
+#     at async run (C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\daily-brief-snapshot.test.js:80:36)
+# PASS: complete daily artifact, manual/auto independence, restart persistence, one concurrent generation, late/pre-06 history, boundary eligibility, mutations, Oath, safe navigation, no history and next-day rollover.
+# Subtest: C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\daily-brief-snapshot.test.js
+ok 8 - C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\daily-brief-snapshot.test.js
+  ---
+  duration_ms: 1020.4045
+  type: 'test'
+  ...
+# [1008/193117.034:ERROR:third_party\\crashpad\\crashpad\\util\\win\\registration_protocol_win.cc:108] CreateFile: Access is denied. (0x5)
+# PASS: Daily Brief 06:00/DST boundary, meaningful signals, report snapshots, skipped days, ranking, focus/continuation/fallback, Future/Shelved/missing/Oath targets, once/day, hydration, backgrounding and persistence failures.
+# Subtest: C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\daily-brief.test.js
+ok 9 - C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\daily-brief.test.js
+  ---
+  duration_ms: 830.3968
+  type: 'test'
+  ...
+# [1008/193117.061:ERROR:third_party\\crashpad\\crashpad\\util\\win\\registration_protocol_win.cc:108] CreateFile: Access is denied. (0x5)
+# PASS: report save/edit, project/resource scope, actual timestamps, empty states, focus association, source mutation/deletion, reload, legacy fallback, failed saves, zero/rating-only semantics and local dates.
+# Subtest: C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\daily-report.test.js
+ok 10 - C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\daily-report.test.js
+  ---
+  duration_ms: 1276.2788
+  type: 'test'
+  ...
+# [1008/193117.160:ERROR:third_party\\crashpad\\crashpad\\util\\win\\registration_protocol_win.cc:108] CreateFile: Access is denied. (0x5)
+# Hub atomic data-store tests passed.
+# Subtest: C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\data-store.integration.test.js
+ok 11 - C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\data-store.integration.test.js
+  ---
+  duration_ms: 852.4758
+  type: 'test'
+  ...
+# [1008/193117.178:ERROR:third_party\\crashpad\\crashpad\\util\\win\\registration_protocol_win.cc:108] CreateFile: Access is denied. (0x5)
+# Hub domain tests passed.
+# Subtest: C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\domain.test.js
+ok 12 - C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\domain.test.js
+  ---
+  duration_ms: 566.4115
+  type: 'test'
+  ...
+# [1008/193117.513:ERROR:third_party\\crashpad\\crashpad\\util\\win\\registration_protocol_win.cc:108] CreateFile: Access is denied. (0x5)
+# File icon checks passed: all requested types, PDF file-text and Markdown notebook-text, case-insensitive extensions and unknown fallback.
+# Subtest: C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\file-icons.test.js
+ok 13 - C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\file-icons.test.js
+  ---
+  duration_ms: 503.5292
+  type: 'test'
+  ...
+# [1008/193117.572:ERROR:third_party\\crashpad\\crashpad\\util\\win\\registration_protocol_win.cc:108] CreateFile: Access is denied. (0x5)
+# PASS: actual shared getters and Home queries; Active/Future/Shelved/status changes/reload/deleted Project and Resource; Reports/Activity/Tasks identity/name retention; independent categorical scopes; >650 retained events.
+# Subtest: C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\history-status.test.js
+ok 14 - C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\history-status.test.js
+  ---
+  duration_ms: 1105.3019
+  type: 'test'
+  ...
+# [1008/193117.638:ERROR:third_party\\crashpad\\crashpad\\util\\win\\registration_protocol_win.cc:108] CreateFile: Access is denied. (0x5)
+# Home cover persistence passed: ordered periods, independent per-period image/placement state, legacy fallback, reload, unchanged source bytes, image changes and missing-file fallback.
+# Subtest: C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\home-covers.test.js
+ok 15 - C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\home-covers.test.js
+  ---
+  duration_ms: 497.3332
+  type: 'test'
+  ...
+# [1008/193117.844:ERROR:third_party\\crashpad\\crashpad\\util\\win\\registration_protocol_win.cc:108] CreateFile: Access is denied. (0x5)
+# Home time periods passed: every local minute, midnight/06:00/noon/18:00 boundaries, synchronized greetings/covers, existing image assets and unchanged cover mounting.
+# Subtest: C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\home-period.test.js
+ok 16 - C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\home-period.test.js
+  ---
+  duration_ms: 1364.34
+  type: 'test'
+  ...
+# [1008/193117.917:ERROR:third_party\\crashpad\\crashpad\\util\\win\\registration_protocol_win.cc:108] CreateFile: Access is denied. (0x5)
+# Hub icon resolution passed: canonical Lucide names, folder/presentation legacy collisions, custom and legacy fallback.
+# Subtest: C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\icons.test.js
+ok 17 - C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\icons.test.js
+  ---
+  duration_ms: 545.3367
+  type: 'test'
+  ...
+# [1008/193117.947:ERROR:third_party\\crashpad\\crashpad\\util\\win\\registration_protocol_win.cc:108] CreateFile: Access is denied. (0x5)
+# Inbox required-details completion, counts, five sorts and preference persistence tests passed.
+# Inbox persistence, staging, destination, rollback and retry tests passed.
+# Existing-note persistence, insertion, concurrency and retry tests passed.
+# Subtest: C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\inbox.test.js
+ok 18 - C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\inbox.test.js
+  ---
+  duration_ms: 897.8709
+  type: 'test'
+  ...
+# [1008/193118.030:ERROR:third_party\\crashpad\\crashpad\\util\\win\\registration_protocol_win.cc:108] CreateFile: Access is denied. (0x5)
+# Music controller passed: single-source ownership, close/reopen continuity, delayed SDK cancellation, disable/removal, local queue, rename and volume.
+# Subtest: C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\music-controller.test.js
+ok 19 - C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\music-controller.test.js
+  ---
+  duration_ms: 420.7423
+  type: 'test'
+  ...
+# [1008/193118.171:ERROR:third_party\\crashpad\\crashpad\\util\\win\\registration_protocol_win.cc:108] CreateFile: Access is denied. (0x5)
+# Music library passed: safe defaults, provider URL validation, atomic configuration, toggles, ordering, external/vault references, conflict rollback and optional metadata.
+# Subtest: C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\music-library.test.js
+ok 20 - C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\music-library.test.js
+  ---
+  duration_ms: 2167.4334
+  type: 'test'
+  ...
+# [1008/193118.214:ERROR:third_party\\crashpad\\crashpad\\util\\win\\registration_protocol_win.cc:108] CreateFile: Access is denied. (0x5)
+# Subtest: local adapter retains its playing audio element after the modal host is detached
+ok 21 - local adapter retains its playing audio element after the modal host is detached
+  ---
+  duration_ms: 6.1098
+  type: 'test'
+  ...
+# Subtest: local source resolver rejects a removed vault file without interpreting it as an external URL
+ok 22 - local source resolver rejects a removed vault file without interpreting it as an external URL
+  ---
+  duration_ms: 1.1346
+  type: 'test'
+  ...
+# Subtest: external local files reuse Obsidian's native resource route across adapter versions with a plain-browser fallback
+ok 23 - external local files reuse Obsidian's native resource route across adapter versions with a plain-browser fallback
+  ---
+  duration_ms: 26.127
+  type: 'test'
+  ...
+# Subtest: late YouTube SDK loading cannot create a player after switching sources
+ok 24 - late YouTube SDK loading cannot create a player after switching sources
+  ---
+  duration_ms: 1.696
+  type: 'test'
+  ...
+# Subtest: official YouTube playlist controls synchronize and suspend pauses the visible player
+ok 25 - official YouTube playlist controls synchronize and suspend pauses the visible player
+  ---
+  duration_ms: 1.7779
+  type: 'test'
+  ...
+# Subtest: retained Spotify Embed backend uses official playback state and supported music controls
+ok 26 - retained Spotify Embed backend uses official playback state and supported music controls
+  ---
+  duration_ms: 1.4697
+  type: 'test'
+  ...
+# Subtest: closing the retained idle Spotify Embed destroys it without an unnecessary pause
+ok 27 - closing the retained idle Spotify Embed destroys it without an unnecessary pause
+  ---
+  duration_ms: 0.7569
+  type: 'test'
+  ...
+# Subtest: a late retained Spotify Embed callback destroys its own player after source cancellation
+ok 28 - a late retained Spotify Embed callback destroys its own player after source cancellation
+  ---
+  duration_ms: 0.6786
+  type: 'test'
+  ...
+# Subtest: Obsidian Spotify facade chooses Connect directly and maps playback state into common metadata/controls
+ok 29 - Obsidian Spotify facade chooses Connect directly and maps playback state into common metadata/controls
+  ---
+  duration_ms: 6.8511
+  type: 'test'
+  ...
+# Subtest: Connect modal close preserves remote playback, reopens with fresh state and switching can await pause
+ok 30 - Connect modal close preserves remote playback, reopens with fresh state and switching can await pause
+  ---
+  duration_ms: 17.6693
+  type: 'test'
+  ...
+# Subtest: Connect capabilities follow the current device rather than advertising volume on an unsupported device
+ok 31 - Connect capabilities follow the current device rather than advertising volume on an unsupported device
+  ---
+  duration_ms: 0.6795
+  type: 'test'
+  ...
+# Subtest: disconnected Obsidian Spotify explains Settings connection without loading the retained Embed SDK
+ok 32 - disconnected Obsidian Spotify explains Settings connection without loading the retained Embed SDK
+  ---
+  duration_ms: 0.6131
+  type: 'test'
+  ...
+# Subtest: switching away from Connect waits for an in-flight start before sending the final pause
+ok 33 - switching away from Connect waits for an in-flight start before sending the final pause
+  ---
+  duration_ms: 1.1199
+  type: 'test'
+  ...
+# (node:6292) ExperimentalWarning: The MockTimers API is an experimental feature and might change at any time
+# (Use `electron --trace-warnings ...` to show where the warning was created)
+# Subtest: Connect volume dragging sends the in-flight value and latest intent without a request per intermediate step
+ok 34 - Connect volume dragging sends the in-flight value and latest intent without a request per intermediate step
+  ---
+  duration_ms: 7.3361
+  type: 'test'
+  ...
+# Subtest: Connect polls moderately while visible and detaching cancels subsequent polling
+ok 35 - Connect polls moderately while visible and detaching cancels subsequent polling
+  ---
+  duration_ms: 4.2591
+  type: 'test'
+  ...
+# Subtest: lost authentication blocks switching away from owned remote playback until it can be paused
+ok 36 - lost authentication blocks switching away from owned remote playback until it can be paused
+  ---
+  duration_ms: 2.7957
+  type: 'test'
+  ...
+# Subtest: successful pause releases playback ownership so later disconnect does not falsely block switching
+ok 37 - successful pause releases playback ownership so later disconnect does not falsely block switching
+  ---
+  duration_ms: 0.9568
+  type: 'test'
+  ...
+# Subtest: adjusting Connect volume or position alone does not claim ownership of externally started playback
+ok 38 - adjusting Connect volume or position alone does not claim ownership of externally started playback
+  ---
+  duration_ms: 0.651
+  type: 'test'
+  ...
+# Subtest: YouTube Music destination fence permits the configured queue while rejecting discovery, another song and foreign hosts
+ok 39 - YouTube Music destination fence permits the configured queue while rejecting discovery, another song and foreign hosts
+  ---
+  duration_ms: 1.0219
+  type: 'test'
+  ...
+# Subtest: official YouTube consent binds exactly one return URL to the configured content
+ok 40 - official YouTube consent binds exactly one return URL to the configured content
+  ---
+  duration_ms: 1.2079
+  type: 'test'
+  ...
+# Subtest: the native YouTube Music fence prevents unrelated navigation and closes its sole guest without granting session access
+ok 41 - the native YouTube Music fence prevents unrelated navigation and closes its sole guest without granting session access
+  ---
+  duration_ms: 1.4841
+  type: 'test'
+  ...
+# Subtest: native consent form submission is available only after a content-bound official consent page loads
+ok 42 - native consent form submission is available only after a content-bound official consent page loads
+  ---
+  duration_ms: 2.4056
+  type: 'test'
+  ...
+# [1008/193118.297:ERROR:third_party\\crashpad\\crashpad\\util\\win\\registration_protocol_win.cc:108] CreateFile: Access is denied. (0x5)
+# PASS: MRU ordering/bounds, context isolation, temporary filters, deletion/rename, migration/reload, Note layouts, canonical Project/shared-Resource/Resource Oath access and direct guards.
+# Subtest: C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\navigation-history.test.js
+ok 22 - C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\navigation-history.test.js
+  ---
+  duration_ms: 1493.8871
+  type: 'test'
+  ...
+# [1008/193118.469:ERROR:third_party\\crashpad\\crashpad\\util\\win\\registration_protocol_win.cc:108] CreateFile: Access is denied. (0x5)
+# Note insertion tests passed
+# Subtest: C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\note-insertion.test.js
+ok 23 - C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\note-insertion.test.js
+  ---
+  duration_ms: 495.5233
+  type: 'test'
+  ...
+# [1008/193118.629:ERROR:third_party\\crashpad\\crashpad\\util\\win\\registration_protocol_win.cc:108] CreateFile: Access is denied. (0x5)
+# Oath update failed Error: Dock failed
+#     at f.host.openDock (C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\oath-phase4.test.cjs:49:43)
+#     at StrictOathCoordinator.prepare (C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\services\\oath-strict.js:64:39)
+#     at async HubOathService.activateStrict (C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\services\\oath.js:401:30)
+#     at async C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\services\\oath.js:330:52
+# Oath update failed Error: Strict preparation was released.
+#     at StrictOathCoordinator.prepare (C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\services\\oath-strict.js:65:55)
+#     at async HubOathService.activateStrict (C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\services\\oath.js:401:30)
+#     at async C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\services\\oath.js:330:52
+# Subtest: device opt-in persists, survives reload, and failed save does not enable
+ok 45 - device opt-in persists, survives reload, and failed save does not enable
+  ---
+  duration_ms: 28.3645
+  type: 'test'
+  ...
+# Subtest: disabling future Strict setup preserves active and scheduled commitments
+ok 46 - disabling future Strict setup preserves active and scheduled commitments
+  ---
+  duration_ms: 60.9689
+  type: 'test'
+  ...
+# Subtest: launch requires an active frozen verified executable and rechecks after asynchronous verification
+ok 47 - launch requires an active frozen verified executable and rechecks after asynchronous verification
+  ---
+  duration_ms: 7.4727
+  type: 'test'
+  ...
+# Subtest: dock preparation failure rolls back host and leaves the Oath retryable
+ok 48 - dock preparation failure rolls back host and leaves the Oath retryable
+  ---
+  duration_ms: 12.0103
+  type: 'test'
+  ...
+# Subtest: release during asynchronous dock preparation cannot commit a restored host
+ok 49 - release during asynchronous dock preparation cannot commit a restored host
+  ---
+  duration_ms: 4.2501
+  type: 'test'
+  ...
+# Subtest: implicit dock allowance matches only the participating process and dock handle
+ok 50 - implicit dock allowance matches only the participating process and dock handle
+  ---
+  duration_ms: 1.6264
+  type: 'test'
+  ...
+# Subtest: editing the draft during asynchronous application checks cannot issue a mismatched confirmation
+ok 51 - editing the draft during asynchronous application checks cannot issue a mismatched confirmation
+  ---
+  duration_ms: 1.2348
+  type: 'test'
+  ...
+# Subtest: permitted Firefox website shortcuts preserve URLs without exposing arbitrary process arguments
+ok 52 - permitted Firefox website shortcuts preserve URLs without exposing arbitrary process arguments
+  ---
+  duration_ms: 3.0512
+  type: 'test'
+  ...
+# [1008/193118.831:ERROR:third_party\\crashpad\\crashpad\\util\\win\\registration_protocol_win.cc:108] CreateFile: Access is denied. (0x5)
+# Subtest: failed restoration disarms guards, retains the snapshot, and succeeds on retry
+ok 53 - failed restoration disarms guards, retains the snapshot, and succeeds on retry
+  ---
+  duration_ms: 473.3529
+  type: 'test'
+  ...
+# Subtest: dock reconstruction clears stale identity, resumes once, and disposes listeners on release
+ok 54 - dock reconstruction clears stale identity, resumes once, and disposes listeners on release
+  ---
+  duration_ms: 228.0791
+  type: 'test'
+  ...
+# Subtest: another window cannot acquire fullscreen ownership; renderer loss releases ownership
+ok 55 - another window cannot acquire fullscreen ownership; renderer loss releases ownership
+  ---
+  duration_ms: 427.5991
+  type: 'test'
+  ...
+# Subtest: restoration health remains actionable after failure, and cannot release an active oath through retry
+ok 56 - restoration health remains actionable after failure, and cannot release an active oath through retry
+  ---
+  duration_ms: 7.706
+  type: 'test'
+  ...
+# Subtest: display removal preserves visible bounds and relocates only unreachable windows
+ok 57 - display removal preserves visible bounds and relocates only unreachable windows
+  ---
+  duration_ms: 0.945
+  type: 'test'
+  ...
+# [1008/193118.834:ERROR:third_party\\crashpad\\crashpad\\util\\win\\registration_protocol_win.cc:108] CreateFile: Access is denied. (0x5)
+# PASS: live shared folder IDs/subtrees, canonical edits/creation, real sharing picker, immediate attach/detach/rename, Project routing, native/history/Last File/preset enforcement, Resource Oaths and normal navigation.
+# Subtest: C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\oath-shared-resources.test.js
+ok 26 - C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\oath-shared-resources.test.js
+  ---
+  duration_ms: 1026.3479
+  type: 'test'
+  ...
+# [1008/193118.939:ERROR:third_party\\crashpad\\crashpad\\util\\win\\registration_protocol_win.cc:108] CreateFile: Access is denied. (0x5)
+# Oath update failed Error: activation disk failure
+#     at f.plugin.dataStore.save (C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\oath-strict.test.cjs:66:120)
+#     at HubOathService.persist (C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\services\\oath.js:163:43)
+#     at HubOathService.activateStrict (C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\services\\oath.js:405:24)
+#     at async C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\services\\oath.js:330:52
+# Oath update failed Error: Disk unavailable
+#     at Object.save (C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\oath.test.js:33:74)
+#     at HubOathService.persist (C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\services\\oath.js:163:43)
+#     at HubOathService.recoverStrict (C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\services\\oath.js:420:20)
+#     at HubOathService.reconcile (C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\services\\oath.js:235:24)
+#     at C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\services\\oath.js:227:28
+#     at C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\services\\oath.js:159:87
+# [1008/193119.551:ERROR:third_party\\crashpad\\crashpad\\util\\win\\registration_protocol_win.cc:108] CreateFile: Access is denied. (0x5)
+# Subtest: Strict remains disabled by default and confirmation is mandatory
+ok 59 - Strict remains disabled by default and confirmation is mandatory
+  ---
+  duration_ms: 42.9406
+  type: 'test'
+  ...
+# Subtest: persistent defaults, per-Oath replacement and frozen confirmed snapshots
+ok 60 - persistent defaults, per-Oath replacement and frozen confirmed snapshots
+  ---
+  duration_ms: 15.3789
+  type: 'test'
+  ...
+# Subtest: modified review requires confirmation again; expired reviews cannot activate
+ok 61 - modified review requires confirmation again; expired reviews cannot activate
+  ---
+  duration_ms: 2.2016
+  type: 'test'
+  ...
+# Subtest: known blockers prevent immediate commitment without touching documents
+ok 62 - known blockers prevent immediate commitment without touching documents
+  ---
+  duration_ms: 1.6707
+  type: 'test'
+  ...
+# Subtest: due blocked schedules stay cancellable; actual activation starts the timer
+ok 63 - due blocked schedules stay cancellable; actual activation starts the timer
+  ---
+  duration_ms: 5.9757
+  type: 'test'
+  ...
+# Subtest: activation recheck catches a new blocker and rolls back preparation
+ok 64 - activation recheck catches a new blocker and rolls back preparation
+  ---
+  duration_ms: 7.9026
+  type: 'test'
+  ...
+# Subtest: activation save failure restores host and leaves a retryable schedule
+ok 65 - activation save failure restores host and leaves a retryable schedule
+  ---
+  duration_ms: 6.6802
+  type: 'test'
+  ...
+# Subtest: Strict service refuses early break, retains fulfillment and saves history before release
+ok 66 - Strict service refuses early break, retains fulfillment and saves history before release
+  ---
+  duration_ms: 5.2602
+  type: 'test'
+  ...
+# Subtest: missing workspace does not end Strict; time still fulfills
+ok 67 - missing workspace does not end Strict; time still fulfills
+  ---
+  duration_ms: 2.388
+  type: 'test'
+  ...
+# Subtest: same-process reattachment retains guards; lost session records interruption once
+ok 68 - same-process reattachment retains guards; lost session records interruption once
+  ---
+  duration_ms: 3.3574
+  type: 'test'
+  ...
+# Subtest: unknown identities warn; host matching is exact; titles do not grant allowance
+ok 69 - unknown identities warn; host matching is exact; titles do not grant allowance
+  ---
+  duration_ms: 0.4885
+  type: 'test'
+  ...
+# Subtest: observer failure keeps active commitment; new blockers trigger bounded nudges only
+ok 70 - observer failure keeps active commitment; new blockers trigger bounded nudges only
+  ---
+  duration_ms: 2.2026
+  type: 'test'
+  ...
+# Subtest: whitelist save failure restores previous defaults without changing other device data
+ok 71 - whitelist save failure restores previous defaults without changing other device data
+  ---
+  duration_ms: 0.8427
+  type: 'test'
+  ...
+# Subtest: selected task completion fulfills Strict and caller mutation cannot alter its snapshot
+ok 72 - selected task completion fulfills Strict and caller mutation cannot alter its snapshot
+  ---
+  duration_ms: 4.859
+  type: 'test'
+  ...
+# Subtest: null observation blocks activation instead of treating the desktop as clear
+ok 73 - null observation blocks activation instead of treating the desktop as clear
+  ---
+  duration_ms: 1.9477
+  type: 'test'
+  ...
+# Subtest: interruption save failure retries without lockdown or duplicate history
+ok 74 - interruption save failure retries without lockdown or duplicate history
+  ---
+  duration_ms: 2.5244
+  type: 'test'
+  ...
+# Subtest: fresh distribution bundles exclude Strict development infrastructure
+ok 75 - fresh distribution bundles exclude Strict development infrastructure
+  ---
+  duration_ms: 1384.5131
+  type: 'test'
+  ...
+# [1008/193119.146:ERROR:third_party\\crashpad\\crashpad\\util\\win\\registration_protocol_win.cc:108] CreateFile: Access is denied. (0x5)
+# PASS: scoped task order, stable identity, reload, invalid schedules, resources, continued lock, history, native navigation and cleanup.
+# Subtest: C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\oath-workspace.test.js
+ok 28 - C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\oath-workspace.test.js
+  ---
+  duration_ms: 1173.0349
+  type: 'test'
+  ...
+# [1008/193119.222:ERROR:third_party\\crashpad\\crashpad\\util\\win\\registration_protocol_win.cc:108] CreateFile: Access is denied. (0x5)
+# PASS: duration validation, timer/tasks/monotonic fulfillment, continued time, centralized exits, schedules, legacy/reload, persistence failures, native fullscreen enforcement. Warning interactions are covered by oath.html.
+# Subtest: C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\oath.test.js
+ok 29 - C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\oath.test.js
+  ---
+  duration_ms: 603.9865
+  type: 'test'
+  ...
+# [1008/193119.813:ERROR:third_party\\crashpad\\crashpad\\util\\win\\registration_protocol_win.cc:108] CreateFile: Access is denied. (0x5)
+# Hub plugin load checks passed.
+# Subtest: C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\plugin-load.test.js
+ok 30 - C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\plugin-load.test.js
+  ---
+  duration_ms: 695.4533
+  type: 'test'
+  ...
+# [1008/193119.831:ERROR:third_party\\crashpad\\crashpad\\util\\win\\registration_protocol_win.cc:108] CreateFile: Access is denied. (0x5)
+# Preset tests passed: actual native layout restoration, Project/Resource snapshots, folder state, discrete rail state, naming/rename/update/delete, restart persistence, moved and missing files, source isolation, shared transitions and unload safety.
+# Subtest: C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\presets.test.js
+ok 31 - C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\presets.test.js
+  ---
+  duration_ms: 1037.6036
+  type: 'test'
+  ...
+# [1008/193119.881:ERROR:third_party\\crashpad\\crashpad\\util\\win\\registration_protocol_win.cc:108] CreateFile: Access is denied. (0x5)
+# Project deletion tests passed: all statuses, card/file/folder/ancestor targets, shared trash boundary, cancellation, unchanged ordinary files, arguments, path changes and unload.
+# Subtest: C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\project-deletion.test.js
+ok 32 - C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\project-deletion.test.js
+  ---
+  duration_ms: 556.8653
+  type: 'test'
+  ...
+# [1008/193120.273:ERROR:third_party\\crashpad\\crashpad\\util\\win\\registration_protocol_win.cc:108] CreateFile: Access is denied. (0x5)
+# PASS: Project planning CRUD/reload/validation/overlaps/manual order, canonical phase links, no task events, stale guards, unlink deletion and rollback.
+# Subtest: C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\project-planning.test.js
+ok 33 - C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\project-planning.test.js
+  ---
+  duration_ms: 503.0248
+  type: 'test'
+  ...
+# [1008/193120.338:ERROR:third_party\\crashpad\\crashpad\\util\\win\\registration_protocol_win.cc:108] CreateFile: Access is denied. (0x5)
+# PASS: exact date anchors, centered isolated labels, bounded lanes, dense edge/middle/scrolled layouts, orthogonal card-avoiding leaders and accessible overflow capacity.
+# Subtest: C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\roadmap-milestones.test.js
+ok 34 - C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\roadmap-milestones.test.js
+  ---
+  duration_ms: 3213.7769
+  type: 'test'
+  ...
+# [1008/193120.448:ERROR:third_party\\crashpad\\crashpad\\util\\win\\registration_protocol_win.cc:108] CreateFile: Access is denied. (0x5)
+# Settings navigation passed: shipped categories, safe browser context, and explicit development Daily Brief access.
+# Subtest: C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\settings-navigation.test.js
+ok 35 - C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\settings-navigation.test.js
+  ---
+  duration_ms: 384.4995
+  type: 'test'
+  ...
+# [1008/193120.489:ERROR:third_party\\crashpad\\crashpad\\util\\win\\registration_protocol_win.cc:108] CreateFile: Access is denied. (0x5)
+# PASS: fresh clone, live shared edits, task discovery/deletion, private isolation, Git conflicts, failed-write rollback/retry, selected image/template publication, path validation and malformed-state protection.
+# Subtest: C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\shared-projects.integration.test.js
+ok 36 - C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\shared-projects.integration.test.js
+  ---
+  duration_ms: 1149.1761
+  type: 'test'
+  ...
+# [1008/193120.563:ERROR:third_party\\crashpad\\crashpad\\util\\win\\registration_protocol_win.cc:108] CreateFile: Access is denied. (0x5)
+# Subtest: existing saved Spotify links map to track/context payloads without changing library metadata
+ok 85 - existing saved Spotify links map to track/context payloads without changing library metadata
+  ---
+  duration_ms: 8.3965
+  type: 'test'
+  ...
+# Subtest: unconfigured installs do not write settings or contact Spotify; safe storage has no plaintext fallback
+ok 86 - unconfigured installs do not write settings or contact Spotify; safe storage has no plaintext fallback
+  ---
+  duration_ms: 3.1226
+  type: 'test'
+  ...
+# Subtest: PKCE loopback callback checks state, consumes once, encrypts tokens, restores, and disconnects locally
+ok 87 - PKCE loopback callback checks state, consumes once, encrypts tokens, restores, and disconnects locally
+  ---
+  duration_ms: 80.1262
+  type: 'test'
+  ...
+# Subtest: callback denial, cancel, timeout, and changed Client ID clean up the loopback attempt
+ok 88 - callback denial, cancel, timeout, and changed Client ID clean up the loopback attempt
+  ---
+  duration_ms: 54.1345
+  type: 'test'
+  ...
+# Subtest: token expiry refresh is deduplicated and retains the old refresh token if omitted
+ok 89 - token expiry refresh is deduplicated and retains the old refresh token if omitted
+  ---
+  duration_ms: 2.1424
+  type: 'test'
+  ...
+# Subtest: 204 success never parses Obsidian's stray body or json getter
+ok 90 - 204 success never parses Obsidian's stray body or json getter
+  ---
+  duration_ms: 3.5262
+  type: 'test'
+  ...
+# Subtest: 401 refreshes credentials once and safely retries the same request
+ok 91 - 401 refreshes credentials once and safely retries the same request
+  ---
+  duration_ms: 2.3025
+  type: 'test'
+  ...
+# Subtest: permanent refresh failures clear credentials; temporary failures retain them with cooldown
+ok 92 - permanent refresh failures clear credentials; temporary failures retain them with cooldown
+  ---
+  duration_ms: 4.6426
+  type: 'test'
+  ...
+# Subtest: 429 honors Retry-After across requests and never blindly repeats a transport action
+ok 93 - 429 honors Retry-After across requests and never blindly repeats a transport action
+  ---
+  duration_ms: 1.1611
+  type: 'test'
+  ...
+# Subtest: device selection ignores restricted/unavailable devices and prefers a usable active device
+ok 94 - device selection ignores restricted/unavailable devices and prefers a usable active device
+  ---
+  duration_ms: 0.4451
+  type: 'test'
+  ...
+# Subtest: start track/context uses exact saved URI and transfers an inactive usable device without foregrounding Spotify
+ok 95 - start track/context uses exact saved URI and transfers an inactive usable device without foregrounding Spotify
+  ---
+  duration_ms: 1.7569
+  type: 'test'
+  ...
+# Subtest: NO_ACTIVE_DEVICE transfer retries the original command once and bounds wake-up retries
+ok 96 - NO_ACTIVE_DEVICE transfer retries the original command once and bounds wake-up retries
+  ---
+  duration_ms: 1.8275
+  type: 'test'
+  ...
+# Subtest: pause accepts explicit no-active state but never silently treats an unknown 404 as paused
+ok 97 - pause accepts explicit no-active state but never silently treats an unknown 404 as paused
+  ---
+  duration_ms: 1.0647
+  type: 'test'
+  ...
+# Subtest: seek/volume clamp units and 400/403/network failures are actionable without sensitive response text
+ok 98 - seek/volume clamp units and 400/403/network failures are actionable without sensitive response text
+  ---
+  duration_ms: 1.6958
+  type: 'test'
+  ...
+# Subtest: public settings use the existing serialized Music/atomic store and roll back failed writes
+ok 99 - public settings use the existing serialized Music/atomic store and roll back failed writes
+  ---
+  duration_ms: 4.3141
+  type: 'test'
+  ...
+# Subtest: disconnect during refresh prevents an old response from reviving encrypted credentials
+ok 100 - disconnect during refresh prevents an old response from reviving encrypted credentials
+  ---
+  duration_ms: 5.2743
+  type: 'test'
+  ...
+# Subtest: cancel while the loopback listener is starting cannot open a stale authorization page
+ok 101 - cancel while the loopback listener is starting cannot open a stale authorization page
+  ---
+  duration_ms: 0.967
+  type: 'test'
+  ...
+# [1008/193120.754:ERROR:third_party\\crashpad\\crashpad\\util\\win\\registration_protocol_win.cc:108] CreateFile: Access is denied. (0x5)
+# Statistics checks passed: ranges, DST, real completion semantics, clipped Oaths, stable identities, notes, filters, empty and 100k-event data.
+# Subtest: C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\statistics.test.js
+ok 38 - C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\statistics.test.js
+  ---
+  duration_ms: 1215.7481
+  type: 'test'
+  ...
+# [1008/193120.804:ERROR:third_party\\crashpad\\crashpad\\util\\win\\registration_protocol_win.cc:108] CreateFile: Access is denied. (0x5)
+# Task creation retries passed: stable IDs, concurrent retries, history, moved sources, identity conflicts, rollback and legacy creation.
+# Subtest: C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\task-creation-retry.test.js
+ok 39 - C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\task-creation-retry.test.js
+  ---
+  duration_ms: 380.8697
+  type: 'test'
+  ...
+# [1008/193120.873:ERROR:third_party\\crashpad\\crashpad\\util\\win\\registration_protocol_win.cc:108] CreateFile: Access is denied. (0x5)
+# Task-data tests passed: Home/Project/Resource loaders, note/full subscriptions, folder and file moves/renames, ownership, stale task links, indexed create/modify, deletion, coalescing and disposal.
+# Subtest: C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\task-data.test.js
+ok 40 - C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\task-data.test.js
+  ---
+  duration_ms: 361.9169
+  type: 'test'
+  ...
+# [1008/193120.923:ERROR:third_party\\crashpad\\crashpad\\util\\win\\registration_protocol_win.cc:108] CreateFile: Access is denied. (0x5)
+# Shared task form passed: canonical text/Steps, optional enrichment, snapshot safety and date-only semantics.
+# Subtest: C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\task-form.test.js
+ok 41 - C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\task-form.test.js
+  ---
+  duration_ms: 360.5976
+  type: 'test'
+  ...
+# [1008/193121.144:ERROR:third_party\\crashpad\\crashpad\\util\\win\\registration_protocol_win.cc:108] CreateFile: Access is denied. (0x5)
+# Task History tests passed: actual plugin mutation/clear paths, exactly-once transitions, immediate notifications, edit/delete/clear behavior, resource ownership and persisted reload state.
+# Subtest: C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\task-history.test.js
+ok 42 - C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\task-history.test.js
+  ---
+  duration_ms: 750.1866
+  type: 'test'
+  ...
+# [1008/193121.158:ERROR:third_party\\crashpad\\crashpad\\util\\win\\registration_protocol_win.cc:108] CreateFile: Access is denied. (0x5)
+# Task mutation tests passed: add/edit/delete at top/middle/bottom, CRLF, empty drafts, Markdown/LaTeX source preservation, continuations, child safety and stale-source checks.
+# Subtest: C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\task-mutations.test.js
+ok 43 - C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\task-mutations.test.js
+  ---
+  duration_ms: 314.5856
+  type: 'test'
+  ...
+# [1008/193121.209:ERROR:third_party\\crashpad\\crashpad\\util\\win\\registration_protocol_win.cc:108] CreateFile: Access is denied. (0x5)
+# Task planning passed: date-first ordering, future activation, neutral fallback, nested discovery, copy conflicts, source-safe Steps, identity, CRLF, quick creation, reload/rename, rollback and deletion.
+# Subtest: C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\task-planning.test.js
+ok 44 - C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\task-planning.test.js
+  ---
+  duration_ms: 441.4939
+  type: 'test'
+  ...
+# [1008/193121.257:ERROR:third_party\\crashpad\\crashpad\\util\\win\\registration_protocol_win.cc:108] CreateFile: Access is denied. (0x5)
+# PASS: shared Task progress lifecycle, exact queued action timestamps, uncheck/recheck, mixed chronology, reload, rename/move, midnight, snapshot compatibility, editor, clear/delete, and parent isolation.
+# Subtest: C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\task-progress.test.js
+ok 45 - C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\task-progress.test.js
+  ---
+  duration_ms: 801.4237
+  type: 'test'
+  ...
+# [1008/193121.506:ERROR:third_party\\crashpad\\crashpad\\util\\win\\registration_protocol_win.cc:108] CreateFile: Access is denied. (0x5)
+# Task workspace passed: deterministic views, local dates/DST, queries, project links, hierarchy, lazy folders, canonical moves, check history and rollback.
+# Subtest: C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\task-workspace.test.js
+ok 46 - C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\task-workspace.test.js
+  ---
+  duration_ms: 522.7258
+  type: 'test'
+  ...
+# [1008/193121.611:ERROR:third_party\\crashpad\\crashpad\\util\\win\\registration_protocol_win.cc:108] CreateFile: Access is denied. (0x5)
+# Task tests passed: whitespace/CRLF/multiline lookup, top/middle/bottom, repeated toggles, stale lines, duplicate safety, recurrence and model reconciliation.
+# Subtest: C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\tasks.test.js
+ok 47 - C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\tasks.test.js
+  ---
+  duration_ms: 355.137
+  type: 'test'
+  ...
+# [1008/193121.678:ERROR:third_party\\crashpad\\crashpad\\util\\win\\registration_protocol_win.cc:108] CreateFile: Access is denied. (0x5)
+# Hub typography checks passed: seven semantic text sizes; only decorative/hidden exceptions.
+# Subtest: C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\typography.test.js
+ok 48 - C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\typography.test.js
+  ---
+  duration_ms: 383.0533
+  type: 'test'
+  ...
+# [1008/193121.894:ERROR:third_party\\crashpad\\crashpad\\util\\win\\registration_protocol_win.cc:108] CreateFile: Access is denied. (0x5)
+# Workspace explorer model checks passed.
+# Subtest: C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\workspace-explorer.test.js
+ok 49 - C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\workspace-explorer.test.js
+  ---
+  duration_ms: 286.3619
+  type: 'test'
+  ...
+# [1008/193121.942:ERROR:third_party\\crashpad\\crashpad\\util\\win\\registration_protocol_win.cc:108] CreateFile: Access is denied. (0x5)
+# Could not save Hub workspace state: HubStateConflictError: Hub data changed on disk after it was loaded. Reload Obsidian and run “Audit Hub data” before saving again.
+#     at HubDataStore.assertDiskRevisionUnchanged (C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\services\\data-store.js:205:19)
+#     at C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\services\\data-store.js:299:22 {
+#   code: 'HUB_STATE_CONFLICT'
+# }
+# Workspace persistence tests passed: fresh state, complete preset CRUD/reload, migration, cross-device deletions, unchanged writes, shared saves and external-write protection.
+# Subtest: C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\workspace-state.integration.test.js
+ok 50 - C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\workspace-state.integration.test.js
+  ---
+  duration_ms: 842.3708
+  type: 'test'
+  ...
+# [1008/193121.971:ERROR:third_party\\crashpad\\crashpad\\util\\win\\registration_protocol_win.cc:108] CreateFile: Access is denied. (0x5)
+# Workspace thumbnails passed: user covers, canonical frontmatter, category images, placeholders and Resource images.
+# Subtest: C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\workspace-thumbnail.test.js
+ok 51 - C:\\Users\\El_Baraka 2025\\OneDrive\\Obsidian Notes\\Work\\.obsidian\\plugins\\hub-project-menu\\lib\\tests\\workspace-thumbnail.test.js
+  ---
+  duration_ms: 214.2818
+  type: 'test'
+  ...
+1..115
+# tests 115
+# suites 0
+# pass 115
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 7486.2999

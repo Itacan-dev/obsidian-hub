@@ -1,6 +1,6 @@
 "use strict";
 const { calendarRange } = require("../domain/task-views");
-const { localISODate } = require("../domain/dates");
+const { localISODate, formatDate } = require("../domain/dates");
 const { iconButton, taskCard } = require("./task-view-primitives");
 
 const { renderScheduleToolbar } = require("./schedule-toolbar");
@@ -10,7 +10,7 @@ function renderTaskCalendar(host, tasks, context, state) {
     state.calendarMode = state.scheduleView;
     renderScheduleToolbar(panel, context, state);
     const days = calendarRange(state.anchor, state.calendarMode);
-    const format = date => date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+    const format = date => formatDate(date);
     const scroll = panel.createDiv({ cls: "hub-task-local-scroll" });
     const grid = scroll.createDiv({ cls: "hub-task-calendar is-" + state.calendarMode });
     grid.style.setProperty("--hub-calendar-weeks", String(days.length / 7));

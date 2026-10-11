@@ -80,6 +80,30 @@ app.whenReady().then(async () => {
         const item = await createGuest(); assert.equal(item.context.phase, "DISPLAYED");
         const prefs = item.guest.getLastWebPreferences(); assert.equal(prefs.nodeIntegration, false); assert.equal(prefs.contextIsolation, true); assert.equal(prefs.sandbox, true);
     });
+    await caseTest("Strict fullscreen and dock preserve focused Atlas guest authorization and sandbox", async () => {
+        const { createStrictHost } = require("../../../services/oath-strict-host");
+        const { createRecovery, snapshot } = require("../../../tests/oath-host/recovery.cjs");
+        const { installEscape } = require("../../../tests/oath-lifecycle/development-escape.cjs");
+        const before = snapshot(window), proof = createRecovery(window);
+        window.setFullScreen(true);
+        window.webContents.sendInputEvent({ type: "keyDown", keyCode: "F12", modifiers: ["control", "alt", "shift"] });
+        await until(() => proof.released, "development escape before Strict guards");
+        await proof.settled; assert.deepEqual(snapshot(window), before);
+        const host = createStrictHost(window), safety = installEscape(window, () => host.release(), () => {});
+        try {
+            await host.enter(); await host.openDock({ applications: [] }, { focus() {}, launch() {} });
+            const item = await createGuest(); item.guest.focus();
+            const prefs = item.guest.getLastWebPreferences();
+            assert.equal(prefs.sandbox, true); assert.equal(prefs.nodeIntegration, false);
+            assert.equal(prefs.contextIsolation, true); assert.equal(prefs.webSecurity, true);
+            assert.equal(await item.guest.executeJavaScript("typeof require"), "undefined");
+            assert(window.isFullScreen()); assert.equal(window.isAlwaysOnTop(), false);
+            await blockedAfter(item, () => item.guest.loadURL(url("strict-unpermitted.test")));
+            assert.equal(requests.some(request => request.host === "strict-unpermitted.test"), false);
+            await host.maintain(); assert(window.isFullScreen());
+        } finally { safety.dispose(); await host.release(); }
+        assert.deepEqual(snapshot(window), before);
+    });
     await caseTest("initial Greylist URL is held before the server sees it", async () => {
         const before = requests.length, item = await createGuest(url("unknown.test"));
         assert.equal(item.context.response.decision.outcome, "GREYLIST"); assert.equal(requests.slice(before).some(request => request.host === "unknown.test"), false);
@@ -237,7 +261,7 @@ app.whenReady().then(async () => {
         assert.match(result, /^PASS/); console.log(result);
         await uiWindow.webContents.executeJavaScript("document.body.replaceChildren()"); uiWindow.close();
     });
-    assert.equal(passed, 21); console.log(`Native Atlas tests: ${passed} passed`);
+    assert.equal(passed, 22); console.log(`Native Atlas tests: ${passed} passed`);
     cleanup(0);
 }).catch(error => { console.error(error.stack); console.error(JSON.stringify(trace.slice(-8))); if (runtime) console.error(JSON.stringify(runtime.view().contexts.slice(-2))); cleanup(1); });
 async function cleanup(code) {

@@ -1,3 +1,4 @@
+const { createWindowTitle, setWindowUndertext, layoutModal } = require("./lib/ui/window-title");
 const { dispose: disposeCompletionAudio } = require("./lib/ui/completion-audio");
 const { mountMusicControl } = require("./lib/ui/music");
 const { mountSettingsControl } = require("./lib/ui/settings");
@@ -23,6 +24,7 @@ const {
     normalizePath,
     setIcon,
     Modal,
+    Component,
     FuzzySuggestModal,
     TFile,
     TFolder
@@ -31,6 +33,12 @@ const {
 const { taskProgressMutation } = require("./lib/domain/task-progress");
 const { queryHistory } = require("./lib/domain/history");
 const { savedReportContext, reportDay } = require("./lib/domain/report-context");
+const { mountTransientEffects } = require("./lib/ui/attention");
+const { lockModalControls } = require("./lib/ui/modal-save");
+const { trackTextFieldFocus } = require("./lib/ui/text-field-focus");
+const { installWindowMinimum } = require("./lib/services/window-minimum");
+const { hasKeyboardFocus, focusAfterRowRemoval } = require("./lib/ui/focus-restoration");
+const { renderReportWorkspaceHeader } = require("./lib/ui/report-workspace-header");
 const { reportTitle, DailyReportModal, renderReportEvidence, focusSection } = require("./lib/ui/daily-report");
 const { ProjectDeletionModal } = require("./lib/ui/project-deletion");
 const { createPreparedNoteRails, NOTE_RAIL_VIEW } = require("./lib/ui/prepared-note-rail");
@@ -44,6 +52,7 @@ const { createOathFullscreen } = require('./lib/services/oath-fullscreen');
 const { mountOathControl } = require('./lib/ui/oath');
 const { HubWorkspaceState, emptyWorkspaceState } = require('./lib/services/workspace-state');
 const { HubNavigationHistory } = require('./lib/services/navigation-history');
+const { SHARED_PROJECT_ROOTS, SHARED_IMAGE_ROOT } = require('./lib/services/shared-projects');
 
 const fs =
     require("fs");
@@ -117,6 +126,8 @@ const {
     reduceActivityLog,
     replacePathRoot,
     shortDateLabel,
+    formatDate,
+    formatWeekday,
     setHubTooltip,
     watchHubTooltips,
     mountHeaderImage,
@@ -567,7 +578,7 @@ class ConfirmModal extends Modal {
 
 
         requestAnimationFrame(() => {
-            confirm.focus();
+            (confirm.classList.contains("mod-warning") ? cancel : confirm).focus();
         });
     }
 
@@ -601,10 +612,12 @@ class FocusListEditor {
     constructor(
         parent,
         projects,
-        items
+        items,
+        label = "Focus"
     ) {
 
         this.parent = parent;
+        this.label = label;
         this.projects =
             (
                 Array.isArray(projects)
@@ -616,6 +629,7 @@ class FocusListEditor {
                     project?.name
             );
         this.rows = [];
+        this.effects = mountTransientEffects(parent);
 
 
         for (
@@ -770,16 +784,23 @@ class FocusListEditor {
             row,
             number,
             projectSelect,
-            input
+            input,
+            remove
         };
 
 
         this.rows.push(entry);
 
+        projectSelect.addEventListener("change", () => {
+            if (projectSelect.value) this.clearWarning(entry);
+            this.syncRows();
+        });
+
 
         input.addEventListener(
             "input",
             () => {
+                if (!input.value.trim() || projectSelect.value) this.clearWarning(entry);
                 this.ensureSuggestionRow();
                 this.syncRows();
             }
@@ -788,8 +809,11 @@ class FocusListEditor {
 
         remove.addEventListener(
             "click",
-            () => {
+            event => {
 
+                const restoreFocus = hasKeyboardFocus(remove, event);
+                const index = this.rows.indexOf(entry);
+                this.clearWarning(entry);
                 row.remove();
 
 
@@ -800,8 +824,10 @@ class FocusListEditor {
                     );
 
 
+                const survivingRows = this.rows.slice();
                 this.ensureSuggestionRow();
                 this.syncRows();
+                if (restoreFocus) focusAfterRowRemoval(survivingRows.map(item => item.remove), index, this.rows[0]?.input);
             }
         );
 
@@ -835,12 +861,39 @@ class FocusListEditor {
                 entry.number.setText(
                     `${index + 1}.`
                 );
+                entry.projectSelect.setAttribute("aria-label", `Project or Resource for ${this.label.toLowerCase()} intention ${index + 1}`);
+                const workspace = entry.projectSelect.value ? entry.projectSelect.selectedOptions[0]?.textContent : "";
+                entry.input.setAttribute("aria-label", `${this.label} intention ${index + 1}${workspace ? ` for ${workspace}` : ""}`);
             }
         );
     }
 
 
+    clearWarning(entry) {
+        this.effects.cancel(entry.projectSelect);
+        entry.projectSelect.removeAttribute("aria-invalid");
+    }
+
+    validate(reveal = true) {
+        let first = null;
+        for (const entry of this.rows) {
+            if (entry.input.value.trim() && !entry.projectSelect.value) {
+                entry.projectSelect.setAttribute("aria-invalid", "true");
+                this.effects.run(entry.projectSelect, "hub-attention");
+                first ??= entry.projectSelect;
+            } else this.clearWarning(entry);
+        }
+        if (first && reveal) {
+            this.effects.reveal(first, this.parent.closest(".hub-modal-body, .modal-content"));
+            first.focus({ preventScroll: true });
+        }
+        return first === null;
+    }
+
+    destroy() { this.effects.destroy(); }
+
     getValue() {
+        if (!this.validate()) throw new Error("Choose a Project or Resource for each focus.");
 
         const items = [];
 
@@ -861,13 +914,6 @@ class FocusListEditor {
 
             const projectId =
                 entry.projectSelect.value;
-
-
-            if (!projectId) {
-                throw new Error(
-                    "Choose a Project or Resource for each focus."
-                );
-            }
 
 
             const projectName =
@@ -898,6 +944,7 @@ class ProjectAdvancementModal
         {
             projects,
             resources = [],
+            plugin,
             currentScores,
             currentSummaries = {},
             reportContexts = {},
@@ -911,6 +958,7 @@ class ProjectAdvancementModal
             title =
                 "How much did you advance the project today?",
             requireEveryProject = true,
+            requireExplicitRatings = false,
             allowNoProgress = false,
             saveLabel = "Save & close",
             showCancel = false
@@ -932,6 +980,8 @@ class ProjectAdvancementModal
                 : [];
 
 
+        this.requireExplicitRatings = requireExplicitRatings;
+        this.plugin = plugin;
         this.progressItems = [
             ...this.projects,
             ...this.resources
@@ -1040,14 +1090,26 @@ class ProjectAdvancementModal
 
     onOpen() {
         this.evidenceRows = new Map();
+        this.evidenceComponents = new Map();
+        this.renderEvidence = (parent, context, id) => {
+            this.evidenceComponents.get(id)?.unload();
+            const component = new Component();
+            component.load();
+            this.evidenceComponents.set(id, component);
+            const markdown = createHubMarkdown({ app: this.app, component });
+            const evidence = renderReportEvidence(parent, context, markdown, component);
+            if (context.focus.length) focusSection(evidence, "Focus for this day", context.focus, "", markdown);
+            return evidence;
+        };
+        this.ratingRows = new Map();
+        if (this.requireExplicitRatings) this.ratingEffects = mountTransientEffects(this.contentEl);
         this.refreshEvidence = () => {
             if (!this.getReportContexts) return;
             this.reportContexts = this.getReportContexts();
             for (const [id, previous] of this.evidenceRows) {
                 const context = this.reportContexts[id];
                 if (!context) continue;
-                const evidence = renderReportEvidence(previous.parentElement, context);
-                if (context.focus.length) focusSection(evidence, "Focus for this day", context.focus, "");
+                const evidence = this.renderEvidence(previous.parentElement, context, id);
                 previous.replaceWith(evidence);
                 this.evidenceRows.set(id, evidence);
             }
@@ -1060,18 +1122,12 @@ class ProjectAdvancementModal
         );
 
 
-        this.contentEl.createEl(
-            "h2",
-            {
-                text:
-                    this.title
-            }
-        );
+        const heading = createWindowTitle(this.contentEl, this.title, "clipboard-pen");
 
 
         const guidance = this.contentEl.createDiv({ cls: 'hub-progress-rating-guidance' });
         guidance.createDiv({ text: "Rate the significance of today's work in each workspace." });
-        guidance.createDiv({ cls: 'hub-progress-rating-hint', text: 'Hover over a rating for details.' });
+        setWindowUndertext(heading, guidance);
         this.ratingTooltips?.dispose();
         this.ratingTooltips = createImmediateHubTooltip(this.contentEl);
 
@@ -1130,28 +1186,26 @@ class ProjectAdvancementModal
                 project.projectId;
 
 
-            row.createDiv({
-                cls:
-                    "hub-project-advancement-name",
-
-                text:
-                    project.name
-            });
+            renderReportWorkspaceHeader(row, project, this.plugin);
 
 
             const context = this.reportContexts[project.projectId];
             if (context) {
-                const evidence = renderReportEvidence(row, context);
+                const evidence = this.renderEvidence(row, context, project.projectId);
                 this.evidenceRows.set(project.projectId, evidence);
-                if (context.focus.length) focusSection(evidence, "Focus for this day", context.focus, "");
             }
 
-            const choices =
+            const ratingSection =
                 row.createDiv({
                     cls:
                         "hub-project-advancement-choices"
                 });
 
+
+            const choices = ratingSection.createDiv({ cls: "hub-project-advancement-rating-buttons" });
+            choices.setAttribute("role", "group");
+            choices.setAttribute("aria-label", `Rating for ${project.name}`);
+            this.ratingRows.set(project.projectId, choices);
 
             if (this.allowNoProgress) {
 
@@ -1292,8 +1346,9 @@ class ProjectAdvancementModal
                         attr: {
                             rows: "3",
                             maxlength: "1000",
+                            "aria-label": `Comments for ${project.name}`,
                             placeholder:
-                                `Summarise progress on ${project.name}`
+                                "Comments\u2026"
                         }
                     }
                 );
@@ -1349,10 +1404,13 @@ class ProjectAdvancementModal
                 new FocusListEditor(
                     this.focusList,
                     this.focusProjects,
-                    this.currentFocus
+                    this.currentFocus,
+                    "Next focus"
                 );
         }
 
+
+        this.contentEl.addClass("hub-report-footer-layout");
 
         // ---------- ACTIONS ----------
 
@@ -1361,6 +1419,7 @@ class ProjectAdvancementModal
                 cls:
                     "hub-project-advancement-actions"
             });
+        layoutModal(this, { footer: actions, bodyClass: "hub-report-scroll" });
 
 
         if (this.showCancel) {
@@ -1418,6 +1477,11 @@ class ProjectAdvancementModal
         projectId,
         score
     ) {
+        if (score !== null) {
+            const choices = this.ratingRows.get(projectId);
+            this.ratingEffects?.cancel(choices);
+            choices?.removeAttribute("aria-invalid");
+        }
         if (score === 0) {
             const input = this.summaryInputs.get(projectId);
             if (input) input.value = "";
@@ -1487,10 +1551,16 @@ class ProjectAdvancementModal
         }
 
 
+        if (this.requireExplicitRatings) {
+            this.saveButton.addClass("hub-guided-submit");
+            this.saveButton.setAttribute("aria-disabled", String(this.saving ||
+                this.progressItems.some(item => !this.selectedScores.has(item.projectId))));
+        }
+
         this.saveButton.disabled =
             this.saving ||
             (
-                this.requireEveryProject &&
+                this.requireEveryProject && !this.requireExplicitRatings &&
                 this.selectedScores.size !==
                     this.progressItems.length
             );
@@ -1498,24 +1568,29 @@ class ProjectAdvancementModal
 
 
     async save() {
+        if (!this.saving && this.requireExplicitRatings) {
+            const missing = this.progressItems.filter(item => !this.selectedScores.has(item.projectId));
+            for (const item of missing) {
+                const choices = this.ratingRows.get(item.projectId);
+                choices.setAttribute("aria-invalid", "true");
+                this.ratingEffects.run(choices, "hub-attention");
+            }
+            if (missing.length) {
+                this.ratingEffects.reveal(this.ratingRows.get(missing[0].projectId), this.contentEl.querySelector(".hub-report-scroll"));
+                return;
+            }
+        }
 
         if (
             this.saving ||
             (
-                this.requireEveryProject &&
+                this.requireEveryProject && !this.requireExplicitRatings &&
                 this.selectedScores.size !==
                     this.progressItems.length
             )
         ) {
             return;
         }
-
-
-        this.saving =
-            true;
-
-
-        this.updateSaveButton();
 
 
         const scores =
@@ -1550,10 +1625,6 @@ class ProjectAdvancementModal
 
         } catch (error) {
 
-            this.saving = false;
-            this.updateSaveButton();
-
-
             new Notice(
                 error.message
             );
@@ -1561,6 +1632,10 @@ class ProjectAdvancementModal
             return;
         }
 
+
+        this.saving = true;
+        const restoreControls = lockModalControls(this);
+        this.updateSaveButton();
 
         try {
 
@@ -1574,6 +1649,8 @@ class ProjectAdvancementModal
             this.settled =
                 true;
 
+            this.saving = false;
+            restoreControls();
 
             this.close();
 
@@ -1592,6 +1669,7 @@ class ProjectAdvancementModal
             this.saving =
                 false;
 
+            restoreControls();
 
             this.updateSaveButton();
 
@@ -1603,10 +1681,16 @@ class ProjectAdvancementModal
     }
 
 
+    close() { if (!this.saving) super.close(); }
+
     onClose() {
+        this.focusEditor?.destroy();
+        this.evidenceComponents?.forEach(component => component.unload());
+        this.evidenceComponents?.clear();
         if (this.refreshEvidence) document.removeEventListener("hub-completed-tasks-changed", this.refreshEvidence);
 
         this.ratingTooltips?.dispose();
+        this.ratingEffects?.destroy();
         this.contentEl.empty();
 
 
@@ -1692,7 +1776,8 @@ class DailyFocusModal
             new FocusListEditor(
                 this.list,
                 this.projects,
-                this.items
+                this.items,
+                "Focus for today"
             );
 
 
@@ -1710,7 +1795,7 @@ class DailyFocusModal
 
 
         nextSection.createEl(
-            "h2",
+            "h3",
             {
                 text:
                     "Edit focus for next day"
@@ -1729,7 +1814,8 @@ class DailyFocusModal
             new FocusListEditor(
                 nextList,
                 this.projects,
-                this.nextItems
+                this.nextItems,
+                "Focus for next day"
             );
 
 
@@ -1739,6 +1825,8 @@ class DailyFocusModal
                     "hub-project-advancement-actions"
             });
 
+
+        layoutModal(this, { footer: actions });
 
         const cancel =
             actions.createEl(
@@ -1785,11 +1873,12 @@ class DailyFocusModal
         }
 
 
-        this.saving = true;
-        this.saveButton.disabled = true;
-
+        let restoreControls;
 
         try {
+            const valid = this.focusEditor.validate();
+            const nextValid = this.nextFocusEditor.validate(valid);
+            if (!valid || !nextValid) throw new Error("Choose a Project or Resource for each focus.");
 
             const items =
                 this.focusEditor
@@ -1799,11 +1888,16 @@ class DailyFocusModal
                 this.nextFocusEditor
                     .getValue();
 
+            this.saving = true;
+            restoreControls = lockModalControls(this);
+
             await this.onSave({
                 items,
                 nextItems
             });
             this.settled = true;
+            this.saving = false;
+            restoreControls();
             this.close();
             this.onSaved?.();
 
@@ -1816,7 +1910,7 @@ class DailyFocusModal
 
 
             this.saving = false;
-            this.saveButton.disabled = false;
+            restoreControls?.();
 
 
             new Notice(
@@ -1827,7 +1921,11 @@ class DailyFocusModal
     }
 
 
+    close() { if (!this.saving) super.close(); }
+
     onClose() {
+        this.focusEditor?.destroy();
+        this.nextFocusEditor?.destroy();
         this.contentEl.empty();
 
 
@@ -1884,13 +1982,7 @@ class ProjectCategoryModal
             "hub-project-wizard", "hub-button-scope"
         );
 
-        this.contentEl.createEl(
-            "h2",
-            {
-                text:
-                    `Change category of "${this.projectName}"`
-            }
-        );
+        createWindowTitle(this.contentEl, `Change category of "${this.projectName}"`, "tag");
 
 
         const list =
@@ -1952,6 +2044,7 @@ class ProjectCategoryModal
             );
         }
 
+        layoutModal(this);
         requestAnimationFrame(() => {
             this.contentEl
                 .querySelector(".mod-cta")
@@ -2077,6 +2170,7 @@ class HubDataAuditModal extends Modal {
         const actions = this.contentEl.createDiv({
             cls: "hub-project-wizard-actions"
         });
+        layoutModal(this, { footer: actions });
         const close = actions.createEl("button", {
             text: "Close"
         });
@@ -2140,7 +2234,7 @@ class ResourceFolderPickerModal extends Modal {
 
     onOpen() {
         this.contentEl.addClass("hub-resource-folder-picker", "hub-button-scope");
-        this.contentEl.createEl("h2", { text: this.title });
+        createWindowTitle(this.contentEl, this.title, "library");
 
         const list = this.contentEl.createDiv({ cls: "hub-resource-folder-picker-list" });
 
@@ -2172,6 +2266,7 @@ class ResourceFolderPickerModal extends Modal {
         const actions = this.contentEl.createDiv({ cls: "hub-project-wizard-actions" });
         const cancel = actions.createEl("button", { text: "Cancel" });
         const save = actions.createEl("button", { text: "Save changes" });
+        layoutModal(this, { footer: actions });
         save.addClass("mod-cta");
         cancel.addEventListener("click", () => this.close());
         save.addEventListener("click", async () => {
@@ -2230,9 +2325,7 @@ class ProjectWizardModal extends Modal {
             "hub-project-wizard", "hub-button-scope"
         );
 
-        this.contentEl.createEl("h2", {
-            text: title
-        });
+        createWindowTitle(this.contentEl, title, "folder-plus");
     }
 
     notifyCategoriesChanged(
@@ -2254,9 +2347,11 @@ class ProjectWizardModal extends Modal {
     }
 
     actions() {
-        return this.contentEl.createDiv({
+        const actions = this.contentEl.createDiv({
             cls: "hub-project-wizard-actions"
         });
+        layoutModal(this, { footer: actions });
+        return actions;
     }
 
 
@@ -2495,6 +2590,7 @@ class ProjectWizardModal extends Modal {
                 );
             }
         );
+        layoutModal(this);
     }
 
 
@@ -7076,8 +7172,11 @@ class ProjectWizardService {
         file
     ) {
 
+        const imageRoot = this.getProjectsUsingCategory({ id }).some(project =>
+            SHARED_PROJECT_ROOTS.some(root => project.path.startsWith(`${root}/`)))
+            ? SHARED_IMAGE_ROOT : CATEGORY_IMAGE_ROOT;
         await this.ensureFolder(
-            CATEGORY_IMAGE_ROOT
+            imageRoot
         );
 
 
@@ -7098,7 +7197,7 @@ class ProjectWizardService {
 
         const path =
             normalizePath(
-                `${CATEGORY_IMAGE_ROOT}/${id}.${extension}`
+                `${imageRoot}/${id}.${extension}`
             );
 
 
@@ -11902,6 +12001,18 @@ module.exports = class HubProjectMenu extends Plugin {
 
     async onload() {
 
+        this.register(installWindowMinimum(window));
+
+        const focusDocuments = new Set();
+        const trackDocumentFocus = doc => {
+            if (!doc || focusDocuments.has(doc)) return;
+            focusDocuments.add(doc);
+            this.register(trackTextFieldFocus(doc));
+        };
+        trackDocumentFocus(document);
+        this.app.workspace.iterateAllLeaves(leaf => trackDocumentFocus(leaf.containerEl?.ownerDocument));
+        this.registerEvent(this.app.workspace.on("window-open", (_workspaceWindow, win) => trackDocumentFocus(win.document)));
+
         this.atlas = installAtlasIntegration(this);
 
         this.dataStore =
@@ -12597,8 +12708,16 @@ module.exports = class HubProjectMenu extends Plugin {
         window.hubApplyTaskEdit = applyTaskEdit;
         this.taskEditor = new HubTaskEditor(this);
         const oathNativeModule = this.app.vault.adapter.getBasePath?.();
+        let strictOath = null;
+        if (oathNativeModule && window.electron?.remote && window.electronWindow) {
+            try {
+                // Default-disabled main-process coordinator; reuse ownership on plugin reload.
+                strictOath = window.electron.remote.require(require("path").join(oathNativeModule,
+                    this.manifest.dir, "lib/services/oath-strict-host.js")).getStrictCoordinator(window.electronWindow);
+            } catch (error) { console.error("Strict Oath host unavailable; ordinary Oaths remain available", error); }
+        }
         this.oath = new HubOathService(this, createOathFullscreen(window, oathNativeModule ?
-            require("path").join(oathNativeModule, this.manifest.dir, "lib/services/oath-fullscreen.js") : null));
+            require("path").join(oathNativeModule, this.manifest.dir, "lib/services/oath-fullscreen.js") : null), strictOath ? { strict: strictOath } : {});
         this.oathNavigation = new OathNavigationGuard(this, require("obsidian").WorkspaceLeaf);
         window.hubCreateWorkspaceCards = (root, component, renderImage, categories) =>
             createWorkspaceCards({ app: this.app, root, component, renderImage, categories, oath: this.oath });
@@ -12622,6 +12741,10 @@ module.exports = class HubProjectMenu extends Plugin {
         window.hubApplySearchFolder = root => this.contextSearch.applyFolder(root);
         this.dailyBrief = new DailyBriefService(this);
         this.inbox = new HubInboxService(this);
+        this.spotifyConnect = new (require("./lib/services/spotify-connect").SpotifyConnectBackend)(this);
+        await this.spotifyConnect.restore();
+        this.musicLibrary = new (require("./lib/services/music-library").MusicLibrary)(this);
+        this.music = new (require("./lib/services/music-controller").MusicController)(this, this.musicLibrary);
         this.app.workspace.onLayoutReady(() => {
             if (this.oath.disposed) return;
             this.oathControl = mountOathControl(this, this.oath);
@@ -12770,6 +12893,10 @@ module.exports = class HubProjectMenu extends Plugin {
         delete window.hubRegisterSearchWorkspace;
         delete window.hubApplySearchFolder;
         this.musicControl?.destroy();
+        const spotifyStopping = this.music?.destroy();
+        Promise.resolve(spotifyStopping).catch(() => {}).finally(() => {
+            this.spotifyConnect?.destroy(); this.musicLibrary?.destroy();
+        });
         this.settingsControl?.destroy();
         this.dailyBriefControl?.destroy();
         this.dailyBrief?.destroy();
@@ -13786,6 +13913,8 @@ module.exports = class HubProjectMenu extends Plugin {
         new ProjectAdvancementModal(
             this.app,
             {
+                plugin: this,
+                requireExplicitRatings: true,
                 getReportContexts: () => Object.fromEntries([...projects, ...resources].map(workspace => {
                     const id = workspace.projectId ?? `resource:${workspace.resourceType}`;
                     const previous = id.startsWith("resource:")
@@ -14511,9 +14640,11 @@ module.exports = class HubProjectMenu extends Plugin {
                         frontmatter.cover;
 
 
+                    const coverRoot = SHARED_PROJECT_ROOTS.some(root => file.path.startsWith(`${root}/`))
+                        ? SHARED_IMAGE_ROOT : PROJECT_COVER_ROOT;
                     await this.projectWizard
                         .ensureFolder(
-                            PROJECT_COVER_ROOT
+                            coverRoot
                         );
 
 
@@ -14535,7 +14666,7 @@ module.exports = class HubProjectMenu extends Plugin {
 
                     const coverPath =
                         normalizePath(
-                            `${PROJECT_COVER_ROOT}/${projectId}.${extension}`
+                            `${coverRoot}/${projectId}.${extension}`
                         );
 
 
@@ -15878,27 +16009,13 @@ module.exports = class HubProjectMenu extends Plugin {
 
 
         const dateLabel =
-            parsedDate.toLocaleDateString(
-                undefined,
-                {
-                    weekday:
-                        "long",
-
-                    year:
-                        "numeric",
-
-                    month:
-                        "long",
-
-                    day:
-                        "numeric"
-                }
-            );
+            formatWeekday(parsedDate) + ", " + formatDate(parsedDate, "full");
 
 
         new ProjectAdvancementModal(
             this.app,
             {
+                plugin: this,
                 getReportContexts: () => Object.fromEntries([...projects, ...resources].map(workspace => {
                     const id = workspace.projectId ?? `resource:${workspace.resourceType}`;
                     const previous = id.startsWith("resource:")
@@ -16048,17 +16165,7 @@ module.exports = class HubProjectMenu extends Plugin {
 
 
             const dateLabel =
-                [
-                    String(
-                        cellDate.getDate()
-                    ).padStart(2, "0"),
-
-                    String(
-                        cellDate.getMonth() + 1
-                    ).padStart(2, "0"),
-
-                    cellDate.getFullYear()
-                ].join("/");
+                shortDateLabel(date);
 
 
             const isFuture =
@@ -16253,7 +16360,7 @@ module.exports = class HubProjectMenu extends Plugin {
                 const scope = calendar.hubProgressEditorOptions?.projectId ?? null;
                 const day = reportDay(this.projectWizard, cell.dataset.date, scope);
                 if (day.reports.length) {
-                    new DailyReportModal(this.app, { day,
+                    new DailyReportModal(this.app, { day, plugin: this,
                         onEdit: () => window.hubOpenProgressEditor?.(day.date, scope)
                     }).open();
                 } else {
@@ -17322,6 +17429,14 @@ module.exports = class HubProjectMenu extends Plugin {
             );
         }
 
+
+        if (this.oath?.active && this.oath.isStrict) {
+            // Strict shortcuts use the frozen executable policy; no title/PID focus workaround.
+            const executable = resolveExecutable(shortcut.type === "website" ? FIREFOX_EXECUTABLES : shortcut.executables ?? []);
+            if (!executable) throw new Error("Application executable could not be found.");
+            await this.oath.launchStrictApplication(executable, shortcut.type === "website" ? shortcut.url : null);
+            return;
+        }
 
         // ---------- WEBSITE ----------
 

@@ -4,8 +4,10 @@ const assert = require("assert");
 const fs = require("fs");
 const path = require("path");
 const Module = require("module");
-const { prepareNoteLayout, rewriteLayoutPaths, RESOURCE_TYPES, validateFocusItems,
-    normalizeImagePlacement } = require("..");
+const { prepareNoteLayout, rewriteLayoutPaths } = require("../domain/navigation");
+const { RESOURCE_TYPES } = require("../config");
+const { validateFocusItems } = require("../domain/focus");
+const { normalizeImagePlacement } = require("../ui/header-image");
 
 const leaf = (id, file) => ({ id, type: "leaf", state: { type: "markdown", state: { file, mode: "preview" } } });
 const nativeLayout = { active: "two", main: { id: "main", type: "split", direction: "vertical", children: [

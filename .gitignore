@@ -16,14 +16,18 @@
 !/.obsidian/snippets/
 /.obsidian/plugins/*
 !/.obsidian/plugins/hub-project-menu/
+!/.obsidian/plugins/dataview/
+/.obsidian/plugins/dataview/*
 /.obsidian/plugins/hub-project-menu/*
 !/.obsidian/plugins/hub-project-menu/build.js
 !/.obsidian/plugins/hub-project-menu/build-atlas.js
 !/.obsidian/plugins/hub-project-menu/atlas-native.cjs
+!/.obsidian/plugins/hub-project-menu/strict-oath-assets.json
 !/.obsidian/plugins/hub-project-menu/plugin.js
 !/.obsidian/plugins/hub-project-menu/main.js
 !/.obsidian/plugins/hub-project-menu/manifest.json
 !/.obsidian/plugins/hub-project-menu/styles.css
+!/.obsidian/plugins/hub-project-menu/THIRD-PARTY-NOTICES.md
 !/.obsidian/plugins/hub-project-menu/lib/
 /.obsidian/snippets/*
 !/.obsidian/snippets/dashbboard.css
@@ -37,13 +41,14 @@
 !/System/Templates/
 !/System/CSS/
 !/System/Hub-*.md
+!/System/Hub-shared-projects.json
 !/System/Project Templates/
 /System/Project Templates/*
 !/System/Project Templates/Physics Research/
 !/System/Project Templates/Nonfiction Book/
 !/System/Project Templates/Fiction Book/
 
-# Built-in UI artwork; uploaded covers and category images stay private.
+# Built-in UI artwork and explicitly shared project images.
 /Assets/*
 !/Assets/AppShortcuts/
 !/Assets/ResourceCards/
@@ -54,6 +59,7 @@
 !/Assets/ProjectCards/novel.jpg
 !/Assets/ProjectCards/research.jpg
 !/Assets/ProjectCards/wip.jpg
+!/Assets/ProjectCards/Shared/
 /Assets/Covers/*
 !/Assets/Covers/morning.jpg
 !/Assets/Covers/day.jpeg
@@ -101,3 +107,26 @@
 /.obsidian/plugins/hub-project-menu/lib/atlas/tests/.npm-cache/
 /.obsidian/plugins/hub-project-menu/lib/atlas/tests/.*.log
 /.obsidian/plugins/hub-project-menu/atlas-state/
+
+# Session data, caches, logs and conflict copies stay local even in shared Projects.
+**/*.tmp
+**/*.log
+**/.DS_Store
+**/Thumbs.db
+**/*-DESKTOP-*
+**/*-Nadil.*
+**/.itacan-cache/
+**/.cache/
+**/__pycache__/
+**/.pytest_cache/
+**/*.pem
+**/*.key
+**/*.p12
+**/*.pfx
+**/credentials*.json
+**/secrets*.json
+# Shared category templates; uploads here are intentional project assets.
+!/System/Project Templates/Shared/
+
+# Dataview's safe query settings are required by the shared dashboards.
+!/.obsidian/plugins/dataview/data.json

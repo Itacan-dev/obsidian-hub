@@ -19,7 +19,7 @@ HTMLElement.prototype.toggleClass=function(c,v){this.classList.toggle(c,v)};
 HTMLElement.prototype.empty=function(){this.replaceChildren()};
 HTMLElement.prototype.setText=function(t){this.textContent=t};
 let opened;
-class Modal{constructor(){this.modalEl=document.body.createDiv({cls:'modal'});this.contentEl=this.modalEl.createDiv()}open(){opened=this;this.onOpen()}close(){this.onClose();this.modalEl.remove()}}
+class Modal{constructor(app){this.app=app;this.modalEl=document.body.createDiv({cls:'modal'});this.contentEl=this.modalEl.createDiv()}open(){opened=this;this.onOpen()}close(){this.onClose();this.modalEl.remove()}}
 const fixtureIcons={
  'circle-check':'<circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/>',
  'square-check':'<rect x="3" y="3" width="18" height="18" rx="2"/><path d="m9 12 2 2 4-4"/>',
@@ -35,13 +35,21 @@ const domain=await load('context','../domain/report-context.js',n=>n==='./dates'
 class Component{constructor(){this.callbacks=[];this.children=[]}load(){}register(fn){this.callbacks.push(fn)}addChild(c){this.children.push(c)}removeChild(c){c.unload();this.children=this.children.filter(x=>x!==c)}unload(){this.children.forEach(c=>c.unload());this.callbacks.forEach(fn=>fn())}}
 const native={Modal,Component,setIcon,getIcon:()=>null,MarkdownRenderer:{async render(app,text,el){el.textContent=text}}};
 const markdown=await load('markdown','../ui/markdown.js',()=>native);
-const dashboard=await load('dashboard','../ui/dashboard-ui.js',n=>n==='obsidian'?native:{});
-const ui=await load('ui','../ui/daily-report.js',n=>n==='obsidian'?native:n==='./markdown'?markdown:n==='./dashboard-ui'?dashboard:n.includes('dates')?dates:domain);
+const dashboard=await load('dashboard','../ui/dashboard-ui.js',n=>n==='obsidian'?native:n==='../domain/dates'?dates:{});
+const windowTitle=await load('windowTitle','../ui/window-title.js',()=>native);
+const headerConfig={exports:{}},thumbnail={exports:{}},workspaceHeader={exports:{}};
+new Function('module','process',await(await fetch('../config.js')).text())(headerConfig,{env:{}});
+new Function('module','require',await(await fetch('../ui/workspace-thumbnail.js')).text())(thumbnail,name=>name==='./icons'?{setHubIcon:setIcon}:headerConfig.exports);
+new Function('module','require',await(await fetch('../ui/report-workspace-header.js')).text())(workspaceHeader,()=>thumbnail.exports);
+const ui=await load('ui','../ui/daily-report.js',n=>n==='./report-workspace-header'?workspaceHeader.exports:n==='./window-title'?windowTitle:n==='obsidian'?native:n==='./markdown'?markdown:n==='./dashboard-ui'?dashboard:n.includes('dates')?dates:domain);
 const config=await load('config','../config.js'),tooltips=await load('tooltips','../ui/tooltips.js');
+const attention={exports:{}};new Function('module',await(await fetch('../ui/attention.js')).text())(attention);
+const focusRestore={exports:{}};new Function('module',await(await fetch('../ui/focus-restoration.js')).text())(focusRestore);
 const source=await(await fetch('../../plugin.js')).text();
-const code=source.slice(source.indexOf('class FocusListEditor'),source.indexOf('class DailyFocusModal'));
-const Report=new Function('Modal','PROJECT_ADVANCEMENT_OPTIONS','progressRatingOptions','createImmediateHubTooltip','setIcon','Notice','normalizeFocusItems','renderReportEvidence','focusSection',code+';return ProjectAdvancementModal;')(
- Modal,config.PROJECT_ADVANCEMENT_OPTIONS,config.progressRatingOptions,tooltips.createImmediateHubTooltip,setIcon,class{constructor(message){throw Error(message)}},focus.normalizeFocusItems,ui.renderReportEvidence,ui.focusSection);
+const code=source.slice(source.indexOf('class FocusListEditor'),source.indexOf('class ProjectWizardModal'));
+const saveState={exports:{}};new Function('module',await(await fetch('../ui/modal-save.js')).text())(saveState);
+const {Report,Focus,DailyFocus}=new Function('hasKeyboardFocus','focusAfterRowRemoval','Modal','PROJECT_ADVANCEMENT_OPTIONS','progressRatingOptions','createImmediateHubTooltip','setIcon','Notice','normalizeFocusItems','renderReportEvidence','focusSection','createWindowTitle','setWindowUndertext','renderReportWorkspaceHeader','mountTransientEffects','lockModalControls','layoutModal','Component','createHubMarkdown',code+';return {Report:ProjectAdvancementModal,Focus:FocusListEditor,DailyFocus:DailyFocusModal};')(
+ focusRestore.exports.hasKeyboardFocus,focusRestore.exports.focusAfterRowRemoval,Modal,config.PROJECT_ADVANCEMENT_OPTIONS,config.progressRatingOptions,tooltips.createImmediateHubTooltip,setIcon,class{constructor(message){throw Error(message)}},focus.normalizeFocusItems,ui.renderReportEvidence,ui.focusSection,windowTitle.createWindowTitle,windowTitle.setWindowUndertext,workspaceHeader.exports.renderReportWorkspaceHeader,attention.exports.mountTransientEffects,saveState.exports.lockModalControls,windowTitle.layoutModal,Component,markdown.createHubMarkdown);
 const date='2026-09-14',timestamp=new Date(2026,8,14,10,23).getTime();
 const context={version:1,tasks:[{kind:'step',parentText:'Assignment 5',text:'1a',timestamp:timestamp+300000},{text:'Finish the historical report view',timestamp},{text:'Review completion records',timestamp:timestamp+600000}],activity:[{action:'created',title:'Daily reports',timestamp},{action:'edited',title:'Progress interface',timestamp}],focus:['Make completed reports useful as daily records.']};
 const empty={version:1,tasks:[],activity:[],focus:[]};
@@ -57,7 +65,7 @@ try{
  dashboard.renderHistoryIcon(iconProbe);
  assert(requestedIcon==='rotate-ccw-clock'&&iconProbe.querySelector('svg'),'Use native RotateCcwClock when available');
  iconProbe.remove();native.getIcon=()=>null;
- // Actual summary rendering: literal text, restrained newlines, no paragraph DOM.
+ // Reflections delegate raw text to the shared renderer without changing data.
  const summaryHost=document.body.createDiv({cls:'hub-button-scope'});summaryHost.style.width='500px';
  for(const [value,expected,lines] of [
   ['One line','One line',1],['First\nSecond','First\nSecond',2],
@@ -67,23 +75,25 @@ try{
  ]){
   summaryHost.replaceChildren();
   const record={...reports[0],summary:value},before=JSON.stringify(record);
-  const renderer={render(el,text){if(el.classList.contains('hub-report-summary'))throw Error('Summary must bypass Markdown');}};
+  let rendered;const renderer={render(el,text){if(el.classList.contains('hub-report-summary'))rendered=text;}};
   ui.renderDailyReport(summaryHost,{date,reports:[record],nextFocus:[]},renderer);
   const text=summaryHost.querySelector('.hub-report-summary');
-  assert(text.textContent===expected&&!text.children.length,'Plain summary preserves intended line breaks without paragraph blocks');
-  assert(text.getBoundingClientRect().height<=parseFloat(getComputedStyle(text).lineHeight)*lines+1,'Newlines use normal line height, with at most one blank line');
-  assert(JSON.stringify(record)===before,'Display normalization never changes saved text');
+  assert(rendered===value&&text.classList.contains('hub-report-reflection'),'Raw reflection uses the shared compact Markdown presentation');
+  assert(JSON.stringify(record)===before,'Rendering never changes saved text');
  }
  summaryHost.remove();
 
  const modal=new ui.DailyReportModal({}, {day});modal.open();
  const root=modal.contentEl;
- const localizedDate=dates.parseLocalISODate(date).toLocaleDateString([], {day:'numeric',month:'long',year:'numeric'});
+ const localizedDate=dates.parseLocalISODate(date).toLocaleDateString("en-GB", {day:'numeric',month:'long',year:'numeric'});
  assert(root.querySelector('h2').textContent==='Progress report — '+localizedDate,'Localized view title');
  assert(ui.reportTitle(date,true)==='Edit progress report — '+localizedDate,'Localized edit title');
  assert((source.match(/title:\s*reportTitle\(date, true\)/g)||[]).length===2,'Both production writing entry points use the edit title');
  assert(root.querySelectorAll('.hub-report-card').length===2,'All workspace reports rendered');
  assert(!root.querySelector('.hub-report-heading svg'),'No workspace icons');
+ const emptyTask=root.querySelectorAll('.hub-report-card')[1].querySelector('.hub-report-evidence > .hub-report-section');
+ assert(!emptyTask.querySelector('h3')&&emptyTask.textContent==='No task progress recorded for this day.','Viewer keeps empty-task text without heading');
+ assert(getComputedStyle(root.querySelectorAll('.hub-report-card')[1].querySelector('.hub-report-no-activity')).borderTopWidth==='1px','Empty-task/activity separator retained');
  assert(root.querySelectorAll('.hub-report-activity > summary .hub-report-section-icon svg path').length===3,'Official RotateCcwClock renders when native registry lacks it');
  assert(root.querySelector('.hub-report-focus .hub-report-section-icon').dataset.icon==='target','Day focus uses Target');
  assert(root.querySelectorAll('.hub-report-focus .hub-report-section-icon')[1].dataset.icon==='circle-arrow-right','Next focus uses CircleArrowRight');
@@ -120,7 +130,7 @@ try{
  assert(editor.contentEl.textContent.includes('No task progress recorded for this day.'),'Empty workspace context');
  assert(row.querySelector('[data-icon=circle-check]')&&row.querySelector('[data-icon=square-check]'),'Edit report includes both progress kinds');
  assert(editor.saveButton.textContent==='Save & close','Save workflow retained');
- assert(editor.contentEl.querySelector('textarea').placeholder==='Summarise progress on Itacan','Concise interpolated placeholder');
+ assert(editor.contentEl.querySelector('textarea').placeholder==='Comments\u2026','Optional Comments placeholder');
  const draftSummary=editor.contentEl.querySelector('textarea');
  draftSummary.value='Unsaved reflection';
  liveContexts={p:{...many,tasks:many.tasks.filter(task=>task.kind!=='step')},'resource:study':empty};
@@ -132,10 +142,11 @@ try{
 
  // Exercise the production calendar handlers with project, resource and workspace scopes.
  const calendarCode=source.slice(source.indexOf('    enableProgressCalendarEditing('),source.indexOf('    async copyProjectObsidianUrl('));
- const host=new Function('localISODate','setHubTooltip','reportDay','DailyReportModal',`return {${calendarCode}}`)(dates.localISODate,tooltips.setHubTooltip,domain.reportDay,ui.DailyReportModal);
+ const host=new Function('localISODate','shortDateLabel','setHubTooltip','reportDay','DailyReportModal',`return {${calendarCode}}`)(dates.localISODate,dates.shortDateLabel,tooltips.setHubTooltip,domain.reportDay,ui.DailyReportModal);
  const resourceReport={...reports[0],projectId:'resource:study',projectName:'Knowledge',targetKind:'resource'};
  const all=[...reports,resourceReport];
  host.projectWizard={data:{reportFocusByDate:{[date]:{items:nextFocus}}},getProgressReports(scope){return all.filter(r=>typeof scope==='string'?r.projectId===scope:scope?.kind==='resource'?r.targetKind==='resource':r.targetKind!=='resource')}};
+ host.app={vault:{getAbstractFileByPath:()=>null}};
  let editCalls=[];window.hubOpenProgressEditor=(...args)=>editCalls.push(args);
  for(const scope of [{kind:'project'},{kind:'resource'},'p','resource:study']){
   const calendar=document.body.createDiv(),boxes=calendar.createEl('ol',{cls:'heatmap-calendar-boxes'});
@@ -161,7 +172,7 @@ try{
    assert(style.borderRadius==='8px'&&style.borderTopWidth==='1px','Shared conventional radius and quiet border');
    assert(parseFloat(style.paddingLeft)===16,'Compact shared inner padding');
    const name=card.querySelector('.hub-project-advancement-name');
-   assert(parseFloat(getComputedStyle(name).fontSize)>parseFloat(getComputedStyle(card.querySelector('.hub-report-section h3')).fontSize),'Workspace heading is more prominent than section labels');
+   assert(parseFloat(getComputedStyle(name).fontSize)>parseFloat(getComputedStyle(card.querySelector('.hub-report-section h3') || card.querySelector('.hub-report-empty')).fontSize),'Workspace heading is more prominent than section labels');
    assert(!name.querySelector('svg'),'Workspace names have no icons');
    const activity=card.querySelector('.hub-report-activity > summary');
    if(activity){
@@ -171,11 +182,26 @@ try{
     assert(Math.max(...centers)-Math.min(...centers)<1,'Disclosure icon, label, count and chevron centered');
     assert(getComputedStyle(activity).paddingTop===getComputedStyle(activity).paddingBottom,'Balanced disclosure padding');
    }
+   const taskSection=card.querySelector('.hub-report-evidence > .hub-report-section'),taskEmpty=taskSection?.querySelector('.hub-report-empty');
+   if(taskEmpty){
+    const evidence=taskSection.parentElement,heading=card.querySelector('.hub-report-heading'),following=taskSection.nextElementSibling;
+    const textBox=taskEmpty.getBoundingClientRect(),nextBox=following.getBoundingClientRect();
+    const preceding=selector==='.hub-project-advancement-row'?heading.getBoundingClientRect().bottom:evidence.getBoundingClientRect().top+parseFloat(getComputedStyle(evidence).borderTopWidth);
+    const above=textBox.top-preceding,below=nextBox.top-textBox.bottom;
+    assert(Math.abs(above-below)<=1,'Empty task spacing is balanced around the text');
+    if(selector==='.hub-project-advancement-row')assert(getComputedStyle(heading).marginBottom==='0px','No leftover header margin in an empty editor state');
+   }else if(taskSection?.querySelector('h3')&&selector==='.hub-project-advancement-row'){
+    assert(getComputedStyle(card.querySelector('.hub-report-heading')).marginBottom==='10px','Recorded task heading keeps existing spacing');
+   }
    const empty=card.querySelector('.hub-report-empty');
-   if(empty)assert(getComputedStyle(empty).color!==getComputedStyle(card.querySelector('.hub-report-section h3')).color,'Empty state recedes below real content');
+   if(empty)assert(getComputedStyle(empty).color!==getComputedStyle(card.querySelector('.hub-project-advancement-name')).color,'Empty state recedes below real content');
    for(const focus of card.querySelectorAll('.hub-report-focus'))assert(getComputedStyle(focus).borderTopWidth==='1px','Focus sections have subtle dividers');
    const controls=card.querySelector('.hub-project-advancement-choices');
-   if(controls)assert(getComputedStyle(controls).borderTopWidth==='1px','Report-writing controls separated from evidence');
+   if(controls){assert(getComputedStyle(controls).borderTopWidth==='1px','Report-writing controls separated from evidence');
+    const buttons=[...controls.querySelectorAll('button')],boxes=buttons.map(b=>b.getBoundingClientRect());
+    assert(boxes.every(b=>Math.abs(b.width-boxes[0].width)<1),'Equal rating widths at every modal size');
+    assert(Math.abs(boxes[0].left-controls.getBoundingClientRect().left)<1&&Math.abs(boxes.at(-1).right-controls.getBoundingClientRect().right)<1,'Rating buttons fill workspace width');
+   }
    assert(card.scrollWidth<=card.clientWidth,'Card content fits narrow widths');
    assert(box.right<=modal.contentEl.getBoundingClientRect().right+1,'Card fits modal');
    if(i)assert(box.top-cards[i-1].getBoundingClientRect().bottom>=13,'Visible space between workspace cards');
@@ -189,20 +215,67 @@ try{
    checkCards(view,'.hub-report-card');disclosure.querySelector('summary').click();assert(!disclosure.open,'Activity collapses inside card');view.close();
   }
   const workspaces=Array.from({length:8},(_,i)=>({projectId:'w'+i,name:'Workspace '+(i+1)}));
-  const writing=new Report({}, {projects:workspaces,reportContexts:Object.fromEntries(workspaces.map((w,i)=>[w.projectId,i%2?empty:context])),currentScores:{},allowNoProgress:true,onSave:async()=>{}});
+  const writing=new Report({}, {projects:workspaces,reportContexts:Object.fromEntries(workspaces.map((w,i)=>[w.projectId,[context,empty,{...empty,activity:context.activity},{...empty,focus:context.focus}][i%4]])),currentScores:{},allowNoProgress:true,onSave:async()=>{}});
   writing.open();writing.modalEl.style.width=width+'px';checkCards(writing,'.hub-project-advancement-row');
-  assert(writing.contentEl.scrollHeight>writing.contentEl.clientHeight,'Many workspace cards scroll within modal');
-  writing.contentEl.scrollTop=writing.contentEl.scrollHeight;checkCards(writing,'.hub-project-advancement-row');
+  assert(writing.contentEl.querySelector(".hub-report-scroll").scrollHeight>writing.contentEl.querySelector(".hub-report-scroll").clientHeight,'Many workspace cards scroll within modal');
+  writing.contentEl.querySelector(".hub-report-scroll").scrollTop=writing.contentEl.querySelector(".hub-report-scroll").scrollHeight;checkCards(writing,'.hub-project-advancement-row');
   assert(writing.contentEl.querySelectorAll('textarea').length===8,'All workspace inputs retained');writing.close();
  }
+ // Real shared thumbnail resolution, including metadata, category and project placeholder.
+ const artwork='data:image/svg+xml,'+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36"><rect width="36" height="36" fill="purple"/></svg>');
+ const workspaces=[
+  {projectId:'custom',name:'Custom project',cover:'custom.png',categoryId:'science'},
+  {projectId:'metadata',name:'Metadata cover',path:'project.md',categoryId:'science'},
+  {projectId:'category',name:'Category cover',categoryId:'science'},
+  {projectId:'placeholder',name:'A very long workspace name '+ 'UnbrokenWorkspaceName'.repeat(9),categoryId:'plain'},
+  {projectId:'resource:study',resourceType:'study',contextKind:'resource',name:'Knowledge',image:'resource.png'}
+ ];
+ const plugin={app:{vault:{getAbstractFileByPath:path=>({path}),getResourcePath:()=>artwork},metadataCache:{getFileCache:()=>({frontmatter:{cover:'metadata.png'}})}},projectWizard:{
+  getCategories:()=>[{id:'science',name:'Science',image:'category.png'},{id:'plain',name:'Personal'}],
+  getProjectById:id=>workspaces.find(w=>w.projectId===id),getResourceById:()=>workspaces[4]
+ }};
+ assert(workspaces.map(w=>thumbnail.exports.workspaceImagePath(plugin,w)).join('|')===['custom.png','metadata.png','category.png',headerConfig.exports.WIP_IMAGE_PATH,'resource.png'].join('|'),'Shared image precedence and project placeholder');
+ for(const width of [640,360])for(const editing of [false,true]){
+  const modal=editing?new Report({}, {plugin,projects:workspaces.slice(0,4),resources:[workspaces[4]],reportContexts:Object.fromEntries(workspaces.map((w,i)=>[w.projectId,[context,empty,{...empty,activity:context.activity},{...empty,focus:context.focus}][i%4]])),currentScores:{},allowNoProgress:true,onSave:async()=>{}})
+   :new ui.DailyReportModal({}, {plugin,day:{date,reports:workspaces.map((w,i)=>({...w,projectName:w.name,score:2,context:[context,empty,{...empty,activity:context.activity},{...empty,focus:context.focus}][i%4]})),nextFocus:[]}});
+  modal.open();modal.modalEl.style.width=width+'px';
+  checkCards(modal,editing?'.hub-project-advancement-row':'.hub-report-card');
+  const headers=[...modal.contentEl.querySelectorAll('.hub-report-heading')];
+  assert(headers.length===5&&headers.every(h=>h.querySelector('img')),'Every workspace has shared thumbnail');
+  assert(headers.map(h=>h.querySelector('.hub-report-workspace-subtitle').textContent).join('|')==='Science|Science|Science|Personal|Resource','Categories and Resource subtitle');
+  for(const h of headers){
+   await h.querySelector('img').decode();
+   assert(getComputedStyle(h).borderBottomWidth==='1px','Workspace separator');
+   const image=h.querySelector('img').getBoundingClientRect(),copy=h.querySelector('.hub-report-workspace-copy').getBoundingClientRect();
+   assert(Math.abs(image.top+image.height/2-copy.top-copy.height/2)<1,'Image and copy vertically aligned');
+  }
+  // The content root includes the existing body focus-ring gutter. Check actual overflow ownership.
+  assert(modal.modalEl.scrollWidth<=modal.modalEl.clientWidth+1,'Long names fit without horizontal scrolling');
+  assert(modal.contentEl.querySelector(".hub-report-scroll").scrollHeight>modal.contentEl.querySelector(".hub-report-scroll").clientHeight,'Multiple workspaces scroll');
+  modal.contentEl.querySelector(".hub-report-scroll").scrollTop=modal.contentEl.querySelector(".hub-report-scroll").scrollHeight;assert(modal.contentEl.querySelector(".hub-report-scroll").scrollTop>0,'Can reach modal bottom');
+  if(!editing)assert(modal.contentEl.querySelector('.hub-window-undertext').textContent==='A summary of your work and progress for the day.','Shared viewing subtitle');
+  modal.close();
+ }
  const preview=new URLSearchParams(location.search);
- const sample=preview.get('view')==='editor'
-  ? new Report({}, {title:ui.reportTitle(date,true),projects:[project,{projectId:'q',name:'Research'}],reportContexts:{p:context,q:empty},currentScores:{p:3,q:2},
+ const sample=['editor','exit'].includes(preview.get('preview'))
+  ? new Report({}, {plugin,requireExplicitRatings:preview.get('preview')==='exit',title:ui.reportTitle(date,true),projects:[project,{projectId:'q',name:'Research'}],reportContexts:{p:context,q:empty},currentScores:preview.get('preview')==='exit'?{}:{p:3,q:2},
     currentSummaries:{p:reports[0].summary,q:reports[1].summary},allowNoProgress:true,showNextFocus:true,focusProjects:[project],currentFocus:[nextFocus[0]],onSave:async()=>{}})
-  : new ui.DailyReportModal({}, {day,onEdit:()=>{}});
+  : new ui.DailyReportModal({}, {plugin,day,onEdit:()=>{}});
  sample.open();
+ if(preview.get('preview')==='exit'){
+  await sample.save();await new Promise(requestAnimationFrame);
+  for(const group of sample.contentEl.querySelectorAll('.hub-attention')){
+   const animation=group.getAnimations()[0];if(animation){animation.pause();animation.currentTime=450;}
+   const outer=group.parentElement,box=group.getBoundingClientRect(),separator=outer.getBoundingClientRect(),comments=outer.nextElementSibling.getBoundingClientRect();
+   assert(!outer.classList.contains('hub-attention'),'Separator container never highlighted');
+   assert(box.top-5>separator.top+1,'Expanded yellow paint clears separator');
+   assert(box.bottom+5<comments.top,'Expanded yellow paint clears comments');
+  }
+ }
+ const editorEmpty=sample.contentEl.querySelector('[data-project-id=q] .hub-report-evidence > .hub-report-section');
+ if(editorEmpty)assert(!editorEmpty.querySelector('h3')&&editorEmpty.textContent==='No task progress recorded for this day.','Editor keeps empty-task text without heading');
  if(preview.get('width'))sample.modalEl.style.width=preview.get('width')+'px';
- assert(sample.contentEl.scrollWidth===sample.contentEl.clientWidth,'Modal has no horizontal overflow');
- result.textContent='PASS: historical cards, visible tasks and actual times, activity disclosure, focus/empty states, bounded editor context, Save & close, report/no-report heatmap clicks, keyboard, scope and geometry; shared cards at wide/narrow widths, single/multiple reports and many scrolling edit workspaces.';
+ assert(sample.modalEl.scrollWidth<=sample.modalEl.clientWidth+1,'Modal has no horizontal overflow (body focus-ring gutter retained)');
+ result.textContent='PASS: historical cards with empty Task progress heading omitted and empty text retained, visible recorded tasks and actual times, activity disclosure, focus/empty states, bounded editor context, Save & close, report/no-report heatmap clicks, keyboard, scope and geometry; shared cards at wide/narrow widths, single/multiple reports and many scrolling edit workspaces.';
 }catch(error){result.textContent='FAIL '+error.stack}
 </script>

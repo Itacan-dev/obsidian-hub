@@ -1,6 +1,7 @@
 # Obsidian Hub / Itacan
 
-This repository is an Obsidian vault containing the shareable Hub implementation.
+This repository is an Obsidian vault containing the Hub implementation and the
+shared Itacan and Obsidian Hub projects, including their planning and task metadata.
 Personal work and runtime state are excluded from Git. OneDrive can synchronize
 the entire working vault, including those excluded files, between your computers.
 
@@ -8,17 +9,24 @@ the entire working vault, including those excluded files, between your computers
 
 1. Open the repository folder as a vault in Obsidian Desktop.
 2. Install and enable **Dataview** and **Heatmap Calendar** from Community plugins.
-   Enable JavaScript queries in Dataview's settings.
+   The included Dataview settings enable JavaScript queries for the dashboards.
 3. Enable the bundled **Hub Project Menu** community plugin. Its generated
    `main.js` and `atlas-native.cjs` are included; no build is required for first use.
 4. Enable the included `dashbboard` and `heatmap-fix` CSS snippets in Appearance.
+   Required dashboard spacing and bounded Home scrolling also ship in Hub's
+   stylesheet and work without a local snippet activation setting.
    The optional `math-callouts` snippet supports the note templates.
 5. Open `Home.md` in Reading view.
 
 A fresh clone includes the complete collaborative `Projects/Itacan/` and
 `Projects/Obsidian Hub/` trees. Other Projects, Resources, presets, last-file
-references, activity records and personal reports are excluded. The plugin initializes its own private `data.json`
-and the four empty Resource dashboards. Project folders are created as needed.
+references, activity records and personal reports are excluded. Hub loads the
+shared categories, Roadmaps, task metadata and image placements from
+`System/Hub-shared-projects.json`; project identity/status/folder order and task
+text/checkboxes/IDs remain in the project Markdown. Shared image uploads and
+category templates live in `Assets/ProjectCards/Shared/` and
+`System/Project Templates/Shared/`. The plugin initializes its own private
+`data.json` and the four empty Resource dashboards. Project folders are created as needed.
 For optional template/script workflows, install Templater or QuickAdd and select
 the relevant files under `System/Templates` or `System/Scripts` in their settings.
 Each developer's vault has independent personal state.
@@ -48,6 +56,20 @@ Confirmation opens a fresh homepage, preserving no login request or POST body.
 See [the architecture](System/Hub-atlas-architecture.md) and
 [navigation/security review](System/Hub-atlas-security.md) for compatibility limits.
 
+Music starts disabled. Configure it in **Settings → Music**, enable the providers
+you use, and save streaming links or select local audio files. The bottom-bar
+**Music** button plays those configured references; names, ordering and enablement
+are private Hub data saved through the existing atomic store. Local files remain
+in their current location and continue playing when Music closes. YouTube uses
+its visible official player and pauses on close. Spotify uses Spotify Connect
+after authorization in Music settings, with playback on a Spotify device; its
+official Embed backend remains available for standalone Itacan. YouTube Music loads configured
+content through Atlas's browser infrastructure and still follows Atlas policy;
+shared album playlist links are preferable when an album page changes its URL
+during playback. Disabling Music or a provider retains the configured library.
+See [Music implementation and verification](System/Hub-music.md) for provider
+capabilities, runtime limits and the isolated Obsidian checks.
+
 ## Development
 
 - `.obsidian/plugins/hub-project-menu/plugin.js` and `lib/` are the plugin source.
@@ -56,7 +78,9 @@ See [the architecture](System/Hub-atlas-architecture.md) and
   the shared templates and UI artwork allowed by `.gitignore`.
 - `Projects/Itacan/` and `Projects/Obsidian Hub/` are shared in full, including
   documentation, tasks, roadmaps, Atlas, screenshots and design assets. Project
-  content is collaborative; global Hub runtime state remains private.
+  content is collaborative; global Hub runtime state remains private. Future
+  shared task/Roadmap/category/image edits update the tracked shared state through
+  the same Hub save queue; no manual export is needed.
 
 With Node installed, run from the vault root:
 
@@ -65,6 +89,7 @@ node .obsidian/plugins/hub-project-menu/build.js
 node .obsidian/plugins/hub-project-menu/lib/tests/workspace-state.integration.test.js
 node .obsidian/plugins/hub-project-menu/lib/tests/presets.test.js
 node .obsidian/plugins/hub-project-menu/lib/tests/data-store.integration.test.js
+node .obsidian/plugins/hub-project-menu/lib/tests/shared-projects.integration.test.js
 node .obsidian/plugins/hub-project-menu/lib/tests/plugin-load.test.js
 ```
 
@@ -114,6 +139,14 @@ See [the persistence and Git boundary](System/Hub-personal-data.md) for exact
 locations, migration behavior, Git checks, and OneDrive conflict handling.
 New top-level vault folders are private by default. Add explicit exceptions to
 `.gitignore` when introducing a new shareable source location.
+
+Commit the shared JSON, changed project Markdown, images/templates and rebuilt
+plugin together, then push through the usual Git workflow. After fetching new
+shared state, reload Obsidian before editing: Hub rejects stale writes instead of
+overwriting incoming Git changes. A hard reset changes only tracked files and
+cannot reconstruct state that was never committed. Native workspaces,
+appearance, installed/enabled-plugin lists and all other plugin settings remain
+local; Dataview query settings are the explicit configuration exception.
 
 Atlas authority is private under `.obsidian/plugins/hub-project-menu/atlas-state/`.
 Do not manually edit/reset it or restore it through Hub presets/backups. Atlas

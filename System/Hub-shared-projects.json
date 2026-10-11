@@ -1,0 +1,453 @@
+{
+  "schemaVersion": 1,
+  "projects": {
+    "4b597e3b-b588-4a29-969b-70db3a684112": {
+      "root": "Projects/Itacan",
+      "categoryId": "custom-application"
+    },
+    "9325047c-eb3d-43e7-92f2-a9bf630afe13": {
+      "root": "Projects/Obsidian Hub",
+      "categoryId": "custom-meta-obsidian"
+    }
+  },
+  "categories": [
+    {
+      "id": "custom-meta-obsidian",
+      "name": "Meta-Obsidian",
+      "custom": true,
+      "image": "Assets/ProjectCards/Shared/custom-meta-obsidian.jpg",
+      "templateFolder": "System/Project Templates/Shared/custom-meta-obsidian",
+      "shortcuts": [
+        "overleaf",
+        "chatgpt",
+        "zotero",
+        "google"
+      ],
+      "shortcutOrder": [
+        "overleaf",
+        "chatgpt",
+        "zotero",
+        "google"
+      ]
+    },
+    {
+      "id": "custom-application",
+      "name": "Application",
+      "custom": true,
+      "image": "Assets/ProjectCards/wip.jpg",
+      "shortcuts": [
+        "overleaf",
+        "chatgpt",
+        "zotero",
+        "google"
+      ],
+      "shortcutOrder": [
+        "overleaf",
+        "chatgpt",
+        "zotero",
+        "google"
+      ]
+    }
+  ],
+  "projectPlanning": {
+    "4b597e3b-b588-4a29-969b-70db3a684112": {
+      "version": 1,
+      "revision": 74,
+      "phases": [
+        {
+          "id": "bf24b7f3-d3bc-4834-be4a-0bf12191da64",
+          "name": "Prototype Foundation",
+          "start": "2026-09-01",
+          "end": "2026-09-30",
+          "description": "",
+          "order": 0
+        },
+        {
+          "id": "80ee1aed-ba41-4246-9c78-c662f5b5b0be",
+          "name": "Prototype Refinement & Atlas Integration",
+          "start": "2026-10-01",
+          "end": "2026-10-31",
+          "description": "Integrate Atlas into prototype \nContinue Hub and Atlas refinement\nComplete remaining visible functionality\nPolish UI and interaction patterns\nDesign onboarding and guided setup\nRefine target users and core use cases\nMove prototype to GitHub",
+          "order": 1
+        },
+        {
+          "id": "3073d0e3-4268-4b84-b45a-efcaad526684",
+          "name": "Theme System & Positioning",
+          "start": "2026-11-01",
+          "end": "2026-11-30",
+          "description": "Design Theme System\nDesign initial Theme Packs\nContinue prototype logic and behavioral refinement\nDefine positioning and target customer\nBegin Closed Beta recruitment\nRegister with KTH Innovation\nRead The Odyssey",
+          "order": 2
+        },
+        {
+          "id": "9bff9e9a-a57e-4e41-b65a-c6d0c6860539",
+          "name": "Build-Ready Specification",
+          "start": "2026-12-01",
+          "end": "2026-12-31",
+          "description": "Complete product specification\nFinalize technical architecture\nFinalize component and data architecture\nFinalize interface designs\nDefine coding and design principles\nDefine acceptance criteria and test requirements\nFinalize launch strategy\nDefine pricing hypothesis\nPrepare implementation prompts, agents, and required assets",
+          "order": 3
+        },
+        {
+          "id": "d47012ba-c83f-4c2c-933e-b74a3a9f1040",
+          "name": "Standalone Application & Internal Alpha",
+          "start": "2027-01-01",
+          "end": "2027-01-31",
+          "description": "Build standalone Itacan application\nIntegrate core systems\nReach Internal Alpha\nBegin systematic integration testing",
+          "order": 4
+        },
+        {
+          "id": "f4ada773-958d-41d8-bfd5-d7621aefce6a",
+          "name": "Stabilization & Closed Beta",
+          "start": "2027-02-01",
+          "end": "2027-02-28",
+          "description": "Stabilization and QA\nBug fixing and regression testing\nPerformance and reliability work\nClosed Beta\nCollect and process user feedback\nFinalize launch pricing\nPrepare v1.0\nReach Release Candidate",
+          "order": 5
+        }
+      ],
+      "milestones": [
+        {
+          "id": "c5fe6472-9949-4a8b-af47-ee210fac8725",
+          "name": "Integrate Atlas into Obsidian prototype",
+          "date": "2026-10-18",
+          "achieved": false
+        },
+        {
+          "id": "a5196054-df94-4a07-98c2-642fe75f9329",
+          "name": "Complete build-ready product specification",
+          "date": "2026-12-31",
+          "achieved": false
+        },
+        {
+          "id": "6f0f39d2-6a34-4b25-bb95-79541712cabf",
+          "name": "Core functionality of Obsidian prototype",
+          "date": "2026-09-30",
+          "achieved": true
+        },
+        {
+          "id": "e63b7a17-ff9a-4a20-877f-e03accc65d49",
+          "name": "Public Release",
+          "date": "2027-02-28",
+          "achieved": false
+        },
+        {
+          "id": "23a57801-ed86-4083-8319-00e90470b1a0",
+          "name": "Visual Product Baseline Complete",
+          "date": "2026-10-31",
+          "achieved": false
+        }
+      ]
+    }
+  },
+  "taskMetadata": {
+    "b208baad-1f29-446d-b202-3e5f69685d99": {
+      "necessity": "must",
+      "fromDate": "2026-09-20",
+      "dueDate": "2026-09-30"
+    },
+    "92c8bbb6-284d-4ca8-a5ab-1f2901d5b329": {
+      "necessity": "must",
+      "fromDate": "2026-09-20",
+      "dueDate": "2026-12-15"
+    },
+    "657739cf-9d70-4d93-91d4-64a9c81b3a57": {
+      "necessity": "should",
+      "fromDate": "2026-09-20",
+      "dueDate": "2026-10-31"
+    },
+    "82d9aac2-b702-4fe2-b5d8-5009b847fdf7": {
+      "necessity": "should",
+      "fromDate": "2026-09-20",
+      "dueDate": "2026-10-31"
+    },
+    "02c12194-b961-4da3-9823-84d9a8b151bb": {
+      "necessity": "must",
+      "fromDate": "2026-09-20",
+      "dueDate": "2026-10-31"
+    },
+    "c4231f04-dd02-446f-bddf-8d2e2608682a": {
+      "necessity": "should",
+      "fromDate": "2026-10-01",
+      "dueDate": "2026-10-31"
+    },
+    "3de0554d-a77b-4557-85ab-1f96d9f6e9e3": {
+      "necessity": "must",
+      "fromDate": "2026-10-01",
+      "dueDate": "2026-10-31"
+    },
+    "1f7aea72-8c70-4629-b0ec-6719bf1f492c": {
+      "necessity": "should",
+      "fromDate": "2026-10-01",
+      "dueDate": "2026-11-15"
+    },
+    "526724e8-9433-4ba7-a066-e91e989f524a": {
+      "necessity": "must",
+      "fromDate": "2026-11-01",
+      "dueDate": "2026-12-31"
+    },
+    "6a598442-1109-4c28-8ce7-a8251fe66bb5": {
+      "necessity": "must",
+      "fromDate": "2026-11-01",
+      "dueDate": "2026-12-31"
+    },
+    "5304e44d-a236-4b33-838c-36ca8c0e09dd": {
+      "necessity": "should",
+      "fromDate": "2026-11-01",
+      "dueDate": "2026-12-15"
+    },
+    "f4ae0729-56ab-4418-bc44-20dc5565da30": {
+      "necessity": "must",
+      "fromDate": "2026-11-01",
+      "dueDate": "2027-01-31"
+    },
+    "45b5f20a-aa6a-4cf0-b82b-6f03ed444191": {
+      "necessity": "should",
+      "fromDate": "2026-11-15",
+      "dueDate": "2026-12-31"
+    },
+    "ef727a09-afed-43eb-9226-9d969379e4c5": {
+      "necessity": "should",
+      "fromDate": "2026-11-15",
+      "dueDate": "2026-12-31"
+    },
+    "7e47bbf0-aa17-445d-aea6-f2b26a9f82e8": {
+      "necessity": "should",
+      "fromDate": "2026-11-15",
+      "dueDate": "2027-01-31"
+    },
+    "96208546-cd06-46e3-8f8f-20b63ff9cecf": {
+      "necessity": "should",
+      "fromDate": "2026-11-15",
+      "dueDate": "2027-01-31"
+    },
+    "25e88dc4-e369-43d7-be1e-61430c529182": {
+      "necessity": null,
+      "fromDate": null,
+      "dueDate": "2026-11-30"
+    },
+    "e7146204-d95c-4f72-9ebc-2cc8f3900191": {
+      "necessity": null,
+      "fromDate": null,
+      "dueDate": "2026-11-30"
+    },
+    "641bf272-1b93-46d4-b1b4-24ded1b48171": {
+      "necessity": "must",
+      "fromDate": "2026-12-01",
+      "dueDate": "2026-12-31"
+    },
+    "38196ad5-ffca-43ee-a492-bfc498e756b6": {
+      "necessity": "must",
+      "fromDate": "2026-12-01",
+      "dueDate": "2026-12-31"
+    },
+    "2781b282-8e30-4fc9-ae34-c93f50184740": {
+      "necessity": "must",
+      "fromDate": "2026-12-01",
+      "dueDate": "2026-12-31"
+    },
+    "03820009-0268-414c-a240-d53e7da8e575": {
+      "necessity": "must",
+      "fromDate": "2026-12-01",
+      "dueDate": "2026-12-31"
+    },
+    "35311400-e131-43ab-ad14-103ee72147d5": {
+      "necessity": "must",
+      "fromDate": "2026-12-01",
+      "dueDate": "2026-12-31"
+    },
+    "55bb900e-1cda-4a4d-a436-98a1e8655a13": {
+      "necessity": "must",
+      "fromDate": "2026-12-01",
+      "dueDate": "2026-12-31"
+    },
+    "ea2e7212-362a-43a1-bb7a-29c8437bc7b6": {
+      "necessity": "must",
+      "fromDate": "2026-12-01",
+      "dueDate": "2026-12-31"
+    },
+    "7e2e7bc5-10ce-4b82-b21f-df170d134d4b": {
+      "necessity": "must",
+      "fromDate": "2026-12-01",
+      "dueDate": "2026-12-31"
+    },
+    "18fd78e6-351a-4ac0-a3a1-d03f46e5c534": {
+      "necessity": "must",
+      "fromDate": "2026-12-01",
+      "dueDate": "2026-12-31"
+    },
+    "4160b402-0cd5-476e-8a6a-564f2aef38ab": {
+      "necessity": "must",
+      "fromDate": "2026-12-01",
+      "dueDate": "2026-12-31"
+    },
+    "d56ca3cf-3aa3-4f8b-a6b3-245fc694c447": {
+      "necessity": "must",
+      "fromDate": "2026-12-01",
+      "dueDate": "2026-12-31"
+    },
+    "d6096112-d2d7-47b4-a836-1b1e61ca271d": {
+      "necessity": "should",
+      "fromDate": "2026-12-01",
+      "dueDate": "2026-12-31"
+    },
+    "a0e016d1-87cb-4cf1-ac96-ca2524b1ae4a": {
+      "necessity": "should",
+      "fromDate": "2026-12-01",
+      "dueDate": "2026-12-31"
+    },
+    "2124eae6-bd7c-4647-87b1-bf816986ef32": {
+      "necessity": "must",
+      "fromDate": "2027-01-01",
+      "dueDate": "2027-01-24"
+    },
+    "608f65a7-b6bc-45d0-8ebc-f7fb8a756fda": {
+      "necessity": "must",
+      "fromDate": "2027-01-01",
+      "dueDate": "2027-01-24"
+    },
+    "128006e7-f366-4943-bad7-edbfec4edc86": {
+      "necessity": "must",
+      "fromDate": "2027-01-18",
+      "dueDate": "2027-01-31"
+    },
+    "d3c56b6a-f104-4341-8609-473f69751394": {
+      "necessity": "must",
+      "fromDate": null,
+      "dueDate": "2027-01-31"
+    },
+    "005dd4ad-5637-4516-9f0c-db5360c59a89": {
+      "necessity": "must",
+      "fromDate": null,
+      "dueDate": "2027-01-31"
+    },
+    "0fea99ba-fe83-4338-bc9e-6b420f732212": {
+      "necessity": "must",
+      "fromDate": "2027-02-01",
+      "dueDate": "2027-02-14"
+    },
+    "3da1d615-b381-4d15-86d3-463889c11107": {
+      "necessity": "must",
+      "fromDate": "2027-02-01",
+      "dueDate": "2027-02-14"
+    },
+    "4dd93283-1ed4-450f-aa8f-bbb8cda73860": {
+      "necessity": "must",
+      "fromDate": "2027-02-01",
+      "dueDate": "2027-02-14"
+    },
+    "be83d9ba-4264-4ec8-835c-7cafeeee1cb8": {
+      "necessity": "must",
+      "fromDate": "2027-02-01",
+      "dueDate": "2027-02-21"
+    },
+    "6b5df7d1-59b0-4af1-9f68-09d81b03648f": {
+      "necessity": "must",
+      "fromDate": null,
+      "dueDate": "2027-02-14"
+    },
+    "2c03f516-36bc-4782-a5c9-2c89d9289eb8": {
+      "necessity": "must",
+      "fromDate": "2027-02-14",
+      "dueDate": "2027-02-26"
+    },
+    "557fa722-0965-4568-897b-ce8f9be8dc54": {
+      "necessity": "must",
+      "fromDate": "2027-02-14",
+      "dueDate": "2027-02-28"
+    },
+    "6e981afe-e222-43cd-985a-bc710ef77b00": {
+      "necessity": "must",
+      "fromDate": "2027-02-14",
+      "dueDate": "2027-02-28"
+    },
+    "a28e3be5-f0c2-4d62-b77e-09c3bb3821aa": {
+      "necessity": "must",
+      "fromDate": "2027-02-14",
+      "dueDate": "2027-02-28"
+    },
+    "90a52e56-04dc-412a-a696-36422eb7340c": {
+      "necessity": "must",
+      "fromDate": "2027-02-14",
+      "dueDate": "2027-02-28"
+    },
+    "c5278c8d-fcd2-4a53-b534-2242b6329461": {
+      "necessity": "should",
+      "fromDate": "2027-02-14",
+      "dueDate": "2027-02-28"
+    },
+    "733808ed-7911-4637-b03d-058602e62f10": {
+      "necessity": "must",
+      "fromDate": null,
+      "dueDate": "2027-02-28"
+    },
+    "713c82a6-a58b-43ee-b344-63679e138e28": {
+      "necessity": "must",
+      "fromDate": "2027-03-01",
+      "dueDate": "2027-03-31"
+    },
+    "0e82cfe0-9782-41cf-8cc5-d147ce9f7c31": {
+      "necessity": null,
+      "fromDate": null,
+      "dueDate": "2027-03-31"
+    },
+    "d9e34e87-2b7a-4441-86d3-20c20a751620": {
+      "necessity": "must",
+      "fromDate": null,
+      "dueDate": "2026-09-30"
+    },
+    "44c1c865-9d29-4144-9f33-6c438f603377": {
+      "necessity": "must",
+      "fromDate": null,
+      "dueDate": "2026-09-30"
+    },
+    "eec48933-1153-44e9-af66-5e43e0727814": {
+      "necessity": "must",
+      "fromDate": null,
+      "dueDate": "2026-09-30"
+    },
+    "5c4768d7-c59d-4cae-bba9-947cde77233c": {
+      "necessity": "must",
+      "fromDate": null,
+      "dueDate": "2026-09-30"
+    },
+    "7e999fbd-3eda-4924-9b87-16fc959a1fe5": {
+      "necessity": "must",
+      "fromDate": null,
+      "dueDate": "2026-09-30"
+    },
+    "cc46f7ce-30ea-4004-9d1a-79f926ee4c91": {
+      "necessity": "must",
+      "fromDate": null,
+      "dueDate": "2026-09-30"
+    },
+    "2b045d8c-3da5-4836-98fd-00d0716fc4f1": {
+      "necessity": "must",
+      "fromDate": null,
+      "dueDate": null
+    },
+    "3b57d2dc-2142-4167-a6de-3462341cff29": {
+      "necessity": "must",
+      "fromDate": null,
+      "dueDate": null
+    },
+    "5c7530c6-2b70-47c1-bb2f-7ef58271797c": {
+      "necessity": null,
+      "fromDate": null,
+      "dueDate": null,
+      "captureSource": {
+        "origin": "Quick Add",
+        "path": "Home.md"
+      }
+    }
+  },
+  "headerImagePlacements": {
+    "card:project:9325047c-eb3d-43e7-92f2-a9bf630afe13::Assets/ProjectCards/Shared/custom-meta-obsidian.jpg": {
+      "x": 46.69475819953021,
+      "y": 50.115076957261074,
+      "zoom": 3
+    },
+    "9325047c-eb3d-43e7-92f2-a9bf630afe13::Assets/ProjectCards/Shared/custom-meta-obsidian.jpg": {
+      "x": 50,
+      "y": 50.258634934134015,
+      "zoom": 1
+    }
+  }
+}

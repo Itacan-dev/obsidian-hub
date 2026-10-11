@@ -1,6 +1,8 @@
 "use strict";
+const { createWindowTitle, layoutModal } = require("./window-title");
 
 const { Modal, setIcon } = require("obsidian");
+const { formatDateTime } = require("../domain/dates");
 const { createImmediateHubTooltip } = require("./tooltips");
 const { RANGES, aggregateStatistics, seriesFor, formatDuration } = require("../domain/statistics");
 const { readStatistics } = require("../services/statistics");
@@ -23,7 +25,7 @@ class StatisticsModal extends Modal {
         this.source ??= readStatistics(this.plugin);
         this.helpTooltips = createImmediateHubTooltip(this.contentEl);
         const header = this.contentEl.createDiv({ cls: "hub-statistics-header" });
-        header.createEl("h2", { text: "Statistics" });
+        createWindowTitle(header, "Statistics", "chart-no-axes-column");
         const controls = header.createDiv({ cls: "hub-statistics-controls" });
         this.workspaceSelect = controls.createEl("select", { cls: "hub-statistics-workspace",
             attr: { "aria-label": "Statistics workspace", "data-filter": "workspace" } });
@@ -50,6 +52,7 @@ class StatisticsModal extends Modal {
             return [key, button];
         });
         this.grid = this.contentEl.createDiv({ cls: "hub-statistics-grid" });
+        layoutModal(this);
         this.render();
     }
     card(id, title, { wide = false } = {}) {
@@ -60,15 +63,11 @@ class StatisticsModal extends Modal {
     }
     hint(parent, text) {
         const heading = parent.querySelector(".hub-statistics-card-heading");
-        if (["oaths", "notes", "comparison"].includes(parent.dataset.statistic)) {
-            const help = heading.createEl("button", { cls: "hub-panel-action hub-panel-action-icon hub-statistics-help",
-                attr: { type: "button", "aria-label": "About " + heading.textContent } });
-            setIcon(help, "circle-help");
-            this.helpTooltips.bind(help, { title: heading.querySelector("h3").textContent, description: text });
-        } else {
-            heading.setAttribute("title", text);
-            heading.setAttribute("aria-description", text);
-        }
+        const title = heading.querySelector("h3").textContent;
+        const help = heading.createEl("button", { cls: "hub-panel-action hub-panel-action-icon hub-statistics-help",
+            attr: { type: "button", "aria-label": "About " + title } });
+        setIcon(help, "circle-help");
+        this.helpTooltips.bind(help, { title, description: text });
     }
     chart(parent, values, label, empty, extra = {}) {
         const cleanup = renderBarChart(parent, { range: this.model.range, values, label, empty, ...extra });
@@ -94,7 +93,7 @@ class StatisticsModal extends Modal {
             .map(([kind, label]) => ({ label, color: kind, values: seriesFor(model, "activity", this.workspace === "all" ? kind : this.workspace) }));
         if (categories.length > 1) renderLegend(activity, categories);
         this.chart(activity, null, "Work records", "No work activity in this period.", { series: categories, stacked: true });
-        this.hint(activity, "Note creations, recorded edits, and task or step completions. Mixed activity stacks Projects and Resources within each date bin.");
+        this.hint(activity, "Counts recorded note creations, note edits, and task or step completions in the selected period and workspace. Records are grouped into date bins; All workspaces stacks Projects and Resources within each bin.");
         const completed = this.card("completions", "Tasks & steps completed", { wide: true });
         const completionSeries = [["tasks", "Tasks", "green"], ["steps", "Steps", "blue"]]
             .map(([metric, label, color]) => ({ label, color, values: seriesFor(model, metric, this.workspace) }));
@@ -107,6 +106,7 @@ class StatisticsModal extends Modal {
     }
     renderDistribution() {
         const card = this.card("distribution", "Work distribution");
+        this.hint(card, "Progress report rating points (0–4 per workspace/report), summed by workspace for the selected period and workspace filter. Percentages show each workspace's share of those points, not hours worked or time spent.");
         const rows = this.model.rows.filter(row => (this.workspace === "all" || row.key === this.workspace) && row.progressPoints > 0)
             .sort((a, b) => b.progressPoints - a.progressPoints || a.name.localeCompare(b.name) || a.key.localeCompare(b.key));
         if (!rows.length) { emptyChart(card, "No progress report data in this period."); return; }
@@ -151,6 +151,7 @@ class StatisticsModal extends Modal {
 
     renderProjects() {
         const card = this.card("projects", "Project activity"), projects = this.model.projects;
+        this.hint(card, "Projects in all states, independent of the workspace filter. Last active is the latest recorded note creation, note edit, task or step completion, or ended Oath, across all dates. Oathbound time is time from fulfilled or broken Oaths overlapping the selected period.");
         if (!projects.length) { emptyChart(card, "No project activity recorded yet."); return; }
         const scroll = card.createDiv({ cls: "hub-statistics-project-list", attr: { tabindex: "0", "aria-label": "Project activity", role: "region" } });
         const table = scroll.createEl("table");
@@ -161,10 +162,9 @@ class StatisticsModal extends Modal {
             const row = body.createEl("tr"), name = workspaceLabel(project);
             row.createEl("th", { attr: { scope: "row" } }).createSpan({ cls: "hub-statistics-name", text: name, attr: { title: name } });
             row.createEl("td", { text: project.lastActive ? dateLabel(project.lastActive, new Date(project.lastActive).getFullYear() !== new Date(this.source.now).getFullYear()) : "No activity",
-                attr: { title: project.lastActive ? new Date(project.lastActive).toLocaleString() : "No recorded work activity" } });
+                attr: { title: project.lastActive ? formatDateTime(new Date(project.lastActive)) : "No recorded work activity" } });
             row.createEl("td", { text: formatDuration(project.time) });
         }
-        this.hint(card, "All project states. Last active is all-time; time follows the selected period.");
     }
     onClose() { this.helpTooltips?.dispose(); this.chartCleanups.splice(0).forEach(cleanup => cleanup()); this.cache.clear(); this.contentEl.empty(); this.closed?.(); }
 }

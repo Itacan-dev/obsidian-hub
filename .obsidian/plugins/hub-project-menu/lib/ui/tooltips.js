@@ -68,10 +68,16 @@ function createImmediateHubTooltip(root) {
     const doc = root.ownerDocument, win = doc.defaultView;
     const definitions = new WeakMap(), cleanups = [];
     let hovered = null, focused = null, active = null, tooltip = null;
-    let keyboardNavigation = false;
+    let keyboardNavigation = false, activeDescription = null;
     const id = `hub-detail-tooltip-${++detailTooltipId}`;
     function hide() {
-        active?.removeAttribute('aria-describedby');
+        if (active) {
+            const descriptions = (active.getAttribute('aria-describedby') ?? '').split(/\s+/).filter(value => value && value !== id);
+            if (descriptions.length) active.setAttribute('aria-describedby', descriptions.join(' '));
+            else active.removeAttribute('aria-describedby');
+            if (activeDescription !== null) active.setAttribute('aria-description', activeDescription);
+        }
+        activeDescription = null;
         tooltip?.remove(); tooltip = null; active = null;
     }
     function show() {
@@ -89,7 +95,9 @@ function createImmediateHubTooltip(root) {
         description.className = 'hub-detail-tooltip-description';
         description.textContent = definition.description;
         doc.body.append(tooltip);
-        button.setAttribute('aria-describedby', id);
+        activeDescription = button.getAttribute('aria-description');
+        button.removeAttribute('aria-description');
+        button.setAttribute('aria-describedby', [button.getAttribute('aria-describedby'), id].filter(Boolean).join(' '));
         const rect = button.getBoundingClientRect(), bounds = tooltip.getBoundingClientRect();
         tooltip.style.left = `${Math.max(8, Math.min(rect.left + rect.width / 2 - bounds.width / 2, win.innerWidth - bounds.width - 8))}px`;
         const below = rect.bottom + 6;
@@ -138,9 +146,18 @@ function createImmediateHubTooltip(root) {
     listen(doc, 'scroll', hide, true);
     return {
         bind(button, definition) {
-            setHubTooltip(button, null); // No browser title or delayed duplicate.
+            // Suppress the native duplicate without erasing the control's name.
+            button.removeAttribute('title');
+            button.removeAttribute('data-tooltip-position');
+            // Obsidian checks this property before showing aria-label tooltips.
+            const nativeTooltip = button.style.getPropertyValue('--no-tooltip'), priority = button.style.getPropertyPriority('--no-tooltip');
+            button.style.setProperty('--no-tooltip', 'true');
+            cleanups.push(() => {
+                if (nativeTooltip) button.style.setProperty('--no-tooltip', nativeTooltip, priority);
+                else button.style.removeProperty('--no-tooltip');
+            });
             definitions.set(button, definition);
-            button.setAttribute('aria-description', `${definition.title} ${definition.description}`);
+            if (!button.hasAttribute('aria-description')) button.setAttribute('aria-description', `${definition.title} ${definition.description}`);
         },
         dispose() { hide(); cleanups.splice(0).forEach(cleanup => cleanup()); }
     };

@@ -1,4 +1,5 @@
 "use strict";
+const { createWindowTitle, setWindowUndertext, layoutModal } = require("./window-title");
 const { HOME_COVER_PERIODS } = require("../services/home-covers");
 const { mountHeaderImage } = require("./header-image");
 
@@ -9,8 +10,8 @@ function openHomeCoverEditor(service, sourceCover) {
             this.owner = new Component(); this.owner.load(); this.closed = false;
             this.modalEl.classList.add("hub-home-covers-dialog");
             this.contentEl.classList.add("hub-button-scope", "hub-home-covers-editor");
-            this.contentEl.createEl("h2", { text: "Edit cover images" });
-            this.contentEl.createEl("p", { text: "Right-click a preview to change its image or image placement." });
+            const heading = createWindowTitle(this.contentEl, "Edit cover images", "image");
+            setWindowUndertext(heading, this.contentEl.createEl("p", { text: "Right-click a preview to change its image or image placement." }));
             this.previews = [];
             this.sourceSize = { width: sourceCover.clientWidth, height: sourceCover.clientHeight };
             for (const period of HOME_COVER_PERIODS) {
@@ -61,6 +62,7 @@ function openHomeCoverEditor(service, sourceCover) {
             });
             const actions = this.contentEl.createDiv({ cls: "hub-project-wizard-actions" });
             actions.createEl("button", { text: "Close" }).addEventListener("click", () => this.close());
+            layoutModal(this, { footer: actions });
         }
         resizePreviews() {
             if (sourceCover.clientWidth && sourceCover.clientHeight) {
@@ -80,21 +82,29 @@ function openHomeCoverEditor(service, sourceCover) {
             }
         }
         async renderPreview(preview) {
-            const file = service.plugin.app.vault.getAbstractFileByPath(service.config(preview.name).path);
+            const request = preview.request = (preview.request ?? 0) + 1;
             const image = preview.surface.ownerDocument.createElement("img");
             image.className = "home-cover-image hub-home-cover-staging"; image.alt = "";
             try {
-                if (!file) throw Error("Cover image is missing. Right-click to choose an image.");
+                const path = service.config(preview.name).path;
+                const file = typeof path === "string" && path.trim() ? service.plugin.app.vault.getAbstractFileByPath(path) : null;
+                if (!file || file.children) throw Error("Cover image is missing. Right-click to choose an image.");
                 image.src = service.plugin.app.vault.getResourcePath(file);
                 await image.decode();
-                if (this.closed) return;
+                if (this.closed || preview.request !== request) return;
+                preview.unavailable?.remove(); preview.unavailable = null;
                 preview.editor?.dispose(); preview.surface.replaceChildren(image);
                 preview.editor = mountHeaderImage({ cover: preview.surface, image, component: this.owner,
                     controlsHost: preview.frame, manageMenu: false, ...service.placementOptions(preview.name) });
                 await preview.editor.prepare();
                 image.classList.remove("hub-home-cover-staging");
             } catch (error) {
-                if (!this.closed) new Notice(error.message || "Could not load cover preview.");
+                if (!this.closed && preview.request === request) {
+                    preview.editor?.dispose(); preview.editor = null;
+                    preview.surface.empty(); preview.unavailable?.remove();
+                    preview.unavailable = preview.frame.createDiv({ cls: "hub-home-cover-unavailable hub-capture-muted", text: "Image unavailable. Use Change image to choose a replacement.", attr: { role: "status" } });
+                    new Notice(error.message || "Could not load cover preview.");
+                }
             }
         }
         chooseImage(preview) {

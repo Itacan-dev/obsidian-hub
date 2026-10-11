@@ -1,0 +1,54 @@
+<!doctype html><meta charset="utf-8"><title>Repeated-row keyboard focus restoration</title>
+<link rel="stylesheet" href="../../styles.css">
+<link rel="stylesheet" href="../../../../../System/Dashboards/Home/view.css">
+<style>body{font:14px Arial;background:#222;color:#ddd;--background-primary:#222;--background-modifier-border:#555;--interactive-accent:#8955ed}#fixture{width:600px;height:240px;overflow:auto;padding:12px}button,input,select,textarea{margin:4px;color:#ddd;background:#333}.hub-task-step,.hub-phase-task-item{min-height:48px}.modal{padding:15px}.modal-content{max-height:260px;overflow:auto}.modal-container{position:fixed;inset:10px;background:#222;z-index:2}</style>
+<div id="fixture" class="hub-button-scope"></div><pre id="result">RUNNING</pre>
+<script type="module">
+const assert=(v,m)=>{if(!v)throw Error(m)},key=value=>new Promise(resolve=>{window.hubTestKeyDone=resolve;window.hubTestKeyRequest=value});
+async function pointer(element){element.scrollIntoView({block:'center'});await new Promise(requestAnimationFrame);const box=element.getBoundingClientRect();await new Promise(resolve=>{window.hubTestPointerDone=resolve;window.hubTestPointerRequest={x:box.left+box.width/2,y:box.top+box.height/2}})}
+HTMLElement.prototype.createEl=function(tag,o={}){const e=document.createElement(tag);e.className=o.cls||'';e.textContent=o.text||'';if(o.type)e.type=o.type;for(const[k,v]of Object.entries(o.attr||{}))e.setAttribute(k,v);this.append(e);return e};
+HTMLElement.prototype.createDiv=function(o){return this.createEl('div',o)};HTMLElement.prototype.createSpan=function(o){return this.createEl('span',o)};HTMLElement.prototype.setText=function(s){this.textContent=s};HTMLElement.prototype.empty=function(){this.replaceChildren()};
+class Modal{constructor(app){this.app=app;this.containerEl=document.body.createDiv({cls:'modal-container'});this.modalEl=this.containerEl.createDiv({cls:'modal'});this.contentEl=this.modalEl.createDiv({cls:'modal-content'});this.escape=e=>{if(e.key==='Escape')this.close()}}open(){this.onOpen();document.addEventListener('keydown',this.escape)}close(){this.onClose?.();this.containerEl.remove();document.removeEventListener('keydown',this.escape)}}
+async function load(file,require=()=>{}){const module={exports:{}};new Function('module','require',await(await fetch('../'+file+'.js')).text())(module,require);return module.exports}
+try{
+ const restoration=await load('ui/focus-restoration'),focusData=await load('domain/focus'),attention=await load('ui/attention');
+ const taskForm=await load('ui/task-form',name=>name==='./focus-restoration'?restoration:name==='./icons'?{setHubIcon(){}}:name==='./completion-audio'?{bindCompletionSound(){},playStepCompletionSound(){}}:{mountTaskDateTime:()=>({setMin(){},refresh(){},destroy(){}})});
+ const windowTitle=await load('ui/window-title',()=>({setIcon(){}}));
+ const dates=await load('domain/dates'),planning=await load('ui/planning-editor',name=>name==='./window-title'?windowTitle:name==='./focus-restoration'?restoration:name==='obsidian'?{Modal,FuzzySuggestModal:class{open(){}}}:dates);
+ const source=await(await fetch('../../plugin.js')).text(),code=source.slice(source.indexOf('class FocusListEditor'),source.indexOf('class ProjectAdvancementModal'));
+ const FocusEditor=new Function('normalizeFocusItems','mountTransientEffects','setIcon','hasKeyboardFocus','focusAfterRowRemoval',code+';return FocusListEditor')(focusData.normalizeFocusItems,attention.mountTransientEffects,()=>{},restoration.hasKeyboardFocus,restoration.focusAfterRowRemoval);
+ let persisted=0;
+ for(const type of ['steps','intentions','phase'])for(const [count,requestedIndex,label]of [[3,0,'first'],[3,1,'middle'],[3,2,'last'],[1,0,'only']])for(const input of ['keyboard','pointer']){
+  let index=requestedIndex;fixture.replaceChildren();let editor,modal,state,removed,before,getButtons,fallback,expected,cleanup=()=>{},dataCheck;
+  if(type==='steps'){
+   state={steps:Array.from({length:count},(_,i)=>({text:'Step '+i,completed:false}))};before=state.steps.slice();removed=before[index];taskForm.mountTaskFields({host:fixture,state});
+   getButtons=()=>[...fixture.querySelectorAll('.hub-task-step > button')];fallback=()=>fixture.querySelector('.hub-task-add-step');
+   dataCheck=()=>assert(state.steps.length===count-1&&state.steps.every((item,i)=>item===before.filter(item=>item!==removed)[i]),'Step values/order preserved');
+  }else if(type==='intentions'){
+   editor=new FocusEditor(fixture,[{projectId:'p',name:'Project'}],count===1?[]:Array.from({length:count},(_,i)=>({text:'Intention '+i,projectId:'p'})));
+   before=editor.rows.slice();const actualIndex=label==='last'?before.length-1:index;index=actualIndex;removed=before[index];
+   getButtons=()=>editor.rows.map(row=>row.remove);fallback=()=>editor.rows[0]?.input;
+   dataCheck=()=>assert(!editor.rows.includes(removed)&&before.filter(item=>item!==removed).every(item=>editor.rows.includes(item)),'Intention values/order preserved');cleanup=()=>editor.destroy();
+  }else{
+   const tasks=Array.from({length:count},(_,i)=>({hubTaskId:'task-'+i,path:'Projects/P/Tasks.md',line:i,text:'Task '+i,phaseId:'phase'}));
+   const service={plugin:{app:{}},read:()=>({revision:1,phases:[{id:'phase',name:'Phase'}]}),tasks:()=>tasks,savePhase:()=>persisted++,remove:()=>persisted++};
+   modal=planning.openPlanningEditor(service,'p','phases',{id:'phase',name:'Phase',start:'2026-10-01',end:'2026-10-10'},{});
+   getButtons=()=>[...modal.contentEl.querySelectorAll('.hub-phase-task-item button')];fallback=()=>[...modal.contentEl.querySelectorAll('button')].find(button=>button.textContent==='Add tasks');
+   before=tasks.slice();removed=before[index];dataCheck=()=>assert(getButtons().length===count-1&&getButtons().every((button,i)=>button.getAttribute('aria-label')==='Remove phase from '+before.filter(task=>task!==removed)[i].text),'Phase associations/order preserved');cleanup=()=>modal.close();
+  }
+  const buttons=getButtons(),remove=buttons[index];assert(remove,'Remove control exists');expected=before[index+1]??before[index-1];
+  await key('Tab');remove.focus();assert(remove.matches(':focus-visible'),'Keyboard focus acquired');
+  if(input==='keyboard')await key(label==='middle'?' ':'Enter');else await pointer(remove);
+  dataCheck();assert(!remove.isConnected,'Old remove control detached');
+  if(input==='keyboard'){
+   const destination=type==='intentions'?(expected?.remove??fallback()):(getButtons()[index]??getButtons().at(-1)??fallback());
+   assert(document.activeElement===destination,type+' '+label+': next/previous/fallback focus');assert(!destination.disabled&&destination.tabIndex>=0&&destination.getClientRects().length,type+': visible, enabled focusable destination');
+   const field=destination.getBoundingClientRect(),port=(destination.closest('.modal-content')??fixture).getBoundingClientRect();assert(field.top>=Math.max(0,port.top)-1&&field.bottom<=Math.min(innerHeight,port.bottom)+1,type+' '+label+': destination revealed in scroll container');
+  }else assert(!getButtons().includes(document.activeElement)&&document.activeElement!==fallback(),type+' '+label+': pointer does not move focus to surviving controls');
+  if(modal){await key('Escape');assert(!modal.containerEl.isConnected,'Phase modal Escape unchanged')}cleanup();
+ }
+ fixture.replaceChildren();const nested={steps:[{text:'Parent',line:1,end:3},{text:'Child',line:2,end:3},{text:'Sibling',line:3,end:4}]};taskForm.mountTaskFields({host:fixture,state:nested});await key('Tab');fixture.querySelector('.hub-task-step button').focus();await key('Enter');assert(nested.steps.length===1&&nested.steps[0].text==='Sibling'&&document.activeElement===fixture.querySelector('.hub-task-step button'),'Nested Step removal restores focus to next surviving sibling');
+ fixture.replaceChildren();const controls=[fixture.createEl('button',{text:'Previous'}),fixture.createEl('button',{text:'Disabled next'}),fixture.createEl('button',{text:'Hidden next'})],fallback=fixture.createEl('button',{text:'Add'});controls[1].disabled=true;controls[2].hidden=true;restoration.focusAfterRowRemoval(controls,1,fallback);assert(document.activeElement===controls[0],'Unavailable next controls skipped for previous');controls[0].hidden=true;restoration.focusAfterRowRemoval(controls,1,fallback);assert(document.activeElement===fallback,'Unavailable rows fall back to Add');assert(persisted===0,'Removal never submits/saves phase or changes persistence');
+ result.textContent='PASS: actual Task Steps, FocusListEditor and phase-association editor; first/middle/last/only keyboard Enter/Space removal, real pointer removal, next/previous/Add or blank-intention fallback, preserved values/order, nested Steps, hidden/disabled destinations and Escape without saves.';
+}catch(error){result.textContent='FAIL '+error.stack}
+</script>

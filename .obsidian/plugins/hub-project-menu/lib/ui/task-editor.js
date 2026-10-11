@@ -1,4 +1,5 @@
 "use strict";
+const { createWindowTitle, layoutModal } = require("./window-title");
 const { taskFormValues } = require("../domain/task-form");
 const { taskSection, mountTaskText, mountTaskFields, mountTaskRelationshipFields } = require("./task-form");
 
@@ -9,7 +10,7 @@ function openTaskEditor(service, task, onEdit = () => {}, creation = null) {
             this.closed = false;
             this.modalEl.classList.add("hub-task-dialog");
             this.contentEl.classList.add("hub-button-scope", "hub-task-form");
-            this.contentEl.createEl("h2", { cls: "hub-task-dialog-title", text: creation ? "Add task" : "Edit task" });
+            createWindowTitle(this.contentEl, creation ? "Add task" : "Edit task", creation ? "square-plus" : "square-pen", { cls: "hub-task-dialog-title" });
             if (creation) {
                 const locations = availableLocations(service, creation.root);
                 const activePath = service.app.workspace.getActiveFile()?.path;
@@ -75,6 +76,7 @@ function openTaskEditor(service, task, onEdit = () => {}, creation = null) {
                     errorEl.textContent = snapshot.steps.length ? "Delete this task and its Steps from the note?" : "Delete this task from the note?"; return; }
                 void commit(true);
             });
+            layoutModal(this, { container: form, footer: actions });
             input.focus(); input.setSelectionRange(input.value.length, input.value.length);
         }
         close() { if (!this.saving) super.close(); }
