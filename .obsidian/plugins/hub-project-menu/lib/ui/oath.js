@@ -134,7 +134,7 @@ function openOathPicker(service, workspace, selected, onSelect) {
             this.contentEl.classList.add("hub-button-scope");
             this.contentEl.createEl("h2", { text: "Add tasks" });
             const search = this.contentEl.createEl("input", { type: "search", cls: "hub-oath-search", attr: { placeholder: "Search tasks...", "aria-label": "Search tasks" } });
-            const body = this.contentEl.createDiv({ cls: "hub-oath-picker-tasks project-tasks-body" });
+            const body = this.contentEl.createDiv({ cls: "hub-oath-picker-tasks hub-option-group project-tasks-body" });
             const actions = this.contentEl.createDiv({ cls: "hub-oath-actions" });
             const cancel = actions.createEl("button", { text: "Cancel" });
             const add = actions.createEl("button", { cls: "mod-cta", text: "Add tasks" });

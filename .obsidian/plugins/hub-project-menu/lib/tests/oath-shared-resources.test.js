@@ -44,7 +44,7 @@ Module._load = function(name) {
     // This fixture tests navigation and canonical resource writes, not title DOM.
     // Real title rendering is covered by the browser fixtures.
     if (name.endsWith("/ui/window-title")) return {
-        createWindowTitle: (parent, text) => parent.createEl("h2", { text }), setWindowUndertext() {}
+        createWindowTitle: (parent, text) => parent.createEl("h2", { text }), setWindowUndertext() {}, layoutModal() {}
     };
     return name === "obsidian" ? { Plugin: class {}, Modal, Menu, FuzzySuggestModal: class {}, TFile, TFolder, Notice: class {} } : originalLoad.apply(this, arguments);
 };

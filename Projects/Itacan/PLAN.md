@@ -167,3 +167,5 @@ Use the [testing procedure](Strict%20Oath%20Testing.md) and
 [Phase 5 report](../../System/Hub-oath-phase5.md). Physical Alt+Tab, third-party
 stacking, actual sleep/wake/display changes, and exact installed-launcher behavior
 remain manual acceptance work. No further implementation phase is authorized.
+
+

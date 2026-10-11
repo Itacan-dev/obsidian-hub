@@ -1,0 +1,77 @@
+<!doctype html><meta charset="utf-8"><title>Phase 5B-1 selection and Settings</title>
+<link rel="stylesheet" href="../../styles.css">
+<link rel="stylesheet" href="../../../../../System/Dashboards/Home/view.css">
+<link rel="stylesheet" href="../../../../../System/Dashboards/Project/view.css">
+<style>
+body{margin:0;font:14px Arial;color:#ddd;background:#222;--background-primary:#222;--background-secondary:#292929;--background-modifier-border:#555;--background-modifier-hover:#393939;--background-modifier-border-hover:#888;--text-normal:#ddd;--text-muted:#aaa;--interactive-accent:#8955ed;--interactive-accent-hover:#7950dc;--text-on-accent:#fff;--color-yellow:#e6b84d;--color-red:#f16d73;--input-shadow:none}
+*{box-sizing:border-box}.modal-container{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:#0008}.modal{position:relative;padding:24px;background:#292929;border:1px solid #555;border-radius:12px;max-height:94vh;overflow:auto;width:min(680px,calc(100vw - 48px))}.modal-close-button{position:absolute;top:8px;right:8px}button,input,select,textarea{font:inherit;color:inherit;background:#333}button:focus-visible{outline:2px solid #888;outline-offset:2px}button:disabled{opacity:.45}#fixture{width:min(620px,calc(100vw - 48px));margin:24px}#result{position:fixed;bottom:0;font-size:10px;pointer-events:none;z-index:100}
+</style><div id="fixture"></div><pre id="result">RUNNING</pre>
+<script type="module">
+const assert=(v,m)=>{if(!v)throw Error(m)},settle=()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r))),AsyncFunction=Object.getPrototypeOf(async function(){}).constructor;
+const key=value=>new Promise(resolve=>{window.hubTestKeyDone=resolve;window.hubTestKeyRequest=value});
+const ax=()=>new Promise(resolve=>{window.hubTestAccessibilityDone=resolve;window.hubTestAccessibilityRequest=true});
+async function hover(element){element.scrollIntoView({block:'nearest'});await settle();element.addEventListener('click',event=>{event.preventDefault();event.stopImmediatePropagation()},{once:true,capture:true});const box=element.getBoundingClientRect();await new Promise(resolve=>{window.hubTestPointerDone=resolve;window.hubTestPointerRequest={x:box.left+box.width/2,y:box.top+box.height/2}});await new Promise(resolve=>setTimeout(resolve,250));await settle()}
+try{
+ const html=await(await fetch('oath.html')).text(),script=html.match(/<script>([\s\S]*?)<\/script>/)[1];
+ const bootstrap=script.slice(0,script.indexOf('window.onload=async'))+script.slice(script.indexOf(' window.process='),script.indexOf(' const domain='));
+ const {load,sources,obsidian}=await new AsyncFunction(bootstrap+';return {load,sources,obsidian};')();
+ for(const name of ['ui/settings','ui/settings-pages','ui/oath-settings','ui/music-settings','ui/music-item-editor','ui/capture-modal','domain/music'])sources[name]=await(await fetch('../'+name+'.js')).text();
+ obsidian.ToggleComponent=class{constructor(parent){this.toggleEl=parent.createEl('input',{type:'checkbox'})}setValue(v){this.toggleEl.checked=v;return this}setDisabled(v){this.toggleEl.disabled=v;return this}onChange(fn){this.toggleEl.onchange=()=>fn(this.toggleEl.checked);return this}};
+ const {mountTaskFields}=load('ui/task-form'),styles=new Map();
+ for(const family of ['Add Task','Edit Task','Quick Add','Inbox']){
+  fixture.className='hub-button-scope hub-task-form'+(family.includes('Task')?'':' hub-capture-form-scope');fixture.replaceChildren();
+  const host=fixture.createDiv({cls:family.includes('Task')?'hub-task-form':'hub-capture-form hub-task-form'}),state={steps:[]};
+  const fields=mountTaskFields({app:{},host,state}),choices=[...host.querySelectorAll('.hub-task-necessity-choice')],clear=host.querySelector('.hub-task-clear-necessity');
+  assert(clear.disabled&&choices.every(button=>button.getAttribute('aria-pressed')==='false'),'Neutral initial state '+family);
+  const dimensions=choices.map(button=>button.getBoundingClientRect().height);assert(dimensions.every(height=>height===48),'Existing field height retained');
+  for(const [index,necessity,color]of [[0,'should','rgb(230, 184, 77)'],[1,'must','rgb(241, 109, 115)']]){
+   choices[index].click();await settle();const button=choices[index],style=getComputedStyle(button);
+   assert(state.necessity===necessity&&button.getAttribute('aria-pressed')==='true'&&choices[1-index].getAttribute('aria-pressed')==='false','Mutual exclusivity '+family);
+   assert(style.color===color&&style.borderColor===color,'Semantic color and border '+family);
+   const background=style.backgroundColor,signature=[style.color,style.borderColor,background,style.boxShadow].join('|');if(styles.has(necessity))assert(styles.get(necessity)===signature,'Exact shared selected styling '+family);else styles.set(necessity,signature);
+   await hover(button);const hovered=getComputedStyle(button);assert(hovered.color===color&&hovered.borderColor===color&&hovered.backgroundColor!==background,'Semantic 18% selected hover '+family);
+   clear.focus();await key('Tab');choices[0].focus();if(index===1)await key('Tab');assert(document.activeElement===button&&button.matches(':focus-visible')&&getComputedStyle(button).outlineWidth==='2px','Independent keyboard focus '+family);
+   await key(' ');assert(state.necessity===null&&clear.disabled,'Keyboard deselection '+family);await key('Enter');assert(state.necessity===necessity,'Keyboard selection '+family);
+   button.disabled=true;const saved=state.necessity;button.click();assert(state.necessity===saved&&getComputedStyle(button).color===color,'Disabled selection cannot change '+family);button.disabled=false;
+   clear.click();assert(state.necessity===null&&choices.every(item=>item.getAttribute('aria-pressed')==='false'),'Clear semantics '+family);
+  }
+  const group=host.createDiv({cls:'hub-option-group'}),other=group.createEl('button',{text:'Task type',attr:{'aria-pressed':'true'}});assert(getComputedStyle(other).backgroundColor==='rgb(137, 85, 237)','Unrelated purple option groups retained');fields.destroy();
+ }
+ fixture.replaceChildren();
+ const {openOathPicker,openOathSetup}=load('ui/oath'),context={projectId:'p',name:'Project',root:'Projects/P',path:'Projects/P/P.md',contextKind:'project',status:'active'},workspace={type:'project',id:'p',name:'Project'};
+ const tasks=[{hubTaskId:'a',text:'Existing task with a long title '+ 'and additional context '.repeat(10),path:context.root+'/Tasks.md',completed:false,necessity:'must',dueDate:'2026-10-06'},{hubTaskId:'b',text:'Available task',path:context.root+'/Tasks.md',completed:false,necessity:'should',dueDate:'2026-10-13'},{hubTaskId:'c',text:'Another task',path:context.root+'/Tasks.md',completed:false}];
+ const service={app:{workspace:{}},plugin:{taskData:{subscribe(){}},workspaceModes:{currentContext:()=>context},projectWizard:{getProjectRecords:()=>[context],getResourceTypes:()=>[],data:{}}},resolveWorkspace:()=>context,workspaceTasks:()=>tasks,ready:()=>true,now:()=>Date.now(),onChange:()=>()=>{},setupRequirements:()=>[{key:'Workspace',complete:true},{key:'Tasks',complete:true},{key:'Start',complete:true},{key:'Duration',complete:false}],take(){throw Error('Oath activation forbidden')}};
+ service.plugin.app={vault:{getAbstractFileByPath:()=>null}};
+ const setup=openOathSetup(service);setup.draft.tasks=[tasks[0]];setup.setup();await settle();
+ const setupRow=setup.contentEl.querySelector('.hub-oath-task-row.is-selected'),selectedBackground=getComputedStyle(setupRow).backgroundColor;
+ assert(selectedBackground==='rgb(137, 85, 237)','Setup keeps shared purple fill');await key('Tab');setupRow.focus();await key('Enter');assert(setup.draft.tasks.length===0,'Setup keyboard deselection updates draft count');await key(' ');assert(setup.draft.tasks.length===1&&setup.draft.tasks[0]===tasks[0],'Setup keyboard reselection preserves task identity');const snapshot=JSON.stringify(setup.draft);let added=null;
+ let picker=openOathPicker(service,workspace,[tasks[0]],values=>added=values);await settle();
+ let rows=[...picker.contentEl.querySelectorAll('.hub-oath-task-row')],included=rows[0];
+ assert(included.classList.contains('is-already-selected')&&included.querySelector('.hub-oath-task-included').textContent==='Selected'&&included.tabIndex===-1&&included.getAttribute('aria-disabled')==='true','Already included distinction retained');
+ assert(getComputedStyle(included).backgroundColor===selectedBackground&&getComputedStyle(included.querySelector('.project-task-text')).color==='rgb(255, 255, 255)','Picker matches setup fill/foreground');
+ included.click();assert(included.getAttribute('aria-pressed')==='true','Already included activation is inert');
+ assert(included.querySelector('input').disabled&&included.querySelector('input').getAttribute('aria-hidden')==='true','Completion imagery remains decorative');
+ assert(getComputedStyle(included.querySelector('.hub-task-necessity-bar')).backgroundColor==='rgb(241, 109, 115)','Necessity indicator retained on purple');
+ const time=included.querySelector('.hub-task-dates time');if(time)assert(getComputedStyle(time).color!=='rgb(241, 109, 115)','Selected date uses setup foreground convention');
+ const available=rows[1],add=[...picker.contentEl.querySelectorAll('button')].find(b=>b.textContent==='Add tasks');assert(add.disabled,'No pending selection initially');
+ picker.contentEl.querySelector('input[type=search]').focus();await key('Tab');assert(document.activeElement===available,'Keyboard skips already included tasks');await key(' ');assert(available.getAttribute('aria-pressed')==='true'&&!add.disabled,'Keyboard selects pending task');
+ await hover(available);assert(getComputedStyle(available).backgroundColor==='rgb(121, 80, 220)'&&getComputedStyle(available.querySelector('.project-task-text')).color==='rgb(255, 255, 255)','Purple hover preserves selected text: '+getComputedStyle(available).backgroundColor+' / '+getComputedStyle(available.querySelector('.project-task-text')).color+' / hover '+available.matches(':hover'));
+ await key('Tab');available.focus();assert(available.matches(':focus-visible')&&getComputedStyle(available).outlineWidth==='2px','Selected picker row retains keyboard focus');await key('Enter');assert(available.getAttribute('aria-pressed')==='false'&&add.disabled,'Picker deselection');
+ available.click();rows[2].click();add.click();assert(added.length===2&&added[0]===tasks[1]&&added[1]===tasks[2]&&JSON.stringify(setup.draft)===snapshot,'Add returns only newly selected tasks in source order without mutating existing draft');
+ added=null;picker=openOathPicker(service,workspace,[tasks[0]],values=>added=values);await settle();picker.contentEl.querySelectorAll('.hub-oath-task-row')[1].click();[...picker.contentEl.querySelectorAll('button')].find(b=>b.textContent==='Cancel').click();assert(added===null&&JSON.stringify(setup.draft)===snapshot,'Cancel discards pending selections');setup.close();
+ const {SettingsModal}=load('ui/settings'),{SETTINGS_PAGES}=load('ui/settings-pages');let musicSubscriptions=0,oathSubscriptions=0;
+ const plugin={musicLibrary:{state:{enabled:true,providers:{},items:[]},onChange(){musicSubscriptions++;return()=>musicSubscriptions--}},oath:{strictEnabled:false,strictSupported:false,strictApplications:[],onChange(){oathSubscriptions++;return()=>oathSubscriptions--}}};
+ const settings=new SettingsModal({},()=>{},plugin);settings.open();await settle();const sidebar=settings.contentEl.querySelector('.hub-settings-sidebar');
+ assert(!sidebar.querySelector('input,.hub-settings-search')&&sidebar.children.length===1&&sidebar.firstElementChild===settings.tabs,'No search or empty wrapper/spacing container');
+ assert(settings.buttons.length===SETTINGS_PAGES.length,'All categories preserved');
+ const first=settings.buttons[0];first.focus();await key('ArrowDown');assert(document.activeElement===settings.buttons[1]&&settings.buttons[1].getAttribute('aria-selected')==='true','Category keyboard selection');await key('Home');assert(document.activeElement===first,'Home navigation');await key('End');assert(document.activeElement===settings.buttons.at(-1),'End navigation');
+ assert(!(await ax()).some(node=>node.role==='searchbox'&&node.name.includes('settings')),'Search absent from accessibility tree');
+ settings.select('music');assert(settings.panel.querySelector('[aria-label="Enable Music"]')&&musicSubscriptions===1,'Actual Music settings still mount');settings.select('oath');assert(musicSubscriptions===0&&settings.panel.querySelector('[aria-label="Enable Strict Oath on this device"]')&&oathSubscriptions===1,'Actual Oath Settings mount and page cleanup remains intact');settings.select('appearance');assert(oathSubscriptions===0,'Oath Settings cleanup preserved');
+ const top=settings.contentEl.querySelector('.hub-settings-header').getBoundingClientRect().top;settings.panel.scrollTop=settings.panel.scrollHeight;assert(settings.panel.scrollTop>0&&settings.contentEl.querySelector('.hub-settings-header').getBoundingClientRect().top===top,'Settings content scrolls below fixed header');
+ assert(settings.modalEl.scrollWidth<=settings.modalEl.clientWidth+1&&settings.modalEl.getBoundingClientRect().height<=Math.min(900,innerHeight*.85)+1,'Settings width/height constraints preserved');settings.close();
+ const preview=new URLSearchParams(location.search).get('preview');
+ if(preview==='settings'){settings.open();settings.select('music');await settle()}
+ if(preview==='oath'){picker=openOathPicker(service,workspace,[tasks[0]],()=>{});await settle();picker.contentEl.querySelectorAll('.hub-oath-task-row')[1].click();await settle()}
+ result.textContent='PASS: semantic Necessity selected/hover/focus/disabled and Enter/Space/Clear states in Add/Edit Task, Quick Add and Inbox; unrelated purple options preserved; inert Oath setup/picker included/pending selection, colors, imagery, keyboard, Add/Cancel/order/draft; Settings search absence, categories, AX, keyboard, real Music/Oath page mounting/cleanup, scrolling and sizing.';
+}catch(error){result.textContent='FAIL '+error.stack}
+</script>

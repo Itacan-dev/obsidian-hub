@@ -149,6 +149,7 @@ const {
     formatDateRange,
     createFrame,
     placeHeatmapNavigation,
+    createProgressHeatmap,
     progressColors,
     progressColor,
     lastFileTooltip,
@@ -3810,70 +3811,7 @@ const progressCalendar =
             "home-progress-calendar"
     });
 
-function alignProgressMonths() {
-
-    const months =
-        progressCalendar.querySelector(
-            ".heatmap-calendar-months"
-        );
-
-    const boxes =
-        progressCalendar.querySelector(
-            ".heatmap-calendar-boxes"
-        );
-
-    if (!months || !boxes) {
-        return;
-    }
-
-
-    const labels =
-        [...months.children];
-
-    const cells =
-        [...boxes.children];
-
-    const monthNames = [
-        "jan", "feb", "mar", "apr",
-        "may", "jun", "jul", "aug",
-        "sep", "oct", "nov", "dec"
-    ];
-
-
-    const starts =
-        monthNames.map(name => {
-
-            const firstCell =
-                boxes.querySelector(
-                    `.month-${name}`
-                );
-
-            const index =
-                cells.indexOf(firstCell);
-
-            return (
-                Math.floor(index / 7) + 1
-            );
-        });
-
-
-    labels.forEach(
-        (label, index) => {
-
-            const start =
-                starts[index];
-
-            const end =
-                index < 11
-                    ? starts[index + 1]
-                    : 54;
-
-
-            label.style.gridColumn =
-                `${start} / ${end}`;
-        }
-    );
-}
+const layoutProgressHeatmap = createProgressHeatmap(progressCalendar, dv.component);
 
 function renderProgressYear() {
 
@@ -3984,8 +3922,8 @@ function renderProgressYear() {
      * Position month labels according
      * to the actual calendar weeks.
      */
-    alignProgressMonths();
     placeHeatmapNavigation(progressCalendar, progressToolbar, previousYear, progressYearLabel, nextYear);
+    layoutProgressHeatmap();
 
 
     /*
@@ -4265,10 +4203,9 @@ function syncRecentActivityHeight() {
     const availableHeight =
         Math.max(
             0,
-
-            panelRect.bottom -
-            bottomPadding -
-            bodyRect.top
+            (panelRect.bottom - bodyRect.top) /
+                (panelRect.height / parseFloat(panelStyle.height) || 1) -
+            bottomPadding - (parseFloat(panelStyle.borderBottomWidth) || 0)
         );
 
 
@@ -4325,6 +4262,10 @@ recentActivityHeightObserver.observe(
     progressCalendar
 );
 
+dv.component.register(() => {
+    recentActivityHeightObserver.disconnect();
+    if (recentActivityHeightFrame !== null) cancelAnimationFrame(recentActivityHeightFrame);
+});
 
 scheduleRecentActivityHeight();
 

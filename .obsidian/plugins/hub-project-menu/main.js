@@ -9946,6 +9946,7 @@ const { setHubIcon } = __hubRequire("lib/ui/icons.js");
 const { projectItemPath } = __hubRequire("lib/domain/files.js");
 const { openCaptureWorkspacePicker, openCaptureLocationPicker } = __hubRequire("lib/ui/capture-pickers.js");
 const { mountWorkspaceThumbnail } = __hubRequire("lib/ui/workspace-thumbnail.js");
+const { createCapturePickerTrigger } = __hubRequire("lib/ui/capture-picker-trigger.js");
 const { mountTaskFields, mountTaskRelationshipFields } = __hubRequire("lib/ui/task-form.js");
 const { openNotePositionPicker } = __hubRequire("lib/ui/note-position-picker.js");
 const { noteLocation, noteLocationSummary, resolveNoteLocation } = __hubRequire("lib/domain/note-insertion.js");
@@ -10035,17 +10036,11 @@ function mountCaptureForm({ host, service, draft = {}, onChange = () => {}, fixe
         input.addEventListener("input", () => { state[key] = input.value; notify(); }); return input;
     };
     const pickerTrigger = (parent, label, title, subtitle, icon, open, disabled = false, imageWorkspace = null) => {
-        const button = fieldHost(parent, label).createEl("button", { cls: "hub-capture-picker-trigger", attr: {
-            type: "button", "aria-label": label, "aria-haspopup": "dialog"
-        } });
-        button.disabled = disabled;
-        if (imageWorkspace) mountWorkspaceThumbnail(button, service.plugin, imageWorkspace);
-        else setHubIcon(button.createSpan({ cls: "hub-capture-icon", attr: { "aria-hidden": "true" } }), icon);
-        const copy = button.createSpan({ cls: "hub-capture-picker-copy" });
-        copy.createSpan({ text: title }); if (subtitle) copy.createSpan({ text: subtitle, cls: "hub-capture-muted" });
-        setHubIcon(button.createSpan({ cls: "hub-capture-icon", attr: { "aria-hidden": "true" } }), "chevron-down");
-        button.title = [title, subtitle].filter(Boolean).join(" · ");
-        button.addEventListener("click", () => { if (!picker && !disposed) open(); }); return button;
+        return createCapturePickerTrigger(fieldHost(parent, label), {
+            label, title, subtitle, icon, disabled,
+            renderIcon: imageWorkspace ? button => mountWorkspaceThumbnail(button, service.plugin, imageWorkspace) : null,
+            onOpen: () => { if (!picker && !disposed) open(); }
+        }).button;
     };
     const restorePickerFocus = label => {
         picker = null;
@@ -10295,6 +10290,38 @@ function attachments(host, refs, service, { remove, open } = {}) {
 module.exports = { CaptureModal, CaptureConfirmation, action, attachments };
 
 },
+"lib/ui/capture-picker-trigger.js": function (module, exports, __hubRequire) {
+"use strict";
+const { setHubIcon } = __hubRequire("lib/ui/icons.js");
+
+// Shared presentation only: each form keeps its own destination provider/state.
+function createCapturePickerTrigger(host, { label, title, subtitle, icon, onOpen, disabled = false, renderIcon }) {
+    const button = host.createEl("button", { cls: "hub-capture-picker-trigger", attr: {
+        type: "button", "aria-label": label, "aria-haspopup": "dialog"
+    } });
+    button.disabled = disabled;
+    const graphic = renderIcon ? null : button.createSpan({ cls: "hub-capture-icon", attr: { "aria-hidden": "true" } });
+    if (renderIcon) renderIcon(button);
+    const copy = button.createSpan({ cls: "hub-capture-picker-copy" });
+    const name = copy.createSpan();
+    let detail = null;
+    setHubIcon(button.createSpan({ cls: "hub-capture-icon", attr: { "aria-hidden": "true" } }), "chevron-down");
+    const update = ({ title, subtitle, icon }) => {
+        name.textContent = title ?? "";
+        if (subtitle) {
+            if (!detail) detail = copy.createSpan({ cls: "hub-capture-muted" });
+            detail.textContent = subtitle;
+        } else { detail?.remove(); detail = null; }
+        if (graphic && icon) setHubIcon(graphic, icon);
+        button.title = [title, subtitle].filter(Boolean).join(" · ");
+    };
+    update({ title, subtitle, icon });
+    button.addEventListener("click", () => onOpen());
+    return { button, update };
+}
+module.exports = { createCapturePickerTrigger };
+
+},
 "lib/ui/capture-pickers.js": function (module, exports, __hubRequire) {
 "use strict";
 const { Modal, Component } = require("obsidian");
@@ -10383,7 +10410,7 @@ function openCaptureLocationPicker(service, { workspace, task = false, selectedP
     class LocationPicker extends Modal {
         onOpen() {
             preparePicker(this, task ? "Choose task location" : "Choose a folder", ["hub-capture-location-picker"]);
-            this.contentEl.createEl("p", { cls: "hub-oath-muted", text: workspace.name });
+            if (workspace?.name) this.contentEl.createEl("p", { cls: "hub-oath-muted", text: workspace.name });
             const searchBox = this.contentEl.createDiv({ cls: "hub-explorer-search" });
             setHubIcon(searchBox.createSpan({ cls: "hub-explorer-icon", attr: { "aria-hidden": "true" } }), "search");
             const search = searchBox.createEl("input", { type: "search", cls: "hub-explorer-search-input",
@@ -11473,14 +11500,11 @@ function createDashboardUi({
         previous.type = next.type = "button";
         setHubTooltip(previous, "Previous year");
         setHubTooltip(next, "Next year");
-        year.className = "hub-heatmap-year";
-        year.setAttribute("aria-label", year.textContent);
-        year.textContent = year.textContent.slice(-2);
-        // Keep the native month grid and its column assignments untouched.
-        // Anchor the label and buttons to their respective native grid areas.
+        // Keep the selected year in view state, without a visible label/gutter.
+        year.remove();
         months.parentElement.classList.add("hub-heatmap-with-navigation");
         toolbar.replaceChildren(previous, next);
-        months.after(year, toolbar);
+        months.after(toolbar);
         const graph = months.parentElement;
         if (!heatmapRevealGraphs.has(graph)) {
             heatmapRevealGraphs.add(graph);
@@ -11537,6 +11561,7 @@ function createDashboardUi({
         presetsButton,
         disclosureIcons,
         placeHeatmapNavigation,
+        createProgressHeatmap: __hubRequire("lib/ui/progress-heatmap.js").createProgressHeatmap,
         progressColors,
         progressColor,
         selectNavigation
@@ -14098,7 +14123,7 @@ function openOathPicker(service, workspace, selected, onSelect) {
             this.contentEl.classList.add("hub-button-scope");
             this.contentEl.createEl("h2", { text: "Add tasks" });
             const search = this.contentEl.createEl("input", { type: "search", cls: "hub-oath-search", attr: { placeholder: "Search tasks...", "aria-label": "Search tasks" } });
-            const body = this.contentEl.createDiv({ cls: "hub-oath-picker-tasks project-tasks-body" });
+            const body = this.contentEl.createDiv({ cls: "hub-oath-picker-tasks hub-option-group project-tasks-body" });
             const actions = this.contentEl.createDiv({ cls: "hub-oath-actions" });
             const cancel = actions.createEl("button", { text: "Cancel" });
             const add = actions.createEl("button", { cls: "mod-cta", text: "Add tasks" });
@@ -15640,6 +15665,156 @@ module.exports = { progressColors, progressColor };
 
 
 },
+"lib/ui/progress-heatmap.js": function (module, exports, __hubRequire) {
+"use strict";
+
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+
+// Equal CSS lengths alone are insufficient: fractional device-pixel edges are
+// rounded independently when painted. Both the square and the pitch must be
+// integral in device pixels. Keep the DOM grid; convert to CSS units only once.
+function heatmapGeometry(width, weeks, monthWidths, starts, compactWidths = monthWidths, scale = 1) {
+    const gap = 1 / scale;
+    const minimumPixels = (widths, minimumCell) => Math.ceil(Math.max(minimumCell, ...widths.map((label, index) =>
+        (label + 4 + gap) / ((starts[index + 1] ?? weeks) - starts[index]) - gap)) * scale - 1e-9);
+    const widthFor = pixels => (weeks * pixels + weeks - 1) / scale;
+    const fullMinimum = minimumPixels(monthWidths, 4);
+    const compact = width < widthFor(fullMinimum);
+    const minimumWidth = widthFor(compact ? minimumPixels(compactWidths, 2) : fullMinimum);
+    const layoutWidth = Math.max(width, minimumWidth);
+    const cellPixels = Math.floor((layoutWidth * scale - (weeks - 1)) / weeks + 1e-9);
+    const cell = cellPixels / scale;
+    const innerWidth = weeks * cell + (weeks - 1) * gap;
+    return { cell, cellPixels, gap, scale, innerWidth, width: layoutWidth, margin: (layoutWidth - innerWidth) / 2, compact };
+}
+
+function heatmapPixelScale(calendar) {
+    const view = calendar.ownerDocument.defaultView;
+    // Obsidian's browser zoom and OS scaling are already in devicePixelRatio.
+    // CSS zoom is separate and may be applied to any dashboard ancestor.
+    let scale = view.devicePixelRatio || 1;
+    for (let element = calendar; element; element = element.parentElement) {
+        scale *= parseFloat(view.getComputedStyle(element).zoom) || 1;
+    }
+    return scale;
+}
+
+function completeHeatmapWeeks(boxes) {
+    // Native leading placeholders + real dates determine the week count. Keep
+    // their order unchanged and complete only the final week. Padding has no
+    // month class or data-date, so the existing report handlers never select it.
+    const weeks = Math.ceil(boxes.children.length / 7);
+    while (boxes.children.length < weeks * 7) {
+        boxes.append(boxes.ownerDocument.createElement("li"));
+    }
+    for (const cell of boxes.children) {
+        if (cell.matches("[class*='month-']")) continue;
+        cell.classList.add("isEmpty", "hub-progress-padding");
+        cell.style.removeProperty("background-color");
+        cell.setAttribute("aria-hidden", "true");
+    }
+    return weeks;
+}
+
+// Keep the upstream renderer's dates, colors and week-start setting. Only this
+// controller owns the resulting geometry, including after a year/scope change.
+function createProgressHeatmap(calendar, component) {
+    const view = calendar.ownerDocument.defaultView;
+    let graph, boxes, months, measure, weeks, starts;
+    let availableWidth = 0;
+    let disposed = false;
+    const observer = new view.ResizeObserver(entries => {
+        for (const entry of entries) {
+            if (entry.target === calendar) availableWidth = entry.contentRect.width;
+        }
+        layout();
+    });
+    // This box also changes when CSS zoom changes without a CSS-width change.
+    try { observer.observe(calendar, { box: "device-pixel-content-box" }); }
+    catch { observer.observe(calendar); }
+    // Moving between monitors or changing Obsidian zoom can change DPR without
+    // changing the content-box width, so ResizeObserver alone is insufficient.
+    let resolution;
+    function watchScale() {
+        resolution?.removeEventListener("change", watchScale);
+        // Chrome can report 2.0000000596 while the media resolution is 2.
+        // A narrow range matches the current scale on both sides of that float
+        // conversion, then changes on either an increase or a decrease.
+        const ratio = view.devicePixelRatio;
+        const tolerance = ratio * 1e-6;
+        resolution = view.matchMedia(`(min-resolution: ${ratio - tolerance}dppx) and (max-resolution: ${ratio + tolerance}dppx)`);
+        resolution.addEventListener("change", watchScale);
+        layout();
+    }
+    watchScale();
+    view.addEventListener("resize", layout);
+
+    function layout() {
+        if (disposed || !graph?.isConnected || !availableWidth) return;
+        const samples = [...measure.children];
+        const geometry = heatmapGeometry(availableWidth, weeks,
+            samples.slice(0, 12).map(label => label.offsetWidth), starts,
+            samples.slice(12).map(label => label.offsetWidth), heatmapPixelScale(calendar));
+        [...months.children].forEach((label, index) => {
+            const text = geometry.compact ? MONTHS[index][0] : MONTHS[index];
+            if (label.textContent !== text) label.textContent = text;
+        });
+        for (const [name, value] of Object.entries({
+            cell: geometry.cell + "px", gap: geometry.gap + "px",
+            margin: geometry.margin + "px", weeks, width: geometry.width + "px"
+        })) graph.style.setProperty("--hub-heatmap-" + name, value);
+    }
+
+    function refresh() {
+        if (measure) for (const sample of measure.children) observer.unobserve(sample);
+        graph = calendar.querySelector(".heatmap-calendar-graph");
+        boxes = calendar.querySelector(".heatmap-calendar-boxes");
+        months = calendar.querySelector(".heatmap-calendar-months");
+        if (!graph || !boxes || !months) return;
+        // The native weekday column is intentionally absent on dashboards.
+        // Remove it so global snippet !important rules cannot create an implicit
+        // grid column by making the unused column visible again.
+        graph.querySelector(".heatmap-calendar-year")?.remove();
+        graph.querySelector(".heatmap-calendar-days")?.remove();
+        graph.classList.add("hub-progress-graph");
+        boxes.classList.add("hub-progress-grid");
+        weeks = completeHeatmapWeeks(boxes);
+        const cells = [...boxes.children];
+        starts = MONTHS.map(name => Math.floor(cells.indexOf(boxes.querySelector(".month-" + name.toLowerCase())) / 7));
+        [...months.children].forEach((label, index) => {
+            label.style.gridColumn = `${starts[index] + 1} / ${(starts[index + 1] ?? weeks) + 1}`;
+            label.setAttribute("aria-label", MONTH_NAMES[index]);
+            label.title = MONTH_NAMES[index];
+        });
+        graph.querySelector(".hub-heatmap-measure")?.remove();
+        measure = calendar.ownerDocument.createElement("div");
+        measure.className = "hub-heatmap-measure";
+        measure.setAttribute("aria-hidden", "true");
+        for (const text of [...MONTHS, ...MONTHS.map(name => name[0])]) {
+            const sample = calendar.ownerDocument.createElement("span");
+            sample.textContent = text;
+            measure.append(sample);
+            observer.observe(sample);
+        }
+        graph.append(measure);
+        // A font or text-size change also invalidates the geometry.
+        availableWidth = parseFloat(view.getComputedStyle(calendar).width) || availableWidth;
+        layout();
+    }
+
+    component.register(() => {
+        disposed = true;
+        observer.disconnect();
+        resolution?.removeEventListener("change", watchScale);
+        view.removeEventListener("resize", layout);
+    });
+    return refresh;
+}
+
+module.exports = { heatmapGeometry, heatmapPixelScale, completeHeatmapWeeks, createProgressHeatmap };
+
+},
 "lib/ui/project-deletion.js": function (module, exports, __hubRequire) {
 "use strict";
 const { Modal, setIcon } = require("obsidian");
@@ -16456,11 +16631,6 @@ class SettingsModal extends Modal {
         setWindowUndertext(heading, header.createEl("p", { cls: "hub-settings-description", text: "Customize how Itacan looks and behaves." }));
         const body = this.contentEl.createDiv({ cls: "hub-settings-body" });
         const sidebar = body.createEl("aside", { cls: "hub-settings-sidebar" });
-        const search = sidebar.createEl("input", { cls: "hub-settings-search", attr: {
-            type: "search", placeholder: "Search settings", "aria-label": "Search settings (preview only)",
-            title: "Search is not active in this preview."
-        } });
-        search.autocomplete = "off";
         this.tabs = sidebar.createDiv({ cls: "hub-settings-categories", attr: { role: "tablist", "aria-label": "Settings categories", "aria-orientation": "vertical" } });
         this.buttons = SETTINGS_PAGES.map(page => {
             const button = this.tabs.createEl("button", { text: page.title, cls: "hub-settings-category" + (page.id === "about" ? " hub-settings-about" : ""),
@@ -16858,6 +17028,8 @@ module.exports = { StatisticsModal };
 const { createWindowTitle, layoutModal } = __hubRequire("lib/ui/window-title.js");
 const { taskFormValues } = __hubRequire("lib/domain/task-form.js");
 const { taskSection, mountTaskText, mountTaskFields, mountTaskRelationshipFields } = __hubRequire("lib/ui/task-form.js");
+const { openCaptureLocationPicker } = __hubRequire("lib/ui/capture-pickers.js");
+const { createCapturePickerTrigger } = __hubRequire("lib/ui/capture-picker-trigger.js");
 
 function openTaskEditor(service, task, onEdit = () => {}, creation = null) {
     const { Modal, Notice } = require("obsidian");
@@ -16893,6 +17065,7 @@ function openTaskEditor(service, task, onEdit = () => {}, creation = null) {
             const location = section("Location");
             const owner = service.context?.(snapshot.path);
             const fieldsLocation = locationFields(service, location, snapshot, creation?.root ?? owner?.root);
+            this.locationFields = fieldsLocation;
             const relationships = mountTaskRelationshipFields({ host: form, state, service, location: () => fieldsLocation.value(), section });
             fieldsLocation.onChange(() => relationships.refresh());
             const errorEl = form.createDiv({ cls: "hub-task-error", attr: { role: "alert" } });
@@ -16936,7 +17109,7 @@ function openTaskEditor(service, task, onEdit = () => {}, creation = null) {
             input.focus(); input.setSelectionRange(input.value.length, input.value.length);
         }
         close() { if (!this.saving) super.close(); }
-        onClose() { this.closed = true; this.taskFields?.destroy(); this.contentEl.empty(); }
+        onClose() { this.closed = true; this.locationFields?.destroy(); this.taskFields?.destroy(); this.contentEl.empty(); }
     }
     const modal = new TaskModal(service.app); modal.open(); return modal;
 }
@@ -16948,24 +17121,27 @@ function availableLocations(service, root) {
 }
 
 function locationFields(service, host, snapshot, root) {
-    const { FuzzySuggestModal } = require("obsidian");
-    let path = snapshot.path, changed = () => {};
-    const source = host.createDiv({ cls: "hub-task-source" });
+    let path = snapshot.path, changed = () => {}, picker = null, disposed = false;
+    const getItems = () => availableLocations(service, root);
     const sync = () => {
-        const location = availableLocations(service, root).find(item => item.path === path);
-        source.textContent = location ? location.label + (location.folder ? " · Folder" : "") : path ? path.split("/").pop().replace(/\.md$/i, "") : "Choose a Location";
+        const location = getItems().find(item => item.path === path);
+        trigger.update({
+            title: location?.label ?? location?.name ?? (path ? path.split("/").pop().replace(/\.md$/i, "") : "Choose a note or folder…"),
+            subtitle: location ? location.folder ? "Folder · Tasks note" : "Markdown note · " + path.split("/").pop() : null,
+            icon: location?.folder || !path ? "folder" : "notebook-text"
+        });
     };
+    const trigger = createCapturePickerTrigger(host, { label: "Location", onOpen: () => {
+        if (picker || disposed) return;
+        picker = openCaptureLocationPicker(service, {
+            workspace: root ? service.context?.(root) : null, task: true, selectedPath: path, getItems,
+            onSelect: selected => { if (!disposed) { path = selected.path; sync(); changed(); } },
+            restoreFocus: () => { picker = null; if (!disposed) trigger.button.focus({ preventScroll: true }); }
+        });
+    } });
     sync();
-    const choose = host.createEl("button", { text: "Choose location…", attr: { type: "button" } });
-    choose.addEventListener("click", () => {
-        class Picker extends FuzzySuggestModal {
-            getItems() { return availableLocations(service, root); }
-            getItemText(item) { return item.label + (item.folder ? " · Folder" : ""); }
-            onChooseItem(item) { path = item.path; sync(); changed(); }
-        }
-        new Picker(service.app).open();
-    });
-    return { value: () => path, onChange: callback => { changed = callback; } };
+    return { value: () => path, onChange: callback => { changed = callback; },
+        destroy() { disposed = true; picker?.close(); } };
 }
 
 function openTaskCreator(service, options = {}) {

@@ -50,3 +50,4 @@
 - [ ] Produce v1.0 release candidate <!-- hub-task:733808ed-7911-4637-b03d-058602e62f10 -->
 - [ ] Release Itacan v1.0, provided the beta supports release <!-- hub-task:713c82a6-a58b-43ee-b344-63679e138e28 -->
 - [ ] Evaluate whether to begin macOS support <!-- hub-task:0e82cfe0-9782-41cf-8cc5-d147ce9f7c31 -->
+

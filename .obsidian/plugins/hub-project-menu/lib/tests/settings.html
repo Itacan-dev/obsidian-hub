@@ -58,7 +58,7 @@ try {
   assert([...panel.querySelectorAll('select,button')].map(x=>x.outerHTML).join('')===originals,'Preview clicks do not change local selection');
   assert(panel.querySelector('[role=switch]').getAttribute('aria-disabled')==='true','Toggle is a disabled preview');
   const y=sidebar.getBoundingClientRect().top;panel.scrollTop=200;assert(panel.scrollTop>0&&sidebar.getBoundingClientRect().top===y,'Independent content scrolling');
-  const search=dialog.querySelector('input[type=search]');search.value='font';search.dispatchEvent(new Event('input',{bubbles:true}));assert(tabs.length===SETTINGS_PAGES.length&&tabs.every(x=>x.getClientRects().length),'Search does not filter');
+  assert(!dialog.querySelector('.hub-settings-search,input[type=search]')&&tabs.length===SETTINGS_PAGES.length,'Inactive Settings search is absent; categories retained');
   assert(!tabs.some(tab=>tab.textContent.includes('Daily brief')),'Developer Daily brief is absent from shipped Settings');
   for(let i=0;i<tabs.length;i++){tabs[i].click();assert(panel.querySelector('h2').textContent===SETTINGS_PAGES[i].title,'Navigable category '+i);assert(panel.scrollTop===0,'Page scroll resets');if(SETTINGS_PAGES[i].id==='oath')assert(panel.querySelector('input[type=checkbox]').disabled&&panel.textContent.includes('Permitted desktop applications'),'Oath exposes device defaults and unsupported-host status');else if(i!==1)assert(!panel.querySelector('input,button,select')&&panel.querySelectorAll('.hub-settings-empty-section').length===2,'Sparse intentional shell')}
   tabs[0].focus();tabs[0].dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true}));assert(document.activeElement===tabs[1]&&tabs[1].getAttribute('aria-selected')==='true','Keyboard categories');

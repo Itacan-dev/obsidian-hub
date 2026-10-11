@@ -144,6 +144,8 @@ module.exports = async function runRendererFixture({ directory, pluginDirectory,
         const curatedLeaf = nativeLeaf(baseUrl.replace("unknown.test", hostname));
         await until(() => host.view().contexts.some(c => !c.closed && c.phase === "DISPLAYED" && c.response?.decision?.target.hostname === hostname), `fresh preset allows actual native ${hostname}`);
         assert.equal(curatedLeaf.view.contentEl.classList.contains("hub-atlas-blocked"), false);
+        // DISPLAYED precedes Chromium's did-stop-loading event in the renderer.
+        await until(() => !curatedLeaf.view.contentEl.classList.contains("is-loading"), `native ${hostname} finishes loading`);
         assert.equal(curatedLeaf.view.contentEl.classList.contains("is-loading"), false);
     }
     assert.equal(leaf.view.contentEl.classList.contains("is-loading"), false, "closed guest clears the actual native loading class");

@@ -1,13 +1,17 @@
 <!doctype html><meta charset="utf-8"><title>Editor saving and focus validation</title>
 <link rel="stylesheet" href="../../styles.css">
-<link rel="stylesheet" href="../../../../../System/Dashboards/Home/view.css">
-<link rel="stylesheet" href="../../../../../System/Dashboards/Project/view.css">
+<link rel="stylesheet" data-dashboard="home" href="../../../../../System/Dashboards/Home/view.css">
+<link rel="stylesheet" data-dashboard="project" href="../../../../../System/Dashboards/Project/view.css">
 <style>
 body{font:14px Arial;background:#1e1e1e;color:#ddd;--text-normal:#ddd;--text-muted:#999;--text-faint:#777;--background-primary:#1e1e1e;--background-secondary:#262626;--background-modifier-border:#444;--interactive-accent:#8955ed}
 .modal{width:650px;margin:20px;padding:24px;background:#262626}.modal-content{max-height:260px;overflow:auto}
 button,input,textarea,select{background:#333;color:#ddd}textarea{width:100%}
 </style><pre id="result">RUNNING</pre>
 <script type="module">
+// Run the same native keyboard/save/validation checks without dashboard CSS:
+// HUB_TEST_PREVIEW may be plugin-only, home, project, or both (the default).
+const cssMode=new URLSearchParams(location.search).get('preview')||'both';
+for(const sheet of document.querySelectorAll('link[data-dashboard]'))if(cssMode==='plugin-only'||['home','project'].includes(cssMode)&&sheet.dataset.dashboard!==cssMode)sheet.remove();
 const assert=(ok,message)=>{if(!ok)throw Error(message)},settle=async()=>{for(let i=0;i<12;i++)await Promise.resolve();await new Promise(requestAnimationFrame);await new Promise(requestAnimationFrame)};
 window.addEventListener('error',e=>result.textContent='FAIL '+(e.error?.stack||e.message));
 window.addEventListener('unhandledrejection',e=>result.textContent='FAIL '+e.reason?.stack);

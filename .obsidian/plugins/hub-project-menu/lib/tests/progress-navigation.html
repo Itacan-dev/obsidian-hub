@@ -13,6 +13,8 @@ new Function('module',await(await fetch('../ui/tooltips.js')).text())(tooltip);
 const colors={exports:{}};
 new Function('module',await(await fetch('../ui/progress-colors.js')).text())(colors);
 new Function('module','require',await(await fetch('../ui/dashboard-ui.js')).text())(module,n=>n==='obsidian'?native:n==='./progress-colors'?colors.exports:tooltip.exports);
+const heatmap={exports:{}};
+new Function('module',await(await fetch('../ui/progress-heatmap.js')).text())(heatmap);
 const ui=module.exports.createDashboardUi({navClass:'home-nav-button'});
 try{
 check(ui.progressColors.green.join('|')===[.25,.5,.75,1].map(a=>`rgba(13, 201, 79, ${a})`).join('|'),'Exact original Home base palette');
@@ -27,6 +29,8 @@ for(const file of ['Home','Project']){
 }
 for(const kind of ['Home Projects','Home Resources','Project','Resource']){
  const colorFixture=fixtures.createEl('div',{cls:kind.startsWith('Home')?'home-progress-calendar':'project-progress-calendar'});
+ // Reset to keyboard modality after the previous panel's real pointer clicks.
+ await new Promise(resolve=>{window.hubTestKeyDone=resolve;window.hubTestKeyRequest='ArrowDown'});
  for(const score of [1,2,3,4]){
   const cell=colorFixture.createEl('button',{cls:'hub-progress-day'});
   cell.style.backgroundColor=ui.progressColor(score);
@@ -74,22 +78,28 @@ for(const kind of ['Home Projects','Home Resources','Project','Resource']){
   check(!home.includes('showChoiceMenu')&&!home.includes('progressScopeMenu'),'Old Home dropdown behavior removed');
  }else check(!heading.querySelector('button'),'Workspace panels have no scope controls');
  const calendar=panel.createEl('div',{cls:kind.startsWith('Home')?'home-progress-calendar':'project-progress-calendar'}),toolbar=document.createElement('div'),prev=toolbar.createEl('button'),year=toolbar.createEl('span'),next=toolbar.createEl('button');native.setIcon(prev,'chevron-left');native.setIcon(next,'chevron-right');let clicks=0;prev.onclick=()=>clicks++;
+ let dispose;const refresh=heatmap.exports.createProgressHeatmap(calendar,{register(fn){dispose=fn}});
  for(const y of [2026,2025,2026]){
  calendar.innerHTML='<div class="heatmap-calendar-graph"><ol class="heatmap-calendar-months">'+['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'].map((m,i)=>`<li style="grid-column:${3+i*4} / span 4">${m}</li>`).join('')+'</ol><div class="heatmap-calendar-boxes"></div></div>';
  const cells=calendar.querySelector('.heatmap-calendar-boxes');year.textContent=String(y);next.disabled=y===2026;
  const months=calendar.querySelector('.heatmap-calendar-months');
  const geometry=()=>JSON.stringify([calendar,cells,months,...months.children].map(e=>e.getBoundingClientRect().toJSON()));
- const before=geometry();
  ui.placeHeatmapNavigation(calendar,toolbar,prev,year,next);
- check(year.textContent===String(y).slice(-2)&&year.getAttribute('aria-label')===String(y),'Compact year retains accessible full year');
+ const offset=(new Date(y,0,1).getDay()+6)%7;
+ for(let i=0;i<offset;i++)cells.createEl('li');
+ for(let i=1;new Date(y,0,i).getFullYear()===y;i++)cells.createEl('li',{cls:'month-'+new Date(y,0,i).toLocaleString('en-US',{month:'short'}).toLowerCase()});
+ refresh();await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+ prev.scrollIntoView({block:'center'});
+ const before=geometry();
+ check(!year.isConnected&&!calendar.querySelector('.hub-heatmap-year,.heatmap-calendar-year'),'Year label removed for current and past years');
  check(getComputedStyle(next).visibility===(y===2026?'hidden':'visible'),'Next year absent only at latest year');
- check(months.parentElement===toolbar.parentElement&&calendar.querySelector('.heatmap-calendar-boxes')===cells,'Native month grid retained separately from controls');prev.click();
+ check(months.parentElement===toolbar.parentElement&&calendar.querySelector('.heatmap-calendar-boxes')===cells,'Native month grid retained separately from controls');
+ const target=prev.getBoundingClientRect();
+ check(prev.contains(document.elementFromPoint(target.left+target.width/2,target.top+target.height/2)),'Previous-year target is not clipped or covered');
+ await new Promise(resolve=>{window.hubTestPointerDone=resolve;window.hubTestPointerRequest={x:target.left+target.width/2,y:target.top+target.height/2}});
  check(geometry()===before,'Every month label, heatmap and panel bound exactly unchanged');
- const area=toolbar.getBoundingClientRect(),yearRect=year.getBoundingClientRect(),box=cells.getBoundingClientRect();
- const jan=months.firstElementChild.getBoundingClientRect();
- check(Math.abs(yearRect.left-calendar.getBoundingClientRect().left)<.1&&Math.abs(yearRect.top-jan.top-1)<.1&&Math.abs(yearRect.height-jan.height)<.1,'Year retains gutter position with one-pixel optical lowering');
- check(yearRect.right<=jan.left,'Year does not overlap January');
- for(const [arrow,edge] of [[prev,box.left],[next,box.right]]){const r=arrow.getBoundingClientRect();check(Math.abs(r.left+r.width/2-edge)<.1&&Math.abs(r.top+r.height/2-box.top-box.height/2)<.1,'Overlay chevron centered on cell grid edge');check(r.width===28&&r.height===28,'Unchanged usable hit target');check(getComputedStyle(arrow).borderRadius==='4px','Rounded-square treatment');}
+ const area=toolbar.getBoundingClientRect(),box=cells.getBoundingClientRect();
+ for(const arrow of [prev,next]){const r=arrow.getBoundingClientRect();check(Math.abs(r.top-box.bottom)<.1,'Chevron below grid');check(r.width===28&&r.height===18,'Control uses existing bottom breathing room');check(r.bottom<=calendar.getBoundingClientRect().bottom+.04,'Controls remain inside calendar: '+r.bottom+' / '+calendar.getBoundingClientRect().bottom);}
  const move=(target,x)=>target.dispatchEvent(new PointerEvent('pointermove',{bubbles:true,pointerType:'mouse',clientX:x,clientY:box.top+box.height/2}));
  move(cells,box.left+31);check(prev.classList.contains('is-near')&&!next.classList.contains('is-near'),'Left edge reveals only left control');
  move(prev,box.left-10);check(prev.classList.contains('is-near'),'Moving onto protruding button retains reveal');
@@ -99,8 +109,9 @@ for(const kind of ['Home Projects','Home Resources','Project','Resource']){
  check(geometry()===before,'Proximity reveal preserves all geometry');
  prev.disabled=true;check(getComputedStyle(prev).visibility==='hidden','Previous hidden when unavailable');prev.disabled=false;
  }
+ dispose();
  check(clicks===3,'Handlers survive repeated render');check(heading.querySelectorAll('.hub-heatmap-navigation').length===0,'Year controls absent from heading');
 }
-result.textContent='PASS: Home Projects/Resources, Project/Resource year rows, repeated renders, current/past years, next visibility, scope checks and callbacks.';
+result.textContent='PASS: Home Projects/Resources, Project/Resource navigation without year labels, repeated renders, real pointer clicks, current/past years, next visibility, scope checks and callbacks.';
 }catch(e){result.textContent='FAIL: '+e.stack}
 </script>
