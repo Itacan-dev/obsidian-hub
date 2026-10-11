@@ -16,3 +16,8 @@
 
 \* The AI assistant's capabilities are limited by the specific AI model the user has access to.
 
+
+
+Things to buy
+- Potatoes
+- Milk

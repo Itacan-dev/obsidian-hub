@@ -10,7 +10,7 @@ async function run() {
     if (![width, height].every(value => Number.isInteger(value) && value >= 300 && value <= 4000)) throw Error("Invalid fixture viewport");
     const profile = fs.mkdtempSync(path.join(os.tmpdir(), "hub-browser-test-"));
     const child = spawn(process.env.HUB_TEST_BROWSER || "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe", [
-        "--headless=new", "--disable-gpu", "--no-first-run", "--disable-background-networking",
+        "--headless=new", `--force-device-scale-factor=${process.env.HUB_TEST_DPR || 1}`, "--disable-gpu", "--no-first-run", "--disable-background-networking",
         // These fixtures use only local files and a fresh temporary profile.
         // Windows sandbox sessions cannot initialize Chromium's GPU sandbox.
         "--no-sandbox", "--disable-software-rasterizer", "--disable-features=RendererCodeIntegrity", "--disable-extensions",
@@ -40,7 +40,7 @@ async function run() {
     try {
         const { targetId } = await send("Target.createTarget", { url: "about:blank" });
         const { sessionId } = await send("Target.attachToTarget", { targetId, flatten: true });
-        await send("Emulation.setDeviceMetricsOverride", { width, height, screenWidth: width, screenHeight: height, deviceScaleFactor: 1, mobile: false }, sessionId);
+        await send("Emulation.setDeviceMetricsOverride", { width, height, screenWidth: width, screenHeight: height, deviceScaleFactor: Number(process.env.HUB_TEST_DPR || 1), mobile: false }, sessionId);
         if (process.env.HUB_TEST_REDUCED_MOTION !== undefined) await send("Emulation.setEmulatedMedia", { features: [
             { name: "prefers-reduced-motion", value: process.env.HUB_TEST_REDUCED_MOTION === "1" ? "reduce" : "no-preference" }
         ] }, sessionId);

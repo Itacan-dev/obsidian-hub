@@ -2,6 +2,8 @@
 const { createWindowTitle, layoutModal } = require("./window-title");
 const { taskFormValues } = require("../domain/task-form");
 const { taskSection, mountTaskText, mountTaskFields, mountTaskRelationshipFields } = require("./task-form");
+const { openCaptureLocationPicker } = require("./capture-pickers");
+const { createCapturePickerTrigger } = require("./capture-picker-trigger");
 
 function openTaskEditor(service, task, onEdit = () => {}, creation = null) {
     const { Modal, Notice } = require("obsidian");
@@ -37,6 +39,7 @@ function openTaskEditor(service, task, onEdit = () => {}, creation = null) {
             const location = section("Location");
             const owner = service.context?.(snapshot.path);
             const fieldsLocation = locationFields(service, location, snapshot, creation?.root ?? owner?.root);
+            this.locationFields = fieldsLocation;
             const relationships = mountTaskRelationshipFields({ host: form, state, service, location: () => fieldsLocation.value(), section });
             fieldsLocation.onChange(() => relationships.refresh());
             const errorEl = form.createDiv({ cls: "hub-task-error", attr: { role: "alert" } });
@@ -80,7 +83,7 @@ function openTaskEditor(service, task, onEdit = () => {}, creation = null) {
             input.focus(); input.setSelectionRange(input.value.length, input.value.length);
         }
         close() { if (!this.saving) super.close(); }
-        onClose() { this.closed = true; this.taskFields?.destroy(); this.contentEl.empty(); }
+        onClose() { this.closed = true; this.locationFields?.destroy(); this.taskFields?.destroy(); this.contentEl.empty(); }
     }
     const modal = new TaskModal(service.app); modal.open(); return modal;
 }
@@ -92,24 +95,27 @@ function availableLocations(service, root) {
 }
 
 function locationFields(service, host, snapshot, root) {
-    const { FuzzySuggestModal } = require("obsidian");
-    let path = snapshot.path, changed = () => {};
-    const source = host.createDiv({ cls: "hub-task-source" });
+    let path = snapshot.path, changed = () => {}, picker = null, disposed = false;
+    const getItems = () => availableLocations(service, root);
     const sync = () => {
-        const location = availableLocations(service, root).find(item => item.path === path);
-        source.textContent = location ? location.label + (location.folder ? " · Folder" : "") : path ? path.split("/").pop().replace(/\.md$/i, "") : "Choose a Location";
+        const location = getItems().find(item => item.path === path);
+        trigger.update({
+            title: location?.label ?? location?.name ?? (path ? path.split("/").pop().replace(/\.md$/i, "") : "Choose a note or folder…"),
+            subtitle: location ? location.folder ? "Folder · Tasks note" : "Markdown note · " + path.split("/").pop() : null,
+            icon: location?.folder || !path ? "folder" : "notebook-text"
+        });
     };
+    const trigger = createCapturePickerTrigger(host, { label: "Location", onOpen: () => {
+        if (picker || disposed) return;
+        picker = openCaptureLocationPicker(service, {
+            workspace: root ? service.context?.(root) : null, task: true, selectedPath: path, getItems,
+            onSelect: selected => { if (!disposed) { path = selected.path; sync(); changed(); } },
+            restoreFocus: () => { picker = null; if (!disposed) trigger.button.focus({ preventScroll: true }); }
+        });
+    } });
     sync();
-    const choose = host.createEl("button", { text: "Choose location…", attr: { type: "button" } });
-    choose.addEventListener("click", () => {
-        class Picker extends FuzzySuggestModal {
-            getItems() { return availableLocations(service, root); }
-            getItemText(item) { return item.label + (item.folder ? " · Folder" : ""); }
-            onChooseItem(item) { path = item.path; sync(); changed(); }
-        }
-        new Picker(service.app).open();
-    });
-    return { value: () => path, onChange: callback => { changed = callback; } };
+    return { value: () => path, onChange: callback => { changed = callback; },
+        destroy() { disposed = true; picker?.close(); } };
 }
 
 function openTaskCreator(service, options = {}) {

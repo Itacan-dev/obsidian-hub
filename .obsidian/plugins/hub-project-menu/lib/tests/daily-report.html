@@ -91,9 +91,13 @@ try{
  assert((source.match(/title:\s*reportTitle\(date, true\)/g)||[]).length===2,'Both production writing entry points use the edit title');
  assert(root.querySelectorAll('.hub-report-card').length===2,'All workspace reports rendered');
  assert(!root.querySelector('.hub-report-heading svg'),'No workspace icons');
+ // Chromium quantizes CSS borders at fractional DPR (1px is 0.666667px at
+ // DPR 1.5). Compare with the same specified border at this native scale.
+ const borderProbe=document.createElement('div');borderProbe.style.borderTop='1px solid';document.body.append(borderProbe);
+ const onePixelBorder=getComputedStyle(borderProbe).borderTopWidth;borderProbe.remove();
  const emptyTask=root.querySelectorAll('.hub-report-card')[1].querySelector('.hub-report-evidence > .hub-report-section');
  assert(!emptyTask.querySelector('h3')&&emptyTask.textContent==='No task progress recorded for this day.','Viewer keeps empty-task text without heading');
- assert(getComputedStyle(root.querySelectorAll('.hub-report-card')[1].querySelector('.hub-report-no-activity')).borderTopWidth==='1px','Empty-task/activity separator retained');
+ assert(getComputedStyle(root.querySelectorAll('.hub-report-card')[1].querySelector('.hub-report-no-activity')).borderTopWidth===onePixelBorder,'Empty-task/activity separator retained');
  assert(root.querySelectorAll('.hub-report-activity > summary .hub-report-section-icon svg path').length===3,'Official RotateCcwClock renders when native registry lacks it');
  assert(root.querySelector('.hub-report-focus .hub-report-section-icon').dataset.icon==='target','Day focus uses Target');
  assert(root.querySelectorAll('.hub-report-focus .hub-report-section-icon')[1].dataset.icon==='circle-arrow-right','Next focus uses CircleArrowRight');
@@ -147,11 +151,23 @@ try{
  const all=[...reports,resourceReport];
  host.projectWizard={data:{reportFocusByDate:{[date]:{items:nextFocus}}},getProgressReports(scope){return all.filter(r=>typeof scope==='string'?r.projectId===scope:scope?.kind==='resource'?r.targetKind==='resource':r.targetKind!=='resource')}};
  host.app={vault:{getAbstractFileByPath:()=>null}};
+ const heatmap=await load('heatmap','../ui/progress-heatmap.js');
  let editCalls=[];window.hubOpenProgressEditor=(...args)=>editCalls.push(args);
  for(const scope of [{kind:'project'},{kind:'resource'},'p','resource:study']){
   const calendar=document.body.createDiv(),boxes=calendar.createEl('ol',{cls:'heatmap-calendar-boxes'});
+  for(let i=0;i<3;i++)boxes.createEl('li',{attr:{style:'background-color: transparent'}});
   for(let i=0;i<365;i++)boxes.createEl('li',{cls:'month-1',attr:{'data-hub-progress-details':'Existing hover details'}});
+  heatmap.completeHeatmapWeeks(boxes);
+  const snapshot=JSON.stringify(all);
   host.enableProgressCalendarEditing(calendar,{year:2026,projectId:scope});
+  assert(boxes.children.length===371&&calendar.querySelectorAll('[data-date]').length===365,'Padding completes weeks without adding dates');
+  assert(boxes.children[3].dataset.date==='2026-01-01'&&boxes.children[367].dataset.date==='2026-12-31','Year boundary dates retain their original cells');
+  const paddingCalls=editCalls.length,previousOpened=opened;
+  for(const pad of calendar.querySelectorAll('.hub-progress-padding')){
+   assert(!pad.hasAttribute('data-date')&&!pad.hasAttribute('tabindex')&&!pad.classList.contains('hub-progress-day'),'Padding stays inert');
+   pad.click();pad.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true,cancelable:true}));
+  }
+  assert(editCalls.length===paddingCalls&&opened===previousOpened&&JSON.stringify(all)===snapshot,'Padding never opens, creates or changes reports');
   const cell=calendar.querySelector(`[data-date="${date}"]`),emptyCell=calendar.querySelector('[data-date="2026-09-13"]');
   const rect=cell.getBoundingClientRect();
   assert(cell.classList.contains('has-report')&&cell.getAttribute('aria-label').includes('Existing hover details'),'Discoverability and hover retained');
@@ -169,7 +185,7 @@ try{
   for(const [i,card] of cards.entries()){
    const style=getComputedStyle(card),box=card.getBoundingClientRect();
    assert(style.backgroundColor!==getComputedStyle(modal.modalEl).backgroundColor&&style.backgroundColor!=='rgba(0, 0, 0, 0)','Workspace surface distinct from modal');
-   assert(style.borderRadius==='8px'&&style.borderTopWidth==='1px','Shared conventional radius and quiet border');
+   assert(style.borderRadius==='8px'&&style.borderTopWidth===onePixelBorder,'Shared conventional radius and quiet border');
    assert(parseFloat(style.paddingLeft)===16,'Compact shared inner padding');
    const name=card.querySelector('.hub-project-advancement-name');
    assert(parseFloat(getComputedStyle(name).fontSize)>parseFloat(getComputedStyle(card.querySelector('.hub-report-section h3') || card.querySelector('.hub-report-empty')).fontSize),'Workspace heading is more prominent than section labels');
@@ -188,16 +204,16 @@ try{
     const textBox=taskEmpty.getBoundingClientRect(),nextBox=following.getBoundingClientRect();
     const preceding=selector==='.hub-project-advancement-row'?heading.getBoundingClientRect().bottom:evidence.getBoundingClientRect().top+parseFloat(getComputedStyle(evidence).borderTopWidth);
     const above=textBox.top-preceding,below=nextBox.top-textBox.bottom;
-    assert(Math.abs(above-below)<=1,'Empty task spacing is balanced around the text');
+    assert(Math.abs(above-below)<=1.001,'Empty task spacing is balanced around the text: '+above+' / '+below);
     if(selector==='.hub-project-advancement-row')assert(getComputedStyle(heading).marginBottom==='0px','No leftover header margin in an empty editor state');
    }else if(taskSection?.querySelector('h3')&&selector==='.hub-project-advancement-row'){
     assert(getComputedStyle(card.querySelector('.hub-report-heading')).marginBottom==='10px','Recorded task heading keeps existing spacing');
    }
    const empty=card.querySelector('.hub-report-empty');
    if(empty)assert(getComputedStyle(empty).color!==getComputedStyle(card.querySelector('.hub-project-advancement-name')).color,'Empty state recedes below real content');
-   for(const focus of card.querySelectorAll('.hub-report-focus'))assert(getComputedStyle(focus).borderTopWidth==='1px','Focus sections have subtle dividers');
+   for(const focus of card.querySelectorAll('.hub-report-focus'))assert(getComputedStyle(focus).borderTopWidth===onePixelBorder,'Focus sections have subtle dividers');
    const controls=card.querySelector('.hub-project-advancement-choices');
-   if(controls){assert(getComputedStyle(controls).borderTopWidth==='1px','Report-writing controls separated from evidence');
+   if(controls){assert(getComputedStyle(controls).borderTopWidth===onePixelBorder,'Report-writing controls separated from evidence');
     const buttons=[...controls.querySelectorAll('button')],boxes=buttons.map(b=>b.getBoundingClientRect());
     assert(boxes.every(b=>Math.abs(b.width-boxes[0].width)<1),'Equal rating widths at every modal size');
     assert(Math.abs(boxes[0].left-controls.getBoundingClientRect().left)<1&&Math.abs(boxes.at(-1).right-controls.getBoundingClientRect().right)<1,'Rating buttons fill workspace width');
@@ -245,7 +261,7 @@ try{
   assert(headers.map(h=>h.querySelector('.hub-report-workspace-subtitle').textContent).join('|')==='Science|Science|Science|Personal|Resource','Categories and Resource subtitle');
   for(const h of headers){
    await h.querySelector('img').decode();
-   assert(getComputedStyle(h).borderBottomWidth==='1px','Workspace separator');
+   assert(getComputedStyle(h).borderBottomWidth===onePixelBorder,'Workspace separator');
    const image=h.querySelector('img').getBoundingClientRect(),copy=h.querySelector('.hub-report-workspace-copy').getBoundingClientRect();
    assert(Math.abs(image.top+image.height/2-copy.top-copy.height/2)<1,'Image and copy vertically aligned');
   }

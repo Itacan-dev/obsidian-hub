@@ -1,0 +1,125 @@
+<!doctype html><meta charset="utf-8"><title>Wizard and auxiliary modal stylesheet ownership</title>
+<!-- HUB_TEST_PREVIEW=file:///.../baseline/ optionally supplies pre-change
+     plugin.css, home.css and project.css. All services use synthetic memory. -->
+<style id="plugin-css"></style><style id="home-css"></style><style id="project-css"></style>
+<style>
+body{margin:0;font:14px Arial;color:#ddd;background:#222;--background-primary:#222;--background-secondary:#292929;--background-modifier-border:#555;--background-modifier-hover:#333;--text-normal:#ddd;--text-muted:#aaa;--text-faint:#777;--interactive-accent:#8955ed;--text-on-accent:#fff;--input-shadow:none}
+*{box-sizing:border-box}.modal{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);margin:0;padding:24px;background:#292929;border:1px solid #555;border-radius:12px;max-height:calc(100dvh - 48px);overflow:auto;width:min(680px,calc(100vw - 48px))}.modal-close-button{position:absolute;top:8px;right:8px;z-index:1}button,input,select,textarea{font:inherit;color:inherit;background:#333}button{height:32px;padding:4px 12px}textarea{width:100%}#result{position:fixed;bottom:0;font-size:10px;background:#222;white-space:normal;pointer-events:none;z-index:200}
+</style><pre id="result">RUNNING</pre>
+<script type="module">
+let checks=0,comparisons=0;
+const check=(value,message)=>{checks++;if(!value)throw Error(message)};
+const settle=()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+const until=async predicate=>{for(let i=0;i<150;i++){if(predicate())return;await settle()}throw Error('Timed out mounting synthetic images')};
+const key=value=>new Promise(resolve=>{window.hubTestKeyDone=resolve;window.hubTestKeyRequest=value});
+const defer=()=>{let resolve,reject;const promise=new Promise((yes,no)=>{resolve=yes;reject=no});return{promise,resolve,reject}};
+try{
+ const paths=['../../styles.css','../../../../../System/Dashboards/Home/view.css','../../../../../System/Dashboards/Project/view.css'];
+ const current=await Promise.all(paths.map(async path=>(await fetch(path)).text()));
+ for(const css of current.slice(1))check(!/\.hub-project-wizard/.test(css),'Wizard foundations absent from dashboards');
+ const baselineUrl=new URLSearchParams(location.search).get('preview');
+ const baseline=baselineUrl?await Promise.all(['plugin.css','home.css','project.css'].map(async file=>{const response=await fetch(new URL(file,baselineUrl));check(response.ok,'Pre-change CSS available');return response.text()})):current;
+ const sheets=['plugin-css','home-css','project-css'].map(id=>document.getElementById(id));
+ async function styles(css,condition){sheets.forEach((sheet,i)=>sheet.textContent=i===0||condition.includes(i)?css[i]:'');await settle()}
+ const html=await(await fetch('daily-report.html')).text(),script=html.match(/<script type="module">([\s\S]*?)<\/script>/)[1];
+ window.testNotices=[];
+ const bootstrap=script.slice(0,script.indexOf('\ntry{')).replace('class{constructor(message){throw Error(message)}}','class{constructor(message){window.testNotices.push(message)}}');
+ const AsyncFunction=Object.getPrototypeOf(async function(){}).constructor;
+ const {Modal,native,windowTitle,config,source,saveState}=await new AsyncFunction(bootstrap+';return {Modal,native,windowTitle,config,source,saveState};')();
+ const opened=[];
+ const originalOpen=Modal.prototype.open,originalClose=Modal.prototype.close;
+ Modal.prototype.open=function(){opened.push(this);this.contentEl.classList.add('modal-content');this.scope={register:(_mods,key,fn)=>{if(key==='Escape')this.scopeEscape=fn}};this.modalEl.createEl('button',{cls:'modal-close-button',text:'Close',attr:{'aria-label':'Close window'}}).onclick=()=>this.close();this.escape=event=>{if(event.key==='Escape'&&opened.at(-1)===this){if(this.scopeEscape)this.scopeEscape();else this.close()}};document.addEventListener('keydown',this.escape);return originalOpen.call(this)};
+ Modal.prototype.close=function(){document.removeEventListener('keydown',this.escape);opened.splice(opened.indexOf(this),1);return originalClose.call(this)};
+ native.Component.prototype.registerDomEvent=function(el,event,fn,options){el.addEventListener(event,fn,options);this.register(()=>el.removeEventListener(event,fn,options))};
+ native.Notice=class{constructor(message){window.testNotices.push(message)}};
+ class TFile{constructor(path){this.path=path}}
+ native.TFile=TFile;
+ class Menu{constructor(){this.items=[];window.lastWizardMenu=this}addItem(build){const item={setTitle(value){this.title=value;return this},setIcon(){return this},setDisabled(value){this.disabled=value;return this},setWarning(){return this},onClick(fn){this.action=fn;return this}};build(item);this.items.push(item);return this}addSeparator(){}onHide(fn){this.hidden=fn}showAtPosition(){}showAtMouseEvent(){}hide(){this.hidden?.()}}
+ native.Menu=Menu;
+ const code=source.slice(source.indexOf('class ProjectCategoryModal'),source.indexOf('class ProjectWizardService'));
+ const confirmationCode=source.slice(source.indexOf('class ConfirmModal'),source.indexOf('class FocusListEditor'));
+ const focusCode=source.slice(source.indexOf('function focusWizardInput('),source.indexOf('class ProjectFolderPickerModal'));
+ const classes=new Function('Modal','Menu','Notice','TFile','setIcon','createWindowTitle','layoutModal','APP_SHORTCUTS','DEFAULT_SHORTCUT_IDS','RESOURCE_TYPES','normalizeShortcutIds','normalizeShortcutOrder',
+  confirmationCode+'\n'+focusCode+'\nfunction confirmAction(app,...args){return new ConfirmModal(app,...args).waitForConfirmation()}\n'+code+';return {ConfirmModal,ProjectCategoryModal,HubDataAuditModal,ResourceFolderPickerModal,ProjectWizardModal};')(
+  Modal,Menu,native.Notice,TFile,native.setIcon,windowTitle.createWindowTitle,windowTitle.layoutModal,config.APP_SHORTCUTS,config.DEFAULT_SHORTCUT_IDS,config.RESOURCE_TYPES,config.normalizeShortcutIds,config.normalizeShortcutOrder);
+ const modules={'obsidian':native,'ui/window-title':windowTitle,'ui/modal-save':saveState.exports};
+ const resolve=(from,name)=>{const out=[];for(const part of (from.slice(0,from.lastIndexOf('/'))+'/'+name).split('/')){if(part==='..')out.pop();else if(part!=='.')out.push(part)}return out.join('/')};
+ async function load(name){if(modules[name])return modules[name];const text=await(await fetch('../'+name+'.js')).text(),dependencies={};for(const match of text.matchAll(/require\("(\.[^"]+)"\)/g))dependencies[match[1]]=await load(resolve(name,match[1]));const module={exports:{}};new Function('module','require',text)(module,request=>dependencies[request]||modules[request]);return modules[name]=module.exports}
+ const presetsUI=await load('ui/presets'),deletionUI=await load('ui/project-deletion'),coversUI=await load('ui/home-covers');
+ const imageUrl='data:image/svg+xml,'+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900"><rect width="1600" height="900" fill="#6555b8"/><circle cx="1200" cy="350" r="260" fill="#b5a8e5"/></svg>');
+ const iconPath=config.APP_SHORTCUTS.find(shortcut=>shortcut.icon)?.icon;
+ const app={vault:{getAbstractFileByPath:path=>path===iconPath||path.startsWith('preview-')?new TFile(path):null,getResourcePath:()=>imageUrl}};
+ const categories=count=>Array.from({length:count},(_,i)=>({id:'c'+i,name:i===1?'Category with a descriptive name that wraps in a narrow window':'Category '+i,shortcuts:config.DEFAULT_SHORTCUT_IDS,shortcutOrder:config.DEFAULT_SHORTCUT_IDS}));
+ function service(count=3){return{app,categories:categories(count),calls:[],getCategories(){return this.categories},validateCategoryName(name){if(!name.trim())throw Error('Category name is required')},validateProjectName(name){if(!name.trim())throw Error('Project name is required')},assertProjectAvailable(){},async createProject(category,name){this.validateProjectName(name);this.calls.push(['project',category.id,name])},async createCustomCategory(name,image,ids,order){this.calls.push(['category',name,image.type,ids,order]);return{id:'custom',name}},async renameCategory(category,name){this.validateCategoryName(name);this.calls.push(['rename',category.id,name])},async updateCategoryImage(category,choice){this.calls.push(['image',category.id,choice.type])},async updateCategoryShortcuts(category,ids,order){this.calls.push(['shortcuts',category.id,ids,order])}}}
+ const folders=count=>Array.from({length:count},(_,i)=>({id:'f'+i,name:'Resource folder '+i,resourceType:config.RESOURCE_TYPES[i%config.RESOURCE_TYPES.length].id}));
+ function button(modal,text){const control=[...modal.contentEl.querySelectorAll('button')].find(node=>node.textContent===text);check(control,'Action present: '+text);return control}
+ function make(kind){
+  if(kind==='confirmation'){const modal=new classes.ConfirmModal(app,'Delete category?','Existing projects and template files will not be deleted.');modal.open();return modal}
+  if(kind==='deletion'){const modal=new deletionUI.ProjectDeletionModal(app,'Project','Projects/Project');modal.open();return modal}
+  if(kind.startsWith('audit')){const modal=new classes.HubDataAuditModal(app,{issues:Array.from({length:kind.endsWith('long')?35:1},(_,i)=>({message:'Synthetic data issue '+i,repairable:true})),conflicts:[]},async()=>({repaired:true,issues:[],conflicts:[]}));modal.open();return modal}
+  if(kind.startsWith('folders')){const modal=new classes.ResourceFolderPickerModal(app,{folders:folders(kind.endsWith('long')?30:0),selected:['f1'],onSave:async()=>{}});modal.open();return modal}
+  if(kind==='category-choose'){const modal=new classes.ProjectCategoryModal(app,categories(12),'c0','Project',async()=>{});modal.open();return modal}
+  if(kind==='preset'){
+   const anchor=document.body.createEl('button',{text:'Presets'}),presets={modes:{app},items:[],canSave:true,defaultName:()=> 'Preset name',create:async()=>{}};
+   const menu=presetsUI.showPresetsMenu(anchor,presets);[...document.querySelectorAll('.hub-presets-menu [role=menuitem]')].find(row=>row.textContent==='Save as new preset').click();const modal=opened.at(-1);modal.fixtureCleanup=()=>{menu.destroy();anchor.remove()};return modal;
+  }
+  if(kind==='covers'){
+   // Pin the source geometry to distinguish modal styling from removal of the
+   // unrelated dashboard containing the source cover. Preview images are real.
+   const sourceCover=document.body.createDiv({cls:'home-cover'});sourceCover.style.cssText='position:absolute;left:-10000px;width:900px;height:325px;overflow:hidden;border-radius:10px';
+   const coverService={plugin:{app},config:name=>({path:'preview-'+name}),placementOptions:name=>({initial:name==='morning'?null:{x:40,y:50,zoom:1.2}})};
+   const modal=coversUI.openHomeCoverEditor(coverService,sourceCover);modal.fixtureCleanup=()=>sourceCover.remove();return modal;
+  }
+  const wizard=new classes.ProjectWizardModal(service(kind==='categories-long'?24:3),null,'active');wizard.open();const category=wizard.service.categories[0];
+  const render={'project-name':()=>wizard.showProjectName(category),'category-name':()=>wizard.showCategoryName(),'rename':()=>wizard.showRenameCategory(category),'image':()=>wizard.showCategoryImage(),'image-change':()=>wizard.showChangeCategoryImage(category),'shortcuts':()=>wizard.showCategoryShortcuts(),'shortcuts-change':()=>wizard.showChangeCategoryShortcuts(category),'new-project':()=>wizard.showNewCategoryProjectName()};
+  render[kind]?.();if(kind==='image')button(wizard,'Use placeholder image').click();return wizard;
+ }
+ const properties=('display position box-sizing width height min-width min-height max-width max-height flex flex-direction flex-wrap flex-shrink align-items justify-content grid-template-columns gap row-gap column-gap padding-top padding-right padding-bottom padding-left margin-top margin-right margin-bottom margin-left font-family font-size font-weight line-height color background-color border-top-width border-top-color border-top-style border-right-width border-bottom-width border-left-width border-radius box-shadow outline-width outline-style outline-color outline-offset opacity overflow-x overflow-y white-space overflow-wrap resize text-align object-fit object-position transform transform-origin').split(' ');
+ const round=value=>Math.round(value*64)/64;
+ function snapshot(modal){return[modal.modalEl,...modal.modalEl.querySelectorAll('*')].map(node=>{const rect=node.getBoundingClientRect(),style=getComputedStyle(node);return{node:node.tagName+'.'+node.className,geometry:[rect.x,rect.y,rect.width,rect.height,node.clientWidth,node.clientHeight,node.scrollWidth,node.scrollHeight,node.scrollTop].map(round),styles:properties.map(property=>style.getPropertyValue(property))}})}
+ function equal(expected,actual,label){comparisons++;check(expected.length===actual.length,label+': same elements');for(let i=0;i<expected.length;i++){check(expected[i].node===actual[i].node,label+': element '+i);for(const part of ['geometry','styles'])for(let j=0;j<expected[i][part].length;j++)check(expected[i][part][j]===actual[i][part][j],label+': '+expected[i].node+' '+(part==='styles'?properties[j]:part+' '+j)+' '+expected[i][part][j]+' != '+actual[i][part][j])}}
+ async function sample(modal){
+  if(modal.previews)await until(()=>modal.previews.every(preview=>preview.editor&&!preview.surface.querySelector('.hub-home-cover-staging')));
+  await settle();const body=modal.contentEl.querySelector('.hub-modal-body'),header=modal.contentEl.querySelector('.hub-window-header,h2'),footer=modal.contentEl.querySelector('.hub-project-wizard-actions');
+  if(footer){const style=getComputedStyle(footer);check(style.display==='flex'&&style.justifyContent==='flex-end'&&style.gap==='8px'&&style.marginTop==='18px','Wizard/auxiliary footer keeps its original layout');check(style.borderTopWidth==='0px','Separator-free auxiliary footer retained');for(const action of footer.querySelectorAll(':scope > button:not([hidden])')){const style=getComputedStyle(action);check(style.minHeight==='36px'&&style.paddingLeft==='16px'&&style.paddingRight==='16px','Ordinary footer button dimensions');if(action.classList.contains('mod-cta'))check(style.borderTopWidth==='0px','Purple footer action remains borderless');}}
+  if(body){check(!body.contains(header)&&(!footer||!body.contains(footer)),'Fixed regions retained');check(modal.modalEl.getBoundingClientRect().height<=Math.min(900,innerHeight*.85,innerHeight-48)+1,'Shared outer cap');}
+  const states=[snapshot(modal)],control=modal.contentEl.querySelector('input:not([type=file]),button:not(:disabled)');control?.focus({preventScroll:true});await settle();states.push(snapshot(modal));
+  const headerTop=header.getBoundingClientRect().top,footerTop=footer?.getBoundingClientRect().top;
+  for(const fraction of [.5,1]){if(body)body.scrollTop=(body.scrollHeight-body.clientHeight)*fraction;await settle();states.push(snapshot(modal));if(body)check(header.getBoundingClientRect().top===headerTop&&footer?.getBoundingClientRect().top===footerTop&&!modal.modalEl.scrollTop&&!modal.contentEl.scrollTop,'Only body scrolls');}
+  if(body)body.scrollTop=0;control?.blur();await settle();return states;
+ }
+ function close(modal){modal.close();modal.fixtureCleanup?.()}
+ const conditions=[[],[1],[2],[1,2]],labels=['plugin only','Home','Project','both'];
+ const kinds=['categories','categories-long','category-choose','project-name','category-name','rename','image','image-change','shortcuts','shortcuts-change','new-project','folders-empty','folders-long','audit','audit-long','confirmation','deletion','preset','covers'];
+ for(const kind of kinds){
+  await styles(baseline,[1,2]);const before=make(kind),expected=await sample(before);close(before);
+  for(const [i,condition]of conditions.entries()){
+   await styles(current,condition);const modal=make(kind),actual=await sample(modal);expected.forEach((state,j)=>equal(state,actual[j],kind+' '+labels[i]+' state '+j));
+   if(i===3){const resting=snapshot(modal);for(const replacement of [[],[2],[1],[1,2]]){await styles(current,replacement);equal(resting,snapshot(modal),kind+' live stylesheet replacement '+replacement)}}close(modal);
+  }
+ }
+ // Preserve literal Wizard gaps alongside theme-scaled ordinary button padding.
+ document.body.style.setProperty('--size-4-2','10px');document.body.style.setProperty('--size-4-4','18px');
+ await styles(baseline,[1,2]);const before=make('project-name'),themed=snapshot(before);close(before);
+ for(const condition of conditions){await styles(current,condition);const modal=make('project-name');await settle();equal(themed,snapshot(modal),'Theme spacing '+condition);close(modal)}
+ document.body.style.removeProperty('--size-4-2');document.body.style.removeProperty('--size-4-4');
+ // Actual Wizard transitions and keyboard validation, file selection and compact ordering.
+ for(const condition of conditions){
+  await styles(current,condition);const wizard=make('category-name'),svc=wizard.service,notices=window.testNotices.length;
+  await key('Enter');await settle();check(window.testNotices.length===notices+1&&wizard.contentEl.querySelector('input'),'Empty category retains validation');
+  wizard.contentEl.querySelector('input').value='Synthetic category';await key('Enter');await settle();check(wizard.contentEl.querySelector('input[type=file]'),'Keyboard advances to image page');
+  button(wizard,'Next').click();check(window.testNotices.at(-1)==='Choose a category image.','Missing image stays optional until Next validation');
+  const transfer=new DataTransfer();transfer.items.add(new File(['synthetic'],'fixture-image.png',{type:'image/png'}));const upload=wizard.contentEl.querySelector('input[type=file]');upload.files=transfer.files;upload.dispatchEvent(new Event('change'));
+  check(wizard.contentEl.querySelector('.hub-project-wizard-selection').textContent==='Selected: fixture-image.png','Image selection description preserved');
+  button(wizard,'Next').click();await settle();const rows=[...wizard.contentEl.querySelectorAll('.hub-project-wizard-shortcut-row')],first=rows[0].querySelector('.hub-project-wizard-shortcut-order').children;
+  check(first[0].disabled&&!first[1].disabled&&getComputedStyle(first[1]).height==='26px','Ordering boundaries and compact dimensions');const oldLabel=rows[0].querySelector('.hub-project-wizard-shortcut-identity').textContent;first[1].click();
+  check(wizard.contentEl.querySelectorAll('.hub-project-wizard-shortcut-identity')[1].textContent===oldLabel,'Shortcut reordering preserved');
+  const checkbox=wizard.contentEl.querySelector('input[type=checkbox]');checkbox.click();button(wizard,'Next').click();await settle();wizard.contentEl.querySelector('input').value='Synthetic project';await key('Enter');await settle();check(svc.calls.some(call=>call[0]==='category'&&call[2]==='upload')&&svc.calls.some(call=>call[0]==='project')&&!wizard.modalEl.isConnected,'Category/project creation uses chosen image/order and closes');
+  const folderModal=make('folders-long');let gate=defer(),calls=0;folderModal.onSave=ids=>{calls++;check(ids.includes('f0'),'Chosen folder retained');return gate.promise};folderModal.contentEl.querySelector('input').click();button(folderModal,'Save changes').click();await settle();check(button(folderModal,'Save changes').disabled,'Folder save pending style');gate.reject(Error('Synthetic folder failure'));await settle();check(!button(folderModal,'Save changes').disabled&&folderModal.contentEl.querySelector('input').checked,'Folder failure restores retry and selection');gate=defer();button(folderModal,'Save changes').click();gate.resolve();await settle();check(calls===2&&!folderModal.modalEl.isConnected,'Folder retry completes');
+  const audit=make('audit');gate=defer();audit.onRepair=()=>gate.promise;button(audit,'Repair issues').click();await settle();check(button(audit,'Close').disabled&&button(audit,'Repair issues').disabled,'Audit pending actions retained');gate.reject(Error('Synthetic audit failure'));await settle();check(!button(audit,'Close').disabled&&!button(audit,'Repair issues').disabled,'Audit failure restores actions');gate=defer();button(audit,'Repair issues').click();gate.resolve({repaired:true,issues:[],conflicts:[]});await settle();check(!audit.contentEl.querySelector('.mod-cta')&&audit.contentEl.textContent.includes('Repairs were applied'),'Audit success reconstructs normal footer');close(audit);
+  const confirmation=new classes.ConfirmModal(app,'Delete category?','Synthetic confirmation');const result=confirmation.waitForConfirmation();await settle();check(document.activeElement.textContent==='Cancel','Destructive Cancel receives initial focus');await key('Escape');check(await result===false,'Escape cancels once');
+ }
+ await styles(current,[]);const preview=make('shortcuts');await settle();
+ result.textContent='PASS: '+comparisons+' computed-style/geometry comparisons at '+innerWidth+'x'+innerHeight+'; '+(baselineUrl?'pre-change baseline':'combined-sheet baseline')+'; all four CSS conditions and live replacement; Wizard/category/image/shortcut pages, folders, audit, confirmations, deletion, presets and real cover previews; keyboard validation, ordering, memory-only saves/failure/retry/dismissal.';
+}catch(error){result.textContent='FAIL: '+error.stack}
+</script>

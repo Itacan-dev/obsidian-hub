@@ -183,14 +183,11 @@ function createDashboardUi({
         previous.type = next.type = "button";
         setHubTooltip(previous, "Previous year");
         setHubTooltip(next, "Next year");
-        year.className = "hub-heatmap-year";
-        year.setAttribute("aria-label", year.textContent);
-        year.textContent = year.textContent.slice(-2);
-        // Keep the native month grid and its column assignments untouched.
-        // Anchor the label and buttons to their respective native grid areas.
+        // Keep the selected year in view state, without a visible label/gutter.
+        year.remove();
         months.parentElement.classList.add("hub-heatmap-with-navigation");
         toolbar.replaceChildren(previous, next);
-        months.after(year, toolbar);
+        months.after(toolbar);
         const graph = months.parentElement;
         if (!heatmapRevealGraphs.has(graph)) {
             heatmapRevealGraphs.add(graph);
@@ -247,6 +244,7 @@ function createDashboardUi({
         presetsButton,
         disclosureIcons,
         placeHeatmapNavigation,
+        createProgressHeatmap: require("./progress-heatmap").createProgressHeatmap,
         progressColors,
         progressColor,
         selectNavigation

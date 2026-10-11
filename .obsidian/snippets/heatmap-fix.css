@@ -1,18 +1,18 @@
 /* 1) Control the row height (this is what really fixes vertical spacing) */
 .heatmap-calendar-days,
-.heatmap-calendar-boxes {
+.heatmap-calendar-boxes:not(.hub-progress-grid) {
   /* 7 rows (Mon–Sun), each only 10px tall – tweak this */
   grid-template-rows: repeat(7, minmax(0, 10px)) !important;
 }
 
 /* 2) Equal spacing between rows and columns */
-.heatmap-calendar-boxes {
+.heatmap-calendar-boxes:not(.hub-progress-grid) {
   row-gap: 2px !important;      /* vertical spacing */
   column-gap: 2px !important;   /* horizontal spacing */
 }
 
 /* 3) Make cells actual squares, independent of container width */
-.heatmap-calendar-boxes li {
+.heatmap-calendar-boxes:not(.hub-progress-grid) li {
   width: 10px !important;       /* tweak size here */
   height: 10px !important;
   border-radius: 2px;

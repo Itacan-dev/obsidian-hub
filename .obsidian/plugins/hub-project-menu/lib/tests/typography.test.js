@@ -14,7 +14,7 @@ assert.deepEqual(Object.fromEntries(tokens.map(m => [m[1], m[2].trim()])), expec
 const exemptions = new Map([
     [".home-focus-dot", "0.65rem"], // Existing decorative diamond, not text.
     [".home-progress-scope-chevron", "0.75em"], // Relative icon.
-    [".home-progress-calendar .heatmap-calendar-boxes li", "0"],
+    [":is(.home-progress-calendar, .project-progress-calendar) .heatmap-calendar-boxes li", "0"],
     [".project-progress-calendar .heatmap-calendar-boxes li", "0"]
 ]);
 const used = new Set();

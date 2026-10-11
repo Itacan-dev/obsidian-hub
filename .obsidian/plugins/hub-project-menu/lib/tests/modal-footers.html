@@ -1,10 +1,13 @@
 <!doctype html><meta charset="utf-8"><title>Modal footer consistency</title>
-<link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../../../../../System/Dashboards/Home/view.css">
+<link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" data-dashboard="home" href="../../../../../System/Dashboards/Home/view.css"><link rel="stylesheet" data-dashboard="project" href="../../../../../System/Dashboards/Project/view.css">
 <style>
 body{margin:0;font:14px Arial;color:#ddd;background:#222;--background-primary:#222;--background-secondary:#292929;--background-modifier-border:#555;--text-normal:#ddd;--text-muted:#aaa;--interactive-accent:#8955ed;--text-on-accent:#fff;--input-shadow:none}
 *{box-sizing:border-box}button,input,select,textarea{font:inherit;color:inherit;background:#333}button{height:32px;padding:4px 12px}button.mod-cta{background:var(--interactive-accent)}.modal{margin:20px auto;padding:24px;background:#292929;display:flex;flex-direction:column;max-height:calc(100vh - 40px);overflow:hidden}.modal-content{min-height:0;overflow:auto}#families{padding:10px}#result{position:fixed;bottom:0;background:#222;font-size:10px;white-space:normal;z-index:20;pointer-events:none}
 </style><main id="families" class="hub-button-scope"></main><pre id="result">RUNNING</pre>
 <script type="module">
+// HUB_TEST_PREVIEW selects plugin-only, home (default), project, or both.
+const cssMode=new URLSearchParams(location.search).get('preview')||'home';
+for(const sheet of document.querySelectorAll('link[data-dashboard]'))if(cssMode==='plugin-only'||['home','project'].includes(cssMode)&&sheet.dataset.dashboard!==cssMode)sheet.remove();
 let checks=0;const check=(v,m)=>{checks++;if(!v)throw Error(m)},settle=()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
 try{
  const families=document.getElementById('families');

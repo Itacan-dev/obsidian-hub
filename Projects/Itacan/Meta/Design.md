@@ -30,3 +30,5 @@ We definitely will need custom-made icons for
 We maybe will want custom-made icons for
 - The four resources (Knowledge, Research, Explorations, Inspiration)
 - Projects so they stick out as "Itacan projects"
+
+

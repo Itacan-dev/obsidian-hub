@@ -16,11 +16,6 @@ class SettingsModal extends Modal {
         setWindowUndertext(heading, header.createEl("p", { cls: "hub-settings-description", text: "Customize how Itacan looks and behaves." }));
         const body = this.contentEl.createDiv({ cls: "hub-settings-body" });
         const sidebar = body.createEl("aside", { cls: "hub-settings-sidebar" });
-        const search = sidebar.createEl("input", { cls: "hub-settings-search", attr: {
-            type: "search", placeholder: "Search settings", "aria-label": "Search settings (preview only)",
-            title: "Search is not active in this preview."
-        } });
-        search.autocomplete = "off";
         this.tabs = sidebar.createDiv({ cls: "hub-settings-categories", attr: { role: "tablist", "aria-label": "Settings categories", "aria-orientation": "vertical" } });
         this.buttons = SETTINGS_PAGES.map(page => {
             const button = this.tabs.createEl("button", { text: page.title, cls: "hub-settings-category" + (page.id === "about" ? " hub-settings-about" : ""),

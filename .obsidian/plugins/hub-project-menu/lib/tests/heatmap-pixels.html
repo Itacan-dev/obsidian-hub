@@ -1,0 +1,70 @@
+<!doctype html><meta charset="utf-8"><title>Progress heatmap raster regression</title>
+<link rel="stylesheet" href="../../../heatmap-calendar/styles.css">
+<link rel="stylesheet" href="../../../../snippets/heatmap-fix.css">
+<link rel="stylesheet" href="../../styles.css">
+<link rel="stylesheet" href="../../../../../System/Dashboards/Home/view.css">
+<link rel="stylesheet" href="../../../../../System/Dashboards/Project/view.css">
+<style>
+html{font-size:17px}body{margin:0;background:#262626;color:#ddd;font:17px system-ui;--background-secondary:#262626;--text-muted:#aaa;--background-modifier-border:#343434}
+*{box-sizing:border-box}#host{position:absolute;left:20.3px;top:20.7px;width:470px}
+</style><body class="theme-dark"><div id="host" class="hub-button-scope"></div>
+<script type="module">
+const read=async p=>(await fetch(p)).text();
+function create(tag,o={}){const e=document.createElement(tag);e.className=Array.isArray(o.cls)?o.cls.join(' '):o.cls||'';e.textContent=o.text||'';for(const [k,v]of Object.entries(o.attr||{}))e.setAttribute(k,v);o.parent?.append(e);return e}
+window.createEl=create;window.createDiv=o=>create('div',o);window.createSpan=o=>create('span',o);
+const native={Plugin:class{async loadData(){return {}}addSettingTab(){}},PluginSettingTab:class{}};
+const renderer={exports:{}},layout={exports:{}};
+new Function('module','require',await read('../../../heatmap-calendar/main.js'))(renderer,()=>native);
+await new renderer.exports.default().onload();
+new Function('module',await read('../ui/progress-heatmap.js'))(layout);
+let dispose=()=>{},calendar;
+window.mountHeatmap=async ({width=470,zoom=1,kind='home',year=2026,left=20.3,top=20.7}={})=>{
+ dispose();host.replaceChildren();document.body.style.zoom=zoom;
+ Object.assign(host.style,{width:width+'px',left:left+'px',top:top+'px'});
+ calendar=create('div',{cls:kind+'-progress-calendar',parent:host});
+ window.renderHeatmapCalendar(calendar,{year,entries:[],showCurrentDayBorder:false});
+ const graph=calendar.firstElementChild;
+ graph.classList.add('hub-heatmap-with-navigation');
+ const refresh=layout.exports.createProgressHeatmap(calendar,{register(fn){dispose=fn}});refresh();
+ await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+ return window.heatmapRects();
+};
+window.resizeHeatmap=async ({width,zoom}={})=>{
+ if(width!==undefined)host.style.width=width+'px';
+ if(zoom!==undefined)document.body.style.zoom=zoom;
+ await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+ return window.heatmapRects();
+};
+window.heatmapRects=()=>({dpr:devicePixelRatio,zoom:parseFloat(document.body.style.zoom),
+ cells:[...calendar.querySelectorAll('.heatmap-calendar-boxes>li')].map(e=>{const r=e.getBoundingClientRect();return {x:r.x,y:r.y,w:r.width,h:r.height}}),
+ viewport:calendar.getBoundingClientRect().toJSON(),
+ graph:calendar.firstElementChild.getBoundingClientRect().toJSON(),
+ style:calendar.firstElementChild.getAttribute('style')});
+// Sample the actual screenshot, not a DOM-to-canvas reconstruction. Center-line
+// runs avoid rounded corners; threshold is halfway from empty-cell to panel RGB.
+window.inspectPixels=async (base64,geometry)=>{
+ const img=new Image();img.src='data:image/png;base64,'+base64;await img.decode();
+ const canvas=document.createElement('canvas');canvas.width=img.width;canvas.height=img.height;
+ const ctx=canvas.getContext('2d');ctx.drawImage(img,0,0);const pixels=ctx.getImageData(0,0,img.width,img.height).data;
+ const occupied=(x,y)=>{if(x<0||y<0||x>=img.width||y>=img.height)return false;const i=(y*img.width+x)*4;return pixels[i]<29&&pixels[i+1]<32};
+ const d=geometry.dpr, bounds=new Map();
+ for(const [index,r] of geometry.cells.entries()){
+  if(r.x<geometry.viewport.left-.01||r.x+r.w>geometry.viewport.right+.01)continue;
+  const cx=Math.floor((r.x+r.w/2)*d),cy=Math.floor((r.y+r.h/2)*d);
+  if((r.x+r.w)*d>img.width||(r.y+r.h)*d>img.height)continue;
+  let l=cx,t=cy,right=cx,bottom=cy;
+  if(!occupied(cx,cy))throw Error('Cell center not found at '+cx+','+cy);
+  while(occupied(l-1,cy))l--;while(occupied(right+1,cy))right++;
+  while(occupied(cx,t-1))t--;while(occupied(cx,bottom+1))bottom++;
+  bounds.set(index,{l,t,r:right+1,b:bottom+1,w:right-l+1,h:bottom-t+1});
+ }
+ const sizes=[...new Set([...bounds.values()].map(r=>r.w+'x'+r.h))];
+ const xgaps=[],ygaps=[];
+ for(const [i,r] of bounds){
+  if(bounds.has(i-7))xgaps.push(r.l-bounds.get(i-7).r);
+  if(bounds.has(i-1)&&Math.abs(geometry.cells[i].x-geometry.cells[i-1].x)<.01)ygaps.push(r.t-bounds.get(i-1).b);
+ }
+ return {sizes,xgaps:[...new Set(xgaps)],ygaps:[...new Set(ygaps)],count:bounds.size,first:bounds.values().next().value};
+};
+window.ready=true;
+</script>

@@ -85,7 +85,7 @@ function openCaptureLocationPicker(service, { workspace, task = false, selectedP
     class LocationPicker extends Modal {
         onOpen() {
             preparePicker(this, task ? "Choose task location" : "Choose a folder", ["hub-capture-location-picker"]);
-            this.contentEl.createEl("p", { cls: "hub-oath-muted", text: workspace.name });
+            if (workspace?.name) this.contentEl.createEl("p", { cls: "hub-oath-muted", text: workspace.name });
             const searchBox = this.contentEl.createDiv({ cls: "hub-explorer-search" });
             setHubIcon(searchBox.createSpan({ cls: "hub-explorer-icon", attr: { "aria-hidden": "true" } }), "search");
             const search = searchBox.createEl("input", { type: "search", cls: "hub-explorer-search-input",

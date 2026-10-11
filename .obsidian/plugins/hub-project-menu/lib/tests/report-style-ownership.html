@@ -1,0 +1,117 @@
+<!doctype html><meta charset="utf-8"><title>Report and Daily Focus stylesheet ownership</title>
+<!-- Optional HUB_TEST_PREVIEW=file:///.../baseline/ supplies pre-consolidation
+     plugin.css, home.css and project.css for an independent appearance oracle. -->
+<style id="plugin-css"></style><style id="home-css"></style><style id="project-css"></style>
+<style>
+body{margin:0;font:14px Arial;color:#ddd;background:#222;--background-primary:#222;--background-secondary:#292929;--background-modifier-border:#555;--background-modifier-hover:#333;--text-normal:#ddd;--text-muted:#aaa;--text-faint:#777;--interactive-accent:#8955ed;--text-on-accent:#fff;--input-shadow:none;--color-green:#62b478;--color-blue:#70a3d7;--color-red:#de7272}
+*{box-sizing:border-box}.modal{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);margin:0;padding:24px;background:#292929;border:1px solid #555;border-radius:12px;max-height:calc(100dvh - 48px);overflow:auto;width:min(680px,calc(100vw - 48px))}.modal-close-button{position:absolute;top:8px;right:8px;z-index:1}button,input,select,textarea{font:inherit;color:inherit;background:#333}button{height:32px;padding:4px 12px}textarea{width:100%}#result{position:fixed;bottom:0;font-size:10px;background:#222;white-space:normal;pointer-events:none}
+</style><pre id="result">RUNNING</pre>
+<script type="module">
+let checks=0,comparisons=0;
+const check=(value,message)=>{checks++;if(!value)throw Error(message)};
+const settle=()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+const key=value=>new Promise(resolve=>{window.hubTestKeyDone=resolve;window.hubTestKeyRequest=value});
+try{
+ const paths=['../../styles.css','../../../../../System/Dashboards/Home/view.css','../../../../../System/Dashboards/Project/view.css'];
+ const current=await Promise.all(paths.map(async path=>(await fetch(path)).text()));
+ for(const css of current.slice(1))check(!/\.hub-(?:project-advancement|daily-focus)/.test(css),'Dashboard has no Report/Daily Focus foundations');
+ const baselineUrl=new URLSearchParams(location.search).get('preview');
+ const baseline=baselineUrl?await Promise.all(['plugin.css','home.css','project.css'].map(async file=>{
+  const response=await fetch(new URL(file,baselineUrl));check(response.ok,'Baseline CSS available');return response.text();
+ })):current;
+ const sheets=['plugin-css','home-css','project-css'].map(id=>document.getElementById(id));
+ async function styles(css,condition){sheets.forEach((sheet,i)=>sheet.textContent=i===0||condition.includes(i)?css[i]:'');await settle()}
+ const html=await(await fetch('daily-report.html')).text(),script=html.match(/<script type="module">([\s\S]*?)<\/script>/)[1];
+ window.testNotices=[];
+ const bootstrap=script.slice(0,script.indexOf('\ntry{')).replace('class{constructor(message){throw Error(message)}}','class{constructor(message){window.testNotices.push(message)}}');
+ const AsyncFunction=Object.getPrototypeOf(async function(){}).constructor;
+ const {Report,DailyFocus,ui,empty,date,Modal,native,windowTitle,markdown,dates}=await new AsyncFunction(bootstrap+';return {Report,DailyFocus,ui,empty,date,Modal,native,windowTitle,markdown,dates};')();
+ const parser={exports:{}};new Function('module',await(await fetch('markdown-fixture.js')).text())(parser);
+ native.MarkdownRenderer.render=async(app,text,element)=>parser.exports.renderFixtureMarkdown(app,text,element);
+ const briefModule={exports:{}};new Function('module','require',await(await fetch('../ui/daily-brief.js')).text())(briefModule,name=>({
+  './window-title':windowTitle,'obsidian':native,'../domain/dates':dates,'./markdown':markdown,'./daily-report':ui
+ }[name]));
+ const open=Modal.prototype.open;
+ Modal.prototype.open=function(){this.contentEl.classList.add('modal-content');this.modalEl.createEl('button',{cls:'modal-close-button',text:'Close',attr:{'aria-label':'Close window'}}).onclick=()=>this.close();return open.call(this)};
+ const app={workspace:{openLinkText(){}}};
+ const properties=('display position box-sizing width height min-width min-height max-width max-height flex flex-direction flex-wrap flex-shrink align-items justify-content grid-template-columns grid-column grid-row gap row-gap column-gap padding-top padding-right padding-bottom padding-left margin-top margin-right margin-bottom margin-left font-family font-size font-weight line-height color background-color border-top-width border-top-color border-top-style border-right-width border-right-color border-bottom-width border-bottom-color border-left-width border-left-color border-radius box-shadow outline-width outline-style outline-color outline-offset opacity overflow-x overflow-y overscroll-behavior white-space overflow-wrap resize text-align vertical-align').split(' ');
+ const round=value=>Math.round(value*64)/64;
+ function snapshot(modal){
+  return [modal.modalEl,...modal.modalEl.querySelectorAll('*')].map(node=>{
+   const rect=node.getBoundingClientRect(),style=getComputedStyle(node);
+   return {node:node.tagName+'.'+node.className,geometry:[rect.x,rect.y,rect.width,rect.height,node.clientWidth,node.clientHeight,node.scrollWidth,node.scrollHeight,node.scrollTop].map(round),styles:properties.map(property=>style.getPropertyValue(property))};
+  });
+ }
+ function equal(expected,actual,label){
+  comparisons++;check(expected.length===actual.length,label+': same rendered elements');
+  for(let i=0;i<expected.length;i++){
+   check(expected[i].node===actual[i].node,label+': element '+i);
+   for(const part of ['geometry','styles'])for(let j=0;j<expected[i][part].length;j++)check(expected[i][part][j]===actual[i][part][j],label+': '+expected[i].node+' '+(part==='styles'?properties[j]:part+' '+j)+' '+expected[i][part][j]+' != '+actual[i][part][j]);
+  }
+ }
+ function make(kind,count){
+  const workspaces=Array.from({length:count},(_,i)=>({projectId:'w'+i,name:i?'Knowledge '+i:'Project with a long name that wraps naturally',contextKind:i?'resource':'project'}));
+  const context={...empty,tasks:Array.from({length:count>1?18:2},(_,i)=>({text:'**Completed** [details](https://example.test/details) task '+i,timestamp:new Date(2026,8,14,10,i).getTime(),path:'Tasks.md'})),activity:[{action:'created',title:'Report evidence',timestamp:1}],focus:['Review [[Note]]']};
+  const items=Array.from({length:Math.min(count,6)},(_,i)=>({projectId:'w'+i,projectName:workspaces[i].name,text:'Focus intention '+i}));
+  if(kind==='focus')return new DailyFocus(app,{date,projects:workspaces,items,nextItems:items.map(item=>({...item,text:'Next '+item.text})),onSave:async()=>{}});
+  if(kind==='brief')return new briefModule.exports.DailyBriefModal(app,{context:{lastWorkDate:date,today:date,days:[{date,hasReport:true,workspaces:workspaces.map(w=>({workspaceName:w.name,progressSummary:'Summary',fulfilledOaths:[],taskProgress:context.tasks,nextFocus:items,lastRelevantFile:null}))}]},onAction:async()=>{},onReport:()=>{}});
+  if(kind==='viewer')return new ui.DailyReportModal(app,{day:{date,reports:workspaces.map(w=>({projectId:w.projectId,projectName:w.name,score:2,summary:'**Reflection**\n\n[Details](https://example.test/details)',context})),nextFocus:items}});
+  return new Report(app,{title:ui.reportTitle(date,true),saveLabel:kind==='exit'?'Save & close':'Save changes',requireEveryProject:kind==='exit',projects:workspaces.slice(0,1),resources:workspaces.slice(1),reportContexts:Object.fromEntries(workspaces.map(w=>[w.projectId,context])),
+   currentScores:Object.fromEntries(workspaces.filter((w,i)=>kind!=='exit'||i<count-1).map(w=>[w.projectId,2])),currentSummaries:{w0:'Optional comments'},
+   allowNoProgress:true,requireExplicitRatings:kind==='exit',showCancel:kind!=='exit',showNextFocus:true,focusProjects:workspaces,currentFocus:items,onSave:async()=>{}});
+ }
+ async function sample(modal){
+  await settle();const body=modal.contentEl.querySelector('.hub-modal-body'),header=modal.contentEl.querySelector('.hub-window-header,h2'),footer=modal.contentEl.querySelector('.hub-project-advancement-actions');
+  check(body&&!body.contains(header)&&(!footer||!body.contains(footer)),'Fixed regions retained');
+  check(modal.modalEl.getBoundingClientRect().height<=Math.min(900,innerHeight*.85,innerHeight-48)+1,'Height cap retained');
+  const headingTop=header.getBoundingClientRect().top,footerTop=footer?.getBoundingClientRect().top;
+  const states=[snapshot(modal)];
+  const control=body.querySelector('textarea,input,button,a,select');if(control)control.focus({preventScroll:true});await settle();states.push(snapshot(modal));
+  for(const fraction of [.5,1]){body.scrollTop=(body.scrollHeight-body.clientHeight)*fraction;await settle();states.push(snapshot(modal));check(header.getBoundingClientRect().top===headingTop&&footer?.getBoundingClientRect().top===footerTop,'Header/footer fixed during scroll');}
+  check(!modal.modalEl.scrollTop&&!modal.contentEl.scrollTop,'Only body scrolls');
+  body.scrollTop=0;control?.blur();await settle();return states;
+ }
+ const conditions=[[],[1],[2],[1,2]],labels=['plugin only','Home','Project','both'];
+ // Nondefault theme spacing ensures the old literal report action gap and theme
+ // variables in stronger shared rules retain their original cascade semantics.
+ document.body.style.setProperty('--size-4-2','10px');document.body.style.setProperty('--size-4-4','18px');
+ for(const [kind,count] of [['viewer',0],['viewer',1],['viewer',8],['historical',0],['historical',1],['historical',8],['exit',8],['focus',0],['focus',1],['focus',6],['brief',1]]){
+  await styles(baseline,[1,2]);const before=make(kind,count);before.open();const expected=await sample(before);before.close();
+  for(const [i,condition] of conditions.entries()){
+   await styles(current,condition);const modal=make(kind,count);modal.open();const actual=await sample(modal);
+   expected.forEach((state,j)=>equal(state,actual[j],kind+'/'+count+' '+labels[i]+' state '+j));
+   // Remove, replace and restore dashboard CSS while this exact modal stays open.
+   if(i===3){const resting=snapshot(modal);for(const replacement of [[],[2],[1],[1,2]]){await styles(current,replacement);equal(resting,snapshot(modal),kind+' live stylesheet replacement '+replacement);}}
+   modal.close();
+  }
+ }
+ // Compare actual yellow validation paint and keyboard focus across sheet lifecycles.
+ for(const kind of ['exit','focus']){
+  await styles(baseline,[1,2]);const modal=make(kind,kind==='exit'?8:6);modal.open();await settle();
+  let invalid;
+  if(kind==='exit'){
+   invalid=modal.ratingRows.get('w7');await modal.save();await new Promise(resolve=>setTimeout(resolve,900));
+   check(!modal.saving&&invalid.getAttribute('aria-invalid')==='true'&&!modal.saveButton.disabled,'Exit validation stays clickable and unlocked');
+  }else{
+   const row=modal.nextFocusEditor.rows.at(-1);row.projectSelect.value='';invalid=row.projectSelect;modal.nextFocusEditor.validate();await new Promise(resolve=>setTimeout(resolve,900));
+   check(document.activeElement===invalid&&invalid.getAttribute('aria-invalid')==='true','Missing workspace focused and warned');
+  }
+  // Native smooth scrolling can continue beyond its nominal settling delay.
+  // Stop at the revealed position before comparing an otherwise stationary UI.
+  const pane=modal.contentEl.querySelector('.hub-modal-body');pane.scrollTo({top:pane.scrollTop,behavior:'instant'});await settle();
+  const fieldBounds=invalid.getBoundingClientRect(),paneBounds=pane.getBoundingClientRect();
+  check(fieldBounds.top>=paneBounds.top&&fieldBounds.bottom<=paneBounds.bottom,'Validation reveals field inside body');
+  for(const animation of modal.modalEl.getAnimations({subtree:true})){animation.pause();animation.currentTime=450;}
+  await settle();const expected=snapshot(modal),paint=getComputedStyle(invalid.matches('select')?invalid:invalid.querySelector('[data-hub-attention-surface]')).backgroundColor;
+  check(invalid.classList.contains('hub-attention'),'Shared warning mounted');
+  for(const condition of conditions){await styles(current,condition);for(const animation of modal.modalEl.getAnimations({subtree:true})){animation.pause();animation.currentTime=450;}await settle();equal(expected,snapshot(modal),kind+' validation stylesheet replacement '+condition);check(getComputedStyle(invalid.matches('select')?invalid:invalid.querySelector('[data-hub-attention-surface]')).backgroundColor===paint,'Warning paint unchanged');}
+  modal.close();
+ }
+ // Native keyboard removal keeps the equivalent surviving control focused.
+ await styles(current,[]);const focus=make('focus',3);focus.open();const removed=focus.focusEditor.rows[1],next=focus.focusEditor.rows[2].remove;
+ removed.remove.focus();await key('Enter');await settle();check(document.activeElement===next&&focus.focusEditor.rows.length===3,'Daily Focus removal restores keyboard focus and suggestion row');
+ check(next.getAttribute('aria-label')==='Remove focus'&&focus.nextFocusEditor.rows[0].input.getAttribute('aria-label').includes('next day'),'Accessible names retained');focus.close();
+ const preview=make('historical',8);preview.open();await settle();preview.contentEl.querySelector('.hub-modal-body').scrollTop=350;
+ result.textContent='PASS: '+checks+' checks; '+comparisons+' computed-style/geometry comparisons at '+innerWidth+'x'+innerHeight+'; '+(baselineUrl?'pre-consolidation baseline':'current combined-sheet baseline')+'; viewer/historical/exit short-long, Daily Focus today/next, Daily Brief, all four CSS combinations and live stylesheet replacement, validation paint, keyboard focus and removal.';
+}catch(error){result.textContent='FAIL: '+error.stack}
+</script>

@@ -3,6 +3,7 @@ const { setHubIcon } = require("./icons");
 const { projectItemPath } = require("../domain/files");
 const { openCaptureWorkspacePicker, openCaptureLocationPicker } = require("./capture-pickers");
 const { mountWorkspaceThumbnail } = require("./workspace-thumbnail");
+const { createCapturePickerTrigger } = require("./capture-picker-trigger");
 const { mountTaskFields, mountTaskRelationshipFields } = require("./task-form");
 const { openNotePositionPicker } = require("./note-position-picker");
 const { noteLocation, noteLocationSummary, resolveNoteLocation } = require("../domain/note-insertion");
@@ -92,17 +93,11 @@ function mountCaptureForm({ host, service, draft = {}, onChange = () => {}, fixe
         input.addEventListener("input", () => { state[key] = input.value; notify(); }); return input;
     };
     const pickerTrigger = (parent, label, title, subtitle, icon, open, disabled = false, imageWorkspace = null) => {
-        const button = fieldHost(parent, label).createEl("button", { cls: "hub-capture-picker-trigger", attr: {
-            type: "button", "aria-label": label, "aria-haspopup": "dialog"
-        } });
-        button.disabled = disabled;
-        if (imageWorkspace) mountWorkspaceThumbnail(button, service.plugin, imageWorkspace);
-        else setHubIcon(button.createSpan({ cls: "hub-capture-icon", attr: { "aria-hidden": "true" } }), icon);
-        const copy = button.createSpan({ cls: "hub-capture-picker-copy" });
-        copy.createSpan({ text: title }); if (subtitle) copy.createSpan({ text: subtitle, cls: "hub-capture-muted" });
-        setHubIcon(button.createSpan({ cls: "hub-capture-icon", attr: { "aria-hidden": "true" } }), "chevron-down");
-        button.title = [title, subtitle].filter(Boolean).join(" · ");
-        button.addEventListener("click", () => { if (!picker && !disposed) open(); }); return button;
+        return createCapturePickerTrigger(fieldHost(parent, label), {
+            label, title, subtitle, icon, disabled,
+            renderIcon: imageWorkspace ? button => mountWorkspaceThumbnail(button, service.plugin, imageWorkspace) : null,
+            onOpen: () => { if (!picker && !disposed) open(); }
+        }).button;
     };
     const restorePickerFocus = label => {
         picker = null;
