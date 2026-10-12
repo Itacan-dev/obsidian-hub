@@ -11,7 +11,7 @@ Module._load = function(name) {
 };
 const filename = path.resolve(__dirname, "../../plugin.js"), compiled = new Module(filename, module);
 compiled.filename = filename; compiled.paths = Module._nodeModulePaths(path.dirname(filename));
-compiled._compile(fs.readFileSync(filename, "utf8") + "\nmodule.exports.Wizard = ProjectWizardService;", filename);
+compiled._compile(fs.readFileSync(filename, "utf8") + "\nmodule.exports.Wizard = ProjectWizardService; module.exports.Confirm = ConfirmModal;", filename);
 Module._load = load;
 const Plugin = compiled.exports;
 async function run() {
@@ -52,10 +52,32 @@ async function run() {
         await plugin.mutateTask({ ...added.tasks[0], operation: "delete" });
     }
     assert.equal(wizard.completedTaskHistory.length, 1, "Deleting unchecked task does not create History");
-    await plugin.clearCompletedTasks([{ path: file.path, line: 0, text: "Edited done", projectId: context.projectId }]);
+    const requests = [{ path: file.path, line: 0, text: "Edited done", projectId: context.projectId }];
+    const preservedData = { dailyReports: { "2026-10-12": { rating: 3, tasks: ["First"] } }, workRatings: { "2026-10-12": 4 }, activityLog: [{ text: "Earlier activity" }] };
+    Object.assign(wizard.data, preservedData);
+    const beforeCancel = JSON.stringify({ content, history: wizard.completedTaskHistory, checks: wizard.completedTaskChecks, data: wizard.data });
+    let releaseConfirmation, confirmation;
+    const opened = new Promise(resolve => {
+        Plugin.Confirm.prototype.waitForConfirmation = function() {
+            confirmation = this; resolve();
+            return new Promise(done => { releaseConfirmation = done; });
+        };
+    });
+    const pendingClear = plugin.clearCompletedTasks(requests, true);
+    await opened;
+    assert.equal(confirmation.title, "Clear completed tasks?");
+    assert.ok(confirmation.message.includes("remain available in Tasks history"), "Confirmation explains source removal and History retention");
+    assert.equal(JSON.stringify({ content, history: wizard.completedTaskHistory, checks: wizard.completedTaskChecks, data: wizard.data }), beforeCancel, "No writes while confirmation is pending");
+    releaseConfirmation(false);
+    assert.equal((await pendingClear).cancelled, true);
+    assert.equal(JSON.stringify({ content, history: wizard.completedTaskHistory, checks: wizard.completedTaskChecks, data: wizard.data }), beforeCancel, "Cancel leaves notes, history and progress data untouched");
+    Plugin.Confirm.prototype.waitForConfirmation = async () => true;
+    await plugin.clearCompletedTasks(requests, true);
+    for (const [key, value] of Object.entries(preservedData)) assert.deepEqual(wizard.data[key], value, "Clear retains " + key);
     assert.equal(wizard.completedTaskHistory.length, 1, "Clear does not duplicate completion History");
     assert.equal(wizard.completedTaskChecks.length, 0);
     assert.ok(!content.includes("Edited done"));
+    assert.equal(content, "- [ ] Second\n", "Confirmed clear preserves unrelated open source tasks");
     await plugin.toggleTask(file.path, 0, "Second", true);
     await plugin.toggleTask(file.path, 0, "Second", false);
     await plugin.toggleTask(file.path, 0, "Second", true);
@@ -87,6 +109,6 @@ async function run() {
     assert.equal(wizard.data.taskMetadata["clear-test"], undefined, "Clear removes the optional metadata record");
     assert.equal(wizard.completedTaskChecks[0].line, 0, "Completion history source offsets account for all removed Step lines");
  }
- console.log("Task History tests passed: actual plugin mutation/clear paths, exactly-once transitions, immediate notifications, edit/delete/clear behavior, resource ownership and persisted reload state.");
+ console.log("Task History tests passed: actual plugin mutation/clear paths, pending/accepted/cancelled confirmation, report/rating/activity retention, exactly-once transitions, immediate notifications, edit/delete/clear behavior, resource ownership and persisted reload state.");
 }
 run().catch(error => { console.error(error); process.exitCode = 1; });

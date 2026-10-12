@@ -14,7 +14,7 @@ class QuickAddModal extends CaptureModal {
     }
     onOpen() {
         this.modalEl.classList.add("hub-quick-add-dialog");
-        this.header("Quick Add", "Write down a thought, or add a file.", "zap");
+        this.header("Quick Add", "Write down a thought, or add a file", "zap");
         this.body = this.contentEl.createDiv({ cls: "hub-capture-body" });
         this.textPath = this.body.createDiv({ cls: "hub-capture-input-path", attr: { "data-capture-field": "Content" } });
         this.label = this.textPath.createEl("label", { cls: "hub-capture-label", attr: { for: this.prefix + "-input" } }); this.label.hidden = true;

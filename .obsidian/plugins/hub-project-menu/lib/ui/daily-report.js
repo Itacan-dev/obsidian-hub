@@ -8,6 +8,7 @@ const { parseLocalISODate, formatDate, formatTime, formatDateTime } = require(".
 const { activitySummary } = require("../domain/report-context");
 const { createHubMarkdown } = require("./markdown");
 const { renderHistoryIcon } = require("./dashboard-ui");
+const { setHubIcon } = require("./icons");
 
 function reportText(parent, text, markdown, cls = "hub-report-text", sourcePath = "Home.md") {
     const element = parent.createDiv({ cls, text });
@@ -22,15 +23,16 @@ function time(parent, timestamp) {
 }
 
 function sectionIcon(parent, name) {
-    const icon = parent.createSpan({ cls: "hub-report-section-icon", attr: { "aria-hidden": "true" } });
+    const icon = parent.createSpan({ cls: "hub-report-section-icon", attr: { "aria-hidden": "true", "data-icon": name } });
     if (name === "rotate-ccw-clock") renderHistoryIcon(icon);
+    else if (name === "goal") setHubIcon(icon, name);
     else setIcon(icon, name);
 }
 
 function focusSection(parent, heading, items, empty, markdown) {
     const section = parent.createDiv({ cls: "hub-report-section hub-report-focus" });
     const label = section.createEl("h3", { cls: "hub-report-section-heading" });
-    sectionIcon(label, heading.startsWith("Next focus") ? "circle-arrow-right" : "target");
+    sectionIcon(label, heading.startsWith("Next focus") ? "circle-arrow-right" : "goal");
     label.createSpan({ text: heading });
     if (!items.length) section.createDiv({ cls: "hub-report-empty", text: empty });
     for (const text of items) reportText(section, text, markdown);
@@ -129,17 +131,18 @@ function renderDailyReport(parent, day, markdown, plugin, component) {
 }
 
 function reportTitle(date, editing = false) {
-    const label = formatDate(parseLocalISODate(date), "full");
-    return `${editing ? "Edit progress report" : "Progress report"} — ${label}`;
+    return editing ? "Edit progress report" : "Progress report";
 }
 
 class DailyReportModal extends Modal {
     constructor(app, { day, onEdit, plugin }) { super(app); this.day = day; this.onEdit = onEdit; this.plugin = plugin; }
     onOpen() {
         this.contentEl.addClass("hub-project-advancement-modal", "hub-daily-report-modal", "hub-button-scope");
-        const heading = createWindowTitle(this.contentEl, reportTitle(this.day.date), "clipboard-check");
-        setWindowUndertext(heading, this.contentEl.createDiv({ cls: "hub-progress-rating-guidance",
-            text: "A summary of your work and progress for the day." }));
+        const heading = createWindowTitle(this.contentEl, reportTitle(this.day.date), "clipboard-check", {
+            date: { value: this.day.date, label: formatDate(parseLocalISODate(this.day.date), "full") }
+        });
+        setWindowUndertext(heading, this.contentEl.createEl("p", { cls: "hub-progress-rating-guidance hub-oath-muted",
+            text: "A summary of your work and progress for the day" }));
         this.contentEl.createDiv({ cls: "hub-project-advancement-divider" });
         this.renderComponent = new Component();
         this.renderComponent.load();

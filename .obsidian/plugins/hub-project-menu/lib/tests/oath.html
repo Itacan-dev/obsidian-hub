@@ -507,7 +507,7 @@ window.onload=async()=>{try{
  assert(setup.contentEl.querySelectorAll('input[type=radio]').length===8,'Two start, two workspace and four duration cards');
  assert([...setup.contentEl.querySelectorAll('input:checked')].map(el=>el.value).join(',')==='now'&&draft.durationMs===null,'Only Now defaults; duration is null');
  assert([...setup.contentEl.querySelectorAll('h3')].map(el=>el.textContent).join('|')==='When will your Oath begin?|What will you work on?|How long will you commit?','Exact section headings');
- assert(setup.contentEl.querySelectorAll('.hub-oath-muted').length===1&&setup.contentEl.querySelector('.hub-oath-muted').textContent==='Set the terms of your commitment.','Only subtitle helper text');
+ assert(setup.contentEl.querySelectorAll('.hub-oath-muted').length===1&&setup.contentEl.querySelector('.hub-oath-muted').textContent==='Set the terms of your commitment','Only subtitle helper text');
  assert(!setup.contentEl.querySelector('.hub-oath-choice svg:not(.hub-presets-chevron svg)'),'Only functional disclosure icons appear in default option cards');
  assert(setup.contentEl.querySelector('.hub-oath-schedule-editor').hidden&&!setup.contentEl.querySelector('input[type=number]'),'Default Now and preset duration disclose no fields');
  const initialHeight=setup.modalEl.getBoundingClientRect().height;
@@ -576,7 +576,7 @@ window.onload=async()=>{try{
  assert(!isBlocked(enabledReview)&&getComputedStyle(enabledReview).opacity==='1','Selected work enables normal primary action');click(setup.contentEl,'Review Oath');
  const groups=setup.contentEl.querySelectorAll('.hub-oath-row-group'),rows=groups[0].querySelectorAll('.hub-oath-review-row');
  assert(setup.contentEl.querySelector('h2').textContent==='Review your Oath','Review title');
- assert(setup.contentEl.querySelector('.hub-oath-muted').textContent==='Review the terms of your commitment before taking the Oath.','Review subtitle');
+ assert(setup.contentEl.querySelector('.hub-oath-muted').textContent==='Review the terms of your commitment before taking the Oath','Review subtitle');
  assert([...rows].map(row=>row.querySelector('strong').textContent).join('|')==='Start time|Selected project|Selected tasks|Duration','Summary labels');
  assert([...rows].map(row=>row.querySelector('[data-icon]').dataset.icon).join('|')==='clock|folder|list-todo|timer','Summary icons');
  assert([...groups[1].querySelectorAll('[data-icon]')].map(el=>el.dataset.icon).join('|')==='lucide-fullscreen|shield-user|info','During Oath icons');

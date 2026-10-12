@@ -79,20 +79,19 @@ window.hubTestWorkspaceControls = async f => {
         }
         const header = host.createDiv({ cls: variant === "Home" ? "home-panel-title" : "project-tasks-title" });
         header.createSpan({ text: variant + " Tasks" });
-        const clear = header.createEl("button", { text: "Clear", cls: "hub-panel-action hub-compact-panel-action" });
         const body = host.createDiv(), component = new f.component.constructor();
         const options = { root: variant };
         const ui = load("ui/tasks").createTaskUi({ app: plugin.app, component, body, createTask: value => { assert(value === options, "Add workflow receives original options"); created++; } });
         ui.addButton(header, options);
         const add = header.querySelector(".hub-task-add");
-        assert(add.textContent === "" && add.getAttribute("aria-label") === "Add task" && add.title === "Add task", "Icon-only Tasks add remains accessible");
+        assert(add.textContent === "Task" && add.getAttribute("aria-label") === "Add task" && add.title === "Add task", "Labelled Tasks add remains accessible");
         assert(add.querySelector('[data-icon="plus"]'), "Task panel uses Lucide plus");
-        for (const property of ["width", "height", "padding", "borderRadius", "backgroundColor", "borderTopColor", "boxShadow", "color"]) {
+        for (const property of ["height", "borderRadius", "backgroundColor", "borderTopColor", "boxShadow", "color"]) {
             assert(getComputedStyle(add)[property] === getComputedStyle(reference)[property], variant + " add matches Project creation " + property);
         }
-        near(rect(add).width, 23, "Task add is compact square");
+        assert(rect(add).width > rect(reference).width, "Task label receives intrinsic width and normal action padding");
         near(rect(add).height, 23, "Task add height");
-        near(rect(clear).top + rect(clear).height / 2, rect(add).top + rect(add).height / 2, "Clear/add centerline");
+        assert(header.querySelectorAll("button").length === 1, "Task header contains only + Task");
         near(rect(add.querySelector("svg")).width, 15, "Reference icon size");
         add.click(); assert(!add.classList.contains("is-active"), "Task action never retains an active state");
         component.unload();

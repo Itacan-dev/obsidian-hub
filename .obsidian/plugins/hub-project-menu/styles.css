@@ -41,7 +41,7 @@
 }
 
 /* Shared report guidance and an opt-in immediate native-tooltip surface. */
-.hub-progress-rating-guidance { display: grid; gap: 3px; font-size: var(--hub-font-body); }
+.hub-progress-rating-guidance { display: grid; gap: 3px; margin: 0; font-size: var(--hub-font-body); }
 .hub-progress-rating-hint { color: var(--text-muted); font-size: var(--hub-font-secondary); }
 .hub-progress-rating-guidance + .hub-project-advancement-divider { margin-top: 12px; }
 .tooltip.hub-detail-tooltip {
@@ -525,7 +525,11 @@
 .hub-button-scope button.hub-task-group-toggle:enabled:active { background: var(--background-secondary); }
 .hub-task-group-chevron { display: inline-flex; flex: 0 0 14px; color: inherit; }
 .hub-task-group-chevron svg { width: 14px; height: 14px; stroke-width: 1.5; }
-.hub-button-scope .hub-task-add { flex-shrink: 0; margin-left: 6px; }
+.hub-button-scope .hub-task-add { flex-shrink: 0; margin-left: 6px; gap: 4px; }
+.hub-task-add-icon { display: inline-flex; }
+.hub-task-add-icon svg { width: 15px; height: 15px; }
+.home-dashboard .home-upcoming .hub-task-add,
+.project-dashboard .project-tasks-title .hub-task-add { margin-left: auto; }
 .hub-planned-task-row .hub-task-markdown:focus-visible { outline: 2px solid var(--interactive-accent); outline-offset: 3px; border-radius: 3px; }
 
 /* Native Obsidian modal; theme colors and the existing Hub buttons apply. */
@@ -1517,18 +1521,25 @@ body.hub-project-note-mode
 /* The shared heatmap controller is the sole owner of calendar geometry. */
 :is(.home-progress-calendar, .project-progress-calendar) {
     --hub-heatmap-bottom-gap: 18px;
+    --hub-heatmap-label-gap: 4px;
+    --hub-heatmap-inline-inset: 4px;
     width: 100%; min-width: 0; flex: 0 0 auto;
-    overflow-x: auto; overflow-y: hidden; scrollbar-width: thin;
-    padding-block: 8px var(--hub-heatmap-bottom-gap);
+    padding-top: 8px;
     border-bottom: 1px solid var(--background-modifier-border);
 }
 .home-progress-section { min-width: 0; }
+.hub-heatmap-viewport {
+    /* Share the separator's extent; the controller centers the full assembly. */
+    width: 100%;
+    padding-bottom: var(--hub-heatmap-bottom-gap);
+    overflow-x: auto; overflow-y: hidden; scrollbar-width: thin;
+}
 :is(.home-progress-calendar, .project-progress-calendar) .heatmap-calendar-graph {
     position: relative; display: grid; box-sizing: border-box;
     font-family: inherit; line-height: 1.4;
-    grid-template-columns: var(--hub-heatmap-margin) minmax(0, 1fr) var(--hub-heatmap-margin);
-    grid-template-areas: ". months ." ". boxes .";
-    row-gap: 4px; width: var(--hub-heatmap-width); padding: 0;
+    grid-template-columns: var(--hub-heatmap-margin) var(--hub-heatmap-weekday) var(--hub-heatmap-weekday-gap) var(--hub-heatmap-inner) var(--hub-heatmap-margin);
+    grid-template-areas: ". . . months ." ". weekdays . boxes .";
+    row-gap: var(--hub-heatmap-label-gap); width: var(--hub-heatmap-width); padding: 0;
 }
 :is(.home-progress-calendar, .project-progress-calendar) :is(.heatmap-calendar-months, .heatmap-calendar-boxes) {
     display: grid; grid-template-columns: repeat(var(--hub-heatmap-weeks), var(--hub-heatmap-cell));
@@ -1545,10 +1556,26 @@ body.hub-project-note-mode
     min-width: 0; min-height: 0; margin: 0 !important; padding: 0; border-radius: 2px;
     font-size: 0; line-height: 0;
 }
+:is(.home-progress-calendar, .project-progress-calendar) .hub-progress-grid > li:is(.isEmpty, .hub-progress-padding) {
+    background-color: var(--background-primary);
+}
+.hub-progress-grid > .hub-progress-padding { pointer-events: none; }
+.hub-progress-weekdays {
+    grid-area: weekdays; display: grid;
+    grid-template-rows: repeat(7, var(--hub-heatmap-cell)); row-gap: var(--hub-heatmap-gap);
+    min-width: 0; padding: 0; margin: 0; list-style: none; line-height: 1;
+}
+/* Own list-item spacing even inside Obsidian's .markdown-rendered host. */
+.hub-progress-graph > .hub-progress-weekdays > li {
+    align-self: end; justify-self: end; white-space: nowrap; padding: 0; margin: 0;
+}
 .home-completed-task-row .home-recent-type,
 .hub-progress-graph {
-    font-size: var(--hub-font-meta); font-weight: 400; color: var(--text-faint);
+    font-size: var(--hub-font-meta); font-weight: 400;
 }
+.home-completed-task-row .home-recent-type { color: var(--text-faint); }
+/* Same color as Home's focus placeholder; retain metadata size and upright type. */
+.hub-progress-graph { color: var(--text-muted); font-style: normal; }
 .hub-progress-graph > .hub-heatmap-measure {
     position: absolute; visibility: hidden; pointer-events: none;
     display: flex; width: 0; height: 0; overflow: hidden; padding: 0; margin: 0;
@@ -1556,7 +1583,9 @@ body.hub-project-note-mode
 .hub-heatmap-measure > span { display: block; flex: none; }
 .hub-heatmap-navigation {
     /* Use the existing breathing room, never a cell or a reserved side gutter. */
-    position: absolute; top: 100%; left: 0; right: 0;
+    position: absolute; top: 100%;
+    left: calc(var(--hub-heatmap-margin) + var(--hub-heatmap-weekday) + var(--hub-heatmap-weekday-gap));
+    right: var(--hub-heatmap-margin);
     height: var(--hub-heatmap-bottom-gap);
     display: flex; justify-content: space-between; align-items: center;
     pointer-events: none; z-index: 5;
@@ -1702,7 +1731,8 @@ body.hub-project-note-mode
 }
 :where(.home-dashboard, .project-dashboard) .is-task-editing .hub-task-markdown:has(.hub-task-editor) { text-decoration: none; }
 
-/* Overlay the real label and hidden widest label in one intrinsic-width cell. */
+/* Overlay labels in one intrinsic-width cell; Home supplies all action contents
+   so the widest icon/text combination determines their common width. */
 .hub-button-scope button.hub-compact-panel-action {
     box-sizing: border-box;
     justify-content: center;
@@ -1719,6 +1749,12 @@ body.hub-project-note-mode
     .hub-compact-panel-action-sizer
 ) {
     grid-area: 1 / 1;
+}
+
+:is(.hub-compact-panel-action-label, .hub-compact-panel-action-sizer) {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
 }
 
 .hub-compact-panel-action-sizer {
@@ -2859,7 +2895,7 @@ body.hub-project-note-mode
 /* Match the existing readable-width composition even when native readable
    line width is disabled. Note-view rails keep their own width contract. */
 .markdown-preview-view:has(:is(.home-dashboard, .project-dashboard)):not(.hub-project-rail *) {
-    --hub-desktop-canvas-width: 1500px;
+    --hub-desktop-canvas-width: 1560px;
     --file-line-width: var(--hub-desktop-canvas-width);
     --line-width: var(--hub-desktop-canvas-width);
 }
@@ -2870,17 +2906,18 @@ body.hub-project-note-mode
 }
 :is(.home-dashboard, .project-dashboard):not(.hub-project-rail *) {
     width: 100%;
-    max-width: var(--hub-desktop-canvas-width, 1500px);
+    max-width: var(--hub-desktop-canvas-width, 1560px);
     min-width: 0;
     margin-inline: auto;
     box-sizing: border-box;
     container: hub-desktop / inline-size;
 }
-/* Preserve the desktop column ratios while allowing a narrower native pane
-   to shrink below the old combined pixel minimums without overflowing. */
+/* One shared panel unit: Home's Calendar, Focus and Tasks each use one
+   column, as do Progress and the workspace sidebar. Projects/Resources and
+   workspace Files span two units plus the existing gutter. */
 @media (min-width: 1001px) {
     :is(.home-dashboard, .project-dashboard):not(.hub-project-rail *) > :is(.home-main-grid, .project-main-grid) {
-        grid-template-columns: minmax(0, 1.1fr) minmax(0, 1.2fr) minmax(0, 1.1fr);
+        grid-template-columns: repeat(3, minmax(0, 1fr));
     }
 }
 :is(.home-dashboard, .project-dashboard):not(.hub-project-rail *) > :is(.home-main-grid, .project-main-grid) > * {
@@ -3259,6 +3296,21 @@ body.hub-project-note-mode
 }
 .hub-window-title {
     min-width: 0;
+}
+.hub-window-title-row {
+    display: flex;
+    align-items: baseline;
+    gap: var(--size-4-4, 16px);
+    min-width: 0;
+    padding-right: var(--size-4-6, 24px);
+}
+.hub-window-title-row > .hub-window-title { flex: 1; overflow-wrap: anywhere; }
+.hub-window-header-date {
+    flex: 0 1 auto;
+    max-width: 45%;
+    margin-left: auto;
+    overflow-wrap: anywhere;
+    text-align: right;
 }
 
 /* Music uses the existing native Modal, Capture header and Settings rows. */

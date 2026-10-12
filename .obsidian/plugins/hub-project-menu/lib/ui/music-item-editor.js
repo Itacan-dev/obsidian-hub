@@ -12,7 +12,7 @@ class MusicItemModal extends CaptureModal {
     }
     onOpen() {
         this.modalEl.classList.add("hub-music-item-dialog", "hub-quick-add-dialog");
-        this.header(this.item ? "Rename music" : "Add music", this.item ? "Choose a name for this music." : "Save a music link or choose local files.", "music");
+        this.header(this.item ? "Rename music" : "Add music", this.item ? "Choose a name for this music" : "Save a music link or choose local files", "music");
         const form = this.contentEl.createEl("form", { cls: "hub-music-item-form hub-capture-content" });
         const body = form.createDiv({ cls: "hub-capture-body hub-capture-form" });
         if (!this.item) {

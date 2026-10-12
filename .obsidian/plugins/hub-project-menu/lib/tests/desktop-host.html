@@ -30,8 +30,8 @@ body { margin: 0; --file-margins: 32px; --file-line-width: 700px; }
 "use strict";
 const hostCss = new URLSearchParams(location.search).get("hostCss");
 if (hostCss) document.querySelector("#native-host-css").href = hostCss;
-const near = (a, b, message) => {
-    if (Math.abs(a - b) > .05) throw Error(`${message}: ${a} / ${b}`);
+const near = (a, b, message, tolerance = .05) => {
+    if (Math.abs(a - b) > tolerance) throw Error(`${message}: ${a} / ${b}`);
 };
 const bounds = element => element.getBoundingClientRect();
 window.runDesktopHostChecks = () => {
@@ -59,7 +59,13 @@ window.runDesktopHostChecks = () => {
                 const style = getComputedStyle(preview), rect = bounds(root);
                 const available = preview.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
                 const label = `${width}px ${kind}/${host} readable=${readable}`;
-                near(rect.width, Math.min(1500, available), label + " canvas cap");
+                // clientWidth is integer CSS pixels; the painted scrollbar
+                // allocation is fractional at DPR 1.5. Keep rect-to-rect checks strict.
+                near(rect.width, Math.min(1560, available), label + " canvas cap", .5);
+                const grid = root.querySelector(`.${prefix}-main-grid`);
+                const tracks = getComputedStyle(grid).gridTemplateColumns.split(" ").length;
+                const unit = (bounds(grid).width - (tracks - 1) * 12) / tracks;
+                for (const panel of prefix === "home" ? grid.children : [grid.querySelector(".project-right-column")]) near(bounds(panel).width, unit, label + " equal panel unit");
                 if (!reference) reference = rect;
                 near(rect.width, reference.width, label + " host width parity");
                 near(rect.x, reference.x, label + " host horizontal inset parity");

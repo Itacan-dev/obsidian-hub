@@ -828,28 +828,8 @@ const upcomingHeader =
     );
 
 
-const clearCompletedTasksButton =
-    upcomingHeader.createEl(
-        "button",
-        {
-            cls:
-                "home-task-clear-completed hub-panel-action"
-        }
-    );
-
-
-clearCompletedTasksButton.createSpan({
-    text:
-        "Clear"
-});
-
-
-clearCompletedTasksButton.setAttribute(
-    "aria-label",
-    "Clear all completed tasks"
-);
-
 let visibleCompletedTasks = [];
+let clearingCompletedTasks = false;
 
 const upcomingBody =
     upcoming.createDiv({
@@ -863,7 +843,7 @@ upcomingBody.hubTaskUi = window.hubCreateTaskUi?.(dv.component, upcomingBody, ed
     resourceTasks = window.hubApplyTaskEdit(resourceTasks, edit, resolvePath);
     if (root.isConnected) renderTaskContext();
 });
-upcomingBody.hubTaskUi?.addButton(upcomingHeader);
+const addTaskButton = upcomingBody.hubTaskUi?.addButton(upcomingHeader);
 
 function renderTasksToDo(
     activeProjectTasks,
@@ -900,10 +880,6 @@ function renderTasksToDo(
 
     visibleCompletedTasks =
         completedTasks;
-
-
-    clearCompletedTasksButton.disabled =
-        completedTasks.length === 0;
 
 
     if (
@@ -1129,7 +1105,10 @@ function renderTasksToDo(
 
     if (upcomingBody.hubTaskUi?.group) {
         upcomingBody.hubTaskUi.group("future", futureTasks, item => renderTask(item, false));
-        upcomingBody.hubTaskUi.group("completed", completedTasks, item => renderTask(item, true));
+        upcomingBody.hubTaskUi.group("completed", completedTasks, item => renderTask(item, true), {
+            clear: () => clearVisibleCompletedTasks(),
+            canClear: () => !clearingCompletedTasks
+        });
         return;
     }
 
@@ -1226,49 +1205,16 @@ async function clearCompletedTaskItems(
 }
 
 
-clearCompletedTasksButton.addEventListener(
-    "click",
-    async event => {
-
-        event.stopPropagation();
-
-
-        if (
-            visibleCompletedTasks.length === 0
-        ) {
-            return;
-        }
-
-
-        clearCompletedTasksButton.disabled =
-            true;
-
-
-        try {
-
-            await clearCompletedTaskItems(
-                [...visibleCompletedTasks],
-                true
-            );
-
-        } catch (error) {
-
-            console.error(
-                "Could not clear completed tasks:",
-                error
-            );
-
-        } finally {
-
-            if (
-                clearCompletedTasksButton.isConnected
-            ) {
-                clearCompletedTasksButton.disabled =
-                    visibleCompletedTasks.length === 0;
-            }
-        }
+async function clearVisibleCompletedTasks() {
+    if (clearingCompletedTasks || visibleCompletedTasks.length === 0) return;
+    clearingCompletedTasks = true;
+    try {
+        // Keep the former header Clear scope and its native confirmation.
+        await clearCompletedTaskItems([...visibleCompletedTasks], true);
+    } finally {
+        clearingCompletedTasks = false;
     }
-);
+}
 
 
 
@@ -1309,18 +1255,25 @@ const calendarTodayButton =
     );
 
 
-// Share Today's intrinsic label width without changing compact button dimensions.
-for (const action of [calendarTodayButton, editFocusButton, clearCompletedTasksButton]) {
+// Each action sizes from the same complete set of intrinsic labels (including
+// Task's icon). CSS overlays them; font/theme/zoom changes need no measurement.
+const topRowActions = [calendarTodayButton, editFocusButton, addTaskButton].filter(Boolean);
+const topRowLabels = topRowActions.map(action => {
     action.classList.add("hub-compact-panel-action");
     const label = document.createElement("span");
     label.className = "hub-compact-panel-action-label";
     label.append(...Array.from(action.childNodes));
     action.append(label);
-    const sizer = action.createSpan({
-        cls: "hub-compact-panel-action-sizer",
-        text: "Today"
-    });
-    sizer.setAttribute("aria-hidden", "true");
+    return label;
+});
+for (const action of topRowActions) {
+    for (const label of topRowLabels) {
+        const sizer = label.cloneNode(true);
+        sizer.className = "hub-compact-panel-action-sizer";
+        sizer.setAttribute("aria-hidden", "true");
+        sizer.setAttribute("inert", "");
+        action.append(sizer);
+    }
 }
 
 calendarTodayButton.setAttribute(

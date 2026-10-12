@@ -51,6 +51,18 @@ function setHubIcon(element, name) {
         }
         element.replaceChildren(svg); return;
     }
+    if (name.replace(/^lucide-/, "") === "goal" && !getIcon(resolved)) {
+        // Official Lucide SVG for registries predating Goal. The ISC copyright,
+        // permission and warranty notice above also applies to this SVG.
+        // https://github.com/lucide-icons/lucide/blob/main/icons/goal.svg
+        const svg = element.ownerDocument.createElementNS("http://www.w3.org/2000/svg", "svg");
+        svg.classList.add("lucide", "lucide-goal");
+        for (const [key, value] of Object.entries({ viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "stroke-width": "2", "stroke-linecap": "round", "stroke-linejoin": "round" })) svg.setAttribute(key, value);
+        for (const d of ["M12 13V2l8 4-8 4", "M20.561 10.222a9 9 0 1 1-12.55-5.29", "M8.002 9.997a5 5 0 1 0 8.9 2.02"]) {
+            const path = element.ownerDocument.createElementNS(svg.namespaceURI, "path"); path.setAttribute("d", d); svg.append(path);
+        }
+        element.replaceChildren(svg); return;
+    }
     setIcon(element, resolved);
 }
 

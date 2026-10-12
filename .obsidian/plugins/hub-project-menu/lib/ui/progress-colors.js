@@ -9,17 +9,17 @@ const PROGRESS_COLOR =
 /*
  * Opacity at scores:
  *
- * 1 → 25%
- * 2 → 50%
- * 3 → 75%
+ * 1 → 10%
+ * 2 → 30%
+ * 3 → 60%
  * 4 → 100%
  *
  * Change these four numbers freely.
  */
 const PROGRESS_OPACITY = [
-    25,
-    50,
-    75,
+    10,
+    30,
+    60,
     100
 ];
 

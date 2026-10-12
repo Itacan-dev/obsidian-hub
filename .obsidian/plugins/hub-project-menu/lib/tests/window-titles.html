@@ -32,8 +32,10 @@ const cases=[
  ['Music','music','hub-oath-dialog','',740],['Settings','settings','','hub-settings-header',980],
  ['Edit task','square-pen','hub-task-dialog','hub-task-form',680],
  ['Add task','square-plus','hub-task-dialog','hub-task-form',680],
- ['Progress report — 30 September 2026','clipboard-check','','hub-project-advancement-modal',740],
- ['Edit progress report — 30 September 2026','clipboard-pen','','hub-project-advancement-modal',740],
+ ['Progress report','clipboard-check','','hub-project-advancement-modal',740],
+ ['Edit progress report','clipboard-pen','','hub-project-advancement-modal',740],
+ ['Complete progress report','clipboard-plus','','hub-project-advancement-modal',740],
+ ['Update progress report','clipboard-pen','','hub-project-advancement-modal',740],
  ['Statistics','chart-no-axes-column','','hub-statistics-header',1000],
  ['Daily brief','newspaper','','hub-daily-brief-modal',740],
  ['Save preset','panels-top-left','','',450],['Rename preset','panels-top-left','','',450],
@@ -48,33 +50,37 @@ const cases=[
 const subtitles={
  'Scheduled Oath':'Starts tomorrow at 09:00',
  'Oathbound':'50:00 remaining',
- 'Make an Oath':'Set the terms of your commitment.',
- 'Review your Oath':'Review the terms of your commitment before taking the Oath.',
- 'Quick Add':'Write down a thought, or add a file.',
+ 'Make an Oath':'Set the terms of your commitment',
+ 'Review your Oath':'Review the terms of your commitment before taking the Oath',
+ 'Quick Add':'Write down a thought, or add a file',
  'Inbox':'Saved items awaiting organisation',
- 'Settings':'Customize how Itacan looks and behaves.',
+ 'Music':'Play your configured music',
+ 'Settings':'Customize how Itacan looks and behaves',
  'Daily brief':'Tuesday, 6 October 2026',
- 'Edit cover images':'Right-click a preview to change its image or image placement.',
- 'Progress report \u2014 30 September 2026':'A summary of your work and progress for the day.',
- 'Edit progress report — 30 September 2026':"Rate the significance of today's work in each workspace."
+ 'Edit cover images':'Right-click a preview to change its image or image placement',
+ 'Progress report':'A summary of your work and progress for the day',
+ 'Edit progress report':"Review activity and adjust the significance of work recorded for this date",
+ 'Complete progress report':'Review your activity and rate your work in each project or resource',
+ 'Update progress report':'New activity has been recorded since your last report. Review your ratings'
 };
 try{
  for(const [text,icon,modalClass,headerClass,width]of cases){
-  const modal=windows.createEl('section',{cls:'modal '+modalClass});modal.style.width=width+'px';
+  const modal=windows.createEl('section',{cls:'modal hub-button-scope '+modalClass});modal.style.width=width+'px';
   const close=modal.createEl('button',{cls:'modal-close-button',text:'×',attr:{'aria-label':'Close'}});
-  const header=modal.createEl('header',{cls:headerClass}),options=text.includes('task')?{cls:'hub-task-dialog-title'}:{};
+  const header=modal.createEl('header',{cls:headerClass}),options=text.includes('task')?{cls:'hub-task-dialog-title'}:/progress report/i.test(text)?{date:{value:'2026-09-30',label:'30 September 2026'}}:{};
   const baseline=header.createEl('h2',{...options,text});
   // Compare against the existing two-column header's available text width.
   baseline.style.width='calc(100% - 50px - '+getComputedStyle(baseline).marginRight+')';
   const description=subtitles[text];
-  const undertext=description?header.createEl('p',{cls:headerClass==='hub-settings-header'?'hub-settings-description':'hub-oath-muted',text:description}):null;
+  const undertext=description?header.createEl('p',{cls:headerClass==='hub-settings-header'?'hub-settings-description':'hub-oath-muted hub-window-undertext',text:description}):null;
   const style=getComputedStyle(baseline),textStyle={font:style.font,fontSize:style.fontSize,fontWeight:style.fontWeight,lineHeight:style.lineHeight};
   const body=modal.createEl('div',{text:'Existing body content'});
   const before={bodyTop:body.getBoundingClientRect().top,close:close.getBoundingClientRect().toJSON(),width:modal.offsetWidth,gap:undertext?undertext.getBoundingClientRect().top-baseline.getBoundingClientRect().bottom:null,underFont:undertext?getComputedStyle(undertext).font:null};
   baseline.remove();undertext?.remove();
   const title=createWindowTitle(header,text,icon,options);
   if(undertext){header.append(undertext);setWindowUndertext(title,undertext);}
-  const row=title.closest('.hub-window-header'),copy=title.parentElement,graphic=row.firstElementChild,svg=graphic.firstElementChild;
+  if(options.date){const date=header.querySelector('.hub-window-header-date');assert(date.textContent===options.date.label&&date.dateTime===options.date.value,text+': separate semantic date');assert(date.parentElement===title.parentElement,text+': title/date row');for(const property of ['fontFamily','fontSize','fontWeight','lineHeight','color'])assert(getComputedStyle(date)[property]===getComputedStyle(title)[property],text+': date reuses title '+property);assert(date.getBoundingClientRect().left-title.getBoundingClientRect().right>=15.8,text+': title/date spacing');assert(date.parentElement.getBoundingClientRect().right-date.getBoundingClientRect().right>=23.8,text+': close clearance');}
+  const row=title.closest('.hub-window-header'),copy=row.querySelector('.hub-window-header-copy'),graphic=row.firstElementChild,svg=graphic.firstElementChild;
   const g=graphic.getBoundingClientRect(),r=svg.getBoundingClientRect(),c=copy.getBoundingClientRect(),t=title.getBoundingClientRect();
   assert(title.textContent===text&&graphic.dataset.icon===icon,text+': mapping and text');
   assert(graphic.getAttribute('aria-hidden')==='true',text+': decorative icon');
@@ -87,7 +93,9 @@ try{
   assert(getComputedStyle(svg).transform==='none',text+': no icon offsets');
   if(undertext){
    assert(near(undertext.getBoundingClientRect().left,t.left),text+': two text rows align');
-   assert(near(undertext.getBoundingClientRect().top-t.bottom,6),text+': shared Quick Add subtitle gap');
+   assert(near(undertext.getBoundingClientRect().top-(options.date?title.parentElement.getBoundingClientRect().bottom:t.bottom),6),text+': shared Quick Add subtitle gap');
+   assert(!undertext.textContent.endsWith('.'),text+': subtitle has no trailing period');
+   if(undertext.classList.contains('hub-oath-muted'))assert(getComputedStyle(undertext).fontSize==='13.44px'&&getComputedStyle(undertext).lineHeight==='20.16px'&&getComputedStyle(undertext).color==='rgb(170, 170, 170)',text+': shared muted subtitle styling');
    assert(getComputedStyle(undertext).font===before.underFont,text+': undertext typography preserved');
   }else{
    assert(copy.children.length===1&&near(c.height,t.height),text+': no empty subtitle row');
@@ -113,7 +121,7 @@ try{
  if(new URLSearchParams(location.search).has('preview')){
   windows.style.cssText='display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px';
   for(const modal of windows.children)modal.style.cssText='width:auto;margin:0;max-width:none';
-  for(const modal of [...windows.children])if(!['Quick Add','Inbox','Make an Oath','Progress report \u2014 30 September 2026','Edit progress report \u2014 30 September 2026'].includes(modal.querySelector('h2')?.textContent)&&!modal.querySelector('.mod-cta'))modal.remove();
+  for(const modal of [...windows.children])if(!['Quick Add','Inbox','Make an Oath','Progress report','Edit progress report'].includes(modal.querySelector('h2')?.textContent)&&!modal.querySelector('.mod-cta'))modal.remove();
   window.scrollTo(0,0);
   const previewStyle=document.createElement('style');previewStyle.textContent='h2{font:700 32px/1.3 "Segoe UI",sans-serif}';document.head.append(previewStyle);
  }

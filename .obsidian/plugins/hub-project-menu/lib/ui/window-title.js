@@ -5,7 +5,8 @@ const headers = new WeakMap();
 // Keep native heading/undertext styles while moving their outer margins to the
 // shared grid. Reading the existing styles also preserves the user's theme.
 function createWindowTitle(parent, text, icon, options = {}) {
-    const title = parent.createEl("h2", { ...options, text });
+    const { date, ...titleOptions } = options;
+    const title = parent.createEl("h2", { ...titleOptions, text });
     const style = parent.ownerDocument.defaultView.getComputedStyle(title);
     const margins = [style.marginTop, style.marginRight, style.marginBottom, style.marginLeft];
     const color = style.color;
@@ -17,6 +18,15 @@ function createWindowTitle(parent, text, icon, options = {}) {
     setIcon(graphic, icon);
     const copy = header.createEl("div", { cls: "hub-window-header-copy" });
     copy.append(title);
+    if (date) {
+        const row = copy.createEl("div", { cls: "hub-window-title-row" });
+        row.append(title);
+        const dateEl = row.createEl("time", { cls: "hub-window-header-date",
+            text: date.label, attr: { datetime: date.value } });
+        // Reuse the native/theme heading typography already read for this title.
+        dateEl.style.font = style.font;
+        dateEl.style.color = color;
+    }
     title.classList.add("hub-window-title");
     title.style.margin = "0";
     headers.set(title, { header, copy, bottomMargin: margins[2] });

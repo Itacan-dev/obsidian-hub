@@ -38,4 +38,18 @@ for (const name of ['list-sort-descending', 'list-sort-ascending']) {
     assert.equal((registered.get(name).match(/<path /g) || []).length, 3, 'Exact official Lucide icon keeps all three list strokes');
     assert(registered.get(name).includes('scale(4.166666666666667)') && registered.get(name).includes('stroke="currentColor"'), 'Custom icon uses native 100-unit viewBox scaling and foreground color');
 }
-console.log("Hub icon resolution passed: canonical Lucide names, folder/presentation legacy collisions, custom and legacy fallback.");
+canonical.add("goal");
+setHubIcon({}, "goal");
+assert.equal(rendered.at(-1), "goal", "Use native Goal when available");
+canonical.delete("goal");
+const goal = { ownerDocument: { createElementNS(namespaceURI, tag) {
+    const node = { namespaceURI, tag, attributes: {}, children: [], classList: { add() {} },
+        setAttribute(key, value) { this.attributes[key] = value; }, append(child) { this.children.push(child); } };
+    return node;
+} }, replaceChildren(svg) { this.svg = svg; } };
+setHubIcon(goal, "goal");
+assert.equal(goal.svg.attributes.viewBox, "0 0 24 24", "Missing native Goal keeps Lucide's viewBox");
+assert.equal(goal.svg.children.length, 3, "Missing native Goal retains all official strokes");
+assert.equal(goal.svg.children[0].attributes.d, "M12 13V2l8 4-8 4", "Goal retains its flag, rather than a substitute icon");
+assert.equal(goal.svg.attributes.stroke, "currentColor", "Fallback inherits report icon color");
+console.log("Hub icon resolution passed: canonical Lucide names, folder/presentation legacy collisions, custom and legacy fallback, native/official fallback Goal.");

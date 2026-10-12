@@ -1,28 +1,33 @@
 <!doctype html><meta charset="utf-8"><title>Progress heatmap raster regression</title>
+<link rel="stylesheet" href="obsidian-heatmap-host.css">
 <link rel="stylesheet" href="../../../heatmap-calendar/styles.css">
 <link rel="stylesheet" href="../../../../snippets/heatmap-fix.css">
 <link rel="stylesheet" href="../../styles.css">
 <link rel="stylesheet" href="../../../../../System/Dashboards/Home/view.css">
 <link rel="stylesheet" href="../../../../../System/Dashboards/Project/view.css">
 <style>
-html{font-size:17px}body{margin:0;background:#262626;color:#ddd;font:17px system-ui;--background-secondary:#262626;--text-muted:#aaa;--background-modifier-border:#343434}
-*{box-sizing:border-box}#host{position:absolute;left:20.3px;top:20.7px;width:470px}
-</style><body class="theme-dark"><div id="host" class="hub-button-scope"></div>
+/* A continuous panel-colored raster backdrop separates edge cells from the
+   screenshot boundary. Cells still use the app's outside-surface token. */
+html{font-size:17px}body{margin:0;background:#262626;color:#ddd;font:17px system-ui;--background-primary:#1e1e1e;--background-secondary:#262626;--text-muted:#aaa;--text-faint:#777;--background-modifier-border:#343434}
+*{box-sizing:border-box}#host{position:absolute;left:20.3px;top:20.7px;width:498px;padding:14px;background:var(--background-secondary)}
+</style><body class="theme-dark"><div id="host" class="hub-button-scope markdown-rendered"></div>
 <script type="module">
 const read=async p=>(await fetch(p)).text();
 function create(tag,o={}){const e=document.createElement(tag);e.className=Array.isArray(o.cls)?o.cls.join(' '):o.cls||'';e.textContent=o.text||'';for(const [k,v]of Object.entries(o.attr||{}))e.setAttribute(k,v);o.parent?.append(e);return e}
 window.createEl=create;window.createDiv=o=>create('div',o);window.createSpan=o=>create('span',o);
 const native={Plugin:class{async loadData(){return {}}addSettingTab(){}},PluginSettingTab:class{}};
-const renderer={exports:{}},layout={exports:{}};
+const renderer={exports:{}},layout={exports:{}},palette={exports:{}};
 new Function('module','require',await read('../../../heatmap-calendar/main.js'))(renderer,()=>native);
-await new renderer.exports.default().onload();
+const nativePlugin=new renderer.exports.default();await nativePlugin.onload();
 new Function('module',await read('../ui/progress-heatmap.js'))(layout);
+new Function('module',await read('../ui/progress-colors.js'))(palette);
 let dispose=()=>{},calendar;
-window.mountHeatmap=async ({width=470,zoom=1,kind='home',year=2026,left=20.3,top=20.7}={})=>{
+window.mountHeatmap=async ({width=470,zoom=1,kind='home',year=2026,weekStart=1,left=20.3,top=20.7,entries=[]}={})=>{
  dispose();host.replaceChildren();document.body.style.zoom=zoom;
- Object.assign(host.style,{width:width+'px',left:left+'px',top:top+'px'});
+ Object.assign(host.style,{width:(width+28)+'px',left:left+'px',top:top+'px'});
  calendar=create('div',{cls:kind+'-progress-calendar',parent:host});
- window.renderHeatmapCalendar(calendar,{year,entries:[],showCurrentDayBorder:false});
+ nativePlugin.settings.weekStartDay=weekStart;
+ window.renderHeatmapCalendar(calendar,{year,entries,colors:palette.exports.progressColors,intensityScaleStart:1,intensityScaleEnd:4,showCurrentDayBorder:false});
  const graph=calendar.firstElementChild;
  graph.classList.add('hub-heatmap-with-navigation');
  const refresh=layout.exports.createProgressHeatmap(calendar,{register(fn){dispose=fn}});refresh();
@@ -30,28 +35,71 @@ window.mountHeatmap=async ({width=470,zoom=1,kind='home',year=2026,left=20.3,top
  return window.heatmapRects();
 };
 window.resizeHeatmap=async ({width,zoom}={})=>{
- if(width!==undefined)host.style.width=width+'px';
+ if(width!==undefined)host.style.width=(width+28)+'px';
  if(zoom!==undefined)document.body.style.zoom=zoom;
  await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
  return window.heatmapRects();
 };
 window.heatmapRects=()=>({dpr:devicePixelRatio,zoom:parseFloat(document.body.style.zoom),
- cells:[...calendar.querySelectorAll('.heatmap-calendar-boxes>li')].map(e=>{const r=e.getBoundingClientRect();return {x:r.x,y:r.y,w:r.width,h:r.height}}),
- viewport:calendar.getBoundingClientRect().toJSON(),
- graph:calendar.firstElementChild.getBoundingClientRect().toJSON(),
- style:calendar.firstElementChild.getAttribute('style')});
+ labels:[...calendar.querySelectorAll('.hub-progress-weekdays>li')].map(e=>({text:e.textContent,row:Number(e.style.gridRow)-1,...e.getBoundingClientRect().toJSON()})),
+ months:calendar.querySelector('.heatmap-calendar-months').getBoundingClientRect().toJSON(),
+ weekdayColumn:calendar.querySelector('.hub-progress-weekdays').getBoundingClientRect().toJSON(),
+ cells:[...calendar.querySelectorAll('.heatmap-calendar-boxes>li')].map(e=>{const r=e.getBoundingClientRect();return {x:r.x,y:r.y,w:r.width,h:r.height,date:e.dataset.date,visible:getComputedStyle(e).visibility!=='hidden'}}),
+ viewport:calendar.querySelector('.hub-heatmap-viewport').getBoundingClientRect().toJSON(),
+ graph:calendar.querySelector('.heatmap-calendar-graph').getBoundingClientRect().toJSON(),
+ style:calendar.querySelector('.heatmap-calendar-graph').getAttribute('style')});
+// A reference capture uses the same text nodes at the same fractional origins.
+// Remove cell occlusion without changing layout or scroll-layer rasterization.
+// Clipping is checked separately against the measured column and viewport.
+// Comparing every text-box pixel catches partially painted words, not just a
+// nonempty label or an apparently valid UL bounding box.
+window.prepareWeekdayReference=()=>{
+ const nodes=[...calendar.querySelectorAll('.heatmap-calendar-boxes>li')];
+ const saved=nodes.map(e=>[e,e.getAttribute('style')]);
+ nodes.forEach(e=>e.style.setProperty('visibility','hidden','important'));
+ window.restoreWeekdayReference=()=>saved.forEach(([e,style])=>style===null?e.removeAttribute('style'):e.setAttribute('style',style));
+};
+window.inspectWeekdayPixels=async (actual,reference,geometry)=>{
+ const decode=async data=>{
+  const img=new Image();img.src='data:image/png;base64,'+data;await img.decode();
+  const canvas=document.createElement('canvas');canvas.width=img.width;canvas.height=img.height;
+  const ctx=canvas.getContext('2d');ctx.drawImage(img,0,0);
+  return {width:img.width,height:img.height,data:ctx.getImageData(0,0,img.width,img.height).data};
+ };
+ const [a,b]=await Promise.all([decode(actual),decode(reference)]),d=geometry.dpr;
+ return geometry.labels.map(r=>{
+  const first=geometry.cells[0],monthGap=first.y-geometry.months.bottom;
+  if(Math.abs(r.bottom-(first.y+r.row*(first.h+1/d)+first.h))>.04)throw Error('Weekday is not bottom-aligned with its row');
+  if(Math.abs((first.x-r.right)-monthGap)>.04)throw Error('Month and weekday gaps differ');
+  if(r.left<geometry.viewport.left-.01||r.right>geometry.viewport.right+.01)throw Error(r.text+' is clipped by viewport');
+  if(r.left<geometry.weekdayColumn.left-.01||r.right>geometry.weekdayColumn.right+.01)throw Error(r.text+' overflows weekday column');
+  for(const cell of geometry.cells)if(r.right>cell.x&&r.left<cell.x+cell.w&&r.bottom>cell.y&&r.top<cell.y+cell.h)throw Error(r.text+' intersects a cell');
+  let glyphPixels=0,mismatchedPixels=0;
+  for(let y=Math.floor(r.top*d);y<Math.ceil(r.bottom*d);y++)for(let x=Math.floor(r.left*d);x<Math.ceil(r.right*d);x++){
+   if(x<0||y<0||x>=a.width||y>=a.height)throw Error('Weekday outside screenshot');
+   const i=(y*a.width+x)*4;
+   if(b.data[i]>48||b.data[i+1]>48||b.data[i+2]>48)glyphPixels++;
+   if([0,1,2].some(c=>a.data[i+c]!==b.data[i+c]))mismatchedPixels++;
+  }
+  if(!glyphPixels||mismatchedPixels)throw Error('Obscured weekday '+JSON.stringify({text:r.text,glyphPixels,mismatchedPixels}));
+  return {text:r.text,glyphPixels,mismatchedPixels};
+ });
+};
 // Sample the actual screenshot, not a DOM-to-canvas reconstruction. Center-line
 // runs avoid rounded corners; threshold is halfway from empty-cell to panel RGB.
 window.inspectPixels=async (base64,geometry)=>{
  const img=new Image();img.src='data:image/png;base64,'+base64;await img.decode();
  const canvas=document.createElement('canvas');canvas.width=img.width;canvas.height=img.height;
  const ctx=canvas.getContext('2d');ctx.drawImage(img,0,0);const pixels=ctx.getImageData(0,0,img.width,img.height).data;
- const occupied=(x,y)=>{if(x<0||y<0||x>=img.width||y>=img.height)return false;const i=(y*img.width+x)*4;return pixels[i]<29&&pixels[i+1]<32};
+ const occupied=(x,y)=>{if(x<0||y<0||x>=img.width||y>=img.height)return false;const i=(y*img.width+x)*4;return pixels[i]<34&&pixels[i+1]<34};
  const d=geometry.dpr, bounds=new Map();
  for(const [index,r] of geometry.cells.entries()){
   if(r.x<geometry.viewport.left-.01||r.x+r.w>geometry.viewport.right+.01)continue;
   const cx=Math.floor((r.x+r.w/2)*d),cy=Math.floor((r.y+r.h/2)*d);
   if((r.x+r.w)*d>img.width||(r.y+r.h)*d>img.height)continue;
+  if(!r.visible)throw Error('Rectangular grid contains a hidden cell');
+  const center=(cy*img.width+cx)*4;
+  if([0,1,2].some(c=>pixels[center+c]!==30))throw Error('Empty/filler cell does not match outside-of-panel color');
   let l=cx,t=cy,right=cx,bottom=cy;
   if(!occupied(cx,cy))throw Error('Cell center not found at '+cx+','+cy);
   while(occupied(l-1,cy))l--;while(occupied(right+1,cy))right++;
@@ -64,7 +112,26 @@ window.inspectPixels=async (base64,geometry)=>{
   if(bounds.has(i-7))xgaps.push(r.l-bounds.get(i-7).r);
   if(bounds.has(i-1)&&Math.abs(geometry.cells[i].x-geometry.cells[i-1].x)<.01)ygaps.push(r.t-bounds.get(i-1).b);
  }
- return {sizes,xgaps:[...new Set(xgaps)],ygaps:[...new Set(ygaps)],count:bounds.size,first:bounds.values().next().value};
+ return {sizes,xgaps:[...new Set(xgaps)],ygaps:[...new Set(ygaps)],count:bounds.size,first:bounds.values().next().value,imageWidth:img.width,imageHeight:img.height};
+};
+window.inspectProgressColors=async (base64,geometry)=>{
+ const img=new Image();img.src='data:image/png;base64,'+base64;await img.decode();
+ const canvas=document.createElement('canvas');canvas.width=img.width;canvas.height=img.height;
+ const ctx=canvas.getContext('2d');ctx.drawImage(img,0,0);const pixels=ctx.getImageData(0,0,img.width,img.height).data;
+ const rgb=r=>{const i=(Math.floor((r.y+r.h/2)*geometry.dpr)*img.width+Math.floor((r.x+r.w/2)*geometry.dpr))*4;return [...pixels.slice(i,i+3)]};
+ const empty=rgb(geometry.cells[0]),green=[13,201,79],panel=[38,38,38],alphas=[.1,.3,.6,1];
+ const levels=alphas.map((alpha,i)=>{
+  const color=rgb(geometry.cells.find(r=>r.date==='2026-01-0'+(i+5)));
+  // Chromium quantizes premultiplied alpha and compositing channels to 8 bits.
+  if(color.some((c,j)=>Math.abs(c-(alpha*green[j]+(1-alpha)*panel[j]))>2))throw Error('Incorrect painted progress color '+JSON.stringify({i,color}));
+  return color;
+ });
+ const distance=color=>Math.hypot(...color.map((c,i)=>c-empty[i]));
+ if(empty.some(c=>c!==30))throw Error('Empty surface changed');
+ if(distance(levels[0])>=distance(green.map((c,i)=>.25*c+.75*panel[i])))throw Error('Painted level 1 is not closer to empty');
+ if(levels[3].some((c,i)=>c!==green[i]))throw Error('Strongest green changed');
+ if(levels.some((color,i)=>i&&distance(color)<=distance(levels[i-1])))throw Error('Non-monotonic painted scale');
+ return {empty,levels,level1Contrast:distance(levels[0]),formerLevel1Contrast:distance(green.map((c,i)=>.25*c+.75*panel[i]))};
 };
 window.ready=true;
 </script>

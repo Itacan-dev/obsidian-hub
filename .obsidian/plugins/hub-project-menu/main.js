@@ -11105,6 +11105,7 @@ const { parseLocalISODate, formatDate, formatTime, formatDateTime } = __hubRequi
 const { activitySummary } = __hubRequire("lib/domain/report-context.js");
 const { createHubMarkdown } = __hubRequire("lib/ui/markdown.js");
 const { renderHistoryIcon } = __hubRequire("lib/ui/dashboard-ui.js");
+const { setHubIcon } = __hubRequire("lib/ui/icons.js");
 
 function reportText(parent, text, markdown, cls = "hub-report-text", sourcePath = "Home.md") {
     const element = parent.createDiv({ cls, text });
@@ -11119,15 +11120,16 @@ function time(parent, timestamp) {
 }
 
 function sectionIcon(parent, name) {
-    const icon = parent.createSpan({ cls: "hub-report-section-icon", attr: { "aria-hidden": "true" } });
+    const icon = parent.createSpan({ cls: "hub-report-section-icon", attr: { "aria-hidden": "true", "data-icon": name } });
     if (name === "rotate-ccw-clock") renderHistoryIcon(icon);
+    else if (name === "goal") setHubIcon(icon, name);
     else setIcon(icon, name);
 }
 
 function focusSection(parent, heading, items, empty, markdown) {
     const section = parent.createDiv({ cls: "hub-report-section hub-report-focus" });
     const label = section.createEl("h3", { cls: "hub-report-section-heading" });
-    sectionIcon(label, heading.startsWith("Next focus") ? "circle-arrow-right" : "target");
+    sectionIcon(label, heading.startsWith("Next focus") ? "circle-arrow-right" : "goal");
     label.createSpan({ text: heading });
     if (!items.length) section.createDiv({ cls: "hub-report-empty", text: empty });
     for (const text of items) reportText(section, text, markdown);
@@ -11226,17 +11228,18 @@ function renderDailyReport(parent, day, markdown, plugin, component) {
 }
 
 function reportTitle(date, editing = false) {
-    const label = formatDate(parseLocalISODate(date), "full");
-    return `${editing ? "Edit progress report" : "Progress report"} — ${label}`;
+    return editing ? "Edit progress report" : "Progress report";
 }
 
 class DailyReportModal extends Modal {
     constructor(app, { day, onEdit, plugin }) { super(app); this.day = day; this.onEdit = onEdit; this.plugin = plugin; }
     onOpen() {
         this.contentEl.addClass("hub-project-advancement-modal", "hub-daily-report-modal", "hub-button-scope");
-        const heading = createWindowTitle(this.contentEl, reportTitle(this.day.date), "clipboard-check");
-        setWindowUndertext(heading, this.contentEl.createDiv({ cls: "hub-progress-rating-guidance",
-            text: "A summary of your work and progress for the day." }));
+        const heading = createWindowTitle(this.contentEl, reportTitle(this.day.date), "clipboard-check", {
+            date: { value: this.day.date, label: formatDate(parseLocalISODate(this.day.date), "full") }
+        });
+        setWindowUndertext(heading, this.contentEl.createEl("p", { cls: "hub-progress-rating-guidance hub-oath-muted",
+            text: "A summary of your work and progress for the day" }));
         this.contentEl.createDiv({ cls: "hub-project-advancement-divider" });
         this.renderComponent = new Component();
         this.renderComponent.load();
@@ -12103,7 +12106,7 @@ function openHomeCoverEditor(service, sourceCover) {
             this.modalEl.classList.add("hub-home-covers-dialog");
             this.contentEl.classList.add("hub-button-scope", "hub-home-covers-editor");
             const heading = createWindowTitle(this.contentEl, "Edit cover images", "image");
-            setWindowUndertext(heading, this.contentEl.createEl("p", { text: "Right-click a preview to change its image or image placement." }));
+            setWindowUndertext(heading, this.contentEl.createEl("p", { text: "Right-click a preview to change its image or image placement" }));
             this.previews = [];
             this.sourceSize = { width: sourceCover.clientWidth, height: sourceCover.clientHeight };
             for (const period of HOME_COVER_PERIODS) {
@@ -12275,6 +12278,18 @@ function setHubIcon(element, name) {
         svg.classList.add("lucide", "lucide-file-question-mark");
         for (const [key, value] of Object.entries({ viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "stroke-width": "2", "stroke-linecap": "round", "stroke-linejoin": "round" })) svg.setAttribute(key, value);
         for (const d of ["M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z", "M12 17h.01", "M9.1 9a3 3 0 0 1 5.82 1c0 2-3 3-3 3"]) {
+            const path = element.ownerDocument.createElementNS(svg.namespaceURI, "path"); path.setAttribute("d", d); svg.append(path);
+        }
+        element.replaceChildren(svg); return;
+    }
+    if (name.replace(/^lucide-/, "") === "goal" && !getIcon(resolved)) {
+        // Official Lucide SVG for registries predating Goal. The ISC copyright,
+        // permission and warranty notice above also applies to this SVG.
+        // https://github.com/lucide-icons/lucide/blob/main/icons/goal.svg
+        const svg = element.ownerDocument.createElementNS("http://www.w3.org/2000/svg", "svg");
+        svg.classList.add("lucide", "lucide-goal");
+        for (const [key, value] of Object.entries({ viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "stroke-width": "2", "stroke-linecap": "round", "stroke-linejoin": "round" })) svg.setAttribute(key, value);
+        for (const d of ["M12 13V2l8 4-8 4", "M20.561 10.222a9 9 0 1 1-12.55-5.29", "M8.002 9.997a5 5 0 1 0 8.9 2.02"]) {
             const path = element.ownerDocument.createElementNS(svg.namespaceURI, "path"); path.setAttribute("d", d); svg.append(path);
         }
         element.replaceChildren(svg); return;
@@ -13160,7 +13175,7 @@ class MusicItemModal extends CaptureModal {
     }
     onOpen() {
         this.modalEl.classList.add("hub-music-item-dialog", "hub-quick-add-dialog");
-        this.header(this.item ? "Rename music" : "Add music", this.item ? "Choose a name for this music." : "Save a music link or choose local files.", "music");
+        this.header(this.item ? "Rename music" : "Add music", this.item ? "Choose a name for this music" : "Save a music link or choose local files", "music");
         const form = this.contentEl.createEl("form", { cls: "hub-music-item-form hub-capture-content" });
         const body = form.createDiv({ cls: "hub-capture-body hub-capture-form" });
         if (!this.item) {
@@ -13431,7 +13446,7 @@ class MusicModal extends Modal {
         this.contentEl.tabIndex = -1;
         const header = this.contentEl.createEl("header", { cls: "hub-capture-header" });
         const heading = createWindowTitle(header, "Music", "music", { attr: { id: this.titleId } });
-        setWindowUndertext(heading, header.createEl("p", { cls: "hub-oath-muted", text: "Play your configured music." }));
+        setWindowUndertext(heading, header.createEl("p", { cls: "hub-oath-muted", text: "Play your configured music" }));
         this.modalEl.setAttribute("aria-labelledby", this.titleId);
         this.modalEl.querySelector(".modal-close-button")?.setAttribute("aria-label", "Close Music");
         this.body = this.contentEl.createDiv({ cls: "hub-capture-body hub-music-body" });
@@ -14249,7 +14264,7 @@ function openOathSetup(service) {
             this.contentEl.classList.remove("hub-oath-review");
             this.contentEl.classList.add("hub-oath-setup");
             const heading = createWindowTitle(this.contentEl, "Make an Oath", "shield-user");
-            setWindowUndertext(heading, this.contentEl.createEl("p", { cls: "hub-oath-muted", text: "Set the terms of your commitment." }));
+            setWindowUndertext(heading, this.contentEl.createEl("p", { cls: "hub-oath-muted", text: "Set the terms of your commitment" }));
             const headerEnd = this.contentEl.createDiv({ cls: "hub-oath-header-divider" });
             if (service.strictEnabled || draft.mode === "strict") {
                 const mode = this.section("Commitment mode");
@@ -14623,7 +14638,7 @@ function openOathSetup(service) {
             this.contentEl.classList.remove("hub-oath-setup");
             this.contentEl.classList.add("hub-oath-review");
             const heading = createWindowTitle(this.contentEl, OATH_COPY.confirmation, "shield-user");
-            setWindowUndertext(heading, this.contentEl.createEl("p", { text: "Review the terms of your commitment before taking the Oath.", cls: "hub-oath-muted" }));
+            setWindowUndertext(heading, this.contentEl.createEl("p", { text: "Review the terms of your commitment before taking the Oath", cls: "hub-oath-muted" }));
             const headerEnd = this.contentEl.createDiv({ cls: "hub-oath-header-divider" });
             const summary = this.section("Your Oath").createDiv({ cls: "hub-oath-row-group" });
             for (const [icon, label, value] of [
@@ -14858,7 +14873,7 @@ function openPlanningEditor(service, projectId, kind, value = null, dv, defaults
             const state = service.read(projectId), revision = state.revision;
             const heading = createWindowTitle(this.contentEl, (value ? "Edit " : "Add ") + noun, phase ? "layers" : "flag", { cls: "hub-task-dialog-title" });
             setWindowUndertext(heading, this.contentEl.createEl("p", { cls: "hub-oath-muted",
-                text: phase ? "Organise a stage of your project's roadmap." : "Set a key date in your project's roadmap." }));
+                text: phase ? "Organise a stage of your project's roadmap" : "Set a key date in your project's roadmap" }));
             const form = this.contentEl.createEl("form");
             function section(text) { const section = form.createEl("section", { cls: "hub-task-section" }); section.createEl("h3", { text }); return section; }
             function field(host, text, type, initial) {
@@ -15494,17 +15509,17 @@ const PROGRESS_COLOR =
 /*
  * Opacity at scores:
  *
- * 1 → 25%
- * 2 → 50%
- * 3 → 75%
+ * 1 → 10%
+ * 2 → 30%
+ * 3 → 60%
  * 4 → 100%
  *
  * Change these four numbers freely.
  */
 const PROGRESS_OPACITY = [
-    25,
-    50,
-    75,
+    10,
+    30,
+    60,
     100
 ];
 
@@ -15674,9 +15689,9 @@ const MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "Ju
 // Equal CSS lengths alone are insufficient: fractional device-pixel edges are
 // rounded independently when painted. Both the square and the pitch must be
 // integral in device pixels. Keep the DOM grid; convert to CSS units only once.
-function heatmapGeometry(width, weeks, monthWidths, starts, compactWidths = monthWidths, scale = 1) {
+function heatmapGeometry(width, weeks, monthWidths, starts, compactWidths = monthWidths, scale = 1, minimumDayCell = 0) {
     const gap = 1 / scale;
-    const minimumPixels = (widths, minimumCell) => Math.ceil(Math.max(minimumCell, ...widths.map((label, index) =>
+    const minimumPixels = (widths, minimumCell) => Math.ceil(Math.max(minimumCell, minimumDayCell, ...widths.map((label, index) =>
         (label + 4 + gap) / ((starts[index + 1] ?? weeks) - starts[index]) - gap)) * scale - 1e-9);
     const widthFor = pixels => (weeks * pixels + weeks - 1) / scale;
     const fullMinimum = minimumPixels(monthWidths, 4);
@@ -15700,18 +15715,20 @@ function heatmapPixelScale(calendar) {
     return scale;
 }
 
-function completeHeatmapWeeks(boxes) {
-    // Native leading placeholders + real dates determine the week count. Keep
-    // their order unchanged and complete only the final week. Padding has no
-    // month class or data-date, so the existing report handlers never select it.
-    const weeks = Math.ceil(boxes.children.length / 7);
-    while (boxes.children.length < weeks * 7) {
-        boxes.append(boxes.ownerDocument.createElement("li"));
+function fillOutsideYearCells(boxes) {
+    // The native date order and leading weekday offset determine the columns.
+    // Rebuild only trailing fillers so repeated refreshes remain idempotent.
+    while (boxes.lastElementChild && !boxes.lastElementChild.matches("[class*='month-']")) {
+        boxes.lastElementChild.remove();
     }
+    const weeks = Math.ceil(boxes.children.length / 7);
+    while (boxes.children.length < weeks * 7) boxes.append(boxes.ownerDocument.createElement("li"));
     for (const cell of boxes.children) {
         if (cell.matches("[class*='month-']")) continue;
-        cell.classList.add("isEmpty", "hub-progress-padding");
+        cell.classList.add("hub-progress-padding", "isEmpty");
         cell.style.removeProperty("background-color");
+        cell.replaceChildren();
+        cell.inert = true;
         cell.setAttribute("aria-hidden", "true");
     }
     return weeks;
@@ -15721,7 +15738,7 @@ function completeHeatmapWeeks(boxes) {
 // controller owns the resulting geometry, including after a year/scope change.
 function createProgressHeatmap(calendar, component) {
     const view = calendar.ownerDocument.defaultView;
-    let graph, boxes, months, measure, weeks, starts;
+    let graph, boxes, months, weekdays, measure, weeks, starts;
     let availableWidth = 0;
     let disposed = false;
     const observer = new view.ResizeObserver(entries => {
@@ -15751,18 +15768,39 @@ function createProgressHeatmap(calendar, component) {
     view.addEventListener("resize", layout);
 
     function layout() {
-        if (disposed || !graph?.isConnected || !availableWidth) return;
+        if (disposed || !graph?.isConnected || !measure || !availableWidth) return;
         const samples = [...measure.children];
-        const geometry = heatmapGeometry(availableWidth, weeks,
+        const calendarStyle = view.getComputedStyle(calendar);
+        const weekdayGap = parseFloat(calendarStyle.getPropertyValue("--hub-heatmap-label-gap")) || 4;
+        const inset = parseFloat(calendarStyle.getPropertyValue("--hub-heatmap-inline-inset")) || 4;
+        const scale = heatmapPixelScale(calendar);
+        // offsetWidth rounds text to CSS pixels and can under-reserve this tight
+        // column. Measure painted layout widths and round outward in device pixels.
+        const zoom = scale / (view.devicePixelRatio || 1);
+        const weekdayWidth = Math.ceil(Math.max(...samples.slice(24).map(label => label.getBoundingClientRect().width / zoom)) * scale - 1e-9) / scale;
+        // The separator bounds the complete assembly, not just the squares.
+        // Reserve its two insets and the measured label column before applying
+        // the existing integer-pixel sizing. Never borrow the panel padding.
+        const gridAvailable = Math.max(0, availableWidth - 2 * inset - weekdayWidth - weekdayGap);
+        // Some configured week starts place Sunday and Monday next to each
+        // other. Keep their unchanged text size readable using the existing
+        // narrow-calendar scroll fallback rather than overlapping the labels.
+        const rows = [...weekdays.children].map(label => Number(label.style.gridRow)).sort((a, b) => a - b);
+        const rowDistance = Math.min(...rows.slice(1).map((row, index) => row - rows[index]));
+        const minimumDayCell = parseFloat(view.getComputedStyle(weekdays).fontSize) / rowDistance - 1 / scale;
+        const geometry = heatmapGeometry(gridAvailable, weeks,
             samples.slice(0, 12).map(label => label.offsetWidth), starts,
-            samples.slice(12).map(label => label.offsetWidth), heatmapPixelScale(calendar));
+            samples.slice(12, 24).map(label => label.offsetWidth), scale, minimumDayCell);
+        const blockWidth = weekdayWidth + weekdayGap + geometry.innerWidth;
+        const outerWidth = Math.max(availableWidth, blockWidth + 2 * inset);
         [...months.children].forEach((label, index) => {
             const text = geometry.compact ? MONTHS[index][0] : MONTHS[index];
             if (label.textContent !== text) label.textContent = text;
         });
         for (const [name, value] of Object.entries({
             cell: geometry.cell + "px", gap: geometry.gap + "px",
-            margin: geometry.margin + "px", weeks, width: geometry.width + "px"
+            margin: (outerWidth - blockWidth) / 2 + "px", weeks, width: outerWidth + "px",
+            weekday: weekdayWidth + "px", "weekday-gap": weekdayGap + "px", inner: geometry.innerWidth + "px"
         })) graph.style.setProperty("--hub-heatmap-" + name, value);
     }
 
@@ -15772,14 +15810,30 @@ function createProgressHeatmap(calendar, component) {
         boxes = calendar.querySelector(".heatmap-calendar-boxes");
         months = calendar.querySelector(".heatmap-calendar-months");
         if (!graph || !boxes || !months) return;
-        // The native weekday column is intentionally absent on dashboards.
-        // Remove it so global snippet !important rules cannot create an implicit
-        // grid column by making the unused column visible again.
         graph.querySelector(".heatmap-calendar-year")?.remove();
-        graph.querySelector(".heatmap-calendar-days")?.remove();
+        weekdays = graph.querySelector(".heatmap-calendar-days, .hub-progress-weekdays");
+        if (!weekdays) return;
+        // Keep the native week-start order. A separate class excludes legacy
+        // snippet offsets and fixed weekday rows from this shared geometry.
+        weekdays.className = "hub-progress-weekdays";
+        [...weekdays.children].forEach((label, index) => {
+            const name = { Sun: "Sun", Mon: "Mon", Wed: "Wed", Fri: "Fri", S: "Sun", M: "Mon", W: "Wed", F: "Fri" }[label.textContent];
+            if (!name) label.remove();
+            else {
+                if (!label.style.gridRow) label.style.gridRow = String(index + 1);
+                label.textContent = name[0];
+                label.setAttribute("aria-label", name);
+            }
+        });
         graph.classList.add("hub-progress-graph");
         boxes.classList.add("hub-progress-grid");
-        weeks = completeHeatmapWeeks(boxes);
+        if (!graph.parentElement.classList.contains("hub-heatmap-viewport")) {
+            const viewport = calendar.ownerDocument.createElement("div");
+            viewport.className = "hub-heatmap-viewport";
+            graph.before(viewport);
+            viewport.append(graph);
+        }
+        weeks = fillOutsideYearCells(boxes);
         const cells = [...boxes.children];
         starts = MONTHS.map(name => Math.floor(cells.indexOf(boxes.querySelector(".month-" + name.toLowerCase())) / 7));
         [...months.children].forEach((label, index) => {
@@ -15791,7 +15845,9 @@ function createProgressHeatmap(calendar, component) {
         measure = calendar.ownerDocument.createElement("div");
         measure.className = "hub-heatmap-measure";
         measure.setAttribute("aria-hidden", "true");
-        for (const text of [...MONTHS, ...MONTHS.map(name => name[0])]) {
+        // Measure the displayed letters, not a reserved full-word column. The
+        // existing device-pixel geometry fits the remaining calendar width.
+        for (const text of [...MONTHS, ...MONTHS.map(name => name[0]), "S", "M", "W", "F"]) {
             const sample = calendar.ownerDocument.createElement("span");
             sample.textContent = text;
             measure.append(sample);
@@ -15812,7 +15868,7 @@ function createProgressHeatmap(calendar, component) {
     return refresh;
 }
 
-module.exports = { heatmapGeometry, heatmapPixelScale, completeHeatmapWeeks, createProgressHeatmap };
+module.exports = { heatmapGeometry, heatmapPixelScale, fillOutsideYearCells, createProgressHeatmap };
 
 },
 "lib/ui/project-deletion.js": function (module, exports, __hubRequire) {
@@ -16260,7 +16316,7 @@ class QuickAddModal extends CaptureModal {
     }
     onOpen() {
         this.modalEl.classList.add("hub-quick-add-dialog");
-        this.header("Quick Add", "Write down a thought, or add a file.", "zap");
+        this.header("Quick Add", "Write down a thought, or add a file", "zap");
         this.body = this.contentEl.createDiv({ cls: "hub-capture-body" });
         this.textPath = this.body.createDiv({ cls: "hub-capture-input-path", attr: { "data-capture-field": "Content" } });
         this.label = this.textPath.createEl("label", { cls: "hub-capture-label", attr: { for: this.prefix + "-input" } }); this.label.hidden = true;
@@ -16628,7 +16684,7 @@ class SettingsModal extends Modal {
         const header = this.contentEl.createEl("header", { cls: "hub-settings-header" });
         const heading = createWindowTitle(header, "Settings", "settings", { attr: { id: `${this.prefix}-title` } });
         this.modalEl.setAttribute("aria-labelledby", `${this.prefix}-title`);
-        setWindowUndertext(heading, header.createEl("p", { cls: "hub-settings-description", text: "Customize how Itacan looks and behaves." }));
+        setWindowUndertext(heading, header.createEl("p", { cls: "hub-settings-description", text: "Customize how Itacan looks and behaves" }));
         const body = this.contentEl.createDiv({ cls: "hub-settings-body" });
         const sidebar = body.createEl("aside", { cls: "hub-settings-sidebar" });
         this.tabs = sidebar.createDiv({ cls: "hub-settings-categories", attr: { role: "tablist", "aria-label": "Settings categories", "aria-orientation": "vertical" } });
@@ -17759,7 +17815,7 @@ function renderReadOnlyTask(parent, task, markdown, { unavailable = false } = {}
 function createTaskUi({ app, component, body, mutate, onEdit, editTask, createTask, oath, phaseLabel }) {
     const { Menu, Notice, setIcon } = require("obsidian");
     const document = body.ownerDocument;
-    let active = null, deferred = null, lastRender = null, disposed = false;
+    let active = null, deferred = null, lastRender = null, disposed = false, groupMenu = null;
     let renderNow = new Date(), refreshTimer = null, refreshAt = Infinity;
     const expanded = new Set();
     const markdown = createHubMarkdown({ app, component });
@@ -17777,6 +17833,7 @@ function createTaskUi({ app, component, body, mutate, onEdit, editTask, createTa
 
     function beginRender(render) {
         if (defer(render)) return false;
+        groupMenu?.hide();
         lastRender = render;
         renderNow = new Date();
         clearTimeout(refreshTimer); refreshAt = Infinity;
@@ -17991,11 +18048,12 @@ function createTaskUi({ app, component, body, mutate, onEdit, editTask, createTa
         // A view closing behaves like leaving the inline editor.
         if (active) void commit();
         disposed = true;
+        groupMenu?.hide();
         clearTimeout(refreshTimer);
         document.removeEventListener("pointerdown", outside, true);
         deferred = null;
     });
-    function group(kind, items, render) {
+    function group(kind, items, render, options = {}) {
         if (!items.length) return;
         const button = body.createEl("button", { cls: "hub-task-group-toggle", attr: { type: "button" } });
         const open = expanded.has(kind);
@@ -18004,14 +18062,45 @@ function createTaskUi({ app, component, body, mutate, onEdit, editTask, createTa
         button.createSpan({ text: `${items.length} ${kind} ${items.length === 1 ? "task" : "tasks"}` });
         button.setAttribute("aria-expanded", String(open));
         button.addEventListener("click", () => { if (open) expanded.delete(kind); else expanded.add(kind); lastRender?.(); });
+        if (kind === "completed" && options.clear) {
+            button.setAttribute("aria-haspopup", "menu");
+            button.setAttribute("aria-keyshortcuts", "Shift+F10");
+            button.setAttribute("aria-description", "Right-click or press Shift+F10 for completed task actions.");
+            const showMenu = (event, keyboard = false) => {
+                event.preventDefault(); event.stopPropagation();
+                if (active || disposed) return;
+                groupMenu?.hide();
+                const menu = groupMenu = new Menu();
+                menu.addItem(item => item.setTitle("Clear completed tasks").setIcon("trash-2").setWarning(true)
+                    .setDisabled(options.canClear?.() === false)
+                    .onClick(async () => {
+                        try { await options.clear(); }
+                        catch (error) { report(error); }
+                    }));
+                menu.onHide(() => {
+                    if (groupMenu === menu) groupMenu = null;
+                    if (keyboard && !disposed && button.isConnected) button.focus({ preventScroll: true });
+                });
+                if (keyboard || (!event.clientX && !event.clientY)) {
+                    const rect = button.getBoundingClientRect();
+                    menu.showAtPosition({ x: rect.left, y: rect.bottom });
+                } else menu.showAtMouseEvent(event);
+            };
+            button.addEventListener("contextmenu", showMenu);
+            button.addEventListener("keydown", event => {
+                if (event.key === "ContextMenu" || (event.key === "F10" && event.shiftKey)) showMenu(event, true);
+            });
+        }
         if (open) items.forEach(render);
     }
     function addButton(header, options = {}) {
         if (!createTask) return;
-        const button = header.createEl("button", { cls: "hub-panel-action hub-panel-action-icon hub-panel-add hub-task-add",
+        const button = header.createEl("button", { cls: "hub-panel-action hub-panel-add hub-task-add",
             attr: { type: "button", "aria-label": "Add task", title: "Add task" } });
-        setIcon(button.createSpan({ attr: { "aria-hidden": "true" } }), "plus");
+        setIcon(button.createSpan({ cls: "hub-task-add-icon", attr: { "aria-hidden": "true" } }), "plus");
+        button.createSpan({ text: "Task" });
         button.addEventListener("click", () => createTask(options));
+        return button;
     }
     return { bind, beginRender, defer, groups, group, addButton, partitionOath: oathSection.partition, renderOath: oathSection.render };
 }
@@ -18277,7 +18366,8 @@ const headers = new WeakMap();
 // Keep native heading/undertext styles while moving their outer margins to the
 // shared grid. Reading the existing styles also preserves the user's theme.
 function createWindowTitle(parent, text, icon, options = {}) {
-    const title = parent.createEl("h2", { ...options, text });
+    const { date, ...titleOptions } = options;
+    const title = parent.createEl("h2", { ...titleOptions, text });
     const style = parent.ownerDocument.defaultView.getComputedStyle(title);
     const margins = [style.marginTop, style.marginRight, style.marginBottom, style.marginLeft];
     const color = style.color;
@@ -18289,6 +18379,15 @@ function createWindowTitle(parent, text, icon, options = {}) {
     setIcon(graphic, icon);
     const copy = header.createEl("div", { cls: "hub-window-header-copy" });
     copy.append(title);
+    if (date) {
+        const row = copy.createEl("div", { cls: "hub-window-title-row" });
+        row.append(title);
+        const dateEl = row.createEl("time", { cls: "hub-window-header-date",
+            text: date.label, attr: { datetime: date.value } });
+        // Reuse the native/theme heading typography already read for this title.
+        dateEl.style.font = style.font;
+        dateEl.style.color = color;
+    }
     title.classList.add("hub-window-title");
     title.style.margin = "0";
     headers.set(title, { header, copy, bottomMargin: margins[2] });
@@ -19852,7 +19951,9 @@ class ProjectAdvancementModal
             onSaved,
             onCancel,
             title =
-                "How much did you advance the project today?",
+                "Edit progress report",
+            reportDate = null,
+            reportMode = "edit",
             requireEveryProject = true,
             requireExplicitRatings = false,
             allowNoProgress = false,
@@ -19924,6 +20025,8 @@ class ProjectAdvancementModal
 
         this.title =
             title;
+        this.reportDate = reportDate;
+        this.reportMode = reportMode;
 
 
         this.requireEveryProject =
@@ -20018,11 +20121,19 @@ class ProjectAdvancementModal
         );
 
 
-        const heading = createWindowTitle(this.contentEl, this.title, "clipboard-pen");
+        const heading = createWindowTitle(this.contentEl, this.title,
+            this.reportMode === "complete" ? "clipboard-plus" : "clipboard-pen", {
+                date: this.reportDate ? { value: this.reportDate,
+                    label: formatDate(parseLocalISODate(this.reportDate), "full") } : null
+            });
 
 
-        const guidance = this.contentEl.createDiv({ cls: 'hub-progress-rating-guidance' });
-        guidance.createDiv({ text: "Rate the significance of today's work in each workspace." });
+        const guidance = this.contentEl.createEl("p", { cls: "hub-progress-rating-guidance hub-oath-muted", text:
+            this.reportMode === "complete"
+                ? "Review your activity and rate your work in each project or resource"
+                : this.reportMode === "update"
+                    ? "New activity has been recorded since your last report. Review your ratings"
+                    : "Review activity and adjust the significance of work recorded for this date" });
         setWindowUndertext(heading, guidance);
         this.ratingTooltips?.dispose();
         this.ratingTooltips = createImmediateHubTooltip(this.contentEl);
@@ -32806,11 +32917,29 @@ module.exports = class HubProjectMenu extends Plugin {
         }
 
 
+        // Reuse the exit resolution marker and the existing activity query.
+        // Manual saves do not clear dirty contexts; a dirty flag alone cannot
+        // establish activity since a newer manual save or a legacy report.
+        const savedReports = [...this.projectWizard.getProgressReports(),
+            ...this.projectWizard.getProgressReports({ kind: "resource" })]
+            .filter(report => report.date === date);
+        const resolvedAt = this.projectWizard.normalizedDirtyContextRecord(date).resolvedAt;
+        const lastSavedAt = Math.max(resolvedAt, ...savedReports.map(report => report.timestamp || 0));
+        const activity = lastSavedAt > 0
+            ? this.projectWizard.activityDirtyContexts(date, lastSavedAt) : null;
+        const updatingReport = (resolvedAt > 0 && lastSavedAt === resolvedAt) ||
+            projects.some(project => activity?.projects.includes(project.projectId)) ||
+            resources.some(resource => activity?.resources.includes(resource.resourceType));
+        const reportMode = updatingReport ? "update"
+            : savedReports.length || resolvedAt > 0 ? "edit" : "complete";
+
         new ProjectAdvancementModal(
             this.app,
             {
                 plugin: this,
                 requireExplicitRatings: true,
+                reportDate: date,
+                reportMode,
                 getReportContexts: () => Object.fromEntries([...projects, ...resources].map(workspace => {
                     const id = workspace.projectId ?? `resource:${workspace.resourceType}`;
                     const previous = id.startsWith("resource:")
@@ -32843,7 +32972,8 @@ module.exports = class HubProjectMenu extends Plugin {
                         .getFocusContexts(),
 
                 title:
-                    reportTitle(date, true),
+                    reportMode === "update" ? "Update progress report"
+                        : reportMode === "edit" ? "Edit progress report" : "Complete progress report",
 
                 onSave:
                     async ({
@@ -34912,6 +35042,7 @@ module.exports = class HubProjectMenu extends Plugin {
             this.app,
             {
                 plugin: this,
+                reportDate: date,
                 getReportContexts: () => Object.fromEntries([...projects, ...resources].map(workspace => {
                     const id = workspace.projectId ?? `resource:${workspace.resourceType}`;
                     const previous = id.startsWith("resource:")

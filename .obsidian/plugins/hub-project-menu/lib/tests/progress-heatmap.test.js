@@ -32,4 +32,12 @@ for (const year of [1900, 2000, ...Array.from({ length: 28 }, (_, i) => 2020 + i
 }
 const compact = heatmapGeometry(280, 53, Array(12).fill(23), [0,4,8,13,17,21,26,30,34,39,43,47], Array(12).fill(8));
 assert(compact.compact && compact.width === 280, "Narrow panel uses readable initials without scrolling");
-console.log(`PASS: ${cases} heatmap geometries, all week starts, leap/century years, symmetric margins, label clearance and maximum equal squares.`);
+for (const rowDistance of [1, 2]) for (const scale of [1, 1.2, 1.5, 1.65, 2, 2.5, 3]) for (const width of [120, 180, 280, 447.4, 640]) {
+    const args = [width, 53, Array(12).fill(23), [0,4,8,13,17,21,26,30,34,39,43,47], Array(12).fill(8), scale];
+    const baseline = heatmapGeometry(...args);
+    const labeled = heatmapGeometry(...args, 11.22 / rowDistance - 1 / scale);
+    assert(labeled.cellPixels >= baseline.cellPixels, "Readable weekday rows never reduce prior squares");
+    assert(rowDistance * (labeled.cell + labeled.gap) >= 11.22 - 1e-9, "S/M/W/F have enough separation at every week start");
+    assert(Number.isInteger(labeled.cellPixels) && Math.abs(labeled.gap * scale - 1) < 1e-9);
+}
+console.log(`PASS: ${cases} heatmap geometries plus 70 weekday-readability cases; all week starts, leap/century years, label clearance and maximum equal squares.`);

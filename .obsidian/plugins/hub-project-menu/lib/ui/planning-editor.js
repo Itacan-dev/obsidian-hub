@@ -13,7 +13,7 @@ function openPlanningEditor(service, projectId, kind, value = null, dv, defaults
             const state = service.read(projectId), revision = state.revision;
             const heading = createWindowTitle(this.contentEl, (value ? "Edit " : "Add ") + noun, phase ? "layers" : "flag", { cls: "hub-task-dialog-title" });
             setWindowUndertext(heading, this.contentEl.createEl("p", { cls: "hub-oath-muted",
-                text: phase ? "Organise a stage of your project's roadmap." : "Set a key date in your project's roadmap." }));
+                text: phase ? "Organise a stage of your project's roadmap" : "Set a key date in your project's roadmap" }));
             const form = this.contentEl.createEl("form");
             function section(text) { const section = form.createEl("section", { cls: "hub-task-section" }); section.createEl("h3", { text }); return section; }
             function field(host, text, type, initial) {

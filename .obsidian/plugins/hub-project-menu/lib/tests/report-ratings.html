@@ -44,7 +44,7 @@ const leave=button=>button.dispatchEvent(new PointerEvent('pointerout',{bubbles:
 try{
  for(const editing of [false,true]){
   let saved,savedCalls=0;
-  const modal=new Report({}, {projects:[project],resources:[resource],title:editing?'Edit daily progress':'Today\'s progress report',
+  const modal=new Report({}, {projects:[project],resources:[resource],title:editing?'Edit progress report':'Complete progress report',reportMode:editing?'edit':'complete',
    currentScores:{p:1,'resource:study':2},currentSummaries:{p:'Keep project summary','resource:study':'Keep resource summary'},
    showNextFocus:true,focusProjects:[project,resource],currentFocus:[{projectId:'p',projectName:'Project A',text:'Next step'}],
    allowNoProgress:editing,requireEveryProject:!editing,onSave:async value=>{saved=value},onSaved:()=>savedCalls++});
@@ -57,7 +57,7 @@ try{
   assert(!tooltip(),'Opening underneath a stationary pointer does not count as intentional hover');
   initial.blur();
   assert(!root.querySelector('.hub-project-advancement-scale'),'Old visible rubric removed');
-  assert(root.querySelector('h2').nextElementSibling.textContent==="Rate the significance of today's work in each workspace.",'Exact compact guidance directly follows title');
+  assert(root.querySelector('.hub-window-undertext').textContent===(editing?'Review activity and adjust the significance of work recorded for this date':'Review your activity and rate your work in each project or resource'),'Exact context guidance follows title');
   assert([...root.querySelectorAll('.hub-project-advancement-name')].map(e=>e.textContent).join(',')==='Project A,Knowledge','Workspace ordering and visible titles unchanged');
   for(const [index,workspace] of [project,resource].entries()){
    const row=root.querySelectorAll('.hub-project-advancement-row')[index];

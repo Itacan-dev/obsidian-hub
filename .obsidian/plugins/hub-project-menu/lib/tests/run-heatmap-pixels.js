@@ -24,10 +24,18 @@ const timeout=setTimeout(()=>{child.kill();process.exitCode=1},120000);
  async function check(geometry,scenario){
   const shot=await send("Page.captureScreenshot",{format:"png"},sessionId);
   const raster=await evaluate(`inspectPixels(${JSON.stringify(shot.data)},${JSON.stringify(geometry)})`);
+  await evaluate('prepareWeekdayReference()');
+  let reference;
+  try{reference=await send("Page.captureScreenshot",{format:"png"},sessionId)}
+  finally{await evaluate('restoreWeekdayReference()')}
+  const labels=await evaluate(`inspectWeekdayPixels(${JSON.stringify(shot.data)},${JSON.stringify(reference.data)},${JSON.stringify(geometry)})`);
   const expected=Math.round(geometry.cells[0].w*dpr);
-  const ok=raster.count>100&&raster.sizes.length===1&&raster.sizes[0]===expected+'x'+expected&&raster.xgaps.length===1&&raster.ygaps.length===1&&raster.xgaps[0]===1&&raster.ygaps[0]===1;
+  // Local scrolling intentionally shows fewer columns at narrow widths. Check
+  // every fully visible cell, rather than assuming at least 100 fit on screen.
+  const visibleCount=geometry.cells.filter(r=>r.x>=geometry.viewport.left-.01&&r.x+r.w<=geometry.viewport.right+.01&&(r.x+r.w)*dpr<=raster.imageWidth&&(r.y+r.h)*dpr<=raster.imageHeight).length;
+  const ok=raster.count===visibleCount&&raster.count>=14&&raster.sizes.length===1&&raster.sizes[0]===expected+'x'+expected&&raster.xgaps.length===1&&raster.ygaps.length===1&&raster.xgaps[0]===1&&raster.ygaps[0]===1;
   if(!ok)failures++;
-  const result={...scenario,dpr,zoom:geometry.zoom,cssCell:geometry.cells[0].w/geometry.zoom,...raster,ok};
+  const result={...scenario,dpr,zoom:geometry.zoom,cssCell:geometry.cells[0].w/geometry.zoom,labels,...raster,ok};
   results.push(result);
   if(!ok||scenario.primary)console.log(JSON.stringify(result));
   if(scenario.primary)fs.writeFileSync(path.join(os.tmpdir(),`hub-heatmap-pixels-${dpr}.png`),Buffer.from(shot.data,"base64"));
@@ -44,6 +52,35 @@ const timeout=setTimeout(()=>{child.kill();process.exitCode=1},120000);
   const updated=await evaluate(`resizeHeatmap(${JSON.stringify({zoom:zoom===1?1.25:1})})`);
   await check(updated,{kind,year,width:447.4,zoomChanged:true});
  }
+ if(!process.argv.includes('--quick')){
+  // Sunday/Monday can occupy adjacent rows for other native week starts.
+  // Verify complete text painting and the existing narrow scroll fallback too.
+  for(const kind of ['home','project'])for(const year of [2026,2012])for(const weekStart of [0,2])for(const zoom of [1,1.25])for(const width of [180,447.4]){
+   const scenario={kind,year,weekStart,zoom,width};
+   await check(await evaluate(`mountHeatmap(${JSON.stringify(scenario)})`),scenario);
+  }
+ }
+ // The new full desktop panels retain the exact pre-change physical square
+ // size while fitting the whole label/grid assembly inside the separator.
+ if([1.5,2].includes(dpr))for(const kind of ['home','project']){
+  const width=dpr===1.5?482+2/3:482;
+  const geometry=await evaluate(`mountHeatmap(${JSON.stringify({kind,width})})`);
+  const square=Math.round(geometry.cells[0].w*dpr);
+  if(square!==(dpr===1.5?12:16))throw Error('Full desktop square size changed');
+  const left=geometry.weekdayColumn.left-geometry.viewport.left;
+  const right=geometry.viewport.right-Math.max(...geometry.cells.map(cell=>cell.x+cell.w));
+  if(Math.abs(left-right)>.04||Math.abs(left-(dpr===1.5?4+2/3:8.75))>.04)throw Error('Desktop separator insets changed');
+  await check(geometry,{kind,width,fullDesktop:true,primary:kind==='home',leftInset:left,rightInset:right});
+ }
+ const paintedPalettes=[];
+ for(const kind of ['home','project']){
+  const entries=[1,2,3,4].map((intensity,i)=>({date:'2026-01-0'+(i+5),intensity}));
+  const geometry=await evaluate(`mountHeatmap(${JSON.stringify({kind,width:447.4,entries})})`);
+  const shot=await send('Page.captureScreenshot',{format:'png'},sessionId);
+  paintedPalettes.push({kind,...await evaluate(`inspectProgressColors(${JSON.stringify(shot.data)},${JSON.stringify(geometry)})`)});
+  fs.writeFileSync(path.join(os.tmpdir(),`hub-heatmap-colors-${dpr}-${kind}.png`),Buffer.from(shot.data,'base64'));
+ }
+ console.log('PASS painted palettes:',JSON.stringify(paintedPalettes));
  // A DPR change must refresh the same controller even when its CSS width stays
  // unchanged. Test dimensions here; the native-DPR launches above test paint.
  let scaleChanges=0;
@@ -57,7 +94,7 @@ const timeout=setTimeout(()=>{child.kill();process.exitCode=1},120000);
   if(Math.abs(gap*nextDpr*geometry.zoom-1)>1e-7)throw Error('DPR-only change did not update geometry: '+JSON.stringify({nextDpr,dpr:geometry.dpr,zoom:geometry.zoom,gap,style:geometry.style}));
   scaleChanges++;
  }
- fs.writeFileSync(path.join(os.tmpdir(),`hub-heatmap-pixels-${dpr}.json`),JSON.stringify({screen,dpr,scaleChanges,results},null,2));
+ fs.writeFileSync(path.join(os.tmpdir(),`hub-heatmap-pixels-${dpr}.json`),JSON.stringify({screen,dpr,scaleChanges,paintedPalettes,results},null,2));
  console.log(`${failures?"FAIL":"PASS"}: ${results.length} native-DPR ${dpr} raster configurations; ${failures} nonuniform; ${scaleChanges} DPR notification transitions.`);
  if(failures)process.exitCode=1;
 }finally{clearTimeout(timeout);await send("Browser.close").catch(()=>child.kill())}})().catch(e=>{console.error(e);process.exitCode=1});

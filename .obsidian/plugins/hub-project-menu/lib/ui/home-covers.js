@@ -11,7 +11,7 @@ function openHomeCoverEditor(service, sourceCover) {
             this.modalEl.classList.add("hub-home-covers-dialog");
             this.contentEl.classList.add("hub-button-scope", "hub-home-covers-editor");
             const heading = createWindowTitle(this.contentEl, "Edit cover images", "image");
-            setWindowUndertext(heading, this.contentEl.createEl("p", { text: "Right-click a preview to change its image or image placement." }));
+            setWindowUndertext(heading, this.contentEl.createEl("p", { text: "Right-click a preview to change its image or image placement" }));
             this.previews = [];
             this.sourceSize = { width: sourceCover.clientWidth, height: sourceCover.clientHeight };
             for (const period of HOME_COVER_PERIODS) {

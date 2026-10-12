@@ -19,7 +19,7 @@ class MusicModal extends Modal {
         this.contentEl.tabIndex = -1;
         const header = this.contentEl.createEl("header", { cls: "hub-capture-header" });
         const heading = createWindowTitle(header, "Music", "music", { attr: { id: this.titleId } });
-        setWindowUndertext(heading, header.createEl("p", { cls: "hub-oath-muted", text: "Play your configured music." }));
+        setWindowUndertext(heading, header.createEl("p", { cls: "hub-oath-muted", text: "Play your configured music" }));
         this.modalEl.setAttribute("aria-labelledby", this.titleId);
         this.modalEl.querySelector(".modal-close-button")?.setAttribute("aria-label", "Close Music");
         this.body = this.contentEl.createDiv({ cls: "hub-capture-body hub-music-body" });

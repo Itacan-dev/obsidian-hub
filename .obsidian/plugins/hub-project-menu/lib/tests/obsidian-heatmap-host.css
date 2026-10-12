@@ -1,0 +1,25 @@
+/* Relevant list rules copied from the installed Obsidian app.css.
+   Keep their selectors intact: weekday resets must beat the real specificity.
+   Native heatmap styles reset the UL spacing, but not weekday LI spacing. */
+.markdown-rendered {
+    --list-spacing: 0.075em;
+    --p-spacing: 1rem;
+}
+.markdown-rendered ul,
+.markdown-rendered ol {
+    padding-inline-start: 0;
+    margin-block-start: var(--p-spacing);
+    margin-block-end: var(--p-spacing);
+}
+.markdown-rendered ul > li,
+.markdown-rendered ol > li {
+    padding-top: var(--list-spacing);
+    padding-bottom: var(--list-spacing);
+    position: relative;
+}
+.markdown-rendered ul > li {
+    margin-inline-start: 3ch;
+}
+.markdown-rendered ol > li {
+    margin-inline-start: 3ch;
+}

@@ -24,10 +24,20 @@ const fixtureIcons={
  'circle-check':'<circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/>',
  'square-check':'<rect x="3" y="3" width="18" height="18" rx="2"/><path d="m9 12 2 2 4-4"/>',
  'rotate-ccw-clock':'<path d="M2 12a10 10 0 1 0 2.93-7.07L2 8m0-6v6h6"/><path d="M12 7v5l4 2"/>',
- target:'<circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/>',
  'circle-arrow-right':'<circle cx="12" cy="12" r="10"/><path d="m12 8 4 4-4 4m-4-4h8"/>'
 };
-const setIcon=(el,name)=>{el.dataset.icon=name;el.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">'+(fixtureIcons[name]||'<path d="m9 5 7 7-7 7"/>')+'</svg>'};
+const {titleIcons}=await import('./window-title-icons.js');
+const setIcon=(el,name)=>{
+ el.dataset.icon=name;
+ el.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'+(fixtureIcons[name]||'<path d="m9 5 7 7-7 7"/>')+'</svg>';
+ if(titleIcons[name]){
+  const svg=el.firstElementChild;svg.replaceChildren();
+  for(const [type,...values] of titleIcons[name]){
+   const tags={1:'circle',2:'polyline',5:'rect',6:'path'},attrs={1:['cx','cy','r'],2:['points'],5:['x','y','width','height','rx','ry'],6:['d']};
+   const shape=document.createElementNS(svg.namespaceURI,tags[type]);values.forEach((value,i)=>{if(attrs[type][i])shape.setAttribute(attrs[type][i],value)});svg.append(shape);
+  }
+ }
+};
 const modules={};
 async function load(name,file,require=()=>{}){const m={exports:{}};new Function('module','require','process',await(await fetch(file)).text())(m,require,{env:{}});modules[name]=m.exports;return m.exports}
 const dates=await load('dates','../domain/dates.js'),focus=await load('focus','../domain/focus.js');
@@ -37,19 +47,20 @@ const native={Modal,Component,setIcon,getIcon:()=>null,MarkdownRenderer:{async r
 const markdown=await load('markdown','../ui/markdown.js',()=>native);
 const dashboard=await load('dashboard','../ui/dashboard-ui.js',n=>n==='obsidian'?native:n==='../domain/dates'?dates:{});
 const windowTitle=await load('windowTitle','../ui/window-title.js',()=>native);
+const icons=await load('icons','../ui/icons.js',()=>native);
 const headerConfig={exports:{}},thumbnail={exports:{}},workspaceHeader={exports:{}};
 new Function('module','process',await(await fetch('../config.js')).text())(headerConfig,{env:{}});
 new Function('module','require',await(await fetch('../ui/workspace-thumbnail.js')).text())(thumbnail,name=>name==='./icons'?{setHubIcon:setIcon}:headerConfig.exports);
 new Function('module','require',await(await fetch('../ui/report-workspace-header.js')).text())(workspaceHeader,()=>thumbnail.exports);
-const ui=await load('ui','../ui/daily-report.js',n=>n==='./report-workspace-header'?workspaceHeader.exports:n==='./window-title'?windowTitle:n==='obsidian'?native:n==='./markdown'?markdown:n==='./dashboard-ui'?dashboard:n.includes('dates')?dates:domain);
+const ui=await load('ui','../ui/daily-report.js',n=>n==='./report-workspace-header'?workspaceHeader.exports:n==='./window-title'?windowTitle:n==='obsidian'?native:n==='./icons'?icons:n==='./markdown'?markdown:n==='./dashboard-ui'?dashboard:n.includes('dates')?dates:domain);
 const config=await load('config','../config.js'),tooltips=await load('tooltips','../ui/tooltips.js');
 const attention={exports:{}};new Function('module',await(await fetch('../ui/attention.js')).text())(attention);
 const focusRestore={exports:{}};new Function('module',await(await fetch('../ui/focus-restoration.js')).text())(focusRestore);
 const source=await(await fetch('../../plugin.js')).text();
 const code=source.slice(source.indexOf('class FocusListEditor'),source.indexOf('class ProjectWizardModal'));
 const saveState={exports:{}};new Function('module',await(await fetch('../ui/modal-save.js')).text())(saveState);
-const {Report,Focus,DailyFocus}=new Function('hasKeyboardFocus','focusAfterRowRemoval','Modal','PROJECT_ADVANCEMENT_OPTIONS','progressRatingOptions','createImmediateHubTooltip','setIcon','Notice','normalizeFocusItems','renderReportEvidence','focusSection','createWindowTitle','setWindowUndertext','renderReportWorkspaceHeader','mountTransientEffects','lockModalControls','layoutModal','Component','createHubMarkdown',code+';return {Report:ProjectAdvancementModal,Focus:FocusListEditor,DailyFocus:DailyFocusModal};')(
- focusRestore.exports.hasKeyboardFocus,focusRestore.exports.focusAfterRowRemoval,Modal,config.PROJECT_ADVANCEMENT_OPTIONS,config.progressRatingOptions,tooltips.createImmediateHubTooltip,setIcon,class{constructor(message){throw Error(message)}},focus.normalizeFocusItems,ui.renderReportEvidence,ui.focusSection,windowTitle.createWindowTitle,windowTitle.setWindowUndertext,workspaceHeader.exports.renderReportWorkspaceHeader,attention.exports.mountTransientEffects,saveState.exports.lockModalControls,windowTitle.layoutModal,Component,markdown.createHubMarkdown);
+const {Report,Focus,DailyFocus}=new Function('hasKeyboardFocus','focusAfterRowRemoval','Modal','PROJECT_ADVANCEMENT_OPTIONS','progressRatingOptions','createImmediateHubTooltip','setIcon','Notice','normalizeFocusItems','renderReportEvidence','focusSection','createWindowTitle','setWindowUndertext','renderReportWorkspaceHeader','mountTransientEffects','lockModalControls','layoutModal','Component','createHubMarkdown','formatDate','parseLocalISODate',code+';return {Report:ProjectAdvancementModal,Focus:FocusListEditor,DailyFocus:DailyFocusModal};')(
+ focusRestore.exports.hasKeyboardFocus,focusRestore.exports.focusAfterRowRemoval,Modal,config.PROJECT_ADVANCEMENT_OPTIONS,config.progressRatingOptions,tooltips.createImmediateHubTooltip,setIcon,class{constructor(message){throw Error(message)}},focus.normalizeFocusItems,ui.renderReportEvidence,ui.focusSection,windowTitle.createWindowTitle,windowTitle.setWindowUndertext,workspaceHeader.exports.renderReportWorkspaceHeader,attention.exports.mountTransientEffects,saveState.exports.lockModalControls,windowTitle.layoutModal,Component,markdown.createHubMarkdown,dates.formatDate,dates.parseLocalISODate);
 const date='2026-09-14',timestamp=new Date(2026,8,14,10,23).getTime();
 const context={version:1,tasks:[{kind:'step',parentText:'Assignment 5',text:'1a',timestamp:timestamp+300000},{text:'Finish the historical report view',timestamp},{text:'Review completion records',timestamp:timestamp+600000}],activity:[{action:'created',title:'Daily reports',timestamp},{action:'edited',title:'Progress interface',timestamp}],focus:['Make completed reports useful as daily records.']};
 const empty={version:1,tasks:[],activity:[],focus:[]};
@@ -86,9 +97,13 @@ try{
  const modal=new ui.DailyReportModal({}, {day});modal.open();
  const root=modal.contentEl;
  const localizedDate=dates.parseLocalISODate(date).toLocaleDateString("en-GB", {day:'numeric',month:'long',year:'numeric'});
- assert(root.querySelector('h2').textContent==='Progress report — '+localizedDate,'Localized view title');
- assert(ui.reportTitle(date,true)==='Edit progress report — '+localizedDate,'Localized edit title');
- assert((source.match(/title:\s*reportTitle\(date, true\)/g)||[]).length===2,'Both production writing entry points use the edit title');
+ assert(root.querySelector('h2').textContent==='Progress report','View title');
+ assert(ui.reportTitle(date,true)==='Edit progress report','Edit title');
+ assert(root.querySelector('.hub-window-header-date').textContent===localizedDate&&root.querySelector('.hub-window-header-date').dateTime===date,'Separate localized date');
+ for(const property of ['fontFamily','fontSize','fontWeight','lineHeight','color'])assert(getComputedStyle(root.querySelector('.hub-window-header-date'))[property]===getComputedStyle(root.querySelector('h2'))[property],'Viewer date reuses title '+property);
+ const reference=root.createEl('p',{cls:'hub-oath-muted hub-window-undertext',text:'Reference'});
+ for(const property of ['color','fontFamily','fontSize','fontWeight','lineHeight'])assert(getComputedStyle(root.querySelector('.hub-window-undertext'))[property]===getComputedStyle(reference)[property],'Shared subtitle '+property);
+ reference.remove();
  assert(root.querySelectorAll('.hub-report-card').length===2,'All workspace reports rendered');
  assert(!root.querySelector('.hub-report-heading svg'),'No workspace icons');
  // Chromium quantizes CSS borders at fractional DPR (1px is 0.666667px at
@@ -99,7 +114,8 @@ try{
  assert(!emptyTask.querySelector('h3')&&emptyTask.textContent==='No task progress recorded for this day.','Viewer keeps empty-task text without heading');
  assert(getComputedStyle(root.querySelectorAll('.hub-report-card')[1].querySelector('.hub-report-no-activity')).borderTopWidth===onePixelBorder,'Empty-task/activity separator retained');
  assert(root.querySelectorAll('.hub-report-activity > summary .hub-report-section-icon svg path').length===3,'Official RotateCcwClock renders when native registry lacks it');
- assert(root.querySelector('.hub-report-focus .hub-report-section-icon').dataset.icon==='target','Day focus uses Target');
+ assert(root.querySelector('.hub-report-focus .hub-report-section-icon').dataset.icon==='goal','Day focus uses Goal');
+ assert(root.querySelector('.hub-report-focus .lucide-goal').querySelectorAll('path').length===3,'Official Goal renders when native registry lacks it');
  assert(root.querySelectorAll('.hub-report-focus .hub-report-section-icon')[1].dataset.icon==='circle-arrow-right','Next focus uses CircleArrowRight');
  assert(root.querySelector('.hub-report-rating').textContent==='3/4','Rating shown');
  assert(!root.querySelector('input,textarea'),'Historical view is read only');
@@ -111,7 +127,7 @@ try{
  assert(progressRows[1].querySelector('[data-icon=circle-check].is-step-progress'),'Steps use CircleCheck');
  assert(progressRows[0].querySelector('[data-icon=square-check]:not(.is-step-progress)'),'Legacy whole tasks retain square check');
  assert(getComputedStyle(progressRows[1].querySelector('.hub-report-check')).color==='rgb(137, 85, 237)'&&getComputedStyle(progressRows[0].querySelector('.hub-report-check')).color==='rgb(98, 180, 120)','Existing purple accent and whole-task green');
- assert(root.querySelector('time').dateTime===new Date(timestamp).toISOString(),'Uses completion timestamp');
+ assert(root.querySelector('.hub-report-time').dateTime===new Date(timestamp).toISOString(),'Uses completion timestamp');
  assert(root.textContent.includes('No focus set for this day.')&&root.textContent.includes('No next focus recorded.'),'Restrained empty focus states');
  assert(root.textContent.includes('Writing: Draft the introduction.'),'Next focus outside reported scope retained with label');
  const details=root.querySelector('details');assert(!details.open,'Activity starts collapsed');
@@ -122,6 +138,27 @@ try{
  modal.close();
 
  let saved;
+ for(const [reportMode,title,icon,subtitle] of [
+  ['complete','Complete progress report','clipboard-plus','Review your activity and rate your work in each project or resource'],
+  ['update','Update progress report','clipboard-pen','New activity has been recorded since your last report. Review your ratings'],
+  ['edit','Edit progress report','clipboard-pen','Review activity and adjust the significance of work recorded for this date']
+ ]){
+  const sample=new Report({}, {reportMode,title,reportDate:date,projects:[],currentScores:{},onSave:async()=>{}});sample.open();
+  const header=sample.contentEl.querySelector('.hub-window-header');
+  assert(header.querySelector('h2').textContent===title&&header.querySelector('.hub-window-title-icon').dataset.icon===icon,'Context title and icon');
+  assert(header.querySelector('.hub-window-undertext').textContent===subtitle,'Exact context subtitle');
+  assert(header.querySelector('.hub-window-header-date').textContent===localizedDate,'Editor date');
+  for(const width of [720,480,320]){
+   sample.modalEl.style.width=width+'px';
+   const row=header.querySelector('.hub-window-title-row'),heading=row.querySelector('h2'),dateEl=row.querySelector('time');
+   for(const property of ['fontFamily','fontSize','fontWeight','lineHeight','color'])assert(getComputedStyle(dateEl)[property]===getComputedStyle(heading)[property],title+': date reuses title '+property);
+   assert(row.scrollWidth<=row.clientWidth&&header.scrollWidth<=header.clientWidth,'Narrow header contained');
+   assert(dateEl.getBoundingClientRect().left>=heading.getBoundingClientRect().right+15.8,'Title/date keep spacing');
+   assert(row.getBoundingClientRect().right-dateEl.getBoundingClientRect().right>=23.8,'Date reserves close-button clearance');
+   assert(header.querySelector('.hub-window-undertext').getBoundingClientRect().top>=row.getBoundingClientRect().bottom,'Subtitle below title/date row');
+  }
+  sample.close();
+ }
  const project={projectId:'p',name:'Itacan'},resource={projectId:'resource:study',name:'Knowledge',resourceType:'study'};
  const many={...context,tasks:[...context.tasks,...Array.from({length:20},(_,i)=>({text:'Completed task '+i,timestamp:timestamp+900000+i}))]};
  let liveContexts={p:many,'resource:study':empty};
@@ -154,17 +191,19 @@ try{
  const heatmap=await load('heatmap','../ui/progress-heatmap.js');
  let editCalls=[];window.hubOpenProgressEditor=(...args)=>editCalls.push(args);
  for(const scope of [{kind:'project'},{kind:'resource'},'p','resource:study']){
-  const calendar=document.body.createDiv(),boxes=calendar.createEl('ol',{cls:'heatmap-calendar-boxes'});
+  const calendar=document.body.createDiv({cls:'home-progress-calendar'}),boxes=calendar.createEl('ol',{cls:'heatmap-calendar-boxes hub-progress-grid'});
   for(let i=0;i<3;i++)boxes.createEl('li',{attr:{style:'background-color: transparent'}});
   for(let i=0;i<365;i++)boxes.createEl('li',{cls:'month-1',attr:{'data-hub-progress-details':'Existing hover details'}});
-  heatmap.completeHeatmapWeeks(boxes);
+  heatmap.fillOutsideYearCells(boxes);
+  assert(heatmap.fillOutsideYearCells(boxes)===53&&boxes.children.length===371,'Repeated filler refresh retains the same calendar columns');
   const snapshot=JSON.stringify(all);
   host.enableProgressCalendarEditing(calendar,{year:2026,projectId:scope});
-  assert(boxes.children.length===371&&calendar.querySelectorAll('[data-date]').length===365,'Padding completes weeks without adding dates');
+  assert(boxes.children.length===371&&calendar.querySelectorAll('[data-date]').length===365,'Full rectangular grid retains exactly the actual year dates');
   assert(boxes.children[3].dataset.date==='2026-01-01'&&boxes.children[367].dataset.date==='2026-12-31','Year boundary dates retain their original cells');
   const paddingCalls=editCalls.length,previousOpened=opened;
   for(const pad of calendar.querySelectorAll('.hub-progress-padding')){
-   assert(!pad.hasAttribute('data-date')&&!pad.hasAttribute('tabindex')&&!pad.classList.contains('hub-progress-day'),'Padding stays inert');
+   assert(getComputedStyle(pad).visibility==='visible'&&pad.inert&&pad.textContent===''&&!pad.hasAttribute('data-date')&&!pad.hasAttribute('tabindex')&&!pad.classList.contains('hub-progress-day'),'Leading and trailing fillers are visible plain inert squares');
+   assert(getComputedStyle(pad).pointerEvents==='none','Filler squares cannot intercept pointer input');
    pad.click();pad.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true,cancelable:true}));
   }
   assert(editCalls.length===paddingCalls&&opened===previousOpened&&JSON.stringify(all)===snapshot,'Padding never opens, creates or changes reports');
@@ -269,7 +308,7 @@ try{
   assert(modal.modalEl.scrollWidth<=modal.modalEl.clientWidth+1,'Long names fit without horizontal scrolling');
   assert(modal.contentEl.querySelector(".hub-report-scroll").scrollHeight>modal.contentEl.querySelector(".hub-report-scroll").clientHeight,'Multiple workspaces scroll');
   modal.contentEl.querySelector(".hub-report-scroll").scrollTop=modal.contentEl.querySelector(".hub-report-scroll").scrollHeight;assert(modal.contentEl.querySelector(".hub-report-scroll").scrollTop>0,'Can reach modal bottom');
-  if(!editing)assert(modal.contentEl.querySelector('.hub-window-undertext').textContent==='A summary of your work and progress for the day.','Shared viewing subtitle');
+  if(!editing)assert(modal.contentEl.querySelector('.hub-window-undertext').textContent==='A summary of your work and progress for the day','Shared viewing subtitle');
   modal.close();
  }
  const preview=new URLSearchParams(location.search);

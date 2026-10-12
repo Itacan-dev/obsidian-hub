@@ -38,7 +38,7 @@ function renderReadOnlyTask(parent, task, markdown, { unavailable = false } = {}
 function createTaskUi({ app, component, body, mutate, onEdit, editTask, createTask, oath, phaseLabel }) {
     const { Menu, Notice, setIcon } = require("obsidian");
     const document = body.ownerDocument;
-    let active = null, deferred = null, lastRender = null, disposed = false;
+    let active = null, deferred = null, lastRender = null, disposed = false, groupMenu = null;
     let renderNow = new Date(), refreshTimer = null, refreshAt = Infinity;
     const expanded = new Set();
     const markdown = createHubMarkdown({ app, component });
@@ -56,6 +56,7 @@ function createTaskUi({ app, component, body, mutate, onEdit, editTask, createTa
 
     function beginRender(render) {
         if (defer(render)) return false;
+        groupMenu?.hide();
         lastRender = render;
         renderNow = new Date();
         clearTimeout(refreshTimer); refreshAt = Infinity;
@@ -270,11 +271,12 @@ function createTaskUi({ app, component, body, mutate, onEdit, editTask, createTa
         // A view closing behaves like leaving the inline editor.
         if (active) void commit();
         disposed = true;
+        groupMenu?.hide();
         clearTimeout(refreshTimer);
         document.removeEventListener("pointerdown", outside, true);
         deferred = null;
     });
-    function group(kind, items, render) {
+    function group(kind, items, render, options = {}) {
         if (!items.length) return;
         const button = body.createEl("button", { cls: "hub-task-group-toggle", attr: { type: "button" } });
         const open = expanded.has(kind);
@@ -283,14 +285,45 @@ function createTaskUi({ app, component, body, mutate, onEdit, editTask, createTa
         button.createSpan({ text: `${items.length} ${kind} ${items.length === 1 ? "task" : "tasks"}` });
         button.setAttribute("aria-expanded", String(open));
         button.addEventListener("click", () => { if (open) expanded.delete(kind); else expanded.add(kind); lastRender?.(); });
+        if (kind === "completed" && options.clear) {
+            button.setAttribute("aria-haspopup", "menu");
+            button.setAttribute("aria-keyshortcuts", "Shift+F10");
+            button.setAttribute("aria-description", "Right-click or press Shift+F10 for completed task actions.");
+            const showMenu = (event, keyboard = false) => {
+                event.preventDefault(); event.stopPropagation();
+                if (active || disposed) return;
+                groupMenu?.hide();
+                const menu = groupMenu = new Menu();
+                menu.addItem(item => item.setTitle("Clear completed tasks").setIcon("trash-2").setWarning(true)
+                    .setDisabled(options.canClear?.() === false)
+                    .onClick(async () => {
+                        try { await options.clear(); }
+                        catch (error) { report(error); }
+                    }));
+                menu.onHide(() => {
+                    if (groupMenu === menu) groupMenu = null;
+                    if (keyboard && !disposed && button.isConnected) button.focus({ preventScroll: true });
+                });
+                if (keyboard || (!event.clientX && !event.clientY)) {
+                    const rect = button.getBoundingClientRect();
+                    menu.showAtPosition({ x: rect.left, y: rect.bottom });
+                } else menu.showAtMouseEvent(event);
+            };
+            button.addEventListener("contextmenu", showMenu);
+            button.addEventListener("keydown", event => {
+                if (event.key === "ContextMenu" || (event.key === "F10" && event.shiftKey)) showMenu(event, true);
+            });
+        }
         if (open) items.forEach(render);
     }
     function addButton(header, options = {}) {
         if (!createTask) return;
-        const button = header.createEl("button", { cls: "hub-panel-action hub-panel-action-icon hub-panel-add hub-task-add",
+        const button = header.createEl("button", { cls: "hub-panel-action hub-panel-add hub-task-add",
             attr: { type: "button", "aria-label": "Add task", title: "Add task" } });
-        setIcon(button.createSpan({ attr: { "aria-hidden": "true" } }), "plus");
+        setIcon(button.createSpan({ cls: "hub-task-add-icon", attr: { "aria-hidden": "true" } }), "plus");
+        button.createSpan({ text: "Task" });
         button.addEventListener("click", () => createTask(options));
+        return button;
     }
     return { bind, beginRender, defer, groups, group, addButton, partitionOath: oathSection.partition, renderOath: oathSection.render };
 }

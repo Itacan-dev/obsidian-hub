@@ -59,11 +59,11 @@ window.hubTestProjectPolish = async f => {
         container.style.width=width+"px";await mount();f.click("Work");await settle();
         const heading=f.root.querySelector(".hub-explorer-heading"), separator=rect(heading).bottom, surfaceTop=rect(f.root.querySelector(".hub-workspace-explorer")).top;
         const tasks=f.root.querySelector(".project-tasks");tasks.replaceChildren();
-        const title=tasks.createDiv({cls:"project-panel-title project-tasks-title"});load("ui/icons").setHubIcon(title.createSpan({cls:"project-tasks-title-icon"}),"list-todo");title.createSpan({text:"Tasks"});const titleStyle=getComputedStyle(title);const clear=title.createEl("button",{text:"Clear",cls:"hub-panel-action hub-compact-panel-action"});
+        const title=tasks.createDiv({cls:"project-panel-title project-tasks-title"});load("ui/icons").setHubIcon(title.createSpan({cls:"project-tasks-title-icon"}),"list-todo");title.createSpan({text:"Tasks"});const titleStyle=getComputedStyle(title);
         const body=tasks.createDiv({cls:"project-tasks-body"});load("ui/tasks").createTaskUi({app:plugin.app,component:f.component,body,createTask:()=>{}}).addButton(title,{});
-        const center=rect(clear).top+rect(clear).height/2;
+        const add=title.querySelector(".hub-task-add"),center=rect(add).top+rect(add).height/2;
         const modeSearch=[...f.root.querySelectorAll(".hub-task-mode,.hub-context-search")].map(el=>[rect(el).left,rect(el).top,rect(el).width,rect(el).height]);
-        const checkHeader=selector=>{const header=f.root.querySelector(selector);near(rect(header).bottom,separator,"Separator aligns with Work Files");near(rect(header).top,surfaceTop+1,"Panel starts at shared Work position");const action=header.querySelector(".hub-full-add-task,.hub-roadmap-add-phase");near(rect(action).top+rect(action).height/2,center,"Utility controls share Work Clear/add centerline");assert(JSON.stringify([...f.root.querySelectorAll(".hub-task-mode,.hub-context-search")].map(el=>[rect(el).left,rect(el).top,rect(el).width,rect(el).height]))===JSON.stringify(modeSearch),"Primary mode/search geometry unchanged");};
+        const checkHeader=selector=>{const header=f.root.querySelector(selector);near(rect(header).bottom,separator,"Separator aligns with Work Files");near(rect(header).top,surfaceTop+1,"Panel starts at shared Work position");const action=header.querySelector(".hub-full-add-task,.hub-roadmap-add-phase");near(rect(action).top+rect(action).height/2,center,"Utility controls share Work + Task centerline");assert(JSON.stringify([...f.root.querySelectorAll(".hub-task-mode,.hub-context-search")].map(el=>[rect(el).left,rect(el).top,rect(el).width,rect(el).height]))===JSON.stringify(modeSearch),"Primary mode/search geometry unchanged");};
         f.click("Schedule");
         for(const view of ["Overview","Week","Month","Overview"]){
             f.click(view);await settle();checkHeader(".hub-schedule-toolbar");
@@ -144,7 +144,7 @@ window.hubTestProjectPolish = async f => {
         if(view==="Roadmap"){f.click("Roadmap");await choose(zoom);}
         else if(view==="Work"){
             f.click("Work");const tasks=f.root.querySelector(".project-tasks");tasks.replaceChildren();
-            const header=tasks.createDiv({cls:"project-panel-title project-tasks-title",text:"Tasks"});header.createEl("button",{text:"Clear",cls:"hub-panel-action hub-compact-panel-action"});
+            const header=tasks.createDiv({cls:"project-panel-title project-tasks-title",text:"Tasks"});
             load("ui/tasks").createTaskUi({app:plugin.app,component:f.component,body:tasks.createDiv({cls:"project-tasks-body"}),createTask:()=>{}}).addButton(header,{});
         }else{f.click("Schedule");f.click(view);}await settle();viewport.scrollTop=0;
     };

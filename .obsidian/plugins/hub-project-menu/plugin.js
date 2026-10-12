@@ -956,7 +956,9 @@ class ProjectAdvancementModal
             onSaved,
             onCancel,
             title =
-                "How much did you advance the project today?",
+                "Edit progress report",
+            reportDate = null,
+            reportMode = "edit",
             requireEveryProject = true,
             requireExplicitRatings = false,
             allowNoProgress = false,
@@ -1028,6 +1030,8 @@ class ProjectAdvancementModal
 
         this.title =
             title;
+        this.reportDate = reportDate;
+        this.reportMode = reportMode;
 
 
         this.requireEveryProject =
@@ -1122,11 +1126,19 @@ class ProjectAdvancementModal
         );
 
 
-        const heading = createWindowTitle(this.contentEl, this.title, "clipboard-pen");
+        const heading = createWindowTitle(this.contentEl, this.title,
+            this.reportMode === "complete" ? "clipboard-plus" : "clipboard-pen", {
+                date: this.reportDate ? { value: this.reportDate,
+                    label: formatDate(parseLocalISODate(this.reportDate), "full") } : null
+            });
 
 
-        const guidance = this.contentEl.createDiv({ cls: 'hub-progress-rating-guidance' });
-        guidance.createDiv({ text: "Rate the significance of today's work in each workspace." });
+        const guidance = this.contentEl.createEl("p", { cls: "hub-progress-rating-guidance hub-oath-muted", text:
+            this.reportMode === "complete"
+                ? "Review your activity and rate your work in each project or resource"
+                : this.reportMode === "update"
+                    ? "New activity has been recorded since your last report. Review your ratings"
+                    : "Review activity and adjust the significance of work recorded for this date" });
         setWindowUndertext(heading, guidance);
         this.ratingTooltips?.dispose();
         this.ratingTooltips = createImmediateHubTooltip(this.contentEl);
@@ -13910,11 +13922,29 @@ module.exports = class HubProjectMenu extends Plugin {
         }
 
 
+        // Reuse the exit resolution marker and the existing activity query.
+        // Manual saves do not clear dirty contexts; a dirty flag alone cannot
+        // establish activity since a newer manual save or a legacy report.
+        const savedReports = [...this.projectWizard.getProgressReports(),
+            ...this.projectWizard.getProgressReports({ kind: "resource" })]
+            .filter(report => report.date === date);
+        const resolvedAt = this.projectWizard.normalizedDirtyContextRecord(date).resolvedAt;
+        const lastSavedAt = Math.max(resolvedAt, ...savedReports.map(report => report.timestamp || 0));
+        const activity = lastSavedAt > 0
+            ? this.projectWizard.activityDirtyContexts(date, lastSavedAt) : null;
+        const updatingReport = (resolvedAt > 0 && lastSavedAt === resolvedAt) ||
+            projects.some(project => activity?.projects.includes(project.projectId)) ||
+            resources.some(resource => activity?.resources.includes(resource.resourceType));
+        const reportMode = updatingReport ? "update"
+            : savedReports.length || resolvedAt > 0 ? "edit" : "complete";
+
         new ProjectAdvancementModal(
             this.app,
             {
                 plugin: this,
                 requireExplicitRatings: true,
+                reportDate: date,
+                reportMode,
                 getReportContexts: () => Object.fromEntries([...projects, ...resources].map(workspace => {
                     const id = workspace.projectId ?? `resource:${workspace.resourceType}`;
                     const previous = id.startsWith("resource:")
@@ -13947,7 +13977,8 @@ module.exports = class HubProjectMenu extends Plugin {
                         .getFocusContexts(),
 
                 title:
-                    reportTitle(date, true),
+                    reportMode === "update" ? "Update progress report"
+                        : reportMode === "edit" ? "Edit progress report" : "Complete progress report",
 
                 onSave:
                     async ({
@@ -16016,6 +16047,7 @@ module.exports = class HubProjectMenu extends Plugin {
             this.app,
             {
                 plugin: this,
+                reportDate: date,
                 getReportContexts: () => Object.fromEntries([...projects, ...resources].map(workspace => {
                     const id = workspace.projectId ?? `resource:${workspace.resourceType}`;
                     const previous = id.startsWith("resource:")

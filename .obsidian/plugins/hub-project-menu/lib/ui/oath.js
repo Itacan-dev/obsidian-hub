@@ -260,7 +260,7 @@ function openOathSetup(service) {
             this.contentEl.classList.remove("hub-oath-review");
             this.contentEl.classList.add("hub-oath-setup");
             const heading = createWindowTitle(this.contentEl, "Make an Oath", "shield-user");
-            setWindowUndertext(heading, this.contentEl.createEl("p", { cls: "hub-oath-muted", text: "Set the terms of your commitment." }));
+            setWindowUndertext(heading, this.contentEl.createEl("p", { cls: "hub-oath-muted", text: "Set the terms of your commitment" }));
             const headerEnd = this.contentEl.createDiv({ cls: "hub-oath-header-divider" });
             if (service.strictEnabled || draft.mode === "strict") {
                 const mode = this.section("Commitment mode");
@@ -634,7 +634,7 @@ function openOathSetup(service) {
             this.contentEl.classList.remove("hub-oath-setup");
             this.contentEl.classList.add("hub-oath-review");
             const heading = createWindowTitle(this.contentEl, OATH_COPY.confirmation, "shield-user");
-            setWindowUndertext(heading, this.contentEl.createEl("p", { text: "Review the terms of your commitment before taking the Oath.", cls: "hub-oath-muted" }));
+            setWindowUndertext(heading, this.contentEl.createEl("p", { text: "Review the terms of your commitment before taking the Oath", cls: "hub-oath-muted" }));
             const headerEnd = this.contentEl.createDiv({ cls: "hub-oath-header-divider" });
             const summary = this.section("Your Oath").createDiv({ cls: "hub-oath-row-group" });
             for (const [icon, label, value] of [

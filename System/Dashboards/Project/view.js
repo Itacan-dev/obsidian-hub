@@ -2760,35 +2760,6 @@ const tasksTitleText =
     });
 
 
-const clearCompletedTasksButton =
-    tasksTitle.createEl(
-        "button",
-        {
-            cls:
-                "project-task-clear-completed hub-panel-action hub-compact-panel-action"
-        }
-    );
-
-
-clearCompletedTasksButton.createSpan({
-    cls: "hub-compact-panel-action-label",
-    text:
-        "Clear"
-});
-
-// Match Home's compact action width, including its widest-label reference.
-clearCompletedTasksButton.createSpan({
-    cls: "hub-compact-panel-action-sizer",
-    text: "Today",
-    attr: { "aria-hidden": "true" }
-});
-
-
-clearCompletedTasksButton.setAttribute(
-    "aria-label",
-    "Clear all completed tasks"
-);
-
 const tasksBody =
     tasksPanel.createDiv({
         cls:
@@ -2798,6 +2769,7 @@ const tasksBody =
 
 let currentProjectTasks = [];
 let visibleCompletedTasks = [];
+let clearingCompletedTasks = false;
 
 tasksBody.hubTaskUi = window.hubCreateTaskUi?.(dv.component, tasksBody, edit => {
     currentProjectTasks = window.hubApplyTaskEdit(currentProjectTasks, edit);
@@ -2872,9 +2844,6 @@ function renderTaskRows() {
     visibleCompletedTasks =
         completedTasks;
 
-
-    clearCompletedTasksButton.disabled =
-        completedTasks.length === 0;
 
     const openTaskCount =
         openTasks.length;
@@ -3090,7 +3059,10 @@ function renderTaskRows() {
 
     if (tasksBody.hubTaskUi?.group) {
         tasksBody.hubTaskUi.group("future", futureTasks, task => renderTask(task, false));
-        tasksBody.hubTaskUi.group("completed", completedTasks, task => renderTask(task, true));
+        tasksBody.hubTaskUi.group("completed", completedTasks, task => renderTask(task, true), {
+            clear: () => clearVisibleCompletedTasks(),
+            canClear: () => !clearingCompletedTasks
+        });
         return;
     }
 
@@ -3194,47 +3166,16 @@ async function clearCompletedProjectTasks(
 }
 
 
-clearCompletedTasksButton.addEventListener(
-    "click",
-    async event => {
-
-        event.stopPropagation();
-
-
-        if (
-            visibleCompletedTasks.length === 0
-        ) {
-            return;
-        }
-
-
-        clearCompletedTasksButton.disabled =
-            true;
-
-
-        try {
-            await clearCompletedProjectTasks(
-                [...visibleCompletedTasks],
-                true
-            );
-        } catch (error) {
-
-            console.error(
-                "Could not clear completed project tasks:",
-                error
-            );
-
-        } finally {
-
-            if (
-                clearCompletedTasksButton.isConnected
-            ) {
-                clearCompletedTasksButton.disabled =
-                    visibleCompletedTasks.length === 0;
-            }
-        }
+async function clearVisibleCompletedTasks() {
+    if (clearingCompletedTasks || visibleCompletedTasks.length === 0) return;
+    clearingCompletedTasks = true;
+    try {
+        // Keep the former header Clear scope and its native confirmation.
+        await clearCompletedProjectTasks([...visibleCompletedTasks], true);
+    } finally {
+        clearingCompletedTasks = false;
     }
-);
+}
 
 
 frame.defer(() => renderCurrentTasks());

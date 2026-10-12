@@ -13,7 +13,7 @@ class SettingsModal extends Modal {
         const header = this.contentEl.createEl("header", { cls: "hub-settings-header" });
         const heading = createWindowTitle(header, "Settings", "settings", { attr: { id: `${this.prefix}-title` } });
         this.modalEl.setAttribute("aria-labelledby", `${this.prefix}-title`);
-        setWindowUndertext(heading, header.createEl("p", { cls: "hub-settings-description", text: "Customize how Itacan looks and behaves." }));
+        setWindowUndertext(heading, header.createEl("p", { cls: "hub-settings-description", text: "Customize how Itacan looks and behaves" }));
         const body = this.contentEl.createDiv({ cls: "hub-settings-body" });
         const sidebar = body.createEl("aside", { cls: "hub-settings-sidebar" });
         this.tabs = sidebar.createDiv({ cls: "hub-settings-categories", attr: { role: "tablist", "aria-label": "Settings categories", "aria-orientation": "vertical" } });
