@@ -6,9 +6,168 @@
  */
 
 const __hubModules = {
+"lib/atlas/core/target.js": function (module, exports, __hubRequire) {
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.normalizeHostname = normalizeHostname;
+exports.normalizeTarget = normalizeTarget;
+/** Shared by requests and policy entries; unsupported forms return null. */
+function normalizeHostname(input) {
+    if (typeof input !== "string")
+        return null;
+    const value = input.trim();
+    // Validate before case folding: some Unicode letters lowercase to ASCII.
+    if (!/^[a-z0-9.-]+$/i.test(value))
+        return null;
+    const hostname = value.toLowerCase().replace(/\.$/, "");
+    if (hostname.length === 0 || hostname.length > 253)
+        return null;
+    const labels = hostname.split(".");
+    if (labels.some((label) => !/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(label))) {
+        return null;
+    }
+    // IP addresses and URL-parser IP shorthand are outside the initial contract.
+    if (/^[0-9.]+$/.test(hostname))
+        return null;
+    try {
+        if (new URL(`https://${hostname}`).hostname !== hostname)
+            return null;
+    }
+    catch {
+        return null;
+    }
+    return hostname;
+}
+/** Accept a bare hostname, an HTTP(S) URL, or a SiteTarget data object. */
+function normalizeTarget(input) {
+    let hostname;
+    if (typeof input === "string") {
+        const value = input.trim();
+        if (/^https?:\/\//i.test(value)) {
+            // Keep the supported authority syntax small; never accept userinfo.
+            const authority = /^https?:\/\/([^/?#]+)/i.exec(value)?.[1];
+            if (authority === undefined ||
+                !/^[a-z0-9.-]+(?::[0-9]+)?$/i.test(authority) ||
+                /[\u0000-\u0020\u007f\\]/.test(value)) {
+                return null;
+            }
+            try {
+                hostname = normalizeHostname(new URL(value).hostname);
+            }
+            catch {
+                return null;
+            }
+        }
+        else {
+            hostname = normalizeHostname(value);
+        }
+    }
+    else if (input !== null &&
+        typeof input === "object" &&
+        !Array.isArray(input) &&
+        Object.keys(input).length === 1 &&
+        Object.hasOwn(input, "hostname") &&
+        "hostname" in input) {
+        hostname = normalizeHostname(input.hostname);
+    }
+    else {
+        return null;
+    }
+    return hostname === null ? null : { hostname };
+}
+
+},
+"lib/atlas/obsidian/dom.js": function (module, exports, __hubRequire) {
+"use strict";
+function text(node, value) { const next = String(value ?? ""); if (node.textContent !== next) node.textContent = next; }
+function place(parent, node, before = null) {
+    if (node.parentNode === parent && node.nextSibling === before) return;
+    if (node.parentNode === parent && typeof parent.moveBefore === "function") parent.moveBefore(node, before);
+    else parent.insertBefore(node, before);
+}
+// A keyed list owns only its direct children. Updating a label or status never
+// detaches a row; callers keep interactive controls and disclosures in the record.
+function keyed(parent, create, update, key = item => item.id) {
+    const records = new Map();
+    return items => {
+        const wanted = new Set(items.map(key));
+        for (const [id, record] of records) if (!wanted.has(id)) { record.node.remove(); records.delete(id); }
+        let cursor = parent.firstChild;
+        for (const item of items) {
+            const id = key(item); let record = records.get(id);
+            if (!record) { record = create(item); records.set(id, record); }
+            record.value = item; update(record, item);
+            if (record.node !== cursor) place(parent, record.node, cursor);
+            cursor = record.node.nextSibling;
+        }
+    };
+}
+function phaseAnnouncer(parent) {
+    const node = parent.ownerDocument.createElement("div"); node.className = "hub-atlas-announcement"; node.setAttribute("role", "status"); node.setAttribute("aria-live", "polite"); node.setAttribute("aria-atomic", "true"); parent.appendChild(node);
+    let previous = null;
+    return items => { const key = JSON.stringify(items.map(i => [i.key, i.phase])); if (key === previous) return; previous = key;
+        text(node, items.map(i => i.label + ": " + (i.detail ?? i.phase)).join(". ")); };
+}
+module.exports = { text, place, keyed, phaseAnnouncer };
+
+},
+"lib/atlas/obsidian/feedback.js": function (module, exports, __hubRequire) {
+"use strict";
+function describeOutcome(command, result, state = {}) {
+    const kind = command.kind, reason = result?.reason;
+    const info = (text, tone = "info", section = null) => ({ text, tone, section, detail: reason ?? null });
+    if (reason?.startsWith("NATIVE_") || reason === "NOT_READY" && state.status === "UNINITIALIZED")
+        return info("Atlas is not ready to start this operation. Your draft is kept; open setup or recovery to continue.", "warning", state.status === "UNINITIALIZED" ? "sites" : "diagnostics");
+    if (!result || reason === "TRANSPORT_UNRESOLVED" || state.status === "RECONCILING" && result.type === "BLOCKED" ||
+        ["COMMIT_UNKNOWN", "RECOVERY_SAVE_UNRESOLVED"].includes(reason))
+        return info("The save outcome is unresolved. Your draft is kept. Reconcile saved state before retrying; nothing will be confirmed automatically.", "unresolved", "diagnostics");
+    if (state.status === "UNAVAILABLE") return info("Saved authority is unavailable. Your draft is kept and no new change was verified. Open recovery to reconcile saved state.", "error", "diagnostics");
+    if (kind === "RECOVER" && result.status === "READY")
+        return info("Saved state reconciled. Review any pending operation; nothing was automatically confirmed.", "success");
+    if (result.type === "COMMITTED") {
+        if (kind === "CANCEL_POLICY") return info("Proposal cancelled. Your active policy is unchanged.", "success");
+        if (kind === "CANCEL_ACCESS") return info("Access request cancelled. No temporary access was granted.", "success");
+        if (kind === "CANCEL_JOURNEY") return info("Journey cancelled.", "success");
+        if (kind === "CONFIRM_POLICY") return info("Reviewed changes committed. The saved policy and timing terms are now active.", "success");
+        if (kind === "CONFIRM_ACCESS_AND_OPEN") return info("Temporary access granted. A fresh homepage is checked before loading.", "success");
+        if (kind === "START_ACCESS") return info("Access requested. Wait, then confirm explicitly; waiting alone grants no access.");
+        if (kind === "DISCARD_RECOVERY") return info("Recovery copy discarded. Active policy and any pending proposal are unchanged.", "success");
+        if (result.operation === "PRESENTATION" || kind === "SAVE_DISPLAY_DETAILS") return info("Display details saved. Host access is unchanged.", "success");
+        if (state.snapshot?.vaultState.pendingProposal) return info("Changes submitted for Vault review. Current policy stays active until you explicitly confirm.", "success", "vault");
+    }
+    if (reason === "PROPOSAL_PENDING" || reason === "RECOVERY_DRAFT_PENDING")
+        return info("Another change is already in Vault. Your draft is kept. Review or cancel the existing proposal first.", "warning", "vault");
+    if (["STALE_DRAFT", "STALE_DESTINATION"].includes(reason))
+        return info("Committed values changed. Your input is kept; review current values before retrying.", "warning");
+    if (reason === "PROPOSAL_EXPIRED") return info("This proposal expired without changing policy. Recreate it in Vault for a full new wait.", "warning", "vault");
+    if (["REQUEST_EXPIRED", "ACCESS_REQUEST_EXPIRED", "STALE_REQUEST"].includes(reason))
+        return info("This access request expired or changed. No access was granted. Return to the destination to request access again.", "warning", "temporary");
+    if (["STALE_CONTEXT", "NO_DESTINATION", "STALE_JOURNEY", "NOT_GREYLIST"].includes(reason))
+        return info("This browsing context is no longer applicable. No access was granted. Return to the destination in a Note tab to continue.", "warning", "temporary");
+    if (["INVALID_DESTINATION", "INVALID_HOST_ACCESS", "INVALID_CANDIDATE_POLICY"].includes(reason))
+        return info("Check the destination name, category and exact hostnames. Your input is kept; URLs and wildcard hosts are not accepted.", "error");
+    if (reason === "DUPLICATE_DESTINATION") return info("A destination already uses this primary hostname or identity. Your input is kept; edit the existing destination or choose another hostname.", "error", "sites");
+    if (["INVALID_CONFIGURATION", "INVALID_TIMING"].includes(reason)) return info("Check the timing values. Use positive seconds and whole Journey hops. Your input is kept.", "error", "timings");
+    if (reason === "NOT_READY" || reason === "PROPOSAL_NOT_EXPIRED") return info("This action is not available yet. Wait for the current operation; no access or policy was changed.");
+    if (reason === "REPLACEMENT_ALREADY_SAVED") return info("The replacement proposal is already saved. Review it in Vault; do not recreate it again.", "info", "vault");
+    if (["STALE_PROPOSAL", "STALE_RECOVERY", "PROPOSAL_NOT_FOUND", "ALREADY_APPLIED"].includes(reason)) return info("This operation changed or is no longer pending. Review the current Vault state.", "warning", "vault");
+    if (kind === "INITIALIZE_CURATED" || kind === "INITIALIZE") {
+        if (result.status === "READY") return info("Atlas is set up. Your initial rules are saved.", "success");
+    }
+    if (reason === "NO_POLICY_CHANGE") return info("These security values are already committed. Your draft is kept; save display details or discard the local copy.");
+    if (result.type === "OPEN_REQUESTED") return info("Opening a fresh homepage through the current access checks.");
+    if (result.type === "REVIEW") return info("Review the frozen changes. Confirmation remains a separate action.");
+    if (result.type === "MANAGED_STATUS") return info("Managed list refresh completed. Review its current status below.");
+    return info("The operation could not complete. Your input is kept and no success was verified. Review the current state before retrying.", "error", state.status !== "READY" ? "diagnostics" : null);
+}
+module.exports = { describeOutcome };
+
+},
 "lib/atlas/obsidian/home-ui.js": function (module, exports, __hubRequire) {
 "use strict";
 const { el, button, countdown, updateCountdowns } = __hubRequire("lib/atlas/obsidian/ui.js");
+const { pendingForBridge, presentationNow } = __hubRequire("lib/atlas/obsidian/pending.js");
+const { text, place, keyed, phaseAnnouncer } = __hubRequire("lib/atlas/obsidian/dom.js");
 
 function mountAtlasHome(parent, bridge, navigate) {
     const header = el(parent, "header", undefined, "hub-atlas-home-header");
@@ -17,60 +176,86 @@ function mountAtlasHome(parent, bridge, navigate) {
     const toolbar = el(parent, "div", undefined, "hub-atlas-home-toolbar");
     const search = el(toolbar, "input"); search.type = "search"; search.placeholder = "Search your destinations…";
     search.setAttribute("aria-label", "Search Atlas destinations");
-    button(toolbar, "Sites & Access", () => bridge.open());
-    const status = el(parent, "p", undefined, "hub-atlas-state"), temporary = el(parent, "section"), pinned = el(parent, "section"), groups = el(parent, "div");
-    let signature = null, temporarySignature = null, disposed = false;
-    const card = (container, destination, href = `https://${destination.hostname}/`) => {
-        const item = el(container, "article", undefined, "hub-atlas-card");
-        const target = button(item, destination.label, () => navigate(href)); target.className = "hub-atlas-destination-link";
-        el(item, "small", new URL(href).hostname);
-        if (destination.destinations?.length) {
-            const more = el(item, "details"), summary = el(more, "summary", "Other entry points"); summary.setAttribute("aria-label", `${destination.label} other entry points`);
-            for (const host of destination.hosts.filter(h => destination.destinations.includes(h.hostname) && h.decision.outcome === "ALLOW")) button(more, host.hostname, () => navigate(`https://${host.hostname}/`));
+    button(toolbar, "Sites & Access", () => bridge.open({ section: "sites" }));
+    const status = el(parent, "p", undefined, "hub-atlas-state"); status.setAttribute("role", "status");
+    const pending = el(parent, "section", undefined, "hub-atlas-pending");
+    el(pending, "h2", "Needs your attention"); const first = el(pending, "div"), overflow = el(pending, "details"), overflowLabel = el(overflow, "summary"), extra = el(overflow, "div");
+    const announce = phaseAnnouncer(parent), pendingRows = new Map();
+    const temporary = el(parent, "section"), pinned = el(parent, "section"), groups = el(parent, "div"), empty = el(parent, "p");
+    pinned.dataset.atlasPinned = ""; el(pinned, "h2", "Pinned"); const pinnedGrid = el(pinned, "div", undefined, "hub-atlas-grid");
+    el(temporary, "h2", "Temporary access"); const noGrants = el(temporary, "p", "No temporary access is active.", "hub-atlas-muted"), grantList = el(temporary, "div");
+    const syncGrants = keyed(grantList, grant => {
+        const node = el(grantList, "div", undefined, "hub-atlas-temporary-row"), record = { node, value: grant };
+        record.link = button(node, grant.hostname, () => navigate("https://" + record.value.hostname + "/"));
+        countdown(node, "Remaining", grant.expiresAt); record.count = node.querySelector("[data-atlas-deadline]"); node.dataset.state = "ACTIVE_GRANT"; return record;
+    }, (record, grant) => { text(record.link, grant.hostname); record.count.dataset.atlasDeadline = String(grant.expiresAt); }, grant => grant.requestId);
+    let disposed = false;
+    function refreshPending() {
+        if (disposed) return;
+        const state = bridge.view(), items = pendingForBridge(bridge), wanted = new Set(items.map(i => i.key));
+        pending.hidden = !items.length; overflow.hidden = items.length <= 3; text(overflowLabel, "More pending actions (" + Math.max(0, items.length - 3) + ")");
+        for (const [key, record] of pendingRows) if (!wanted.has(key)) { record.node.remove(); pendingRows.delete(key); }
+        const positions = new Map([[first, first.firstChild], [extra, extra.firstChild]]);
+        for (const [index, item] of items.entries()) {
+            let record = pendingRows.get(item.key); const host = index < 3 ? first : extra;
+            if (!record) {
+                const node = el(host, "article", undefined, "hub-atlas-pending-row"), copy = el(node, "div");
+                record = { node, label: el(copy, "strong"), detail: el(copy, "p"), item };
+                countdown(copy, "", 0); record.count = copy.querySelector("[data-atlas-deadline]");
+                record.action = button(node, "", () => { const current = pendingForBridge(bridge).find(i => i.key === record.item.key); if (current) bridge.open(current.route); });
+                pendingRows.set(item.key, record); node.dataset.atlasPendingKey = item.key;
+            }
+            record.item = item; record.node.dataset.state = item.phase; text(record.label, item.label); text(record.detail, item.detail);
+            record.count.hidden = !item.deadline; record.count.dataset.atlasDeadline = String(item.deadline ?? 0); record.count.dataset.atlasLabel = item.phase === "WAITING" ? "Confirmation available in" : "Confirmation window";
+            text(record.action, item.route.section === "vault" ? "Review in Vault" : item.route.section === "temporary" ? "Review access request" : "Review recovery");
+            const cursor = positions.get(host); if (record.node !== cursor) place(host, record.node, cursor); positions.set(host, record.node.nextSibling);
         }
-    };
+        announce(items); updateCountdowns(pending, presentationNow(state));
+    }
+    function cards(container) {
+        return keyed(container, destination => {
+            const node = el(container, "article", undefined, "hub-atlas-card"), record = { node, value: destination };
+            node.dataset.atlasDestinationId = destination.id;
+            record.link = button(node, destination.label, () => navigate("https://" + record.value.hostname + "/")); record.link.className = "hub-atlas-destination-link";
+            record.host = el(node, "small"); record.more = el(node, "details"); const summary = el(record.more, "summary", "Other entry points"); record.summary = summary;
+            const entries = el(record.more, "div");
+            record.entries = keyed(entries, host => { const r = { node: null, value: host }; r.node = button(entries, host.hostname, () => navigate("https://" + r.value.hostname + "/")); return r; },
+                (r, host) => text(r.node, host.hostname), host => host.hostname);
+            return record;
+        }, (r, d) => {
+            text(r.link, d.label); text(r.host, d.hostname); r.summary.setAttribute("aria-label", d.label + " other entry points");
+            const hosts = d.hosts?.filter(h => d.destinations.includes(h.hostname) && h.decision.outcome === "ALLOW") ?? [];
+            r.more.hidden = !hosts.length; r.entries(hosts);
+            r.node.hidden = !matches(d);
+        });
+    }
+    const syncPinned = cards(pinnedGrid);
+    const syncGroups = keyed(groups, category => {
+        const node = el(groups, "section"), heading = el(node, "div", undefined, "hub-atlas-section-heading");
+        const record = { node, title: el(heading, "h2"), count: el(heading, "small") }; record.cards = cards(el(node, "div", undefined, "hub-atlas-grid")); return record;
+    }, (r, category) => { text(r.title, category.name); const count = category.entries.filter(matches).length; text(r.count, count + " destination" + (count === 1 ? "" : "s")); r.node.hidden = !count; r.cards(category.entries); }, category => category.name);
+    const matches = d => (d.label + " " + d.category + " " + d.hostname + " " + d.aliases.join(" ") + " " + d.destinations.join(" ")).toLowerCase().includes(search.value.trim().toLowerCase());
     function refresh() {
         if (disposed) return;
-        const state = bridge.view(), now = Date.now();
-        const destinations = (state.destinations ?? []).filter(d => d.decision?.outcome === "ALLOW" && d.decision.reason === "WHITELISTED");
-        const grants = (state.temporaryDestinations ?? []).filter(g => g.expiresAt > now && g.policyRevision === state.snapshot.policyRevision && g.decision.outcome === "ALLOW");
-        const next = JSON.stringify([state.status, state.enabled, destinations, search.value]);
-        const statusText = state.status === "READY" && state.enabled ? "" : state.status === "UNINITIALIZED"
-            ? `Initialize Atlas to begin with ${state.starter?.serviceCount ?? "curated"} destinations.` : "Atlas is unavailable. External browsing stays blocked.";
-        if (status.textContent !== statusText) status.textContent = statusText;
-        const nextTemporary = JSON.stringify([state.status, state.enabled, grants]);
-        if (temporarySignature !== nextTemporary) {
-            temporarySignature = nextTemporary; temporary.replaceChildren(); el(temporary, "h2", "Temporary access");
-            if (!grants.length) el(temporary, "p", "No temporary access is active.", "hub-atlas-muted");
-            for (const grant of grants) {
-                const row = el(temporary, "div", undefined, "hub-atlas-temporary-row");
-                button(row, grant.hostname, () => navigate(`https://${grant.hostname}/`)); countdown(row, "Remaining", grant.expiresAt);
-            }
-        }
-        updateCountdowns(temporary);
-        if (next === signature) return;
-        signature = next; pinned.replaceChildren(); groups.replaceChildren();
-        if (state.status !== "READY" || !state.enabled) { button(groups, state.status === "UNINITIALIZED" ? "Initialize Atlas" : "Diagnostics & recovery", () => bridge.open()); return; }
-        const query = search.value.trim().toLowerCase();
-        const visible = destinations.filter(d => `${d.label} ${d.category} ${d.hostname} ${d.aliases.join(" ")} ${d.destinations.join(" ")}`.toLowerCase().includes(query));
-        const favorites = visible.filter(d => d.pinned);
-        if (favorites.length) {
-            el(pinned, "h2", "Pinned"); const grid = el(pinned, "div", undefined, "hub-atlas-grid"); favorites.forEach(d => card(grid, d));
-        }
-        const categories = [...new Set(visible.map(d => d.category))];
-        for (const category of categories) {
-            const section = el(groups, "section"), heading = el(section, "div", undefined, "hub-atlas-section-heading"), entries = visible.filter(d => d.category === category);
-            el(heading, "h2", category); el(heading, "small", `${entries.length} destination${entries.length === 1 ? "" : "s"}`);
-            const grid = el(section, "div", undefined, "hub-atlas-grid"); entries.forEach(d => card(grid, d));
-        }
-        if (!visible.length) el(groups, "p", query ? "No destinations match your search." : "No committed Whitelist destinations. Add one in Sites & Access.");
+        const state = bridge.view(), now = presentationNow(state); refreshPending();
+        const available = state.status === "READY" && state.enabled;
+        const destinations = available ? (state.destinations ?? []).filter(d => d.decision?.outcome === "ALLOW" && d.decision.reason === "WHITELISTED") : [];
+        const grants = (state.temporaryDestinations ?? []).filter(g => g.expiresAt > now && g.policyRevision === state.snapshot?.policyRevision && g.decision.outcome === "ALLOW");
+        text(status, available ? "" : state.status === "UNINITIALIZED" ? "Initialize Atlas to begin with " + (state.starter?.serviceCount ?? "curated") + " destinations." : "Atlas is unavailable. External browsing stays blocked.");
+        noGrants.hidden = !!grants.length; syncGrants(grants); updateCountdowns(temporary, now);
+        const favorites = destinations.filter(d => d.pinned); pinned.hidden = !favorites.some(matches); syncPinned(favorites);
+        const categories = [...new Set(destinations.map(d => d.category))].map(name => ({ name, entries: destinations.filter(d => d.category === name) })); syncGroups(categories);
+        const visible = destinations.some(matches); empty.hidden = visible || !available;
+        text(empty, search.value.trim() ? "No destinations match your search." : "No committed Whitelist destinations. Add one in Sites & Access.");
+        setup.hidden = !!available; text(setup, state.status === "UNINITIALIZED" ? "Initialize Atlas" : "Diagnostics & recovery");
     }
+    const setup = button(parent, "Initialize Atlas", () => bridge.open({ section: bridge.view().status === "UNINITIALIZED" ? "sites" : "diagnostics" }));
     search.addEventListener("input", refresh);
     const key = event => { if (event.key === "/" && !["INPUT", "TEXTAREA", "SELECT"].includes(event.target.tagName) && !event.target.isContentEditable) { event.preventDefault(); search.focus(); } };
     parent.addEventListener("keydown", key);
     const unsubscribe = bridge.subscribe(refresh); refresh();
-    const timer = setInterval(() => updateCountdowns(temporary), 1000);
-    return () => { disposed = true; unsubscribe(); clearInterval(timer); parent.removeEventListener("keydown", key); };
+    const timer = setInterval(() => { refreshPending(); updateCountdowns(temporary, presentationNow(bridge.view())); }, 1000);
+    return () => { disposed = true; unsubscribe(); clearInterval(timer); parent.removeEventListener("keydown", key); search.removeEventListener("input", refresh); };
 }
 module.exports = { mountAtlasHome };
 
@@ -79,38 +264,52 @@ module.exports = { mountAtlasHome };
 "use strict";
 
 const path = require("path");
-const { Modal, Notice, Menu } = require("obsidian");
-const { mountAtlasOverview, renderNavigation } = __hubRequire("lib/atlas/obsidian/ui.js");
+const { Notice, Menu } = require("obsidian");
+const { renderNavigation } = __hubRequire("lib/atlas/obsidian/ui.js");
+const { getSettingsOwner } = __hubRequire("lib/ui/settings.js");
+const { getAtlasSession, normalizeRoute } = __hubRequire("lib/atlas/obsidian/session.js");
+const { pendingForBridge } = __hubRequire("lib/atlas/obsidian/pending.js");
 const { mountAtlasHome } = __hubRequire("lib/atlas/obsidian/home-ui.js");
-const { registerNoteAtlasAction, canOpenAtlas } = __hubRequire("lib/atlas/obsidian/note-context.js");
+const { registerNoteAtlasAction, canOpenAtlas, canUseAtlasContext } = __hubRequire("lib/atlas/obsidian/note-context.js");
 
 // Renderer bridge: holds descriptions, DOM identities and subscriptions only.
 // It has no controller, policy evaluator, persistence writer or Journey facts.
 function installAtlasIntegration(plugin) {
     const app = plugin.app, records = new Map(), listeners = new Set(), patches = new Map(), documents = new Map(), existingIds = new WeakMap();
-    let host = null, client = null, stopped = false, modal = null, issue = null, action = null;
-    let description = null;
-    const readDescription = () => { if (host) description = JSON.parse(host.viewJSON()); };
+    let host = null, client = null, stopped = false, issue = null, action = null;
+    let description = null, launchingHome = null, descriptionJSON = null;
+    const readDescription = () => { if (!host) return false; const encoded = host.viewJSON(); if (encoded === descriptionJSON) return false; description = JSON.parse(encoded); descriptionJSON = encoded; return true; };
     const publish = () => { for (const callback of listeners) callback(); };
     const bridge = {
         view() { return description ?? { status: "UNAVAILABLE", reason: issue, snapshot: null, contexts: [] }; },
         async command(input) {
             if (!host) return { type: "BLOCKED", reason: issue };
-            const result = JSON.parse(await host.commandJSON(JSON.stringify(input))); readDescription(); refresh(); publish(); return result;
+            if (["START_ACCESS", "CONFIRM_ACCESS_AND_OPEN", "CANCEL_ACCESS", "OPEN_HOME", "RETRY_JOURNEY", "CANCEL_JOURNEY"].includes(input?.kind)) {
+                const context = bridge.view().contexts.find(c => c.id === input.contextId && c.generation === input.generation);
+                if (!context || !bridge.canActOnContext(context)) return { type: "BLOCKED", reason: "STALE_CONTEXT" };
+            }
+            const result = JSON.parse(await host.commandJSON(JSON.stringify(input))); if (readDescription()) { refresh(); publish(); } return result;
         },
         subscribe(callback) { listeners.add(callback); return () => listeners.delete(callback); },
-        isSettingsOpen: () => !!modal,
+        isSettingsOpen: () => getSettingsOwner(plugin).isOpen(),
+        canActOnContext(context) {
+            if (stopped || !host) return false;
+            const record = [...records.values()].find(r => r.nativeId === context.nativeId && r.view.contentEl.isConnected);
+            const leaf = record && app.workspace.getLeavesOfType("webviewer").find(l => l.view === record.view);
+            return !!leaf && canUseAtlasContext(plugin, leaf);
+        },
         forget(nativeId) { host?.forget(nativeId); },
-        open() {
-            if (modal) return;
-            modal = new class extends Modal {
-                onOpen() { this.modalEl?.classList.add("hub-atlas-dialog"); this.contentEl.classList.add("hub-atlas-overview"); this.dispose = mountAtlasOverview(this.contentEl, bridge); }
-                onClose() { this.dispose?.(); this.contentEl.replaceChildren(); modal = null; }
-            }(app);
-            modal.open();
+        open(route) {
+            const session = getAtlasSession(bridge), target = normalizeRoute(route, session.route);
+            if (stopped || !target) return false;
+            session.route = target;
+            const opened = getSettingsOwner(plugin).open("atlas");
+            if (opened) session.navigate(target);
+            else new Notice("Close the current dialog to open Atlas Settings. Your draft is kept.");
+            return opened;
         },
         destroy() {
-            stopped = true; modal?.close(); clearInterval(scanTimer); action?.destroy();
+            stopped = true; getSettingsOwner(plugin).close(); getAtlasSession(bridge).dispose(); clearInterval(scanTimer); action?.destroy();
             if (host && client !== null) host.unsubscribe(client);
             for (const record of records.values()) { record.disposeHome?.(); record.home?.remove(); record.panel?.remove(); record.status?.remove(); }
             for (const observer of documents.values()) observer.disconnect();
@@ -183,6 +382,7 @@ function installAtlasIntegration(plugin) {
     function refresh() {
         if (stopped) return;
         const state = bridge.view();
+        for (const observer of documents.values()) observer.inspectClosed();
         for (const record of records.values()) {
             remember(record);
             const context = state.contexts.find(item => item.nativeId === record.nativeId) ?? record.context;
@@ -209,6 +409,17 @@ function installAtlasIntegration(plugin) {
                 record.status = view.contentEl.ownerDocument.createElement("div");
                 record.status.className = "hub-atlas-navigation-status";
                 record.status.setAttribute("aria-live", "polite");
+                record.statusCopy = view.contentEl.ownerDocument.createElement("span"); record.status.appendChild(record.statusCopy);
+                record.pendingButton = view.contentEl.ownerDocument.createElement("button"); record.pendingButton.type = "button"; record.pendingButton.className = "hub-atlas-pending-link"; record.status.appendChild(record.pendingButton);
+                record.pendingButton.addEventListener("click", event => {
+                    const items = pendingForBridge(bridge); if (!items.length) return;
+                    if (items.length === 1) { bridge.open(items[0].route); return; }
+                    const menu = new Menu();
+                    for (const item of items) menu.addItem(entry => entry.setTitle(item.label + ": " + item.detail).onClick(() => {
+                        const latest = pendingForBridge(bridge).find(current => current.key === item.key); if (latest) bridge.open(latest.route);
+                    }));
+                    menu.showAtMouseEvent(event);
+                });
                 view.contentEl.appendChild(record.status);
             }
             record.panel.hidden = internalHome || !blocked;
@@ -222,9 +433,16 @@ function installAtlasIntegration(plugin) {
                 renderNavigation(record.panel, state, context, bridge);
             }
             record.wasBlocked = blocked;
-            const statusText = context?.response?.decision
-                ? `Atlas · ${context.response.decision.reason.replaceAll("_", " ").toLowerCase()}` : `Atlas · ${state.reason ?? state.status}`;
-            if (record.status.textContent !== statusText) record.status.textContent = statusText;
+            const decision = context?.response?.decision;
+            const detail = decision?.reason ?? context?.response?.reason ?? state.reason;
+            const statusText = "Atlas · " + (state.status !== "READY" ? "browsing paused" : decision?.reason === "WHITELISTED" ? "Whitelist access" :
+                decision?.reason === "ACTIVE_GRANT" ? "temporary access" : decision?.reason === "ACTIVE_JOURNEY" ? "bounded Journey" :
+                decision?.outcome === "WAIT" ? "access requested" : decision?.outcome === "REQUIRE_CONFIRMATION" ? "confirmation available" : "access required or blocked");
+            record.statusCopy.title = detail ?? "";
+            if (record.statusCopy.textContent !== statusText) record.statusCopy.textContent = statusText;
+            const pending = pendingForBridge(bridge), pendingLabel = pending.length + " pending " + (pending.length === 1 ? "action" : "actions");
+            if (record.pendingButton.textContent !== pendingLabel) record.pendingButton.textContent = pendingLabel;
+            record.pendingButton.hidden = !pending.length; record.pendingButton.title = pending.map(item => item.label + ": " + item.detail).join("\n");
             record.status.hidden = internalHome;
         }
     }
@@ -238,25 +456,32 @@ function installAtlasIntegration(plugin) {
             if (document.createElementNS === saved.createNSWrapper) document.createElementNS = saved.createNS;
             delete document.__hubAtlasQuarantine;
         }
-        const watched = new WeakSet();
-        const identities = new WeakMap();
-        const inspect = () => {
-            const state = bridge.view();
-            for (const guest of document.querySelectorAll("webview")) {
-                if (!host) { try { guest.stop(); } catch (_) { /* not yet mounted */ } guest.remove(); continue; }
-                if (!watched.has(guest)) {
-                    watched.add(guest);
-                    const remember = () => { try { identities.set(guest, guest.getWebContentsId()); } catch (_) { /* attachment may be pending */ } };
-                    remember(); guest.addEventListener("did-attach", remember);
-                    guest.addEventListener("destroyed", () => guest.remove());
-                }
-                if (state.contexts.some(context => context.nativeId === identities.get(guest) && context.closed)) guest.remove();
+        const guests = new Map();
+        const unwatch = guest => { const record = guests.get(guest); if (!record) return; guest.removeEventListener("did-attach", record.remember); guest.removeEventListener("destroyed", record.destroyed); guests.delete(guest); };
+        const check = guest => {
+            if (!guest.isConnected) { unwatch(guest); return; }
+            if (!host || bridge.view().contexts.some(c => c.nativeId === guests.get(guest)?.id && c.closed)) {
+                try { guest.stop(); } catch (_) { /* attachment may be pending */ } guest.remove(); unwatch(guest);
             }
         };
-        const observer = new document.defaultView.MutationObserver(inspect);
+        const watchGuest = guest => {
+            if (!guests.has(guest)) {
+                const record = { id: null, remember: null, destroyed: null };
+                record.remember = () => { try { record.id = guest.getWebContentsId(); } catch (_) { /* attachment may be pending */ } check(guest); };
+                record.destroyed = () => { guest.remove(); unwatch(guest); };
+                guests.set(guest, record); guest.addEventListener("did-attach", record.remember); guest.addEventListener("destroyed", record.destroyed); record.remember();
+            } else check(guest);
+        };
+        const inspectTree = node => { if (node.nodeType !== 1) return; if (node.matches("webview")) watchGuest(node); for (const guest of node.querySelectorAll("webview")) watchGuest(guest); };
+        const observer = new document.defaultView.MutationObserver(records => {
+            for (const mutation of records) { for (const node of mutation.addedNodes) inspectTree(node);
+                for (const node of mutation.removedNodes) if (node.nodeType === 1 && (node.matches("webview") || node.querySelector("webview"))) for (const guest of guests.keys()) if (!guest.isConnected) unwatch(guest); }
+        });
         observer.observe(document.documentElement, { childList: true, subtree: true });
-        documents.set(document, observer); inspect();
+        documents.set(document, { inspectClosed: () => { for (const guest of guests.keys()) check(guest); }, disconnect() { observer.disconnect(); for (const [guest, record] of guests) { guest.removeEventListener("did-attach", record.remember); guest.removeEventListener("destroyed", record.destroyed); } guests.clear(); } });
+        inspectTree(document.documentElement);
     }
+
     function quarantineDocument(document) {
         if (document.__hubAtlasQuarantine) return;
         const create = document.createElement, createNS = document.createElementNS;
@@ -298,14 +523,14 @@ function installAtlasIntegration(plugin) {
         const directory = path.resolve(base, plugin.manifest.dir);
         const candidate = window.electron.remote.require(path.join(directory, "atlas-native.cjs"))
             .getAtlasHost({ directory, partition: app.getWebviewPartition() });
-        if (candidate.apiVersion !== 3) {
+        if (candidate.apiVersion !== 4) {
             // Never hot-swap an old controller or its uncertain-write guards.
             try { candidate.unsubscribe(null); } catch (_) { /* quarantine below */ }
             throw new Error("NATIVE_ADAPTER_UPGRADE_REQUIRED");
         }
         host = candidate;
         readDescription();
-        client = host.subscribe(message => { if (stopped) return; readDescription(); if (message.type === "OPEN_HOME") openHome(message); else { scan(); publish(); } });
+        client = host.subscribe(message => { if (stopped) return; const changed = readDescription(); if (message.type === "OPEN_HOME") openHome(message); else if (changed) { refresh(); publish(); } });
         if (!description.enabled) void host.open();
     } catch (error) {
         issue = error.message === "NATIVE_ADAPTER_UPGRADE_REQUIRED" ? error.message : "NATIVE_ENFORCEMENT_UNAVAILABLE";
@@ -321,17 +546,25 @@ function installAtlasIntegration(plugin) {
     plugin.registerEvent(app.workspace.on("layout-change", scan));
     plugin.registerEvent(app.workspace.on("window-open", (_workspaceWindow, openedWindow) => watchDocument(openedWindow?.document)));
     app.workspace.onLayoutReady(scan);
-    action = registerNoteAtlasAction(plugin, async (source, expectedMode) => {
-        if (!canOpenAtlas(plugin, source, expectedMode) || stopped || !host) return false;
-        const modes = plugin.workspaceModes;
-        const existing = modes.contentLeaves().find(leaf => leaf.getViewState?.()?.type === "webviewer" &&
-            (leaf.view?.url === "about:blank" || leaf.getViewState?.()?.state?.atlasHome === true));
-        if (existing) { await app.workspace.revealLeaf(existing); scan(); return true; }
-        const anchor = modes.pickContentLeaf() ?? source;
-        if (!canOpenAtlas(plugin, source, expectedMode)) return false;
-        const leaf = modes.createTabLeaf(anchor);
-        await leaf.setViewState({ type: "webviewer", state: { url: "about:blank", atlasHome: true, title: "Atlas" }, active: true });
-        leaf.view.__atlasHome = true; scan(); modes.captureNoteLayout(); return true;
+    action = registerNoteAtlasAction(plugin, (source, expectedMode) => {
+        if (!canOpenAtlas(plugin, source, expectedMode) || stopped || !host) return Promise.resolve(false);
+        if (launchingHome) return launchingHome;
+        const work = async () => {
+            const modes = plugin.workspaceModes;
+            const existing = modes.contentLeaves().find(leaf => {
+                const state = leaf.getViewState?.();
+                return state?.type === "webviewer" && state.state?.url === "about:blank" && (!leaf.view?.url || leaf.view.url === "about:blank");
+            });
+            if (existing) { await app.workspace.revealLeaf(existing); scan(); const eligible = canOpenAtlas(plugin, existing, expectedMode); if (eligible) existing.view.contentEl.querySelector(".hub-atlas-home input[type=search]")?.focus({ preventScroll: true }); return eligible; }
+            const preferred = modes.pickContentLeaf() ?? source, anchor = canOpenAtlas(plugin, preferred, expectedMode) ? preferred : source;
+            if (!canOpenAtlas(plugin, source, expectedMode)) return false;
+            const leaf = modes.createTabLeaf(anchor);
+            await leaf.setViewState({ type: "webviewer", state: { url: "about:blank", atlasHome: true, title: "Atlas" }, active: true });
+            if (!canOpenAtlas(plugin, leaf, expectedMode)) { leaf.detach?.(); return false; }
+            leaf.view.__atlasHome = true; scan(); modes.captureNoteLayout(); leaf.view.contentEl.querySelector(".hub-atlas-home input[type=search]")?.focus({ preventScroll: true }); return true;
+        };
+        const pending = work().finally(() => { if (launchingHome === pending) launchingHome = null; });
+        launchingHome = pending; return pending;
     }, () => new Menu());
     bridge.openFromNote = action.open;
     return bridge;
@@ -345,10 +578,10 @@ module.exports = { installAtlasIntegration };
 
 // Hub mode state, live leaf ownership and native view types are the gate.
 // Body classes, selected text and remembered workspace history are never used.
-function canOpenAtlas(plugin, leaf, expectedMode = plugin.workspaceModes?.mode) {
+function eligibleNoteLeaf(plugin, leaf, expectedMode = plugin.workspaceModes?.mode, insideSettings = false) {
     const modes = plugin.workspaceModes, mode = modes?.mode, active = plugin.app.workspace.activeLeaf;
     if (!mode || mode !== expectedMode || modes.destroyed || modes.internalDepth > 0 || modes.state.currentMode !== "note" ||
-        plugin.settingsControl?.isOpen?.() || plugin.atlas?.isSettingsOpen?.()) return false;
+        !insideSettings && (plugin.settingsControl?.isOpen?.() || plugin.atlas?.isSettingsOpen?.())) return false;
     // Obsidian's Settings modal pushes its own live keymap scope. Native menus
     // may push another scope above it, so also inspect the previous scopes.
     const settingsScope = plugin.app.setting?.scope;
@@ -359,16 +592,22 @@ function canOpenAtlas(plugin, leaf, expectedMode = plugin.workspaceModes?.mode) 
     const type = item => item.getViewState?.()?.type ?? item.view?.getViewType?.();
     const permitted = item => {
         const path = modes.leafPath(item);
-        if (path === "Home.md" || !["markdown", "hub-prepared-note-rail", "webviewer"].includes(type(item))) return false;
-        return item === mode.projectLeaf || type(item) === "webviewer" || modes.contextContainsFile(mode.project, path);
+        if (item?.view?.containerEl?.isConnected === false || path === "Home.md") return false;
+        const kind = type(item);
+        if (item === mode.projectLeaf) return kind === "hub-prepared-note-rail" || kind === "markdown";
+        if (kind === "empty") return !path;
+        if (kind === "webviewer") return true;
+        return ["markdown", "pdf"].includes(kind) && modes.contextContainsFile(mode.project, path);
     };
     return permitted(leaf) && permitted(active) &&
         (leaf === mode.projectLeaf || modes.contentLeaves().includes(leaf)) &&
         (active === mode.projectLeaf || modes.contentLeaves().includes(active));
 }
+const canOpenAtlas = (plugin, leaf, expectedMode = plugin.workspaceModes?.mode) => eligibleNoteLeaf(plugin, leaf, expectedMode);
+const canUseAtlasContext = (plugin, leaf, expectedMode = plugin.workspaceModes?.mode) => eligibleNoteLeaf(plugin, leaf, expectedMode, true);
 function registerNoteAtlasAction(plugin, openHome, createMenu) {
     const workspace = plugin.app.workspace;
-    const documents = new Map();
+    const documents = new Map(); let destroyed = false;
     const markedTabs = new Set();
     const sync = () => {
         const mode = plugin.workspaceModes?.mode, wanted = new Set();
@@ -380,7 +619,7 @@ function registerNoteAtlasAction(plugin, openHome, createMenu) {
         for (const tabs of wanted) { tabs.classList.add("hub-atlas-note-tabs"); markedTabs.add(tabs); }
     };
     const open = async (leaf, expectedMode = plugin.workspaceModes?.mode) => {
-        if (!canOpenAtlas(plugin, leaf, expectedMode)) return false;
+        if (destroyed || !canOpenAtlas(plugin, leaf, expectedMode)) return false;
         return openHome(leaf, expectedMode);
     };
     plugin.registerEvent(workspace.on("leaf-menu", (menu, leaf) => {
@@ -390,7 +629,7 @@ function registerNoteAtlasAction(plugin, openHome, createMenu) {
             .onClick(() => open(leaf, mode)));
     }));
     const watchDocument = document => {
-        if (!document?.addEventListener || documents.has(document)) return;
+        if (destroyed || !document?.addEventListener || documents.has(document)) return;
         const contextmenu = event => {
             const strip = event.target.closest?.(".workspace-tab-header-container");
             // Actual tabs use native leaf-menu. Leave buttons, sidebars and
@@ -409,100 +648,378 @@ function registerNoteAtlasAction(plugin, openHome, createMenu) {
         document.addEventListener("contextmenu", contextmenu);
         documents.set(document, contextmenu);
     };
-    const destroy = () => { for (const [document, listener] of documents) document.removeEventListener("contextmenu", listener); documents.clear();
+    const destroy = () => { destroyed = true; for (const [document, listener] of documents) document.removeEventListener("contextmenu", listener); documents.clear();
         for (const tabs of markedTabs) tabs.classList.remove("hub-atlas-note-tabs"); markedTabs.clear(); };
     watchDocument(globalThis.document);
     sync();
     return { open, watchDocument, sync, destroy };
 }
-module.exports = { canOpenAtlas, registerNoteAtlasAction };
+module.exports = { canOpenAtlas, canUseAtlasContext, registerNoteAtlasAction };
+
+},
+"lib/atlas/obsidian/pending.js": function (module, exports, __hubRequire) {
+"use strict";
+// Presentation only: every action below is a route, never an authorization.
+function presentationNow(state, now = Date.now()) {
+    const s = state.snapshot;
+    return Math.max(now, s?.accessState.lastObservedAt ?? 0, s?.vaultState.lastObservedAt ?? 0, s?.journeyState.lastObservedAt ?? 0);
+}
+const phaseAt = (p, now) => now < p.readyAt ? "WAITING" : now < p.confirmBy ? "READY" : "EXPIRED";
+const labels = { WAITING: "Waiting", READY: "Ready for explicit confirmation", EXPIRED: "Expired", STALE: "Review required", UNRESOLVED: "Outcome unresolved" };
+function pendingActions(state, wallNow = Date.now(), session = null) {
+    const now = presentationNow(state, wallNow), s = state.snapshot, available = state.status === "READY" && state.enabled !== false, items = [];
+    if (!available && state.status !== "UNINITIALIZED") items.push({ key: "authority", label: "Saved state needs recovery", phase: "UNRESOLVED", detail: "Browsing stays blocked until saved state is reconciled.", route: { section: "diagnostics" } });
+    if (session?.draft?.submission?.status === "unresolved" || session?.timings?.unresolved) items.push({ key: "local-submission", label: "Submission needs review", phase: "UNRESOLVED", detail: "Save acknowledgement unresolved. Your local copy is kept; compare saved state before retrying.", route: { section: "diagnostics" } });
+    const p = s?.vaultState.pendingProposal;
+    if (p) {
+        const phase = !available ? "UNRESOLVED" : p.basePolicyRevision !== s.policyRevision || p.baseConfigurationRevision !== undefined && p.baseConfigurationRevision !== s.configurationRevision ? "STALE" : phaseAt(p, now);
+        items.push({ key: "vault:" + p.id, label: "Vault proposal", phase, detail: labels[phase], deadline: phase === "WAITING" ? p.readyAt : phase === "READY" ? p.confirmBy : null,
+            route: { section: "vault", context: { proposalId: p.id } } });
+    }
+    if (state.application?.recovery) items.push({ key: "recovery:" + state.application.recovery.id, label: "Saved recovery copy", phase: available ? "RECOVERY" : "UNRESOLVED",
+        detail: "Saved draft only; it has not changed active policy.", route: { section: "vault", context: { recoveryId: state.application.recovery.id } } });
+    for (const request of s?.accessState.pendingRequests ?? []) {
+        const context = (state.contexts ?? []).find(c => c.origin && ["BLOCKED", "ENFORCEMENT_FAILED"].includes(c.phase) &&
+            c.response?.decision?.requestId === request.id && c.response.decision.target?.hostname === request.hostname);
+        const phase = !available ? "UNRESOLVED" : request.policyRevision !== s.policyRevision ? "STALE" : phaseAt(request, now);
+        items.push({ key: "access:" + request.id, label: request.hostname, phase, detail: context ? labels[phase] : labels[phase] + ". Return to this destination in a Note tab to continue.",
+            contextId: context?.id ?? null, deadline: phase === "WAITING" ? request.readyAt : phase === "READY" ? request.confirmBy : null,
+            route: { section: "temporary", context: { requestId: request.id, ...(context ? { contextId: context.id } : {}) } } });
+    }
+    return items;
+}
+function pendingForBridge(bridge, now = Date.now()) { return pendingActions(bridge.view(), now, __hubRequire("lib/atlas/obsidian/session.js").getAtlasSession(bridge)); }
+module.exports = { pendingActions, pendingForBridge, phaseAt, presentationNow };
+
+},
+"lib/atlas/obsidian/session.js": function (module, exports, __hubRequire) {
+"use strict";
+// One renderer-session owner. These drafts and routes never enter Core or disk.
+const sessions = new WeakMap();
+const SECTIONS = ["sites", "temporary", "timings", "vault", "managed", "diagnostics"];
+function normalizeRoute(input, previous = { section: "sites", context: null }) {
+    if (input === undefined) return previous;
+    if (!input || typeof input !== "object" || Array.isArray(input) || !SECTIONS.includes(input.section) || Object.keys(input).some(key => !["section", "context"].includes(key))) return null;
+    if (input.context !== undefined && input.context !== null && (!input.context || typeof input.context !== "object" || Array.isArray(input.context))) return null;
+    const context = {};
+    for (const [key, value] of Object.entries(input.context ?? {})) {
+        if (!["proposalId", "requestId", "recoveryId", "contextId"].includes(key) ||
+            !(typeof value === "string" && value.length > 0 && value.length <= 256 || Number.isSafeInteger(value) && value > 0)) return null;
+        context[key] = value;
+    }
+    return { section: input.section, context };
+}
+function getAtlasSession(bridge) {
+    if (sessions.has(bridge)) return sessions.get(bridge);
+    const listeners = new Set();
+    const session = { route: { section: "sites", context: null }, draft: null, timings: null, setup: null, search: "", scrolls: new Map(), settingsScroll: 0, feedback: null, contextFeedback: new Map(),
+        navigate(input) { const next = normalizeRoute(input, session.route); if (!next) return false;
+            session.route = next; for (const fn of listeners) fn(next, { navigation: true }); return true; },
+        changed() { for (const fn of listeners) fn(session.route, { navigation: false }); },
+        subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); },
+        clearDraft(token) { if (session.draft?.token !== token) return false; session.draft = null; session.changed(); return true; },
+        dispose() { listeners.clear(); session.draft = null; session.timings = null; session.setup = null; session.feedback = null; session.contextFeedback.clear(); session.scrolls.clear(); sessions.delete(bridge); }
+    };
+    sessions.set(bridge, session); return session;
+}
+function draftBase(view, destination) {
+    // Historical per-host intent, not a second live policy/snapshot. Overlapping
+    // lists are retained by the runtime when final classification is unchanged.
+    const classes = Object.create(null);
+    for (const h of view.snapshot.policy.whitelist) classes[h] = "WHITELIST";
+    for (const h of view.snapshot.policy.blacklist) classes[h] = "BLACKLIST";
+    return { policyRevision: view.snapshot.policyRevision, applicationRevision: view.application.revision,
+        destination: destination ? structuredClone(destination) : null, classes };
+}
+function createDestinationDraft(view, destination) {
+    const token = globalThis.crypto.randomUUID();
+    return { token, id: destination?.id ?? "destination:" + token, base: draftBase(view, destination), fields: null,
+        overrides: [], initialSignature: null, dirty: false, conflict: false, feedback: null, submission: null };
+}
+module.exports = { getAtlasSession, normalizeRoute, createDestinationDraft, draftBase, SECTIONS };
 
 },
 "lib/atlas/obsidian/settings-ui.js": function (module, exports, __hubRequire) {
 "use strict";
 const { el, button, countdown, updateCountdowns, configurationInput, formatMilliseconds, renderNavigation } = __hubRequire("lib/atlas/obsidian/ui.js");
+const { getAtlasSession, createDestinationDraft, draftBase } = __hubRequire("lib/atlas/obsidian/session.js");
+const { describeOutcome } = __hubRequire("lib/atlas/obsidian/feedback.js");
+const { normalizeTarget } = __hubRequire("lib/atlas/core/target.js");
+const { pendingActions, phaseAt, presentationNow } = __hubRequire("lib/atlas/obsidian/pending.js");
+const { keyed, phaseAnnouncer, text: setText } = __hubRequire("lib/atlas/obsidian/dom.js");
+let settingsInstance = 0;
 const pages = [["sites", "Sites & Access"], ["temporary", "Temporary Access"], ["timings", "Timings / Behaviour"],
     ["vault", "Vault"], ["managed", "Managed Lists"], ["diagnostics", "Diagnostics / Recovery"]];
 const timestamp = value => value === null || value === undefined ? "Never" : new Date(value).toLocaleString();
-const phase = proposal => Date.now() < proposal.readyAt ? "WAITING" : Date.now() < proposal.confirmBy ? "READY" : "EXPIRED";
-const setText = (node, value) => { if (node.textContent !== value) node.textContent = value; };
 const access = destination => destination.decision?.reason === "BLACKLISTED" ? "BLACKLIST" : destination.decision?.reason === "WHITELISTED" ? "WHITELIST" : "GREYLIST";
+const manualAccess = (policy, hostname) => policy.blacklist.includes(hostname) ? "BLACKLIST" : policy.whitelist.includes(hostname) ? "WHITELIST" : "GREYLIST";
 function field(parent, label, value = "", type = "text") {
     const wrapper = el(parent, "label", label), input = el(wrapper, "input"); input.type = type; input.value = value; input.setAttribute("aria-label", label); return input;
 }
 function mountAtlasSettings(parent, bridge) {
+    const session = getAtlasSession(bridge), prefix = "atlas-settings-" + ++settingsInstance; const announce = phaseAnnouncer(parent); let captureDraft = null, draftAvailability = null, captureTimings = null, captureSetup = null, temporalSignature = null;
+    const phase = proposal => phaseAt(proposal, presentationNow(bridge.view()));
     parent.classList.add("hub-atlas-overview");
     const header = el(parent, "header", undefined, "hub-atlas-settings-header"); el(header, "p", "Atlas / Itacan", "hub-atlas-eyebrow"); el(header, "h2", "Your destinations, your terms");
     const status = el(parent, "p", undefined, "hub-atlas-state"), message = el(parent, "p", undefined, "hub-atlas-message"); message.setAttribute("role", "status");
+    const sessionSummary = el(parent, "div", undefined, "hub-atlas-edit-session"); sessionSummary.setAttribute("role", "status");
     const onboarding = el(parent, "section", undefined, "hub-atlas-onboarding"), shell = el(parent, "div", undefined, "hub-atlas-settings-shell");
     const navigation = el(shell, "nav"); navigation.setAttribute("aria-label", "Atlas settings sections");
     const sections = new Map(), navButtons = new Map(), signatures = new Map(), mounts = new Map();
-    let selected = "sites", mode = null, review = null, disposed = false, reviewKey = null, vaultTick = null, reviewRetryAt = 0;
-    const show = id => { const changed = selected !== id; selected = id; for (const [key, node] of sections) {
+    let selected = session.route.section, mode = null, review = null, disposed = false, reviewKey = null, vaultTick = null, reviewRetryAt = 0;
+    const show = id => { const changed = selected !== id; selected = id; session.route = { section: id, context: session.route.section === id ? session.route.context : null }; for (const [key, node] of sections) {
         if (node.hidden !== (key !== id)) node.hidden = key !== id;
-        if (changed && key === id) node.scrollTop = 0;
-    } for (const [key, node] of navButtons) { const value = key === id ? "page" : "false"; if (node.getAttribute("aria-current") !== value) node.setAttribute("aria-current", value); } };
+    } for (const [key, node] of navButtons) { const value = key === id ? "page" : "false"; if (node.getAttribute("aria-current") !== value) node.setAttribute("aria-current", value); node.setAttribute("aria-selected", String(key === id)); node.tabIndex = key === id ? 0 : -1; } if (changed) navButtons.get(id)?.scrollIntoView({ block: "nearest", inline: "nearest" }); };
+    navigation.setAttribute("role", "tablist");
     for (const [id, title] of pages) {
-        navButtons.set(id, button(navigation, title, () => show(id)));
-        const section = el(shell, "section", undefined, "hub-atlas-settings-section"); section.dataset.atlasPage = id; sections.set(id, section);
+        const tab = button(navigation, title, () => show(id)); tab.id = prefix + "-" + id; tab.setAttribute("role", "tab"); tab.setAttribute("aria-controls", prefix + "-" + id + "-panel"); navButtons.set(id, tab);
+        const section = el(shell, "section", undefined, "hub-atlas-settings-section"); section.id = prefix + "-" + id + "-panel"; section.setAttribute("role", "tabpanel"); section.setAttribute("aria-labelledby", tab.id); section.tabIndex = -1; section.dataset.atlasPage = id; sections.set(id, section);
     }
+    navigation.addEventListener("keydown", event => {
+        const index = [...navButtons.values()].indexOf(event.target); if (index < 0) return;
+        const next = event.key === "ArrowRight" ? (index + 1) % pages.length : event.key === "ArrowLeft" ? (index + pages.length - 1) % pages.length : event.key === "Home" ? 0 : event.key === "End" ? pages.length - 1 : null;
+        if (next === null) return; event.preventDefault(); const id = pages[next][0]; show(id); navButtons.get(id).focus();
+    });
     const protectedButton = (parent, label, action) => { const node = button(parent, label, action); node.dataset.atlasProtected = ""; return node; };
+    const navigate = route => { if (bridge.open) bridge.open(route); else session.navigate(route); };
+    function focusRoute() {
+        const context = session.route.context;
+        const section = sections.get(selected);
+        if (!context) { section.focus({ preventScroll: true }); return; }
+        for (const [key, value] of Object.entries(context)) {
+            const attribute = "atlas" + key[0].toUpperCase() + key.slice(1);
+            const node = [...section.querySelectorAll("[data-" + attribute.replace(/[A-Z]/g, c => "-" + c.toLowerCase()) + "]")].find(n => n.dataset[attribute] === String(value));
+            if (node) { node.tabIndex = -1; node.focus({ preventScroll: true }); node.scrollIntoView({ block: "nearest" }); }
+        }
+    }
+    const paint = (target, feedback) => {
+        target.replaceChildren(); if (!feedback) return;
+        target.dataset.tone = feedback.tone; el(target, "span", feedback.text);
+        if (feedback.detail) target.title = feedback.detail;
+        if (feedback.section) button(target, feedback.section === "vault" ? "Open Vault" : feedback.section === "diagnostics" ? "Open recovery" : "Review current state", () => navigate({ section: feedback.section }));
+    };
+    function updateSessionSummary() {
+        const destination = session.draft && (session.draft.dirty || session.draft.submission), timing = session.timings?.dirty;
+        const signature = JSON.stringify([destination ? session.draft.token : null, session.draft?.submission?.status, timing, session.timings?.busy, session.timings?.unresolved]);
+        sessionSummary.hidden = !destination && !timing;
+        if (sessionSummary.dataset.signature === signature) return;
+        sessionSummary.dataset.signature = signature; sessionSummary.replaceChildren();
+        if (destination || timing) el(sessionSummary, "span", session.draft?.submission?.status === "unresolved" || session.timings?.unresolved ? "Submission outcome unresolved. Your local copy is kept." : session.draft?.submission?.status === "submitting" || session.timings?.busy ? "Saving. Your local copy is kept until the outcome is verified." : "Unsubmitted edits are kept for this session.");
+        if (destination) button(sessionSummary, "Resume destination draft", () => navigate({ section: "sites" }));
+        if (timing) button(sessionSummary, "Resume timing draft", () => navigate({ section: "timings" }));
+    }
     async function send(command) {
-        try {
-            const result = await bridge.command(command);
-            const proposed = (command.kind.startsWith("PROPOSE_") || ["IMPORT_CURATED", "RECREATE_POLICY"].includes(command.kind)) && result.type === "COMMITTED" && bridge.view().snapshot?.vaultState.pendingProposal;
-            if (result.type === "REVIEW") review = result.review;
-            if (command.kind === "CONFIRM_POLICY" && result.type === "COMMITTED") review = null;
-            message.textContent = result.type === "REJECTED" || result.type === "BLOCKED" ? result.reason.replaceAll("_", " ") : result.type === "REVIEW" ? "Review the frozen changes in Vault." :
-                proposed ? "Proposal saved. Active policy and timing terms stay unchanged until Vault confirmation." : result.type === "COMMITTED" ? "Saved. Only committed values are active." : result.status ?? result.type;
-            if (proposed) show("vault");
-            refresh(); return result;
-        } catch (_) { message.textContent = "The action could not complete. Check Diagnostics / Recovery."; }
+        if (["INITIALIZE", "INITIALIZE_CURATED"].includes(command.kind)) captureSetup?.();
+        let result;
+        try { result = await bridge.command(command); }
+        catch (_) { result = { type: "BLOCKED", reason: "TRANSPORT_UNRESOLVED" }; }
+        const proposed = (command.kind.startsWith("PROPOSE_") || ["IMPORT_CURATED", "RECREATE_POLICY", "RESTORE_RECOVERY"].includes(command.kind)) && result.type === "COMMITTED" && bridge.view().snapshot?.vaultState.pendingProposal;
+        if (result.type === "REVIEW") review = result.review;
+        if (command.kind === "CONFIRM_POLICY" && result.type === "COMMITTED") review = null;
+        if (bridge.view().status === "READY") session.setup = null;
+        session.feedback = describeOutcome(command, result, bridge.view()); paint(message, session.feedback);
+        if (proposed) { session.navigate({ section: "vault", context: { proposalId: bridge.view().snapshot.vaultState.pendingProposal.id } }); }
+        refresh(); return result;
+    }
+    function beginEditor(parent, destination, state) {
+        captureDraft?.();
+        if (session.draft && destination && session.draft.base.destination?.id === destination.id) {
+            if (!parent.querySelector(".hub-atlas-draft")) editor(parent, session.draft.base.destination, state);
+            parent.querySelector('[aria-label="Name"]')?.focus(); return;
+        }
+        if (session.draft && (session.draft.dirty || session.draft.submission)) {
+            parent.querySelector(".hub-atlas-replace-draft")?.remove();
+            const choice = el(parent, "div", undefined, "hub-atlas-replace-draft"); choice.setAttribute("role", "status");
+            el(choice, "p", "An unfinished draft is kept for this session. Continue it or explicitly discard it before starting another.");
+            button(choice, "Continue current edit", () => { choice.remove(); parent.querySelector('[aria-label="Name"]')?.focus(); });
+            button(choice, "Discard and start requested edit", () => {
+                if (session.draft?.submission?.status === "submitting") { el(choice, "p", "Wait for the current save outcome before replacing this draft."); return; }
+                const current = bridge.view(), latest = destination ? current.application?.destinations.find(d => d.id === destination.id) : null;
+                if (destination && !latest) { el(choice, "p", "The requested destination was removed. Your existing draft is still kept."); return; }
+                session.draft = null; captureDraft = null; draftAvailability = null; parent.replaceChildren(); editor(parent, latest, current);
+            });
+            return;
+        }
+        session.draft = null; captureDraft = null; draftAvailability = null; parent.replaceChildren(); editor(parent, destination, state);
     }
     function rebuild(id, signature, render) {
         if (signatures.get(id) === signature) return;
         signatures.set(id, signature); mounts.get(id)?.(); mounts.delete(id);
-        const section = sections.get(id); section.replaceChildren(); render(section);
+        const section = sections.get(id), established = !!section.firstChild, top = established ? section.scrollTop : 0;
+        const expanded = new Set([...section.querySelectorAll("details[open]")].map(d => d.querySelector("summary")?.textContent));
+        section.replaceChildren(); render(section);
+        for (const d of section.querySelectorAll("details")) if (expanded.has(d.querySelector("summary")?.textContent)) d.open = true;
+        if (established) section.scrollTop = top;
     }
     function editor(parent, destination, state) {
+        const model = session.draft ?? createDestinationDraft(state, destination); session.draft = model;
+        destination = model.base.destination;
+        state = { snapshot: { policyRevision: model.base.policyRevision }, application: { revision: model.base.applicationRevision } };
+        const baseAccess = hostname => model.base.classes[hostname] ?? "GREYLIST", draftId = model.id;
         const draft = el(parent, "section", undefined, "hub-atlas-draft"); el(draft, "p", "Editable draft", "hub-atlas-eyebrow"); el(draft, "h3", destination ? "Edit destination" : "Add a destination");
         el(draft, "p", "Host policy stays unchanged until Vault confirmation succeeds. Names, categories and pins are display preferences.");
+        const occupancy = el(draft, "div", undefined, "hub-atlas-proposal-occupancy"), notice = el(draft, "div", undefined, "hub-atlas-draft-feedback"); notice.setAttribute("role", "status");
         const form = el(draft, "div", undefined, "hub-atlas-form-grid"), name = field(form, "Name", destination?.label ?? ""), hostname = field(form, "Primary hostname", destination?.hostname ?? "");
-        const accessLabel = el(form, "label", "Access"), choice = el(accessLabel, "select"); choice.setAttribute("aria-label", "Access");
-        for (const [value, label] of [["WHITELIST", "Whitelist"], ["BLACKLIST", "Blacklist"], ["GREYLIST", "Greylist"]]) { const option = el(choice, "option", label); option.value = value; }
-        choice.value = destination ? access(destination) : "WHITELIST";
-        let accessEdited = false;
+        const selectAccess = (parent, label) => {
+            const wrapper = el(parent, "label", label), select = el(wrapper, "select"); select.setAttribute("aria-label", label);
+            for (const [value, text] of [["WHITELIST", "Whitelist"], ["BLACKLIST", "Blacklist"], ["GREYLIST", "Greylist"]]) { const option = el(select, "option", text); option.value = value; }
+            return select;
+        };
+        const choice = selectAccess(form, "Primary host access");
+        choice.value = destination ? baseAccess(destination.hostname) : "WHITELIST";
         const category = field(form, "Category", destination?.category ?? "My destinations"), wwwLabel = el(draft, "label", undefined, "hub-atlas-check"), www = el(wwwLabel, "input"); www.type = "checkbox";
         const wwwText = el(wwwLabel, "span"), othersLabel = el(draft, "label", "Other explicit hostnames"), others = el(othersLabel, "textarea"); others.rows = 3; others.setAttribute("aria-label", "Other explicit hostnames");
-        others.value = [...(destination?.aliases ?? []), ...(destination?.destinations ?? [])].filter(h => h !== `www.${destination?.hostname}`).join("\n");
-        www.checked = destination?.aliases.includes(`www.${destination.hostname}`) ?? false;
-        const pinLabel = el(draft, "label", undefined, "hub-atlas-check"), pin = el(pinLabel, "input"); pin.type = "checkbox"; pin.checked = destination?.pinned ?? false; el(pinLabel, "span", "Pin on Home after commit");
-        const preview = el(draft, "p", undefined, "hub-atlas-exact-hosts");
-        const readHosts = () => [...new Set([hostname.value.trim().toLowerCase(), ...(www.checked && !www.disabled ? [`www.${hostname.value.trim().toLowerCase()}`] : []), ...others.value.split(/[\n,]/).map(h => h.trim().toLowerCase()).filter(Boolean)])];
-        const displayOnly = () => destination && !accessEdited && choice.value === access(destination) && hostname.value.trim().toLowerCase() === destination.hostname &&
-            JSON.stringify(readHosts().sort()) === JSON.stringify([destination.hostname, ...destination.aliases, ...destination.destinations].sort());
-        const update = () => { const primary = hostname.value.trim().toLowerCase(); www.disabled = !primary || primary.startsWith("www."); wwwText.textContent = `Include www.${primary || "example.com"} (exact host)`; preview.textContent = `Proposed exact hosts: ${readHosts().filter(Boolean).join(", ") || "Enter a hostname"}. No wildcard access.`; submit.textContent = displayOnly() ? "Save display details" : "Review change in Vault"; };
-        const submit = protectedButton(draft, "Review change in Vault", async () => {
-            if (displayOnly()) {
-                const result = await send({ kind: "SAVE_DISPLAY_DETAILS", destinationId: destination.id, label: name.value.trim(), category: category.value.trim(), pinned: pin.checked,
-                    basePolicyRevision: state.snapshot.policyRevision, baseApplicationRevision: state.application.revision });
-                if (result?.type === "COMMITTED") draft.remove(); return;
+        others.value = [...(destination?.aliases ?? []), ...(destination?.destinations ?? [])].filter(h => h !== "www." + destination?.hostname).join("\n");
+        www.checked = [...(destination?.aliases ?? []), ...(destination?.destinations ?? [])].includes("www." + destination?.hostname);
+        const allLabel = el(draft, "label", undefined, "hub-atlas-check"), allHosts = el(allLabel, "input"); allHosts.type = "checkbox"; allHosts.setAttribute("aria-label", "Apply primary access to all hosts"); el(allLabel, "span", "Apply primary access to every listed host");
+        el(draft, "p", "Existing aliases keep their own access unless you change them below or explicitly select every host.", "hub-atlas-muted");
+        const hostControls = el(draft, "div", undefined, "hub-atlas-host-access"), overrides = new Map(), selects = new Map();
+        const pinLabel = el(draft, "label", undefined, "hub-atlas-check"), pin = el(pinLabel, "input"); pin.type = "checkbox"; pin.setAttribute("aria-label", "Pin on Home after commit"); pin.checked = destination?.pinned ?? false; el(pinLabel, "span", "Pin on Home after commit");
+        const preview = el(draft, "p", undefined, "hub-atlas-exact-hosts"), conflict = el(draft, "div", undefined, "hub-atlas-draft-conflict"); conflict.setAttribute("role", "status");
+        const primary = () => hostname.value.trim().toLowerCase(), extraHosts = () => others.value.split(/[\n,]/).map(h => h.trim().toLowerCase()).filter(Boolean);
+        const readHosts = () => [...new Set([primary(), ...(www.checked && !www.disabled ? ["www." + primary()] : []), ...extraHosts()])].filter(Boolean);
+        const initialHosts = () => destination ? [destination.hostname, ...destination.aliases, ...destination.destinations] : [];
+        const hostAccess = () => readHosts().map(hostname => ({ hostname, access: hostname === primary() || allHosts.checked ? choice.value : overrides.get(hostname) ??
+            (initialHosts().includes(hostname) || baseAccess(hostname) !== "GREYLIST" ? baseAccess(hostname) : choice.value) }));
+        const draftSignature = () => JSON.stringify([name.value, hostname.value, category.value, others.value, www.checked, allHosts.checked, pin.checked, choice.value, hostAccess()]);
+        const displayOnly = () => destination && primary() === destination.hostname &&
+            JSON.stringify(readHosts().sort()) === JSON.stringify(initialHosts().sort()) &&
+            hostAccess().every(h => h.access === baseAccess(h.hostname));
+        const readFields = () => ({ name: name.value, hostname: hostname.value, access: choice.value, category: category.value,
+            www: www.checked, others: others.value, allHosts: allHosts.checked, pinned: pin.checked, previousPrimary });
+        const capture = () => {
+            if (session.draft?.token !== model.token) return;
+            model.fields = readFields(); model.overrides = [...overrides];
+            const signature = JSON.stringify([model.fields, model.overrides]);
+            model.initialSignature ??= signature;
+            model.dirty = model.reviewed === true || signature !== model.initialSignature; updateSessionSummary();
+        };
+        const update = () => {
+            www.disabled = !primary() || primary().startsWith("www."); wwwText.textContent = "Include www." + (primary() || "example.com") + " (exact host)";
+            const intents = hostAccess(), signature = JSON.stringify(intents.map(h => h.hostname).filter(h => h !== primary()));
+            if (hostControls.dataset.signature !== signature) {
+                hostControls.dataset.signature = signature; hostControls.replaceChildren(); selects.clear();
+                for (const intent of intents.filter(h => h.hostname !== primary())) {
+                    const select = selectAccess(hostControls, "Access for " + intent.hostname); selects.set(intent.hostname, select);
+                    select.addEventListener("change", () => { if (select.value === baseAccess(intent.hostname)) overrides.delete(intent.hostname); else overrides.set(intent.hostname, select.value); update(); });
+                }
             }
-            const all = readHosts(), primary = hostname.value.trim().toLowerCase(), originalDestinations = destination?.destinations ?? [];
-            const entry = { id: destination?.id ?? `destination:${primary}`, label: name.value.trim(), category: category.value.trim(), hostname: primary,
-                aliases: all.filter(h => h !== primary && !originalDestinations.includes(h)), destinations: all.filter(h => originalDestinations.includes(h)), pinned: pin.checked };
-            const result = await send({ kind: "PROPOSE_DESTINATION", destination: entry, access: choice.value, previousId: destination?.id ?? null,
-                basePolicyRevision: state.snapshot.policyRevision, baseApplicationRevision: state.application.revision });
-            if (result?.type === "COMMITTED") draft.remove();
+            for (const intent of intents) { const select = selects.get(intent.hostname); if (select) { select.value = intent.access; select.disabled = allHosts.checked; } }
+            preview.textContent = "Proposed exact hosts: " + (readHosts().join(", ") || "Enter a hostname") + ". " + intents.map(h => h.hostname + ": " + h.access.toLowerCase()).join("; ") + ". No wildcard access.";
+            submit.textContent = displayOnly() ? "Save display details" : "Review change in Vault"; capture(); draftAvailability?.();
+        };
+        function explainConflict() {
+            model.conflict = true;
+            conflict.replaceChildren(); el(conflict, "p", "Committed data changed after this editor opened. Your input is preserved. Review the current values before retrying.");
+            button(conflict, "Review current changes", () => {
+                const current = bridge.view(), latest = current.application?.destinations.find(d => d.id === destination?.id), intended = hostAccess(), reviewedInput = draftSignature();
+                conflict.replaceChildren();
+                if (!current.snapshot || destination && !latest) { el(conflict, "p", "This destination is no longer available. Your input is kept; discard it or copy it into a new destination."); return; }
+                el(conflict, "p", "Current committed revisions: policy " + current.snapshot.policyRevision + ", display " + current.application.revision + ".");
+                if (latest) el(conflict, "p", "Committed destination: " + latest.label + " / " + latest.category + " / " + latest.hostname + " / " + (latest.pinned ? "Pinned" : "Unpinned") + ".");
+                for (const h of intended) el(conflict, "p", h.hostname + ": current " + manualAccess(current.snapshot.policy, h.hostname).toLowerCase() + " \u2192 draft " + h.access.toLowerCase());
+                const retained = new Set(readHosts());
+                for (const h of latest ? [latest.hostname, ...latest.aliases, ...latest.destinations] : []) if (!retained.has(h)) el(conflict, "p", h + ": removed from this destination; unshared policy entries will be removed in Vault.");
+                el(conflict, "p", "Using these revisions keeps your entered values. Any policy differences still require Vault review and confirmation.");
+                button(conflict, "Use reviewed revisions", () => {
+                    const newest = bridge.view();
+                    if (newest.snapshot?.policyRevision !== current.snapshot.policyRevision || newest.application?.revision !== current.application.revision || draftSignature() !== reviewedInput) { explainConflict(); return; }
+                    // The user reviewed these exact final choices. Retain them
+                    // rather than silently adopting concurrent classifications.
+                    for (const h of intended) if (h.hostname !== primary()) overrides.set(h.hostname, h.access);
+                    model.base = draftBase(current, latest ?? null); state = current; destination = latest ?? null; model.conflict = false; model.reviewed = true;
+                    conflict.replaceChildren(); el(conflict, "p", "Reviewed revisions loaded. Your input is unchanged. Save or review this draft when ready."); update();
+                });
+            });
+            button(conflict, "Reload committed destination (discard input)", () => {
+                const current = bridge.view(), latest = current.application?.destinations.find(d => d.id === destination?.id);
+                if (destination && !latest) { el(conflict, "p", "The destination was removed. Your input is still preserved."); return; }
+                session.clearDraft(model.token); captureDraft = null; parent.replaceChildren(); editor(parent, latest ?? null, current);
+            });
+        }
+        const submit = protectedButton(draft, "Review change in Vault", async () => {
+            capture();
+            for (const node of draft.querySelectorAll("[aria-invalid]")) node.removeAttribute("aria-invalid");
+            const invalid = !name.value.trim() || name.value.trim().length > 200 ? [name, "Enter a destination name of at most 200 characters."] :
+                !category.value.trim() || category.value.trim().length > 100 ? [category, "Enter a category of at most 100 characters."] :
+                readHosts().length === 0 || readHosts().some(h => normalizeTarget({ hostname: h })?.hostname !== h) ? [hostname, "Enter exact hostnames, such as example.com. URLs, wildcard hosts and IP addresses are not accepted."] : null;
+            if (invalid) { model.feedback = { text: invalid[1] + " Your draft is kept.", tone: "error" }; paint(notice, model.feedback); invalid[0].setAttribute("aria-invalid", "true"); invalid[0].focus(); return; }
+            let command;
+            if (displayOnly()) command = { kind: "SAVE_DISPLAY_DETAILS", destinationId: destination.id, label: name.value.trim(), category: category.value.trim(), pinned: pin.checked,
+                basePolicyRevision: state.snapshot.policyRevision, baseApplicationRevision: state.application.revision };
+            else {
+                const hosts = readHosts(), originalDestinations = destination?.destinations ?? [];
+                const entry = { id: draftId, label: name.value.trim(), category: category.value.trim(), hostname: primary(),
+                    aliases: hosts.filter(h => h !== primary() && !originalDestinations.includes(h)), destinations: hosts.filter(h => h !== primary() && originalDestinations.includes(h)), pinned: pin.checked };
+                command = { kind: "PROPOSE_DESTINATION", destination: entry, hostAccess: hostAccess(), previousId: destination?.id ?? null,
+                    basePolicyRevision: state.snapshot.policyRevision, baseApplicationRevision: state.application.revision };
+            }
+            model.submission = { status: "submitting", command }; draftAvailability();
+            const result = await send(command);
+            if (session.draft?.token !== model.token) return;
+            model.feedback = describeOutcome(command, result, bridge.view());
+            if (result?.type === "COMMITTED") {
+                session.clearDraft(model.token); draft.remove();
+            } else {
+                model.submission = model.feedback.tone === "unresolved" ? { status: "unresolved", command } : null;
+                if (["STALE_DRAFT", "STALE_DESTINATION"].includes(result?.reason)) explainConflict();
+                session.changed();
+            }
         });
-        for (const node of [hostname, www, others]) node.addEventListener("input", update);
-        choice.addEventListener("change", () => { accessEdited = true; update(); }); update();
-        button(draft, "Discard draft", () => draft.remove()); sections.get("sites").scrollTop = 0; name.focus({ preventScroll: true }); return draft;
+        const restoring = !!model.fields;
+        let previousPrimary = model.fields?.previousPrimary ?? primary();
+        if (model.fields) {
+            const f = model.fields; name.value = f.name; hostname.value = f.hostname; choice.value = f.access; category.value = f.category;
+            www.checked = f.www; others.value = f.others; allHosts.checked = f.allHosts; pin.checked = f.pinned;
+            for (const [h, access] of model.overrides) overrides.set(h, access);
+        }
+        captureDraft = capture;
+        draftAvailability = () => {
+            updateSessionSummary();
+            const current = bridge.view(), pending = current.snapshot?.vaultState.pendingProposal, busy = model.submission?.status === "submitting";
+            const unavailable = busy || model.submission?.status === "unresolved" || !!pending || current.status !== "READY";
+            submit.dataset.atlasNotReady = unavailable ? "true" : "false"; submit.disabled = unavailable || submit.dataset.atlasBusy === "true";
+            for (const node of draft.querySelectorAll("input, textarea, select")) node.disabled = busy;
+            if (!busy) { www.disabled = !primary() || primary().startsWith("www."); for (const select of selects.values()) select.disabled = allHosts.checked; }
+            const signature = JSON.stringify([pending?.id, model.submission?.status, current.status]);
+            if (occupancy.dataset.signature !== signature) {
+                occupancy.dataset.signature = signature; occupancy.replaceChildren();
+                if (pending) { el(occupancy, "p", "A proposal is already in Vault. Your local draft is kept; finish or cancel that proposal before submitting another."); button(occupancy, "Review existing proposal", () => navigate({ section: "vault", context: { proposalId: pending.id } })); }
+                if (model.submission?.status === "unresolved") {
+                    el(occupancy, "p", "The last submission outcome is unresolved. This local copy is kept and will not be resubmitted automatically.");
+                    button(occupancy, "Review saved state", () => navigate({ section: "diagnostics" }));
+                    if (current.status === "READY") {
+                        el(occupancy, "p", pending ? "Review the saved proposal in Vault before deciding whether to discard this local copy." : "Reconciliation completed. Compare committed values before deciding to edit or discard this local copy.");
+                        if (!pending) button(occupancy, "Keep editing after recovery", () => { model.submission = null; model.conflict = true; explainConflict(); session.changed(); });
+                    }
+                }
+            }
+            const feedbackSignature = JSON.stringify(model.feedback);
+            if (notice.dataset.signature !== feedbackSignature) { notice.dataset.signature = feedbackSignature; paint(notice, model.feedback); }
+        };
+
+        hostname.addEventListener("input", () => {
+            if (previousPrimary !== primary()) {
+                // Preserve a committed www alias when changing the primary.
+                // A new www counterpart is a separate explicit selection.
+                const previousWww = "www." + previousPrimary, nextWww = "www." + primary(), extras = extraHosts();
+                if (www.checked && initialHosts().includes(previousWww) && !extras.includes(previousWww)) extras.push(previousWww);
+                www.checked = extras.includes(nextWww); others.value = extras.filter(h => h !== primary() && h !== nextWww).join("\n");
+                if (initialHosts().includes(primary()) || baseAccess(primary()) !== "GREYLIST") choice.value = baseAccess(primary());
+                previousPrimary = primary();
+            }
+            update();
+        });
+        for (const node of [www, others, allHosts]) node.addEventListener("input", update);
+        for (const node of [name, category, pin]) { node.addEventListener("input", capture); node.addEventListener("change", capture); }
+        choice.addEventListener("change", update); update();
+        if (model.conflict) explainConflict();
+        button(draft, "Discard draft", () => { if (model.submission?.status === "submitting") { model.feedback = { text: "Wait for the current save outcome before discarding this local copy.", tone: "info" }; paint(notice, model.feedback); return; } session.clearDraft(model.token); draft.remove(); }); sections.get("sites").scrollTop = 0; if (!restoring) name.focus({ preventScroll: true }); return draft;
     }
     function refresh() {
         if (disposed) return;
-        const state = bridge.view(), snapshot = state.snapshot, application = state.application;
-        setText(status, state.status === "READY" ? `Committed policy · revision ${snapshot.policyRevision}` : `Atlas: ${state.status.toLowerCase()}${state.reason ? ` · ${state.reason}` : ""}`);
+        const state = bridge.view(), snapshot = state.snapshot, application = state.application; updateSessionSummary();
+        setText(status, state.status === "READY" ? "Saved access rules" : `Atlas: ${state.status.toLowerCase()}`); status.title = state.reason ?? "";
         const nextMode = state.status === "UNINITIALIZED" ? "setup" : snapshot ? "ready" : "unavailable";
         if (nextMode !== mode) {
             mode = nextMode; onboarding.replaceChildren();
@@ -516,6 +1033,10 @@ function mountAtlasSettings(parent, bridge) {
                 const whitelistLabel = el(advanced, "label", "Whitelist"), whitelist = el(whitelistLabel, "textarea"); whitelist.rows = 5; whitelist.value = state.starter?.policy.whitelist.join("\n") ?? "";
                 const blacklistLabel = el(advanced, "label", "Blacklist"), blacklist = el(blacklistLabel, "textarea"); blacklist.rows = 3;
                 button(advanced, "Initialize custom policy", async () => { try { await send({ kind: "INITIALIZE", policy: { whitelist: whitelist.value.split(/[\n,]/).map(s => s.trim()).filter(Boolean), blacklist: blacklist.value.split(/[\n,]/).map(s => s.trim()).filter(Boolean) }, configuration: readConfiguration() }); } catch (error) { message.textContent = error.message; } });
+                const numbers = [...terms.querySelectorAll("input")], saved = session.setup;
+                if (saved) { numbers.forEach((input, i) => { input.value = saved.values[i]; }); whitelist.value = saved.whitelist; blacklist.value = saved.blacklist; terms.open = saved.termsOpen; advanced.open = saved.advancedOpen; }
+                captureSetup = () => { if (bridge.view().status === "UNINITIALIZED") session.setup = { values: numbers.map(input => input.value), whitelist: whitelist.value, blacklist: blacklist.value, termsOpen: terms.open, advancedOpen: advanced.open }; };
+                onboarding.addEventListener("input", () => captureSetup?.()); captureSetup();
             } else if (mode === "unavailable") {
                 el(onboarding, "p", "Saved authority could not be established. Browsing stays blocked. Recovery reconciles saved state and never resets it."); button(onboarding, "Recover saved state", () => send({ kind: "RECOVER" }));
             }
@@ -528,26 +1049,41 @@ function mountAtlasSettings(parent, bridge) {
         if (!sites.dataset.mounted) {
             sites.dataset.mounted = "true"; el(sites, "h3", "Sites & Access"); el(sites, "p", "Explicit hosts, never wildcard permission. Protected changes are frozen and reviewed in Vault.");
             const actions = el(sites, "div", undefined, "hub-atlas-site-actions"), importHint = el(sites, "p", undefined, "hub-atlas-muted");
-            const draftHost = el(sites, "div"), search = field(sites, "Search destinations", "", "search"), list = el(sites, "div", undefined, "hub-atlas-site-list");
+            const draftHost = el(sites, "div"), search = field(sites, "Search destinations", session.search, "search"), list = el(sites, "div", undefined, "hub-atlas-site-list");
+            const rows = el(list, "div"), empty = el(list, "p", "No destinations match.");
+            const syncRows = keyed(rows, destination => {
+                const node = el(rows, "article", undefined, "hub-atlas-site-row"), copy = el(node, "div"), record = { node };
+                node.dataset.atlasDestinationId = destination.id;
+                record.name = el(copy, "h4"); record.host = el(copy, "small"); record.aliases = el(copy, "p", undefined, "hub-atlas-muted");
+                record.hosts = keyed(el(copy, "div"), host => ({ node: el(copy, "small") }), (r, host) => setText(r.node, host.hostname + ": " + host.decision.reason.replaceAll("_", " ").toLowerCase()), host => host.hostname);
+                record.badge = el(node, "span", undefined, "hub-atlas-badge");
+                const latest = () => {
+                    const state = bridge.view(), value = state.application?.destinations.find(d => d.id === destination.id);
+                    if (!value || !state.snapshot) { setText(message, "This destination changed or was removed. Reload Sites & Access."); return null; }
+                    return { state, record: value };
+                };
+                record.pin = protectedButton(node, "", () => { const data = latest(); if (!data) return;
+                    return send({ kind: "SAVE_DISPLAY_DETAILS", destinationId: data.record.id, label: data.record.label, category: data.record.category, pinned: !data.record.pinned,
+                        basePolicyRevision: data.state.snapshot.policyRevision, baseApplicationRevision: data.state.application.revision }); });
+                protectedButton(node, "Edit", () => { const data = latest(); if (data) beginEditor(draftHost, data.record, data.state); });
+                protectedButton(node, "Remove", () => { const data = latest(); if (data) return send({ kind: "PROPOSE_DESTINATION", destination: null, hostAccess: [], previousId: data.record.id,
+                    basePolicyRevision: data.state.snapshot.policyRevision, baseApplicationRevision: data.state.application.revision }); });
+                return record;
+            }, (r, d) => {
+                setText(r.name, d.label); setText(r.host, d.category + " · " + d.hostname);
+                setText(r.aliases, [...d.aliases, ...d.destinations].join(", ") || "Primary exact hostname only");
+                r.hosts(d.hosts?.filter(h => h.decision.reason !== d.decision?.reason) ?? []);
+                const classification = d.decision?.reason === "MANAGED_BLACKLISTED" ? "Managed blocked" : d.decision?.reason === "ACTIVE_GRANT" ? "Temporary access" : access(d).toLowerCase();
+                setText(r.badge, classification); r.badge.dataset.state = d.decision?.reason ?? access(d); setText(r.pin, d.pinned ? "Unpin" : "Pin");
+                r.node.hidden = !(d.label + " " + d.category + " " + d.hostname + " " + d.aliases.join(" ") + " " + d.destinations.join(" ")).toLowerCase().includes(search.value.toLowerCase());
+            });
             const renderList = () => {
-                const current = bridge.view(), entries = (current.destinations ?? []).filter(d => `${d.label} ${d.category} ${d.hostname} ${d.aliases.join(" ")} ${d.destinations.join(" ")}`.toLowerCase().includes(search.value.toLowerCase()));
-                const signature = JSON.stringify([current.status, entries]); if (list.dataset.signature === signature) return; list.dataset.signature = signature; list.replaceChildren();
-                for (const destination of entries) {
-                    const row = el(list, "article", undefined, "hub-atlas-site-row"), copy = el(row, "div"); el(copy, "h4", destination.label); el(copy, "small", `${destination.category} · ${destination.hostname}`);
-                    el(copy, "p", [...destination.aliases, ...destination.destinations].join(", ") || "Primary exact hostname only", "hub-atlas-muted");
-                    const different = destination.hosts?.filter(h => h.decision.reason !== destination.decision?.reason) ?? [];
-                    for (const host of different) el(copy, "small", `${host.hostname}: ${host.decision.reason.replaceAll("_", " ").toLowerCase()}`);
-                    el(row, "span", destination.decision?.reason === "MANAGED_BLACKLISTED" ? "Managed blocked" : destination.decision?.reason === "ACTIVE_GRANT" ? "Temporary access" : access(destination).toLowerCase(), "hub-atlas-badge");
-                    protectedButton(row, destination.pinned ? "Unpin" : "Pin", () => send({ kind: "SAVE_DISPLAY_DETAILS", destinationId: destination.id, label: destination.label, category: destination.category, pinned: !destination.pinned,
-                        basePolicyRevision: current.snapshot.policyRevision, baseApplicationRevision: current.application.revision }));
-                    protectedButton(row, "Edit", () => { draftHost.replaceChildren(); editor(draftHost, destination, current); });
-                    protectedButton(row, "Remove", () => send({ kind: "PROPOSE_DESTINATION", destination: null, access: "GREYLIST", previousId: destination.id,
-                        basePolicyRevision: current.snapshot.policyRevision, baseApplicationRevision: current.application.revision }));
-                }
-                if (!entries.length) el(list, "p", "No destinations match.");
+                const current = bridge.view(); syncRows(current.destinations ?? []);
+                empty.hidden = [...rows.children].some(row => !row.hidden);
             };
-            search.addEventListener("input", renderList); sites.renderList = renderList;
-            protectedButton(actions, "Add a destination", () => { draftHost.replaceChildren(); editor(draftHost, null, bridge.view()); });
+            search.addEventListener("input", () => { session.search = search.value; renderList(); }); sites.renderList = renderList;
+            protectedButton(actions, "Add a destination", () => beginEditor(draftHost, null, bridge.view()));
+            if (session.draft) editor(draftHost, session.draft.base.destination, state);
             const curatedImport = protectedButton(actions, "Review curated updates in Vault", () => send({ kind: "IMPORT_CURATED" }));
             sites.updateImport = current => {
                 const missing = current.starter.policy.whitelist.filter(h => !current.snapshot.policy.whitelist.includes(h));
@@ -555,32 +1091,132 @@ function mountAtlasSettings(parent, bridge) {
                 setText(importHint, `${missing.length} curated hosts are missing from your Whitelist, including ${missing.slice(0, 3).join(", ")}. Import preserves your manual Blacklist and display preferences; confirmation is required.`);
             };
         }
-        sites.renderList(); sites.updateImport(state);
-        const pendingRequests = snapshot.accessState.pendingRequests, grants = snapshot.accessState.grants, now = Date.now();
-        const temporarySignature = JSON.stringify([snapshot.policyRevision, grants.map(g => [g, g.expiresAt > now]), pendingRequests.map(r => [r, now < r.readyAt ? "waiting" : now <= r.confirmBy ? "ready" : "expired"]),
-            state.contexts.filter(c => c.origin && c.closed).map(c => [c.id, c.generation, c.phase, c.response?.decision, c.response?.reason, c.journey])]);
-        rebuild("temporary", temporarySignature, section => {
-            el(section, "h3", "Temporary Access"); el(section, "p", "Temporary grants expire. They do not become Whitelist entries.");
-            if (!grants.length) el(section, "p", "No temporary grants.");
-            for (const grant of grants) { const row = el(section, "article", undefined, "hub-atlas-site-row"); el(row, "strong", grant.hostname); el(row, "span", grant.expiresAt > now && grant.policyRevision === snapshot.policyRevision ? "Active" : "Expired / invalidated"); countdown(row, "Remaining", grant.expiresAt); }
-            el(section, "h4", "Pending requests");
-            for (const request of pendingRequests) { el(section, "p", `${request.hostname} · ${now < request.readyAt ? "Waiting" : now <= request.confirmBy ? "Confirmation available" : "Expired"}`); countdown(section, "Ready in", request.readyAt); countdown(section, "Confirmation window", request.confirmBy); }
-            for (const context of state.contexts.filter(c => c.origin && ["BLOCKED", "ENFORCEMENT_FAILED"].includes(c.phase))) renderNavigation(el(section, "section", undefined, "hub-atlas-panel"), state, context, bridge);
-        });
+        sites.renderList(); sites.updateImport(state); draftAvailability?.();
+        const pendingRequests = snapshot.accessState.pendingRequests, grants = snapshot.accessState.grants, now = presentationNow(state);
+        const temporary = sections.get("temporary");
+        if (!temporary.updateTemporary) {
+            el(temporary, "h3", "Temporary Access"); el(temporary, "p", "Temporary grants expire. They do not become Whitelist entries.");
+            const empty = el(temporary, "p", "No temporary grants."), grantList = el(temporary, "div");
+            const syncGrants = keyed(grantList, grant => {
+                const node = el(grantList, "article", undefined, "hub-atlas-site-row");
+                const r = { node, host: el(node, "strong"), status: el(node, "span") }; countdown(node, "Grant expires in", grant.expiresAt); r.count = node.querySelector("[data-atlas-deadline]"); return r;
+            }, (r, grant) => {
+                setText(r.host, grant.hostname); const current = bridge.view(), usable = current.temporaryDestinations?.some(g => g.hostname === grant.hostname && g.decision.outcome === "ALLOW");
+                setText(r.status, usable ? "Temporary grant — usable now" : "Saved grant — not currently usable"); r.node.dataset.state = usable ? "ACTIVE_GRANT" : "EXPIRED"; r.count.dataset.atlasDeadline = String(grant.expiresAt);
+            }, grant => grant.requestId);
+            el(temporary, "h4", "Pending requests"); const requestList = el(temporary, "div"), otherContexts = el(temporary, "div");
+            const syncRequests = keyed(requestList, request => {
+                const node = el(requestList, "article", undefined, "hub-atlas-request"), r = { node, host: el(node, "h4"), detail: el(node, "p") };
+                node.dataset.atlasRequestId = String(request.id); countdown(node, "", 0); r.count = node.querySelector("[data-atlas-deadline]"); r.panel = el(node, "section", undefined, "hub-atlas-panel"); return r;
+            }, (r, request) => {
+                const current = bridge.view(), item = pendingActions(current, presentationNow(current)).find(i => i.key === "access:" + request.id);
+                setText(r.host, request.hostname); setText(r.detail, item?.detail ?? "Review current request state."); r.node.dataset.state = item?.phase ?? "STALE";
+                r.count.hidden = !item?.deadline; r.count.dataset.atlasDeadline = String(item?.deadline ?? 0); r.count.dataset.atlasLabel = item?.phase === "WAITING" ? "Confirmation available in" : "Confirmation window";
+                const context = current.contexts.find(c => c.id === item?.contextId); r.panel.hidden = !context; renderNavigation(r.panel, current, context, bridge);
+            });
+            const syncContexts = keyed(otherContexts, () => ({ node: el(otherContexts, "section", undefined, "hub-atlas-panel") }), (r, context) => renderNavigation(r.node, bridge.view(), context, bridge));
+            temporary.updateTemporary = current => {
+                const items = pendingActions(current, presentationNow(current)), ids = new Set(items.filter(i => i.route.section === "temporary").map(i => i.contextId));
+                empty.hidden = !!current.snapshot.accessState.grants.length; syncGrants(current.snapshot.accessState.grants); syncRequests(current.snapshot.accessState.pendingRequests);
+                syncContexts(current.contexts.filter(c => c.origin && ["BLOCKED", "ENFORCEMENT_FAILED"].includes(c.phase) && !ids.has(c.id)));
+            };
+        }
+        temporary.updateTemporary(state);
         if (!sections.get("timings").dataset.mounted) {
             const section = sections.get("timings"); section.dataset.mounted = "true"; el(section, "h3", "Timings / Behaviour");
             el(section, "p", "Waits make confirmation available. Fixed grant and Journey terms never extend because you browse or reload. Existing terms remain active until Vault commits.");
-            const form = el(section, "div", undefined, "hub-atlas-timing-form");
-            const reset = () => { form.replaceChildren(); const read = configurationInput(form, bridge.view().snapshot.configuration);
-                protectedButton(form, "Review timing change in Vault", async () => { try { await send({ kind: "PROPOSE_SETTINGS", candidateConfiguration: read() }); } catch (error) { message.textContent = error.message; } }); };
-            reset(); button(section, "Reload committed timings", reset);
+            const form = el(section, "div", undefined, "hub-atlas-timing-form"), feedback = el(section, "div"); feedback.setAttribute("role", "status");
+            const reset = () => {
+                form.replaceChildren();
+                const current = bridge.view(), model = session.timings ?? { baseRevision: current.snapshot.configurationRevision, values: null, original: null, feedback: null, unresolved: false };
+                session.timings = model;
+                const read = configurationInput(form, current.snapshot.configuration), inputs = [...form.querySelectorAll("input")];
+                if (model.values) inputs.forEach((input, i) => { input.value = model.values[i]; });
+                const capture = () => { model.values = inputs.map(input => input.value); model.original ??= JSON.stringify(model.values); model.dirty = JSON.stringify(model.values) !== model.original; updateSessionSummary(); };
+                captureTimings = capture; for (const input of inputs) input.addEventListener("input", capture); capture();
+                if (model.feedback) paint(feedback, model.feedback);
+                protectedButton(form, "Review timing change in Vault", async () => {
+                    capture();
+                    if (model.unresolved) { paint(feedback, { text: "The timing submission outcome is unresolved. Your values are kept; review saved state before retrying.", tone: "unresolved", section: "diagnostics" }); return; }
+                    const latest = bridge.view();
+                    if (latest.snapshot.vaultState.pendingProposal) { paint(feedback, describeOutcome({ kind: "PROPOSE_SETTINGS" }, { type: "REJECTED", reason: "PROPOSAL_PENDING" }, latest)); return; }
+                    if (latest.snapshot.configurationRevision !== model.baseRevision) {
+                        feedback.replaceChildren(); el(feedback, "p", "Committed timing values changed. Your input is kept. Review the current and proposed values before retrying.");
+                        let candidate; try { candidate = read(); } catch (error) { el(feedback, "p", error.message); return; }
+                        for (const [group, values] of Object.entries(candidate)) for (const [key, value] of Object.entries(values)) el(feedback, "p", group + "." + key + ": " + latest.snapshot.configuration[group][key] + " → " + value);
+                        const reviewed = JSON.stringify(model.values);
+                        button(feedback, "Use reviewed timing revisions", () => {
+                            capture(); if (bridge.view().snapshot.configurationRevision !== latest.snapshot.configurationRevision || JSON.stringify(model.values) !== reviewed) { el(feedback, "p", "Values changed again. Review them once more."); return; }
+                            model.baseRevision = latest.snapshot.configurationRevision; model.feedback = { text: "Reviewed timing revisions loaded. Your entered values are kept; submit when ready.", tone: "info" }; paint(feedback, model.feedback);
+                        }); return;
+                    }
+                    try {
+                        const command = { kind: "PROPOSE_SETTINGS", candidateConfiguration: read() }; model.busy = true; inputs.forEach(input => { input.disabled = true; });
+                        const result = await send(command); model.busy = false; inputs.forEach(input => { input.disabled = false; });
+                        if (result?.type === "COMMITTED") { if (session.timings === model) { session.timings = null; reset(); } }
+                        else { model.feedback = describeOutcome(command, result, bridge.view()); model.unresolved = model.feedback.tone === "unresolved"; paint(feedback, model.feedback); }
+                    } catch (error) { model.feedback = { text: error.message + " Your timing draft is kept.", tone: "error" }; paint(feedback, model.feedback); }
+                });
+            };
+            reset(); button(section, "Reload committed timings (discard edits)", () => { if (session.timings?.busy) return; session.timings = null; feedback.replaceChildren(); reset(); });
         }
         const pending = snapshot.vaultState.pendingProposal;
         if (review?.proposalId !== pending?.id) review = null;
-        rebuild("vault", JSON.stringify([pending, snapshot.policyRevision, snapshot.configurationRevision, application?.pending]), section => {
+        rebuild("vault", JSON.stringify([pending && [pending.id, pending.basePolicyRevision, pending.baseConfigurationRevision, pending.createdAt, pending.readyAt, pending.confirmBy, pending.candidatePolicy, pending.candidateConfiguration], snapshot.policyRevision, snapshot.configurationRevision, application?.recovery ? application.revision : null, application?.pending, application?.recovery, state.status]), section => {
             vaultTick = null;
-            section.classList.add("hub-atlas-vault");
+            section.classList.add("hub-atlas-vault"); if (pending) section.dataset.atlasProposalId = String(pending.id); else delete section.dataset.atlasProposalId;
             el(section, "h3", "Vault"); el(section, "p", `Active policy revision ${snapshot.policyRevision} · configuration revision ${snapshot.configurationRevision}. Waiting alone never applies a proposal.`);
+            const recovery = application?.recovery;
+            if (recovery) {
+                const saved = el(section, "article", undefined, "hub-atlas-recovery-draft"); saved.dataset.atlasRecoveryId = recovery.id;
+                el(saved, "h4", "Saved recovery draft");
+                el(saved, "p", "This saved copy is not active policy or a pending proposal. Storage reconciliation never retries or confirms it.");
+                const replacement = pending && pending.id !== recovery.sourceProposalId &&
+                    (recovery.operation === "PROPOSE_SETTINGS" ? JSON.stringify(pending.candidateConfiguration) === JSON.stringify(recovery.configuration) :
+                        JSON.stringify(pending.candidatePolicy) === JSON.stringify(recovery.policy)) &&
+                    (recovery.destinations === null || JSON.stringify(application.pending?.destinations) === JSON.stringify(recovery.destinations));
+                const terms = el(saved, "details"); el(terms, "summary", "Review saved changes against committed values");
+                el(terms, "p", "Review bases: policy " + snapshot.policyRevision + ", timing " + snapshot.configurationRevision + ", display " + application.revision + ".");
+                if (recovery.basePolicyRevision !== snapshot.policyRevision || recovery.baseConfigurationRevision !== snapshot.configurationRevision || recovery.baseApplicationRevision !== application.revision)
+                    el(terms, "p", "Committed revisions changed. Review every difference before creating a replacement.");
+                if (recovery.operation === "PROPOSE_POLICY") {
+                    el(terms, "p", "Restore the saved policy and destination values. Current timing terms govern the new proposal.");
+                    for (const hostname of [...new Set([...snapshot.policy.whitelist, ...snapshot.policy.blacklist, ...recovery.policy.whitelist, ...recovery.policy.blacklist])].sort()) {
+                        const before = manualAccess(snapshot.policy, hostname), after = manualAccess(recovery.policy, hostname);
+                        if (before !== after) el(terms, "p", hostname + ": " + before.toLowerCase() + " → " + after.toLowerCase());
+                    }
+                    for (const list of ["whitelist", "blacklist"]) {
+                        const added = recovery.policy[list].filter(h => !snapshot.policy[list].includes(h)), removed = snapshot.policy[list].filter(h => !recovery.policy[list].includes(h));
+                        if (added.length) el(terms, "p", list + " additions: " + added.join(", "));
+                        if (removed.length) el(terms, "p", list + " removals: " + removed.join(", "));
+                    }
+                    if (recovery.destinations) {
+                        for (const d of recovery.destinations) {
+                            const old = application.destinations.find(current => current.id === d.id);
+                            if (!old) el(terms, "p", "Add destination: " + d.label + " / " + d.category + " / " + d.hostname + " / " + [...d.aliases, ...d.destinations].join(", ") + " / " + (d.pinned ? "Pinned" : "Unpinned"));
+                            else for (const key of ["label", "category", "hostname", "aliases", "destinations", "pinned"])
+                                if (JSON.stringify(old[key]) !== JSON.stringify(d[key])) el(terms, "p", d.label + " " + key + ": " + String(old[key]) + " → " + String(d[key]));
+                        }
+                        for (const d of application.destinations) if (!recovery.destinations.some(saved => saved.id === d.id)) el(terms, "p", "Remove destination: " + d.label + " (" + d.hostname + ")");
+                    }
+                } else {
+                    el(terms, "p", "Restore saved timing values. Current host policy is retained.");
+                    for (const [group, values] of Object.entries(recovery.configuration)) for (const [key, value] of Object.entries(values))
+                        el(terms, "p", group + "." + key + ": " + snapshot.configuration[group][key] + " → " + value);
+                }
+                if (replacement) el(saved, "p", "The replacement proposal is saved. Review and confirm it below; no retry is needed.");
+                else {
+                    el(terms, "p", "Create a replacement only after reviewing these values. It receives a full new wait and requires explicit confirmation.");
+                    const unchanged = recovery.operation === "PROPOSE_SETTINGS" ? JSON.stringify(snapshot.configuration) === JSON.stringify(recovery.configuration) :
+                        ["whitelist", "blacklist"].every(list => JSON.stringify([...snapshot.policy[list]].sort()) === JSON.stringify([...recovery.policy[list]].sort()));
+                    if (unchanged) el(terms, "p", "The saved security values are already committed. Only the reviewed display values and recovery copy will be saved; no policy changes.");
+                    if (pending && pending.id !== recovery.sourceProposalId) el(terms, "p", "A different proposal is pending. Finish or cancel it before restoring this saved draft.");
+                    protectedButton(terms, unchanged ? "Save reviewed recovery details" : "Create reviewed replacement", () => send({ kind: "RESTORE_RECOVERY", recoveryId: recovery.id,
+                        basePolicyRevision: snapshot.policyRevision, baseConfigurationRevision: snapshot.configurationRevision, baseApplicationRevision: application.revision }));
+                }
+                if (state.status !== "READY") { el(saved, "p", "The last save outcome is unresolved. Reconcile saved state before taking another action."); button(saved, "Recover saved state", () => send({ kind: "RECOVER" })); }
+                protectedButton(saved, "Discard recovery copy", () => send({ kind: "DISCARD_RECOVERY", recoveryId: recovery.id }));
+            }
             if (!pending) { el(section, "p", "No pending proposal. Policy and timing changes share one protected slot."); return; }
             const summary = el(section, "div", undefined, "hub-atlas-vault-status"), phaseLabel = el(summary, "strong"), wait = el(summary, "div"), window = el(summary, "div"), explanation = el(summary, "p");
             countdown(wait, "Confirmation available in", pending.readyAt); countdown(window, "Confirm within", pending.confirmBy);
@@ -603,7 +1239,7 @@ function mountAtlasSettings(parent, bridge) {
                 const current = bridge.view(), active = current.snapshot?.vaultState.pendingProposal;
                 if (active?.id !== pending.id) return;
                 const currentPhase = phase(pending), available = current.status === "READY";
-                setText(phaseLabel, currentPhase === "READY" ? "Ready to confirm" : currentPhase === "WAITING" ? "Waiting" : "Expired");
+                summary.dataset.state = currentPhase; setText(phaseLabel, currentPhase === "READY" ? "Ready to confirm" : currentPhase === "WAITING" ? "Waiting" : "Expired");
                 wait.hidden = currentPhase !== "WAITING"; window.hidden = currentPhase !== "READY";
                 setText(explanation, currentPhase === "EXPIRED" ? "Nothing changed. Recreate this proposal to start a fresh wait, or cancel it." : "Your current policy stays active until you confirm and the change is saved.");
                 confirm.dataset.atlasNotReady = currentPhase !== "READY" || review?.phase !== "READY" ? "true" : "false";
@@ -642,42 +1278,67 @@ function mountAtlasSettings(parent, bridge) {
             };
         });
         vaultTick?.();
-        rebuild("managed", JSON.stringify(state.managed), section => {
-            el(section, "h3", "StevenBlack"); el(section, "p", "Managed blocking is enabled separately from your manual policy. Refreshing data requires no Vault wait. Explicit Whitelist exceptions retain Core's precedence.");
-            const managed = state.managed;
-            if (!managed) { el(section, "p", "Managed service is unavailable in this host."); return; }
-            el(section, "p", `${managed.count.toLocaleString()} exact hosts · ${managed.origin.toLowerCase()} · ${managed.status.toLowerCase().replaceAll("_", " ")}`);
-            el(section, "p", `Last successful sync: ${timestamp(managed.lastSuccessfulSync)} · Last attempt: ${timestamp(managed.lastAttemptAt)}`);
-            el(section, "p", `Categories: ${managed.categories.join(", ")}`); el(section, "p", managed.source, "hub-atlas-source");
-            if (managed.version) el(section, "p", `Version: ${managed.version}`, "hub-atlas-source"); if (managed.error) el(section, "p", `Most recent error: ${managed.error}`);
-            if (managed.hash) el(section, "p", `SHA-256: ${managed.hash}`, "hub-atlas-source");
-            if (managed.conflicts.length) el(section, "p", `Explicit Whitelist exceptions: ${managed.conflicts.join(", ")}`);
-            button(section, "Refresh now", () => send({ kind: "REFRESH_MANAGED" }), managed.status === "UPDATING");
-            const lookup = field(section, "Look up an exact hostname"), result = el(section, "p");
-            button(section, "Look up", async () => { const response = await bridge.command({ kind: "LOOKUP_MANAGED", hostname: lookup.value.trim() }); result.textContent = response.type === "MANAGED_LOOKUP" ? `${response.hostname}: ${response.blocked === null ? "Authority unavailable" : response.blocked ? "In managed list" : "Not in managed list"}` : response.reason; });
-        });
-        rebuild("diagnostics", JSON.stringify([state.status, state.reason, state.repositoryIssue, snapshot.policyRevision, snapshot.configurationRevision,
-            application?.revision, snapshot.accessState.grants.length, pendingRequests.length, snapshot.journeyState.journeys, pending?.id, state.managed?.status,
-            state.managed?.count, state.managed?.lastSuccessfulSync, (state.temporaryDestinations ?? []).filter(g => g.decision.outcome === "ALLOW").length]), section => {
-            el(section, "h3", "Diagnostics / Recovery");
-            for (const line of [`Authority: ${state.status} · ${state.reason ?? "available"}`, `Policy revision ${snapshot.policyRevision} · configuration revision ${snapshot.configurationRevision}`,
-                `Storage envelope schema 2 · application schema ${application?.schemaVersion ?? "unavailable"}`,
-                `Whitelist ${snapshot.policy.whitelist.length} · manual Blacklist ${snapshot.policy.blacklist.length} · managed ${state.managed?.count ?? "unavailable"}`,
-                `Active grants ${(state.temporaryDestinations ?? []).filter(g => g.decision.outcome === "ALLOW").length} · saved grants ${grants.length} · pending requests ${pendingRequests.length} · Vault proposal ${pending?.id ?? "none"}`,
-                `Managed sync ${state.managed?.status ?? "unavailable"} · last success ${timestamp(state.managed?.lastSuccessfulSync)}`]) el(section, "p", line);
-            const version = el(section, "p", `Storage version: ${state.storageVersion}`, "hub-atlas-source"); version.dataset.atlasStorageVersion = "";
-            if (state.repositoryIssue) el(section, "p", `Storage issue: ${state.repositoryIssue}`);
-            for (const journey of snapshot.journeyState.journeys) el(section, "p", `${journey.rootHostname} → ${journey.currentHostname} · ${journey.phase.toLowerCase()}${journey.endReason ? ` · ${journey.endReason.toLowerCase()}` : ""}`);
-            el(section, "p", "Recovery reloads and reconciles authority. It never clears your policy, confirms a proposal or replays a browser request."); button(section, "Recover saved state", () => send({ kind: "RECOVER" }));
-        });
+        const managedSection = sections.get("managed");
+        if (!managedSection.updateManaged) {
+            el(managedSection, "h3", "Managed Lists");
+            el(managedSection, "p", "Managed blocking is separate from your manual policy. Refreshing requires no Vault wait. Explicit Whitelist exceptions retain Core's precedence.");
+            const summary = el(managedSection, "p"), sync = el(managedSection, "p"), error = el(managedSection, "p", undefined, "hub-atlas-operation-feedback"), exceptions = el(managedSection, "p");
+            const details = el(managedSection, "details"); el(details, "summary", "Source and version");
+            const source = el(details, "p", undefined, "hub-atlas-source"), categories = el(details, "p"), version = el(details, "p", undefined, "hub-atlas-source"), hash = el(details, "p", undefined, "hub-atlas-source");
+            const refresh = button(managedSection, "Refresh now", () => send({ kind: "REFRESH_MANAGED" }));
+            const lookup = field(managedSection, "Look up an exact hostname"), result = el(managedSection, "p"); result.setAttribute("role", "status");
+            const find = async () => { const hostname = lookup.value.trim(), response = await bridge.command({ kind: "LOOKUP_MANAGED", hostname });
+                if (!disposed && lookup.value.trim() === hostname) setText(result, response.type === "MANAGED_LOOKUP" ? response.hostname + ": " + (response.blocked === null ? "Authority unavailable" : response.blocked ? "In managed list" : "Not in managed list") : "Enter a valid exact hostname."); };
+            button(managedSection, "Look up", find); lookup.addEventListener("keydown", event => { if (event.key === "Enter") { event.preventDefault(); void find(); } });
+            managedSection.updateManaged = current => {
+                const m = current.managed;
+                setText(summary, m ? m.count.toLocaleString() + " exact hosts · " + m.origin.toLowerCase() + " · " + m.status.toLowerCase().replaceAll("_", " ") : "Managed service is unavailable in this host.");
+                setText(sync, m ? "Last successful sync: " + timestamp(m.lastSuccessfulSync) + " · Last attempt: " + timestamp(m.lastAttemptAt) : "");
+                setText(error, m?.error ? "The latest update did not complete. Review source details; current list status is shown above." : ""); error.dataset.tone = "error"; error.title = m?.error ?? ""; error.hidden = !m?.error;
+                setText(exceptions, m?.conflicts.length ? "Explicit Whitelist exceptions: " + m.conflicts.join(", ") : ""); exceptions.hidden = !m?.conflicts.length;
+                setText(source, m?.source); setText(categories, m ? "Categories: " + m.categories.join(", ") : ""); setText(version, m?.version ? "Version: " + m.version : ""); setText(hash, m?.hash ? "SHA-256: " + m.hash : "");
+                details.hidden = !m; refresh.dataset.atlasNotReady = !m || m.status === "UPDATING" ? "true" : "false";
+                refresh.disabled = refresh.dataset.atlasNotReady === "true" || refresh.dataset.atlasBusy === "true";
+            };
+        }
+        managedSection.updateManaged(state);
+        const diagnostics = sections.get("diagnostics");
+        if (!diagnostics.updateDiagnostics) {
+            el(diagnostics, "h3", "Diagnostics / Recovery"); const lines = Array.from({ length: 6 }, () => el(diagnostics, "p"));
+            const details = el(diagnostics, "details"); el(details, "summary", "Technical details");
+            const version = el(details, "p", undefined, "hub-atlas-source"); version.dataset.atlasStorageVersion = "";
+            const issue = el(details, "p"), journeyList = el(details, "div");
+            const syncJourneys = keyed(journeyList, () => ({ node: el(journeyList, "p") }), (r, j) => setText(r.node, j.rootHostname + " → " + j.currentHostname + " · " + j.phase.toLowerCase() + (j.endReason ? " · " + j.endReason.toLowerCase() : "")));
+            el(diagnostics, "p", "Recovery reloads and reconciles authority. It never clears your policy, confirms a proposal or replays a browser request.");
+            button(diagnostics, "Recover saved state", () => send({ kind: "RECOVER" }));
+            diagnostics.updateDiagnostics = current => {
+                const s = current.snapshot, app = current.application;
+                const values = ["Authority: " + current.status + " · " + (current.reason ?? "available"),
+                    "Policy revision " + s.policyRevision + " · configuration revision " + s.configurationRevision,
+                    "Storage envelope schema 2 · application schema " + (app?.schemaVersion ?? "unavailable"),
+                    "Whitelist " + s.policy.whitelist.length + " · manual Blacklist " + s.policy.blacklist.length + " · managed " + (current.managed?.count ?? "unavailable"),
+                    "Active grants " + (current.temporaryDestinations ?? []).filter(g => g.decision.outcome === "ALLOW").length + " · saved grants " + s.accessState.grants.length + " · pending requests " + s.accessState.pendingRequests.length + " · Vault proposal " + (s.vaultState.pendingProposal?.id ?? "none"),
+                    "Managed sync " + (current.managed?.status ?? "unavailable") + " · last success " + timestamp(current.managed?.lastSuccessfulSync)];
+                values.forEach((value, i) => setText(lines[i], value)); setText(version, "Storage version: " + current.storageVersion);
+                setText(issue, current.repositoryIssue ? "Storage issue: " + current.repositoryIssue : ""); syncJourneys(s.journeyState.journeys);
+            };
+        }
+        diagnostics.updateDiagnostics(state);
         const version = parent.querySelector("[data-atlas-storage-version]"); if (version) setText(version, `Storage version: ${state.storageVersion}`);
         for (const node of parent.querySelectorAll("[data-atlas-protected]")) { node.dataset.atlasUnavailable = state.status !== "READY" ? "true" : "false";
             node.disabled = node.dataset.atlasUnavailable === "true" || node.dataset.atlasNotReady === "true" || node.dataset.atlasBusy === "true"; }
-        updateCountdowns(parent); show(selected);
+        const pendingItems = pendingActions(state, Date.now(), session); announce(pendingItems);
+        for (const [id, node] of navButtons) { const count = pendingItems.filter(item => item.route.section === id).length; node.dataset.pendingCount = count ? String(count) : ""; node.setAttribute("aria-label", pages.find(p => p[0] === id)[1] + (count ? `, ${count} pending` : "")); }
+        updateCountdowns(parent, presentationNow(state)); show(selected);
     }
-    const unsubscribe = bridge.subscribe(refresh); refresh();
-    const timer = setInterval(() => { vaultTick?.(); updateCountdowns(parent); }, 250);
-    return () => { disposed = true; clearInterval(timer); unsubscribe(); for (const dispose of mounts.values()) dispose(); parent.classList.remove("hub-atlas-overview"); };
+    const unsubscribeRoute = session.subscribe((route, event) => { if (!session.draft) { for (const node of parent.querySelectorAll(".hub-atlas-draft, .hub-atlas-replace-draft")) node.remove(); captureDraft = null; draftAvailability = null; } show(route.section); refresh(); if (event?.navigation !== false) focusRoute(); });
+    paint(message, session.feedback);
+    const unsubscribe = bridge.subscribe(refresh); refresh(); for (const [id, node] of sections) { const top = session.scrolls.get(id); if (top) node.scrollTop = top; } if (session.settingsScroll) parent.scrollTop = session.settingsScroll; if (session.route.context) focusRoute();
+    const timer = setInterval(() => {
+        const state = bridge.view(), next = JSON.stringify([pendingActions(state, Date.now(), session), state.contexts.map(c => [c.id, !bridge.canActOnContext || bridge.canActOnContext(c)])]);
+        if (next !== temporalSignature) { temporalSignature = next; refresh(); } else { vaultTick?.(); updateCountdowns(parent, presentationNow(state)); }
+    }, 250);
+    return () => { captureDraft?.(); captureTimings?.(); captureSetup?.(); for (const [id, node] of sections) session.scrolls.set(id, node.scrollTop); session.settingsScroll = parent.scrollTop; disposed = true; clearInterval(timer); unsubscribe(); unsubscribeRoute(); for (const dispose of mounts.values()) dispose(); parent.classList.remove("hub-atlas-overview"); };
 }
 module.exports = { mountAtlasSettings };
 
@@ -708,63 +1369,98 @@ function el(parent, tag, text, className) {
 function button(parent, label, action, disabled = false) {
     const node = el(parent, "button", label); node.type = "button"; node.disabled = disabled;
     node.addEventListener("click", async () => {
-        node.dataset.atlasBusy = "true"; node.disabled = true;
-        try { await action(); } finally {
+        if (node.dataset.atlasBusy === "true") return;
+        node.dataset.atlasBusy = "true";
+        // Let a synchronous route capture the focused opener before disabling it.
+        try { const work = action(); if (work && typeof work.then === "function") { node.disabled = true; node.setAttribute("aria-busy", "true"); await work; } } finally {
+            node.removeAttribute("aria-busy");
             delete node.dataset.atlasBusy;
             if (node.isConnected) node.disabled = disabled || node.dataset.atlasUnavailable === "true" || node.dataset.atlasNotReady === "true";
         }
     });
     return node;
 }
-const seconds = deadline => `${Math.max(0, Math.ceil((deadline - Date.now()) / 1000))} s`;
+const seconds = (deadline, now = Date.now()) => `${Math.max(0, Math.ceil((deadline - now) / 1000))} s`;
 function countdown(parent, label, deadline) {
     const node = el(parent, "p", `${label}: ${seconds(deadline)}`);
-    node.dataset.atlasDeadline = String(deadline); node.dataset.atlasLabel = label;
+    node.dataset.atlasDeadline = String(deadline); node.dataset.atlasLabel = label; node.setAttribute("aria-live", "off");
 }
-function updateCountdowns(parent) {
+function updateCountdowns(parent, now = Date.now()) {
     for (const node of parent.querySelectorAll("[data-atlas-deadline]")) {
-        const value = `${node.dataset.atlasLabel}: ${seconds(Number(node.dataset.atlasDeadline))}`;
+        const value = `${node.dataset.atlasLabel}: ${seconds(Number(node.dataset.atlasDeadline), now)}`;
         if (node.textContent !== value) node.textContent = value;
     }
 }
+const navigationMounts = new WeakMap();
 function renderNavigation(parent, state, context, bridge) {
-    const decision = context?.response?.decision;
-    const signature = JSON.stringify([state.status, state.reason, state.enabled, context?.id, context?.generation,
-        context?.phase, decision, context?.journey]);
-    if (parent.dataset.atlasSignature === signature) { updateCountdowns(parent); return; }
-    parent.dataset.atlasSignature = signature; parent.replaceChildren();
-    el(parent, "h3", "Atlas");
-    if (context?.origin) el(parent, "p", context.origin);
-    const command = kind => bridge.command({ kind, contextId: context.id, generation: context.generation });
+    const { getAtlasSession } = __hubRequire("lib/atlas/obsidian/session.js"), { describeOutcome } = __hubRequire("lib/atlas/obsidian/feedback.js"), { keyed, text } = __hubRequire("lib/atlas/obsidian/dom.js");
+    const { presentationNow } = __hubRequire("lib/atlas/obsidian/pending.js"), now = presentationNow(state), session = getAtlasSession(bridge);
+    let mount = navigationMounts.get(parent);
+    if (!mount || mount.heading.parentNode !== parent) {
+        parent.replaceChildren(); mount = { heading: el(parent, "h3", "Atlas"), origin: el(parent, "p"), context: null };
+        mount.feedback = el(parent, "div", undefined, "hub-atlas-operation-feedback"); mount.feedback.setAttribute("role", "status");
+        mount.feedbackText = el(mount.feedback, "p"); mount.feedbackAction = button(mount.feedback, "Review saved state", () => { const value = getAtlasSession(bridge).contextFeedback.get(mount.context?.id); if (value?.section) bridge.open?.({ section: value.section }); });
+        mount.copy = el(parent, "p"); mount.copy.setAttribute("role", "status");
+        countdown(parent, "", 0); mount.count = parent.querySelector("[data-atlas-deadline]");
+        mount.journey = el(parent, "p"); const actions = el(parent, "div", undefined, "hub-atlas-context-actions");
+        mount.actions = keyed(actions, item => { const r = { node: null, value: item }; r.node = button(actions, item.label, () => r.value.run()); return r; },
+            (r, item) => { text(r.node, item.label); r.node.dataset.atlasNotReady = item.disabled ? "true" : "false"; r.node.disabled = !!item.disabled || r.node.dataset.atlasBusy === "true"; }, item => item.key);
+        navigationMounts.set(parent, mount);
+    }
+    mount.context = context; parent.dataset.atlasContextId = context?.id ?? "";
+    const decision = context?.response?.decision, expired = ["WAIT", "REQUIRE_CONFIRMATION"].includes(decision?.outcome) && now >= decision.confirmBy;
+    const usable = !bridge.canActOnContext || !!context && bridge.canActOnContext(context), feedback = session.contextFeedback.get(context?.id);
+    parent.dataset.state = state.status !== "READY" ? "UNRESOLVED" : expired ? "EXPIRED" : decision?.reason ?? decision?.outcome ?? "BLOCKED";
+    text(mount.origin, context?.origin); mount.origin.hidden = !context?.origin;
+    mount.feedback.hidden = !feedback; text(mount.feedbackText, feedback?.text); mount.feedback.dataset.tone = feedback?.tone ?? "info";
+    mount.feedbackAction.hidden = !feedback?.section; text(mount.feedbackAction, feedback?.section === "diagnostics" ? "Review saved state" : "Review current state");
+    const command = async kind => {
+        const target = mount.context;
+        if (!target) return;
+        const input = { kind, contextId: target.id, generation: target.generation }, current = bridge.view();
+        const live = current.contexts.find(c => c.id === target.id && c.generation === target.generation); let result;
+        try { result = !live || bridge.canActOnContext && !bridge.canActOnContext(live) ? { type: "BLOCKED", reason: "STALE_CONTEXT" } : await bridge.command(input); }
+        catch (_) { result = { type: "BLOCKED", reason: "TRANSPORT_UNRESOLVED" }; }
+        session.contextFeedback.set(target.id, describeOutcome(input, result, bridge.view()));
+        if (session.contextFeedback.size > 128) session.contextFeedback.delete(session.contextFeedback.keys().next().value);
+        if (mount.context?.id === target.id) renderNavigation(parent, bridge.view(), bridge.view().contexts.find(c => c.id === target.id) ?? target, bridge);
+        return result;
+    };
+    const actions = [], route = (label, section, routeContext) => actions.push({ key: "route:" + section, label, run: () => bridge.open?.({ section, ...(routeContext ? { context: routeContext } : {}) }) });
+    const action = (label, kind) => actions.push({ key: kind, label, run: () => command(kind) });
+    let copy, deadline = null, countdownLabel = "";
     if (state.status !== "READY" || !state.enabled) {
-        el(parent, "p", state.status === "UNINITIALIZED" ? "Set up Atlas before browsing." : `Browsing is blocked: ${state.reason ?? "Atlas is unavailable"}.`);
-        button(parent, "Open Atlas", () => bridge.open()); return;
+        copy = state.status === "UNINITIALIZED" ? "Set up Atlas before browsing." : "Saved authority is unavailable. Browsing stays blocked; reconcile saved state to continue.";
+        route("Open Atlas", state.status === "UNINITIALIZED" ? "sites" : "diagnostics");
+    } else if (!context) copy = "This browsing context is no longer available. Return to a destination in a Note tab to continue.";
+    else if (!usable) {
+        copy = "Access controls are available from an owned Note workspace. This request has not granted access."; route("Review Temporary Access", "temporary");
+    } else if (expired) {
+        copy = "This access request expired without granting access. Request again for a full new wait.";
+        action("Request access again", "START_ACCESS"); route("Review Temporary Access", "temporary", { contextId: context.id });
+    } else {
+        switch (decision?.outcome) {
+            case "GREYLIST":
+                copy = decision.reason === "REQUEST_EXPIRED" ? "The previous request expired. Request again for a full new wait." : "This exact hostname needs temporary access.";
+                action("Request access", "START_ACCESS"); break;
+            case "WAIT":
+                copy = now >= decision.readyAt ? "The wait has elapsed. Confirmation will appear after the current access check." : "Access requested. Waiting does not grant permission.";
+                deadline = decision.readyAt; countdownLabel = "Confirmation available in"; action("Cancel request", "CANCEL_ACCESS"); break;
+            case "REQUIRE_CONFIRMATION":
+                copy = "Confirm temporary access to this hostname. A fresh homepage will open.";
+                deadline = decision.confirmBy; countdownLabel = "Confirmation window remaining"; action("Confirm and open homepage", "CONFIRM_ACCESS_AND_OPEN"); action("Cancel request", "CANCEL_ACCESS"); break;
+            case "ALLOW":
+                copy = "Access is available. Open a fresh homepage to continue."; action("Open homepage", "OPEN_HOME"); break;
+            default:
+                copy = decision?.reason === "BLACKLISTED" ? "This exact host is blocked by your Blacklist." : decision?.reason === "MANAGED_BLACKLISTED" ? "This host is blocked by the managed list." : "Navigation is blocked by the current access rules.";
+        }
+        if (context.journey) action("Retry trusted destination", "RETRY_JOURNEY");
+        route("Atlas policy and Vault", "vault");
     }
-    if (!context) { el(parent, "p", "Waiting for a protected webviewer."); return; }
-    switch (decision?.outcome) {
-        case "GREYLIST":
-            el(parent, "p", "This exact hostname needs temporary access.");
-            button(parent, "Request access", () => command("START_ACCESS")); break;
-        case "WAIT":
-            el(parent, "p", "Access requested. Waiting does not grant permission.");
-            countdown(parent, "Confirmation available in", decision.readyAt);
-            button(parent, "Cancel request", () => command("CANCEL_ACCESS")); break;
-        case "REQUIRE_CONFIRMATION":
-            el(parent, "p", "Confirm temporary access to this hostname. A fresh homepage will open.");
-            countdown(parent, "Confirmation window remaining", decision.confirmBy);
-            button(parent, "Confirm and open homepage", () => command("CONFIRM_ACCESS_AND_OPEN"));
-            button(parent, "Cancel request", () => command("CANCEL_ACCESS")); break;
-        case "ALLOW":
-            el(parent, "p", "Access is available. Open a fresh homepage to continue.");
-            button(parent, "Open homepage", () => command("OPEN_HOME")); break;
-        default:
-            el(parent, "p", `Navigation blocked: ${(decision?.reason ?? context.response?.reason ?? "authorization unavailable").replaceAll("_", " ").toLowerCase()}.`);
-    }
-    if (context.journey) {
-        el(parent, "p", `Journey to ${context.journey.rootHostname}: ${context.journey.phase.toLowerCase()}.`);
-        button(parent, "Retry trusted destination", () => command("RETRY_JOURNEY"));
-    }
-    button(parent, "Atlas policy and Vault", () => bridge.open());
+    text(mount.copy, copy); mount.count.hidden = deadline === null; mount.count.dataset.atlasDeadline = String(deadline ?? 0); mount.count.dataset.atlasLabel = countdownLabel;
+    const hasJourney = context?.journey && usable && !expired && state.status === "READY" && state.enabled;
+    text(mount.journey, hasJourney ? "A bounded Journey is associated with this tab. It does not authorize other tabs." : ""); mount.journey.hidden = !hasJourney;
+    mount.actions(actions); updateCountdowns(parent, now);
 }
 
 function hostInput(parent, label, hostnames) {
@@ -16706,36 +17402,59 @@ class SettingsModal extends Modal {
         this.select(SETTINGS_PAGES.some(page => page.id === this.initialPage) ? this.initialPage : "appearance");
     }
     select(id) {
+        if (this.selected === id) return;
         const page = SETTINGS_PAGES.find(page => page.id === id);
         if (!page) return;
         this.buttons.forEach((button, index) => {
             const selected = SETTINGS_PAGES[index].id === id;
             button.setAttribute("aria-selected", String(selected)); button.tabIndex = selected ? 0 : -1;
         });
+        this.selected = id;
         this.panel.setAttribute("aria-labelledby", `${this.prefix}-${id}`);
         this.disposePage?.(); this.panel.empty(); this.disposePage = renderSettingsPage(this.panel, page, this.plugin); this.panel.scrollTop = 0;
     }
     onClose() { this.disposePage?.(); this.contentEl.empty(); this.closed?.(); }
 }
 
+// The footer control and Atlas entry points share this one owner per plugin.
+// A lazy owner also works before the footer is mounted; it never creates a
+// second Atlas-specific dialog.
+const owners = new WeakMap();
+function getSettingsOwner(plugin) {
+    if (owners.has(plugin)) return owners.get(plugin);
+    let modal = null, fallback = null, origin = null;
+    const owner = {
+        open(page = "appearance") {
+            if (modal) { modal.select(typeof page === "string" ? page : "appearance"); modal.panel?.focus({ preventScroll: true }); return true; }
+            const document = fallback?.ownerDocument ?? globalThis.document;
+            if (document?.querySelector(".modal-container")) return false;
+            origin = document?.activeElement;
+            modal = new SettingsModal(plugin.app, () => {
+                modal = null;
+                const previous = origin?.isConnected && origin !== document.body ? origin : fallback?.isConnected ? fallback :
+                    plugin.app.workspace?.activeLeaf?.view?.contentEl;
+                previous?.focus?.({ preventScroll: true }); origin = null;
+            }, plugin, typeof page === "string" ? page : "appearance");
+            modal.open(); return true;
+        },
+        isOpen: () => !!modal,
+        close() { modal?.close(); },
+        attach(button) { fallback = button; },
+        detach(button) { if (fallback === button) fallback = null; }
+    };
+    owners.set(plugin, owner); return owner;
+}
 function mountSettingsControl(plugin, host) {
     const button = host.createEl("button", { cls: "hub-oath-button hub-settings-button",
         attr: { type: "button", "aria-label": "Settings", "aria-haspopup": "dialog" } });
     setIcon(button.createSpan({ cls: "hub-oath-icon", attr: { "aria-hidden": "true" } }), "settings");
     button.createSpan({ text: "Settings" }); setHubTooltip(button, "Settings", "top");
-    let modal = null, destroyed = false;
-    const open = (page = "appearance") => {
-        if (destroyed) return;
-        if (modal) { if (typeof page === "string") modal.select(page); modal.panel?.focus(); return; }
-        // Keep existing modal/Oath interactions in charge while another window is open.
-        if (button.ownerDocument.querySelector(".modal-container")) return;
-        modal = new SettingsModal(plugin.app, () => { modal = null; if (!destroyed && button.isConnected) button.focus(); }, plugin, typeof page === "string" ? page : "appearance");
-        modal.open();
-    };
+    const owner = getSettingsOwner(plugin); owner.attach(button); let destroyed = false;
+    const open = (page = "appearance") => !destroyed && owner.open(typeof page === "string" ? page : "appearance");
     plugin.registerDomEvent(button, "click", open);
-    return { button, open, isOpen: () => !!modal, destroy() { destroyed = true; modal?.close(); button.remove(); } };
+    return { button, open, isOpen: owner.isOpen, destroy() { destroyed = true; owner.close(); owner.detach(button); button.remove(); } };
 }
-module.exports = { SettingsModal, mountSettingsControl };
+module.exports = { SettingsModal, mountSettingsControl, getSettingsOwner };
 
 },
 "lib/ui/statistics-charts.js": function (module, exports, __hubRequire) {

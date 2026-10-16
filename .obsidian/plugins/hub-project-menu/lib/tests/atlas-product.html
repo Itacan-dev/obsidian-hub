@@ -26,7 +26,7 @@ try{
  assert(home.textContent.includes('ChatGPT')&&home.textContent.includes('Scholar / Research'),'Canonical metadata supplies Home');
  assert(parseFloat(getComputedStyle(home.querySelector('h1')).fontSize)>parseFloat(getComputedStyle(home).fontSize)*1.5,'Atlas uses the existing Hub title/body typography tokens');
  const originalCard=home.querySelector('.hub-atlas-card');for(let i=0;i<20;i++){snapshot.accessState.lastObservedAt=Date.now();publish()}assert(originalCard.isConnected,'Housekeeping preserves Home cards');
- const search=home.querySelector('input[type=search]');search.value='arxiv';search.dispatchEvent(new Event('input'));assert(home.querySelectorAll('.hub-atlas-card').length===1,'Home search filters destinations');search.value='';search.dispatchEvent(new Event('input'));
+ const search=home.querySelector('input[type=search]');search.value='arxiv';search.dispatchEvent(new Event('input'));assert([...home.querySelectorAll('.hub-atlas-card')].filter(n=>!n.hidden&&n.getClientRects().length).length===1,'Home search filters destinations');search.value='';search.dispatchEvent(new Event('input'));
  home.querySelector('.hub-atlas-destination-link').click();await tick();assert(navigation.startsWith('https://'),'Home delegates external navigation');
  const click=(parent,text)=>{const control=[...parent.querySelectorAll('button')].find(button=>button.textContent===text);assert(control&&!control.disabled,'Action '+text);control.click()};
  bridge.open();click(settings,'Add a destination');const draft=settings.querySelector('.hub-atlas-draft'),name=draft.querySelector('[aria-label="Name"]'),primary=draft.querySelector('[aria-label="Primary hostname"]'),category=draft.querySelector('[aria-label="Category"]');
@@ -41,11 +41,11 @@ try{
  snapshot.policy=structuredClone(initialPolicy);snapshot.policyRevision=0;application.destinations=structuredClone(initialDestinations);application.revision++;publish();
  // Display edits must preserve a differently classified alias and its role.
  snapshot.policy.blacklist.push('www.github.com');publish();
- const sourceRow=[...settings.querySelectorAll('.hub-atlas-site-row')].find(row=>row.textContent.includes('GitHub'));click(sourceRow,'Edit');
+ const sourceRow=[...settings.querySelectorAll('.hub-atlas-site-row')].find(row=>row.textContent.includes('GitHub'));click(sourceRow,'Edit');assert(settings.textContent.includes('unfinished draft'),'An earlier rejected draft is preserved');click(settings,'Discard and start requested edit');
  const sourceDraft=settings.querySelector('.hub-atlas-draft');sourceDraft.querySelector('[aria-label="Name"]').value='My code';const mixedPolicy=JSON.stringify(snapshot.policy);
  click(sourceDraft,'Save display details');await tick();assert(commands.at(-1).kind==='SAVE_DISPLAY_DETAILS'&&!Object.hasOwn(commands.at(-1),'hostname'),'Name-only editor uses the closed presentation command');assert(JSON.stringify(snapshot.policy)===mixedPolicy,'Name-only editor never reclassifies mixed aliases');
  snapshot.policy=structuredClone(initialPolicy);publish();
- click(settings,'Add a destination');const previewDraft=settings.querySelector('.hub-atlas-draft');previewDraft.querySelector('[aria-label="Name"]').value='Wolfram Alpha';previewDraft.querySelector('[aria-label="Primary hostname"]').value='wolframalpha.com';previewDraft.querySelector('[aria-label="Category"]').value='Tools';previewDraft.querySelector('input[type=checkbox]').checked=true;previewDraft.querySelector('[aria-label="Primary hostname"]').dispatchEvent(new Event('input'));
+ click(settings,'Add a destination');click(settings,'Discard and start requested edit');const previewDraft=settings.querySelector('.hub-atlas-draft');previewDraft.querySelector('[aria-label="Name"]').value='Wolfram Alpha';previewDraft.querySelector('[aria-label="Primary hostname"]').value='wolframalpha.com';previewDraft.querySelector('[aria-label="Category"]').value='Tools';previewDraft.querySelector('input[type=checkbox]').checked=true;previewDraft.querySelector('[aria-label="Primary hostname"]').dispatchEvent(new Event('input'));
  const preview=new URLSearchParams(location.search).get('preview')||'home';home.hidden=preview!=='home';settings.hidden=preview==='home';
  assert(!settings.querySelector('[data-atlas-page=sites]').hidden,'Sites page is selected');
  document.getElementById('result').textContent='PASS: canonical Home, search, committed metadata/removal, temporary access, structured Vault draft, explicit www, stable focused inputs/cards.';

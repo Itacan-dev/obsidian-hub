@@ -3,7 +3,7 @@
 const { randomUUID } = require("crypto");
 const Core = require("../core/index");
 const { compileCuratedWhitelist, curatedWhitelist, serviceHostnames } = require("../presets/curated-whitelist");
-const { initialApplication, buildDestinationChange, validateDestinations, mergeCuratedDestinations } = require("./application");
+const { initialApplication, buildDestinationChange, validateDestinations, mergeCuratedDestinations, replacementMatches, samePolicy } = require("./application");
 
 // These are the copied D19 development values, disclosed during first setup.
 // Once initialized, only snapshot.configuration governs operations.
@@ -20,6 +20,7 @@ function homeOrigin(url) {
     if (!webTarget(url)) return null;
     try { return new URL(url).origin + "/"; } catch (_) { return null; }
 }
+const { createPresentation, presentationKey, starter, freeze } = require("./presentation");
 const blocked = reason => ({ type: "BLOCKED", reason });
 /** @param {import('../core/index').AtlasControllerResponse} response
  * @returns {response is Extract<import('../core/index').AtlasControllerResponse, {type: 'ASSESSMENT'}>} */
@@ -30,10 +31,14 @@ function createAtlasRuntime({ repository, clock, configuration = DEVELOPMENT_CON
     const controller = Core.createAtlasController({ repository, clock, configuration,
         ownerId: randomUUID(), ...(managedBlacklist === undefined ? {} : { managedBlacklist }) });
     const contexts = new Map(), subscribers = new Set();
-    let queue = Promise.resolve(), enabled = true;
+    let queue = Promise.resolve(), enabled = true, batchDepth = 0, pendingPublication = false, lastPublication = null;
+    const describe = createPresentation(); let applicationVersion, cachedApplication;
+    const presentationTime = () => { try { return clock.now(); } catch (_) { return NaN; } };
     const enqueue = work => {
-        const task = queue.then(work).catch(() => { failAll("ADAPTER_FAILURE"); return blocked("ADAPTER_FAILURE"); });
-        queue = task.then(() => undefined); return task;
+        const task = queue.then(async () => { batchDepth++; try { return await work(); }
+            catch (_) { failAll("ADAPTER_FAILURE"); return blocked("ADAPTER_FAILURE"); }
+            finally { batchDepth--; if (pendingPublication) { pendingPublication = false; publish(); } } });
+        queue = task.then(() => undefined, () => undefined); return task;
     };
     const snapshot = () => controller.getView().snapshot;
     const journey = context => snapshot()?.journeyState.journeys.find(j => j.contextId === context.id && j.phase !== "ENDED");
@@ -41,6 +46,11 @@ function createAtlasRuntime({ repository, clock, configuration = DEVELOPMENT_CON
         ...(continuation ? { continuation } : {}) });
     const valid = (context, generation) => enabled && contexts.get(context.id) === context && context.generation === generation && !context.closed;
     function publish() {
+        if (batchDepth) { pendingPublication = true; return; }
+        if (!subscribers.size) { lastPublication = null; return; }
+        const key = presentationKey(view(), presentationTime());
+        if (key === lastPublication) return;
+        lastPublication = key;
         for (const callback of subscribers) { try { callback(); } catch (_) { subscribers.delete(callback); } }
     }
     function failContext(context, response, origin = context.origin) {
@@ -234,24 +244,13 @@ function createAtlasRuntime({ repository, clock, configuration = DEVELOPMENT_CON
     }
     function view() {
         const state = controller.getView();
-        const application = repository.application?.(state.storageVersion) ?? (state.snapshot ? initialApplication(state.snapshot.policy) : null);
-        // Descriptions from the pure Core planner carry no executable ALLOW.
-        // Native requests still require the controller and verified persistence.
-        const describe = hostname => {
-            if (state.status !== "READY" || !enabled) return { outcome: "DENY", reason: "ATLAS_UNAVAILABLE" };
-            const managed = managedBlacklist?.();
-            const plan = Core.planAtlasOperation({ kind: "CHECK_NAVIGATION", target: { hostname }, context: { contextId: "atlas-home-description", journeyId: null } }, {
-                snapshot: state.snapshot, now: clock.now(), configuration: state.snapshot.configuration,
-                ...(managedBlacklist ? { managedBlacklist: managed } : {}) });
-            return plan.result.type === "ASSESSMENT" ? plan.result.decision : { outcome: "DENY", reason: plan.result.type };
-        };
-        const destinations = (application?.destinations ?? []).map(destination => ({ ...destination,
-            hosts: serviceHostnames(destination).map(hostname => ({ hostname, decision: describe(hostname) })), decision: describe(destination.hostname) }));
-        return { ...state, enabled, application, destinations,
-            temporaryDestinations: (state.snapshot?.accessState.grants ?? []).map(grant => ({ ...grant, decision: describe(grant.hostname) })),
-            starter: { groups: curatedWhitelist.map(g => ({ label: g.label, count: g.services.length })),
-                serviceCount: curatedWhitelist.reduce((count, g) => count + g.services.length, 0), hostCount: compileCuratedWhitelist().whitelist.length,
-                policy: compileCuratedWhitelist() },
+        if (applicationVersion !== state.storageVersion || cachedApplication === undefined) {
+            cachedApplication = freeze(repository.application?.(state.storageVersion) ?? (state.snapshot ? initialApplication(state.snapshot.policy) : null));
+            applicationVersion = state.storageVersion;
+        }
+        let managed; try { managed = managedBlacklist?.(); } catch (_) { managed = null; }
+        const display = describe(state, cachedApplication, enabled, presentationTime(), managed, managedBlacklist !== undefined);
+        return { ...state, enabled, application: cachedApplication, ...display, starter,
             initialConfiguration: state.snapshot ? null : configuration, repositoryIssue: repository.issue ?? null,
             contexts: [...contexts.values()].map(context => ({ id: context.id, nativeId: context.nativeId,
                 generation: context.generation, closed: context.closed, phase: context.phase,
@@ -277,7 +276,8 @@ function createAtlasRuntime({ repository, clock, configuration = DEVELOPMENT_CON
             if (controller.getView().status !== "READY") return blocked("NOT_READY");
             const candidatePolicy = { whitelist: [...new Set([...snapshot().policy.whitelist,
                 ...compileCuratedWhitelist().whitelist])], blacklist: [...snapshot().policy.blacklist] };
-            repository.stageApplication(mergeCuratedDestinations(repository.application(), candidatePolicy));
+            try { repository.stageApplication(mergeCuratedDestinations(repository.application(), candidatePolicy)); }
+            catch (_) { repository.clearApplicationStage(); return { type: "REJECTED", reason: "CURATED_METADATA_CONFLICT" }; }
             try { return await command({ kind: "PROPOSE_POLICY", candidatePolicy }); }
             finally { repository.clearApplicationStage(); }
         }
@@ -290,18 +290,38 @@ function createAtlasRuntime({ repository, clock, configuration = DEVELOPMENT_CON
             if (clock.now() < pending.confirmBy) return { type: "REJECTED", reason: "PROPOSAL_NOT_EXPIRED" };
             // Core owns cancellation, new IDs, the full wait and confirmation.
             // Never replay a confirmation or apply any of these candidate values.
-            const destinations = repository.application().pending?.destinations;
-            const cancelled = await command({ kind: "CANCEL_POLICY", proposalId: pending.id });
-            if (cancelled.type !== "COMMITTED") return cancelled;
-            if (destinations) repository.stageApplication(destinations);
-            try { return await command(pending.candidateConfiguration &&
-                JSON.stringify(pending.candidateConfiguration) !== JSON.stringify(snapshot().configuration)
-                ? { kind: "PROPOSE_SETTINGS", candidateConfiguration: pending.candidateConfiguration }
-                : { kind: "PROPOSE_POLICY", candidatePolicy: pending.candidatePolicy }); }
-            finally { repository.clearApplicationStage(); }
+            let application = repository.application(), recovery = application.recovery;
+            if (recovery && recovery.sourceProposalId !== pending.id && !replacementMatches(pending, recovery, application.pending?.destinations))
+                return { type: "REJECTED", reason: "RECOVERY_DRAFT_PENDING" };
+            if (!recovery || recovery.sourceProposalId !== pending.id) {
+                recovery = { id: randomUUID(), sourceProposalId: pending.id,
+                    operation: pending.candidateConfiguration && JSON.stringify(pending.candidateConfiguration) !== JSON.stringify(snapshot().configuration) ? "PROPOSE_SETTINGS" : "PROPOSE_POLICY",
+                    basePolicyRevision: snapshot().policyRevision, baseConfigurationRevision: snapshot().configurationRevision,
+                    baseApplicationRevision: application.revision, policy: structuredClone(pending.candidatePolicy),
+                    configuration: structuredClone(pending.candidateConfiguration ?? snapshot().configuration),
+                    destinations: application.pending?.destinations ?? null };
+                // The only recoverable copy must be durable BEFORE cancellation.
+                // This metadata transaction cannot publish policy or shorten waits.
+                const saved = await savePresentation({ ...application, recovery }, "RECOVERY_SAVE_UNRESOLVED");
+                if (saved.type !== "COMMITTED") return saved;
+            }
+            return restoreRecovery(recovery, recovery);
+        }
+        if (kind === "RESTORE_RECOVERY" && Object.keys(input).length === 5 &&
+            ["recoveryId", "basePolicyRevision", "baseConfigurationRevision", "baseApplicationRevision"].every(key => Object.hasOwn(input, key))) {
+            if (controller.getView().status !== "READY") return blocked("NOT_READY");
+            const recovery = repository.application().recovery;
+            if (!recovery || recovery.id !== input.recoveryId) return { type: "REJECTED", reason: "STALE_RECOVERY" };
+            return restoreRecovery(recovery, input);
+        }
+        if (kind === "DISCARD_RECOVERY" && Object.keys(input).length === 2 && Object.hasOwn(input, "recoveryId")) {
+            if (controller.getView().status !== "READY") return blocked("NOT_READY");
+            const application = repository.application();
+            if (!application.recovery || application.recovery.id !== input.recoveryId) return { type: "REJECTED", reason: "STALE_RECOVERY" };
+            return savePresentation({ ...application, recovery: null }, "RECOVERY_SAVE_UNRESOLVED");
         }
         if (kind === "PROPOSE_DESTINATION" && Object.keys(input).length === 6 &&
-            ["destination", "access", "previousId", "basePolicyRevision", "baseApplicationRevision"].every(key => Object.hasOwn(input, key))) {
+            ["destination", Object.hasOwn(input, "hostAccess") ? "hostAccess" : "access", "previousId", "basePolicyRevision", "baseApplicationRevision"].every(key => Object.hasOwn(input, key))) {
             if (controller.getView().status !== "READY") return blocked("NOT_READY");
             try {
                 const application = repository.application(), change = buildDestinationChange(snapshot(), application, input);
@@ -360,13 +380,49 @@ function createAtlasRuntime({ repository, clock, configuration = DEVELOPMENT_CON
         }
         await recheck(context); publish(); return response;
     }
-    async function savePresentation(application) {
+    async function restoreRecovery(recovery, bases) {
+        const application = repository.application(), current = snapshot();
+        if (bases.basePolicyRevision !== current.policyRevision || bases.baseConfigurationRevision !== current.configurationRevision ||
+            bases.baseApplicationRevision !== application.revision) return { type: "REJECTED", reason: "STALE_DRAFT" };
+        const pending = current.vaultState.pendingProposal;
+        if (replacementMatches(pending, recovery, application.pending?.destinations)) return { type: "REJECTED", reason: "REPLACEMENT_ALREADY_SAVED" };
+        if (pending) {
+            if (pending.id !== recovery.sourceProposalId) return { type: "REJECTED", reason: "PROPOSAL_PENDING" };
+            if (clock.now() < pending.confirmBy) return { type: "REJECTED", reason: "PROPOSAL_NOT_EXPIRED" };
+            const cancelled = await command({ kind: "CANCEL_POLICY", proposalId: pending.id });
+            if (cancelled.type !== "COMMITTED") return cancelled;
+        }
+        const latest = repository.application();
+        const unchanged = recovery.operation === "PROPOSE_SETTINGS"
+            ? JSON.stringify(snapshot().configuration) === JSON.stringify(recovery.configuration) : samePolicy(snapshot().policy, recovery.policy);
+        if (unchanged) {
+            // Another explicitly confirmed operation may already have installed
+            // these security values. Only reviewed display data remains to save;
+            // do not invent a no-op protected proposal or drop the saved work.
+            return savePresentation({ ...latest, recovery: null, ...(recovery.destinations === null ? {} :
+                { destinations: recovery.destinations, revision: latest.revision + 1 }) }, "RECOVERY_SAVE_UNRESOLVED");
+        }
+        if (recovery.destinations) repository.stageApplication(recovery.destinations);
+        let result;
+        try { result = await command(recovery.operation === "PROPOSE_SETTINGS"
+            ? { kind: "PROPOSE_SETTINGS", candidateConfiguration: recovery.configuration }
+            : { kind: "PROPOSE_POLICY", candidatePolicy: recovery.policy }); }
+        finally { repository.clearApplicationStage(); }
+        // An ambiguous write stops here. Reconciliation only reads it; neither
+        // proposal creation nor confirmation is ever retried automatically.
+        if (result.type !== "COMMITTED") return result;
+        const verified = repository.application();
+        if (!replacementMatches(snapshot().vaultState.pendingProposal, recovery, verified.pending?.destinations)) return blocked("RECOVERY_SAVE_UNRESOLVED");
+        const cleaned = await savePresentation({ ...verified, recovery: null }, "RECOVERY_SAVE_UNRESOLVED");
+        return cleaned.type === "COMMITTED" ? result : cleaned;
+    }
+    async function savePresentation(application, reason = "PRESENTATION_SAVE_FAILED") {
         const prior = controller.getView();
         const receipt = await repository.replace(prior.storageVersion, `presentation:${randomUUID()}`,
             { schemaVersion: 2, snapshot: prior.snapshot, application });
-        if (receipt.type !== "COMMITTED") { failAll("PRESENTATION_SAVE_FAILED"); await core({ kind: "OBSERVE_TIME" }); publish(); return blocked("PRESENTATION_SAVE_FAILED"); }
+        if (receipt.type !== "COMMITTED") { failAll(reason); await core({ kind: "OBSERVE_TIME" }); publish(); return blocked(reason); }
         await core({ kind: "OBSERVE_TIME" }); publish();
-        return controller.getView().status === "READY" ? { type: "COMMITTED", operation: "PRESENTATION" } : blocked("PRESENTATION_SAVE_FAILED");
+        return controller.getView().status === "READY" ? { type: "COMMITTED", operation: "PRESENTATION" } : blocked(reason);
     }
     return Object.freeze({ controller, attach, navigate, arrive,
         updateManaged: work => enqueue(async () => { const result = await work(); if (result && controller.getView().status === "READY") await observe(); else publish(); return result; }),
@@ -375,7 +431,7 @@ function createAtlasRuntime({ repository, clock, configuration = DEVELOPMENT_CON
             return enqueue(() => command(copy));
         }, observe: () => enqueue(observe), close, retireDocument, view, now: () => clock.now(),
         block: (context, reason) => failContext(context, blocked(reason)),
-        subscribe(callback) { subscribers.add(callback); return () => subscribers.delete(callback); },
+        subscribe(callback) { if (!subscribers.size) lastPublication = presentationKey(view(), presentationTime()); subscribers.add(callback); return () => subscribers.delete(callback); },
         suspend() { enabled = false; failAll("INTEGRATION_SUSPENDED"); },
         forget(nativeId) {
             for (const [id, context] of contexts) if (context.nativeId === nativeId && context.closed) contexts.delete(id);

@@ -145,7 +145,7 @@ test("old schema-2 authority gains versioned presentation metadata atomically an
     f.repository.close(); delete disk.application; fs.writeFileSync(f.repository.file("authority.json"), JSON.stringify(disk));
     const repository = new AtlasFileRepository(f.directory, { configuration: CONFIG });
     const loaded = await repository.load(); assert.equal(loaded.type, "READY"); assert.deepEqual(loaded.envelope.snapshot, disk.snapshot);
-    assert.equal(Object.hasOwn(loaded.envelope, "application"), false); assert.equal(repository.application().schemaVersion, 1);
+    assert.equal(Object.hasOwn(loaded.envelope, "application"), false); assert.equal(repository.application().schemaVersion, 2);
     assert.deepEqual(repository.application().destinations.map(d => d.hostname).sort(), ["blocked.test", "trusted.test"]);
     repository.close();
 });

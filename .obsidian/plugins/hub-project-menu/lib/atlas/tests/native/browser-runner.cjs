@@ -4,10 +4,10 @@ const profile = path.resolve(process.env.ATLAS_BROWSER_TEST_ROOT ?? "");
 if (path.dirname(profile) !== path.resolve(os.tmpdir()) || !path.basename(profile).startsWith("hub-electron-fixture-")) throw Error("Unexpected fixture profile");
 app.setPath("userData", profile); app.disableHardwareAcceleration(); app.commandLine.appendSwitch("allow-file-access-from-files");
 app.on("window-all-closed", () => {}); // each fixture owns a fresh hidden window
-const directory = path.resolve(__dirname, "../../../tests"), args = process.argv.slice(2);
+const directory = path.resolve(process.env.ATLAS_BROWSER_FIXTURE_DIR ?? path.resolve(__dirname, "../../../tests")), args = process.argv.slice(2);
 // These two pages compare personal artwork visually; they have no PASS marker.
 const visualOnly = new Set(["card-image-detail.html", "card-images.html"]);
-const names = args.includes("--all") ? fs.readdirSync(directory).filter(name => name.endsWith(".html") && !visualOnly.has(name) && /id=["']result["']/.test(fs.readFileSync(path.join(directory, name), "utf8"))).map(name => name.slice(0, -5)) : args.length ? args : ["settings", "workspace-navigation", "workspace-explorer", "workspace-covers", "atlas-product"];
+const names = args.includes("--all") ? fs.readdirSync(directory).filter(name => name.endsWith(".html") && !visualOnly.has(name) && /id=["']result["']/.test(fs.readFileSync(path.join(directory, name), "utf8"))).map(name => name.slice(0, -5)) : args.length ? args : ["settings", "workspace-navigation", "workspace-explorer", "workspace-covers", "atlas-product", "atlas-workflow", "atlas-rendering"];
 if (!names.length || names.some(name => !/^[a-z-]+$/.test(name))) throw Error("Invalid fixture selection");
 app.whenReady().then(async () => {
     let baselineRequests = 0;
@@ -44,7 +44,7 @@ app.whenReady().then(async () => {
             const image = await win.webContents.capturePage();
             fs.writeFileSync(path.join(os.tmpdir(), `hub-${name}-${process.env.HUB_TEST_PREVIEW ?? "home"}-verified.png`), image.toPNG());
             if (!result.startsWith("PASS")) throw Error(result || "No completion marker");
-            passed++; console.log(`PASS ${name}`);
+            passed++; console.log(name === "atlas-rendering" ? result : `PASS ${name}`);
         } catch (error) { failed++; console.error(`FAIL ${name}: ${error.message}`); }
         finally { win.destroy(); }
     }

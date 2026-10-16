@@ -15,6 +15,12 @@ module.exports = async function runRendererFixture({ directory, pluginDirectory,
     document.head.appendChild(nativeStyle); document.body.classList.add("theme-dark");
     const style = document.createElement("style");
     style.textContent = require("fs").readFileSync(path.join(pluginDirectory, "styles.css"), "utf8"); document.head.appendChild(style);
+    for (const [name, method] of Object.entries({
+        createEl(tag, options = {}) { const node = this.ownerDocument.createElement(tag); node.className = options.cls ?? ""; if (options.text !== undefined) node.textContent = options.text; for (const [key, value] of Object.entries(options.attr ?? {})) node.setAttribute(key, value); this.appendChild(node); return node; },
+        createDiv(options) { return this.createEl("div", options); },
+        createSpan(options) { return this.createEl("span", options); },
+        empty() { this.replaceChildren(); }
+    })) if (!HTMLElement.prototype[name]) HTMLElement.prototype[name] = method;
     class Modal {
         constructor() {
             this.containerEl = document.createElement("div"); this.containerEl.className = "modal-container";
@@ -34,7 +40,7 @@ module.exports = async function runRendererFixture({ directory, pluginDirectory,
     }
     class Notice { constructor(message) { console.log(message); } }
     const originalLoad = Module._load;
-    Module._load = function (name) { return name === "obsidian" ? { Modal, Notice, Menu } : originalLoad.apply(this, arguments); };
+    Module._load = function (name) { return name === "obsidian" ? { Modal, Notice, Menu, setIcon: node => { node.innerHTML = '<svg viewBox="0 0 24 24"></svg>'; } } : originalLoad.apply(this, arguments); };
     let install;
     try { install = require(path.join(pluginDirectory, "lib/atlas/obsidian/integration.js")).installAtlasIntegration; }
     finally { Module._load = originalLoad; }
@@ -44,7 +50,7 @@ module.exports = async function runRendererFixture({ directory, pluginDirectory,
     const host = { view: () => JSON.parse(nativeHost.viewJSON()) };
     assert.equal(JSON.parse(await nativeHost.commandJSON("{broken")).reason, "INVALID_OPERATION");
     const configuration = { accessTiming: { waitMs: 30, confirmationWindowMs: 5000, grantDurationMs: 3000 },
-        vaultTiming: { waitMs: 300, confirmationWindowMs: 5000 }, journeyLimits: { lifetimeMs: 3000, maxHops: 4 } };
+        vaultTiming: { waitMs: 1000, confirmationWindowMs: 5000 }, journeyLimits: { lifetimeMs: 3000, maxHops: 4 } };
     const scratch = document.createElement("div");
     const readExact = require(path.join(pluginDirectory, "lib/atlas/obsidian/ui.js")).configurationInput(scratch,
         { ...configuration, accessTiming: { ...configuration.accessTiming, grantDurationMs: Number.MAX_SAFE_INTEGER } });
@@ -111,7 +117,7 @@ module.exports = async function runRendererFixture({ directory, pluginDirectory,
     const overview = document.querySelector(".hub-atlas-overview");
     await until(() => host.view().contexts.some(context => context.closed), "setup prevents initial browser");
     const inputs = [...overview.querySelectorAll('input[type="number"]')];
-    [0.03, 5, 3, 0.3, 5, 3, 4].forEach((value, index) => { inputs[index].value = String(value); });
+    [configuration.accessTiming.waitMs / 1000, configuration.accessTiming.confirmationWindowMs / 1000, configuration.accessTiming.grantDurationMs / 1000, configuration.vaultTiming.waitMs / 1000, configuration.vaultTiming.confirmationWindowMs / 1000, configuration.journeyLimits.lifetimeMs / 1000, configuration.journeyLimits.maxHops].forEach((value, index) => { inputs[index].value = String(value); });
     click(overview, "Initialize Atlas");
     await until(() => host.view().status === "READY", "committed first setup");
     await until(() => leaf.view.contentEl.querySelector(".hub-atlas-panel")?.textContent.includes("Request access"), "restored blocked explanation").catch(error => {
@@ -176,6 +182,10 @@ module.exports = async function runRendererFixture({ directory, pluginDirectory,
     assert.equal(homeLeaf.getViewState().state.atlasHome, true); assert.equal(homeLeaf.view.url, "about:blank");
     assert.ok(home.textContent.includes("ChatGPT") && home.textContent.includes("Scholar / Research"));
     workspace.activeLeaf = note; await menuItems()[0].click(); assert.equal(leaves.length, before + 1, "existing internal Home reused");
+    const queryAll = document.querySelectorAll; let documentGuestScans = 0;
+    document.querySelectorAll = function(selector) { if (selector === "webview") documentGuestScans++; return queryAll.apply(this, arguments); };
+    try { const pulse = document.createElement("p"); home.appendChild(pulse); for (let i = 0; i < 20; i++) pulse.textContent = String(i); await delay(20); pulse.remove(); assert.equal(documentGuestScans, 0, "Countdown text mutations do not scan all document guests"); }
+    finally { document.querySelectorAll = queryAll; }
     bridge.open(); const settings = document.querySelector(".hub-atlas-overview");
     const bounds = element => { const rect = element.getBoundingClientRect(); return [rect.x, rect.y, rect.width, rect.height]; };
     const viewGeometry = bounds(leaf.view.contentEl), retainedUrl = leaf.view.url, retainedGuest = leaf.view.webview;
@@ -195,7 +205,7 @@ module.exports = async function runRendererFixture({ directory, pluginDirectory,
     draft.querySelector('[aria-label="Primary hostname"]').value = "other.test";
     draft.querySelector('[aria-label="Category"]').value = "Laboratory";
     draft.querySelector('[aria-label="Primary hostname"]').dispatchEvent(new Event("input"));
-    draft.querySelectorAll('input[type="checkbox"]')[1].checked = true;
+    draft.querySelector('[aria-label="Pin on Home after commit"]').checked = true;
     assert.equal(settings.querySelector('[data-atlas-page="sites"]').scrollTop, 0, "editor opens at the top");
     const parentContents = window.electron.remote.getCurrentWindow().webContents;
     parentContents.debugger.attach("1.3");
@@ -204,11 +214,11 @@ module.exports = async function runRendererFixture({ directory, pluginDirectory,
         node.focus(); const rect = node.getBoundingClientRect();
         await parentContents.debugger.sendCommand("Input.dispatchMouseEvent", { type: "mouseMoved", x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 });
         const computed = getComputedStyle(node);
-        assert.equal(computed.colorScheme, "light"); assert.notEqual(computed.color, "rgb(255, 255, 255)");
+        assert.equal(computed.colorScheme, "dark"); assert.notEqual(computed.color, "rgb(255, 255, 255)");
         if (node.type !== "checkbox" && node.tagName !== "BUTTON") {
-            assert.equal(computed.backgroundColor, "rgb(252, 250, 245)", `${node.getAttribute("aria-label")} hover + focus background`);
-            assert.equal(computed.color, "rgb(44, 51, 45)");
-            node.blur(); assert.equal(getComputedStyle(node).backgroundColor, "rgb(252, 250, 245)", "hover without focus stays light");
+            assert.equal(computed.backgroundColor, "rgb(40, 48, 41)", `${node.getAttribute("aria-label")} hover + focus background`);
+            assert.equal(computed.color, "rgb(231, 235, 228)");
+            node.blur(); assert.equal(getComputedStyle(node).backgroundColor, "rgb(40, 48, 41)", "hover without focus stays light");
         }
     }
     parentContents.debugger.detach();
@@ -219,7 +229,7 @@ module.exports = async function runRendererFixture({ directory, pluginDirectory,
     await until(() => !settings.querySelector('[data-atlas-page="vault"]').hidden && settings.textContent.includes("other.test: greylist → whitelist"), "proposal details immediately visible in selected Vault");
     assert.ok(settings.textContent.includes("Waiting"));
     const confirmControl = [...settings.querySelectorAll("button")].find(node => node.textContent === "Confirm change");
-    assert.equal(confirmControl.disabled, true); const vaultDetails = settings.querySelector(".hub-atlas-vault-details");
+    assert.ok(confirmControl.disabled || Date.now() >= host.view().snapshot.vaultState.pendingProposal.readyAt, "Confirm cannot be enabled before its frozen ready time"); const vaultDetails = settings.querySelector(".hub-atlas-vault-details");
     assert.equal([...settings.querySelectorAll("button")].some(node => node.textContent === "Review proposal"), false);
     await until(() => settings.textContent.includes("Ready to confirm") && ![...settings.querySelectorAll("button")].find(node => node.textContent === "Confirm change")?.disabled, "Vault becomes ready without a second click").catch(error => {
         error.message += `; status=${host.view().status}; reviews=${JSON.stringify(reviews)}; pending=${JSON.stringify(host.view().snapshot?.vaultState.pendingProposal)}; UI=${settings.querySelector('[data-atlas-page="vault"]').textContent}; button=${JSON.stringify(confirmControl.dataset)}`;
@@ -229,9 +239,33 @@ module.exports = async function runRendererFixture({ directory, pluginDirectory,
     assert.deepEqual(bounds(modal.modalEl), modalGeometry);
     const confirmBounds = confirmControl.getBoundingClientRect(); assert.ok(confirmBounds.height > 0 && confirmBounds.bottom <= modal.modalEl.getBoundingClientRect().bottom, "confirm stays visible without scrolling");
     await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    // Exercise the production Hub Settings host at short heights too, rather
+    // than relying only on the standalone component's layout fixture.
+    const nativeWindow = window.electron.remote.getCurrentWindow(), priorSize = nativeWindow.getContentSize(), priorZoom = nativeWindow.webContents.getZoomFactor();
+    try {
+        for (const spec of [{ width: 800, height: 500 }, { width: 800, height: 400 }, { width: 800, height: 500, zoom: 1.5 }]) {
+            nativeWindow.webContents.setZoomFactor(spec.zoom ?? 1); nativeWindow.setContentSize(spec.width, spec.height); await delay(30);
+            const section = settings.querySelector('[data-atlas-page="vault"]'); section.scrollTop = section.scrollHeight; settings.scrollTop = settings.scrollHeight; confirmControl.focus(); await delay(20);
+            const hit = confirmControl.getBoundingClientRect(), clip = section.getBoundingClientRect();
+            assert.ok(hit.top >= Math.max(0, clip.top) && hit.bottom <= Math.min(innerHeight, clip.bottom) + 1, "Canonical short-height confirmation bounds " + JSON.stringify(spec));
+            assert.ok(confirmControl.contains(document.elementFromPoint(hit.x + hit.width / 2, hit.y + hit.height / 2)), "Canonical confirmation is unobscured");
+            const cancel = [...section.querySelectorAll("button")].find(node => node.textContent === "Cancel proposal"); cancel.focus(); await delay(10);
+            const cancelBounds = cancel.getBoundingClientRect(); assert.ok(cancelBounds.top >= 0 && cancelBounds.bottom <= innerHeight, "Canonical cancellation is reachable");
+        }
+    } finally { nativeWindow.webContents.setZoomFactor(priorZoom); nativeWindow.setContentSize(priorSize[0], priorSize[1]); await delay(30); }
     const vaultImage = await window.electron.remote.getCurrentWindow().capturePage();
     fs.writeFileSync(path.join(os.tmpdir(), "hub-atlas-vault-ready-verified.png"), vaultImage.toPNG());
     assert.equal(host.view().snapshot.policyRevision, 0);
+    if ([...settings.querySelectorAll("button")].find(node => node.textContent === "Confirm change").disabled) {
+        const expired = host.view().snapshot.vaultState.pendingProposal;
+        assert.ok(Date.now() >= expired.confirmBy, "A disabled confirmation after native resize must be an actual expiry: " + settings.querySelector(".hub-atlas-vault-status").textContent);
+        // Real Windows resize/compositor work can consume this deliberately short
+        // test window. Keep the expiry protection and explicitly start a new wait.
+        click(settings, "Recreate proposal");
+        await until(() => host.view().snapshot.vaultState.pendingProposal?.id !== expired.id, "fresh proposal after layout-time expiry");
+        await until(() => ![...settings.querySelectorAll("button")].find(node => node.textContent === "Confirm change")?.disabled, "fresh explicit confirmation after full wait");
+        assert.equal(host.view().snapshot.policyRevision, 0);
+    }
     click(settings, "Confirm change");
     await until(() => host.view().snapshot.policyRevision === 1, "Vault committed policy");
     assert.equal(host.view().snapshot.policy.whitelist.length, 59); assert.ok(host.view().snapshot.policy.whitelist.includes("other.test"));
@@ -241,7 +275,7 @@ module.exports = async function runRendererFixture({ directory, pluginDirectory,
     await until(() => home.textContent.includes("Trusted Research") && home.textContent.includes("Laboratory"), "Home live committed metadata");
     click(settings, "Sites & Access"); const row = [...settings.querySelectorAll(".hub-atlas-site-row")].find(row => row.textContent.includes("Trusted Research"));
     click(row, "Unpin"); await until(() => host.view().destinations.find(d => d.hostname === "other.test").pinned === false, "pin display commit");
-    await until(() => !home.children[4].textContent.includes("Trusted Research"), "Home pin event applied");
+    await until(() => !home.querySelector("[data-atlas-pinned]").textContent.includes("Trusted Research"), "Home pin event applied");
     assert.equal(host.view().snapshot.policyRevision, 1);
     const edited = [...settings.querySelectorAll(".hub-atlas-site-row")].find(row => row.textContent.includes("Trusted Research")); click(edited, "Edit");
     const focused = settings.querySelector('.hub-atlas-draft [aria-label="Name"]'); focused.value = "Unsaved draft"; focused.focus();
@@ -253,10 +287,12 @@ module.exports = async function runRendererFixture({ directory, pluginDirectory,
     assert.equal(homeLeaf.view.url, baseUrl.replace("unknown.test", "other.test") + "/");
     click(settings, "Sites & Access");
     const sourceRow = [...settings.querySelectorAll(".hub-atlas-site-row")].find(row => row.textContent.includes("GitHub")); click(sourceRow, "Edit");
+    assert.equal(settings.querySelector('[aria-label="Name"]').value, "Unsaved draft"); click(settings, "Discard and start requested edit");
     settings.querySelector('.hub-atlas-draft [aria-label="Name"]').value = "Source code";
     click(settings.querySelector(".hub-atlas-draft"), "Save display details");
     await until(() => bridge.view().destinations.some(d => d.hostname === "github.com" && d.label === "Source code"), "display-only editor saved and published");
     assert.equal(host.view().snapshot.policyRevision, 1); assert.deepEqual(host.view().destinations.find(d => d.hostname === "github.com").aliases, ["www.github.com"]);
+    await until(() => !settings.querySelector(".hub-atlas-draft"), "verified display result clears its local draft");
     click(settings, "Add a destination"); const expiringDraft = settings.querySelector(".hub-atlas-draft");
     expiringDraft.querySelector('[aria-label="Name"]').value = "Expired draft";
     expiringDraft.querySelector('[aria-label="Primary hostname"]').value = "expired.test";
@@ -279,6 +315,21 @@ module.exports = async function runRendererFixture({ directory, pluginDirectory,
         return bridge.view().contexts.some(c => !c.closed && c.nativeId === id && c.phase === "DISPLAYED");
     }, "same tab opens fresh homepage with newly committed policy");
     assert.equal(leaf.view.url, baseUrl.replace("unknown.test", "other.test") + "/");
+    // Empty/PDF leaves use the same native Note launcher and share one in-flight
+    // Home creation. A live web page and the original document stay intact.
+    const preservedPage = homeLeaf.view.url, preservedGuest = homeLeaf.view.webview;
+    const documentContainer = document.createElement("div"); tabs.appendChild(documentContainer);
+    const pdf = { view: { containerEl: documentContainer }, getViewState: () => ({ type: "pdf", state: { file: "P/Paper.pdf" } }) }; leaves.push(pdf);
+    workspace.activeLeaf = pdf; const homesBefore = leaves.length;
+    const opened = await Promise.all([bridge.openFromNote(pdf), bridge.openFromNote(pdf)]);
+    assert.deepEqual(opened, [true, true]); assert.equal(leaves.length, homesBefore + 1, "Concurrent PDF launches create exactly one Home");
+    assert.equal(homeLeaf.view.url, preservedPage); assert.equal(homeLeaf.view.webview, preservedGuest);
+    assert.equal(pdf.getViewState().state.file, "P/Paper.pdf");
+    const emptyContainer = document.createElement("div"); tabs.appendChild(emptyContainer);
+    const empty = { view: { containerEl: emptyContainer }, getViewState: () => ({ type: "empty", state: {} }) }; leaves.push(empty); workspace.activeLeaf = empty;
+    assert.equal(await bridge.openFromNote(empty), true); assert.equal(leaves.length, homesBefore + 2, "Empty Note tab reuses the existing Home");
+    emptyContainer.remove(); workspace.activeLeaf = empty; assert.equal(await bridge.openFromNote(empty), false, "Detached source cannot launch");
+    workspace.activeLeaf = note; await delay(100);
     // Native identity is shared by clients and retained across UI plugin reload.
     const version = host.view().storageVersion;
     bridge.destroy(); for (const callback of cleanup) callback();
@@ -291,5 +342,8 @@ module.exports = async function runRendererFixture({ directory, pluginDirectory,
     assert.equal(oldAdapter.view().status, "UNAVAILABLE"); assert.equal(oldAdapter.view().reason, "NATIVE_ADAPTER_UPGRADE_REQUIRED"); assert.equal(legacySuspended, true);
     assert.equal(await oldAdapter.openFromNote(note), false); oldAdapter.destroy(); window.electron = originalElectron;
     document.body.replaceChildren();
+    const milestone = await require("./milestone-renderer.cjs")({ pluginDirectory });
+    assert.match(milestone, /^PASS/);
+    assert.match(await require("./quality-renderer.cjs")(), /^PASS/);
     return "PASS renderer setup, one Greylist workflow, fresh home, typed recovery, reader fencing, Vault and shared ownership";
 };

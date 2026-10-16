@@ -1,0 +1,75 @@
+<!doctype html><meta charset="utf-8"><title>Atlas rendering and performance checks</title>
+<link rel="stylesheet" href="../../styles.css"><style>html,body{margin:0;height:100%;font:14px Arial;background:#222;color:#ddd;--text-normal:#ddd;--text-muted:#bbb;--background-primary:#222;--background-modifier-border:#888}#settings{height:650px;width:650px}#home{height:650px;width:650px}#result{position:fixed;top:0;right:0;z-index:999;pointer-events:none;font:10px Arial;background:#222}</style>
+<div id="settings" class="hub-settings-panel"></div><main id="home" class="hub-atlas-home"></main><pre id="result">RUNNING</pre>
+<script type="module">
+const sources=new Map(),cache=new Map(),resolve=(name,request)=>{const p=name.split('/').slice(0,-1);for(const v of request.split('/')){if(v==='..')p.pop();else if(v!=='.')p.push(v)}return p.join('/').replace(/\.js$/,'')};
+async function collect(name){if(sources.has(name))return;sources.set(name,null);const r=await fetch('../'+name+'.js');if(!r.ok)throw Error('Missing '+name);const s=await r.text();sources.set(name,s);await Promise.all([...s.matchAll(/require\(\s*['"](\.\.?\/[^'"]+)['"]\s*\)/g)].map(m=>collect(resolve(name,m[1]))))}
+function load(name){if(cache.has(name))return cache.get(name).exports;const m={exports:{}};cache.set(name,m);new Function('module','exports','require',sources.get(name))(m,m.exports,r=>load(resolve(name,r)));return m.exports}
+const assert=(v,m)=>{if(!v)throw Error(m)},tick=()=>new Promise(r=>setTimeout(r,20)),control=(p,t)=>[...p.querySelectorAll('button')].find(n=>n.textContent===t);
+try{
+await Promise.all(['atlas/obsidian/settings-ui','atlas/obsidian/home-ui','atlas/core/index','atlas/obsidian/application'].map(collect));
+const Core=load('atlas/core/index'),App=load('atlas/obsidian/application'),{mountAtlasSettings}=load('atlas/obsidian/settings-ui'),{mountAtlasHome}=load('atlas/obsidian/home-ui');
+const cfg={accessTiming:{waitMs:10000,confirmationWindowMs:60000,grantDurationMs:60000},vaultTiming:{waitMs:30000,confirmationWindowMs:60000},journeyLimits:{lifetimeMs:300000,maxHops:12}};
+let state={status:'READY',enabled:true,snapshot:{policy:{whitelist:Array.from({length:32},(_,i)=>'site'+i+'.test'),blacklist:[]},policyRevision:0,configuration:cfg,configurationRevision:0,accessState:Core.createAccessState(),vaultState:Core.createVaultState(),journeyState:Core.createJourneyState()},contexts:[],temporaryDestinations:[],storageVersion:'synthetic'};
+state.application=App.initialApplication(state.snapshot.policy);state.application.destinations[0].destinations=['entry.site0.test'];state.snapshot.policy.whitelist.push('entry.site0.test');
+state.starter={policy:state.snapshot.policy};state.managed={active:true,count:1000,origin:'BUNDLE',status:'ACTIVE',categories:['test'],source:'https://example.test/',lastSuccessfulSync:null,lastAttemptAt:null,conflicts:[]};
+function view(){return structuredClone({...state,destinations:state.application.destinations.map(d=>({...d,decision:Core.evaluate({hostname:d.hostname},state.snapshot.policy),hosts:[d.hostname,...d.aliases,...d.destinations].map(hostname=>({hostname,decision:Core.evaluate({hostname},state.snapshot.policy)}))}))})}
+let subscriptions=0,disposals=0;const listeners=new Set(),bridge={view,subscribe:fn=>{subscriptions++;listeners.add(fn);return()=>{listeners.delete(fn);disposals++}},command:async c=>c.kind==='LOOKUP_MANAGED'?{type:'MANAGED_LOOKUP',hostname:c.hostname,blocked:false}:Core.planAtlasOperation(c,{snapshot:state.snapshot,configuration:cfg,now:Math.max(Date.now(),state.snapshot.accessState.lastObservedAt,state.snapshot.vaultState.lastObservedAt,state.snapshot.journeyState.lastObservedAt)}).result};
+const publish=()=>listeners.forEach(fn=>fn()),settings=document.getElementById('settings'),home=document.getElementById('home'),metrics={};
+let start=performance.now();for(let i=0;i<10;i++){const dispose=mountAtlasSettings(settings,bridge);dispose();settings.replaceChildren()}metrics.tenSettingsMountsMs=+(performance.now()-start).toFixed(3);
+let disposeSettings=mountAtlasSettings(settings,bridge),disposeHome=mountAtlasHome(home,bridge,()=>{});
+control(settings,'Managed Lists').click();await tick();let input=settings.querySelector('[aria-label="Look up an exact hostname"]');input.value='kept.site.test';input.focus();input.setSelectionRange(2,6);
+const changes=[];const observer=new MutationObserver(records=>changes.push(...records));observer.observe(settings,{subtree:true,childList:true,characterData:true});start=performance.now();
+for(let i=0;i<5;i++){state.managed={...state.managed,status:i%2?'ACTIVE':'UPDATING',lastAttemptAt:1000+i};publish();await tick()}
+metrics.fiveManagedUpdatesMs=+(performance.now()-start).toFixed(3);metrics.managedMutationRecords=changes.length;metrics.lookupPreserved=input.isConnected&&document.activeElement===input&&input.value==='kept.site.test'&&input.selectionStart===2&&input.selectionEnd===6;observer.disconnect();
+const card=home.querySelector('.hub-atlas-card'),disclosure=card.querySelector('details');disclosure.open=true;card.querySelector('button').focus();
+state.application.destinations[1].label='Changed elsewhere';publish();await tick();metrics.unrelatedHomeCardPreserved=card.isConnected&&document.activeElement===card.querySelector('button')&&disclosure.open;
+if(new URLSearchParams(location.search).get('preview')!=='baseline'){assert(metrics.lookupPreserved,'Managed status must preserve focused input, value and selection');assert(metrics.unrelatedHomeCardPreserved,'Unrelated Home card/disclosure must retain identity and focus')}
+
+if(new URLSearchParams(location.search).get('preview')!=='baseline'){
+ control(settings,'Sites & Access').click();await tick();
+ const search=settings.querySelector('[aria-label="Search destinations"]');search.value='site';search.focus();search.setSelectionRange(1,3);search.dispatchEvent(new Event('input'));
+ const firstRow=settings.querySelector('.hub-atlas-site-row'),firstRowId=firstRow.dataset.atlasDestinationId;
+ state.application.destinations[2].label='A concurrent display edit';state.application.revision++;publish();await tick();
+ assert(search.isConnected&&document.activeElement===search&&search.selectionStart===1&&search.selectionEnd===3&&search.value==='site','Sites search survives concurrent display changes');
+ assert(settings.querySelector('[data-atlas-destination-id="'+firstRowId+'"]')===firstRow,'Unrelated Sites row keeps identity');
+ control(firstRow,'Edit').click();await tick();const name=settings.querySelector('.hub-atlas-draft [aria-label="Name"]');name.value='Retained editor';name.dispatchEvent(new Event('input'));name.focus();name.setSelectionRange(2,5);
+ state.managed={...state.managed,status:'ACTIVE',lastAttemptAt:9000};publish();await tick();assert(name.isConnected&&document.activeElement===name&&name.selectionStart===2&&name.selectionEnd===5,'Editor and caret survive unrelated publication');load('atlas/obsidian/session').getAtlasSession(bridge).changed();await tick();assert(document.activeElement===name&&name.selectionStart===2,'Local session housekeeping does not steal focus');
+ const sites=settings.querySelector('[data-atlas-page=sites]');sites.scrollTop=120;const scroll=sites.scrollTop;
+ control(settings,'Managed Lists').click();await tick();const details=settings.querySelector('[data-atlas-page=managed] details');details.open=true;state.managed={...state.managed,lastAttemptAt:9500};publish();await tick();assert(details.isConnected&&details.open,'Managed disclosure stays expanded');
+ control(settings,'Sites & Access').click();await tick();assert(sites.scrollTop===scroll,'Section navigation preserves scroll');
+ const tabs=settings.querySelector('nav'),tab=tabs.querySelector('[aria-selected=true]');tab.focus();tab.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowRight',bubbles:true}));await tick();
+ assert(document.activeElement.textContent==='Temporary Access'&&document.activeElement.getAttribute('aria-selected')==='true','Arrow navigation selects and focuses tab');
+ assert(document.getElementById(document.activeElement.getAttribute('aria-controls')).hidden===false,'Selected tab names visible panel');
+ document.activeElement.dispatchEvent(new KeyboardEvent('keydown',{key:'End',bubbles:true}));await tick();assert(document.activeElement.textContent==='Diagnostics / Recovery','End selects last section');
+ const diag=settings.querySelector('[data-atlas-page=diagnostics] details');diag.open=true;state.managed={...state.managed,status:'UPDATING'};publish();await tick();assert(diag.isConnected&&diag.open,'Diagnostics disclosure survives status update');
+ const base=Math.max(Date.now(),state.snapshot.accessState.lastObservedAt)+10;
+ let proposed=Core.planAtlasOperation({kind:'PROPOSE_POLICY',candidatePolicy:{whitelist:[...state.snapshot.policy.whitelist,'concurrent.test'],blacklist:[]}}, {snapshot:state.snapshot,configuration:cfg,now:base});
+ state.snapshot=structuredClone(proposed.candidateSnapshot);publish();control(settings,'Vault').click();await tick();
+ const cancel=control(settings,'Cancel proposal'),diff=settings.querySelector('.hub-atlas-vault-details'),pendingRow=home.querySelector('[data-atlas-pending-key]');cancel.focus();
+ const vaultBefore=JSON.stringify(state.snapshot.vaultState.pendingProposal), ready=state.snapshot.vaultState.pendingProposal.readyAt;
+ state.snapshot=structuredClone(Core.planAtlasOperation({kind:'OBSERVE_TIME'},{snapshot:state.snapshot,configuration:cfg,now:ready}).observationSnapshot);publish();await tick();
+ assert(cancel.isConnected&&document.activeElement===cancel&&settings.querySelector('.hub-atlas-vault-details')===diff,'Ready transition preserves Vault actions and diff focus: connected='+cancel.isConnected+' focus='+document.activeElement.tagName+' sameDiff='+(settings.querySelector('.hub-atlas-vault-details')===diff));
+ assert(home.querySelector('[data-atlas-pending-key]')===pendingRow,'Pending phase updates preserve row');
+ assert(settings.querySelectorAll('.hub-atlas-announcement[role=status]').length===1,'One phase announcer per Settings mount');
+ const phaseText=settings.querySelector('.hub-atlas-announcement').textContent;publish();await tick();assert(settings.querySelector('.hub-atlas-announcement').textContent===phaseText,'Housekeeping does not repeat phase announcements');
+ const commit=Core.planAtlasOperation({kind:'CONFIRM_POLICY',proposalId:state.snapshot.vaultState.pendingProposal.id},{snapshot:state.snapshot,configuration:cfg,now:ready});
+ const previous=state.snapshot;state.snapshot=structuredClone(commit.candidateSnapshot);state.application=App.transitionApplication(state.application,previous,state.snapshot);publish();await tick();
+ assert(name.isConnected&&name.value==='Retained editor','A real concurrent Core policy commit preserves local editor');
+ const request=Core.planAtlasOperation({kind:'START_ACCESS',target:{hostname:'grey.test'}},{snapshot:state.snapshot,configuration:cfg,now:ready});
+ state.snapshot=structuredClone(request.candidateSnapshot);
+ const describeContext=now=>({id:'owned-context',nativeId:1,generation:1,phase:'BLOCKED',closed:true,origin:'https://grey.test/',response:Core.planAtlasOperation({kind:'CHECK_NAVIGATION',target:{hostname:'grey.test'},context:{contextId:'owned-context',journeyId:null}},{snapshot:state.snapshot,configuration:cfg,now}).result});
+ bridge.canActOnContext=()=>true;state.contexts=[describeContext(ready)];publish();control(settings,'Temporary Access').click();await tick();
+ const cancelAccess=control(settings.querySelector('[data-atlas-page=temporary]'),'Cancel request');assert(cancelAccess,'Pending access has scoped controls');cancelAccess.focus();
+ const accessReady=state.snapshot.accessState.pendingRequests[0].readyAt;
+ state.snapshot=structuredClone(Core.planAtlasOperation({kind:'OBSERVE_TIME'},{snapshot:state.snapshot,configuration:cfg,now:accessReady}).observationSnapshot);state.contexts=[describeContext(accessReady)];publish();await tick();
+ assert(cancelAccess.isConnected&&document.activeElement===cancelAccess,'Access readiness preserves focused cancellation');
+ assert(control(settings.querySelector('[data-atlas-page=temporary]'),'Confirm and open homepage'),'Actual readiness still updates available action');
+ const expired=state.snapshot.accessState.pendingRequests[0].confirmBy;state.snapshot=structuredClone(Core.planAtlasOperation({kind:'OBSERVE_TIME'},{snapshot:state.snapshot,configuration:cfg,now:expired}).observationSnapshot);state.contexts=[describeContext(expired)];publish();await tick();
+ assert(!control(settings.querySelector('[data-atlas-page=temporary]'),'Confirm and open homepage'),'Expired context loses confirmation');
+}
+
+disposeSettings();disposeHome();assert(subscriptions===disposals&&listeners.size===0,'Balanced mount subscriptions');
+document.getElementById('result').textContent='PASS '+JSON.stringify(metrics);
+}catch(error){document.getElementById('result').textContent='FAIL '+error.stack}
+</script>
