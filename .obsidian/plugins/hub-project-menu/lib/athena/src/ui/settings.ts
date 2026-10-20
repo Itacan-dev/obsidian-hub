@@ -1,0 +1,32 @@
+import { AthenaController } from "../controller";
+import { AthenaSettings, safeMessage } from "../contracts";
+import { button, el, label } from "./safe-markdown";
+export function mountSettings(parent: HTMLElement, controller: AthenaController, open: () => void): () => void {
+  const root = el(parent, "div", "hub-athena-settings hub-button-scope");
+  el(root, "p", "", "Athena searches eligible files locally. Only selected excerpts go to your local model. It cannot edit files or run code.");
+  const enabledLabel = label(root, ""); const enabled = el(enabledLabel, "input"); enabled.type = "checkbox"; enabled.checked = controller.state.settings.enabled; el(enabledLabel, "span", "", "Enable local retrieval");
+  const providerLabel = label(root, "Provider"); const provider = el(providerLabel, "select");
+  for (const [value, text] of [["ollama", "Ollama · local inference"], ["mock", "Recording mock · no inference"]]) { const option = el(provider, "option", "", text); option.value = value; } provider.value = controller.state.settings.provider;
+  const portLabel = label(root, "Local Ollama port (127.0.0.1)"); const port = el(portLabel, "input"); port.type = "number"; port.min = "1"; port.max = "65535"; port.value = String(controller.state.settings.port);
+  const contextLabel = label(root, "Context window"); const context = el(contextLabel, "select");
+  for (const size of [4096, 8192, 16384, 32768]) { const option = el(context, "option", "", String(size)); option.value = String(size); } context.value = String(controller.state.settings.contextLength);
+  el(root, "p", "hub-athena-muted", "Larger context windows require more memory. The selected model's verified limit also applies.");
+  const excludedLabel = label(root, "Excluded files and folders · one vault-relative path per line"); const excluded = el(excludedLabel, "textarea"); excluded.rows = 5; excluded.value = controller.state.settings.excluded.join("\n");
+  el(root, "p", "hub-athena-muted", "Configuration, hidden files, credentials and application internals are always excluded. Exclusion changes also remove stored answers derived from those sources.");
+  el(root, "p", "", "Ollama can route cloud models through localhost. Disable Ollama cloud features before using Athena: set OLLAMA_NO_CLOUD=1 and restart Ollama. Athena does not change your server configuration.");
+  const confirmedLabel = label(root, ""); const confirmed = el(confirmedLabel, "input"); confirmed.type = "checkbox"; confirmed.checked = controller.state.settings.localOnlyConfirmed; el(confirmedLabel, "span", "", "I use downloaded local models and have disabled Ollama cloud features.");
+  provider.addEventListener("change", () => { confirmed.checked = false; });
+  port.addEventListener("input", () => { confirmed.checked = false; });
+  const message = el(root, "div", "hub-athena-muted"); message.setAttribute("role", "status");
+  const error = el(root, "div", "hub-athena-error"); error.setAttribute("role", "alert");
+  let disposed = false, saving = false;
+  const run = async (action: () => Promise<unknown>) => { if (saving) return; saving = true; error.textContent = ""; try { await action(); } catch (value) { if (!disposed) error.textContent = safeMessage(value); } finally { saving = false; } };
+  const save = () => controller.updateSettings({ enabled: enabled.checked, provider: provider.value as AthenaSettings["provider"], port: Number(port.value), contextLength: Number(context.value), excluded: excluded.value.split(/\r?\n/).map(value => value.trim()).filter(Boolean), localOnlyConfirmed: confirmed.checked });
+  const actions = el(root, "div", "hub-athena-toolbar");
+  button(actions, "Save settings", () => { void run(save); });
+  button(actions, "Connect", () => { void run(async () => { await save(); await controller.connect(); }); });
+  button(actions, "Open Athena", open);
+  const unsubscribe = controller.subscribe(() => { if (!disposed) message.textContent = controller.status.message; }); message.textContent = controller.status.message;
+  el(root, "p", "hub-athena-muted", "History and settings stay in this device's application-data directory, outside the vault and Hub backups. History is not encrypted by Athena. A copied vault starts with independent settings.");
+  return () => { disposed = true; unsubscribe(); root.remove(); };
+}

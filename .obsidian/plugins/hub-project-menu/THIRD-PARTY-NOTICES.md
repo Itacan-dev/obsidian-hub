@@ -34,3 +34,10 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+# Athena
+
+Athena bundles MiniSearch 7.2.0 (MIT) and PDF.js 5.4.624 (Apache-2.0).
+Their notices and full license texts are included in
+[lib/athena/THIRD_PARTY_NOTICES.md](lib/athena/THIRD_PARTY_NOTICES.md) and
+`lib/athena/licenses/`. Keep those files with the packaged PDF worker.

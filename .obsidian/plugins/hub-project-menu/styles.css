@@ -1,3 +1,32 @@
+/* Athena owns only its native sidebar surface; dashboard geometry is unchanged. */
+.hub-athena-view { padding: var(--size-4-3); }
+.hub-athena { display: flex; flex-direction: column; gap: var(--size-4-3); height: 100%; min-height: 0; min-width: 0; container-type: inline-size; font-size: var(--hub-font-body); color: var(--text-normal); }
+.hub-athena-top, .hub-athena-context, .hub-athena-composer, .hub-athena-settings { display: flex; flex-direction: column; gap: var(--size-4-2); min-width: 0; }
+.hub-athena-toolbar { display: flex; gap: var(--size-4-2); align-items: center; flex-wrap: wrap; min-width: 0; }
+.hub-athena-toolbar > select { flex: 1 1 120px; min-width: 0; max-width: 100%; }
+.hub-athena-toolbar > strong { flex: 1; }
+.hub-athena-label { display: flex; flex-direction: column; gap: 4px; font-size: var(--hub-font-compact); }
+.hub-athena-label:has(> input[type=checkbox]) { flex-direction: row; align-items: start; }
+.hub-athena-label input[type=checkbox] { flex: 0 0 auto; margin-top: 3px; }
+.hub-athena input:not([type=checkbox]), .hub-athena textarea, .hub-athena select, .hub-athena-settings textarea, .hub-athena-settings input:not([type=checkbox]), .hub-athena-settings select { width: 100%; min-width: 0; box-sizing: border-box; }
+.hub-athena textarea, .hub-athena-settings textarea { resize: vertical; min-height: 68px; max-height: 220px; }
+.hub-athena-transcript { flex: 1 1 auto; min-height: 60px; overflow: auto; overflow-wrap: anywhere; scrollbar-gutter: stable; }
+.hub-athena-turn { padding: var(--size-4-3) 0; border-bottom: 1px solid var(--background-modifier-border); }
+.hub-athena-role { font-weight: var(--font-semibold); margin-bottom: 4px; }
+.hub-athena-question { margin-bottom: var(--size-4-3); white-space: pre-wrap; }
+.hub-athena-answer { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.55; user-select: text; }
+.hub-athena-muted { color: var(--text-muted); font-size: var(--hub-font-secondary); overflow-wrap: anywhere; }
+.hub-athena-error { color: var(--text-error); overflow-wrap: anywhere; }
+.hub-athena-error:empty { display: none; }
+.hub-athena-source { margin: var(--size-4-2) 0; padding: var(--size-4-2); border: 1px solid var(--background-modifier-border); border-radius: var(--radius-s); }
+.hub-athena-source summary { cursor: pointer; overflow-wrap: anywhere; }
+.hub-athena-excerpt { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 280px; overflow: auto; font-size: var(--hub-font-compact); user-select: text; }
+.hub-athena-search-results { flex: 0 1 45%; min-height: 0; overflow: auto; border-top: 1px solid var(--background-modifier-border); }
+.hub-athena-composer { flex: 0 0 auto; border-top: 1px solid var(--background-modifier-border); padding-top: var(--size-4-2); }
+.hub-athena [hidden], .hub-athena-settings [hidden] { display: none !important; }
+.hub-athena-source-modal { max-width: min(760px, 92vw); }
+.hub-athena-settings { max-width: 680px; }
+
 /* Progress header rhythm shared by Home and Project/Resource workspaces. */
 :is(.home-recent, .project-progress) {
     --hub-progress-header-line-height: 16px;

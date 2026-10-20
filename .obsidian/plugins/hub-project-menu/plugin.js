@@ -8596,8 +8596,9 @@ class HubWorkspaceModeService {
 
 
         try {
-            this.app.workspace.rightSplit
-                ?.collapse?.();
+            if (!this.plugin.athena?.preserveRightSidebar()) {
+                this.app.workspace.rightSplit?.collapse?.();
+            }
         } catch (_) {}
     }
 
@@ -12748,6 +12749,10 @@ module.exports = class HubProjectMenu extends Plugin {
         window.hubMountFullViewLayout = (root, component) => require("./lib/ui/full-view-layout").mountFullViewLayout({ root, component, app: this.app });
         window.hubMountTaskWorkspace = options => require("./lib/ui/task-workspace").mountTaskWorkspace({ plugin: this, ...options });
         this.contextSearch = new (require("./lib/services/context-search").ContextSearchService)(this);
+        try { this.athena = require("./lib/athena/runtime.cjs").installAthena(this, {
+            openSettings: () => require("./lib/ui/settings").getSettingsOwner(this).open("athena")
+        }); }
+        catch (_) { new Notice("Athena could not initialize. Other Hub features remain available."); }
         window.hubMountContextSearch = options => require("./lib/ui/context-search").mountContextSearch({ service: this.contextSearch, ...options });
         window.hubRegisterSearchWorkspace = (...args) => this.contextSearch.registerWorkspace(...args);
         window.hubApplySearchFolder = root => this.contextSearch.applyFolder(root);
@@ -12891,6 +12896,7 @@ module.exports = class HubProjectMenu extends Plugin {
         );
     }
     onunload() {
+        this.athena?.destroy();
         this.atlas?.destroy();
         disposeCompletionAudio();
         this.statisticsModal?.close();

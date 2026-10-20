@@ -21,6 +21,7 @@
 /.obsidian/plugins/hub-project-menu/*
 !/.obsidian/plugins/hub-project-menu/build.js
 !/.obsidian/plugins/hub-project-menu/build-atlas.js
+!/.obsidian/plugins/hub-project-menu/build-athena.js
 !/.obsidian/plugins/hub-project-menu/atlas-native.cjs
 !/.obsidian/plugins/hub-project-menu/strict-oath-assets.json
 !/.obsidian/plugins/hub-project-menu/plugin.js

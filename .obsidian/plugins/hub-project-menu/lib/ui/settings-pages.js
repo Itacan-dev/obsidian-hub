@@ -10,6 +10,7 @@ const SETTINGS_PAGES = [
     ["notes", "Notes & Editor", "Your note-writing environment."],
     ["tasks", "Tasks", "Task presentation and planning preferences."],
     ["atlas", "Atlas", "Your browsing workspace."],
+    ["athena", "Athena", "Local research assistance and eligible vault context."],
     ["music", "Music", "Configure the music you play while working."],
     ["oath", "The Oath", "Preferences for focused work."],
     ["daily-brief", "Daily brief", "Your daily orientation."],
@@ -73,6 +74,7 @@ function renderAppearance(parent) {
     segments(row(group, "Animations"), "Animations", ["Full", "Reduced"], "Full");
 }
 function renderSettingsPage(parent, page, plugin) {
+    if (page.id === "athena" && plugin?.athena) return plugin.athena.mountSettings(parent);
     if (page.id === "atlas" && plugin?.atlas) return require("../atlas/obsidian/ui").mountAtlasOverview(parent, plugin.atlas);
     parent.createEl("h2", { text: page.title });
     parent.createEl("p", { cls: "hub-settings-description", text: page.description });
