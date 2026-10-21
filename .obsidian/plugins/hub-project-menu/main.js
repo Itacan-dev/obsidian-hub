@@ -8779,7 +8779,20 @@ function describeOutcome(command, result, state = {}) {
     if (result.type === "MANAGED_STATUS") return info("Managed list refresh completed. Review its current status below.");
     return info("The operation could not complete. Your input is kept and no success was verified. Review the current state before retrying.", "error", state.status !== "READY" ? "diagnostics" : null);
 }
-module.exports = { describeOutcome };
+function describeAuthorityFailure(state) {
+    const issue = state.repositoryIssue ?? state.reason;
+    const explanations = {
+        FOREIGN_OWNER: "Saved state is locked by another computer. Recovery cannot establish whether that owner is still running. Stop Atlas on the other computer and review the saved state before authorizing a lock repair.",
+        STORAGE_LOCKED: "Another owner or an interrupted lock recovery prevents access to saved state. Recovery will retry ownership; it never removes an owner whose shutdown cannot be verified.",
+        COMMIT_UNRESOLVED: "A saved transaction is awaiting reconciliation. Recover saved state to check whether its exact write completed; no confirmation will be replayed.",
+        JOURNAL_AUTHORITY_MISMATCH: "The transaction journal matches neither the saved state before its write nor the state after it. Recovery cannot choose the correct authority. Preserve both records and review them before authorizing a repair.",
+        CORRUPT_STATE: "Saved authority is missing or invalid. Preserve the existing files and review a verified backup; initialization cannot replace previously initialized state.",
+        CLOCK_ROLLBACK: "The current clock is earlier than a saved authority checkpoint. Check the system time before recovering saved state.",
+        MANAGED_BLACKLIST_UNAVAILABLE: "The managed blacklist could not be validated. Browsing remains blocked until a verified bundle or cache is available."
+    };
+    return explanations[issue] ?? "Saved authority could not be verified. Review the diagnostic codes and storage access before retrying recovery. Existing state is preserved.";
+}
+module.exports = { describeOutcome, describeAuthorityFailure };
 
 },
 "lib/atlas/obsidian/home-ui.js": function (module, exports, __hubRequire) {
@@ -9362,7 +9375,7 @@ module.exports = { getAtlasSession, normalizeRoute, createDestinationDraft, draf
 "use strict";
 const { el, button, countdown, updateCountdowns, configurationInput, formatMilliseconds, renderNavigation } = __hubRequire("lib/atlas/obsidian/ui.js");
 const { getAtlasSession, createDestinationDraft, draftBase } = __hubRequire("lib/atlas/obsidian/session.js");
-const { describeOutcome } = __hubRequire("lib/atlas/obsidian/feedback.js");
+const { describeOutcome, describeAuthorityFailure } = __hubRequire("lib/atlas/obsidian/feedback.js");
 const { normalizeTarget } = __hubRequire("lib/atlas/core/target.js");
 const { pendingActions, phaseAt, presentationNow } = __hubRequire("lib/atlas/obsidian/pending.js");
 const { keyed, phaseAnnouncer, text: setText } = __hubRequire("lib/atlas/obsidian/dom.js");
@@ -9382,7 +9395,14 @@ function mountAtlasSettings(parent, bridge) {
     const header = el(parent, "header", undefined, "hub-atlas-settings-header"); el(header, "p", "Atlas / Itacan", "hub-atlas-eyebrow"); el(header, "h2", "Your destinations, your terms");
     const status = el(parent, "p", undefined, "hub-atlas-state"), message = el(parent, "p", undefined, "hub-atlas-message"); message.setAttribute("role", "status");
     const sessionSummary = el(parent, "div", undefined, "hub-atlas-edit-session"); sessionSummary.setAttribute("role", "status");
-    const onboarding = el(parent, "section", undefined, "hub-atlas-onboarding"), shell = el(parent, "div", undefined, "hub-atlas-settings-shell");
+    const onboarding = el(parent, "section", undefined, "hub-atlas-onboarding");
+    // Startup failures have no verified snapshot, so the ordinary settings
+    // shell cannot render. Keep their diagnostics outside that shell.
+    const startupDiagnostics = el(parent, "section", undefined, "hub-atlas-startup-diagnostics");
+    startupDiagnostics.setAttribute("aria-label", "Diagnostics / Recovery");
+    el(startupDiagnostics, "h3", "Diagnostics / Recovery");
+    const startupCause = el(startupDiagnostics, "p"), startupCodes = el(startupDiagnostics, "p");
+    const shell = el(parent, "div", undefined, "hub-atlas-settings-shell");
     const navigation = el(shell, "nav"); navigation.setAttribute("aria-label", "Atlas settings sections");
     const sections = new Map(), navButtons = new Map(), signatures = new Map(), mounts = new Map();
     let selected = session.route.section, mode = null, review = null, disposed = false, reviewKey = null, vaultTick = null, reviewRetryAt = 0;
@@ -9639,6 +9659,13 @@ function mountAtlasSettings(parent, bridge) {
         if (disposed) return;
         const state = bridge.view(), snapshot = state.snapshot, application = state.application; updateSessionSummary();
         setText(status, state.status === "READY" ? "Saved access rules" : `Atlas: ${state.status.toLowerCase()}`); status.title = state.reason ?? "";
+        startupDiagnostics.hidden = !!snapshot || state.status === "UNINITIALIZED";
+        if (!startupDiagnostics.hidden) {
+            setText(startupCause, describeAuthorityFailure(state));
+            setText(startupCodes, ["Authority: " + state.status, "Reason: " + (state.reason ?? "unavailable"),
+                "Storage issue: " + (state.repositoryIssue ?? "none reported"),
+                ...(state.pendingCommitId ? ["Pending transaction: " + state.pendingCommitId] : [])].join(" · "));
+        }
         const nextMode = state.status === "UNINITIALIZED" ? "setup" : snapshot ? "ready" : "unavailable";
         if (nextMode !== mode) {
             mode = nextMode; onboarding.replaceChildren();

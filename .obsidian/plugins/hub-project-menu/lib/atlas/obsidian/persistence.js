@@ -66,7 +66,7 @@ class AtlasFileRepository {
                     catch (probe) { dead = probe.code === "ESRCH"; }
                 }
                 if (!dead || this.read("owner.lock") !== priorText) {
-                    this.issue = "STORAGE_LOCKED"; return false;
+                    this.issue = exact(prior, ["machine", "pid", "id"]) && prior.machine !== lock.machine ? "FOREIGN_OWNER" : "STORAGE_LOCKED"; return false;
                 }
                 this.io.unlinkSync(this.file("owner.lock"));
                 this.flushFile("owner.lock", JSON.stringify(lock));
@@ -118,6 +118,7 @@ class AtlasFileRepository {
             return { type: "COMMITTED", commitId: journal.commitId, storageVersion: value.storageVersion };
         }
         if (hash === journal.beforeHash) return { type: "NOT_WRITTEN", commitId: journal.commitId };
+        this.issue = "JOURNAL_AUTHORITY_MISMATCH";
         return { type: "UNKNOWN", commitId: journal.commitId };
     }
     clearJournal() {
@@ -130,7 +131,7 @@ class AtlasFileRepository {
             if (!this.acquire()) return { type: "UNAVAILABLE" };
             this.assertOwner();
             const journal = this.journal();
-            if (journal !== null) { this.pending = journal; return { type: "UNRESOLVED", commitId: journal.commitId }; }
+            if (journal !== null) { this.pending = journal; this.issue = "COMMIT_UNRESOLVED"; return { type: "UNRESOLVED", commitId: journal.commitId }; }
             const text = this.read("authority.json");
             if (text === null) {
                 return this.read("initialized") === null ? { type: "UNINITIALIZED" }
@@ -156,6 +157,7 @@ class AtlasFileRepository {
             // Core's closed envelope stays unchanged. Application data never
             // enters its schema or its permission-changing operations.
             const { application: _application, ...envelope } = value;
+            this.issue = null;
             return { type: "READY", envelope };
         } catch (_) { this.issue = "STORAGE_UNAVAILABLE"; return { type: "UNAVAILABLE" }; }
     }
@@ -257,6 +259,7 @@ class AtlasFileRepository {
                 if (this.lastBytes) this.previousEnvelope = this.envelope(this.lastBytes);
                 this.lastBytes = this.read("authority.json");
                 this.clearJournal();
+                this.issue = null;
             }
             return result;
         } catch (_) { return { type: "UNKNOWN", commitId }; }

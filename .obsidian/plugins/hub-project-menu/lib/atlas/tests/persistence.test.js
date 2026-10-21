@@ -96,6 +96,7 @@ test("restart reconciles an applied uncertain grant without replaying its confir
         const runtime = createAtlasRuntime({ repository, clock: { now: () => 1011 }, configuration: CONFIG });
         await runtime.open(); if (runtime.view().status !== "READY") await runtime.open();
         assert.equal(runtime.view().status, "READY"); assert.deepEqual(runtime.view().snapshot.accessState.grants, [savedGrant]);
+        assert.equal(runtime.view().repositoryIssue, null);
         assert.equal(f.effects.opened.length, 0); assert.equal(repository.read("pending.json"), null);
     } finally { repository.close(); }
 });

@@ -1,7 +1,7 @@
 "use strict";
 const { el, button, countdown, updateCountdowns, configurationInput, formatMilliseconds, renderNavigation } = require("./ui");
 const { getAtlasSession, createDestinationDraft, draftBase } = require("./session");
-const { describeOutcome } = require("./feedback");
+const { describeOutcome, describeAuthorityFailure } = require("./feedback");
 const { normalizeTarget } = require("../core/target");
 const { pendingActions, phaseAt, presentationNow } = require("./pending");
 const { keyed, phaseAnnouncer, text: setText } = require("./dom");
@@ -21,7 +21,14 @@ function mountAtlasSettings(parent, bridge) {
     const header = el(parent, "header", undefined, "hub-atlas-settings-header"); el(header, "p", "Atlas / Itacan", "hub-atlas-eyebrow"); el(header, "h2", "Your destinations, your terms");
     const status = el(parent, "p", undefined, "hub-atlas-state"), message = el(parent, "p", undefined, "hub-atlas-message"); message.setAttribute("role", "status");
     const sessionSummary = el(parent, "div", undefined, "hub-atlas-edit-session"); sessionSummary.setAttribute("role", "status");
-    const onboarding = el(parent, "section", undefined, "hub-atlas-onboarding"), shell = el(parent, "div", undefined, "hub-atlas-settings-shell");
+    const onboarding = el(parent, "section", undefined, "hub-atlas-onboarding");
+    // Startup failures have no verified snapshot, so the ordinary settings
+    // shell cannot render. Keep their diagnostics outside that shell.
+    const startupDiagnostics = el(parent, "section", undefined, "hub-atlas-startup-diagnostics");
+    startupDiagnostics.setAttribute("aria-label", "Diagnostics / Recovery");
+    el(startupDiagnostics, "h3", "Diagnostics / Recovery");
+    const startupCause = el(startupDiagnostics, "p"), startupCodes = el(startupDiagnostics, "p");
+    const shell = el(parent, "div", undefined, "hub-atlas-settings-shell");
     const navigation = el(shell, "nav"); navigation.setAttribute("aria-label", "Atlas settings sections");
     const sections = new Map(), navButtons = new Map(), signatures = new Map(), mounts = new Map();
     let selected = session.route.section, mode = null, review = null, disposed = false, reviewKey = null, vaultTick = null, reviewRetryAt = 0;
@@ -278,6 +285,13 @@ function mountAtlasSettings(parent, bridge) {
         if (disposed) return;
         const state = bridge.view(), snapshot = state.snapshot, application = state.application; updateSessionSummary();
         setText(status, state.status === "READY" ? "Saved access rules" : `Atlas: ${state.status.toLowerCase()}`); status.title = state.reason ?? "";
+        startupDiagnostics.hidden = !!snapshot || state.status === "UNINITIALIZED";
+        if (!startupDiagnostics.hidden) {
+            setText(startupCause, describeAuthorityFailure(state));
+            setText(startupCodes, ["Authority: " + state.status, "Reason: " + (state.reason ?? "unavailable"),
+                "Storage issue: " + (state.repositoryIssue ?? "none reported"),
+                ...(state.pendingCommitId ? ["Pending transaction: " + state.pendingCommitId] : [])].join(" · "));
+        }
         const nextMode = state.status === "UNINITIALIZED" ? "setup" : snapshot ? "ready" : "unavailable";
         if (nextMode !== mode) {
             mode = nextMode; onboarding.replaceChildren();

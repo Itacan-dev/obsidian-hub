@@ -46,4 +46,17 @@ function describeOutcome(command, result, state = {}) {
     if (result.type === "MANAGED_STATUS") return info("Managed list refresh completed. Review its current status below.");
     return info("The operation could not complete. Your input is kept and no success was verified. Review the current state before retrying.", "error", state.status !== "READY" ? "diagnostics" : null);
 }
-module.exports = { describeOutcome };
+function describeAuthorityFailure(state) {
+    const issue = state.repositoryIssue ?? state.reason;
+    const explanations = {
+        FOREIGN_OWNER: "Saved state is locked by another computer. Recovery cannot establish whether that owner is still running. Stop Atlas on the other computer and review the saved state before authorizing a lock repair.",
+        STORAGE_LOCKED: "Another owner or an interrupted lock recovery prevents access to saved state. Recovery will retry ownership; it never removes an owner whose shutdown cannot be verified.",
+        COMMIT_UNRESOLVED: "A saved transaction is awaiting reconciliation. Recover saved state to check whether its exact write completed; no confirmation will be replayed.",
+        JOURNAL_AUTHORITY_MISMATCH: "The transaction journal matches neither the saved state before its write nor the state after it. Recovery cannot choose the correct authority. Preserve both records and review them before authorizing a repair.",
+        CORRUPT_STATE: "Saved authority is missing or invalid. Preserve the existing files and review a verified backup; initialization cannot replace previously initialized state.",
+        CLOCK_ROLLBACK: "The current clock is earlier than a saved authority checkpoint. Check the system time before recovering saved state.",
+        MANAGED_BLACKLIST_UNAVAILABLE: "The managed blacklist could not be validated. Browsing remains blocked until a verified bundle or cache is available."
+    };
+    return explanations[issue] ?? "Saved authority could not be verified. Review the diagnostic codes and storage access before retrying recovery. Existing state is preserved.";
+}
+module.exports = { describeOutcome, describeAuthorityFailure };

@@ -1,0 +1,34 @@
+<!doctype html><meta charset="utf-8"><title>Atlas startup diagnostics</title>
+<link rel="stylesheet" href="../../styles.css">
+<main id="settings"></main><pre id="result">RUNNING</pre>
+<script type="module">
+const sources=new Map(),cache=new Map();
+const resolve=(name,request)=>{const parts=name.split('/').slice(0,-1);for(const part of request.split('/')){if(part==='..')parts.pop();else if(part!=='.')parts.push(part)}return parts.join('/').replace(/\.js$/,'')};
+async function collect(name){if(sources.has(name))return;sources.set(name,null);const response=await fetch('../'+name+'.js');if(!response.ok)throw Error('Missing fixture module '+name);const source=await response.text();sources.set(name,source);await Promise.all([...source.matchAll(/require\(\s*['"](\.\.?\/[^'"]+)['"]\s*\)/g)].map(match=>collect(resolve(name,match[1]))))}
+function load(name){if(cache.has(name))return cache.get(name).exports;const module={exports:{}};cache.set(name,module);new Function('module','exports','require',sources.get(name))(module,module.exports,request=>load(resolve(name,request)));return module.exports}
+const assert=(value,message)=>{if(!value)throw Error(message)};
+try{
+ await collect('atlas/obsidian/settings-ui');
+ const {mountAtlasSettings}=load('atlas/obsidian/settings-ui'),commands=[],listeners=new Set();
+ let state={status:'UNAVAILABLE',reason:'STORAGE_UNAVAILABLE',repositoryIssue:'FOREIGN_OWNER',snapshot:null,contexts:[]};
+ const bridge={view:()=>state,subscribe:fn=>{listeners.add(fn);return()=>listeners.delete(fn)},command:async input=>{commands.push(input);return state}};
+ const parent=document.getElementById('settings'),dispose=mountAtlasSettings(parent,bridge);
+ const diagnostics=parent.querySelector('.hub-atlas-startup-diagnostics');
+ assert(diagnostics&&!diagnostics.hidden,'Diagnostics visible without verified snapshot');
+ assert(diagnostics.textContent.includes('FOREIGN_OWNER')&&diagnostics.textContent.includes('another computer'),'Foreign ownership has code and useful explanation');
+ assert(![...parent.querySelectorAll('button')].some(b=>b.textContent==='Initialize Atlas'),'Unavailable initialized state cannot offer setup');
+ const recover=[...parent.querySelectorAll('button')].find(b=>b.textContent==='Recover saved state');
+ recover.click();await new Promise(resolve=>setTimeout(resolve,0));
+ assert(commands.length===1&&commands[0].kind==='RECOVER','Recovery sends only existing reconciliation command');
+ state={...state,status:'RECONCILING',reason:'COMMIT_UNKNOWN',repositoryIssue:'JOURNAL_AUTHORITY_MISMATCH',pendingCommitId:'unresolved-test'};
+ for(const listener of listeners)listener();
+ assert(diagnostics===parent.querySelector('.hub-atlas-startup-diagnostics'),'Diagnostic updates preserve mounted controls');
+ assert(diagnostics.textContent.includes('JOURNAL_AUTHORITY_MISMATCH')&&diagnostics.textContent.includes('cannot choose')&&diagnostics.textContent.includes('unresolved-test'),'Journal ambiguity is explained without claiming repair');
+ state={...state,status:'UNINITIALIZED',reason:'UNINITIALIZED',repositoryIssue:null,starter:{serviceCount:0,hostCount:0,groups:[],policy:{whitelist:[],blacklist:[]}},initialConfiguration:{accessTiming:{waitMs:10,confirmationWindowMs:60,grantDurationMs:60},vaultTiming:{waitMs:30,confirmationWindowMs:60},journeyLimits:{lifetimeMs:300,maxHops:3}}};
+ for(const listener of listeners)listener();
+ assert(diagnostics.hidden,'Fresh setup hides failure diagnostics');
+ assert([...parent.querySelectorAll('button')].some(b=>b.textContent==='Initialize Atlas'),'Genuinely missing state retains explicit setup');
+ assert(commands.length===1,'Status changes never initialize or grant access');
+ dispose();document.getElementById('result').textContent='PASS: startup diagnostics, foreign lock, ambiguous journal, recovery command and explicit setup.';
+}catch(error){document.getElementById('result').textContent='FAIL: '+error.stack}
+</script>
