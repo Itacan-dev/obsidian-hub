@@ -1,4 +1,5 @@
 "use strict";
+(async () => {
 const assert = require("assert");
 const { RANGES, prepareStatistics, aggregateStatistics, statisticsRange, seriesFor, formatDuration, isStatisticsNote } = require("../domain/statistics");
 const { readStatistics } = require("../services/statistics");
@@ -141,7 +142,8 @@ const plugin = { projectWizard: { getProjectRecords: () => [project], getResourc
     getProgressReports: scope => { reportScopes.push(scope); return input.reports.filter(report => String(report.projectId).startsWith("resource:") === (scope?.kind === "resource")); },
     data: { oathsByDevice: { desktop: { history: input.oaths }, laptop: { history: [input.oaths[0]] } } }, activityLog: input.activity, completedTaskHistory: input.completions },
     app: { vault: { getMarkdownFiles: () => files }, metadataCache: { getFileCache: () => { metadataReads++; return {}; } } } };
-const snapshot = readStatistics(plugin, now);
+plugin.taskService = { queryHistory: async () => require("../services/task-history-legacy-read").recordedHistoryQuery(input.completions) };
+const snapshot = await readStatistics(plugin, now);
 assert.equal(snapshot.totalNotes, 3);
 assert.equal(snapshot.notes[0].key, "project:p", "Current notes use their real owning workspace");
 assert.equal(aggregateStatistics(snapshot, "7d", "resource:resource:study").note.total, 2, "Current and legacy Resource paths share the canonical owner");
@@ -221,3 +223,4 @@ const dst = aggregateStatistics(prepareStatistics({ oaths: [session("dst", sprin
 assert.equal(dst.oath.total, springEnd - spring);
 assert.equal(sum(dst.oath.values), springEnd - spring);
 console.log("Statistics checks passed: ranges, DST, real completion semantics, clipped Oaths, stable identities, notes, filters, empty and 100k-event data.");
+})().catch(error => { console.error(error); process.exitCode = 1; });

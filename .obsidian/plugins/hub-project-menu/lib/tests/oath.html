@@ -69,8 +69,12 @@ window.addEventListener('error',event=>runtimeErrors.push(event.message));
 window.addEventListener('unhandledrejection',event=>runtimeErrors.push(String(event.reason)));
 window.onload=async()=>{try{
  window.process={platform:'win32',env:{}};
- const names=["ui/focus-restoration","ui/window-title",'domain/tasks','domain/dates','domain/task-planning','domain/task-form','domain/task-views','domain/oath','domain/oath-workspace','domain/oath-strict','config','ui/workspace-cards','ui/workspace-thumbnail','ui/card-images','ui/header-image','ui/tooltips','services/oath','services/oath-strict','services/task-data','services/task-writes','services/task-locations','services/task-editor','services/oath-fullscreen','ui/markdown','ui/completion-audio','ui/task-steps','ui/oath-tasks','ui/tasks','ui/icons','ui/date-time','ui/disclosure','ui/attention','ui/menu-toggle','ui/task-form',"ui/capture-picker-trigger","ui/capture-pickers","ui/capture-tree","ui/file-icons",'ui/task-editor','ui/oath-applications','ui/oath'];
+ const names=["ui/focus-restoration","ui/window-title",'domain/tasks','domain/dates','domain/task-planning','domain/task-form','domain/task-views','domain/oath','domain/oath-workspace','domain/oath-strict','config','ui/workspace-cards','ui/workspace-thumbnail','ui/card-images','ui/header-image','ui/tooltips','services/oath','services/oath-strict','services/task-data','services/task-writes','services/task-locations','services/task-editor','services/oath-fullscreen','ui/markdown','ui/completion-audio','ui/task-card','ui/task-steps','ui/oath-tasks','ui/tasks','ui/icons','ui/date-time','ui/disclosure','ui/attention','ui/menu-toggle','ui/task-form',"ui/capture-picker-trigger","ui/capture-pickers","ui/capture-tree","ui/file-icons",'ui/task-editor','ui/oath-applications','ui/oath'];
+ names.push('domain/task-compact-form','ui/task-compact-form','ui/task-popover');
  const sources=Object.fromEntries(await Promise.all(names.map(async name=>[name,await(await fetch('../'+name+'.js')).text()]))),cache={};
+ const prepared=new Set();
+ async function prepare(name){if(prepared.has(name))return;prepared.add(name);if(!sources[name])sources[name]=await(await fetch('../'+name+'.js')).text();for(const match of sources[name].matchAll(/require\(\s*["'](\.[^"']+)["']\s*\)/g)){const out=[];for(const part of(name.slice(0,name.lastIndexOf('/'))+'/'+match[1]).split('/')){if(part==='..')out.pop();else if(part!=='.')out.push(part)}await prepare(out.join('/'));}}
+ for(const name of [...names,'services/task-service','services/task-service-legacy'])await prepare(name);
  const load=name=>{if(name==='obsidian')return obsidian;if(name==='crypto')return{randomUUID:()=>crypto.randomUUID()};if(name==='path')return{win32:{normalize:value=>value.replaceAll('/','\\')}};if(cache[name])return cache[name].exports;assert(sources[name],'Missing module '+name);const mod=cache[name]={exports:{}};new Function('module','require',sources[name])(mod,request=>{if(!request.startsWith('.'))return load(request);const out=[];for(const part of(name.slice(0,name.lastIndexOf('/'))+'/'+request).split('/')){if(part==='..')out.pop();else if(part!=='.')out.push(part)}return load(out.join('/'))});return mod.exports};
  const domain=load('domain/tasks'),planning=load('domain/task-planning'),{HubOathService}=load('services/oath'),{createTaskUi}=load('ui/tasks'),{mountOathControl}=load('ui/oath');
  window.hubCreateTaskRow=load('ui/tasks').createTaskRow;window.hubApplyTaskEdit=domain.applyTaskEdit;window.hubTaskGroups=planning.taskGroups;window.hubSetIcon=obsidian.setIcon;
@@ -106,13 +110,14 @@ window.onload=async()=>{try{
  const subscriptions=new Set(),api={index:{initialized:true},pages:()=>({array:rawPages})};
  const app={vault,plugins:{getPlugin:()=>({api})},workspace:{openLinkText(){},getActiveFile:()=>null}};
  const taskData=new (load('services/task-data').HubTaskDataService)(app,{metadata:id=>metadata[id]});
- taskData.subscribe=(owner,fn)=>{subscriptions.add(fn);owner.register(()=>subscriptions.delete(fn))};
+ taskData.subscribe=(owner,fn)=>{subscriptions.add(fn);const stop=()=>subscriptions.delete(fn);owner.register(stop);return stop};
  const read=()=>taskData.readPages(api).flatMap(page=>page.file.tasks);
  const plugin={app,projectWizard:{data:{},getCategories:()=>[{id:'wip',name:'Work in progress',image:'Assets/ProjectCards/wip.jpg'}],getProjectRecords:()=>contexts,getResourceTypes:()=>resources,
  getProjectById:id=>contexts.find(c=>c.projectId===id),getResourceById:id=>resources.find(c=>c.id===id||c.projectId===id),
  getProjectForPath:path=>contexts.find(c=>String(path).startsWith(c.root+'/')),getResourceForPath:path=>resources.find(c=>String(path).startsWith(c.root+'/')),
  getContextForPath:path=>[...contexts,...resources].find(context=>path===context.root||String(path).startsWith(context.root+'/')),recordTaskMutation:async()=>false},register(){},enqueueTaskMutation:async work=>work(),dataStore:{deviceId:'browser-fixture',save:async()=>{}},addStatusBarItem:()=>document.querySelector('.status-bar').createDiv(),taskData};
  plugin.taskEditor=new (load('services/task-editor').HubTaskEditor)(plugin);plugin.taskEditor.metadata=id=>planning.taskMetadata(metadata[id]);
+ plugin.taskService=new(load('services/task-service').TaskService)(new(load('services/task-service-legacy').LegacyTaskAdapter)({plugin,dataview:api}));
  vault.getMarkdownFiles=()=>[...files.keys()].map(path=>vault.getAbstractFileByPath(path));
  // Use the actual workspace context resolver with fixture leaves.
  const pluginSource=await(await fetch('../../plugin.js')).text();
@@ -153,11 +158,11 @@ window.onload=async()=>{try{
  const mutate=async request=>{const result=request.operation==='step'?planning.toggleTaskStep(files.get(request.path),request):domain.editTaskContent(files.get(request.path),request,line=>line.replace('[ ]','[x]').replace(request.completed?'[never]':'[x]','[ ]'));files.set(request.path,result.content);service.changed(result.edit);return result.edit};
  window.hubToggleTask=(path,line,text,completed,hubTaskId)=>mutate({path,line,text,completed,hubTaskId});
  const home=await(await fetch('../../../../../System/Dashboards/Home/view.js')).text(),project=await(await fetch('../../../../../System/Dashboards/Project/view.js')).text();
- const homeRender=home.slice(home.indexOf('function renderTasksToDo('),home.indexOf('function completedTaskRequest(')),projectRender=project.slice(project.indexOf('function renderTaskRows()'),project.indexOf('function renderCurrentTasks()'));
+ const homeRender=home.slice(home.indexOf('function renderTasksToDo('),home.indexOf('function completedTaskRequest(')),projectRender=project.slice(project.indexOf('function renderTaskRows()'),project.indexOf('async function renderCurrentTasks()'));
  let view,component;
  function mount(mode){component?.unload();component=new Component();const fixture=document.getElementById('fixture');fixture.empty();const prefix=mode==='home'?'home':'project';
   const root=fixture.createDiv({cls:prefix+'-dashboard hub-button-scope'}),panel=root.createDiv({cls:prefix+'-panel '+(prefix==='home'?'home-upcoming':'project-tasks')}),header=panel.createDiv({cls:prefix+'-panel-title',text:'Tasks to Do'}),clear=header.createEl('button',{text:'Clear',cls:prefix+'-task-clear-completed'}),body=panel.createDiv({cls:prefix+'-tasks-body'});
-  const common='const el=(p,t,c,s)=>p.createEl(t,{cls:c,text:s});';
+  const common='const homeTaskDocument=body.ownerDocument;const el=(p,t,c,s)=>p.createEl(t,{cls:c,text:s});const taskPanelRead={toggle:(task,completed)=>window.hubToggleTask(task.path,task.line,task.text,completed,task.hubTaskId),reveal:async task=>({path:task.path})},homeTaskRead=taskPanelRead;function applyPanelTaskEdit(edit){currentProjectTasks=domain.applyTaskEdit(currentProjectTasks,edit);renderTaskRows()}function reconcileHomeTaskEdit(edit){projectTasks=domain.applyTaskEdit(projectTasks,edit);renderTaskContext()}';
   const factory=prefix==='home'?common+`let projectTasks=items.map(task=>({task,owner:{}})),resourceTasks=[],visibleCompletedTasks=[];const upcomingBody=body,currentPath=p=>p,homeTaskLocation=()=> 'Source',clearCompletedTaskItems=async()=>{},openFileFromHome=()=>{};function renderTaskContext(){renderTasksToDo(projectTasks,resourceTasks)}const renderActiveContext=renderTaskContext;${homeRender};return{render:renderTaskContext,apply:edit=>{projectTasks=domain.applyTaskEdit(projectTasks,edit);renderTaskContext()}};`:
    common+`let currentProjectTasks=items,visibleCompletedTasks=[];const tasksBody=body,taskLocation=()=> 'Source',clearCompletedProjectTasks=async()=>{},app={vault:{getAbstractFileByPath:p=>({path:p})}},openProjectNote=()=>{};${projectRender};return{render:renderTaskRows,apply:edit=>{currentProjectTasks=domain.applyTaskEdit(currentProjectTasks,edit);renderTaskRows()}};`;
   const controller=new Function('items','body','clearCompletedTasksButton','root','domain',factory)(read().filter(task=>task.path===sourcePath),body,clear,root,domain);
@@ -241,7 +246,7 @@ window.onload=async()=>{try{
   }else assert(!fresh.contentEl.querySelector('.hub-oath-workspace-choices input:checked'),'No substitute workspace');
   fresh.close();
  }
- setContext(contexts[0].path);const customFresh=openSetup();click(customFresh.contentEl,'Custom');
+ setContext(contexts[0].path);const customFresh=openSetup();await settle();click(customFresh.contentEl,'Custom');
  assert(customFresh.contentEl.querySelector('input[type=number]').value===''&&isBlocked(reviewButton(customFresh)),'Fresh Custom is blank and invalid');
  const customInput=customFresh.contentEl.querySelector('input[type=number]');customInput.value='35';customInput.dispatchEvent(new Event('input'));
  assert(isBlocked(reviewButton(customFresh)),'Valid Custom still requires explicit task selection');selectSuggestion(customFresh.contentEl);assert(!isBlocked(reviewButton(customFresh)),'Explicit Custom and task become valid');customFresh.close();
@@ -266,13 +271,11 @@ window.onload=async()=>{try{
   }
   const before=JSON.stringify(empty.draft);assert(isBlocked(reviewButton(empty)),'No open tasks block review even with valid duration');
   click(empty.contentEl,'Create task');assert(modal().querySelector('h2').textContent==='Add task','Existing creator opens');
-  const destinationLabel=modal().querySelector('.hub-task-source').textContent;
-  const destination=plugin.taskEditor.locations(context.root).find(item=>item.label===destinationLabel)?.path;
+  const destination=empty.creator.snapshot.file?.path??empty.creator.snapshot.path;
   assert(destination?.startsWith(context.root+'/'),'Creator destination scoped to '+type);
-  [...modal().querySelectorAll('button')].find(el=>el.textContent.startsWith('Choose location')).click();
-  assert(sourcePicker.getItems().length&&sourcePicker.getItems().every(file=>file.path.startsWith(context.root+'/')),'Source picker remains scoped');
+  assert(plugin.taskEditor.locations(context.root).some(file=>file.path===destination)&&!modal().querySelector('.hub-task-source'),'Current fixed creator destination belongs to the scoped location set');
   click(modal(),'Cancel');assert(modal()===empty.contentEl&&JSON.stringify(empty.draft)===before,'Creator cancel preserves draft');
-  click(empty.contentEl,'Create task');modal().querySelector('input[type=text]').value='First open Oath task';
+  click(empty.contentEl,'Create task');const createdInput=empty.creator.taskFields.input;createdInput.value='First open Oath task';createdInput.dispatchEvent(new Event('input',{bubbles:true}));
   modal().querySelector('form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));await settle();
   assert(modal()===empty.contentEl&&files.get(destination).includes('- [ ] First open Oath task'),'Creator writes inside workspace and returns to Oath');
   for(const refresh of subscriptions)refresh();await settle();
@@ -398,7 +401,7 @@ window.onload=async()=>{try{
   durationScreen.close();await settle();
  }
  // Inline editors preserve visible representation and all validation boundaries.
- setContext(contexts[0].path);const inline=openSetup();
+ setContext(contexts[0].path);const inline=openSetup();await settle();
  const inputValue=(type,value)=>{const input=inline.contentEl.querySelector('input[type='+type+']');input.value=value;input.dispatchEvent(new Event('input'));return input};
  const chooseUnit=value=>{const unit=inline.contentEl.querySelector('.hub-oath-duration-unit');unit.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true,cancelable:true}));assert(unit.getAttribute('aria-expanded')==='true','Unit menu opens from keyboard');click(document.querySelector('.menu'),value);assert(unit.getAttribute('aria-expanded')==='false'&&document.activeElement===unit,'Menu restores focus and expanded state')};
  assert(!inline.contentEl.querySelector('.hub-oath-tasks-heading,h4')&&!inline.contentEl.textContent.includes('Selected tasks from'),'No redundant task heading/helper');
@@ -552,7 +555,7 @@ window.onload=async()=>{try{
  }
  const custom=setup.contentEl.querySelector('input[type=number]');custom.value='35';custom.dispatchEvent(new Event('input'));
  assert(isBlocked(click(setup.contentEl,'Review Oath')),'Valid custom duration still requires selected work');
- draft.workspace=oathWorkspace;draft.tasks=read().slice(0,2);setup.setup();
+ setup.selectWorkspace(oathWorkspace);await settle();draft.tasks=read().slice(0,2);setup.setup();
  const shortName=contexts[0].name,longName='Investigation of quantum gravitational effects and the foundations of spacetime across multiple experimental systems';
  contexts[0].name=longName;setup.setup();await settle();
  for(const width of [740,460,330]) {
@@ -578,7 +581,7 @@ window.onload=async()=>{try{
  assert(setup.contentEl.querySelector('h2').textContent==='Review your Oath','Review title');
  assert(setup.contentEl.querySelector('.hub-oath-muted').textContent==='Review the terms of your commitment before taking the Oath','Review subtitle');
  assert([...rows].map(row=>row.querySelector('strong').textContent).join('|')==='Start time|Selected project|Selected tasks|Duration','Summary labels');
- assert([...rows].map(row=>row.querySelector('[data-icon]').dataset.icon).join('|')==='clock|folder|list-todo|timer','Summary icons');
+ assert([...rows].map(row=>row.querySelector('[data-icon]').dataset.icon).join('|')==='clock|lucide-folder|list-todo|timer','Summary icons use the canonical Project folder ID');
  assert([...groups[1].querySelectorAll('[data-icon]')].map(el=>el.dataset.icon).join('|')==='lucide-fullscreen|shield-user|info','During Oath icons');
  const fullscreenSvg=groups[1].querySelector('svg');
  assert(fullscreenSvg.querySelector('rect[x="7"][y="8"][width="10"][height="8"]')&&fullscreenSvg.querySelectorAll('path').length===4,'Actual fullscreen SVG has central screen and four corner paths, unlike maximize');
@@ -601,6 +604,7 @@ window.onload=async()=>{try{
  'Workspace folders resize depending on how note-view was opened and should remain consistent with the selected project workspace and restored layout',
  'Have a soft bling sound when checking tasks and preserve the existing completion feedback without changing task metadata or the current Oath'];
  files.set(longTaskPath,longTasks.map(title=>'- [ ] '+title).join('\n'));
+ await setup.candidates.retry();
  draft.tasks=read().filter(task=>task.path===longTaskPath);setup.review();
  for(const width of [740,460,330]) {
   setup.modalEl.style.width=width+'px';await settle();
@@ -622,7 +626,7 @@ window.onload=async()=>{try{
  dateInput.value=local.slice(0,10);dateInput.dispatchEvent(new Event('input'));
  assert(draft.scheduledAt===null,'Incomplete schedule cannot create a timestamp');
  dateInput.value=local.slice(0,16);dateInput.dispatchEvent(new Event('input'));
- click(setup.contentEl,'Review Oath');assert(setup.contentEl.querySelector('.hub-oath-review-value').textContent===new Date(draft.scheduledAt).toLocaleString([],{dateStyle:'medium',timeStyle:'short'}),'Scheduled start reviewed');
+ click(setup.contentEl,'Review Oath');assert(setup.contentEl.querySelector('.hub-oath-review-value').textContent===load('domain/dates').formatDateTime(new Date(draft.scheduledAt)),'Scheduled start reviewed using the existing shared date formatter');
  click(setup.contentEl,'Back');assert(setup.contentEl.querySelector('input[type=datetime-local]').value===dateInput.value,'Back preserves date and time');
  setup.modalEl.style.width='330px';await settle();assert(setup.modalEl.scrollWidth<=setup.modalEl.clientWidth+1,'Narrow setup fits');
  click(setup.contentEl,'Review Oath');setup.modalEl.querySelector('.modal-close-button').click();
@@ -723,7 +727,7 @@ window.onload=async()=>{try{
  picker.querySelector('.project-task-row').click();
  assert(![...picker.querySelectorAll('button')].find(el=>el.textContent==='Add tasks').disabled,'Row selection enables Add');
  click(picker,'Cancel');assert(selectedTitles().length===0,'Cancel does not add tasks');
- click(modal(),'Add tasks');picker=modal();
+ click(modal(),'Add tasks');picker=modal();await settle();
  files.set('Copy.md','- [ ] Duplicate <!-- hub-task:review -->\n');for(const refresh of subscriptions)refresh();await settle();
  assert(picker.querySelectorAll('.project-task-row').length===4,'Conflicting IDs cannot be selected');
  files.delete('Copy.md');for(const refresh of subscriptions)refresh();await settle();

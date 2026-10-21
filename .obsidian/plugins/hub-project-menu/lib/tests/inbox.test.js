@@ -202,10 +202,10 @@ async function structuredContinuation() {
     assert.equal(taskMetadata.fromTime, "09:15"); assert.equal(taskMetadata.dueTime, "17:30");
     assert.ok(String(taskText).includes("Check the derivation"));
     const linked = await taskReload.capture({ text: "Compare the result", type: "task", workspaceId: "resource:study", linkedProjectId: "p1" });
-    assert.equal(captureDraft(f.reload().get(linked.id)).linkedProjectId, "p1");
+    assert.equal(captureDraft(f.reload().get(linked.id)).linkedProjectId, undefined);
     await taskReload.makeTask({ location: f.r.root }, linked.id);
     assert.equal(taskReload.get(linked.id), null);
-    assert.ok(Object.values(f.plugin.projectWizard.data.taskMetadata).some(value => value.linkedProjectId === "p1"), "Resource Project association uses canonical task metadata");
+    assert.ok(Object.values(f.plugin.projectWizard.data.taskMetadata).every(value => value.linkedProjectId === undefined), "Retired Resource association never enters canonical task metadata");
 
     const note = await taskReload.capture({ text: "The captured note body", type: "note", workspaceId: "p1", title: "Paper notes" });
     const noteDraft = captureDraft(f.reload().get(note.id));

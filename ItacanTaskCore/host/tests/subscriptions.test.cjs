@@ -1,0 +1,30 @@
+"use strict";
+const test = require("node:test"), H = require("./support.cjs"), { assert } = H;
+test("read then subscribe receives an immediate handshake; subscription before read catches publication", async t => {
+    const v = await H.fixture(t); await v.read(); let calls = 0, last; const stop = v.host.subscribe(e => { calls++; last = e; }); assert.equal(calls, 1); assert.equal(last.reason, "subscribed");
+    const task = await v.create(); assert(calls >= 2); const r = await v.read(); assert.equal(r.snapshot.tasks[0].id, task.id); stop(); assert.equal(last.durability, "ephemeral");
+});
+test("registry changes during capture cannot be accepted under the old context pin", async t => {
+    const v = await H.fixture(t); await v.create(); const old = v.host.info().ownerContextPin; let calls = 0;
+    v.reg.settings.before = () => { if (++calls === 1) v.reg.change(x => { x.owners[0].status = "shelved"; }, false); };
+    const result = await v.host.read({ version: 1, authorityId: v.authorityId, ownerContextPin: old, owners: H.owners.map(o => o.owner), selection: "tasks" }); assert.notEqual(result.status, "ok"); v.reg.settings.before = null; await v.host.refresh(); assert.notEqual(v.host.info().ownerContextPin, old);
+});
+test("invalidation immediately revokes readiness, changes epoch and requires a new pin", async t => {
+    const v = await H.fixture(t); const previous = v.host.info(); v.reg.change(x => { x.owners[0].root = "Projects/Renamed"; x.owners[0].dashboard = "Projects/Renamed/Dashboard.md"; }); assert.equal(v.host.info().readiness.state, "unavailable"); assert(v.host.info().hostEpoch > previous.hostEpoch);
+    await v.host.refresh(); assert.equal(v.host.info().readiness.state, "ready"); assert.notEqual(v.host.info().ownerContextPin, previous.ownerContextPin);
+});
+test("stale read is not accepted after closing even when cancellation is ignored", async t => {
+    const v = await H.fixture(t); const entered = H.gate(), release = H.gate(); v.reg.settings.before = async () => { entered.resolve(); await release.promise; };
+    const pending = v.read(); await entered.promise; const closing = v.host.close(); release.resolve(); const result = await pending; await closing; assert.notEqual(result.status, "ok");
+});
+test("abort and disposed proof/subscription ports become inert", async t => {
+    const v = await H.fixture(t), task = await v.create(), target = v.target(task), port = H.API.createCompletionEvidencePort(v.host), controller = new AbortController(); controller.abort();
+    const p = await port.readCurrentCompletionProof({ version: 1, requestGeneration: 1, authorityId: v.authorityId, ownerContextPin: v.host.info().ownerContextPin, targets: [target], enrollmentCut: null }, controller.signal); assert.equal(p.freshness, "unknown");
+    let calls = 0; port.subscribeInvalidations(() => calls++); port.dispose(); const before = calls; await v.mutate(task.id, "task.complete", { completed: true }); assert.equal(calls, before);
+});
+test("duplicate invalidation bursts never change event counts", async t => { const v = await H.fixture(t); const task = await v.create(); for (let i = 0; i < 10; i++) v.reg.change(() => {}); await v.mutate(task.id, "task.complete", { completed: true }); await v.host.refresh(); assert.equal(v.repo.queryHistory().length, 1); });
+test("an unavailable subscription cannot produce a ready host", async t => { const reg = H.registry(); reg.subscribe = () => { throw Error("PRIVATE_SUBSCRIPTION"); }; const v = await H.fixture(t, { registry: reg, unopened: true }); await assert.rejects(v.host.create({ version: 1, authorityId: v.authorityId, partitions: H.partitions, reason: "Synthetic", syntheticOnly: true })); assert.notEqual(v.host.info().readiness.state, "ready"); assert(!JSON.stringify(v.host.info()).includes("PRIVATE_SUBSCRIPTION")); });
+test("options replacement cannot silently replace the injected provider", async t => { const v = await H.fixture(t); v.options.registry = { read() { throw Error("REPLACEMENT"); } }; assert.equal((await v.host.refresh()).readiness.state, "ready"); });
+test("perpetually unstable context retries exactly three times and exposes no eligibility", async t => { const v = await H.fixture(t); let observations = 0; v.reg.settings.before = () => { observations++; v.reg.change(() => {}, false); }; const r = await v.host.refresh(); assert.equal(r.readiness.reason, "SNAPSHOT_UNSTABLE"); assert.equal(observations, 6); assert.equal(r.permissions.completionProof, "unavailable"); });
+test("overlapping out-of-order reads cannot overwrite a newer committed snapshot", async t => { const v = await H.fixture(t), task = await v.create(), entered = H.gate(), release = H.gate(); let first = true; v.reg.settings.before = async () => { if (first) { first = false; entered.resolve(); await release.promise; } }; const q = { version: 1, authorityId: v.authorityId, ownerContextPin: v.host.info().ownerContextPin, owners: [task.owner], selection: "tasks" }; const slow = v.host.read(q); await entered.promise; await v.mutate(task.id, "task.complete", { completed: true }); const current = await v.host.read(q); release.resolve(); const delayed = await slow; assert.equal(current.status, "ok"); assert.equal(delayed.status, "ok"); assert.equal(delayed.snapshot.tasks[0].completed, true); assert(delayed.stamp.head.repositoryRevision >= current.stamp.head.repositoryRevision); assert.equal(v.host.info().head.revisionId, delayed.stamp.head.revisionId); });
+test("actual root monitor error revokes proof and reconnects with a different epoch", async t => { const fs = require("node:fs"), original = fs.watch; let watcher; fs.watch = (...args) => { watcher = original(...args); return watcher; }; try { const v = await H.fixture(t), before = v.host.info().hostEpoch; watcher.emit("error", Error("PRIVATE_MONITOR_ERROR")); assert.equal(v.host.info().readiness.state, "unavailable"); assert(v.host.info().hostEpoch > before); assert(!JSON.stringify(v.host.info()).includes("PRIVATE_MONITOR_ERROR")); assert.equal((await v.host.refresh()).readiness.state, "ready"); } finally { fs.watch = original; } });

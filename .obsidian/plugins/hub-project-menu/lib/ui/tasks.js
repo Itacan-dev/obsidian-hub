@@ -1,24 +1,11 @@
 "use strict";
 const { bindCompletionSound, playTaskCompletionSound } = require("./completion-audio");
 const { createHubMarkdown } = require("./markdown");
-const { taskGroups, taskIsOverdue, taskIsFuture, taskStartDate, taskDatePresentation } = require("../domain/task-planning");
+const { taskGroups, taskIsFuture, taskStartDate } = require("../domain/task-planning");
 const { createTaskSteps } = require("./task-steps");
 const { createOathTaskSection } = require("./oath-tasks");
 
-function taskSourceLabel(path) {
-    const parts = String(path ?? "").replace(/\\/g, "/").split("/").filter(Boolean);
-    return parts.length > 1 ? parts[parts.length - 2] : (parts[0]?.replace(/\.md$/i, "") || "Vault");
-}
-
-function createTaskRow(parent, task, completed = task.completed) {
-    const row = parent.createDiv({ cls: "project-task-row" + (completed ? " is-completed" : "") });
-    const checkbox = row.createEl("input", { type: "checkbox", cls: "project-task-checkbox" });
-    checkbox.checked = !!completed;
-    const info = row.createDiv({ cls: "project-task-info" });
-    const textEl = info.createDiv({ cls: "project-task-text", text: task.text });
-    info.createDiv({ cls: "project-task-location" });
-    return { row, checkbox, info, textEl };
-}
+const { createTaskRow, taskSourceLabel, mountTaskCardPresentation } = require("./task-card");
 
 // Presentation only: no checkbox, edit bindings, menus or navigation.
 function renderReadOnlyTask(parent, task, markdown, { unavailable = false } = {}) {
@@ -45,6 +32,9 @@ function createTaskUi({ app, component, body, mutate, onEdit, editTask, createTa
     const report = error => { console.error("Hub task action failed", error); new Notice(error.message || "Could not update task."); };
     const steps = createTaskSteps({ markdown, mutate, onEdit, report, setIcon });
     component.register(() => steps.clear());
+    const presentations = new Set();
+    const clearPresentations = () => { for (const item of presentations) item.destroy(); presentations.clear(); };
+    component.register(clearPresentations);
     const oathSection = createOathTaskSection(oath, body, component);
     if (oath) component.register(oath.onChange(() => { if (!disposed && body.isConnected) lastRender?.(); }));
 
@@ -62,6 +52,7 @@ function createTaskUi({ app, component, body, mutate, onEdit, editTask, createTa
         clearTimeout(refreshTimer); refreshAt = Infinity;
         const midnight = new Date(renderNow); midnight.setHours(24, 0, 0, 0);
         scheduleRefresh(midnight.getTime());
+        clearPresentations();
         markdown.clear();
         return true;
     }
@@ -132,6 +123,7 @@ function createTaskUi({ app, component, body, mutate, onEdit, editTask, createTa
     }
 
     async function start(row, textEl, task, path, add) {
+        if (task.nativeReference) throw Error("Native source-position actions are unavailable.");
         if (active || disposed) return;
         if (!row.isConnected) { new Notice("The task list changed. Open the task menu again."); return; }
         deferred = lastRender;
@@ -196,43 +188,20 @@ function createTaskUi({ app, component, body, mutate, onEdit, editTask, createTa
     }
 
     function bind(row, textEl, task, getPath, options = {}) {
-        row.classList.add("hub-planned-task-row");
         const checkbox = row.querySelector('input[type="checkbox"]');
-        checkbox?.setAttribute("aria-label", `Complete task: ${task.text}`);
         if (checkbox && !options.selection) bindCompletionSound(checkbox, playTaskCompletionSound);
-        if (task.necessity === "must" || task.necessity === "should") {
-            const indicator = document.createElement("span");
-            indicator.className = `hub-task-necessity-bar is-${task.necessity}`;
-            indicator.setAttribute("role", "img");
-            indicator.setAttribute("aria-label", task.necessity === "must" ? "Must do" : "Should do");
-            checkbox?.before(indicator);
-        }
+        if (taskIsFuture(task, renderNow)) scheduleRefresh(taskStartDate(task).getTime());
+        const presentation = mountTaskCardPresentation(row, textEl, task, getPath, { ...options,
+            description: options.description ?? options.dates !== false, now: renderNow, phaseLabel });
+        presentations.add(presentation);
         const info = textEl.parentElement;
-        const future = taskIsFuture(task, renderNow);
-        if (future) scheduleRefresh(taskStartDate(task).getTime());
-        const presentation = taskDatePresentation(task, renderNow);
-        if (options.dates !== false && presentation?.label) {
-            const dates = document.createElement("div"); dates.className = "hub-task-dates";
-            const overdue = taskIsOverdue(task, renderNow) && !task.completed && !future;
-            const span = document.createElement("span"); span.className = overdue ? "is-overdue" : "";
-            const value = document.createElement(presentation.dateTime ? "time" : "span");
-            if (presentation.dateTime) value.dateTime = presentation.dateTime;
-            value.textContent = presentation.label;
-            span.appendChild(value);
-            if (overdue) { span.title = "Overdue"; span.setAttribute("aria-label", presentation.label + " (overdue)"); }
-            dates.appendChild(span); info.appendChild(dates);
-        }
-        const source = info.querySelector(".home-task-location, .project-task-location");
-        if (source) source.textContent = options.sourceLabel ?? (options.selection && !options.normalSource ? getPath().replace(/\.md$/i, "").split("/").join(" › ") : taskSourceLabel(getPath()));
-        const phase = !options.selection && phaseLabel?.(task);
-        if (source && phase) source.createSpan({ cls: "hub-task-phase", text: phase, attr: { title: "Phase: " + phase } });
         if (!options.selection && options.steps !== false) steps.bind(info, task, getPath);
-        if (editTask) {
+        if (editTask && !(task.nativeReference && task.nativeReadOnly)) {
             textEl.tabIndex = 0; textEl.setAttribute("role", "button"); textEl.setAttribute("aria-label", `Edit task: ${task.text}`);
             const open = event => {
                 if (event.target.closest("a, input, textarea, button, .home-task-location, .project-task-location")) return;
                 event.preventDefault(); event.stopImmediatePropagation();
-                editTask({ ...task, path: getPath() }, onEdit);
+                editTask((task.nativeReference ? task : { ...task, path: getPath() }), onEdit);
             };
             // Checkbox, links, and buttons retain their own action.
             row.addEventListener("click", open);
@@ -243,22 +212,23 @@ function createTaskUi({ app, component, body, mutate, onEdit, editTask, createTa
         textEl.classList.add("hub-task-markdown");
         void markdown.render(textEl, task.text, getPath,
             () => !textEl.querySelector(".hub-task-editor"));
-        if (options.selection) return;
+        if (task.nativeReference && task.nativeReadOnly && checkbox) checkbox.disabled = true;
+        if (options.selection || task.nativeReference && task.nativeReadOnly) return;
         row.addEventListener("contextmenu", event => {
             if (event.target.closest("textarea, input:not([type=checkbox])")) return;
             event.preventDefault(); event.stopPropagation();
             if (active) return;
             const menu = new Menu();
-            for (const position of ["above", "below"]) {
+            for (const position of task.nativeReference ? [] : ["above", "below"]) {
                 menu.addItem(item => item.setTitle(`Add task ${position}`).setIcon("list-plus")
                     .onClick(() => start(row, textEl, task, getPath(), position)));
             }
             menu.addItem(item => item.setTitle("Edit").setIcon("pencil")
-                .onClick(() => editTask ? editTask({ ...task, path: getPath() }, onEdit) : start(row, textEl, task, getPath(), false)));
+                .onClick(() => editTask ? editTask((task.nativeReference ? task : { ...task, path: getPath() }), onEdit) : start(row, textEl, task, getPath(), false)));
             menu.addItem(item => item.setTitle("Delete").setIcon("trash-2").setWarning(true)
                 .onClick(async () => {
                     try {
-                        if (editTask) editTask({ ...task, path: getPath() }, onEdit);
+                        if (editTask) editTask((task.nativeReference ? task : { ...task, path: getPath() }), onEdit);
                         else onEdit(await mutate({ ...task, path: getPath(), operation: "delete" }));
                     }
                     catch (error) { report(error); }

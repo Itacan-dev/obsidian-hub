@@ -4,6 +4,8 @@ HTMLElement.prototype.createDiv=function(o){return this.createEl("div",o)};
 HTMLElement.prototype.createSpan=function(o){return this.createEl("span",o)};
 HTMLElement.prototype.empty=function(){this.replaceChildren()};
 class Component{constructor(){this.children=new Set();this.cleanup=[]}register(fn){this.cleanup.push(fn)}registerEvent(ref){this.register(()=>ref.emitter.offref(ref))}addChild(child){this.children.add(child)}removeChild(child){child.unload();this.children.delete(child)}unload(){this.cleanup.splice(0).forEach(fn=>fn());this.children.forEach(c=>c.unload());this.children.clear()}}
+Component.prototype.load=function(){};
+Component.prototype.registerDomEvent=function(element,event,callback,options){element.addEventListener(event,callback,options);this.register(()=>element.removeEventListener(event,callback,options))};
 class Emitter{constructor(){this.events=new Map()}on(name,fn){const ref={emitter:this,name,fn};if(!this.events.has(name))this.events.set(name,new Set());this.events.get(name).add(ref);return ref}offref(ref){this.events.get(ref.name)?.delete(ref)}emit(name,...args){for(const ref of this.events.get(name)||[])ref.fn(...args)}}
 class Modal{constructor(app){this.app=app;this.containerEl=document.body.createDiv({cls:"modal-container"});this.modalEl=this.containerEl.createDiv({cls:"modal"});this.modalEl.createEl("button",{text:"×",cls:"modal-close-button"}).onclick=()=>this.close();this.contentEl=this.modalEl.createDiv();this.escape=e=>{if(e.key==="Escape")this.close()};document.addEventListener("keydown",this.escape)}open(){window.lastModal=this;this.onOpen?.()}close(){this.onClose?.();this.containerEl.remove();document.removeEventListener("keydown",this.escape)}}
 Modal.prototype.setTitle = function(title) { this.modalEl.setAttribute("aria-label", title); };
@@ -31,15 +33,19 @@ const obsidian={getIcon:()=>null,Component,Modal,FuzzySuggestModal,Menu,Notice:c
 window.onerror=(message,source,line,col,error)=>document.getElementById("result").textContent="FAIL: "+(error?.stack||message);
 window.onload=async()=>{try{
  const names=["ui/focus-restoration","ui/window-title","config","domain/files","domain/workspace-explorer","ui/file-icons","ui/workspace-explorer","domain/tasks","domain/dates","domain/task-planning","domain/task-form","ui/date-time","ui/task-form","domain/task-views","domain/task-progress","domain/oath","domain/oath-workspace",
- "domain/roadmap-milestones","ui/disclosure","domain/project-planning","services/project-planning","ui/planning-editor","ui/project-roadmap","ui/tooltips","ui/list-reorder","ui/pointer-list-reorder","ui/schedule-toolbar","ui/full-view-layout","domain/context-search","services/context-search","ui/context-search","ui/icons","services/task-writes","services/task-locations","services/task-data","services/task-editor","ui/markdown","ui/completion-audio","ui/task-steps","ui/oath-tasks","ui/tasks","ui/capture-picker-trigger","ui/capture-pickers","ui/capture-tree","ui/card-images","ui/header-image","ui/workspace-cards","ui/task-editor","ui/task-view-primitives","ui/task-view-upcoming","ui/task-view-table","ui/task-view-location","ui/task-view-calendar","ui/task-view-timeline","ui/task-workspace","ui/app-shortcuts"];
- const sources=Object.fromEntries(await Promise.all(names.map(async name=>[name,await(await fetch("../"+name+".js")).text()]))),cache={};
+ "domain/roadmap-milestones","ui/disclosure","domain/project-planning","services/project-planning","ui/planning-editor","ui/project-roadmap","ui/tooltips","ui/list-reorder","ui/pointer-list-reorder","ui/schedule-toolbar","ui/full-view-layout","domain/context-search","services/context-search","ui/context-search","ui/icons","services/task-writes","services/task-locations","services/task-data","services/task-editor","ui/markdown","ui/completion-audio","ui/task-card","ui/task-steps","ui/oath-tasks","ui/tasks","ui/capture-picker-trigger","ui/capture-pickers","ui/capture-tree","ui/card-images","ui/header-image","ui/workspace-cards","ui/task-editor","ui/task-view-primitives","ui/task-view-upcoming","ui/task-view-table","ui/task-view-location","ui/task-view-calendar","ui/task-view-timeline","ui/task-workspace","ui/app-shortcuts"];
+ names.push("domain/task-compact-form","ui/task-compact-form","ui/task-popover","services/task-service-host");
+ const sources={},cache={};
+ async function prepare(name){if(name==="obsidian"||name==="crypto"||sources[name])return;const response=await fetch("../"+name+".js");if(!response.ok)throw Error("Missing module "+name);const text=await response.text();sources[name]=text;for(const match of text.matchAll(/require\(\s*["']([^"']+)["']\s*\)/g)){const request=match[1];if(!request.startsWith("."))continue;const parts=(name.slice(0,name.lastIndexOf("/"))+"/"+request).split("/"),out=[];for(const part of parts){if(part==="..")out.pop();else if(part!==".")out.push(part)}await prepare(out.join("/"))}}
+ await Promise.all(names.map(prepare));
+ if(window.useOriginalTaskWorkspace)sources["ui/task-workspace-original"]=await(await fetch("task-workspace-original.cjs")).text();
  const load=name=>{if(name==="obsidian")return obsidian;if(name==="crypto")return{randomUUID:()=>crypto.randomUUID()};if(cache[name])return cache[name].exports;const module=cache[name]={exports:{}};if(!sources[name])throw Error("Missing module "+name);new Function("module","require","process",sources[name])(module,request=>{if(["obsidian","crypto"].includes(request))return load(request);const parts=(name.slice(0,name.lastIndexOf("/"))+"/"+request).split("/"),out=[];for(const part of parts){if(part==="..")out.pop();else if(part!==".")out.push(part)}return load(out.join("/"))},{env:{}});return module.exports};
  const domain=load("domain/tasks"),planning=load("domain/task-planning"),dates=load("domain/dates"),progress=load("domain/task-progress");
  const sharedHost=document.body.createDiv({cls:"hub-task-form hub-button-scope"});
  const sharedState={text:"Canonical task",fromDate:"2026-10-03",dueDate:"2026-10-05",dueTime:"00:00",steps:[
   {text:"Parent Step",line:4,end:7},{text:"Nested Step",line:5,end:6},{text:"Sibling Step",line:7,end:8}
  ]};
- const {mountTaskFields,mountTaskRelationshipFields}=load("ui/task-form");
+ const {mountTaskFields,mountTaskPhase}=load("ui/task-form");
  mountTaskFields({host:sharedHost,state:sharedState});
  const startDate=sharedHost.querySelector('[aria-label="Start date"]'),dueDate=sharedHost.querySelector('[aria-label="Due date"]');
  assert(!sharedHost.textContent.includes("Include time")&&!sharedState.fromTime&&sharedState.dueTime==="00:00","Shared fields preserve untimed and explicit midnight values without a toggle");
@@ -59,11 +65,11 @@ window.onload=async()=>{try{
  enterDate(datePicker.time,"00:00");assert(sharedState.dueTime==="00:00","Picker supports explicitly selecting midnight");datePicker.close();
  sharedHost.querySelector('[aria-label="Remove step 1"]').click();
  assert(sharedState.steps.length===1&&sharedState.steps[0].text==="Sibling Step","Shared Step removal preserves Markdown descendant deletion rule");
- mountTaskRelationshipFields({host:sharedHost,state:sharedState,service:{context:()=>{throw Error("No location must not query a workspace")},phases:()=>{throw Error("No location must not query phases")}},location:()=>undefined});
+ mountTaskPhase({host:sharedHost,state:sharedState,service:{context:()=>{throw Error("No location must not query a workspace")},phases:()=>{throw Error("No location must not query phases")}},location:()=>undefined});
  sharedHost.remove();
  let scheduleUi;
  if(new URLSearchParams(location.search).has('focus-test')){const tasksUi=load('ui/tasks'),factory=tasksUi.createTaskUi;tasksUi.createTaskUi=options=>(scheduleUi=factory(options))}
- const {HubTaskDataService}=load("services/task-data"),{HubTaskEditor}=load("services/task-editor"),{mountTaskWorkspace}=load("ui/task-workspace");
+ const {HubTaskDataService}=load("services/task-data"),{HubTaskEditor}=load("services/task-editor"),{mountTaskWorkspace}=load(window.useOriginalTaskWorkspace?"ui/task-workspace-original":"ui/task-workspace");
  const project={root:"Projects/Thesis",projectId:"p1",name:"Master’s thesis",contextKind:"project",status:"active",categoryId:"research"};
  const resource={root:"Resources/Knowledge",projectId:"resource:study",name:"Knowledge",contextKind:"resource"};
  const shelved={...project,root:"Projects/Old",projectId:"p2",name:"Old project",status:"shelved"};
@@ -112,6 +118,8 @@ window.onload=async()=>{try{
  const pages=()=>[...contents].map(([path,text])=>{const tasks=[],lines=text.split(/\r?\n/);lines.forEach((line,i)=>{const details=domain.taskLineDetails(line);if(!details||/^\s/.test(line))return;const snapshot=planning.readTaskSnapshot(text,{path,line:i,text:details.text});const children=snapshot.steps.map(step=>({...step,path,task:true,parent:i,children:[]}));tasks.push({...snapshot,text:details.text,children},...children)});return{file:{path,tasks}}});
  const container=document.getElementById("fixture"),cleanup=new Component();
  const dv={container,pages:()=>({array:()=>{reads++;return pages()}})};
+ plugin.app.plugins={getPlugin:()=>({api:dv})};
+ plugin.taskService=load("services/task-service-host").createLegacyTaskService(plugin);
  note(project.root+"/Analyze initial results.md","Notes on measurements");
  plugin.planning=new (load("services/project-planning").ProjectPlanningService)(plugin);
  project.path=project.root+"/Thesis.md";note(project.path,"Project dashboard");
@@ -122,7 +130,7 @@ window.onload=async()=>{try{
  const finderService = new (load("services/context-search").ContextSearchService)(plugin);
  plugin.workspaceModes={openProjectNote:async(path)=>{plugin.opened=path;return true},openProjectFull:async()=>true};
  let component,controller,root,grid,toolbar,finder;
- const mount=owner=>{component?.unload();container.empty();component=new Component();
+ const mount=(owner,mountWorkspace=mountTaskWorkspace)=>{component?.unload();container.empty();component=new Component();
  root=container.createDiv({cls:"project-dashboard hub-button-scope",attr:{"data-hub-context-id":owner.projectId}});
  const cover=root.createDiv({cls:"project-cover"});cover.createEl("img",{cls:"project-cover-image",attr:{src:"../../../../../Assets/ResourceCards/study.jpg",alt:""}});
  const header=root.createDiv({cls:"project-header"}),title=header.createDiv();title.createEl("h1",{cls:"project-title",text:owner.name});title.createDiv({cls:"project-category",text:owner===resource?"Concepts and material from established knowledge":"Research, writing and finalizing my master’s thesis."});
@@ -138,7 +146,7 @@ window.onload=async()=>{try{
   setIcon:obsidian.setIcon,openFile:()=>{},createItem:()=>{},contextMenu:()=>{}});
  component.register(()=>explorer.destroy());
  finder=load("ui/context-search").mountContextSearch({service:finderService,component,dv,root,toolbar,scope:owner});
- controller=mountTaskWorkspace({plugin,component,dv,root,toolbar,filesGrid:grid,filesPanel,roadmapParent:left,workspace:owner,onFiles:()=>filesVisits++,openSource:path=>{plugin.opened=path}});
+ controller=mountWorkspace({plugin,component,dv,root,toolbar,filesGrid:grid,filesPanel,roadmapParent:left,workspace:owner,onFiles:()=>filesVisits++,openSource:path=>{plugin.opened=path}});
  finderService.registerWorkspace(component,root,owner,()=>controller.showFiles(),(kind,id)=>controller.focusPlanning(kind,id));
  workspace.activeLeaf={view:{containerEl:root,file:objects.get(owner.root+"/Tasks.md")}};
  return controller};
@@ -158,6 +166,8 @@ window.onload=async()=>{try{
   assert(getComputedStyle(root.querySelector(".hub-explorer-tree")).overflowY==="auto","Files retain internal scrolling");
   checkGap(grid);
  };
+ if(location.pathname.endsWith("/schedule-read.html")) { await window.runScheduleReadChecks({plugin,dv,project,resource,mount,load,settle,cleanup,
+    get:()=>({root,controller,toolbar,component}),sources,objects,contents,metadataCache,notices,counts:()=>({reads,history:history.length})});return; }
  mount(project);await settle();assert(!grid.hidden&&!controller.active(),"Project starts in existing Files");
  checkWork();
  assert([...toolbar.querySelectorAll("button")].map(x=>x.textContent).join("|")==="Work|Schedule|Roadmap","Exactly three Project modes");
@@ -211,7 +221,7 @@ window.onload=async()=>{try{
  [...phaseModal.contentEl.querySelectorAll("button")].find(b=>b.textContent==="Add tasks").click();await settle();
  lastModal.contentEl.querySelector("button").click();await settle();
  phaseModal.contentEl.querySelector('button[type="submit"]').click();await settle();
- assert(plugin.planning.tasks(dv,"p1").some(t=>t.phaseId===plugin.planning.read("p1").phases[2].id),"Phase picker writes canonical membership");
+ assert((await plugin.planning.tasks(dv,"p1")).some(t=>t.phaseId===plugin.planning.read("p1").phases[2].id),"Phase picker writes canonical membership");
  root.querySelector(".hub-roadmap-milestone").click();await settle();
  lastModal.contentEl.querySelector('input[type="checkbox"]').click();lastModal.contentEl.querySelector('button[type="submit"]').click();await settle();
  assert(root.querySelector(".hub-roadmap-milestone.is-achieved"),"Achieved milestone stays visible");
@@ -223,7 +233,7 @@ window.onload=async()=>{try{
  assert(root.querySelectorAll(".hub-full-add-task").length===1&&!root.querySelector(".hub-task-column-add"),"Single Add task in shared toolbar");
  assert(!root.querySelector('select[aria-label="Location"]')&&!root.querySelector(".hub-task-planning-controls"),"No standalone locations row");
  assert(root.querySelector(".hub-task-phase"),"Overview shows neutral phase chip");
- assert(root.textContent.includes("Solve problem set 4"),"Schedule includes canonical linked Resource tasks");
+ assert(!root.textContent.includes("Solve problem set 4"),"Project Schedule excludes Resource tasks with retired associations");
  if(new URLSearchParams(location.search).has('focus-test')){
   const key=value=>new Promise(resolve=>{window.hubTestKeyDone=resolve;window.hubTestKeyRequest=value});
   const pointer=async element=>{element.scrollIntoView({block:'center'});await new Promise(requestAnimationFrame);const box=element.getBoundingClientRect();await new Promise(resolve=>{window.hubTestPointerDone=resolve;window.hubTestPointerRequest={x:box.left+box.width/2,y:box.top+box.height/2}})};
@@ -272,32 +282,33 @@ window.onload=async()=>{try{
  assert(createdTask.dueDate===prefilledDate&&!createdTask.dueTime,"Standalone creation preserves date-only task semantics");
  root.querySelector(".project-task-text").click();await settle();form=lastModal.contentEl;
  assert(form.querySelector("h2").textContent==="Edit task","Calendar opens shared editor");
- const phaseField=form.querySelector('select[aria-label="Project phase (optional)"]');
+ const phaseField=form.querySelector('select[aria-label="Project phase"]');
  assert(phaseField&&!phaseField.closest("section").hidden&&phaseField.options.length===4,"Project task editor lists local phases plus No phase");phaseField.value=phase.id;
  form.querySelector(".hub-task-title-input").value="Edited in Schedule";form.querySelector("button[type=submit]").click();await settle();
  assert([...contents.values()].some(text=>text.includes("Edited in Schedule")),"Editing preserves canonical task writes");
- assert(plugin.planning.tasks(dv,"p1").find(t=>t.text==="Edited in Schedule").phaseId===phase.id,"Task editor writes the same canonical phase link");
+ assert((await plugin.planning.tasks(dv,"p1")).find(t=>t.text==="Edited in Schedule").phaseId===phase.id,"Task editor writes the same canonical phase link");
  root.querySelector(".project-task-text").click();await settle();
  const clearModal=lastModal,clearForm=clearModal.contentEl;
- clearForm.querySelector('select[aria-label="Project phase (optional)"]').value="";
+ clearForm.querySelector('select[aria-label="Project phase"]').value="";
+ clearForm.querySelector('select[aria-label="Project phase"]').dispatchEvent(new Event("change"));
  [...clearForm.querySelectorAll("button")].find(b=>b.textContent.startsWith("Choose location")).click();await settle();
  const locationPicker=lastModal;locationPicker.onChooseItem(locationPicker.getItems().find(item=>item.path===project.root+"/Tasks.md"));locationPicker.close();
- assert(clearForm.querySelector('select[aria-label="Project phase (optional)"]').value==="","No phase remains selected after choosing location");
+ assert(clearForm.querySelector('select[aria-label="Project phase"]').value==="","No phase remains selected after choosing location");
  const phaseHistory=history.length,phaseOath=oathChanges;
  clearForm.querySelector('button[type="submit"]').click();await settle();
- assert(!plugin.planning.tasks(dv,"p1").find(t=>t.text==="Edited in Schedule").phaseId,"Task editor clears membership");
+ assert(!(await plugin.planning.tasks(dv,"p1")).find(t=>t.text==="Edited in Schedule").phaseId,"Task editor clears membership");
  assert(history.length===phaseHistory&&oathChanges===phaseOath,"Removing phase has no completion/Oath effects");
  const resourceTask=plugin.taskData.readWorkspace(dv,resource)[0];
  load("ui/task-editor").openTaskEditor(plugin.taskEditor,resourceTask);await settle();
- assert(lastModal.contentEl.querySelector('select[aria-label="Project phase (optional)"]').closest("section").hidden,"Resource task editor hides Phase");lastModal.close();
+ assert(lastModal.contentEl.querySelector('select[aria-label="Project phase"]').closest("section").hidden,"Resource task editor hides Phase");lastModal.close();
  const before=history.length;root.querySelector(".hub-task-calendar input[type=checkbox]").click();await settle();
  assert(history.length===before+1&&oathChanges>0,"Completion updates Progress history and Oath");
  click("Work");assert(!grid.hidden&&filesVisits>0,"Returning Files restores existing panels");
  click("Roadmap");
  click("Testing");await settle();const deletionModal=lastModal;
- const countBeforeDelete=plugin.planning.tasks(dv,"p1").length;
+ const countBeforeDelete=(await plugin.planning.tasks(dv,"p1")).length;
  deletionModal.contentEl.querySelector(".hub-task-remove").click();deletionModal.contentEl.querySelector(".hub-task-remove").click();await settle();
- assert(!plugin.planning.read("p1").phases.some(p=>p.name==="Testing")&&plugin.planning.tasks(dv,"p1").length===countBeforeDelete,"Phase modal deletion keeps tasks");
+ assert(!plugin.planning.read("p1").phases.some(p=>p.name==="Testing")&&(await plugin.planning.tasks(dv,"p1")).length===countBeforeDelete,"Phase modal deletion keeps tasks");
  click("Milestone");await settle();lastModal.contentEl.querySelector('input[aria-label="Title"]').value="Release";
  lastModal.contentEl.querySelector('button[type="submit"]').click();await settle();
  const release=plugin.planning.read("p1").milestones.find(m=>m.name==="Release");assert(release,"Milestone modal creation persists");

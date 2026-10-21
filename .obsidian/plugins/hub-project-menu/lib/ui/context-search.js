@@ -36,12 +36,14 @@ function mountContextSearch({ service, component, dv, root, toolbar, scope = nul
     async function open(result) {
         if (opening) return;
         opening = true; close();
-        try { await service.open(result, root); }
-        catch (error) { status.textContent = error.message ?? "Could not open this result."; }
+        try { await service.open(result, root, { cancelled: () => disposed }); }
+        catch (error) { if (!disposed) status.textContent = error.message ?? "Could not open this result."; }
         finally { opening = false; }
     }
+    let taskStatus = "", retainedSelection = null;
     function render(groups, busy) {
-        const selected = rows[active]?.result;
+        const selected = rows[active]?.result ?? retainedSelection;
+        retainedSelection = null;
         popup.replaceChildren(); rows = []; active = -1;
         for (const group of groups) {
             const headingId = `${id}-${group.kind}`;
@@ -52,8 +54,11 @@ function mountContextSearch({ service, component, dv, root, toolbar, scope = nul
                 element.createDiv({ cls: "hub-context-result-title", text: result.title });
                 element.createDiv({ cls: "hub-context-result-path", text: result.context });
                 if (result.kind === "tasks") {
-                    const date = result.task.dueDate ? taskDateLabel(result.task.dueDate, result.task.dueTime, true) : "";
+                    const date = result.task.due ? taskDateLabel(result.task.due.date, result.task.due.time, true) : "";
                     if (date || result.task.completed) element.createSpan({ cls: "hub-context-result-date", text: [result.task.completed ? "Completed" : "", date].filter(Boolean).join(" · ") });
+                    if (!result.task.capabilities.attemptReveal) {
+                        element.setAttribute("aria-disabled", "true"); element.title = "Refresh Search before opening this task.";
+                    }
                 }
                 if (result.snippet) element.createDiv({ cls: "hub-context-result-snippet", text: result.snippet });
                 const index = rows.length;
@@ -63,21 +68,27 @@ function mountContextSearch({ service, component, dv, root, toolbar, scope = nul
                 rows.push({ element, result });
             }
         }
-        if (!rows.length) popup.createDiv({ cls: "hub-context-empty", text: busy ? "Searching…" : "No matches in this scope." });
-        const selectedIndex = rows.findIndex(row => selected && row.result.kind === selected.kind && row.result.path === selected.path && row.result.id === selected.id && row.result.task?.line === selected.task?.line);
+        if (!rows.length) popup.createDiv({ cls: "hub-context-empty", text: busy ? "Searching…" : taskStatus || "No matches in this scope." });
+        const selectedIndex = rows.findIndex(row => selected && row.result.kind === selected.kind &&
+            (selected.kind === "tasks" ? row.result.key === selected.key : row.result.path === selected.path && row.result.id === selected.id));
         highlight(selectedIndex);
         popup.hidden = false; input.setAttribute("aria-expanded", "true"); popup.setAttribute("aria-busy", String(busy));
-        status.textContent = busy ? "Searching" : `${rows.length} results`;
+        status.textContent = busy ? "Searching" : `${rows.length} results` + (taskStatus ? `. ${taskStatus}` : "");
     }
     async function search(token) {
-        const cancelled = () => disposed || generation !== token || root.closest(".hub-project-rail") || doc.activeElement !== input;
+        const scopeId = scope?.projectId ?? null;
+        const cancelled = () => disposed || generation !== token || (scope?.projectId ?? null) !== scopeId || root.closest(".hub-project-rail") || doc.activeElement !== input;
+        if (cancelled()) return;
+        const selected = rows[active]?.result;
+        taskStatus = ""; render([], true); retainedSelection = selected;
         try {
             const groups = await service.search(input.value, scope, dv, {
-                cancelled, onNames: groups => { if (!cancelled()) render(groups, true); }
+                cancelled, onNames: groups => { if (!cancelled()) render(groups, true); },
+                onTaskStatus: message => { if (!cancelled()) taskStatus = message; }
             });
             if (!cancelled()) render(groups, false);
         } catch (error) {
-            if (!cancelled()) { render([], false); popup.firstElementChild.textContent = "Search is temporarily unavailable."; status.textContent = error.message; }
+            if (!cancelled()) { render([], false); popup.firstElementChild.textContent = "Search is temporarily unavailable."; status.textContent = "Search is temporarily unavailable."; }
         }
     }
     function schedule() {

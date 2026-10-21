@@ -4,17 +4,22 @@
 function createHubMarkdown({ app, component, interactive = true }) {
     const { Component, MarkdownRenderer } = require("obsidian");
     const children = new Set();
+    let rendered = new WeakMap();
     let disposed = false;
     function clear() {
         for (const child of children) component.removeChild(child);
         children.clear();
+        rendered = new WeakMap();
     }
     component.register(() => { disposed = true; children.clear(); });
 
     function render(element, text, sourcePath, canCommit = () => true) {
         if (disposed) return Promise.resolve();
         const getPath = typeof sourcePath === "function" ? sourcePath : () => sourcePath || "";
+        const previous = rendered.get(element);
+        if (previous) { component.removeChild(previous); children.delete(previous); }
         const child = new Component();
+        rendered.set(element, child);
         component.addChild(child);
         children.add(child);
         element.classList.add("hub-markdown");

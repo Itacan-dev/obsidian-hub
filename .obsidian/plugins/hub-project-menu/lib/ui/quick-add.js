@@ -4,6 +4,7 @@ const { CaptureModal, action, attachments } = require("./capture-modal");
 const { mountCaptureForm } = require("./capture-form");
 const { mountCaptureGuidance } = require("./inbox-guidance");
 const { linkFromText } = require("../domain/inbox");
+const { mountTaskText } = require("./task-form");
 
 class QuickAddModal extends CaptureModal {
     constructor(app, service, options = {}) {
@@ -19,15 +20,14 @@ class QuickAddModal extends CaptureModal {
         this.textPath = this.body.createDiv({ cls: "hub-capture-input-path", attr: { "data-capture-field": "Content" } });
         this.label = this.textPath.createEl("label", { cls: "hub-capture-label", attr: { for: this.prefix + "-input" } }); this.label.hidden = true;
         this.textEditor = this.textPath.createDiv({ cls: "hub-capture-text-editor" });
-        this.input = this.textEditor.createEl("textarea", { cls: "hub-quick-add-input", attr: { id: this.prefix + "-input", "aria-label": "Write something", rows: "3", placeholder: "Start typing..." } });
+        this.input = mountTaskText(this.textEditor, this.draft, patch => {
+            this.draft.text = patch.text; this.form?.update(patch); this.sync();
+        }, { multiline: true, required: false, placeholder: "Start typing...",
+            attributes: { id: this.prefix + "-input", "aria-label": "Write something" } });
         this.clear = action(this.textEditor, "", "x", () => {
             this.input.value = ""; this.draft.text = ""; this.form?.update({ text: "" }); this.sync(); this.input.focus();
         }, "hub-capture-clear");
         this.clear.setAttribute("aria-label", "Clear"); this.clear.title = "Clear";
-        this.input.addEventListener("input", () => {
-            if (this.draft.attachments.length || this.pendingImports) return;
-            this.draft.text = this.input.value; this.form?.update({ text: this.input.value }); this.sync();
-        });
         this.input.addEventListener("keydown", event => {
             if (event.key === "Enter" && !event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey && !event.isComposing && event.keyCode !== 229) {
                 event.preventDefault();

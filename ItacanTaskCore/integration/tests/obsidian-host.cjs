@@ -1,0 +1,41 @@
+"use strict";
+if (process.env.ITACAN_REAL_HOST_GUARD) require(process.env.ITACAN_REAL_HOST_GUARD);
+const electron = require("electron"), fs = require("fs"), path = require("path"), os = require("os"), Module = require("module"), { EventEmitter } = require("events");
+const root = process.env.ITACAN_REAL_HOST_ROOT, workspace = process.env.ITACAN_REAL_HOST_WORKSPACE;
+if (!root || !path.basename(root).startsWith("itacan-real-host-")) throw Error("Missing owned profile");
+const rel = path.relative(fs.realpathSync(os.tmpdir()), fs.realpathSync(root)); if (!rel || rel.startsWith("..") || path.isAbsolute(rel)) throw Error("Invalid owned profile");
+os.userInfo = () => ({ username: "itacan-m1a-" + process.pid, homedir: root, uid: -1, gid: -1, shell: null });
+electron.app.setPath("userData", path.join(root, "obsidian-profile")); electron.app.setPath("crashDumps", path.join(root, "evidence")); electron.app.setName("Itacan isolated component rehearsal");
+// Process-local rehearsal must not change OS protocol/startup registration.
+electron.app.isDefaultProtocolClient = () => true;
+for (const name of ["setAsDefaultProtocolClient", "removeAsDefaultProtocolClient", "setLoginItemSettings", "setUserTasks", "setJumpList"]) electron.app[name] = () => false;
+electron.app.commandLine.appendSwitch("disable-gpu"); electron.app.commandLine.appendSwitch("no-sandbox");
+const NativeWindow = electron.BrowserWindow, windows = [];
+function Hidden(options = {}) { const w = new NativeWindow({ ...options, show: false, webPreferences: { ...options.webPreferences, preload: path.join(__dirname, "obsidian-preload.cjs") } }); w.show = () => {}; w.showInactive = () => {}; windows.push(w); return w; }
+Object.setPrototypeOf(Hidden, NativeWindow); Hidden.prototype = NativeWindow.prototype;
+const facade = { ...electron, BrowserWindow: Hidden };
+electron.protocol.registerSchemesAsPrivileged([{ scheme: "app", privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true, codeCache: true, corsEnabled: true } }]);
+const remote = require(path.join(workspace, ".obsidian/plugins/hub-project-menu/lib/atlas/tests/native/node_modules/@electron/remote/main")); remote.initialize(); facade.remote = { enable: c => remote.enable(c) };
+electron.shell.openExternal = async () => { throw Error("External navigation denied"); };
+for (const n of ["showErrorBox", "showMessageBox", "showMessageBoxSync", "showOpenDialog", "showOpenDialogSync"]) electron.dialog[n] = () => n.endsWith("Sync") ? 1 : Promise.resolve({ canceled: true, response: 1, filePaths: [] });
+const load = Module._load; Module._load = function(name) { return name === "electron" ? facade : load.apply(this, arguments); };
+const archive = process.env.ITACAN_OBSIDIAN_ARCHIVE, events = new EventEmitter(); events.on("check-start", () => events.emit("check-end"));
+const boot = require(path.join(archive, "main.js")), delay = ms => new Promise(r => setTimeout(r, ms));
+electron.ipcMain.handle("m1a-capture",async(event,stage)=>{if(!["add","edit","list"].includes(stage))throw Error("Unknown capture");const image=await event.sender.capturePage({}, {stayHidden:true,stayAwake:true});fs.writeFileSync(path.join(root,"evidence/"+stage+".png"),image.toPNG());});
+let failed = false; const timeout = setTimeout(() => { console.error("M1A timeout"); electron.app.exit(1); }, 120000);
+electron.app.whenReady().then(async () => { try {
+ electron.session.defaultSession.webRequest.onBeforeRequest({ urls: ["http://*/*", "https://*/*"] }, (_details, done) => done({ cancel: true }));
+ let w, ready = false;
+ for (let n = 0; n < 400; n++) { w = windows.find(w => !w.isDestroyed()); if (w) { const s = await w.webContents.executeJavaScript("JSON.stringify({app:!!window.app,plugins:!!window.app?.plugins,boot:!!window.__m1aBootstrap})").catch(() => "{}"); const state = JSON.parse(s); if (state.boot) { ready = true; break; } if (state.plugins && n === 30) await w.webContents.executeJavaScript("(async()=>{localStorage.setItem('enable-plugin-'+app.appId,'true');await app.plugins.loadManifests();await app.plugins.enablePlugin('itacan-m1a-fixture')})()"); } await delay(100); }
+ if (!ready) throw Error("Fixture bootstrap did not load");
+ if (["home-schedule", "history", "startup"].includes(process.env.ITACAN_REAL_HOST_SCENARIO)) w.webContents.setBackgroundThrottling(false);
+ w.webContents.setAudioMuted(true); w.setSize(1200, 900);
+ const scenario = process.env.ITACAN_REAL_HOST_SCENARIO ?? "project";
+ if (!["project", "home-schedule", "history", "startup"].includes(scenario)) throw Error("Unknown rehearsal scenario");
+ const fixture = path.join(__dirname, scenario === "startup" ? "startup-obsidian.cjs" : scenario === "project" ? "obsidian-fixture.cjs" : scenario === "history" ? "history-obsidian.cjs" : "home-schedule-obsidian.cjs");
+ const report = await w.webContents.executeJavaScript(`require(${JSON.stringify(fixture)})({app:window.app,api:window.__m1aBootstrap.constructor.api},${JSON.stringify(root)})`);
+ if (w.isVisible()) throw Error("Owned test window unexpectedly visible");
+ const capture = await w.webContents.capturePage({}, { stayHidden: true, stayAwake: true }); fs.writeFileSync(path.join(root, "evidence/final.png"), capture.toPNG());
+ fs.writeFileSync(path.join(root, "evidence/report.json"), JSON.stringify({ ...report, hidden: true, electron: process.versions.electron }, null, 2)); console.log(scenario === "startup" ? "PASS actual Itacan startup" : scenario === "project" ? "PASS actual Obsidian M1A" : scenario === "history" ? "PASS actual Obsidian History/Statistics" : "PASS actual Obsidian Home/Schedule", report.checks.length, "checks");
+ } catch (e) { failed = true; console.error(e.stack); } finally { clearTimeout(timeout); electron.app.exit(failed ? 1 : 0); } });
+boot(archive, events);

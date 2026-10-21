@@ -1,48 +1,43 @@
 "use strict";
-const { createWindowTitle, layoutModal } = require("./window-title");
+const { createModalHeader, layoutModal } = require("./window-title");
 const { taskFormValues } = require("../domain/task-form");
-const { taskSection, mountTaskText, mountTaskFields, mountTaskRelationshipFields } = require("./task-form");
-const { openCaptureLocationPicker } = require("./capture-pickers");
-const { createCapturePickerTrigger } = require("./capture-picker-trigger");
+const { mountLiveTaskForm } = require("./task-live-form");
+const { initialComposerTaskLocation, validateTaskDates } = require("../domain/task-compact-form");
 
 function openTaskEditor(service, task, onEdit = () => {}, creation = null) {
     const { Modal, Notice } = require("obsidian");
     class TaskModal extends Modal {
-        async onOpen() {
-            this.closed = false;
-            this.modalEl.classList.add("hub-task-dialog");
-            this.contentEl.classList.add("hub-button-scope", "hub-task-form");
-            createWindowTitle(this.contentEl, creation ? "Add task" : "Edit task", creation ? "square-plus" : "square-pen", { cls: "hub-task-dialog-title" });
-            if (creation) {
-                const locations = availableLocations(service, creation.root);
-                const activePath = service.app.workspace.getActiveFile()?.path;
-                const location = locations.find(item => item.path === (creation.location ?? creation.path)) ??
-                    locations.find(item => item.path === creation.root) ??
-                    locations.find(item => item.path === activePath) ?? locations[0];
-                this.snapshot = { text: "", steps: [], necessity: null, ...creation, path: location?.path ?? "" };
-                this.render(); return;
-            }
-            const loading = this.contentEl.createEl("p", { text: "Loading task…" });
-            try {
-                this.snapshot = await service.read(task);
-                if (this.closed) return;
-                loading.remove(); this.render();
-            } catch (error) { new Notice(error.message); this.close(); }
+        constructor(app) {
+            super(app); this.closed = false;
+            // Modal.open runs its first-control focus pass after onOpen. Own
+            // focus here so that pass cannot move Add's caret to the checkbox.
+            this.hasInitialInputFocus = false;
+        }
+        onOpen() {
+            this.modalEl.classList.add("hub-task-dialog", "hub-task-compact-dialog");
+            this.modalEl.classList.add("hub-task-live-dialog");
+            this.modalEl.setAttribute("aria-label", creation ? "Add task" : "Edit task");
+            this.contentEl.classList.add("hub-button-scope", "hub-task-form", "hub-capture-form-scope", "hub-capture-content");
+            createModalHeader(this.contentEl, { title: creation ? "Add task" : "Edit task",
+                icon: creation ? "square-plus" : "square-pen" });
+            this.render();
         }
         render() {
-            const snapshot = this.snapshot;
+            const snapshot = this.snapshot, formContext = this.formContext;
             const form = this.contentEl.createEl("form");
+            let errorEl;
+            const clearError = () => { if (errorEl) errorEl.textContent = ""; };
             const state = { ...snapshot, steps: snapshot.steps.map(step => ({ ...step })) };
-            const section = (title, help) => taskSection(form, title, help);
-            const input = mountTaskText(section("Task"), state, () => {}, { placeholder: creation ? "What needs doing?" : "" });
-            this.taskFields = mountTaskFields({ app: service.app, host: form, state, section });
-            const location = section("Location");
-            const owner = service.context?.(snapshot.path);
-            const fieldsLocation = locationFields(service, location, snapshot, creation?.root ?? owner?.root);
-            this.locationFields = fieldsLocation;
-            const relationships = mountTaskRelationshipFields({ host: form, state, service, location: () => fieldsLocation.value(), section });
-            fieldsLocation.onChange(() => relationships.refresh());
-            const errorEl = form.createDiv({ cls: "hub-task-error", attr: { role: "alert" } });
+            // Location selection is deferred. Preserve the exact destination,
+            // including the native file object following a rename while open.
+            const location = () => formContext ? formContext.sourcePath : snapshot.file?.path ?? snapshot.path;
+            this.taskFields = mountLiveTaskForm({ host: form, state, service,
+                initialStepsOpen: !creation && snapshot.steps.length > 0,
+                onChange: clearError,
+                text: { placeholder: creation ? "What needs doing?" : "" },
+                location, presentationContext: formContext });
+            const { input, phase } = this.taskFields;
+            errorEl = form.createDiv({ cls: "hub-task-error", attr: { role: "alert" } });
             const actions = form.createDiv({ cls: "hub-task-dialog-actions" });
             const remove = actions.createEl("button", { text: "Delete task", cls: "hub-task-remove", attr: { type: "button" } });
             const cancel = actions.createEl("button", { text: "Cancel", attr: { type: "button" } });
@@ -51,24 +46,29 @@ function openTaskEditor(service, task, onEdit = () => {}, creation = null) {
             cancel.addEventListener("click", () => this.close());
             const commit = async deleting => {
                 if (this.saving) return;
+                this.taskFields.closePopovers();
+                if (!deleting && !this.taskFields.commitPending()) return;
                 if (!deleting && !form.reportValidity()) return;
                 this.saving = true; errorEl.textContent = "";
                 // Disable every control while persistence is pending, including
                 // Cancel/Escape, so closing cannot misleadingly cancel a save.
-                const controls = [...form.querySelectorAll("button,input,select")];
+                const controls = [...new Set([...form.querySelectorAll("button,input,select,textarea"), input, ...(this.taskFields.steps?.controls ?? [])])];
+                const previews = [...form.querySelectorAll('[role="button"]')].map(element => ({ element, tabIndex: element.tabIndex }));
+                previews.forEach(({ element }) => { element.tabIndex = -1; element.setAttribute("aria-disabled", "true"); });
                 const states = controls.map(control => control.disabled); controls.forEach(control => control.disabled = true);
                 try {
-                    const values = { ...state, ...relationships.value(), text: input.value,
-                        operation: deleting ? "delete" : "edit", location: fieldsLocation.value() };
-                    if (!deleting) Object.assign(values, taskFormValues(values));
+                    const values = { ...state, ...phase.value(), text: input.value,
+                        operation: deleting ? "delete" : "edit", location: location() };
+                    if (!deleting) { validateTaskDates(values); Object.assign(values, taskFormValues(values)); }
                     if (creation) {
-                        if (!values.location) throw Error("Choose a Location.");
-                        await service.create(values.location, values.text, values);
+                        if (!formContext && !values.location) throw Error("Explorations is unavailable. Open Add task from a valid Project or Resource destination.");
+                        await service.create(formContext ? formContext.destination : values.location, values.text, values);
                         creation.onCreated?.();
                     } else onEdit(await service.save(snapshot, values));
                     this.saving = false; this.close();
                 } catch (error) {
                     this.saving = false; controls.forEach((control, i) => control.disabled = states[i]);
+                    previews.forEach(({ element, tabIndex }) => { element.tabIndex = tabIndex; element.removeAttribute("aria-disabled"); });
                     errorEl.textContent = error.message;
                 }
             };
@@ -76,46 +76,42 @@ function openTaskEditor(service, task, onEdit = () => {}, creation = null) {
             let deleteArmed = false;
             remove.addEventListener("click", () => {
                 if (!deleteArmed) { deleteArmed = true; remove.textContent = "Confirm delete";
-                    errorEl.textContent = snapshot.steps.length ? "Delete this task and its Steps from the note?" : "Delete this task from the note?"; return; }
+                    errorEl.textContent = formContext ? (snapshot.steps.length ? "Delete this task and its Steps?" : "Delete this task?") : snapshot.steps.length ? "Delete this task and its Steps from the note?" : "Delete this task from the note?"; return; }
                 void commit(true);
             });
-            layoutModal(this, { container: form, footer: actions });
-            input.focus(); input.setSelectionRange(input.value.length, input.value.length);
+            const body = layoutModal(this, { container: form, footer: actions });
+            // Reserve the real native scrollbar outside the original content
+            // width, before title measurement. Inline expansion cannot rewrap
+            // the card just because the body's scrollbar becomes necessary.
+            body.style.overflowY = "scroll";
+            const gutter = body.offsetWidth - body.clientWidth;
+            body.style.marginRight = (-5 - gutter) + "px";
+            body.style.scrollbarGutter = "stable"; body.style.overflowY = "auto";
+            // Region ownership and scrollbar constraints are final now. Measure
+            // the styled title synchronously before Modal.open can present it.
+            this.taskFields.resizeTitle();
+            if (creation) { input.focus({ preventScroll: true }); input.setSelectionRange(input.value.length, input.value.length); }
+            else { this.modalEl.tabIndex = -1; this.modalEl.focus({ preventScroll: true }); }
         }
-        close() { if (!this.saving) super.close(); }
-        onClose() { this.closed = true; this.locationFields?.destroy(); this.taskFields?.destroy(); this.contentEl.empty(); }
+        close() { if (!this.saving) { this.closed = true; super.close(); } }
+        onClose() { this.closed = true; this.taskFields?.destroy(); this.contentEl.empty(); }
     }
-    const modal = new TaskModal(service.app); modal.open(); return modal;
-}
-
-function availableLocations(service, root) {
-    if (service.locations) return service.locations(root);
-    return service.app.vault.getMarkdownFiles().filter(file => !root || file.path.startsWith(root + "/"))
-        .map(file => ({ path: file.path, file, label: file.path.replace(/\.md$/i, "").split("/").slice(-2).join(" › ") }));
-}
-
-function locationFields(service, host, snapshot, root) {
-    let path = snapshot.path, changed = () => {}, picker = null, disposed = false;
-    const getItems = () => availableLocations(service, root);
-    const sync = () => {
-        const location = getItems().find(item => item.path === path);
-        trigger.update({
-            title: location?.label ?? location?.name ?? (path ? path.split("/").pop().replace(/\.md$/i, "") : "Choose a note or folder…"),
-            subtitle: location ? location.folder ? "Folder · Tasks note" : "Markdown note · " + path.split("/").pop() : null,
-            icon: location?.folder || !path ? "folder" : "notebook-text"
-        });
-    };
-    const trigger = createCapturePickerTrigger(host, { label: "Location", onOpen: () => {
-        if (picker || disposed) return;
-        picker = openCaptureLocationPicker(service, {
-            workspace: root ? service.context?.(root) : null, task: true, selectedPath: path, getItems,
-            onSelect: selected => { if (!disposed) { path = selected.path; sync(); changed(); } },
-            restoreFocus: () => { picker = null; if (!disposed) trigger.button.focus({ preventScroll: true }); }
-        });
-    } });
-    sync();
-    return { value: () => path, onChange: callback => { changed = callback; },
-        destroy() { disposed = true; picker?.close(); } };
+    const modal = new TaskModal(service.app);
+    // Obsidian appends the modal before calling onOpen and does not await it.
+    // Keep the native container detached until the snapshot is available; there
+    // is no intermediate modal, backdrop, focus transfer or loading geometry.
+    const present = () => { if (modal.closed) return null; modal.formContext = service.formContext?.(modal.snapshot) ?? null; modal.open(); return modal; };
+    const failed = error => { if (modal.closed) return null; modal.close(); new Notice(error.message); return null; };
+    if (creation) {
+        try {
+            modal.snapshot = { text: "", steps: [], necessity: null, ...creation, completed: false, ...(service.formContext ? {} : { path: initialComposerTaskLocation(service, creation) }) };
+            modal.ready = Promise.resolve(present());
+        } catch (error) { modal.ready = Promise.resolve(failed(error)); }
+    } else modal.ready = (async () => {
+        try { modal.snapshot = await service.read(task); return present(); }
+        catch (error) { return failed(error); }
+    })();
+    return modal;
 }
 
 function openTaskCreator(service, options = {}) {

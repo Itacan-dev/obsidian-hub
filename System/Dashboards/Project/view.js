@@ -2770,11 +2770,24 @@ const tasksBody =
 let currentProjectTasks = [];
 let visibleCompletedTasks = [];
 let clearingCompletedTasks = false;
+let taskPanelDisposed = false;
+let taskPanelGeneration = 0;
+const taskPanelRead = window.hubCreateTaskPanelRead?.({
+    component: dv.component,
+    workspace: { type: isResourceContext ? "resource" : "project", id: isResourceContext ? current.resourceType : current.projectId },
+    changed: () => { if (!taskPanelDisposed && root.isConnected) void renderCurrentTasks(); }
+});
+dv.component.register(() => { taskPanelDisposed = true; taskPanelGeneration++; });
+
+function applyPanelTaskEdit(edit) {
+    taskPanelGeneration++;
+    currentProjectTasks = taskPanelRead.reconcile(currentProjectTasks, edit);
+    if (!taskPanelDisposed && root.isConnected) renderTaskRows();
+}
 
 tasksBody.hubTaskUi = window.hubCreateTaskUi?.(dv.component, tasksBody, edit => {
-    currentProjectTasks = window.hubApplyTaskEdit(currentProjectTasks, edit);
-    if (root.isConnected) renderTaskRows();
-});
+    applyPanelTaskEdit(edit);
+}, taskPanelRead?.actions);
 tasksBody.hubTaskUi?.addButton(tasksTitle, { root: projectRoot });
 
 function taskLocation(
@@ -2812,12 +2825,9 @@ function taskLocation(
 }
 
 
-function readProjectTasks() {
-    // Same recursive Dataview query, with current paths supplied by the shared
-    // task-data service. Project and Resource views use this same renderer.
-    const pages = window.hubTaskData?.readPages(dv, projectRoot)
-        ?? dv.pages(JSON.stringify(projectRoot)).array();
-    return pages.flatMap(page => Array.from(page.file.tasks ?? []));
+async function readProjectTasks() {
+    if (!taskPanelRead) throw new Error("Task panel reader is unavailable.");
+    return taskPanelRead.read();
 }
 
 
@@ -2972,14 +2982,7 @@ function renderTaskRows() {
                     }
 
 
-                    const edit = await window
-                        .hubToggleTask(
-                            task.path,
-                            task.line,
-                            task.text,
-                            requestedState,
-                            task.hubTaskId
-                        );
+                    const edit = await taskPanelRead.toggle(task, requestedState);
 
 
                     /*
@@ -2988,10 +2991,7 @@ function renderTaskRows() {
                      * waiting for Dataview to
                      * re-index the file.
                      */
-                    currentProjectTasks = window.hubApplyTaskEdit(currentProjectTasks, edit);
-
-
-                    if (root.isConnected) renderTaskRows();
+                    applyPanelTaskEdit(edit);
 
 
                 } catch (error) {
@@ -3023,10 +3023,12 @@ function renderTaskRows() {
             "click",
             async () => {
 
+                try {
+                const target = await taskPanelRead.reveal(task);
                 const file =
                     app.vault
                         .getAbstractFileByPath(
-                            task.path
+                            target.path
                         );
 
 
@@ -3036,6 +3038,7 @@ function renderTaskRows() {
                         file
                     );
                 }
+                } catch (error) { console.error("Task panel source unavailable", error); }
             }
         );
     }
@@ -3095,15 +3098,26 @@ function renderTaskRows() {
 }
 
 
-function renderCurrentTasks() {
-    if (taskWorkspace?.active()) return;
-
-    if (tasksBody.hubTaskUi?.defer(() => renderCurrentTasks())) return;
-    currentProjectTasks =
-        readProjectTasks();
-
-
-    renderTaskRows();
+async function renderCurrentTasks() {
+    const generation = ++taskPanelGeneration;
+    if (taskPanelDisposed || taskWorkspace?.active()) return;
+    if (tasksBody.hubTaskUi?.defer(() => { void renderCurrentTasks(); })) return;
+    try {
+        const result = await readProjectTasks();
+        if (!result || taskPanelDisposed || !root.isConnected || generation !== taskPanelGeneration || taskWorkspace?.active()) return;
+        if (tasksBody.hubTaskUi?.defer(() => { void renderCurrentTasks(); })) return;
+        tasksBody.querySelector("[data-task-read-status]")?.remove();
+        if (result.changed) {
+            currentProjectTasks = result.tasks; taskPanelRead.accept(currentProjectTasks);
+            const scroll = tasksBody.scrollTop; renderTaskRows(); tasksBody.scrollTop = scroll;
+        }
+    } catch (error) {
+        if (taskPanelDisposed || !root.isConnected || generation !== taskPanelGeneration || taskWorkspace?.active()) return;
+        // Keep the last valid rows; a failed query is never an empty result.
+        if (!tasksBody.querySelector("[data-task-read-status]")) tasksBody.createDiv({ cls: "project-empty",
+            text: "Tasks are temporarily unavailable. They will refresh when the index is ready.", attr: { "data-task-read-status": "", role: "status" } });
+        console.error("Task panel read failed", error);
+    }
 }
 
 
@@ -3157,12 +3171,7 @@ async function clearCompletedProjectTasks(
     }
 
 
-    return window.hubClearCompletedTasks(
-        tasks.map(
-            completedProjectTaskRequest
-        ),
-        confirmMany
-    );
+    return taskPanelRead.clear(tasks.map(task => ({ ...task, ...completedProjectTaskRequest(task) })), confirmMany);
 }
 
 
@@ -3180,9 +3189,6 @@ async function clearVisibleCompletedTasks() {
 
 frame.defer(() => renderCurrentTasks());
 
-window.hubTaskData?.subscribe(dv.component, () => {
-    if (root.isConnected) renderCurrentTasks();
-}, () => [projectRoot]);
 
 
 // ---------- PROGRESS ----------
@@ -3771,7 +3777,7 @@ nextYear.addEventListener(
 );
 
 
-frame.defer(() => { refreshProjectProgress(); loadInitialProgressYears(); renderProjectProgressYear(); });
+frame.beforePaint(() => { refreshProjectProgress(); loadInitialProgressYears(); renderProjectProgressYear(); });
 
 
 root.addEventListener(
@@ -3879,6 +3885,10 @@ const activityBody =
     });
 activityBody.hubMarkdown = window.hubCreateMarkdown?.(dv.component);
 const historyPager = createHistoryPager(activityBody, dv.component);
+let projectTaskHistory = [];
+let historyReadDisposed = false, historyReadGeneration = 0, historyReadStatus = null, historyRenderedNode = null, historyRenderedContext = null;
+const completedHistoryRead = window.hubCreateTaskHistoryRead?.({ component: dv.component, changed: () => queueMicrotask(() => { if (!historyReadDisposed && root.isConnected) void refreshProjectTaskHistory(); }) });
+dv.component.register(() => { historyReadDisposed = true; historyReadGeneration++; });
 
 // ---------- ACTIVITY SCROLL HEIGHT ----------
 
@@ -4525,6 +4535,33 @@ function renderProjectReports() {
 }
 
 
+async function refreshProjectTaskHistory() {
+    const ticket = ++historyReadGeneration;
+    if (historyReadDisposed || !root.isConnected || progressView !== "tasks") return;
+    try {
+        if (!completedHistoryRead) throw new Error("Recorded task History reader is unavailable.");
+        const result = await completedHistoryRead.read(() => historyReadDisposed || ticket !== historyReadGeneration || !root.isConnected);
+        if (!result || historyReadDisposed || !root.isConnected || ticket !== historyReadGeneration) return;
+        historyReadStatus?.remove(); historyReadStatus = null;
+        projectTaskHistory = result.records;
+        if (progressView !== "tasks") return;
+        const context = JSON.stringify([projectRoot, current.projectId, current.resourceType, current.file.path, isResourceContext]);
+        // A tab switch can replace History with another panel's rows. Reuse
+        // unchanged History DOM only while its content/context is still current.
+        if (result.changed || activityBody.firstChild !== historyRenderedNode || context !== historyRenderedContext) {
+            completedHistoryRead.preserve(activityBody, renderProjectTaskHistory);
+            historyRenderedNode = activityBody.firstChild; historyRenderedContext = context;
+            scheduleProjectActivityHeight();
+        }
+        completedHistoryRead.accept(result);
+    } catch (error) {
+        if (historyReadDisposed || !root.isConnected || ticket !== historyReadGeneration || progressView !== "tasks") return;
+        if (!historyReadStatus) historyReadStatus = activityBody.parentElement.createDiv({ cls: "project-empty", text: "Task History is temporarily unavailable. Existing History is retained." });
+        historyReadStatus.setAttribute("role", "status"); historyReadStatus.setAttribute("data-task-history-status", "");
+        console.error("Recorded task History read failed", error);
+    }
+}
+
 function renderProjectTaskHistory() {
     historyPager.reset();
 
@@ -4533,12 +4570,9 @@ function renderProjectTaskHistory() {
 
 
     const items =
-        (
-            window
-                .hubGetCompletedTaskHistory?.()
-            ?? []
-        )
+        [...projectTaskHistory]
             .filter(item => {
+                if (item.nativeHistory) return item.nativeHistory.owner?.type === (isResourceContext ? "resource" : "project") && item.nativeHistory.owner.id === (isResourceContext ? current.resourceType : current.projectId);
                 if (isResourceContext) {
                     return (
                         item.resourceType === current.resourceType ||
@@ -4557,7 +4591,7 @@ function renderProjectTaskHistory() {
             })
             .sort(
                 (a, b) =>
-                    Number(b.timestamp) -
+                    a.nativeHistory && a.timestamp === null ? (b.nativeHistory && b.timestamp === null ? 0 : 1) : b.nativeHistory && b.timestamp === null ? -1 : Number(b.timestamp) -
                     Number(a.timestamp)
             );
 
@@ -4582,6 +4616,7 @@ function renderProjectTaskHistory() {
                 cls:
                     "project-activity-row project-completed-task-row"
             });
+        row.historyReadKey = item.historyReadKey;
 
 
         const icon =
@@ -4613,7 +4648,7 @@ function renderProjectTaskHistory() {
             item.projectRoot ||
             projectRoot;
 
-        const sourceLocation =
+        const sourceLocation = item.nativeHistory ? (item.projectName ?? "Native task") :
             item.path === item.projectPath ||
             item.path === current.file.path
                 ? (isResourceContext ? "Resource Hub" : "Project Hub")
@@ -4656,6 +4691,10 @@ function renderProjectTaskHistory() {
             });
 
 
+        if (item.nativeHistory && item.timestamp === null) {
+            row.setAttribute("data-history-undated", "true"); time.title = "Completion time unavailable";
+            el(time, "div", "project-activity-date", "Completion time unavailable");
+        } else {
         time.title = formatDateTime(when);
         el(
             time,
@@ -4671,16 +4710,17 @@ function renderProjectTaskHistory() {
             "project-activity-clock",
             formatTime(when)
         );
+        }
 
 
-        const file =
+        const file = item.nativeHistory ? null :
             app.vault
                 .getAbstractFileByPath(
                     item.path
                 );
 
 
-        if (file) {
+        if (file || item.nativeHistory?.navigation.state === "available") {
 
             row.addClass(
                 "is-clickable"
@@ -4691,14 +4731,10 @@ function renderProjectTaskHistory() {
                 row,
                 async () => {
 
-                    const currentFile =
-                        app.vault
-                            .getAbstractFileByPath(
-                                item.path
-                            );
+                    const currentFile = await completedHistoryRead.reveal(item);
 
 
-                    if (currentFile) {
+                    if (!item.nativeHistory && currentFile) {
                         await openProjectNote(
                             currentFile
                         );
@@ -4711,6 +4747,7 @@ function renderProjectTaskHistory() {
 
 
 function renderProjectProgressView() {
+    if (historyReadStatus) historyReadStatus.hidden = progressView !== "tasks";
 
     reportsTab.toggleClass(
         "is-active",
@@ -4733,7 +4770,7 @@ function renderProjectProgressView() {
     } else if (progressView === "activity") {
         renderProjectActivity();
     } else {
-        renderProjectTaskHistory();
+        void refreshProjectTaskHistory();
     }
 
 
@@ -4774,6 +4811,7 @@ activityTab.addEventListener(
 tasksTab.addEventListener(
     "click",
     () => {
+        completedHistoryRead?.invalidate();
         progressView = "tasks";
         sessionStorage.setItem(
             "obsidian-hub::project-progress-view",
@@ -5025,65 +5063,67 @@ root.addEventListener(
 root.addEventListener(
     "hub-completed-tasks-changed",
     event => {
+        if (event.detail?.deleted?.length) {
 
-        const linesByPath =
-            new Map();
+            const linesByPath =
+                new Map();
 
 
-        for (
-            const item
-            of event.detail?.deleted ?? []
-        ) {
+            for (
+                const item
+                of event.detail?.deleted ?? []
+            ) {
 
-            if (!linesByPath.has(item.path)) {
-                linesByPath.set(
-                    item.path,
-                    []
-                );
+                if (!linesByPath.has(item.path)) {
+                    linesByPath.set(
+                        item.path,
+                        []
+                    );
+                }
+
+
+                linesByPath.get(item.path)
+                    .push(item.line);
             }
 
 
-            linesByPath.get(item.path)
-                .push(item.line);
-        }
+            currentProjectTasks =
+                currentProjectTasks.filter(
+                    task => {
+
+                        const deletedLines =
+                            linesByPath.get(
+                                task.path
+                            ) ?? [];
 
 
-        currentProjectTasks =
-            currentProjectTasks.filter(
-                task => {
+                        if (
+                            deletedLines.includes(
+                                task.line
+                            )
+                        ) {
+                            return false;
+                        }
 
-                    const deletedLines =
-                        linesByPath.get(
-                            task.path
-                        ) ?? [];
+
+                        task.line -=
+                            deletedLines.filter(
+                                line =>
+                                    line < task.line
+                            ).length;
 
 
-                    if (
-                        deletedLines.includes(
-                            task.line
-                        )
-                    ) {
-                        return false;
+                        return true;
                     }
+                );
 
 
-                    task.line -=
-                        deletedLines.filter(
-                            line =>
-                                line < task.line
-                        ).length;
-
-
-                    return true;
-                }
-            );
-
-
-        renderTaskRows();
-
+            renderTaskRows();
+        }
+        completedHistoryRead?.invalidate();
 
         if (progressView === "tasks") {
-            renderProjectProgressView();
+            void refreshProjectTaskHistory();
         }
     }
 );

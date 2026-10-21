@@ -17,11 +17,22 @@ class ProjectPlanningService {
         const owner = this.plugin.projectWizard.getContextForPath(this.plugin.taskData.currentPath(task.path));
         return owner?.contextKind !== "resource" && owner?.projectId ? this.phases(owner.projectId).find(phase => phase.id === task.phaseId) : null;
     }
-    tasks(dv, id) {
-        const project = this.project(id);
-        // Reuse canonical indexed tasks; no task copies are stored on a Phase.
-        return this.plugin.taskData.readWorkspace(dv, project).filter(task =>
-            this.plugin.projectWizard.getContextForPath(task.path)?.projectId === id);
+    async tasks(_dv, id) {
+        return (await this.taskCandidates(id)).tasks;
+    }
+    async taskCandidates(id, reader = null, cancelled = () => false) {
+        this.project(id);
+        const options = { workspace: { type: "project", id }, policy: "workspace", validation: "indexed" };
+        const query = reader ? await reader.read(options, cancelled) : await this.plugin.taskService.queryStructured(options);
+        if (!query || cancelled()) return null;
+        this.project(id);
+        const { legacyReadTask } = require("./task-service-legacy-bridge");
+        const tasks = query.rows.filter(row => row.view?.legacy && row.view.owner?.type === "project" && row.view.owner.id === id).map(row => {
+            const task = legacyReadTask(row.view);
+            if (!row.view.phase) delete task.phaseId;
+            return task;
+        });
+        return { tasks, diagnostics: query.diagnostics };
     }
     subscribe(component, callback) { this.listeners.add(callback); component.register(() => this.listeners.delete(callback)); }
     changed(id) { this.plugin.taskData.invalidateAll(); for (const listener of this.listeners) listener(id); }

@@ -1,0 +1,101 @@
+<!doctype html><meta charset="utf-8"><title>Task draft labels, shared dates and Step metrics</title>
+<link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../../../../../System/Dashboards/Project/view.css"><link rel="stylesheet" href="../../../../../System/Dashboards/Home/view.css">
+<style>#fixture,#result{display:none}</style><body class="theme-dark"><main id="fixture"></main><pre id="result">RUNNING</pre>
+<script type="module">
+let checks=0;const check=(v,m)=>{checks++;if(!v)throw Error(m)},frame=()=>new Promise(r=>requestAnimationFrame(r)),settle=async()=>{for(let i=0;i<3;i++)await frame()};
+const baseline=new URLSearchParams(location.search).get('home-source')==='baseline',layout=devicePixelRatio>1?'small-150':'desktop',prefix='dynamic-'+(baseline?'before':'after')+'-'+layout;
+const shot=async name=>{await frame();await Promise.all(document.getAnimations().map(a=>a.finished.catch(()=>{})));return new Promise(resolve=>{window.hubTestScreenshotDone=resolve;window.hubTestScreenshotRequest=prefix+'-'+name})},key=value=>new Promise(resolve=>{window.hubTestKeyDone=resolve;window.hubTestKeyRequest=value});
+const pointer=el=>new Promise(resolve=>{el.scrollIntoView({block:'nearest'});const b=el.getBoundingClientRect();window.hubTestPointerDone=resolve;window.hubTestPointerRequest={x:b.x+b.width/2,y:b.y+b.height/2}});
+const traces=[];window.hubTaskOpeningFrames=traces;
+try{
+ const RealDate=Date,instant=new RealDate(2026,9,15,12).getTime();globalThis.Date=class extends RealDate{constructor(...args){super(...(args.length?args:[instant]))}static now(){return instant}};
+ const source=await(await fetch('task-opening.html')).text(),setup=source.slice(source.indexOf(' const source=await'),source.indexOf(' const originalRead=')),AsyncFunction=Object.getPrototypeOf(async function(){}).constructor;
+ const {load,obsidian,service,openTaskCreator,openTaskEditor,p,q,r,plugin,contents}=await new AsyncFunction('check',setup+';return env;')(check);
+ const {createTaskRow,createTaskUi}=load('ui/tasks');
+ const input=(el,value)=>{el.value=value;el.dispatchEvent(new Event('input',{bubbles:true}))},prop=(m,n)=>m.contentEl.querySelector('[data-task-property='+n+']'),section=m=>m.contentEl.querySelector('.hub-task-config-section:not([hidden])');
+ const label=(m,n)=>prop(m,n).querySelector('.hub-task-config-label').textContent;
+ const verify=(m,n,text,configured)=>{const el=prop(m,n);check(label(m,n)===text,n+' label '+text);check(el.classList.contains('is-configured')===configured,n+' configured check');check(el.getAttribute('aria-label')===text+(configured?', configured':''),n+' accessible action follows draft');};
+ const pick=(m,value)=>{const option=section(m).querySelector('[data-value="'+value+'"]');check(!!option,'Option '+value);option.click()};
+ const made=await service.create(p.root,'Presentation task',{necessity:'should',phaseId:'build',dueDate:'2026-10-23'}),entry={path:made.path,line:made.line??1,text:'Presentation task'};
+ const fingerprint=()=>JSON.stringify({contents:[...contents],data:plugin.projectWizard.data});
+ const box=el=>{const b=el.getBoundingClientRect();return{x:b.x,y:b.y,w:b.width,h:b.height}},style=el=>{const s=getComputedStyle(el);return Object.fromEntries(['fontSize','lineHeight','columnGap','paddingTop','paddingBottom','paddingLeft','paddingRight','color','opacity'].map(k=>[k,s[k]]))};
+ const metric=f=>({button:box(f.steps.add),icon:box(f.steps.add.querySelector('svg')),label:box(f.steps.add.lastElementChild),style:style(f.steps.add),textStyle:style(f.steps.add.lastElementChild),stroke:f.steps.add.querySelector('svg').getAttribute('stroke-width'),disabled:f.steps.add.disabled});
+ for(const edit of [false,true]){
+  const saved=fingerprint(),m=edit?openTaskEditor(service,entry):openTaskCreator(service,{root:p.root});await m.ready;const f=m.taskFields,mode=edit?'edit':'add';
+  input(f.input,'A task with a naturally wrapping title for date and Step presentation');
+  verify(m,'necessity',edit&&!baseline?'Change importance':'Set importance',edit);verify(m,'phase',edit&&!baseline?'Change Phase assignment':'Assign to Phase',edit);
+  traces.push({name:mode+'-initial-labels',importance:label(m,'necessity'),phase:label(m,'phase')});await shot(mode+'-initial');
+  prop(m,'necessity').click();
+  for(const value of ['should','must','','should','','must']){
+   if(value)pick(m,value);else section(m).querySelector('[aria-label="Clear importance"]').click();
+   verify(m,'necessity',!baseline&&value?'Change importance':'Set importance',!!value);check(prop(m,'necessity').getAttribute('aria-expanded')==='true','Importance remains expanded');
+  }
+  prop(m,'phase').click();
+  const first=section(m).querySelector('[role=menuitemradio]');check(first.textContent===(baseline?'No phase':'Unassigned')&&first.dataset.value==='','Unassigned remains first and clears same identity');
+  for(const value of ['build','','review','','build']){pick(m,value);verify(m,'phase',!baseline&&value?'Change Phase assignment':'Assign to Phase',!!value);check(f.state.phaseId===(value||null),'Phase identity remains unchanged');check(section(m).querySelector('[data-value="'+value+'"]').getAttribute('aria-checked')==='true','Radio selection matches draft');check(prop(m,'phase').getAttribute('aria-expanded')==='true','Phase remains expanded');}
+  await shot(mode+'-phase');prop(m,'phase').click();
+  f.state.steps=[];f.refresh();f.checklist.toggle.click();await settle();
+  check(f.steps.draftInput.placeholder===(baseline?'Add a step...':'Describe this step...'),'Scoped pending Step placeholder');check(f.steps.add.textContent==='Add step','Separate action retained');
+  const disabled=metric(f);check(disabled.disabled&&document.activeElement===f.steps.draftInput,'First empty Step focused and internal action disabled');await shot(mode+'-empty-step');
+  await pointer(f.steps.add);check(document.activeElement===f.steps.draftInput&&f.steps.hasPending,'Disabled pointer preserves focused draft');
+  input(f.steps.draftInput,'First meaningful Step');await settle();const enabled=metric(f);await shot(mode+'-valid-step');
+  for(const k of ['fontSize','lineHeight','columnGap','paddingTop','paddingBottom','paddingLeft','paddingRight','opacity'])check(enabled.style[k]===disabled.style[k],mode+' identical Add step '+k);
+  for(const k of ['w','h']){check(enabled.icon[k]===disabled.icon[k],mode+' identical SVG '+k);check(enabled.label[k]===disabled.label[k],mode+' identical label '+k);check(enabled.button[k]===disabled.button[k],mode+' identical action '+k)}
+  check(enabled.icon.x===disabled.icon.x&&enabled.label.x===disabled.label.x&&enabled.stroke===disabled.stroke,'Same stroke and horizontal alignment');
+  const probe=m.contentEl.createSpan();probe.style.color='var(--text-normal)';check(enabled.style.color===getComputedStyle(probe).color&&enabled.textStyle.color===getComputedStyle(probe).color,'Enabled icon and label use text-normal');probe.style.color='var(--text-faint)';check(disabled.style.color===getComputedStyle(probe).color&&disabled.textStyle.color===getComputedStyle(probe).color,'Disabled icon and label use text-faint');probe.remove();
+  for(const k of ['fontSize','lineHeight'])check(enabled.textStyle[k]===disabled.textStyle[k],'Exact label '+k+' parity');
+  traces.push({name:mode+'-step-metrics',disabled,enabled});
+  await pointer(f.steps.add);check(f.state.steps.length===1&&f.steps.hasPending&&!f.steps.draftInput.value&&document.activeElement===f.steps.draftInput,'Valid Step confirmed once and next empty Step focused');await shot(mode+'-subsequent-step');
+  await pointer(f.completion);check(f.state.completed&&!f.steps.hasPending,'Main completion first click abandons empty Step');
+  f.completion.click();
+  for(const value of ['Another confirmed Step','A long Step that wraps naturally in the narrow editor. '.repeat(4)]){f.steps.add.click();input(f.steps.draftInput,value);await key('Enter');}
+  await settle();check(f.state.steps.length===3,'Several confirmed Steps');await shot(mode+'-multiple-steps');
+  check(f.card.row.scrollWidth<=f.card.row.clientWidth+1,'Steps fit card');
+  m.close();check(fingerprint()===saved,'Cancel discards pending labels, Steps and completion');
+ }
+ // Save and reopen both properties, then clear them using their existing data values.
+ if(!baseline){
+  let m=openTaskEditor(service,entry);await m.ready;prop(m,'necessity').click();pick(m,'must');prop(m,'phase').click();pick(m,'review');m.contentEl.querySelector('.hub-task-dialog-actions .mod-cta').click();await settle();
+  m=openTaskEditor(service,entry);await m.ready;verify(m,'necessity','Change importance',true);verify(m,'phase','Change Phase assignment',true);check(m.taskFields.state.necessity==='must'&&m.taskFields.state.phaseId==='review','Saved identities reopened');
+  prop(m,'necessity').click();section(m).querySelector('[aria-label="Clear importance"]').click();prop(m,'phase').click();pick(m,'');m.contentEl.querySelector('.hub-task-dialog-actions .mod-cta').click();await settle();
+  m=openTaskEditor(service,entry);await m.ready;verify(m,'necessity','Set importance',false);verify(m,'phase','Assign to Phase',false);check(!m.taskFields.state.phaseId&&!m.taskFields.state.necessity,'Cleared identities reopened');m.close();
+ }
+ for(const owner of [q,r]){const m=openTaskCreator(service,{root:owner.root});await m.ready;check(prop(m,'phase').hidden,'Phase unavailable outside phased Project');m.close()}
+ const cases=[
+  ['due',{dueDate:'2026-10-23'},'Due 23 Oct'],['overdue',{fromDate:'2026-10-01',dueDate:'2026-10-13'},'Overdue 13 Oct'],
+  ['completed',{completed:true,dueDate:'2026-10-13'},'Due 13 Oct'],['start',{fromDate:'2026-10-20'},'Starts 20 Oct'],
+  ['range',{fromDate:'2026-10-20',dueDate:'2026-10-23'},'20 Oct → 23 Oct'],['cross-year',{fromDate:'2026-12-30',dueDate:'2027-01-02'},'30 Dec 2026 → 2 Jan 2027'],
+  ['past-start',{fromDate:'2026-10-01',dueDate:'2026-10-23'},'Due 23 Oct'],['no-dates',{},''],['past-start-only',{fromDate:'2026-10-01'},''],
+  ['today',{dueDate:'2026-10-15'},'Due Today'],['tomorrow',{dueDate:'2026-10-16'},'Due Tomorrow'],['timed-later',{dueDate:'2026-10-15',dueTime:'17:00'},'Due Today, 17:00'],['timed-overdue',{dueDate:'2026-10-15',dueTime:'11:00'},'Overdue Today, 11:00']
+ ];
+ for(const edit of [false,true]){
+  for(const [name,data,expected]of cases){
+   const text='A long task title that wraps naturally without overlapping its location, assigned Phase, checklist or overdue date label ('+name+').',metadata={phaseId:'build',necessity:'must',...data};
+   const made=edit?await service.create(p.root,text,metadata):null,m=edit?openTaskEditor(service,{path:made.path,line:made.line??1,text}):openTaskCreator(service,{root:p.root,text,...metadata});await m.ready;const f=m.taskFields;
+   if(!edit&&data.completed)f.completion.click();if(f.input.isConnected)f.input.blur();await settle();
+   const actual=f.presentation.dates?.textContent??'',oldExpected=expected.replace(/^(Due|Overdue) /,'');check(actual===(baseline?oldExpected:expected),name+' exact live '+actual);
+   const component=new obsidian.Component();component.load();const host=document.body.createDiv({cls:'hub-button-scope project-dashboard project-tasks-body'});Object.assign(host.style,{position:'fixed',left:'-2000px',width:f.card.row.getBoundingClientRect().width+'px'});
+   const ui=createTaskUi({app:plugin.app,component,body:host,phaseLabel:()=> 'Problem sets',editTask(){},mutate:async()=>({}),onEdit(){}});ui.beginRender(()=>{});
+   const task={...f.state,path:p.root+'/Tasks.md'},parts=createTaskRow(host,task,task.completed,{variant:'project'});ui.bind(parts.row,parts.textEl,task,()=>task.path);
+   check((parts.row.querySelector('.hub-task-dates')?.textContent??'')===actual,'Tasks-panel / '+(edit?'Edit':'Add')+' date parity '+name);
+   const warning=!!f.card.row.querySelector('.hub-task-dates .is-overdue');check(warning===expected.startsWith('Overdue'),'Overdue warning only incomplete due tasks');
+   check(f.card.row.scrollWidth<=f.card.row.clientWidth+1,name+' card no horizontal overflow');
+   const date=f.presentation.dates;if(date){const b=date.getBoundingClientRect(),loc=f.card.source.getBoundingClientRect();check(b.right<=f.card.row.getBoundingClientRect().right+1,'Date right boundary');check(b.left>=loc.right-1||b.top>=loc.bottom-1||b.bottom<=loc.top+1,'Date and source do not overlap')}
+   traces.push({name:(edit?'edit':'add')+'-'+name,date:actual,warning,card:box(f.card.row),dates:date?box(date):null});
+   if(['due','overdue','start','range','cross-year'].includes(name))await shot((edit?'edit':'add')+'-'+name);
+   component.unload();host.remove();
+   if(name==='overdue'){f.completion.click();check((f.presentation.dates?.textContent??'')===(baseline?'13 Oct':'Due 13 Oct')&&!f.card.row.querySelector('.is-overdue'),'Completion removes overdue warning immediately');f.completion.click();check((f.presentation.dates?.textContent??'')===(baseline?'13 Oct':'Overdue 13 Oct')&&!!f.card.row.querySelector('.is-overdue'),'Uncompletion restores overdue warning')}
+   m.close();
+  }
+ }
+ // Other consumers retain their original wording through adapter defaults.
+ const host=document.body.createDiv({cls:'hub-button-scope'}),legacy={text:'Compact consumer',steps:[],phaseId:null,necessity:'must'},notice=host.createDiv();
+ const phase=load('ui/task-compact-form').mountTaskPhaseButton({host,state:legacy,service,location:()=>p.root,notice}),necessity=load('ui/task-compact-form').mountTaskNecessity(host,legacy);
+ const steps=load('ui/task-form').mountTaskSteps({host,state:legacy,inlineAdd:true});
+ check(steps.draftInput.placeholder==='Add a step...','Other Step consumers retain original placeholder');
+ const phaseButton=host.querySelector('[data-task-property=phase]');check(phaseButton.textContent==='Phase','Compact Phase heading retained');check(host.querySelector('[data-task-property=necessity]').textContent==='Must do','Compact classification value retained');
+ phaseButton.click();await settle();const first=document.querySelector('.hub-task-popover [role=menuitemradio]');check(first?.textContent==='No phase'&&first.dataset.value==='','Other Phase consumers retain No phase label and empty value');
+ phase.destroy();necessity.destroy();steps.destroy();host.remove();
+ document.querySelector('#result').textContent='PASS: '+checks+' dynamic presentation checks ('+(baseline?'before':'after')+'); labels, Unassigned, Save/Cancel, shared dates, deterministic clock, native Steps and geometry.';document.body.dataset.test='passed';
+}catch(error){document.querySelector('#result').textContent='FAIL '+error.stack;document.body.dataset.test='failed'}
+</script>

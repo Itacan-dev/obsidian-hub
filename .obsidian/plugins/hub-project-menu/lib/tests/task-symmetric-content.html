@@ -1,0 +1,62 @@
+<!doctype html><meta charset="utf-8"><title>Symmetric configuration content and Importance flag</title>
+<link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../../../../../System/Dashboards/Project/view.css"><link rel="stylesheet" href="../../../../../System/Dashboards/Home/view.css">
+<style>#fixture,#result{display:none}.modal-close-button{background:transparent!important;border:0!important;box-shadow:none!important}</style><body class="theme-dark"><main id="fixture"></main><pre id="result">RUNNING</pre><script type="module">
+let checks=0;
+const check=(v,m)=>{checks++;if(!v)throw Error(m)},frame=()=>new Promise(r=>requestAnimationFrame(r)),settle=async()=>{for(let i=0;i<3;i++)await frame()},near=(a,b)=>Math.abs(a-b)<.8,
+box=e=>{const b=e.getBoundingClientRect();return{x:b.x,y:b.y,w:b.width,h:b.height,right:b.right,bottom:b.bottom}},
+baseline=new URLSearchParams(location.search).get('home-source')==='baseline',layout=devicePixelRatio>1?'small-150':'desktop',prefix='task-symmetric-'+(baseline?'before':'after')+'-'+layout,
+shot=name=>new Promise(resolve=>{window.hubTestScreenshotDone=resolve;window.hubTestScreenshotRequest=prefix+'-'+name}),key=value=>new Promise(resolve=>{window.hubTestKeyDone=resolve;window.hubTestKeyRequest=value}),viewport=(width,height)=>new Promise(resolve=>{window.hubTestViewportDone=resolve;window.hubTestViewportRequest={width,height}}),traces=[];window.hubTaskOpeningFrames=traces;
+try{
+ const originalLink=document.querySelector('link'),current=document.createElement('style'),old=document.createElement('style');
+ current.textContent=await(await fetch('../../styles.css')).text();old.textContent=await(await fetch('../../../../../System/Backups/task-symmetric-content-20261015/source/styles.css')).text();document.head.append(current,old);originalLink.disabled=true;old.sheet.disabled=!baseline;current.sheet.disabled=baseline;
+ const useOld=async enabled=>{old.sheet.disabled=!enabled;current.sheet.disabled=enabled;dispatchEvent(new Event('resize'));await settle();};
+ const source=await(await fetch('task-opening.html')).text(),setup=source.slice(source.indexOf(' const source=await'),source.indexOf(' const originalRead=')),AsyncFunction=Object.getPrototypeOf(async function(){}).constructor,{service,openTaskCreator,openTaskEditor,plugin,p,r}=await new AsyncFunction('check',setup+';return env;')(check);
+ for(const context of [p,r])for(const edit of [false,true]){
+  const made=edit?await service.create(context.root,'Symmetric editor',{necessity:'should',description:'Stored description',phaseId:context===p?'build':null}):null;
+  const modal=edit?openTaskEditor(service,{path:made.path,line:made.line??1,text:'Symmetric editor'}):openTaskCreator(service,{root:context.root});await modal.ready;
+  const f=modal.taskFields,prop=n=>modal.contentEl.querySelector('[data-task-property='+n+']'),region=()=>modal.contentEl.querySelector('.hub-task-config-section:not([hidden])'),input=(e,v)=>{e.value=v;e.dispatchEvent(new Event('input',{bubbles:true}))},label=(edit?'edit':'add')+'-'+(context===p?'project':'resource');input(f.input,'Symmetric editor');
+  const flag=prop('necessity').firstElementChild.querySelector('svg');check(prop('necessity').textContent.includes(edit?'Change importance':'Set importance'),'Draft action label retained');check(prop('necessity').firstElementChild.dataset.icon===(baseline?'circle-gauge':'flag'),'Exact standard icon in '+label);check(near(box(flag).w,16)&&near(box(flag).h,16)&&getComputedStyle(flag).strokeWidth==='2px','Icon 16px geometry/stroke retained');
+  const phases=plugin.planning.phases;
+  for(const name of ['start','due','necessity','description','phase','phase-long']){
+   const long=name==='phase-long',property=long?'phase':name,heading=prop(property);if(heading.hidden)continue;
+   if(long){plugin.planning.phases=id=>id==='p'?Array.from({length:24},(_,i)=>({id:'long-'+i,name:'Ordered Phase '+i+' with a long naturally wrapping milestone name'})):[];f.phase.refresh();}
+   const initialTop=box(modal.modalEl).y;heading.click();await settle();const section=region();
+   if(property==='start'||property==='due'){const d=section.querySelector('input[type=date]'),t=section.querySelector('input[type=time]');input(d,'2090-10-20');input(t,'00:00');}
+   const capture=()=>{
+    const h=box(heading),s=getComputedStyle(section),a=section.querySelector('.hub-task-popover-actions'),controls=property==='start'||property==='due'?[...section.querySelector('.hub-task-popover-date-inputs').children]:property==='necessity'?[...section.querySelectorAll('[role=menuitemradio]')]:property==='description'?[section.querySelector('textarea')]:[...section.querySelectorAll('[role=menuitemradio]')];
+    const bounds=controls.map(box),left=bounds[0].x,right=Math.max(...bounds.map(b=>b.right)),groups=[...heading.parentElement.parentElement.children],next=groups.slice(groups.indexOf(heading.parentElement)+1).map(g=>g.querySelector('.hub-task-config-action:not([hidden])')).find(Boolean),last=a??controls.at(-1),followingGap=next?box(next).y-box(last).bottom:null;
+    return{heading:h,left,right,leftMargin:left-h.x,rightMargin:h.right-right,bounds,buttons:a?[...a.children].map(box):[],parts:[heading.firstElementChild,heading.querySelector('.hub-task-config-label'),heading.querySelector('.hub-task-config-chevron'),heading.querySelector('.hub-task-config-check')].map(box),paddingTop:s.paddingTop,paddingBottom:s.paddingBottom,followingGap,scrollbar:section.offsetWidth-section.clientWidth,section:box(section),scrollHeight:section.scrollHeight,clientHeight:section.clientHeight};
+   };
+   let after=capture(),before=after;
+   if(!baseline){await useOld(true);before=capture();await useOld(false);after=capture();}
+   check(near(after.left,before.left),name+' original control left edge unchanged');check(near(after.heading.x,before.heading.x)&&near(after.heading.right,before.heading.right)&&near(after.heading.h,before.heading.h),name+' heading geometry unchanged');
+   for(let i=0;i<after.parts.length;i++)for(const k of ['x','w','right'])check(near(after.parts[i][k],before.parts[i][k]),name+' heading part '+i+' '+k+' unchanged');
+   check(after.paddingTop===before.paddingTop&&after.paddingBottom===before.paddingBottom,name+' vertical padding unchanged');check(near(box(modal.modalEl).y,initialTop),name+' stable modal top');check(section.scrollWidth<=section.clientWidth+1,name+' no horizontal overflow');
+   if(baseline)check(after.leftMargin>after.rightMargin+10,name+' original asymmetry reproduced');
+   else{check(near(after.leftMargin,after.rightMargin),name+' symmetric actual painted margins '+JSON.stringify(after));check(near(before.right-after.right,before.leftMargin-before.rightMargin),name+' only right edge moves inward');}
+   if(after.followingGap!==null)check(near(after.followingGap,16),name+' 16px following-heading gap retained');else check(after.paddingBottom==='8px','Final section retains 8px bottom padding');
+   if(property==='start'||property==='due'){
+    const [a,b]=after.bounds,stacked=b.y>a.y+.8;check(near(a.w,b.w)&&near(a.h,b.h),'Native fields equal');check(near(stacked?b.y-a.bottom:b.x-a.right,8),'Native field gap 8px');check(near(after.buttons.at(-1).right,after.right),'Apply right aligns with fields');check(near(after.buttons[1].x-after.buttons[0].right,8),'Cancel/Apply gap retained');
+    if(stacked)check(near(a.x,b.x)&&near(a.right,b.right),'Stacked native fields share both edges');
+   }
+   if(property==='necessity'){
+    const [a,b]=after.bounds;check(near(a.w,b.w)&&near(a.h,b.h)&&near(b.x-a.right,8),'Importance equal buttons and 8px gap');check(near(after.buttons[0].x,after.left)&&near(after.buttons[1].right,after.right),'Clear/Done align with options');
+   }
+   if(property==='description'){check(near(after.bounds[0].h,before.bounds[0].h)&&near(after.bounds[0].h,96),'Textarea height unchanged');check(near(after.buttons[0].x,after.left)&&near(after.buttons[1].right,after.right),'Description footer aligns with textarea');}
+   for(let i=0;i<after.buttons.length;i++)check(near(after.buttons[i].w,before.buttons[i].w)&&near(after.buttons[i].h,before.buttons[i].h),name+' action button size unchanged');
+   if(property==='phase'){
+    const options=[...section.querySelectorAll('[role=menuitemradio]')];check(options[0].dataset.value===''&&options[0].textContent==='Unassigned','Unassigned first');check(after.bounds.every(b=>near(b.x,after.left)&&near(b.right,after.right)),'All Phase edges align');for(let i=1;i<after.bounds.length;i++)check(near(after.bounds[i].y-after.bounds[i-1].bottom,4),'Phase 4px gaps');
+    if(long){check(after.scrollHeight>after.clientHeight,'Long Phase internally scrolls');await key('End');await key('Enter');check(f.state.phaseId==='long-23'&&box(options.at(-1)).bottom<=box(section).bottom-parseFloat(getComputedStyle(section).paddingBottom)+1,'Last Phase reachable');}else check(after.scrollHeight<=after.clientHeight+1,'Short Phase needs no scrolling');
+   }
+   traces.push({label,name,before,after});await shot(label+'-'+name);check(scrollY===0,'Workspace does not scroll');heading.click();await settle();
+   if(long){plugin.planning.phases=phases;f.phase.refresh();}
+  }
+  modal.close();
+ }
+ // Exercise the native-fit resize path with the narrower content region.
+ if(!baseline){const initial=[innerWidth,innerHeight],modal=openTaskCreator(service,{root:p.root});await modal.ready;const f=modal.taskFields;f.input.value='Responsive native fit';f.input.dispatchEvent(new Event('input',{bubbles:true}));modal.contentEl.querySelector('[data-task-property=start]').click();
+ for(const width of [520,360]){await viewport(width,640);await settle();const s=modal.contentEl.querySelector('.hub-task-config-section:not([hidden])'),fields=[...s.querySelector('.hub-task-popover-date-inputs').children].map(box),heading=box(s.previousElementSibling);check(near(fields[0].w,fields[1].w),'Resize keeps equal field widths');check(width===360?fields[1].y>fields[0].bottom:near(fields[0].y,fields[1].y),'Native-fit responsive layout at '+width);check(near(fields[0].x-heading.x,heading.right-Math.max(...fields.map(b=>b.right))),'Resize retains symmetry');traces.push({name:'resize-'+width,heading,fields});await shot('responsive-'+width);}
+ modal.close();await viewport(...initial);}
+ document.querySelector('#result').textContent='PASS: '+checks+' symmetric-content/icon checks '+(baseline?'before ':'after ')+layout;
+}catch(e){document.querySelector('#result').textContent='FAIL '+e.stack}
+</script>

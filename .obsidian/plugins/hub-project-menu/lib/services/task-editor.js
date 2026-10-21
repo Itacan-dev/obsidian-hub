@@ -2,7 +2,7 @@
 const { processTaskWrite } = require("./task-writes");
 const { randomUUID } = require("crypto");
 const { taskMetadata, validateTaskMetadata, readTaskSnapshot, saveTaskSnapshot, appendTask } = require("../domain/task-planning");
-const { taskLocations, linkedProjects } = require("./task-locations");
+const { taskLocations } = require("./task-locations");
 const { validLocation } = require("../domain/task-views");
 const { taskIdentity, taskLineDetails, normalizedTaskText } = require("../domain/tasks");
 
@@ -10,12 +10,15 @@ class HubTaskEditor {
     constructor(plugin) { this.plugin = plugin; this.app = plugin.app; }
     metadata(id) { return taskMetadata(id ? this.plugin.projectWizard.data.taskMetadata?.[id] : {}); }
     context(path) { return this.plugin.projectWizard.getContextForPath(path); }
+    currentContext() {
+        return this.plugin.workspaceModes?.currentContext ? this.plugin.workspaceModes.currentContext() :
+            this.context(this.app.workspace?.getActiveFile?.()?.path) ?? null;
+    }
     locations(root) { return taskLocations(this.plugin, root ? this.plugin.taskData?.currentPath(root) ?? root : root); }
     phases(path) {
         const owner = this.context(path);
         return owner && owner.contextKind !== "resource" ? this.plugin.planning?.phases(owner.projectId) ?? [] : [];
     }
-    projects() { return linkedProjects(this.plugin); }
     file(path) {
         const current = this.plugin.taskData?.currentPath(path) ?? path;
         const file = this.app.vault.getAbstractFileByPath(current);
@@ -41,13 +44,11 @@ class HubTaskEditor {
     }
     checkedMetadata(values, workspace, previous = {}) {
         const metadata = validateTaskMetadata({ ...values,
+            ...(values.description === undefined && previous.description !== undefined ? { description: previous.description } : {}),
             ...(values.captureSource === undefined && previous.captureSource ? { captureSource: previous.captureSource } : {}) });
-        if (workspace?.contextKind !== "resource") delete metadata.linkedProjectId;
-        if (metadata.linkedProjectId && metadata.linkedProjectId !== previous.linkedProjectId &&
-            !this.projects().some(project => project.projectId === metadata.linkedProjectId)) {
-            throw Error("Choose an active Project.");
+        if (metadata.phaseId && (!workspace || workspace.contextKind === "resource")) {
+            throw Error("Choose a phase in the task's Project.");
         }
-        if (workspace?.contextKind === "resource") delete metadata.phaseId;
         if (metadata.phaseId && !this.phases(workspace?.root).some(phase => phase.id === metadata.phaseId)) {
             throw Error("This phase is no longer available in the task's Project.");
         }
@@ -98,9 +99,10 @@ class HubTaskEditor {
         return this.plugin.enqueueTaskMutation(async () => {
             const deleting = values.operation === "delete";
             const file = this.file(snapshot.file.path), owner = this.context(file.path);
-            const metadata = deleting ? taskMetadata() : this.checkedMetadata(values, owner, snapshot);
             const location = values.location ?? file.path;
             const moving = !deleting && location !== file.path;
+            const targetOwner = moving ? this.context(this.plugin.taskData?.currentPath(location) ?? location) : owner;
+            const metadata = deleting ? taskMetadata() : this.checkedMetadata(values, targetOwner, snapshot);
             const id = snapshot.hubTaskId ?? (!deleting && (moving || Object.values(metadata).some(Boolean)) ? randomUUID() : null);
             const request = { ...snapshot, path: file.path };
             if (snapshot.hubTaskId && JSON.stringify(this.metadata(snapshot.hubTaskId)) !== JSON.stringify(taskMetadata(snapshot))) {
@@ -108,6 +110,7 @@ class HubTaskEditor {
             }
             const withoutPhase = value => { const { phaseId, ...other } = taskMetadata(value); return other; };
             const phaseOnly = !deleting && !moving && (metadata.phaseId ?? null) !== (snapshot.phaseId ?? null) &&
+                (values.completed ?? snapshot.completed) === snapshot.completed &&
                 values.text === snapshot.text && JSON.stringify(withoutPhase(metadata)) === JSON.stringify(withoutPhase(snapshot)) &&
                 (values.steps ?? snapshot.steps).length === snapshot.steps.length &&
                 (values.steps ?? snapshot.steps).every((step, index) => step.line === snapshot.steps[index].line &&
@@ -115,7 +118,7 @@ class HubTaskEditor {
             const writes = [];
             let edit;
             try {
-                const target = moving ? await this.destination(location, owner) : file;
+                const target = moving ? await this.destination(location, targetOwner) : file;
                 if (target === file || target.path === file.path) {
                     await this.write(file, content => {
                         const result = saveTaskSnapshot(content, request, { ...values, ...metadata }, id, randomUUID);
@@ -141,9 +144,11 @@ class HubTaskEditor {
                     }, writes);
                     await this.write(file, content => {
                         const removed = saveTaskSnapshot(content, request, { operation: "delete" });
-                        edit = { ...removed.edit, operation: "edit", movedTo: { path: target.path, line: saved.line },
+                        edit = { ...removed.edit, operation: "edit", movedTo: { path: target.path, line: saved.line }, destinationContext: targetOwner,
                             tasks: [{ ...saved, ...metadata }], completed: saved.completed,
-                            progressTransitions: (result.edit.progressTransitions ?? []).map(event => ({ ...event, line: saved.line + event.line - updated.line })) };
+                            progressTransitions: (result.edit.progressTransitions ?? []).map(event => ({ ...event,
+                                line: saved.line + event.line - updated.line,
+                                ...(event.lookupLine != null ? { lookupLine: saved.line + event.lookupLine - updated.line } : {}) })) };
                         return removed.content;
                     }, writes);
                 }
@@ -153,7 +158,7 @@ class HubTaskEditor {
                 catch (_) { throw Error("The task could not be saved and a note also changed. Check its source and destination before retrying."); }
                 throw error;
             }
-            if (!phaseOnly) await this.record(edit, owner, actionTimestamp);
+            if (!phaseOnly) await this.record(edit, edit.movedTo ? targetOwner : owner, actionTimestamp);
             for (const write of writes) {
                 if (!phaseOnly) this.plugin.markProjectChangedByPath(write.file.path);
                 if (write.original === write.written) this.plugin.taskData?.invalidate(write.file.path);
@@ -222,7 +227,7 @@ class HubTaskEditor {
                     const appended = appendTask(content, text);
                     const line = content.split(/\r?\n/).length + (content.endsWith("\n") || !content ? -1 : 0);
                     const snapshot = readTaskSnapshot(appended, { path: file.path, line: line + 1, text });
-                    const result = saveTaskSnapshot(appended, snapshot, { ...values, ...metadata, text, steps: values.steps ?? [] }, id, randomUUID);
+                    const result = saveTaskSnapshot(appended, snapshot, { ...values, ...metadata, text, completed: values.completed === true, steps: values.steps ?? [] }, id, randomUUID);
                     edit = { ...result.edit, operation: "add", insertionLine: snapshot.line,
                         removedLines: 0, lineDelta: result.content.split(/\r?\n/).length - content.split(/\r?\n/).length };
                     return result.content;

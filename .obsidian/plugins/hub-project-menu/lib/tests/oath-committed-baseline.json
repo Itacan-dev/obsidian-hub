@@ -1,0 +1,2715 @@
+[
+  {
+    "name": "unique",
+    "work": [
+      {
+        "ref": {
+          "id": "parent",
+          "path": "Projects/Private/Tasks.md",
+          "text": "Parent **markdown**"
+        },
+        "task": {
+          "path": "Projects/Private/Tasks.md",
+          "line": 0,
+          "end": 4,
+          "text": "Parent **markdown**",
+          "hubTaskId": "parent",
+          "completed": false,
+          "status": " ",
+          "steps": [
+            {
+              "line": 2,
+              "text": "First",
+              "hubTaskId": "first",
+              "completed": true,
+              "status": "x",
+              "indent": 4,
+              "end": 4
+            },
+            {
+              "line": 3,
+              "text": "Nested",
+              "hubTaskId": "nested",
+              "completed": false,
+              "status": " ",
+              "indent": 8,
+              "end": 4
+            }
+          ],
+          "description": "Recorded **metadata**",
+          "necessity": "must",
+          "fromDate": null,
+          "dueDate": "2026-10-25",
+          "dueTime": "00:00"
+        }
+      }
+    ],
+    "pending": [],
+    "snapshot": {
+      "contents": {
+        "Projects/Private/Private.md": "",
+        "Projects/Itacan/Itacan.md": "",
+        "Projects/Obsidian Hub/Obsidian Hub.md": "",
+        "Resources/Knowledge/Knowledge.md": "",
+        "Projects/Future/Future.md": "",
+        "Projects/Shelved/Shelved.md": "",
+        "Resources/Research/Research.md": "",
+        "Resources/Explorations/Explorations.md": "",
+        "Resources/Inspiration/Inspiration.md": "",
+        "Projects/Private/Tasks.md": "- [ ] Parent **markdown** <!-- hub-task:parent -->\n    continuation evidence\n    - [x] First <!-- hub-task:first -->\n        - [ ] Nested <!-- hub-task:nested -->\n- [ ] ID-less\n- [ ] Same title\n- [ ] Same title\n- [x] Completed <!-- hub-task:complete -->\n- [ ] Future <!-- hub-task:future -->\n- [ ] Malformed metadata <!-- hub-task:malformed -->\n- [ ] Copied parent <!-- hub-task:copied -->\n- [ ] Copied Step parent <!-- hub-task:steps-parent -->\n    - [ ] Copied Step <!-- hub-task:step-copy -->\n- [ ] Parent collides with Step <!-- hub-task:parent-step -->\n",
+        "Projects/Itacan/Tasks.md": "- [ ] Itacan task <!-- hub-task:itacan-task -->\n",
+        "Projects/Obsidian Hub/Tasks.md": "- [ ] Hub task <!-- hub-task:hub-task -->\n",
+        "Resources/Knowledge/Mounted/Tasks.md": "- [ ] Resource presentation conflict <!-- hub-task:resource-task -->\n",
+        "Resources/Research/Tasks.md": "- [ ] Research task <!-- hub-task:literature-task -->\n",
+        "Resources/Explorations/Tasks.md": "- [ ] Explorations task <!-- hub-task:references-task -->\n",
+        "Resources/Inspiration/Tasks.md": "- [ ] Inspiration task <!-- hub-task:inspiration-task -->\n",
+        "Outside/Conflicts.md": "- [ ] Copy <!-- hub-task:copied -->\n- [ ] Outside parent <!-- hub-task:outside -->\n    - [ ] Copied step <!-- hub-task:step-copy -->\n    - [ ] Parent ID on Step <!-- hub-task:parent-step -->\n",
+        "Projects/Private/Nested/Tasks.md": "- [ ] Nested parent <!-- hub-task:deep -->\n",
+        "Projects/Future/Tasks.md": "- [ ] Inactive workspace task <!-- hub-task:inactive -->\n"
+      },
+      "metadata": {
+        "parent": {
+          "necessity": "must",
+          "dueDate": "2026-10-25",
+          "dueTime": "00:00",
+          "description": "Recorded **metadata**"
+        },
+        "future": {
+          "fromDate": "2026-11-01",
+          "fromTime": "00:00",
+          "dueDate": "2026-11-02"
+        },
+        "malformed": {
+          "necessity": "unexpected",
+          "fromDate": "not-a-date",
+          "dueDate": "2026-02-30"
+        }
+      },
+      "checks": [],
+      "history": []
+    },
+    "current": {
+      "id": "committed-oath",
+      "deviceId": "candidate-device",
+      "state": "active",
+      "workspace": {
+        "type": "project",
+        "id": "private"
+      },
+      "scheduledAt": 1793012400000,
+      "startedAt": 1793012400000,
+      "takenAt": 1793012400000,
+      "durationMs": 1500000,
+      "tasks": [
+        {
+          "id": "parent",
+          "path": "Projects/Private/Tasks.md",
+          "text": "Parent **markdown**"
+        }
+      ],
+      "fulfilledAt": null,
+      "fullscreenOwned": false
+    }
+  },
+  {
+    "name": "title",
+    "work": [
+      {
+        "ref": {
+          "id": "parent",
+          "path": "Projects/Private/Tasks.md",
+          "text": "Parent **markdown**"
+        },
+        "task": {
+          "path": "Projects/Private/Tasks.md",
+          "line": 0,
+          "end": 4,
+          "text": "New current title",
+          "hubTaskId": "parent",
+          "completed": false,
+          "status": " ",
+          "steps": [
+            {
+              "line": 2,
+              "text": "First",
+              "hubTaskId": "first",
+              "completed": true,
+              "status": "x",
+              "indent": 4,
+              "end": 4
+            },
+            {
+              "line": 3,
+              "text": "Nested",
+              "hubTaskId": "nested",
+              "completed": false,
+              "status": " ",
+              "indent": 8,
+              "end": 4
+            }
+          ],
+          "description": "Recorded **metadata**",
+          "necessity": "must",
+          "fromDate": null,
+          "dueDate": "2026-10-25",
+          "dueTime": "00:00"
+        }
+      }
+    ],
+    "pending": [],
+    "snapshot": {
+      "contents": {
+        "Projects/Private/Private.md": "",
+        "Projects/Itacan/Itacan.md": "",
+        "Projects/Obsidian Hub/Obsidian Hub.md": "",
+        "Resources/Knowledge/Knowledge.md": "",
+        "Projects/Future/Future.md": "",
+        "Projects/Shelved/Shelved.md": "",
+        "Resources/Research/Research.md": "",
+        "Resources/Explorations/Explorations.md": "",
+        "Resources/Inspiration/Inspiration.md": "",
+        "Projects/Private/Tasks.md": "- [ ] New current title <!-- hub-task:parent -->\n    continuation evidence\n    - [x] First <!-- hub-task:first -->\n        - [ ] Nested <!-- hub-task:nested -->\n- [ ] ID-less\n- [ ] Same title\n- [ ] Same title\n- [x] Completed <!-- hub-task:complete -->\n- [ ] Future <!-- hub-task:future -->\n- [ ] Malformed metadata <!-- hub-task:malformed -->\n- [ ] Copied parent <!-- hub-task:copied -->\n- [ ] Copied Step parent <!-- hub-task:steps-parent -->\n    - [ ] Copied Step <!-- hub-task:step-copy -->\n- [ ] Parent collides with Step <!-- hub-task:parent-step -->\n",
+        "Projects/Itacan/Tasks.md": "- [ ] Itacan task <!-- hub-task:itacan-task -->\n",
+        "Projects/Obsidian Hub/Tasks.md": "- [ ] Hub task <!-- hub-task:hub-task -->\n",
+        "Resources/Knowledge/Mounted/Tasks.md": "- [ ] Resource presentation conflict <!-- hub-task:resource-task -->\n",
+        "Resources/Research/Tasks.md": "- [ ] Research task <!-- hub-task:literature-task -->\n",
+        "Resources/Explorations/Tasks.md": "- [ ] Explorations task <!-- hub-task:references-task -->\n",
+        "Resources/Inspiration/Tasks.md": "- [ ] Inspiration task <!-- hub-task:inspiration-task -->\n",
+        "Outside/Conflicts.md": "- [ ] Copy <!-- hub-task:copied -->\n- [ ] Outside parent <!-- hub-task:outside -->\n    - [ ] Copied step <!-- hub-task:step-copy -->\n    - [ ] Parent ID on Step <!-- hub-task:parent-step -->\n",
+        "Projects/Private/Nested/Tasks.md": "- [ ] Nested parent <!-- hub-task:deep -->\n",
+        "Projects/Future/Tasks.md": "- [ ] Inactive workspace task <!-- hub-task:inactive -->\n"
+      },
+      "metadata": {
+        "parent": {
+          "necessity": "must",
+          "dueDate": "2026-10-25",
+          "dueTime": "00:00",
+          "description": "Recorded **metadata**"
+        },
+        "future": {
+          "fromDate": "2026-11-01",
+          "fromTime": "00:00",
+          "dueDate": "2026-11-02"
+        },
+        "malformed": {
+          "necessity": "unexpected",
+          "fromDate": "not-a-date",
+          "dueDate": "2026-02-30"
+        }
+      },
+      "checks": [],
+      "history": []
+    },
+    "current": {
+      "id": "committed-oath",
+      "deviceId": "candidate-device",
+      "state": "active",
+      "workspace": {
+        "type": "project",
+        "id": "private"
+      },
+      "scheduledAt": 1793012400000,
+      "startedAt": 1793012400000,
+      "takenAt": 1793012400000,
+      "durationMs": 1500000,
+      "tasks": [
+        {
+          "id": "parent",
+          "path": "Projects/Private/Tasks.md",
+          "text": "Parent **markdown**"
+        }
+      ],
+      "fulfilledAt": null,
+      "fullscreenOwned": false
+    }
+  },
+  {
+    "name": "continuation",
+    "work": [
+      {
+        "ref": {
+          "id": "parent",
+          "path": "Projects/Private/Tasks.md",
+          "text": "Parent **markdown**"
+        },
+        "task": {
+          "path": "Projects/Private/Tasks.md",
+          "line": 0,
+          "end": 4,
+          "text": "Parent **markdown**",
+          "hubTaskId": "parent",
+          "completed": false,
+          "status": " ",
+          "steps": [
+            {
+              "line": 2,
+              "text": "First",
+              "hubTaskId": "first",
+              "completed": true,
+              "status": "x",
+              "indent": 4,
+              "end": 4
+            },
+            {
+              "line": 3,
+              "text": "Nested",
+              "hubTaskId": "nested",
+              "completed": false,
+              "status": " ",
+              "indent": 8,
+              "end": 4
+            }
+          ],
+          "description": "Recorded **metadata**",
+          "necessity": "must",
+          "fromDate": null,
+          "dueDate": "2026-10-25",
+          "dueTime": "00:00"
+        }
+      }
+    ],
+    "pending": [],
+    "snapshot": {
+      "contents": {
+        "Projects/Private/Private.md": "",
+        "Projects/Itacan/Itacan.md": "",
+        "Projects/Obsidian Hub/Obsidian Hub.md": "",
+        "Resources/Knowledge/Knowledge.md": "",
+        "Projects/Future/Future.md": "",
+        "Projects/Shelved/Shelved.md": "",
+        "Resources/Research/Research.md": "",
+        "Resources/Explorations/Explorations.md": "",
+        "Resources/Inspiration/Inspiration.md": "",
+        "Projects/Private/Tasks.md": "- [ ] Parent **markdown** <!-- hub-task:parent -->\n    changed prose\n    - [x] First <!-- hub-task:first -->\n        - [ ] Nested <!-- hub-task:nested -->\n- [ ] ID-less\n- [ ] Same title\n- [ ] Same title\n- [x] Completed <!-- hub-task:complete -->\n- [ ] Future <!-- hub-task:future -->\n- [ ] Malformed metadata <!-- hub-task:malformed -->\n- [ ] Copied parent <!-- hub-task:copied -->\n- [ ] Copied Step parent <!-- hub-task:steps-parent -->\n    - [ ] Copied Step <!-- hub-task:step-copy -->\n- [ ] Parent collides with Step <!-- hub-task:parent-step -->\n",
+        "Projects/Itacan/Tasks.md": "- [ ] Itacan task <!-- hub-task:itacan-task -->\n",
+        "Projects/Obsidian Hub/Tasks.md": "- [ ] Hub task <!-- hub-task:hub-task -->\n",
+        "Resources/Knowledge/Mounted/Tasks.md": "- [ ] Resource presentation conflict <!-- hub-task:resource-task -->\n",
+        "Resources/Research/Tasks.md": "- [ ] Research task <!-- hub-task:literature-task -->\n",
+        "Resources/Explorations/Tasks.md": "- [ ] Explorations task <!-- hub-task:references-task -->\n",
+        "Resources/Inspiration/Tasks.md": "- [ ] Inspiration task <!-- hub-task:inspiration-task -->\n",
+        "Outside/Conflicts.md": "- [ ] Copy <!-- hub-task:copied -->\n- [ ] Outside parent <!-- hub-task:outside -->\n    - [ ] Copied step <!-- hub-task:step-copy -->\n    - [ ] Parent ID on Step <!-- hub-task:parent-step -->\n",
+        "Projects/Private/Nested/Tasks.md": "- [ ] Nested parent <!-- hub-task:deep -->\n",
+        "Projects/Future/Tasks.md": "- [ ] Inactive workspace task <!-- hub-task:inactive -->\n"
+      },
+      "metadata": {
+        "parent": {
+          "necessity": "must",
+          "dueDate": "2026-10-25",
+          "dueTime": "00:00",
+          "description": "Recorded **metadata**"
+        },
+        "future": {
+          "fromDate": "2026-11-01",
+          "fromTime": "00:00",
+          "dueDate": "2026-11-02"
+        },
+        "malformed": {
+          "necessity": "unexpected",
+          "fromDate": "not-a-date",
+          "dueDate": "2026-02-30"
+        }
+      },
+      "checks": [],
+      "history": []
+    },
+    "current": {
+      "id": "committed-oath",
+      "deviceId": "candidate-device",
+      "state": "active",
+      "workspace": {
+        "type": "project",
+        "id": "private"
+      },
+      "scheduledAt": 1793012400000,
+      "startedAt": 1793012400000,
+      "takenAt": 1793012400000,
+      "durationMs": 1500000,
+      "tasks": [
+        {
+          "id": "parent",
+          "path": "Projects/Private/Tasks.md",
+          "text": "Parent **markdown**"
+        }
+      ],
+      "fulfilledAt": null,
+      "fullscreenOwned": false
+    }
+  },
+  {
+    "name": "line",
+    "work": [
+      {
+        "ref": {
+          "id": "parent",
+          "path": "Projects/Private/Tasks.md",
+          "text": "Parent **markdown**"
+        },
+        "task": {
+          "path": "Projects/Private/Tasks.md",
+          "line": 2,
+          "end": 6,
+          "text": "Parent **markdown**",
+          "hubTaskId": "parent",
+          "completed": false,
+          "status": " ",
+          "steps": [
+            {
+              "line": 4,
+              "text": "First",
+              "hubTaskId": "first",
+              "completed": true,
+              "status": "x",
+              "indent": 4,
+              "end": 6
+            },
+            {
+              "line": 5,
+              "text": "Nested",
+              "hubTaskId": "nested",
+              "completed": false,
+              "status": " ",
+              "indent": 8,
+              "end": 6
+            }
+          ],
+          "description": "Recorded **metadata**",
+          "necessity": "must",
+          "fromDate": null,
+          "dueDate": "2026-10-25",
+          "dueTime": "00:00"
+        }
+      }
+    ],
+    "pending": [],
+    "snapshot": {
+      "contents": {
+        "Projects/Private/Private.md": "",
+        "Projects/Itacan/Itacan.md": "",
+        "Projects/Obsidian Hub/Obsidian Hub.md": "",
+        "Resources/Knowledge/Knowledge.md": "",
+        "Projects/Future/Future.md": "",
+        "Projects/Shelved/Shelved.md": "",
+        "Resources/Research/Research.md": "",
+        "Resources/Explorations/Explorations.md": "",
+        "Resources/Inspiration/Inspiration.md": "",
+        "Projects/Private/Tasks.md": "\n\n- [ ] Parent **markdown** <!-- hub-task:parent -->\n    continuation evidence\n    - [x] First <!-- hub-task:first -->\n        - [ ] Nested <!-- hub-task:nested -->\n- [ ] ID-less\n- [ ] Same title\n- [ ] Same title\n- [x] Completed <!-- hub-task:complete -->\n- [ ] Future <!-- hub-task:future -->\n- [ ] Malformed metadata <!-- hub-task:malformed -->\n- [ ] Copied parent <!-- hub-task:copied -->\n- [ ] Copied Step parent <!-- hub-task:steps-parent -->\n    - [ ] Copied Step <!-- hub-task:step-copy -->\n- [ ] Parent collides with Step <!-- hub-task:parent-step -->\n",
+        "Projects/Itacan/Tasks.md": "- [ ] Itacan task <!-- hub-task:itacan-task -->\n",
+        "Projects/Obsidian Hub/Tasks.md": "- [ ] Hub task <!-- hub-task:hub-task -->\n",
+        "Resources/Knowledge/Mounted/Tasks.md": "- [ ] Resource presentation conflict <!-- hub-task:resource-task -->\n",
+        "Resources/Research/Tasks.md": "- [ ] Research task <!-- hub-task:literature-task -->\n",
+        "Resources/Explorations/Tasks.md": "- [ ] Explorations task <!-- hub-task:references-task -->\n",
+        "Resources/Inspiration/Tasks.md": "- [ ] Inspiration task <!-- hub-task:inspiration-task -->\n",
+        "Outside/Conflicts.md": "- [ ] Copy <!-- hub-task:copied -->\n- [ ] Outside parent <!-- hub-task:outside -->\n    - [ ] Copied step <!-- hub-task:step-copy -->\n    - [ ] Parent ID on Step <!-- hub-task:parent-step -->\n",
+        "Projects/Private/Nested/Tasks.md": "- [ ] Nested parent <!-- hub-task:deep -->\n",
+        "Projects/Future/Tasks.md": "- [ ] Inactive workspace task <!-- hub-task:inactive -->\n"
+      },
+      "metadata": {
+        "parent": {
+          "necessity": "must",
+          "dueDate": "2026-10-25",
+          "dueTime": "00:00",
+          "description": "Recorded **metadata**"
+        },
+        "future": {
+          "fromDate": "2026-11-01",
+          "fromTime": "00:00",
+          "dueDate": "2026-11-02"
+        },
+        "malformed": {
+          "necessity": "unexpected",
+          "fromDate": "not-a-date",
+          "dueDate": "2026-02-30"
+        }
+      },
+      "checks": [],
+      "history": []
+    },
+    "current": {
+      "id": "committed-oath",
+      "deviceId": "candidate-device",
+      "state": "active",
+      "workspace": {
+        "type": "project",
+        "id": "private"
+      },
+      "scheduledAt": 1793012400000,
+      "startedAt": 1793012400000,
+      "takenAt": 1793012400000,
+      "durationMs": 1500000,
+      "tasks": [
+        {
+          "id": "parent",
+          "path": "Projects/Private/Tasks.md",
+          "text": "Parent **markdown**"
+        }
+      ],
+      "fulfilledAt": null,
+      "fullscreenOwned": false
+    }
+  },
+  {
+    "name": "rename",
+    "work": [
+      {
+        "ref": {
+          "id": "parent",
+          "path": "Projects/Private/Tasks.md",
+          "text": "Parent **markdown**"
+        },
+        "task": {
+          "path": "Projects/Private/Renamed.md",
+          "line": 0,
+          "end": 4,
+          "text": "Parent **markdown**",
+          "hubTaskId": "parent",
+          "completed": false,
+          "status": " ",
+          "steps": [
+            {
+              "line": 2,
+              "text": "First",
+              "hubTaskId": "first",
+              "completed": true,
+              "status": "x",
+              "indent": 4,
+              "end": 4
+            },
+            {
+              "line": 3,
+              "text": "Nested",
+              "hubTaskId": "nested",
+              "completed": false,
+              "status": " ",
+              "indent": 8,
+              "end": 4
+            }
+          ],
+          "description": "Recorded **metadata**",
+          "necessity": "must",
+          "fromDate": null,
+          "dueDate": "2026-10-25",
+          "dueTime": "00:00"
+        }
+      }
+    ],
+    "pending": [],
+    "snapshot": {
+      "contents": {
+        "Projects/Private/Private.md": "",
+        "Projects/Itacan/Itacan.md": "",
+        "Projects/Obsidian Hub/Obsidian Hub.md": "",
+        "Resources/Knowledge/Knowledge.md": "",
+        "Projects/Future/Future.md": "",
+        "Projects/Shelved/Shelved.md": "",
+        "Resources/Research/Research.md": "",
+        "Resources/Explorations/Explorations.md": "",
+        "Resources/Inspiration/Inspiration.md": "",
+        "Projects/Itacan/Tasks.md": "- [ ] Itacan task <!-- hub-task:itacan-task -->\n",
+        "Projects/Obsidian Hub/Tasks.md": "- [ ] Hub task <!-- hub-task:hub-task -->\n",
+        "Resources/Knowledge/Mounted/Tasks.md": "- [ ] Resource presentation conflict <!-- hub-task:resource-task -->\n",
+        "Resources/Research/Tasks.md": "- [ ] Research task <!-- hub-task:literature-task -->\n",
+        "Resources/Explorations/Tasks.md": "- [ ] Explorations task <!-- hub-task:references-task -->\n",
+        "Resources/Inspiration/Tasks.md": "- [ ] Inspiration task <!-- hub-task:inspiration-task -->\n",
+        "Outside/Conflicts.md": "- [ ] Copy <!-- hub-task:copied -->\n- [ ] Outside parent <!-- hub-task:outside -->\n    - [ ] Copied step <!-- hub-task:step-copy -->\n    - [ ] Parent ID on Step <!-- hub-task:parent-step -->\n",
+        "Projects/Private/Nested/Tasks.md": "- [ ] Nested parent <!-- hub-task:deep -->\n",
+        "Projects/Future/Tasks.md": "- [ ] Inactive workspace task <!-- hub-task:inactive -->\n",
+        "Projects/Private/Renamed.md": "- [ ] Parent **markdown** <!-- hub-task:parent -->\n    continuation evidence\n    - [x] First <!-- hub-task:first -->\n        - [ ] Nested <!-- hub-task:nested -->\n- [ ] ID-less\n- [ ] Same title\n- [ ] Same title\n- [x] Completed <!-- hub-task:complete -->\n- [ ] Future <!-- hub-task:future -->\n- [ ] Malformed metadata <!-- hub-task:malformed -->\n- [ ] Copied parent <!-- hub-task:copied -->\n- [ ] Copied Step parent <!-- hub-task:steps-parent -->\n    - [ ] Copied Step <!-- hub-task:step-copy -->\n- [ ] Parent collides with Step <!-- hub-task:parent-step -->\n"
+      },
+      "metadata": {
+        "parent": {
+          "necessity": "must",
+          "dueDate": "2026-10-25",
+          "dueTime": "00:00",
+          "description": "Recorded **metadata**"
+        },
+        "future": {
+          "fromDate": "2026-11-01",
+          "fromTime": "00:00",
+          "dueDate": "2026-11-02"
+        },
+        "malformed": {
+          "necessity": "unexpected",
+          "fromDate": "not-a-date",
+          "dueDate": "2026-02-30"
+        }
+      },
+      "checks": [],
+      "history": []
+    },
+    "current": {
+      "id": "committed-oath",
+      "deviceId": "candidate-device",
+      "state": "active",
+      "workspace": {
+        "type": "project",
+        "id": "private"
+      },
+      "scheduledAt": 1793012400000,
+      "startedAt": 1793012400000,
+      "takenAt": 1793012400000,
+      "durationMs": 1500000,
+      "tasks": [
+        {
+          "id": "parent",
+          "path": "Projects/Private/Tasks.md",
+          "text": "Parent **markdown**"
+        }
+      ],
+      "fulfilledAt": null,
+      "fullscreenOwned": false
+    }
+  },
+  {
+    "name": "move",
+    "work": [
+      {
+        "ref": {
+          "id": "parent",
+          "path": "Projects/Private/Tasks.md",
+          "text": "Parent **markdown**"
+        },
+        "task": {
+          "path": "Projects/Private/Nested/Moved.md",
+          "line": 0,
+          "end": 4,
+          "text": "Parent **markdown**",
+          "hubTaskId": "parent",
+          "completed": false,
+          "status": " ",
+          "steps": [
+            {
+              "line": 2,
+              "text": "First",
+              "hubTaskId": "first",
+              "completed": true,
+              "status": "x",
+              "indent": 4,
+              "end": 4
+            },
+            {
+              "line": 3,
+              "text": "Nested",
+              "hubTaskId": "nested",
+              "completed": false,
+              "status": " ",
+              "indent": 8,
+              "end": 4
+            }
+          ],
+          "description": "Recorded **metadata**",
+          "necessity": "must",
+          "fromDate": null,
+          "dueDate": "2026-10-25",
+          "dueTime": "00:00"
+        }
+      }
+    ],
+    "pending": [],
+    "snapshot": {
+      "contents": {
+        "Projects/Private/Private.md": "",
+        "Projects/Itacan/Itacan.md": "",
+        "Projects/Obsidian Hub/Obsidian Hub.md": "",
+        "Resources/Knowledge/Knowledge.md": "",
+        "Projects/Future/Future.md": "",
+        "Projects/Shelved/Shelved.md": "",
+        "Resources/Research/Research.md": "",
+        "Resources/Explorations/Explorations.md": "",
+        "Resources/Inspiration/Inspiration.md": "",
+        "Projects/Itacan/Tasks.md": "- [ ] Itacan task <!-- hub-task:itacan-task -->\n",
+        "Projects/Obsidian Hub/Tasks.md": "- [ ] Hub task <!-- hub-task:hub-task -->\n",
+        "Resources/Knowledge/Mounted/Tasks.md": "- [ ] Resource presentation conflict <!-- hub-task:resource-task -->\n",
+        "Resources/Research/Tasks.md": "- [ ] Research task <!-- hub-task:literature-task -->\n",
+        "Resources/Explorations/Tasks.md": "- [ ] Explorations task <!-- hub-task:references-task -->\n",
+        "Resources/Inspiration/Tasks.md": "- [ ] Inspiration task <!-- hub-task:inspiration-task -->\n",
+        "Outside/Conflicts.md": "- [ ] Copy <!-- hub-task:copied -->\n- [ ] Outside parent <!-- hub-task:outside -->\n    - [ ] Copied step <!-- hub-task:step-copy -->\n    - [ ] Parent ID on Step <!-- hub-task:parent-step -->\n",
+        "Projects/Private/Nested/Tasks.md": "- [ ] Nested parent <!-- hub-task:deep -->\n",
+        "Projects/Future/Tasks.md": "- [ ] Inactive workspace task <!-- hub-task:inactive -->\n",
+        "Projects/Private/Nested/Moved.md": "- [ ] Parent **markdown** <!-- hub-task:parent -->\n    continuation evidence\n    - [x] First <!-- hub-task:first -->\n        - [ ] Nested <!-- hub-task:nested -->\n- [ ] ID-less\n- [ ] Same title\n- [ ] Same title\n- [x] Completed <!-- hub-task:complete -->\n- [ ] Future <!-- hub-task:future -->\n- [ ] Malformed metadata <!-- hub-task:malformed -->\n- [ ] Copied parent <!-- hub-task:copied -->\n- [ ] Copied Step parent <!-- hub-task:steps-parent -->\n    - [ ] Copied Step <!-- hub-task:step-copy -->\n- [ ] Parent collides with Step <!-- hub-task:parent-step -->\n"
+      },
+      "metadata": {
+        "parent": {
+          "necessity": "must",
+          "dueDate": "2026-10-25",
+          "dueTime": "00:00",
+          "description": "Recorded **metadata**"
+        },
+        "future": {
+          "fromDate": "2026-11-01",
+          "fromTime": "00:00",
+          "dueDate": "2026-11-02"
+        },
+        "malformed": {
+          "necessity": "unexpected",
+          "fromDate": "not-a-date",
+          "dueDate": "2026-02-30"
+        }
+      },
+      "checks": [],
+      "history": []
+    },
+    "current": {
+      "id": "committed-oath",
+      "deviceId": "candidate-device",
+      "state": "active",
+      "workspace": {
+        "type": "project",
+        "id": "private"
+      },
+      "scheduledAt": 1793012400000,
+      "startedAt": 1793012400000,
+      "takenAt": 1793012400000,
+      "durationMs": 1500000,
+      "tasks": [
+        {
+          "id": "parent",
+          "path": "Projects/Private/Tasks.md",
+          "text": "Parent **markdown**"
+        }
+      ],
+      "fulfilledAt": null,
+      "fullscreenOwned": false
+    }
+  },
+  {
+    "name": "between-notes",
+    "work": [
+      {
+        "ref": {
+          "id": "parent",
+          "path": "Projects/Private/Tasks.md",
+          "text": "Parent **markdown**"
+        },
+        "task": {
+          "path": "Projects/Private/Other.md",
+          "line": 0,
+          "end": 4,
+          "text": "Parent **markdown**",
+          "hubTaskId": "parent",
+          "completed": false,
+          "status": " ",
+          "steps": [
+            {
+              "line": 2,
+              "text": "First",
+              "hubTaskId": "first",
+              "completed": true,
+              "status": "x",
+              "indent": 4,
+              "end": 4
+            },
+            {
+              "line": 3,
+              "text": "Nested",
+              "hubTaskId": "nested",
+              "completed": false,
+              "status": " ",
+              "indent": 8,
+              "end": 4
+            }
+          ],
+          "description": "Recorded **metadata**",
+          "necessity": "must",
+          "fromDate": null,
+          "dueDate": "2026-10-25",
+          "dueTime": "00:00"
+        }
+      }
+    ],
+    "pending": [],
+    "snapshot": {
+      "contents": {
+        "Projects/Private/Private.md": "",
+        "Projects/Itacan/Itacan.md": "",
+        "Projects/Obsidian Hub/Obsidian Hub.md": "",
+        "Resources/Knowledge/Knowledge.md": "",
+        "Projects/Future/Future.md": "",
+        "Projects/Shelved/Shelved.md": "",
+        "Resources/Research/Research.md": "",
+        "Resources/Explorations/Explorations.md": "",
+        "Resources/Inspiration/Inspiration.md": "",
+        "Projects/Private/Tasks.md": "- [ ] ID-less\n- [ ] Same title\n- [ ] Same title\n- [x] Completed <!-- hub-task:complete -->\n- [ ] Future <!-- hub-task:future -->\n- [ ] Malformed metadata <!-- hub-task:malformed -->\n- [ ] Copied parent <!-- hub-task:copied -->\n- [ ] Copied Step parent <!-- hub-task:steps-parent -->\n    - [ ] Copied Step <!-- hub-task:step-copy -->\n- [ ] Parent collides with Step <!-- hub-task:parent-step -->\n",
+        "Projects/Itacan/Tasks.md": "- [ ] Itacan task <!-- hub-task:itacan-task -->\n",
+        "Projects/Obsidian Hub/Tasks.md": "- [ ] Hub task <!-- hub-task:hub-task -->\n",
+        "Resources/Knowledge/Mounted/Tasks.md": "- [ ] Resource presentation conflict <!-- hub-task:resource-task -->\n",
+        "Resources/Research/Tasks.md": "- [ ] Research task <!-- hub-task:literature-task -->\n",
+        "Resources/Explorations/Tasks.md": "- [ ] Explorations task <!-- hub-task:references-task -->\n",
+        "Resources/Inspiration/Tasks.md": "- [ ] Inspiration task <!-- hub-task:inspiration-task -->\n",
+        "Outside/Conflicts.md": "- [ ] Copy <!-- hub-task:copied -->\n- [ ] Outside parent <!-- hub-task:outside -->\n    - [ ] Copied step <!-- hub-task:step-copy -->\n    - [ ] Parent ID on Step <!-- hub-task:parent-step -->\n",
+        "Projects/Private/Nested/Tasks.md": "- [ ] Nested parent <!-- hub-task:deep -->\n",
+        "Projects/Future/Tasks.md": "- [ ] Inactive workspace task <!-- hub-task:inactive -->\n",
+        "Projects/Private/Other.md": "- [ ] Parent **markdown** <!-- hub-task:parent -->\n    continuation evidence\n    - [x] First <!-- hub-task:first -->\n        - [ ] Nested <!-- hub-task:nested -->\n"
+      },
+      "metadata": {
+        "parent": {
+          "necessity": "must",
+          "dueDate": "2026-10-25",
+          "dueTime": "00:00",
+          "description": "Recorded **metadata**"
+        },
+        "future": {
+          "fromDate": "2026-11-01",
+          "fromTime": "00:00",
+          "dueDate": "2026-11-02"
+        },
+        "malformed": {
+          "necessity": "unexpected",
+          "fromDate": "not-a-date",
+          "dueDate": "2026-02-30"
+        }
+      },
+      "checks": [],
+      "history": []
+    },
+    "current": {
+      "id": "committed-oath",
+      "deviceId": "candidate-device",
+      "state": "active",
+      "workspace": {
+        "type": "project",
+        "id": "private"
+      },
+      "scheduledAt": 1793012400000,
+      "startedAt": 1793012400000,
+      "takenAt": 1793012400000,
+      "durationMs": 1500000,
+      "tasks": [
+        {
+          "id": "parent",
+          "path": "Projects/Private/Tasks.md",
+          "text": "Parent **markdown**"
+        }
+      ],
+      "fulfilledAt": null,
+      "fullscreenOwned": false
+    }
+  },
+  {
+    "name": "cross-owner",
+    "work": [
+      {
+        "ref": {
+          "id": "parent",
+          "path": "Projects/Private/Tasks.md",
+          "text": "Parent **markdown**"
+        },
+        "task": null
+      }
+    ],
+    "pending": [],
+    "snapshot": {
+      "contents": {
+        "Projects/Private/Private.md": "",
+        "Projects/Itacan/Itacan.md": "",
+        "Projects/Obsidian Hub/Obsidian Hub.md": "",
+        "Resources/Knowledge/Knowledge.md": "",
+        "Projects/Future/Future.md": "",
+        "Projects/Shelved/Shelved.md": "",
+        "Resources/Research/Research.md": "",
+        "Resources/Explorations/Explorations.md": "",
+        "Resources/Inspiration/Inspiration.md": "",
+        "Projects/Itacan/Tasks.md": "- [ ] Itacan task <!-- hub-task:itacan-task -->\n",
+        "Projects/Obsidian Hub/Tasks.md": "- [ ] Hub task <!-- hub-task:hub-task -->\n",
+        "Resources/Knowledge/Mounted/Tasks.md": "- [ ] Resource presentation conflict <!-- hub-task:resource-task -->\n",
+        "Resources/Research/Tasks.md": "- [ ] Research task <!-- hub-task:literature-task -->\n",
+        "Resources/Explorations/Tasks.md": "- [ ] Explorations task <!-- hub-task:references-task -->\n",
+        "Resources/Inspiration/Tasks.md": "- [ ] Inspiration task <!-- hub-task:inspiration-task -->\n",
+        "Outside/Conflicts.md": "- [ ] Copy <!-- hub-task:copied -->\n- [ ] Outside parent <!-- hub-task:outside -->\n    - [ ] Copied step <!-- hub-task:step-copy -->\n    - [ ] Parent ID on Step <!-- hub-task:parent-step -->\n",
+        "Projects/Private/Nested/Tasks.md": "- [ ] Nested parent <!-- hub-task:deep -->\n",
+        "Projects/Future/Tasks.md": "- [ ] Inactive workspace task <!-- hub-task:inactive -->\n",
+        "Resources/Knowledge/Moved.md": "- [ ] Parent **markdown** <!-- hub-task:parent -->\n    continuation evidence\n    - [x] First <!-- hub-task:first -->\n        - [ ] Nested <!-- hub-task:nested -->\n- [ ] ID-less\n- [ ] Same title\n- [ ] Same title\n- [x] Completed <!-- hub-task:complete -->\n- [ ] Future <!-- hub-task:future -->\n- [ ] Malformed metadata <!-- hub-task:malformed -->\n- [ ] Copied parent <!-- hub-task:copied -->\n- [ ] Copied Step parent <!-- hub-task:steps-parent -->\n    - [ ] Copied Step <!-- hub-task:step-copy -->\n- [ ] Parent collides with Step <!-- hub-task:parent-step -->\n"
+      },
+      "metadata": {
+        "parent": {
+          "necessity": "must",
+          "dueDate": "2026-10-25",
+          "dueTime": "00:00",
+          "description": "Recorded **metadata**"
+        },
+        "future": {
+          "fromDate": "2026-11-01",
+          "fromTime": "00:00",
+          "dueDate": "2026-11-02"
+        },
+        "malformed": {
+          "necessity": "unexpected",
+          "fromDate": "not-a-date",
+          "dueDate": "2026-02-30"
+        }
+      },
+      "checks": [],
+      "history": []
+    },
+    "current": {
+      "id": "committed-oath",
+      "deviceId": "candidate-device",
+      "state": "active",
+      "workspace": {
+        "type": "project",
+        "id": "private"
+      },
+      "scheduledAt": 1793012400000,
+      "startedAt": 1793012400000,
+      "takenAt": 1793012400000,
+      "durationMs": 1500000,
+      "tasks": [
+        {
+          "id": "parent",
+          "path": "Projects/Private/Tasks.md",
+          "text": "Parent **markdown**"
+        }
+      ],
+      "fulfilledAt": null,
+      "fullscreenOwned": false
+    }
+  },
+  {
+    "name": "other-project",
+    "work": [
+      {
+        "ref": {
+          "id": "parent",
+          "path": "Projects/Private/Tasks.md",
+          "text": "Parent **markdown**"
+        },
+        "task": null
+      }
+    ],
+    "pending": [],
+    "snapshot": {
+      "contents": {
+        "Projects/Private/Private.md": "",
+        "Projects/Itacan/Itacan.md": "",
+        "Projects/Obsidian Hub/Obsidian Hub.md": "",
+        "Resources/Knowledge/Knowledge.md": "",
+        "Projects/Future/Future.md": "",
+        "Projects/Shelved/Shelved.md": "",
+        "Resources/Research/Research.md": "",
+        "Resources/Explorations/Explorations.md": "",
+        "Resources/Inspiration/Inspiration.md": "",
+        "Projects/Itacan/Tasks.md": "- [ ] Itacan task <!-- hub-task:itacan-task -->\n",
+        "Projects/Obsidian Hub/Tasks.md": "- [ ] Hub task <!-- hub-task:hub-task -->\n",
+        "Resources/Knowledge/Mounted/Tasks.md": "- [ ] Resource presentation conflict <!-- hub-task:resource-task -->\n",
+        "Resources/Research/Tasks.md": "- [ ] Research task <!-- hub-task:literature-task -->\n",
+        "Resources/Explorations/Tasks.md": "- [ ] Explorations task <!-- hub-task:references-task -->\n",
+        "Resources/Inspiration/Tasks.md": "- [ ] Inspiration task <!-- hub-task:inspiration-task -->\n",
+        "Outside/Conflicts.md": "- [ ] Copy <!-- hub-task:copied -->\n- [ ] Outside parent <!-- hub-task:outside -->\n    - [ ] Copied step <!-- hub-task:step-copy -->\n    - [ ] Parent ID on Step <!-- hub-task:parent-step -->\n",
+        "Projects/Private/Nested/Tasks.md": "- [ ] Nested parent <!-- hub-task:deep -->\n",
+        "Projects/Future/Tasks.md": "- [ ] Inactive workspace task <!-- hub-task:inactive -->\n",
+        "Projects/Itacan/Moved.md": "- [ ] Parent **markdown** <!-- hub-task:parent -->\n    continuation evidence\n    - [x] First <!-- hub-task:first -->\n        - [ ] Nested <!-- hub-task:nested -->\n- [ ] ID-less\n- [ ] Same title\n- [ ] Same title\n- [x] Completed <!-- hub-task:complete -->\n- [ ] Future <!-- hub-task:future -->\n- [ ] Malformed metadata <!-- hub-task:malformed -->\n- [ ] Copied parent <!-- hub-task:copied -->\n- [ ] Copied Step parent <!-- hub-task:steps-parent -->\n    - [ ] Copied Step <!-- hub-task:step-copy -->\n- [ ] Parent collides with Step <!-- hub-task:parent-step -->\n"
+      },
+      "metadata": {
+        "parent": {
+          "necessity": "must",
+          "dueDate": "2026-10-25",
+          "dueTime": "00:00",
+          "description": "Recorded **metadata**"
+        },
+        "future": {
+          "fromDate": "2026-11-01",
+          "fromTime": "00:00",
+          "dueDate": "2026-11-02"
+        },
+        "malformed": {
+          "necessity": "unexpected",
+          "fromDate": "not-a-date",
+          "dueDate": "2026-02-30"
+        }
+      },
+      "checks": [],
+      "history": []
+    },
+    "current": {
+      "id": "committed-oath",
+      "deviceId": "candidate-device",
+      "state": "active",
+      "workspace": {
+        "type": "project",
+        "id": "private"
+      },
+      "scheduledAt": 1793012400000,
+      "startedAt": 1793012400000,
+      "takenAt": 1793012400000,
+      "durationMs": 1500000,
+      "tasks": [
+        {
+          "id": "parent",
+          "path": "Projects/Private/Tasks.md",
+          "text": "Parent **markdown**"
+        }
+      ],
+      "fulfilledAt": null,
+      "fullscreenOwned": false
+    }
+  },
+  {
+    "name": "copy-same-note",
+    "work": [
+      {
+        "ref": {
+          "id": "parent",
+          "path": "Projects/Private/Tasks.md",
+          "text": "Parent **markdown**"
+        },
+        "task": null
+      }
+    ],
+    "pending": [],
+    "snapshot": {
+      "contents": {
+        "Projects/Private/Private.md": "",
+        "Projects/Itacan/Itacan.md": "",
+        "Projects/Obsidian Hub/Obsidian Hub.md": "",
+        "Resources/Knowledge/Knowledge.md": "",
+        "Projects/Future/Future.md": "",
+        "Projects/Shelved/Shelved.md": "",
+        "Resources/Research/Research.md": "",
+        "Resources/Explorations/Explorations.md": "",
+        "Resources/Inspiration/Inspiration.md": "",
+        "Projects/Private/Tasks.md": "- [ ] Parent **markdown** <!-- hub-task:parent -->\n    continuation evidence\n    - [x] First <!-- hub-task:first -->\n        - [ ] Nested <!-- hub-task:nested -->\n- [ ] ID-less\n- [ ] Same title\n- [ ] Same title\n- [x] Completed <!-- hub-task:complete -->\n- [ ] Future <!-- hub-task:future -->\n- [ ] Malformed metadata <!-- hub-task:malformed -->\n- [ ] Copied parent <!-- hub-task:copied -->\n- [ ] Copied Step parent <!-- hub-task:steps-parent -->\n    - [ ] Copied Step <!-- hub-task:step-copy -->\n- [ ] Parent collides with Step <!-- hub-task:parent-step -->\n- [ ] Copy <!-- hub-task:parent -->\n",
+        "Projects/Itacan/Tasks.md": "- [ ] Itacan task <!-- hub-task:itacan-task -->\n",
+        "Projects/Obsidian Hub/Tasks.md": "- [ ] Hub task <!-- hub-task:hub-task -->\n",
+        "Resources/Knowledge/Mounted/Tasks.md": "- [ ] Resource presentation conflict <!-- hub-task:resource-task -->\n",
+        "Resources/Research/Tasks.md": "- [ ] Research task <!-- hub-task:literature-task -->\n",
+        "Resources/Explorations/Tasks.md": "- [ ] Explorations task <!-- hub-task:references-task -->\n",
+        "Resources/Inspiration/Tasks.md": "- [ ] Inspiration task <!-- hub-task:inspiration-task -->\n",
+        "Outside/Conflicts.md": "- [ ] Copy <!-- hub-task:copied -->\n- [ ] Outside parent <!-- hub-task:outside -->\n    - [ ] Copied step <!-- hub-task:step-copy -->\n    - [ ] Parent ID on Step <!-- hub-task:parent-step -->\n",
+        "Projects/Private/Nested/Tasks.md": "- [ ] Nested parent <!-- hub-task:deep -->\n",
+        "Projects/Future/Tasks.md": "- [ ] Inactive workspace task <!-- hub-task:inactive -->\n"
+      },
+      "metadata": {
+        "parent": {
+          "necessity": "must",
+          "dueDate": "2026-10-25",
+          "dueTime": "00:00",
+          "description": "Recorded **metadata**"
+        },
+        "future": {
+          "fromDate": "2026-11-01",
+          "fromTime": "00:00",
+          "dueDate": "2026-11-02"
+        },
+        "malformed": {
+          "necessity": "unexpected",
+          "fromDate": "not-a-date",
+          "dueDate": "2026-02-30"
+        }
+      },
+      "checks": [],
+      "history": []
+    },
+    "current": {
+      "id": "committed-oath",
+      "deviceId": "candidate-device",
+      "state": "active",
+      "workspace": {
+        "type": "project",
+        "id": "private"
+      },
+      "scheduledAt": 1793012400000,
+      "startedAt": 1793012400000,
+      "takenAt": 1793012400000,
+      "durationMs": 1500000,
+      "tasks": [
+        {
+          "id": "parent",
+          "path": "Projects/Private/Tasks.md",
+          "text": "Parent **markdown**"
+        }
+      ],
+      "fulfilledAt": null,
+      "fullscreenOwned": false
+    }
+  },
+  {
+    "name": "copy-outside",
+    "work": [
+      {
+        "ref": {
+          "id": "parent",
+          "path": "Projects/Private/Tasks.md",
+          "text": "Parent **markdown**"
+        },
+        "task": null
+      }
+    ],
+    "pending": [],
+    "snapshot": {
+      "contents": {
+        "Projects/Private/Private.md": "",
+        "Projects/Itacan/Itacan.md": "",
+        "Projects/Obsidian Hub/Obsidian Hub.md": "",
+        "Resources/Knowledge/Knowledge.md": "",
+        "Projects/Future/Future.md": "",
+        "Projects/Shelved/Shelved.md": "",
+        "Resources/Research/Research.md": "",
+        "Resources/Explorations/Explorations.md": "",
+        "Resources/Inspiration/Inspiration.md": "",
+        "Projects/Private/Tasks.md": "- [ ] Parent **markdown** <!-- hub-task:parent -->\n    continuation evidence\n    - [x] First <!-- hub-task:first -->\n        - [ ] Nested <!-- hub-task:nested -->\n- [ ] ID-less\n- [ ] Same title\n- [ ] Same title\n- [x] Completed <!-- hub-task:complete -->\n- [ ] Future <!-- hub-task:future -->\n- [ ] Malformed metadata <!-- hub-task:malformed -->\n- [ ] Copied parent <!-- hub-task:copied -->\n- [ ] Copied Step parent <!-- hub-task:steps-parent -->\n    - [ ] Copied Step <!-- hub-task:step-copy -->\n- [ ] Parent collides with Step <!-- hub-task:parent-step -->\n",
+        "Projects/Itacan/Tasks.md": "- [ ] Itacan task <!-- hub-task:itacan-task -->\n",
+        "Projects/Obsidian Hub/Tasks.md": "- [ ] Hub task <!-- hub-task:hub-task -->\n",
+        "Resources/Knowledge/Mounted/Tasks.md": "- [ ] Resource presentation conflict <!-- hub-task:resource-task -->\n",
+        "Resources/Research/Tasks.md": "- [ ] Research task <!-- hub-task:literature-task -->\n",
+        "Resources/Explorations/Tasks.md": "- [ ] Explorations task <!-- hub-task:references-task -->\n",
+        "Resources/Inspiration/Tasks.md": "- [ ] Inspiration task <!-- hub-task:inspiration-task -->\n",
+        "Outside/Conflicts.md": "- [ ] Copy <!-- hub-task:copied -->\n- [ ] Outside parent <!-- hub-task:outside -->\n    - [ ] Copied step <!-- hub-task:step-copy -->\n    - [ ] Parent ID on Step <!-- hub-task:parent-step -->\n",
+        "Projects/Private/Nested/Tasks.md": "- [ ] Nested parent <!-- hub-task:deep -->\n",
+        "Projects/Future/Tasks.md": "- [ ] Inactive workspace task <!-- hub-task:inactive -->\n",
+        "Outside/New.md": "- [ ] Copy <!-- hub-task:parent -->\n"
+      },
+      "metadata": {
+        "parent": {
+          "necessity": "must",
+          "dueDate": "2026-10-25",
+          "dueTime": "00:00",
+          "description": "Recorded **metadata**"
+        },
+        "future": {
+          "fromDate": "2026-11-01",
+          "fromTime": "00:00",
+          "dueDate": "2026-11-02"
+        },
+        "malformed": {
+          "necessity": "unexpected",
+          "fromDate": "not-a-date",
+          "dueDate": "2026-02-30"
+        }
+      },
+      "checks": [],
+      "history": []
+    },
+    "current": {
+      "id": "committed-oath",
+      "deviceId": "candidate-device",
+      "state": "active",
+      "workspace": {
+        "type": "project",
+        "id": "private"
+      },
+      "scheduledAt": 1793012400000,
+      "startedAt": 1793012400000,
+      "takenAt": 1793012400000,
+      "durationMs": 1500000,
+      "tasks": [
+        {
+          "id": "parent",
+          "path": "Projects/Private/Tasks.md",
+          "text": "Parent **markdown**"
+        }
+      ],
+      "fulfilledAt": null,
+      "fullscreenOwned": false
+    }
+  },
+  {
+    "name": "copy-project",
+    "work": [
+      {
+        "ref": {
+          "id": "parent",
+          "path": "Projects/Private/Tasks.md",
+          "text": "Parent **markdown**"
+        },
+        "task": null
+      }
+    ],
+    "pending": [],
+    "snapshot": {
+      "contents": {
+        "Projects/Private/Private.md": "",
+        "Projects/Itacan/Itacan.md": "",
+        "Projects/Obsidian Hub/Obsidian Hub.md": "",
+        "Resources/Knowledge/Knowledge.md": "",
+        "Projects/Future/Future.md": "",
+        "Projects/Shelved/Shelved.md": "",
+        "Resources/Research/Research.md": "",
+        "Resources/Explorations/Explorations.md": "",
+        "Resources/Inspiration/Inspiration.md": "",
+        "Projects/Private/Tasks.md": "- [ ] Parent **markdown** <!-- hub-task:parent -->\n    continuation evidence\n    - [x] First <!-- hub-task:first -->\n        - [ ] Nested <!-- hub-task:nested -->\n- [ ] ID-less\n- [ ] Same title\n- [ ] Same title\n- [x] Completed <!-- hub-task:complete -->\n- [ ] Future <!-- hub-task:future -->\n- [ ] Malformed metadata <!-- hub-task:malformed -->\n- [ ] Copied parent <!-- hub-task:copied -->\n- [ ] Copied Step parent <!-- hub-task:steps-parent -->\n    - [ ] Copied Step <!-- hub-task:step-copy -->\n- [ ] Parent collides with Step <!-- hub-task:parent-step -->\n",
+        "Projects/Itacan/Tasks.md": "- [ ] Itacan task <!-- hub-task:itacan-task -->\n",
+        "Projects/Obsidian Hub/Tasks.md": "- [ ] Hub task <!-- hub-task:hub-task -->\n",
+        "Resources/Knowledge/Mounted/Tasks.md": "- [ ] Resource presentation conflict <!-- hub-task:resource-task -->\n",
+        "Resources/Research/Tasks.md": "- [ ] Research task <!-- hub-task:literature-task -->\n",
+        "Resources/Explorations/Tasks.md": "- [ ] Explorations task <!-- hub-task:references-task -->\n",
+        "Resources/Inspiration/Tasks.md": "- [ ] Inspiration task <!-- hub-task:inspiration-task -->\n",
+        "Outside/Conflicts.md": "- [ ] Copy <!-- hub-task:copied -->\n- [ ] Outside parent <!-- hub-task:outside -->\n    - [ ] Copied step <!-- hub-task:step-copy -->\n    - [ ] Parent ID on Step <!-- hub-task:parent-step -->\n",
+        "Projects/Private/Nested/Tasks.md": "- [ ] Nested parent <!-- hub-task:deep -->\n",
+        "Projects/Future/Tasks.md": "- [ ] Inactive workspace task <!-- hub-task:inactive -->\n",
+        "Projects/Itacan/Copy.md": "- [ ] Copy <!-- hub-task:parent -->\n"
+      },
+      "metadata": {
+        "parent": {
+          "necessity": "must",
+          "dueDate": "2026-10-25",
+          "dueTime": "00:00",
+          "description": "Recorded **metadata**"
+        },
+        "future": {
+          "fromDate": "2026-11-01",
+          "fromTime": "00:00",
+          "dueDate": "2026-11-02"
+        },
+        "malformed": {
+          "necessity": "unexpected",
+          "fromDate": "not-a-date",
+          "dueDate": "2026-02-30"
+        }
+      },
+      "checks": [],
+      "history": []
+    },
+    "current": {
+      "id": "committed-oath",
+      "deviceId": "candidate-device",
+      "state": "active",
+      "workspace": {
+        "type": "project",
+        "id": "private"
+      },
+      "scheduledAt": 1793012400000,
+      "startedAt": 1793012400000,
+      "takenAt": 1793012400000,
+      "durationMs": 1500000,
+      "tasks": [
+        {
+          "id": "parent",
+          "path": "Projects/Private/Tasks.md",
+          "text": "Parent **markdown**"
+        }
+      ],
+      "fulfilledAt": null,
+      "fullscreenOwned": false
+    }
+  },
+  {
+    "name": "copy-resource",
+    "work": [
+      {
+        "ref": {
+          "id": "parent",
+          "path": "Projects/Private/Tasks.md",
+          "text": "Parent **markdown**"
+        },
+        "task": null
+      }
+    ],
+    "pending": [],
+    "snapshot": {
+      "contents": {
+        "Projects/Private/Private.md": "",
+        "Projects/Itacan/Itacan.md": "",
+        "Projects/Obsidian Hub/Obsidian Hub.md": "",
+        "Resources/Knowledge/Knowledge.md": "",
+        "Projects/Future/Future.md": "",
+        "Projects/Shelved/Shelved.md": "",
+        "Resources/Research/Research.md": "",
+        "Resources/Explorations/Explorations.md": "",
+        "Resources/Inspiration/Inspiration.md": "",
+        "Projects/Private/Tasks.md": "- [ ] Parent **markdown** <!-- hub-task:parent -->\n    continuation evidence\n    - [x] First <!-- hub-task:first -->\n        - [ ] Nested <!-- hub-task:nested -->\n- [ ] ID-less\n- [ ] Same title\n- [ ] Same title\n- [x] Completed <!-- hub-task:complete -->\n- [ ] Future <!-- hub-task:future -->\n- [ ] Malformed metadata <!-- hub-task:malformed -->\n- [ ] Copied parent <!-- hub-task:copied -->\n- [ ] Copied Step parent <!-- hub-task:steps-parent -->\n    - [ ] Copied Step <!-- hub-task:step-copy -->\n- [ ] Parent collides with Step <!-- hub-task:parent-step -->\n",
+        "Projects/Itacan/Tasks.md": "- [ ] Itacan task <!-- hub-task:itacan-task -->\n",
+        "Projects/Obsidian Hub/Tasks.md": "- [ ] Hub task <!-- hub-task:hub-task -->\n",
+        "Resources/Knowledge/Mounted/Tasks.md": "- [ ] Resource presentation conflict <!-- hub-task:resource-task -->\n",
+        "Resources/Research/Tasks.md": "- [ ] Research task <!-- hub-task:literature-task -->\n",
+        "Resources/Explorations/Tasks.md": "- [ ] Explorations task <!-- hub-task:references-task -->\n",
+        "Resources/Inspiration/Tasks.md": "- [ ] Inspiration task <!-- hub-task:inspiration-task -->\n",
+        "Outside/Conflicts.md": "- [ ] Copy <!-- hub-task:copied -->\n- [ ] Outside parent <!-- hub-task:outside -->\n    - [ ] Copied step <!-- hub-task:step-copy -->\n    - [ ] Parent ID on Step <!-- hub-task:parent-step -->\n",
+        "Projects/Private/Nested/Tasks.md": "- [ ] Nested parent <!-- hub-task:deep -->\n",
+        "Projects/Future/Tasks.md": "- [ ] Inactive workspace task <!-- hub-task:inactive -->\n",
+        "Resources/Knowledge/Copy.md": "- [ ] Copy <!-- hub-task:parent -->\n"
+      },
+      "metadata": {
+        "parent": {
+          "necessity": "must",
+          "dueDate": "2026-10-25",
+          "dueTime": "00:00",
+          "description": "Recorded **metadata**"
+        },
+        "future": {
+          "fromDate": "2026-11-01",
+          "fromTime": "00:00",
+          "dueDate": "2026-11-02"
+        },
+        "malformed": {
+          "necessity": "unexpected",
+          "fromDate": "not-a-date",
+          "dueDate": "2026-02-30"
+        }
+      },
+      "checks": [],
+      "history": []
+    },
+    "current": {
+      "id": "committed-oath",
+      "deviceId": "candidate-device",
+      "state": "active",
+      "workspace": {
+        "type": "project",
+        "id": "private"
+      },
+      "scheduledAt": 1793012400000,
+      "startedAt": 1793012400000,
+      "takenAt": 1793012400000,
+      "durationMs": 1500000,
+      "tasks": [
+        {
+          "id": "parent",
+          "path": "Projects/Private/Tasks.md",
+          "text": "Parent **markdown**"
+        }
+      ],
+      "fulfilledAt": null,
+      "fullscreenOwned": false
+    }
+  },
+  {
+    "name": "copy-step",
+    "work": [
+      {
+        "ref": {
+          "id": "parent",
+          "path": "Projects/Private/Tasks.md",
+          "text": "Parent **markdown**"
+        },
+        "task": null
+      }
+    ],
+    "pending": [],
+    "snapshot": {
+      "contents": {
+        "Projects/Private/Private.md": "",
+        "Projects/Itacan/Itacan.md": "",
+        "Projects/Obsidian Hub/Obsidian Hub.md": "",
+        "Resources/Knowledge/Knowledge.md": "",
+        "Projects/Future/Future.md": "",
+        "Projects/Shelved/Shelved.md": "",
+        "Resources/Research/Research.md": "",
+        "Resources/Explorations/Explorations.md": "",
+        "Resources/Inspiration/Inspiration.md": "",
+        "Projects/Private/Tasks.md": "- [ ] Parent **markdown** <!-- hub-task:parent -->\n    continuation evidence\n    - [x] First <!-- hub-task:first -->\n        - [ ] Nested <!-- hub-task:nested -->\n- [ ] ID-less\n- [ ] Same title\n- [ ] Same title\n- [x] Completed <!-- hub-task:complete -->\n- [ ] Future <!-- hub-task:future -->\n- [ ] Malformed metadata <!-- hub-task:malformed -->\n- [ ] Copied parent <!-- hub-task:copied -->\n- [ ] Copied Step parent <!-- hub-task:steps-parent -->\n    - [ ] Copied Step <!-- hub-task:step-copy -->\n- [ ] Parent collides with Step <!-- hub-task:parent-step -->\n",
+        "Projects/Itacan/Tasks.md": "- [ ] Itacan task <!-- hub-task:itacan-task -->\n",
+        "Projects/Obsidian Hub/Tasks.md": "- [ ] Hub task <!-- hub-task:hub-task -->\n",
+        "Resources/Knowledge/Mounted/Tasks.md": "- [ ] Resource presentation conflict <!-- hub-task:resource-task -->\n",
+        "Resources/Research/Tasks.md": "- [ ] Research task <!-- hub-task:literature-task -->\n",
+        "Resources/Explorations/Tasks.md": "- [ ] Explorations task <!-- hub-task:references-task -->\n",
+        "Resources/Inspiration/Tasks.md": "- [ ] Inspiration task <!-- hub-task:inspiration-task -->\n",
+        "Outside/Conflicts.md": "- [ ] Copy <!-- hub-task:copied -->\n- [ ] Outside parent <!-- hub-task:outside -->\n    - [ ] Copied step <!-- hub-task:step-copy -->\n    - [ ] Parent ID on Step <!-- hub-task:parent-step -->\n",
+        "Projects/Private/Nested/Tasks.md": "- [ ] Nested parent <!-- hub-task:deep -->\n",
+        "Projects/Future/Tasks.md": "- [ ] Inactive workspace task <!-- hub-task:inactive -->\n",
+        "Outside/New.md": "- [ ] Another parent\n    - [ ] Copy <!-- hub-task:parent -->\n"
+      },
+      "metadata": {
+        "parent": {
+          "necessity": "must",
+          "dueDate": "2026-10-25",
+          "dueTime": "00:00",
+          "description": "Recorded **metadata**"
+        },
+        "future": {
+          "fromDate": "2026-11-01",
+          "fromTime": "00:00",
+          "dueDate": "2026-11-02"
+        },
+        "malformed": {
+          "necessity": "unexpected",
+          "fromDate": "not-a-date",
+          "dueDate": "2026-02-30"
+        }
+      },
+      "checks": [],
+      "history": []
+    },
+    "current": {
+      "id": "committed-oath",
+      "deviceId": "candidate-device",
+      "state": "active",
+      "workspace": {
+        "type": "project",
+        "id": "private"
+      },
+      "scheduledAt": 1793012400000,
+      "startedAt": 1793012400000,
+      "takenAt": 1793012400000,
+      "durationMs": 1500000,
+      "tasks": [
+        {
+          "id": "parent",
+          "path": "Projects/Private/Tasks.md",
+          "text": "Parent **markdown**"
+        }
+      ],
+      "fulfilledAt": null,
+      "fullscreenOwned": false
+    }
+  },
+  {
+    "name": "unrelated-step-copy",
+    "work": [
+      {
+        "ref": {
+          "id": "parent",
+          "path": "Projects/Private/Tasks.md",
+          "text": "Parent **markdown**"
+        },
+        "task": {
+          "path": "Projects/Private/Tasks.md",
+          "line": 0,
+          "end": 4,
+          "text": "Parent **markdown**",
+          "hubTaskId": "parent",
+          "completed": false,
+          "status": " ",
+          "steps": [
+            {
+              "line": 2,
+              "text": "First",
+              "hubTaskId": "first",
+              "completed": true,
+              "status": "x",
+              "indent": 4,
+              "end": 4
+            },
+            {
+              "line": 3,
+              "text": "Nested",
+              "hubTaskId": "nested",
+              "completed": false,
+              "status": " ",
+              "indent": 8,
+              "end": 4
+            }
+          ],
+          "description": "Recorded **metadata**",
+          "necessity": "must",
+          "fromDate": null,
+          "dueDate": "2026-10-25",
+          "dueTime": "00:00"
+        }
+      }
+    ],
+    "pending": [],
+    "snapshot": {
+      "contents": {
+        "Projects/Private/Private.md": "",
+        "Projects/Itacan/Itacan.md": "",
+        "Projects/Obsidian Hub/Obsidian Hub.md": "",
+        "Resources/Knowledge/Knowledge.md": "",
+        "Projects/Future/Future.md": "",
+        "Projects/Shelved/Shelved.md": "",
+        "Resources/Research/Research.md": "",
+        "Resources/Explorations/Explorations.md": "",
+        "Resources/Inspiration/Inspiration.md": "",
+        "Projects/Private/Tasks.md": "- [ ] Parent **markdown** <!-- hub-task:parent -->\n    continuation evidence\n    - [x] First <!-- hub-task:first -->\n        - [ ] Nested <!-- hub-task:nested -->\n- [ ] ID-less\n- [ ] Same title\n- [ ] Same title\n- [x] Completed <!-- hub-task:complete -->\n- [ ] Future <!-- hub-task:future -->\n- [ ] Malformed metadata <!-- hub-task:malformed -->\n- [ ] Copied parent <!-- hub-task:copied -->\n- [ ] Copied Step parent <!-- hub-task:steps-parent -->\n    - [ ] Copied Step <!-- hub-task:step-copy -->\n- [ ] Parent collides with Step <!-- hub-task:parent-step -->\n",
+        "Projects/Itacan/Tasks.md": "- [ ] Itacan task <!-- hub-task:itacan-task -->\n",
+        "Projects/Obsidian Hub/Tasks.md": "- [ ] Hub task <!-- hub-task:hub-task -->\n",
+        "Resources/Knowledge/Mounted/Tasks.md": "- [ ] Resource presentation conflict <!-- hub-task:resource-task -->\n",
+        "Resources/Research/Tasks.md": "- [ ] Research task <!-- hub-task:literature-task -->\n",
+        "Resources/Explorations/Tasks.md": "- [ ] Explorations task <!-- hub-task:references-task -->\n",
+        "Resources/Inspiration/Tasks.md": "- [ ] Inspiration task <!-- hub-task:inspiration-task -->\n",
+        "Outside/Conflicts.md": "- [ ] Copy <!-- hub-task:copied -->\n- [ ] Outside parent <!-- hub-task:outside -->\n    - [ ] Copied step <!-- hub-task:step-copy -->\n    - [ ] Parent ID on Step <!-- hub-task:parent-step -->\n",
+        "Projects/Private/Nested/Tasks.md": "- [ ] Nested parent <!-- hub-task:deep -->\n",
+        "Projects/Future/Tasks.md": "- [ ] Inactive workspace task <!-- hub-task:inactive -->\n",
+        "Outside/New.md": "- [ ] Another\n    - [ ] Copy <!-- hub-task:first -->\n"
+      },
+      "metadata": {
+        "parent": {
+          "necessity": "must",
+          "dueDate": "2026-10-25",
+          "dueTime": "00:00",
+          "description": "Recorded **metadata**"
+        },
+        "future": {
+          "fromDate": "2026-11-01",
+          "fromTime": "00:00",
+          "dueDate": "2026-11-02"
+        },
+        "malformed": {
+          "necessity": "unexpected",
+          "fromDate": "not-a-date",
+          "dueDate": "2026-02-30"
+        }
+      },
+      "checks": [],
+      "history": []
+    },
+    "current": {
+      "id": "committed-oath",
+      "deviceId": "candidate-device",
+      "state": "active",
+      "workspace": {
+        "type": "project",
+        "id": "private"
+      },
+      "scheduledAt": 1793012400000,
+      "startedAt": 1793012400000,
+      "takenAt": 1793012400000,
+      "durationMs": 1500000,
+      "tasks": [
+        {
+          "id": "parent",
+          "path": "Projects/Private/Tasks.md",
+          "text": "Parent **markdown**"
+        }
+      ],
+      "fulfilledAt": null,
+      "fullscreenOwned": false
+    }
+  },
+  {
+    "name": "delete-note",
+    "work": [
+      {
+        "ref": {
+          "id": "parent",
+          "path": "Projects/Private/Tasks.md",
+          "text": "Parent **markdown**"
+        },
+        "task": null
+      }
+    ],
+    "pending": [],
+    "snapshot": {
+      "contents": {
+        "Projects/Private/Private.md": "",
+        "Projects/Itacan/Itacan.md": "",
+        "Projects/Obsidian Hub/Obsidian Hub.md": "",
+        "Resources/Knowledge/Knowledge.md": "",
+        "Projects/Future/Future.md": "",
+        "Projects/Shelved/Shelved.md": "",
+        "Resources/Research/Research.md": "",
+        "Resources/Explorations/Explorations.md": "",
+        "Resources/Inspiration/Inspiration.md": "",
+        "Projects/Itacan/Tasks.md": "- [ ] Itacan task <!-- hub-task:itacan-task -->\n",
+        "Projects/Obsidian Hub/Tasks.md": "- [ ] Hub task <!-- hub-task:hub-task -->\n",
+        "Resources/Knowledge/Mounted/Tasks.md": "- [ ] Resource presentation conflict <!-- hub-task:resource-task -->\n",
+        "Resources/Research/Tasks.md": "- [ ] Research task <!-- hub-task:literature-task -->\n",
+        "Resources/Explorations/Tasks.md": "- [ ] Explorations task <!-- hub-task:references-task -->\n",
+        "Resources/Inspiration/Tasks.md": "- [ ] Inspiration task <!-- hub-task:inspiration-task -->\n",
+        "Outside/Conflicts.md": "- [ ] Copy <!-- hub-task:copied -->\n- [ ] Outside parent <!-- hub-task:outside -->\n    - [ ] Copied step <!-- hub-task:step-copy -->\n    - [ ] Parent ID on Step <!-- hub-task:parent-step -->\n",
+        "Projects/Private/Nested/Tasks.md": "- [ ] Nested parent <!-- hub-task:deep -->\n",
+        "Projects/Future/Tasks.md": "- [ ] Inactive workspace task <!-- hub-task:inactive -->\n"
+      },
+      "metadata": {
+        "parent": {
+          "necessity": "must",
+          "dueDate": "2026-10-25",
+          "dueTime": "00:00",
+          "description": "Recorded **metadata**"
+        },
+        "future": {
+          "fromDate": "2026-11-01",
+          "fromTime": "00:00",
+          "dueDate": "2026-11-02"
+        },
+        "malformed": {
+          "necessity": "unexpected",
+          "fromDate": "not-a-date",
+          "dueDate": "2026-02-30"
+        }
+      },
+      "checks": [],
+      "history": []
+    },
+    "current": {
+      "id": "committed-oath",
+      "deviceId": "candidate-device",
+      "state": "active",
+      "workspace": {
+        "type": "project",
+        "id": "private"
+      },
+      "scheduledAt": 1793012400000,
+      "startedAt": 1793012400000,
+      "takenAt": 1793012400000,
+      "durationMs": 1500000,
+      "tasks": [
+        {
+          "id": "parent",
+          "path": "Projects/Private/Tasks.md",
+          "text": "Parent **markdown**"
+        }
+      ],
+      "fulfilledAt": null,
+      "fullscreenOwned": false
+    }
+  },
+  {
+    "name": "delete-task",
+    "work": [
+      {
+        "ref": {
+          "id": "parent",
+          "path": "Projects/Private/Tasks.md",
+          "text": "Parent **markdown**"
+        },
+        "task": null
+      }
+    ],
+    "pending": [],
+    "snapshot": {
+      "contents": {
+        "Projects/Private/Private.md": "",
+        "Projects/Itacan/Itacan.md": "",
+        "Projects/Obsidian Hub/Obsidian Hub.md": "",
+        "Resources/Knowledge/Knowledge.md": "",
+        "Projects/Future/Future.md": "",
+        "Projects/Shelved/Shelved.md": "",
+        "Resources/Research/Research.md": "",
+        "Resources/Explorations/Explorations.md": "",
+        "Resources/Inspiration/Inspiration.md": "",
+        "Projects/Private/Tasks.md": "- [ ] Same title\n",
+        "Projects/Itacan/Tasks.md": "- [ ] Itacan task <!-- hub-task:itacan-task -->\n",
+        "Projects/Obsidian Hub/Tasks.md": "- [ ] Hub task <!-- hub-task:hub-task -->\n",
+        "Resources/Knowledge/Mounted/Tasks.md": "- [ ] Resource presentation conflict <!-- hub-task:resource-task -->\n",
+        "Resources/Research/Tasks.md": "- [ ] Research task <!-- hub-task:literature-task -->\n",
+        "Resources/Explorations/Tasks.md": "- [ ] Explorations task <!-- hub-task:references-task -->\n",
+        "Resources/Inspiration/Tasks.md": "- [ ] Inspiration task <!-- hub-task:inspiration-task -->\n",
+        "Outside/Conflicts.md": "- [ ] Copy <!-- hub-task:copied -->\n- [ ] Outside parent <!-- hub-task:outside -->\n    - [ ] Copied step <!-- hub-task:step-copy -->\n    - [ ] Parent ID on Step <!-- hub-task:parent-step -->\n",
+        "Projects/Private/Nested/Tasks.md": "- [ ] Nested parent <!-- hub-task:deep -->\n",
+        "Projects/Future/Tasks.md": "- [ ] Inactive workspace task <!-- hub-task:inactive -->\n"
+      },
+      "metadata": {
+        "parent": {
+          "necessity": "must",
+          "dueDate": "2026-10-25",
+          "dueTime": "00:00",
+          "description": "Recorded **metadata**"
+        },
+        "future": {
+          "fromDate": "2026-11-01",
+          "fromTime": "00:00",
+          "dueDate": "2026-11-02"
+        },
+        "malformed": {
+          "necessity": "unexpected",
+          "fromDate": "not-a-date",
+          "dueDate": "2026-02-30"
+        }
+      },
+      "checks": [],
+      "history": []
+    },
+    "current": {
+      "id": "committed-oath",
+      "deviceId": "candidate-device",
+      "state": "active",
+      "workspace": {
+        "type": "project",
+        "id": "private"
+      },
+      "scheduledAt": 1793012400000,
+      "startedAt": 1793012400000,
+      "takenAt": 1793012400000,
+      "durationMs": 1500000,
+      "tasks": [
+        {
+          "id": "parent",
+          "path": "Projects/Private/Tasks.md",
+          "text": "Parent **markdown**"
+        }
+      ],
+      "fulfilledAt": null,
+      "fullscreenOwned": false
+    }
+  },
+  {
+    "name": "remove-id",
+    "work": [
+      {
+        "ref": {
+          "id": "parent",
+          "path": "Projects/Private/Tasks.md",
+          "text": "Parent **markdown**"
+        },
+        "task": null
+      }
+    ],
+    "pending": [],
+    "snapshot": {
+      "contents": {
+        "Projects/Private/Private.md": "",
+        "Projects/Itacan/Itacan.md": "",
+        "Projects/Obsidian Hub/Obsidian Hub.md": "",
+        "Resources/Knowledge/Knowledge.md": "",
+        "Projects/Future/Future.md": "",
+        "Projects/Shelved/Shelved.md": "",
+        "Resources/Research/Research.md": "",
+        "Resources/Explorations/Explorations.md": "",
+        "Resources/Inspiration/Inspiration.md": "",
+        "Projects/Private/Tasks.md": "- [ ] Parent **markdown** \n    continuation evidence\n    - [x] First <!-- hub-task:first -->\n        - [ ] Nested <!-- hub-task:nested -->\n- [ ] ID-less\n- [ ] Same title\n- [ ] Same title\n- [x] Completed <!-- hub-task:complete -->\n- [ ] Future <!-- hub-task:future -->\n- [ ] Malformed metadata <!-- hub-task:malformed -->\n- [ ] Copied parent <!-- hub-task:copied -->\n- [ ] Copied Step parent <!-- hub-task:steps-parent -->\n    - [ ] Copied Step <!-- hub-task:step-copy -->\n- [ ] Parent collides with Step <!-- hub-task:parent-step -->\n",
+        "Projects/Itacan/Tasks.md": "- [ ] Itacan task <!-- hub-task:itacan-task -->\n",
+        "Projects/Obsidian Hub/Tasks.md": "- [ ] Hub task <!-- hub-task:hub-task -->\n",
+        "Resources/Knowledge/Mounted/Tasks.md": "- [ ] Resource presentation conflict <!-- hub-task:resource-task -->\n",
+        "Resources/Research/Tasks.md": "- [ ] Research task <!-- hub-task:literature-task -->\n",
+        "Resources/Explorations/Tasks.md": "- [ ] Explorations task <!-- hub-task:references-task -->\n",
+        "Resources/Inspiration/Tasks.md": "- [ ] Inspiration task <!-- hub-task:inspiration-task -->\n",
+        "Outside/Conflicts.md": "- [ ] Copy <!-- hub-task:copied -->\n- [ ] Outside parent <!-- hub-task:outside -->\n    - [ ] Copied step <!-- hub-task:step-copy -->\n    - [ ] Parent ID on Step <!-- hub-task:parent-step -->\n",
+        "Projects/Private/Nested/Tasks.md": "- [ ] Nested parent <!-- hub-task:deep -->\n",
+        "Projects/Future/Tasks.md": "- [ ] Inactive workspace task <!-- hub-task:inactive -->\n"
+      },
+      "metadata": {
+        "parent": {
+          "necessity": "must",
+          "dueDate": "2026-10-25",
+          "dueTime": "00:00",
+          "description": "Recorded **metadata**"
+        },
+        "future": {
+          "fromDate": "2026-11-01",
+          "fromTime": "00:00",
+          "dueDate": "2026-11-02"
+        },
+        "malformed": {
+          "necessity": "unexpected",
+          "fromDate": "not-a-date",
+          "dueDate": "2026-02-30"
+        }
+      },
+      "checks": [],
+      "history": []
+    },
+    "current": {
+      "id": "committed-oath",
+      "deviceId": "candidate-device",
+      "state": "active",
+      "workspace": {
+        "type": "project",
+        "id": "private"
+      },
+      "scheduledAt": 1793012400000,
+      "startedAt": 1793012400000,
+      "takenAt": 1793012400000,
+      "durationMs": 1500000,
+      "tasks": [
+        {
+          "id": "parent",
+          "path": "Projects/Private/Tasks.md",
+          "text": "Parent **markdown**"
+        }
+      ],
+      "fulfilledAt": null,
+      "fullscreenOwned": false
+    }
+  },
+  {
+    "name": "same-title",
+    "work": [
+      {
+        "ref": {
+          "id": "parent",
+          "path": "Projects/Private/Tasks.md",
+          "text": "Parent **markdown**"
+        },
+        "task": null
+      }
+    ],
+    "pending": [],
+    "snapshot": {
+      "contents": {
+        "Projects/Private/Private.md": "",
+        "Projects/Itacan/Itacan.md": "",
+        "Projects/Obsidian Hub/Obsidian Hub.md": "",
+        "Resources/Knowledge/Knowledge.md": "",
+        "Projects/Future/Future.md": "",
+        "Projects/Shelved/Shelved.md": "",
+        "Resources/Research/Research.md": "",
+        "Resources/Explorations/Explorations.md": "",
+        "Resources/Inspiration/Inspiration.md": "",
+        "Projects/Private/Tasks.md": "- [ ] Parent **markdown** <!-- hub-task:unrelated -->\n",
+        "Projects/Itacan/Tasks.md": "- [ ] Itacan task <!-- hub-task:itacan-task -->\n",
+        "Projects/Obsidian Hub/Tasks.md": "- [ ] Hub task <!-- hub-task:hub-task -->\n",
+        "Resources/Knowledge/Mounted/Tasks.md": "- [ ] Resource presentation conflict <!-- hub-task:resource-task -->\n",
+        "Resources/Research/Tasks.md": "- [ ] Research task <!-- hub-task:literature-task -->\n",
+        "Resources/Explorations/Tasks.md": "- [ ] Explorations task <!-- hub-task:references-task -->\n",
+        "Resources/Inspiration/Tasks.md": "- [ ] Inspiration task <!-- hub-task:inspiration-task -->\n",
+        "Outside/Conflicts.md": "- [ ] Copy <!-- hub-task:copied -->\n- [ ] Outside parent <!-- hub-task:outside -->\n    - [ ] Copied step <!-- hub-task:step-copy -->\n    - [ ] Parent ID on Step <!-- hub-task:parent-step -->\n",
+        "Projects/Private/Nested/Tasks.md": "- [ ] Nested parent <!-- hub-task:deep -->\n",
+        "Projects/Future/Tasks.md": "- [ ] Inactive workspace task <!-- hub-task:inactive -->\n"
+      },
+      "metadata": {
+        "parent": {
+          "necessity": "must",
+          "dueDate": "2026-10-25",
+          "dueTime": "00:00",
+          "description": "Recorded **metadata**"
+        },
+        "future": {
+          "fromDate": "2026-11-01",
+          "fromTime": "00:00",
+          "dueDate": "2026-11-02"
+        },
+        "malformed": {
+          "necessity": "unexpected",
+          "fromDate": "not-a-date",
+          "dueDate": "2026-02-30"
+        }
+      },
+      "checks": [],
+      "history": []
+    },
+    "current": {
+      "id": "committed-oath",
+      "deviceId": "candidate-device",
+      "state": "active",
+      "workspace": {
+        "type": "project",
+        "id": "private"
+      },
+      "scheduledAt": 1793012400000,
+      "startedAt": 1793012400000,
+      "takenAt": 1793012400000,
+      "durationMs": 1500000,
+      "tasks": [
+        {
+          "id": "parent",
+          "path": "Projects/Private/Tasks.md",
+          "text": "Parent **markdown**"
+        }
+      ],
+      "fulfilledAt": null,
+      "fullscreenOwned": false
+    }
+  },
+  {
+    "name": "complete",
+    "work": [
+      {
+        "ref": {
+          "id": "parent",
+          "path": "Projects/Private/Tasks.md",
+          "text": "Parent **markdown**"
+        },
+        "task": {
+          "path": "Projects/Private/Tasks.md",
+          "line": 0,
+          "end": 4,
+          "text": "Parent **markdown**",
+          "hubTaskId": "parent",
+          "completed": true,
+          "status": "x",
+          "steps": [
+            {
+              "line": 2,
+              "text": "First",
+              "hubTaskId": "first",
+              "completed": true,
+              "status": "x",
+              "indent": 4,
+              "end": 4
+            },
+            {
+              "line": 3,
+              "text": "Nested",
+              "hubTaskId": "nested",
+              "completed": false,
+              "status": " ",
+              "indent": 8,
+              "end": 4
+            }
+          ],
+          "description": "Recorded **metadata**",
+          "necessity": "must",
+          "fromDate": null,
+          "dueDate": "2026-10-25",
+          "dueTime": "00:00"
+        }
+      }
+    ],
+    "pending": [],
+    "snapshot": {
+      "contents": {
+        "Projects/Private/Private.md": "",
+        "Projects/Itacan/Itacan.md": "",
+        "Projects/Obsidian Hub/Obsidian Hub.md": "",
+        "Resources/Knowledge/Knowledge.md": "",
+        "Projects/Future/Future.md": "",
+        "Projects/Shelved/Shelved.md": "",
+        "Resources/Research/Research.md": "",
+        "Resources/Explorations/Explorations.md": "",
+        "Resources/Inspiration/Inspiration.md": "",
+        "Projects/Private/Tasks.md": "- [x] Parent **markdown** <!-- hub-task:parent -->\n    continuation evidence\n    - [x] First <!-- hub-task:first -->\n        - [ ] Nested <!-- hub-task:nested -->\n- [ ] ID-less\n- [ ] Same title\n- [ ] Same title\n- [x] Completed <!-- hub-task:complete -->\n- [ ] Future <!-- hub-task:future -->\n- [ ] Malformed metadata <!-- hub-task:malformed -->\n- [ ] Copied parent <!-- hub-task:copied -->\n- [ ] Copied Step parent <!-- hub-task:steps-parent -->\n    - [ ] Copied Step <!-- hub-task:step-copy -->\n- [ ] Parent collides with Step <!-- hub-task:parent-step -->\n",
+        "Projects/Itacan/Tasks.md": "- [ ] Itacan task <!-- hub-task:itacan-task -->\n",
+        "Projects/Obsidian Hub/Tasks.md": "- [ ] Hub task <!-- hub-task:hub-task -->\n",
+        "Resources/Knowledge/Mounted/Tasks.md": "- [ ] Resource presentation conflict <!-- hub-task:resource-task -->\n",
+        "Resources/Research/Tasks.md": "- [ ] Research task <!-- hub-task:literature-task -->\n",
+        "Resources/Explorations/Tasks.md": "- [ ] Explorations task <!-- hub-task:references-task -->\n",
+        "Resources/Inspiration/Tasks.md": "- [ ] Inspiration task <!-- hub-task:inspiration-task -->\n",
+        "Outside/Conflicts.md": "- [ ] Copy <!-- hub-task:copied -->\n- [ ] Outside parent <!-- hub-task:outside -->\n    - [ ] Copied step <!-- hub-task:step-copy -->\n    - [ ] Parent ID on Step <!-- hub-task:parent-step -->\n",
+        "Projects/Private/Nested/Tasks.md": "- [ ] Nested parent <!-- hub-task:deep -->\n",
+        "Projects/Future/Tasks.md": "- [ ] Inactive workspace task <!-- hub-task:inactive -->\n"
+      },
+      "metadata": {
+        "parent": {
+          "necessity": "must",
+          "dueDate": "2026-10-25",
+          "dueTime": "00:00",
+          "description": "Recorded **metadata**"
+        },
+        "future": {
+          "fromDate": "2026-11-01",
+          "fromTime": "00:00",
+          "dueDate": "2026-11-02"
+        },
+        "malformed": {
+          "necessity": "unexpected",
+          "fromDate": "not-a-date",
+          "dueDate": "2026-02-30"
+        }
+      },
+      "checks": [],
+      "history": []
+    },
+    "current": {
+      "id": "committed-oath",
+      "deviceId": "candidate-device",
+      "state": "active",
+      "workspace": {
+        "type": "project",
+        "id": "private"
+      },
+      "scheduledAt": 1793012400000,
+      "startedAt": 1793012400000,
+      "takenAt": 1793012400000,
+      "durationMs": 1500000,
+      "tasks": [
+        {
+          "id": "parent",
+          "path": "Projects/Private/Tasks.md",
+          "text": "Parent **markdown**"
+        }
+      ],
+      "fulfilledAt": null,
+      "fullscreenOwned": false
+    }
+  },
+  {
+    "name": "steps",
+    "work": [
+      {
+        "ref": {
+          "id": "parent",
+          "path": "Projects/Private/Tasks.md",
+          "text": "Parent **markdown**"
+        },
+        "task": {
+          "path": "Projects/Private/Tasks.md",
+          "line": 0,
+          "end": 4,
+          "text": "Parent **markdown**",
+          "hubTaskId": "parent",
+          "completed": false,
+          "status": " ",
+          "steps": [
+            {
+              "line": 2,
+              "text": "First",
+              "hubTaskId": "first",
+              "completed": true,
+              "status": "x",
+              "indent": 4,
+              "end": 4
+            },
+            {
+              "line": 3,
+              "text": "Nested",
+              "hubTaskId": "nested",
+              "completed": true,
+              "status": "x",
+              "indent": 8,
+              "end": 4
+            }
+          ],
+          "description": "Recorded **metadata**",
+          "necessity": "must",
+          "fromDate": null,
+          "dueDate": "2026-10-25",
+          "dueTime": "00:00"
+        }
+      }
+    ],
+    "pending": [],
+    "snapshot": {
+      "contents": {
+        "Projects/Private/Private.md": "",
+        "Projects/Itacan/Itacan.md": "",
+        "Projects/Obsidian Hub/Obsidian Hub.md": "",
+        "Resources/Knowledge/Knowledge.md": "",
+        "Projects/Future/Future.md": "",
+        "Projects/Shelved/Shelved.md": "",
+        "Resources/Research/Research.md": "",
+        "Resources/Explorations/Explorations.md": "",
+        "Resources/Inspiration/Inspiration.md": "",
+        "Projects/Private/Tasks.md": "- [ ] Parent **markdown** <!-- hub-task:parent -->\n    continuation evidence\n    - [x] First <!-- hub-task:first -->\n        - [x] Nested <!-- hub-task:nested -->\n- [ ] ID-less\n- [ ] Same title\n- [ ] Same title\n- [x] Completed <!-- hub-task:complete -->\n- [ ] Future <!-- hub-task:future -->\n- [ ] Malformed metadata <!-- hub-task:malformed -->\n- [ ] Copied parent <!-- hub-task:copied -->\n- [ ] Copied Step parent <!-- hub-task:steps-parent -->\n    - [ ] Copied Step <!-- hub-task:step-copy -->\n- [ ] Parent collides with Step <!-- hub-task:parent-step -->\n",
+        "Projects/Itacan/Tasks.md": "- [ ] Itacan task <!-- hub-task:itacan-task -->\n",
+        "Projects/Obsidian Hub/Tasks.md": "- [ ] Hub task <!-- hub-task:hub-task -->\n",
+        "Resources/Knowledge/Mounted/Tasks.md": "- [ ] Resource presentation conflict <!-- hub-task:resource-task -->\n",
+        "Resources/Research/Tasks.md": "- [ ] Research task <!-- hub-task:literature-task -->\n",
+        "Resources/Explorations/Tasks.md": "- [ ] Explorations task <!-- hub-task:references-task -->\n",
+        "Resources/Inspiration/Tasks.md": "- [ ] Inspiration task <!-- hub-task:inspiration-task -->\n",
+        "Outside/Conflicts.md": "- [ ] Copy <!-- hub-task:copied -->\n- [ ] Outside parent <!-- hub-task:outside -->\n    - [ ] Copied step <!-- hub-task:step-copy -->\n    - [ ] Parent ID on Step <!-- hub-task:parent-step -->\n",
+        "Projects/Private/Nested/Tasks.md": "- [ ] Nested parent <!-- hub-task:deep -->\n",
+        "Projects/Future/Tasks.md": "- [ ] Inactive workspace task <!-- hub-task:inactive -->\n"
+      },
+      "metadata": {
+        "parent": {
+          "necessity": "must",
+          "dueDate": "2026-10-25",
+          "dueTime": "00:00",
+          "description": "Recorded **metadata**"
+        },
+        "future": {
+          "fromDate": "2026-11-01",
+          "fromTime": "00:00",
+          "dueDate": "2026-11-02"
+        },
+        "malformed": {
+          "necessity": "unexpected",
+          "fromDate": "not-a-date",
+          "dueDate": "2026-02-30"
+        }
+      },
+      "checks": [],
+      "history": []
+    },
+    "current": {
+      "id": "committed-oath",
+      "deviceId": "candidate-device",
+      "state": "active",
+      "workspace": {
+        "type": "project",
+        "id": "private"
+      },
+      "scheduledAt": 1793012400000,
+      "startedAt": 1793012400000,
+      "takenAt": 1793012400000,
+      "durationMs": 1500000,
+      "tasks": [
+        {
+          "id": "parent",
+          "path": "Projects/Private/Tasks.md",
+          "text": "Parent **markdown**"
+        }
+      ],
+      "fulfilledAt": null,
+      "fullscreenOwned": false
+    }
+  },
+  {
+    "name": "metadata",
+    "work": [
+      {
+        "ref": {
+          "id": "parent",
+          "path": "Projects/Private/Tasks.md",
+          "text": "Parent **markdown**"
+        },
+        "task": {
+          "path": "Projects/Private/Tasks.md",
+          "line": 0,
+          "end": 4,
+          "text": "Parent **markdown**",
+          "hubTaskId": "parent",
+          "completed": false,
+          "status": " ",
+          "steps": [
+            {
+              "line": 2,
+              "text": "First",
+              "hubTaskId": "first",
+              "completed": true,
+              "status": "x",
+              "indent": 4,
+              "end": 4
+            },
+            {
+              "line": 3,
+              "text": "Nested",
+              "hubTaskId": "nested",
+              "completed": false,
+              "status": " ",
+              "indent": 8,
+              "end": 4
+            }
+          ],
+          "description": "new",
+          "phaseId": "phase-1",
+          "necessity": "should",
+          "fromDate": "2026-10-26",
+          "dueDate": null,
+          "fromTime": "00:00"
+        }
+      }
+    ],
+    "pending": [],
+    "snapshot": {
+      "contents": {
+        "Projects/Private/Private.md": "",
+        "Projects/Itacan/Itacan.md": "",
+        "Projects/Obsidian Hub/Obsidian Hub.md": "",
+        "Resources/Knowledge/Knowledge.md": "",
+        "Projects/Future/Future.md": "",
+        "Projects/Shelved/Shelved.md": "",
+        "Resources/Research/Research.md": "",
+        "Resources/Explorations/Explorations.md": "",
+        "Resources/Inspiration/Inspiration.md": "",
+        "Projects/Private/Tasks.md": "- [ ] Parent **markdown** <!-- hub-task:parent -->\n    continuation evidence\n    - [x] First <!-- hub-task:first -->\n        - [ ] Nested <!-- hub-task:nested -->\n- [ ] ID-less\n- [ ] Same title\n- [ ] Same title\n- [x] Completed <!-- hub-task:complete -->\n- [ ] Future <!-- hub-task:future -->\n- [ ] Malformed metadata <!-- hub-task:malformed -->\n- [ ] Copied parent <!-- hub-task:copied -->\n- [ ] Copied Step parent <!-- hub-task:steps-parent -->\n    - [ ] Copied Step <!-- hub-task:step-copy -->\n- [ ] Parent collides with Step <!-- hub-task:parent-step -->\n",
+        "Projects/Itacan/Tasks.md": "- [ ] Itacan task <!-- hub-task:itacan-task -->\n",
+        "Projects/Obsidian Hub/Tasks.md": "- [ ] Hub task <!-- hub-task:hub-task -->\n",
+        "Resources/Knowledge/Mounted/Tasks.md": "- [ ] Resource presentation conflict <!-- hub-task:resource-task -->\n",
+        "Resources/Research/Tasks.md": "- [ ] Research task <!-- hub-task:literature-task -->\n",
+        "Resources/Explorations/Tasks.md": "- [ ] Explorations task <!-- hub-task:references-task -->\n",
+        "Resources/Inspiration/Tasks.md": "- [ ] Inspiration task <!-- hub-task:inspiration-task -->\n",
+        "Outside/Conflicts.md": "- [ ] Copy <!-- hub-task:copied -->\n- [ ] Outside parent <!-- hub-task:outside -->\n    - [ ] Copied step <!-- hub-task:step-copy -->\n    - [ ] Parent ID on Step <!-- hub-task:parent-step -->\n",
+        "Projects/Private/Nested/Tasks.md": "- [ ] Nested parent <!-- hub-task:deep -->\n",
+        "Projects/Future/Tasks.md": "- [ ] Inactive workspace task <!-- hub-task:inactive -->\n"
+      },
+      "metadata": {
+        "parent": {
+          "necessity": "should",
+          "description": "new",
+          "fromDate": "2026-10-26",
+          "fromTime": "00:00",
+          "phaseId": "phase-1"
+        },
+        "future": {
+          "fromDate": "2026-11-01",
+          "fromTime": "00:00",
+          "dueDate": "2026-11-02"
+        },
+        "malformed": {
+          "necessity": "unexpected",
+          "fromDate": "not-a-date",
+          "dueDate": "2026-02-30"
+        }
+      },
+      "checks": [],
+      "history": []
+    },
+    "current": {
+      "id": "committed-oath",
+      "deviceId": "candidate-device",
+      "state": "active",
+      "workspace": {
+        "type": "project",
+        "id": "private"
+      },
+      "scheduledAt": 1793012400000,
+      "startedAt": 1793012400000,
+      "takenAt": 1793012400000,
+      "durationMs": 1500000,
+      "tasks": [
+        {
+          "id": "parent",
+          "path": "Projects/Private/Tasks.md",
+          "text": "Parent **markdown**"
+        }
+      ],
+      "fulfilledAt": null,
+      "fullscreenOwned": false
+    }
+  },
+  {
+    "name": "future",
+    "work": [
+      {
+        "ref": {
+          "id": "parent",
+          "path": "Projects/Private/Tasks.md",
+          "text": "Parent **markdown**"
+        },
+        "task": {
+          "path": "Projects/Private/Tasks.md",
+          "line": 0,
+          "end": 4,
+          "text": "Parent **markdown**",
+          "hubTaskId": "parent",
+          "completed": false,
+          "status": " ",
+          "steps": [
+            {
+              "line": 2,
+              "text": "First",
+              "hubTaskId": "first",
+              "completed": true,
+              "status": "x",
+              "indent": 4,
+              "end": 4
+            },
+            {
+              "line": 3,
+              "text": "Nested",
+              "hubTaskId": "nested",
+              "completed": false,
+              "status": " ",
+              "indent": 8,
+              "end": 4
+            }
+          ],
+          "description": "Recorded **metadata**",
+          "necessity": "must",
+          "fromDate": null,
+          "dueDate": "2026-10-25",
+          "dueTime": "00:00"
+        }
+      }
+    ],
+    "pending": [],
+    "snapshot": {
+      "contents": {
+        "Projects/Private/Private.md": "",
+        "Projects/Itacan/Itacan.md": "",
+        "Projects/Obsidian Hub/Obsidian Hub.md": "",
+        "Resources/Knowledge/Knowledge.md": "",
+        "Projects/Future/Future.md": "",
+        "Projects/Shelved/Shelved.md": "",
+        "Resources/Research/Research.md": "",
+        "Resources/Explorations/Explorations.md": "",
+        "Resources/Inspiration/Inspiration.md": "",
+        "Projects/Private/Tasks.md": "- [ ] Parent **markdown** <!-- hub-task:parent -->\n    continuation evidence\n    - [x] First <!-- hub-task:first -->\n        - [ ] Nested <!-- hub-task:nested -->\n- [ ] ID-less\n- [ ] Same title\n- [ ] Same title\n- [x] Completed <!-- hub-task:complete -->\n- [ ] Future <!-- hub-task:future -->\n- [ ] Malformed metadata <!-- hub-task:malformed -->\n- [ ] Copied parent <!-- hub-task:copied -->\n- [ ] Copied Step parent <!-- hub-task:steps-parent -->\n    - [ ] Copied Step <!-- hub-task:step-copy -->\n- [ ] Parent collides with Step <!-- hub-task:parent-step -->\n",
+        "Projects/Itacan/Tasks.md": "- [ ] Itacan task <!-- hub-task:itacan-task -->\n",
+        "Projects/Obsidian Hub/Tasks.md": "- [ ] Hub task <!-- hub-task:hub-task -->\n",
+        "Resources/Knowledge/Mounted/Tasks.md": "- [ ] Resource presentation conflict <!-- hub-task:resource-task -->\n",
+        "Resources/Research/Tasks.md": "- [ ] Research task <!-- hub-task:literature-task -->\n",
+        "Resources/Explorations/Tasks.md": "- [ ] Explorations task <!-- hub-task:references-task -->\n",
+        "Resources/Inspiration/Tasks.md": "- [ ] Inspiration task <!-- hub-task:inspiration-task -->\n",
+        "Outside/Conflicts.md": "- [ ] Copy <!-- hub-task:copied -->\n- [ ] Outside parent <!-- hub-task:outside -->\n    - [ ] Copied step <!-- hub-task:step-copy -->\n    - [ ] Parent ID on Step <!-- hub-task:parent-step -->\n",
+        "Projects/Private/Nested/Tasks.md": "- [ ] Nested parent <!-- hub-task:deep -->\n",
+        "Projects/Future/Tasks.md": "- [ ] Inactive workspace task <!-- hub-task:inactive -->\n"
+      },
+      "metadata": {
+        "parent": {
+          "necessity": "must",
+          "dueDate": "2026-10-25",
+          "dueTime": "00:00",
+          "description": "Recorded **metadata**"
+        },
+        "future": {
+          "fromDate": "2026-11-01",
+          "fromTime": "00:00",
+          "dueDate": "2026-11-02"
+        },
+        "malformed": {
+          "necessity": "unexpected",
+          "fromDate": "not-a-date",
+          "dueDate": "2026-02-30"
+        }
+      },
+      "checks": [],
+      "history": []
+    },
+    "current": {
+      "id": "committed-oath",
+      "deviceId": "candidate-device",
+      "state": "active",
+      "workspace": {
+        "type": "project",
+        "id": "private"
+      },
+      "scheduledAt": 1793012400000,
+      "startedAt": 1793012400000,
+      "takenAt": 1793012400000,
+      "durationMs": 1500000,
+      "tasks": [
+        {
+          "id": "parent",
+          "path": "Projects/Private/Tasks.md",
+          "text": "Parent **markdown**"
+        }
+      ],
+      "fulfilledAt": null,
+      "fullscreenOwned": false
+    }
+  },
+  {
+    "name": "shelved",
+    "work": [
+      {
+        "ref": {
+          "id": "parent",
+          "path": "Projects/Private/Tasks.md",
+          "text": "Parent **markdown**"
+        },
+        "task": {
+          "path": "Projects/Private/Tasks.md",
+          "line": 0,
+          "end": 4,
+          "text": "Parent **markdown**",
+          "hubTaskId": "parent",
+          "completed": false,
+          "status": " ",
+          "steps": [
+            {
+              "line": 2,
+              "text": "First",
+              "hubTaskId": "first",
+              "completed": true,
+              "status": "x",
+              "indent": 4,
+              "end": 4
+            },
+            {
+              "line": 3,
+              "text": "Nested",
+              "hubTaskId": "nested",
+              "completed": false,
+              "status": " ",
+              "indent": 8,
+              "end": 4
+            }
+          ],
+          "description": "Recorded **metadata**",
+          "necessity": "must",
+          "fromDate": null,
+          "dueDate": "2026-10-25",
+          "dueTime": "00:00"
+        }
+      }
+    ],
+    "pending": [],
+    "snapshot": {
+      "contents": {
+        "Projects/Private/Private.md": "",
+        "Projects/Itacan/Itacan.md": "",
+        "Projects/Obsidian Hub/Obsidian Hub.md": "",
+        "Resources/Knowledge/Knowledge.md": "",
+        "Projects/Future/Future.md": "",
+        "Projects/Shelved/Shelved.md": "",
+        "Resources/Research/Research.md": "",
+        "Resources/Explorations/Explorations.md": "",
+        "Resources/Inspiration/Inspiration.md": "",
+        "Projects/Private/Tasks.md": "- [ ] Parent **markdown** <!-- hub-task:parent -->\n    continuation evidence\n    - [x] First <!-- hub-task:first -->\n        - [ ] Nested <!-- hub-task:nested -->\n- [ ] ID-less\n- [ ] Same title\n- [ ] Same title\n- [x] Completed <!-- hub-task:complete -->\n- [ ] Future <!-- hub-task:future -->\n- [ ] Malformed metadata <!-- hub-task:malformed -->\n- [ ] Copied parent <!-- hub-task:copied -->\n- [ ] Copied Step parent <!-- hub-task:steps-parent -->\n    - [ ] Copied Step <!-- hub-task:step-copy -->\n- [ ] Parent collides with Step <!-- hub-task:parent-step -->\n",
+        "Projects/Itacan/Tasks.md": "- [ ] Itacan task <!-- hub-task:itacan-task -->\n",
+        "Projects/Obsidian Hub/Tasks.md": "- [ ] Hub task <!-- hub-task:hub-task -->\n",
+        "Resources/Knowledge/Mounted/Tasks.md": "- [ ] Resource presentation conflict <!-- hub-task:resource-task -->\n",
+        "Resources/Research/Tasks.md": "- [ ] Research task <!-- hub-task:literature-task -->\n",
+        "Resources/Explorations/Tasks.md": "- [ ] Explorations task <!-- hub-task:references-task -->\n",
+        "Resources/Inspiration/Tasks.md": "- [ ] Inspiration task <!-- hub-task:inspiration-task -->\n",
+        "Outside/Conflicts.md": "- [ ] Copy <!-- hub-task:copied -->\n- [ ] Outside parent <!-- hub-task:outside -->\n    - [ ] Copied step <!-- hub-task:step-copy -->\n    - [ ] Parent ID on Step <!-- hub-task:parent-step -->\n",
+        "Projects/Private/Nested/Tasks.md": "- [ ] Nested parent <!-- hub-task:deep -->\n",
+        "Projects/Future/Tasks.md": "- [ ] Inactive workspace task <!-- hub-task:inactive -->\n"
+      },
+      "metadata": {
+        "parent": {
+          "necessity": "must",
+          "dueDate": "2026-10-25",
+          "dueTime": "00:00",
+          "description": "Recorded **metadata**"
+        },
+        "future": {
+          "fromDate": "2026-11-01",
+          "fromTime": "00:00",
+          "dueDate": "2026-11-02"
+        },
+        "malformed": {
+          "necessity": "unexpected",
+          "fromDate": "not-a-date",
+          "dueDate": "2026-02-30"
+        }
+      },
+      "checks": [],
+      "history": []
+    },
+    "current": {
+      "id": "committed-oath",
+      "deviceId": "candidate-device",
+      "state": "active",
+      "workspace": {
+        "type": "project",
+        "id": "private"
+      },
+      "scheduledAt": 1793012400000,
+      "startedAt": 1793012400000,
+      "takenAt": 1793012400000,
+      "durationMs": 1500000,
+      "tasks": [
+        {
+          "id": "parent",
+          "path": "Projects/Private/Tasks.md",
+          "text": "Parent **markdown**"
+        }
+      ],
+      "fulfilledAt": null,
+      "fullscreenOwned": false
+    }
+  },
+  {
+    "name": "rename-project",
+    "work": [
+      {
+        "ref": {
+          "id": "parent",
+          "path": "Projects/Private/Tasks.md",
+          "text": "Parent **markdown**"
+        },
+        "task": {
+          "path": "Projects/Private/Tasks.md",
+          "line": 0,
+          "end": 4,
+          "text": "Parent **markdown**",
+          "hubTaskId": "parent",
+          "completed": false,
+          "status": " ",
+          "steps": [
+            {
+              "line": 2,
+              "text": "First",
+              "hubTaskId": "first",
+              "completed": true,
+              "status": "x",
+              "indent": 4,
+              "end": 4
+            },
+            {
+              "line": 3,
+              "text": "Nested",
+              "hubTaskId": "nested",
+              "completed": false,
+              "status": " ",
+              "indent": 8,
+              "end": 4
+            }
+          ],
+          "description": "Recorded **metadata**",
+          "necessity": "must",
+          "fromDate": null,
+          "dueDate": "2026-10-25",
+          "dueTime": "00:00"
+        }
+      }
+    ],
+    "pending": [],
+    "snapshot": {
+      "contents": {
+        "Projects/Private/Private.md": "",
+        "Projects/Itacan/Itacan.md": "",
+        "Projects/Obsidian Hub/Obsidian Hub.md": "",
+        "Resources/Knowledge/Knowledge.md": "",
+        "Projects/Future/Future.md": "",
+        "Projects/Shelved/Shelved.md": "",
+        "Resources/Research/Research.md": "",
+        "Resources/Explorations/Explorations.md": "",
+        "Resources/Inspiration/Inspiration.md": "",
+        "Projects/Private/Tasks.md": "- [ ] Parent **markdown** <!-- hub-task:parent -->\n    continuation evidence\n    - [x] First <!-- hub-task:first -->\n        - [ ] Nested <!-- hub-task:nested -->\n- [ ] ID-less\n- [ ] Same title\n- [ ] Same title\n- [x] Completed <!-- hub-task:complete -->\n- [ ] Future <!-- hub-task:future -->\n- [ ] Malformed metadata <!-- hub-task:malformed -->\n- [ ] Copied parent <!-- hub-task:copied -->\n- [ ] Copied Step parent <!-- hub-task:steps-parent -->\n    - [ ] Copied Step <!-- hub-task:step-copy -->\n- [ ] Parent collides with Step <!-- hub-task:parent-step -->\n",
+        "Projects/Itacan/Tasks.md": "- [ ] Itacan task <!-- hub-task:itacan-task -->\n",
+        "Projects/Obsidian Hub/Tasks.md": "- [ ] Hub task <!-- hub-task:hub-task -->\n",
+        "Resources/Knowledge/Mounted/Tasks.md": "- [ ] Resource presentation conflict <!-- hub-task:resource-task -->\n",
+        "Resources/Research/Tasks.md": "- [ ] Research task <!-- hub-task:literature-task -->\n",
+        "Resources/Explorations/Tasks.md": "- [ ] Explorations task <!-- hub-task:references-task -->\n",
+        "Resources/Inspiration/Tasks.md": "- [ ] Inspiration task <!-- hub-task:inspiration-task -->\n",
+        "Outside/Conflicts.md": "- [ ] Copy <!-- hub-task:copied -->\n- [ ] Outside parent <!-- hub-task:outside -->\n    - [ ] Copied step <!-- hub-task:step-copy -->\n    - [ ] Parent ID on Step <!-- hub-task:parent-step -->\n",
+        "Projects/Private/Nested/Tasks.md": "- [ ] Nested parent <!-- hub-task:deep -->\n",
+        "Projects/Future/Tasks.md": "- [ ] Inactive workspace task <!-- hub-task:inactive -->\n"
+      },
+      "metadata": {
+        "parent": {
+          "necessity": "must",
+          "dueDate": "2026-10-25",
+          "dueTime": "00:00",
+          "description": "Recorded **metadata**"
+        },
+        "future": {
+          "fromDate": "2026-11-01",
+          "fromTime": "00:00",
+          "dueDate": "2026-11-02"
+        },
+        "malformed": {
+          "necessity": "unexpected",
+          "fromDate": "not-a-date",
+          "dueDate": "2026-02-30"
+        }
+      },
+      "checks": [],
+      "history": []
+    },
+    "current": {
+      "id": "committed-oath",
+      "deviceId": "candidate-device",
+      "state": "active",
+      "workspace": {
+        "type": "project",
+        "id": "private"
+      },
+      "scheduledAt": 1793012400000,
+      "startedAt": 1793012400000,
+      "takenAt": 1793012400000,
+      "durationMs": 1500000,
+      "tasks": [
+        {
+          "id": "parent",
+          "path": "Projects/Private/Tasks.md",
+          "text": "Parent **markdown**"
+        }
+      ],
+      "fulfilledAt": null,
+      "fullscreenOwned": false
+    }
+  },
+  {
+    "name": "missing-dashboard",
+    "work": [
+      {
+        "ref": {
+          "id": "parent",
+          "path": "Projects/Private/Tasks.md",
+          "text": "Parent **markdown**"
+        },
+        "task": null
+      }
+    ],
+    "pending": [],
+    "snapshot": {
+      "contents": {
+        "Projects/Itacan/Itacan.md": "",
+        "Projects/Obsidian Hub/Obsidian Hub.md": "",
+        "Resources/Knowledge/Knowledge.md": "",
+        "Projects/Future/Future.md": "",
+        "Projects/Shelved/Shelved.md": "",
+        "Resources/Research/Research.md": "",
+        "Resources/Explorations/Explorations.md": "",
+        "Resources/Inspiration/Inspiration.md": "",
+        "Projects/Private/Tasks.md": "- [ ] Parent **markdown** <!-- hub-task:parent -->\n    continuation evidence\n    - [x] First <!-- hub-task:first -->\n        - [ ] Nested <!-- hub-task:nested -->\n- [ ] ID-less\n- [ ] Same title\n- [ ] Same title\n- [x] Completed <!-- hub-task:complete -->\n- [ ] Future <!-- hub-task:future -->\n- [ ] Malformed metadata <!-- hub-task:malformed -->\n- [ ] Copied parent <!-- hub-task:copied -->\n- [ ] Copied Step parent <!-- hub-task:steps-parent -->\n    - [ ] Copied Step <!-- hub-task:step-copy -->\n- [ ] Parent collides with Step <!-- hub-task:parent-step -->\n",
+        "Projects/Itacan/Tasks.md": "- [ ] Itacan task <!-- hub-task:itacan-task -->\n",
+        "Projects/Obsidian Hub/Tasks.md": "- [ ] Hub task <!-- hub-task:hub-task -->\n",
+        "Resources/Knowledge/Mounted/Tasks.md": "- [ ] Resource presentation conflict <!-- hub-task:resource-task -->\n",
+        "Resources/Research/Tasks.md": "- [ ] Research task <!-- hub-task:literature-task -->\n",
+        "Resources/Explorations/Tasks.md": "- [ ] Explorations task <!-- hub-task:references-task -->\n",
+        "Resources/Inspiration/Tasks.md": "- [ ] Inspiration task <!-- hub-task:inspiration-task -->\n",
+        "Outside/Conflicts.md": "- [ ] Copy <!-- hub-task:copied -->\n- [ ] Outside parent <!-- hub-task:outside -->\n    - [ ] Copied step <!-- hub-task:step-copy -->\n    - [ ] Parent ID on Step <!-- hub-task:parent-step -->\n",
+        "Projects/Private/Nested/Tasks.md": "- [ ] Nested parent <!-- hub-task:deep -->\n",
+        "Projects/Future/Tasks.md": "- [ ] Inactive workspace task <!-- hub-task:inactive -->\n"
+      },
+      "metadata": {
+        "parent": {
+          "necessity": "must",
+          "dueDate": "2026-10-25",
+          "dueTime": "00:00",
+          "description": "Recorded **metadata**"
+        },
+        "future": {
+          "fromDate": "2026-11-01",
+          "fromTime": "00:00",
+          "dueDate": "2026-11-02"
+        },
+        "malformed": {
+          "necessity": "unexpected",
+          "fromDate": "not-a-date",
+          "dueDate": "2026-02-30"
+        }
+      },
+      "checks": [],
+      "history": []
+    },
+    "current": {
+      "id": "committed-oath",
+      "deviceId": "candidate-device",
+      "state": "active",
+      "workspace": {
+        "type": "project",
+        "id": "private"
+      },
+      "scheduledAt": 1793012400000,
+      "startedAt": 1793012400000,
+      "takenAt": 1793012400000,
+      "durationMs": 1500000,
+      "tasks": [
+        {
+          "id": "parent",
+          "path": "Projects/Private/Tasks.md",
+          "text": "Parent **markdown**"
+        }
+      ],
+      "fulfilledAt": null,
+      "fullscreenOwned": false
+    }
+  },
+  {
+    "name": "delete-project",
+    "work": [
+      {
+        "ref": {
+          "id": "parent",
+          "path": "Projects/Private/Tasks.md",
+          "text": "Parent **markdown**"
+        },
+        "task": null
+      }
+    ],
+    "pending": [],
+    "snapshot": {
+      "contents": {
+        "Projects/Private/Private.md": "",
+        "Projects/Itacan/Itacan.md": "",
+        "Projects/Obsidian Hub/Obsidian Hub.md": "",
+        "Resources/Knowledge/Knowledge.md": "",
+        "Projects/Future/Future.md": "",
+        "Projects/Shelved/Shelved.md": "",
+        "Resources/Research/Research.md": "",
+        "Resources/Explorations/Explorations.md": "",
+        "Resources/Inspiration/Inspiration.md": "",
+        "Projects/Private/Tasks.md": "- [ ] Parent **markdown** <!-- hub-task:parent -->\n    continuation evidence\n    - [x] First <!-- hub-task:first -->\n        - [ ] Nested <!-- hub-task:nested -->\n- [ ] ID-less\n- [ ] Same title\n- [ ] Same title\n- [x] Completed <!-- hub-task:complete -->\n- [ ] Future <!-- hub-task:future -->\n- [ ] Malformed metadata <!-- hub-task:malformed -->\n- [ ] Copied parent <!-- hub-task:copied -->\n- [ ] Copied Step parent <!-- hub-task:steps-parent -->\n    - [ ] Copied Step <!-- hub-task:step-copy -->\n- [ ] Parent collides with Step <!-- hub-task:parent-step -->\n",
+        "Projects/Itacan/Tasks.md": "- [ ] Itacan task <!-- hub-task:itacan-task -->\n",
+        "Projects/Obsidian Hub/Tasks.md": "- [ ] Hub task <!-- hub-task:hub-task -->\n",
+        "Resources/Knowledge/Mounted/Tasks.md": "- [ ] Resource presentation conflict <!-- hub-task:resource-task -->\n",
+        "Resources/Research/Tasks.md": "- [ ] Research task <!-- hub-task:literature-task -->\n",
+        "Resources/Explorations/Tasks.md": "- [ ] Explorations task <!-- hub-task:references-task -->\n",
+        "Resources/Inspiration/Tasks.md": "- [ ] Inspiration task <!-- hub-task:inspiration-task -->\n",
+        "Outside/Conflicts.md": "- [ ] Copy <!-- hub-task:copied -->\n- [ ] Outside parent <!-- hub-task:outside -->\n    - [ ] Copied step <!-- hub-task:step-copy -->\n    - [ ] Parent ID on Step <!-- hub-task:parent-step -->\n",
+        "Projects/Private/Nested/Tasks.md": "- [ ] Nested parent <!-- hub-task:deep -->\n",
+        "Projects/Future/Tasks.md": "- [ ] Inactive workspace task <!-- hub-task:inactive -->\n"
+      },
+      "metadata": {
+        "parent": {
+          "necessity": "must",
+          "dueDate": "2026-10-25",
+          "dueTime": "00:00",
+          "description": "Recorded **metadata**"
+        },
+        "future": {
+          "fromDate": "2026-11-01",
+          "fromTime": "00:00",
+          "dueDate": "2026-11-02"
+        },
+        "malformed": {
+          "necessity": "unexpected",
+          "fromDate": "not-a-date",
+          "dueDate": "2026-02-30"
+        }
+      },
+      "checks": [],
+      "history": []
+    },
+    "current": {
+      "id": "committed-oath",
+      "deviceId": "candidate-device",
+      "state": "active",
+      "workspace": {
+        "type": "project",
+        "id": "private"
+      },
+      "scheduledAt": 1793012400000,
+      "startedAt": 1793012400000,
+      "takenAt": 1793012400000,
+      "durationMs": 1500000,
+      "tasks": [
+        {
+          "id": "parent",
+          "path": "Projects/Private/Tasks.md",
+          "text": "Parent **markdown**"
+        }
+      ],
+      "fulfilledAt": null,
+      "fullscreenOwned": false
+    }
+  },
+  {
+    "name": "root-moved",
+    "work": [
+      {
+        "ref": {
+          "id": "parent",
+          "path": "Projects/Private/Tasks.md",
+          "text": "Parent **markdown**"
+        },
+        "task": {
+          "path": "Projects/New/Tasks.md",
+          "line": 0,
+          "end": 4,
+          "text": "Parent **markdown**",
+          "hubTaskId": "parent",
+          "completed": false,
+          "status": " ",
+          "steps": [
+            {
+              "line": 2,
+              "text": "First",
+              "hubTaskId": "first",
+              "completed": true,
+              "status": "x",
+              "indent": 4,
+              "end": 4
+            },
+            {
+              "line": 3,
+              "text": "Nested",
+              "hubTaskId": "nested",
+              "completed": false,
+              "status": " ",
+              "indent": 8,
+              "end": 4
+            }
+          ],
+          "description": "Recorded **metadata**",
+          "necessity": "must",
+          "fromDate": null,
+          "dueDate": "2026-10-25",
+          "dueTime": "00:00"
+        }
+      }
+    ],
+    "pending": [],
+    "snapshot": {
+      "contents": {
+        "Projects/Itacan/Itacan.md": "",
+        "Projects/Obsidian Hub/Obsidian Hub.md": "",
+        "Resources/Knowledge/Knowledge.md": "",
+        "Projects/Future/Future.md": "",
+        "Projects/Shelved/Shelved.md": "",
+        "Resources/Research/Research.md": "",
+        "Resources/Explorations/Explorations.md": "",
+        "Resources/Inspiration/Inspiration.md": "",
+        "Projects/Itacan/Tasks.md": "- [ ] Itacan task <!-- hub-task:itacan-task -->\n",
+        "Projects/Obsidian Hub/Tasks.md": "- [ ] Hub task <!-- hub-task:hub-task -->\n",
+        "Resources/Knowledge/Mounted/Tasks.md": "- [ ] Resource presentation conflict <!-- hub-task:resource-task -->\n",
+        "Resources/Research/Tasks.md": "- [ ] Research task <!-- hub-task:literature-task -->\n",
+        "Resources/Explorations/Tasks.md": "- [ ] Explorations task <!-- hub-task:references-task -->\n",
+        "Resources/Inspiration/Tasks.md": "- [ ] Inspiration task <!-- hub-task:inspiration-task -->\n",
+        "Outside/Conflicts.md": "- [ ] Copy <!-- hub-task:copied -->\n- [ ] Outside parent <!-- hub-task:outside -->\n    - [ ] Copied step <!-- hub-task:step-copy -->\n    - [ ] Parent ID on Step <!-- hub-task:parent-step -->\n",
+        "Projects/Private/Nested/Tasks.md": "- [ ] Nested parent <!-- hub-task:deep -->\n",
+        "Projects/Future/Tasks.md": "- [ ] Inactive workspace task <!-- hub-task:inactive -->\n",
+        "Projects/New/New.md": "",
+        "Projects/New/Tasks.md": "- [ ] Parent **markdown** <!-- hub-task:parent -->\n    continuation evidence\n    - [x] First <!-- hub-task:first -->\n        - [ ] Nested <!-- hub-task:nested -->\n- [ ] ID-less\n- [ ] Same title\n- [ ] Same title\n- [x] Completed <!-- hub-task:complete -->\n- [ ] Future <!-- hub-task:future -->\n- [ ] Malformed metadata <!-- hub-task:malformed -->\n- [ ] Copied parent <!-- hub-task:copied -->\n- [ ] Copied Step parent <!-- hub-task:steps-parent -->\n    - [ ] Copied Step <!-- hub-task:step-copy -->\n- [ ] Parent collides with Step <!-- hub-task:parent-step -->\n"
+      },
+      "metadata": {
+        "parent": {
+          "necessity": "must",
+          "dueDate": "2026-10-25",
+          "dueTime": "00:00",
+          "description": "Recorded **metadata**"
+        },
+        "future": {
+          "fromDate": "2026-11-01",
+          "fromTime": "00:00",
+          "dueDate": "2026-11-02"
+        },
+        "malformed": {
+          "necessity": "unexpected",
+          "fromDate": "not-a-date",
+          "dueDate": "2026-02-30"
+        }
+      },
+      "checks": [],
+      "history": []
+    },
+    "current": {
+      "id": "committed-oath",
+      "deviceId": "candidate-device",
+      "state": "active",
+      "workspace": {
+        "type": "project",
+        "id": "private"
+      },
+      "scheduledAt": 1793012400000,
+      "startedAt": 1793012400000,
+      "takenAt": 1793012400000,
+      "durationMs": 1500000,
+      "tasks": [
+        {
+          "id": "parent",
+          "path": "Projects/Private/Tasks.md",
+          "text": "Parent **markdown**"
+        }
+      ],
+      "fulfilledAt": null,
+      "fullscreenOwned": false
+    }
+  }
+]

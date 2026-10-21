@@ -26,6 +26,7 @@ async function run() {
                 getContextForPath: path => path.startsWith(project.root) ? project : path.startsWith(resource.root) ? resource : null,
                 getProjectRecords: () => [project], getResourceTypes: () => [resource], getProgressReports: () => [], completedTaskHistory: [], activityLog: [] },
             dataStore: { save: async () => {} } };
+        require("./task-read-test-host.cjs").attachLegacyFacade(plugin);
         const service = new DailyBriefService(plugin, { now: () => new Date(2026, 8, 26, 10) }); service.started = true;
         const target = { kind: "file", workspaceId: "p", path: task.path, taskId: "parent", stepId: "step" };
         await service.navigate(target); assert.deepEqual(calls, [task.path]); assert.ok(reads);
@@ -52,9 +53,9 @@ async function run() {
         plugin.projectWizard.data.reportFocusByDate = { "2026-09-25": { items: [{ projectId: "resource:study", text: "Read [[Task]]" }] } };
         plugin.app.metadataCache.getFirstLinkpathDest = () => ({ path: task.path });
         project.status = "shelved";
-        assert.equal(service.provider.getRecommendation(service.context()).reason, "no-clear-action", "Focus links into Shelved work are excluded before display");
+        assert.equal(service.provider.getRecommendation(await service.context()).reason, "no-clear-action", "Focus links into Shelved work are excluded before display");
         project.status = "active";
-        assert.equal(service.provider.getRecommendation(service.context()).reason, "recorded-focus");
+        assert.equal(service.provider.getRecommendation(await service.context()).reason, "recorded-focus");
         const before = JSON.stringify(plugin.projectWizard.data);
         plugin.dataStore.save = async () => { throw Error("disk"); };
         await assert.rejects(service.persistShown("2026-09-26"), /disk/);

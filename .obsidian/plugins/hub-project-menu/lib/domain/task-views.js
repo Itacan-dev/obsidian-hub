@@ -56,8 +56,8 @@ function filterTasks(tasks, state, now = new Date(), describe = task => task.pat
     });
 }
 
-function sortTasks(tasks, key = "due", direction = 1, describe = task => task.path, project = () => "") {
-    const value = task => ({ task: task.text, location: describe(task), project: project(task),
+function sortTasks(tasks, key = "due", direction = 1, describe = task => task.path) {
+    const value = task => ({ task: task.text, location: describe(task),
         necessity: { must: 0, should: 1 }[task.necessity] ?? null,
         start: task.fromDate ? task.fromDate + (task.fromTime ?? "00:00") : null,
         due: task.dueDate ? task.dueDate + (task.dueTime ?? "24:00") : null,

@@ -1,0 +1,700 @@
+{
+  "tasks": [
+    {
+      "path": "Projects/App/Tasks/Start only.md",
+      "line": 1,
+      "text": "Start only",
+      "hubTaskId": "start",
+      "completed": false,
+      "necessity": null,
+      "fromDate": "2026-10-26",
+      "dueDate": null,
+      "steps": [],
+      "sourceLabel": "Tasks",
+      "actionable": true
+    },
+    {
+      "path": "Projects/App/Tasks/Due only.md",
+      "line": 1,
+      "text": "Due only",
+      "hubTaskId": "due",
+      "completed": false,
+      "necessity": "must",
+      "fromDate": null,
+      "dueDate": "2026-10-26",
+      "steps": [],
+      "sourceLabel": "Tasks",
+      "actionable": true
+    },
+    {
+      "path": "Projects/App/Tasks/Midnight.md",
+      "line": 1,
+      "text": "Midnight",
+      "hubTaskId": "midnight",
+      "completed": false,
+      "necessity": "should",
+      "fromDate": null,
+      "dueDate": "2026-10-26",
+      "dueTime": "00:00",
+      "steps": [],
+      "sourceLabel": "Tasks",
+      "actionable": true
+    },
+    {
+      "path": "Projects/App/Tasks/Timed.md",
+      "line": 1,
+      "text": "Timed",
+      "hubTaskId": "timed",
+      "completed": false,
+      "phaseId": "phase",
+      "necessity": null,
+      "fromDate": "2026-10-26",
+      "dueDate": "2026-10-26",
+      "fromTime": "06:00",
+      "dueTime": "17:30",
+      "steps": [],
+      "sourceLabel": "Tasks",
+      "actionable": true
+    },
+    {
+      "path": "Projects/App/Tasks/Month range.md",
+      "line": 1,
+      "text": "Month range",
+      "hubTaskId": "month",
+      "completed": false,
+      "necessity": null,
+      "fromDate": "2026-10-20",
+      "dueDate": "2026-11-04",
+      "steps": [],
+      "sourceLabel": "Tasks",
+      "actionable": true
+    },
+    {
+      "path": "Projects/App/Tasks/Year range.md",
+      "line": 1,
+      "text": "Year range",
+      "hubTaskId": "year",
+      "completed": false,
+      "necessity": null,
+      "fromDate": "2026-12-30",
+      "dueDate": "2027-01-03",
+      "steps": [],
+      "sourceLabel": "Tasks",
+      "actionable": true
+    },
+    {
+      "path": "Projects/App/Tasks/Overdue.md",
+      "line": 1,
+      "text": "Overdue",
+      "hubTaskId": "overdue",
+      "completed": false,
+      "necessity": null,
+      "fromDate": null,
+      "dueDate": "2026-10-24",
+      "steps": [],
+      "sourceLabel": "Tasks",
+      "actionable": true
+    },
+    {
+      "path": "Projects/App/Tasks/Future.md",
+      "line": 1,
+      "text": "Future",
+      "hubTaskId": "future",
+      "completed": false,
+      "necessity": null,
+      "fromDate": "2026-10-27",
+      "dueDate": null,
+      "steps": [],
+      "sourceLabel": "Tasks",
+      "actionable": true
+    },
+    {
+      "path": "Projects/App/Tasks/Completed.md",
+      "line": 1,
+      "text": "Completed",
+      "hubTaskId": "completed",
+      "completed": true,
+      "necessity": null,
+      "fromDate": null,
+      "dueDate": "2026-10-25",
+      "steps": [],
+      "sourceLabel": "Tasks",
+      "actionable": true
+    },
+    {
+      "path": "Projects/App/Tasks/Unscheduled.md",
+      "line": 1,
+      "text": "Unscheduled",
+      "hubTaskId": "unscheduled",
+      "completed": false,
+      "necessity": null,
+      "fromDate": null,
+      "dueDate": null,
+      "steps": [],
+      "sourceLabel": "Tasks",
+      "actionable": true
+    },
+    {
+      "path": "Projects/App/Tasks/ID-less.md",
+      "line": 1,
+      "text": "ID-less",
+      "hubTaskId": null,
+      "completed": false,
+      "necessity": null,
+      "fromDate": null,
+      "dueDate": null,
+      "steps": [],
+      "sourceLabel": "Tasks",
+      "actionable": true
+    },
+    {
+      "path": "Projects/App/Tasks/Continuation.md",
+      "line": 1,
+      "text": "Assignment\ncontinuation evidence",
+      "hubTaskId": "assignment",
+      "completed": false,
+      "description": "Metadata prose",
+      "necessity": null,
+      "fromDate": null,
+      "dueDate": "2026-10-27",
+      "steps": [
+        {
+          "path": "Projects/App/Tasks/Continuation.md",
+          "line": 3,
+          "text": "First",
+          "hubTaskId": "first",
+          "completed": true,
+          "parent": 1
+        },
+        {
+          "path": "Projects/App/Tasks/Continuation.md",
+          "line": 4,
+          "text": "Next",
+          "hubTaskId": "next",
+          "completed": false,
+          "parent": 1
+        }
+      ],
+      "sourceLabel": "Tasks",
+      "actionable": true
+    },
+    {
+      "path": "Projects/App/System/Excluded.md",
+      "line": 1,
+      "text": "Excluded System",
+      "hubTaskId": "excluded-System",
+      "completed": false,
+      "necessity": null,
+      "fromDate": null,
+      "dueDate": null,
+      "steps": [],
+      "sourceLabel": "System",
+      "actionable": true
+    },
+    {
+      "path": "Projects/App/Templates/Excluded.md",
+      "line": 1,
+      "text": "Excluded Templates",
+      "hubTaskId": "excluded-Templates",
+      "completed": false,
+      "necessity": null,
+      "fromDate": null,
+      "dueDate": null,
+      "steps": [],
+      "sourceLabel": "Templates",
+      "actionable": true
+    },
+    {
+      "path": "Projects/App/.hidden/Excluded.md",
+      "line": 1,
+      "text": "Excluded .hidden",
+      "hubTaskId": "excluded-hidden",
+      "completed": false,
+      "necessity": null,
+      "fromDate": null,
+      "dueDate": null,
+      "steps": [],
+      "sourceLabel": ".hidden",
+      "actionable": true
+    },
+    {
+      "path": "Projects/Itacan/Tasks.md",
+      "line": 1,
+      "text": "Itacan work",
+      "hubTaskId": "owner-itacan",
+      "completed": false,
+      "necessity": null,
+      "fromDate": null,
+      "dueDate": null,
+      "steps": [],
+      "sourceLabel": "Itacan",
+      "actionable": true
+    },
+    {
+      "path": "Projects/Obsidian Hub/Tasks.md",
+      "line": 1,
+      "text": "Obsidian Hub work",
+      "hubTaskId": "owner-hub",
+      "completed": false,
+      "necessity": null,
+      "fromDate": null,
+      "dueDate": null,
+      "steps": [],
+      "sourceLabel": "Obsidian Hub",
+      "actionable": true
+    },
+    {
+      "path": "Projects/App/Nested/Deep/Notes.md",
+      "line": 1,
+      "text": "**Linked** [note](Other.md)\nParagraph\n- ordinary list",
+      "hubTaskId": "rich",
+      "completed": false,
+      "description": "Description",
+      "phaseId": "phase",
+      "necessity": "must",
+      "fromDate": null,
+      "dueDate": "2026-10-25",
+      "dueTime": "00:00",
+      "steps": [
+        {
+          "path": "Projects/App/Nested/Deep/Notes.md",
+          "line": 4,
+          "text": "Parent **Step**",
+          "hubTaskId": "parent",
+          "completed": false,
+          "parent": 1
+        },
+        {
+          "path": "Projects/App/Nested/Deep/Notes.md",
+          "line": 5,
+          "text": "Nested [Step](Other.md)",
+          "hubTaskId": "nested",
+          "completed": false,
+          "parent": 4
+        }
+      ],
+      "sourceLabel": "Deep",
+      "actionable": true
+    },
+    {
+      "path": "Outside/Attributed.md",
+      "line": 1,
+      "text": "outside",
+      "hubTaskId": "outside",
+      "completed": false,
+      "necessity": null,
+      "fromDate": null,
+      "dueDate": null,
+      "steps": [],
+      "sourceLabel": "Outside",
+      "actionable": true
+    },
+    {
+      "path": "Projects/Other/Attributed.md",
+      "line": 1,
+      "text": "attributed",
+      "hubTaskId": "attributed",
+      "completed": false,
+      "necessity": null,
+      "fromDate": null,
+      "dueDate": null,
+      "steps": [],
+      "sourceLabel": "Other",
+      "actionable": true
+    },
+    {
+      "path": "System/Templates/Attributed.md",
+      "line": 1,
+      "text": "global-template",
+      "hubTaskId": "global-template",
+      "completed": false,
+      "necessity": null,
+      "fromDate": null,
+      "dueDate": null,
+      "steps": [],
+      "sourceLabel": "Templates",
+      "actionable": true
+    },
+    {
+      "path": ".hidden/Attributed.md",
+      "line": 1,
+      "text": "global-hidden",
+      "hubTaskId": "global-hidden",
+      "completed": false,
+      "necessity": null,
+      "fromDate": null,
+      "dueDate": null,
+      "steps": [],
+      "sourceLabel": ".hidden",
+      "actionable": true
+    },
+    {
+      "path": "Resources/Knowledge/Mounted/Notes.md",
+      "line": 1,
+      "text": "Mounted resource",
+      "hubTaskId": "mounted",
+      "completed": false,
+      "necessity": null,
+      "fromDate": null,
+      "dueDate": null,
+      "steps": [],
+      "sourceLabel": "Mounted",
+      "actionable": true
+    },
+    {
+      "path": "Resources/Knowledge/Tasks.md",
+      "line": 1,
+      "text": "Knowledge work",
+      "hubTaskId": "owner-resource-study",
+      "completed": false,
+      "necessity": null,
+      "fromDate": null,
+      "dueDate": null,
+      "steps": [],
+      "sourceLabel": "Knowledge",
+      "actionable": true
+    },
+    {
+      "path": "Resources/Research/Tasks.md",
+      "line": 1,
+      "text": "Research work",
+      "hubTaskId": "owner-resource-literature",
+      "completed": false,
+      "necessity": null,
+      "fromDate": null,
+      "dueDate": null,
+      "steps": [],
+      "sourceLabel": "Research",
+      "actionable": true
+    },
+    {
+      "path": "Resources/Explorations/Tasks.md",
+      "line": 1,
+      "text": "Explorations work",
+      "hubTaskId": "owner-resource-references",
+      "completed": false,
+      "necessity": null,
+      "fromDate": null,
+      "dueDate": null,
+      "steps": [],
+      "sourceLabel": "Explorations",
+      "actionable": true
+    },
+    {
+      "path": "Resources/Inspiration/Tasks.md",
+      "line": 1,
+      "text": "Inspiration work",
+      "hubTaskId": "owner-resource-inspiration",
+      "completed": false,
+      "necessity": null,
+      "fromDate": null,
+      "dueDate": null,
+      "steps": [],
+      "sourceLabel": "Inspiration",
+      "actionable": true
+    },
+    {
+      "path": "Resources/Knowledge/Conflict.md",
+      "line": 1,
+      "text": "resource-first",
+      "hubTaskId": "resource-first",
+      "completed": false,
+      "necessity": null,
+      "fromDate": null,
+      "dueDate": null,
+      "steps": [],
+      "sourceLabel": "Knowledge",
+      "actionable": true
+    }
+  ],
+  "groups": {
+    "active": [
+      [
+        "Projects/App/Tasks/Overdue.md",
+        1
+      ],
+      [
+        "Projects/App/Nested/Deep/Notes.md",
+        1
+      ],
+      [
+        "Projects/App/Tasks/Midnight.md",
+        1
+      ],
+      [
+        "Projects/App/Tasks/Timed.md",
+        1
+      ],
+      [
+        "Projects/App/Tasks/Due only.md",
+        1
+      ],
+      [
+        "Projects/App/Tasks/Continuation.md",
+        1
+      ],
+      [
+        "Projects/App/Tasks/Month range.md",
+        1
+      ],
+      [
+        "Projects/App/Tasks/Start only.md",
+        1
+      ],
+      [
+        "Projects/App/Tasks/Unscheduled.md",
+        1
+      ],
+      [
+        "Projects/App/Tasks/ID-less.md",
+        1
+      ],
+      [
+        "Projects/App/System/Excluded.md",
+        1
+      ],
+      [
+        "Projects/App/Templates/Excluded.md",
+        1
+      ],
+      [
+        "Projects/App/.hidden/Excluded.md",
+        1
+      ],
+      [
+        "Projects/Itacan/Tasks.md",
+        1
+      ],
+      [
+        "Projects/Obsidian Hub/Tasks.md",
+        1
+      ],
+      [
+        "Outside/Attributed.md",
+        1
+      ],
+      [
+        "Projects/Other/Attributed.md",
+        1
+      ],
+      [
+        "System/Templates/Attributed.md",
+        1
+      ],
+      [
+        ".hidden/Attributed.md",
+        1
+      ],
+      [
+        "Resources/Knowledge/Mounted/Notes.md",
+        1
+      ],
+      [
+        "Resources/Knowledge/Tasks.md",
+        1
+      ],
+      [
+        "Resources/Research/Tasks.md",
+        1
+      ],
+      [
+        "Resources/Explorations/Tasks.md",
+        1
+      ],
+      [
+        "Resources/Inspiration/Tasks.md",
+        1
+      ],
+      [
+        "Resources/Knowledge/Conflict.md",
+        1
+      ]
+    ],
+    "future": [
+      [
+        "Projects/App/Tasks/Future.md",
+        1
+      ],
+      [
+        "Projects/App/Tasks/Year range.md",
+        1
+      ]
+    ],
+    "completed": [
+      [
+        "Projects/App/Tasks/Completed.md",
+        1
+      ]
+    ]
+  },
+  "owners": [
+    {
+      "id": "start",
+      "path": "Projects/App/Tasks/Start only.md",
+      "presentation": "app",
+      "physical": "app"
+    },
+    {
+      "id": "due",
+      "path": "Projects/App/Tasks/Due only.md",
+      "presentation": "app",
+      "physical": "app"
+    },
+    {
+      "id": "midnight",
+      "path": "Projects/App/Tasks/Midnight.md",
+      "presentation": "app",
+      "physical": "app"
+    },
+    {
+      "id": "timed",
+      "path": "Projects/App/Tasks/Timed.md",
+      "presentation": "app",
+      "physical": "app"
+    },
+    {
+      "id": "month",
+      "path": "Projects/App/Tasks/Month range.md",
+      "presentation": "app",
+      "physical": "app"
+    },
+    {
+      "id": "year",
+      "path": "Projects/App/Tasks/Year range.md",
+      "presentation": "app",
+      "physical": "app"
+    },
+    {
+      "id": "overdue",
+      "path": "Projects/App/Tasks/Overdue.md",
+      "presentation": "app",
+      "physical": "app"
+    },
+    {
+      "id": "future",
+      "path": "Projects/App/Tasks/Future.md",
+      "presentation": "app",
+      "physical": "app"
+    },
+    {
+      "id": "completed",
+      "path": "Projects/App/Tasks/Completed.md",
+      "presentation": "app",
+      "physical": "app"
+    },
+    {
+      "id": "unscheduled",
+      "path": "Projects/App/Tasks/Unscheduled.md",
+      "presentation": "app",
+      "physical": "app"
+    },
+    {
+      "id": null,
+      "path": "Projects/App/Tasks/ID-less.md",
+      "presentation": "app",
+      "physical": "app"
+    },
+    {
+      "id": "assignment",
+      "path": "Projects/App/Tasks/Continuation.md",
+      "presentation": "app",
+      "physical": "app"
+    },
+    {
+      "id": "excluded-System",
+      "path": "Projects/App/System/Excluded.md",
+      "presentation": "app",
+      "physical": "app"
+    },
+    {
+      "id": "excluded-Templates",
+      "path": "Projects/App/Templates/Excluded.md",
+      "presentation": "app",
+      "physical": "app"
+    },
+    {
+      "id": "excluded-hidden",
+      "path": "Projects/App/.hidden/Excluded.md",
+      "presentation": "app",
+      "physical": "app"
+    },
+    {
+      "id": "owner-itacan",
+      "path": "Projects/Itacan/Tasks.md",
+      "presentation": "itacan",
+      "physical": "itacan"
+    },
+    {
+      "id": "owner-hub",
+      "path": "Projects/Obsidian Hub/Tasks.md",
+      "presentation": "hub",
+      "physical": "hub"
+    },
+    {
+      "id": "rich",
+      "path": "Projects/App/Nested/Deep/Notes.md",
+      "presentation": "app",
+      "physical": "app"
+    },
+    {
+      "id": "outside",
+      "path": "Outside/Attributed.md",
+      "presentation": "app",
+      "physical": null
+    },
+    {
+      "id": "attributed",
+      "path": "Projects/Other/Attributed.md",
+      "presentation": "app",
+      "physical": "other"
+    },
+    {
+      "id": "global-template",
+      "path": "System/Templates/Attributed.md",
+      "presentation": "app",
+      "physical": null
+    },
+    {
+      "id": "global-hidden",
+      "path": ".hidden/Attributed.md",
+      "presentation": "app",
+      "physical": null
+    },
+    {
+      "id": "mounted",
+      "path": "Resources/Knowledge/Mounted/Notes.md",
+      "presentation": "resource:study",
+      "physical": "resource:study"
+    },
+    {
+      "id": "owner-resource-study",
+      "path": "Resources/Knowledge/Tasks.md",
+      "presentation": "resource:study",
+      "physical": "resource:study"
+    },
+    {
+      "id": "owner-resource-literature",
+      "path": "Resources/Research/Tasks.md",
+      "presentation": "resource:literature",
+      "physical": "resource:literature"
+    },
+    {
+      "id": "owner-resource-references",
+      "path": "Resources/Explorations/Tasks.md",
+      "presentation": "resource:references",
+      "physical": "resource:references"
+    },
+    {
+      "id": "owner-resource-inspiration",
+      "path": "Resources/Inspiration/Tasks.md",
+      "presentation": "resource:inspiration",
+      "physical": "resource:inspiration"
+    },
+    {
+      "id": "resource-first",
+      "path": "Resources/Knowledge/Conflict.md",
+      "presentation": "resource:study",
+      "physical": "resource:study"
+    }
+  ]
+}

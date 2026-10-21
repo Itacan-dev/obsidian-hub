@@ -42,11 +42,18 @@ window.checkWorkspaceTaskActions = async ({ load, domain, confirmAction }) => {
         window.hubToggleTask = async (path, line, text, completed) => {
             toggles++; return { path, line, requestLine: line, oldText: text, lineDelta: 0, tasks: [{ path, line, text, completed }] };
         };
+        // Native menu/geometry host; the independent task-panel fixture covers
+        // the real shared facade and its action preflight.
+        window.hubCreateTaskPanelRead = () => ({ actions: {}, accept() {},
+            read: async () => ({ tasks: window.hubTaskData.readPages(dv, projectRoot).flatMap(page => page.file.tasks), changed: true }),
+            reconcile: (tasks, edit) => domain.applyTaskEdit(tasks, edit),
+            toggle: (task, completed) => window.hubToggleTask(task.path, task.line, task.text, completed, task.hubTaskId),
+            clear: (tasks, confirm) => window.hubClearCompletedTasks(tasks, confirm), reveal: async task => ({ path: task.path }) });
         const controller = new Function("rightCol", "root", "dv", "app", "current", "projectRoot", "isResourceContext", `
             const right=rightCol,taskWorkspace={active:()=>false},openProjectNote=async()=>{};
             ${taskCode};return {render:renderCurrentTasks,body:tasksBody,panel:tasksPanel,header:tasksTitle,clear:clearVisibleCompletedTasks};
         `)(rightCol, root, dv, app, current, projectRoot, resource);
-        controller.render(); await settle();
+        await controller.render(); await settle();
         const add = controller.header.querySelector(".hub-task-add");
         assert(controller.header.querySelectorAll("button").length === 1 && !controller.header.textContent.includes("Clear"), variant + " only + Task remains in header");
         assert(add.textContent === "Task" && add.querySelector('[data-icon="plus"]'), variant + " preserves + Task");
@@ -88,8 +95,8 @@ window.checkWorkspaceTaskActions = async ({ load, domain, confirmAction }) => {
             layouts++;
         }
         document.body.style.zoom = 1;
-        context(); const oldMenu = lastMenu; controller.render(); assert(!oldMenu.el.isConnected, variant + " closes stale menu on refresh");
-        items = items.filter(t => !t.completed); controller.render(); assert(!completed(), variant + " no completed-group action when empty");
+        context(); const oldMenu = lastMenu; await controller.render(); assert(!oldMenu.el.isConnected, variant + " closes stale menu on refresh");
+        items = items.filter(t => !t.completed); await controller.render(); assert(!completed(), variant + " no completed-group action when empty");
         await controller.clear(); assert(clears === 1, variant + " empty scope cannot clear");
         component.unload(); host.remove();
     }

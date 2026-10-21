@@ -54,10 +54,21 @@ function setWindowUndertext(title, undertext) {
     return undertext;
 }
 
+// Capture windows and the task editor use the same heading/undertext structure.
+function createModalHeader(parent, { title, subtitle, icon, titleId, descriptionId }) {
+    const header = parent.createEl("header", { cls: "hub-capture-header" });
+    const options = titleId ? { attr: { id: titleId } } : {};
+    const heading = icon ? createWindowTitle(header, title, icon, options) : header.createEl("h2", { text: title, ...options });
+    const description = subtitle == null ? null : header.createEl("p", { text: subtitle, cls: "hub-oath-muted",
+        ...(descriptionId ? { attr: { id: descriptionId } } : {}) });
+    if (icon && description) setWindowUndertext(heading, description);
+    return { header, heading, description };
+}
+
 // Keep native chrome and existing form ownership; only the middle region scrolls.
 function layoutModal(modal, { container = modal.contentEl, headerEnd, footer, body, bodyClass = "" } = {}) {
     const root = modal.contentEl;
-    headerEnd ??= root.querySelector(":scope > .hub-window-header, :scope > h2, :scope > .hub-statistics-header");
+    headerEnd ??= root.querySelector(":scope > .hub-capture-header, :scope > .hub-window-header, :scope > h2, :scope > .hub-statistics-header");
     if (headerEnd?.nextElementSibling?.classList.contains("hub-project-advancement-divider"))
         headerEnd = headerEnd.nextElementSibling;
     footer ??= container.querySelector(":scope > .hub-capture-actions, :scope > .hub-task-dialog-actions, :scope > .hub-oath-actions, :scope > .hub-project-advancement-actions, :scope > .hub-project-wizard-actions");
@@ -77,4 +88,4 @@ function layoutModal(modal, { container = modal.contentEl, headerEnd, footer, bo
     return body;
 }
 
-module.exports = { createWindowTitle, setWindowUndertext, layoutModal };
+module.exports = { createWindowTitle, setWindowUndertext, createModalHeader, layoutModal };

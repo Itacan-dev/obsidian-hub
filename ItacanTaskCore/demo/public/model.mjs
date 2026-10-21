@@ -1,0 +1,28 @@
+export const clone = value => JSON.parse(JSON.stringify(value));
+export function ordered(steps) {
+    const out = [], seen = new Set();
+    function visit(parent, depth) { for (const s of steps.filter(s => s.parentStepId === parent).sort((a, b) => a.order - b.order)) { if (seen.has(s.id)) throw Error("Invalid Step hierarchy"); seen.add(s.id); out.push({ ...s, depth }); visit(s.id, depth + 1); } }
+    visit(null, 0); if (out.length !== steps.length) throw Error("Invalid Step hierarchy"); return out;
+}
+export function descendants(steps, id) { const out = [], seen = new Set([id]); const visit = p => { for (const s of steps.filter(s => s.parentStepId === p)) { if (seen.has(s.id)) throw Error("Invalid Step hierarchy"); seen.add(s.id); out.push(s.id); visit(s.id); } }; visit(id); return out; }
+function normalize(steps, parent) { steps.filter(s => s.parentStepId === parent).sort((a, b) => a.order - b.order).forEach((s, i) => s.order = i); }
+export function newModel(context) { return { source: null, context: clone(context), metadata: { title: "", description: "", importance: null, start: null, due: null, location: null, phase: null }, continuation: "", completed: false, steps: [] }; }
+export function editModel(editor) { return { source: clone(editor), context: { authority: clone(editor.authority), owner: clone(editor.owner), guard: clone(editor.guard) }, metadata: clone(editor.draft.metadata), continuation: editor.draft.continuation, completed: editor.currentCompletion[0].completed, steps: editor.draft.steps.map(s => ({ id: s.id, parentStepId: s.parentStepId, order: s.order, title: s.title, body: s.body, completed: editor.currentCompletion.find(c => c.stepId === s.id).completed })) }; }
+export function addStep(model, parentStepId = null, id = globalThis.crypto.randomUUID()) { if (parentStepId !== null && !model.steps.some(s => s.id === parentStepId)) throw Error("Missing Step parent"); model.steps.push({ id, parentStepId, order: model.steps.filter(s => s.parentStepId === parentStepId).length, title: "", body: "", completed: false }); return id; }
+export function moveStep(model, id, delta) { const s = model.steps.find(s => s.id === id), siblings = model.steps.filter(x => x.parentStepId === s.parentStepId).sort((a, b) => a.order - b.order), i = siblings.findIndex(x => x.id === id), other = siblings[i + delta]; if (other) { [s.order, other.order] = [other.order, s.order]; normalize(model.steps, s.parentStepId); } }
+export function reparentStep(model, id, parent) { const s = model.steps.find(s => s.id === id); if (!s || parent === id || descendants(model.steps, id).includes(parent) || parent !== null && !model.steps.some(x => x.id === parent)) throw Error("Invalid Step parent"); const old = s.parentStepId; s.parentStepId = parent; s.order = model.steps.filter(x => x.id !== id && x.parentStepId === parent).length; normalize(model.steps, old); normalize(model.steps, parent); }
+export function removeStep(model, id) { const removed = new Set([id, ...descendants(model.steps, id)]), parent = model.steps.find(s => s.id === id)?.parentStepId; model.steps = model.steps.filter(s => !removed.has(s.id)); normalize(model.steps, parent); }
+export function buildIntent(model, operationId = globalThis.crypto.randomUUID()) {
+    if (!model.metadata.title.trim()) throw Error("Give the task a title.");
+    if (model.steps.some(s => !s.title.trim())) throw Error("Give each Step a title, or remove it.");
+    const initial = completed => completed ? { completed: true } : { completed: false, completedAt: null };
+    const transition = (before, after) => before === after ? { kind: "keep" } : { kind: after ? "complete" : "reopen" };
+    const metadata = clone(model.metadata), source = model.source;
+    const base = { version: 2, operationId, reason: source ? "Native demo atomic Save" : "Native demo rich creation", authority: clone(model.context.authority), owner: clone(model.context.owner), guard: clone(model.context.guard) };
+    if (!source) return { ...base, action: { kind: "rich-create", draft: { version: 1, metadata, continuation: model.continuation, steps: ordered(model.steps).map(({ depth, completed, ...s }) => ({ ...s, initial: initial(completed) })), initial: initial(model.completed) } } };
+    const old = source.draft.steps, missing = new Set(old.filter(s => !model.steps.some(n => n.id === s.id)).map(s => s.id));
+    const deletions = old.filter(s => missing.has(s.id) && !missing.has(s.parentStepId)).map(s => ({ stepId: s.id, cascade: true, descendantIds: descendants(old, s.id) }));
+    return { ...base, action: { kind: "full-save", target: { taskId: source.taskId, expectedTaskRevision: source.taskRevision }, guards: clone(source.guards), draft: { version: 1, metadata, continuation: model.continuation, deletions,
+        parentCompletion: transition(source.currentCompletion[0].completed, model.completed), steps: ordered(model.steps).map(({ depth, completed, ...s }) => old.some(o => o.id === s.id) ? { ...s, state: "existing", completion: transition(source.currentCompletion.find(c => c.stepId === s.id).completed, completed) } : { ...s, state: "new", initial: initial(completed) }) } } };
+}
+export function visibleTasks(tasks, { filter = "open", search = "" } = {}) { const rank = { must: 0, should: 1 }, q = search.trim().toLocaleLowerCase(); return tasks.filter(t => (filter === "all" || t.completed === (filter === "completed")) && (!q || (t.title + " " + t.description).toLocaleLowerCase().includes(q))).sort((a, b) => (rank[a.importance] ?? 2) - (rank[b.importance] ?? 2) || (a.due?.date ?? "9999").localeCompare(b.due?.date ?? "9999") || a.title.localeCompare(b.title) || a.id.localeCompare(b.id)); }

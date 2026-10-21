@@ -3,13 +3,26 @@ const fs = require("fs");
 const nodePath = require("path");
 const { musicProvider, musicDefaults, normalizeMusicConfig, createMusicItem, safeArtwork } = require("../domain/music");
 
+const preferenceQueue = Symbol("Music preferences queue");
+const preferenceRun = Symbol("Music preference action");
+const preferencePublish = Symbol("Music preference read");
+const preferenceData = new WeakMap();
+const preferenceCopy = value => value == null ? value : require("./application-storage/codec").copy(value);
+function preferenceError(code) { const error = Error(code); error.code = code; return error; }
 class MusicLibrary {
     constructor(plugin, options = {}) {
         this.plugin = plugin; this.app = plugin.app; this.options = options;
         this.listeners = new Set(); this.queue = Promise.resolve(); this.disposed = false;
-        this.compatibilityError = null; this.state;
+        this.compatibilityError = null;
+        if (options.transactionalPreferences !== undefined) {
+            const port = options.transactionalPreferences;
+            if (!port || !["read", "prepare", "submit", "reconcile"].every(key => typeof port[key] === "function")) throw preferenceError("MUSIC_PREFERENCES_CONTRACT");
+            preferenceData.set(this, { port, readiness: "unavailable", prepared: null, outcome: null });
+        } else this.state;
     }
     get state() {
+        const preferences = preferenceData.get(this);
+        if (preferences && preferences.readiness !== "ready") throw preferenceError("MUSIC_PREFERENCES_UNAVAILABLE");
         try { const state = normalizeMusicConfig(this.plugin.projectWizard.data.music); this.compatibilityError = null; return state; }
         catch (error) {
             // A future library must remain untouched and must not prevent Home,
@@ -25,6 +38,7 @@ class MusicLibrary {
     onChange(listener) { this.listeners.add(listener); return () => this.listeners.delete(listener); }
     emit() { for (const listener of this.listeners) { try { listener(this.state); } catch (error) { console.error("Could not refresh Music", error); } } }
     enqueue(work) {
+        if (preferenceData.has(this)) return Promise.reject(preferenceError("MUSIC_MUTATION_NOT_ADOPTED"));
         const result = this.queue.catch(() => {}).then(async () => {
             if (this.disposed) throw Error("Music is no longer available.");
             await this.plugin.dataStore.writeQueue?.catch(() => {});
@@ -35,6 +49,7 @@ class MusicLibrary {
         this.queue = result; return result;
     }
     async save(next) {
+        if (preferenceData.has(this)) throw preferenceError("MUSIC_MUTATION_NOT_ADOPTED");
         const data = this.plugin.projectWizard.data, previous = data.music;
         data.music = next;
         try { await this.plugin.dataStore.save(data); this.plugin.projectWizard.data.music = next; }
@@ -44,8 +59,74 @@ class MusicLibrary {
         }
         this.emit(); return next;
     }
-    setEnabled(enabled) { return this.enqueue(() => this.save({ ...this.state, enabled: !!enabled })); }
+    [preferenceQueue](work) {
+        const result = this.queue.catch(() => {}).then(async () => {
+            if (this.disposed) throw preferenceError("MUSIC_DISPOSED");
+            return work();
+        });
+        this.queue = result; return result;
+    }
+    getPreferenceStatus() {
+        const p = preferenceData.get(this);
+        return p ? preferenceCopy({ readiness: this.disposed ? "disposed" : p.readiness, prepared: p.prepared, outcome: p.outcome }) : null;
+    }
+    async refreshPreferences() {
+        return this[preferenceQueue](async () => {
+            const p = preferenceData.get(this);
+            if (!p) throw preferenceError("MUSIC_PREFERENCES_NOT_SELECTED");
+            if (p.prepared && !["committed", "replayed", "cancelled"].includes(p.outcome?.status)) throw preferenceError("MUSIC_PREFERENCE_REVIEW_REQUIRED");
+            await this[preferencePublish](p); return this.state;
+        });
+    }
+    async [preferencePublish](p) {
+        p.readiness = "unavailable";
+        try {
+            const current = await p.port.read();
+            if (this.disposed) return;
+            // Read current authority, never an operation's historical result.
+            const next = current.field.present ? preferenceCopy(current.field.value) : musicDefaults();
+            this.plugin.projectWizard.data.music = next;
+            p.readiness = "ready"; this.emit();
+        } catch (_) { if (!this.disposed) p.readiness = "unavailable"; }
+    }
+    async [preferenceRun](intent, prepared = null, reconcile = false, signal) {
+        const p = preferenceData.get(this);
+        if (!p) throw preferenceError("MUSIC_PREFERENCES_NOT_SELECTED");
+        if (!prepared) {
+            if (p.prepared && !["committed", "replayed", "cancelled"].includes(p.outcome?.status)) throw preferenceError("MUSIC_PREFERENCE_REVIEW_REQUIRED");
+            let original;
+            try { original = await p.port.read(); } catch (error) { p.readiness = "unavailable"; throw error; }
+            if (this.disposed) throw preferenceError("MUSIC_DISPOSED");
+            prepared = p.port.prepare(intent, original);
+        } else if (p.prepared && p.prepared.request.operationId !== prepared.request?.operationId && !["committed", "replayed", "cancelled"].includes(p.outcome?.status)) {
+            throw preferenceError("MUSIC_PREFERENCE_REVIEW_REQUIRED");
+        }
+        if (!p.prepared || p.prepared.request.operationId !== prepared.request.operationId) p.prepared = preferenceCopy(prepared);
+        p.readiness = "unavailable";
+        p.outcome = null;
+        let outcome;
+        try { outcome = await (reconcile ? p.port.reconcile(prepared) : p.port.submit(prepared, signal)); }
+        catch (_) { outcome = { version: 1, privacy: "local-private", status: "uncertain", code: "MUSIC_RESPONSE_UNAVAILABLE", operationId: prepared.request.operationId }; }
+        if (this.disposed) return outcome;
+        p.outcome = preferenceCopy(outcome);
+        if (["committed", "replayed"].includes(outcome.status)) await this[preferencePublish](p);
+        else p.readiness = "blocked";
+        return outcome;
+    }
+    reconcilePreferences(prepared = this.getPreferenceStatus()?.prepared) {
+        const original = preferenceCopy(prepared);
+        return this[preferenceQueue](() => this[preferenceRun](null, original, true));
+    }
+    replayPreferences(prepared = this.getPreferenceStatus()?.prepared, signal) {
+        const original = preferenceCopy(prepared);
+        return this[preferenceQueue](() => this[preferenceRun](null, original, false, signal));
+    }
+    setEnabled(enabled) {
+        if (preferenceData.has(this)) return this[preferenceQueue](() => this[preferenceRun]({ kind: "set-enabled", enabled: !!enabled }));
+        return this.enqueue(() => this.save({ ...this.state, enabled: !!enabled }));
+    }
     setProviderEnabled(provider, enabled) {
+        if (preferenceData.has(this)) return this[preferenceQueue](() => this[preferenceRun]({ kind: "set-provider-enabled", provider, enabled: !!enabled }));
         return this.enqueue(() => {
             if (!musicProvider(provider)) throw Error("Unknown music source.");
             const state = this.state;
@@ -104,6 +185,7 @@ class MusicLibrary {
         finally { clearTimeout(timer); }
     }
     async add(values) {
+        if (preferenceData.has(this)) throw preferenceError("MUSIC_MUTATION_NOT_ADOPTED");
         const item = createMusicItem(values);
         if (item.provider === "local") await this.assertLocalSource(item.source);
         const metadata = await this.metadata(item);

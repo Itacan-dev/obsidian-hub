@@ -164,7 +164,7 @@ class HubOathService {
         catch (error) { data.oathsByDevice = previous; throw error; }
     }
     async start() {
-        if (this.disposed) return;
+        if (this.disposed || this.timer) return;
         this.fullscreen.restore(!this.isStrict && this.active && this.current?.fullscreenOwned);
         try {
             if (this.active && this.isStrict) {
@@ -176,7 +176,7 @@ class HubOathService {
             }
             else if (this.committed && JSON.stringify(this.current) !== JSON.stringify(this.bucket.current)) await this.persist(this.current);
         } catch (error) { this.error(error); }
-        this.plugin.taskData.subscribe(this.plugin, () => { void this.refresh(); });
+        this.ensureCommittedRead();
         // Index events read work. The clock only checks timestamps, avoiding a
         // whole-vault task query and Markdown reads on every countdown tick.
         this.timer = setInterval(() => { this.tickDisplay(); void this.refresh(false); }, 1000);
@@ -187,38 +187,47 @@ class HubOathService {
         console.error("Oath update failed", error);
         if (this.lastError !== error.message) { this.lastError = error.message; this.notice(`The Oath could not be updated: ${error.message}`); }
     }
+    ensureCommittedRead() {
+        if (this.readClosed || this.disposed || this.committedReadStop) return;
+        // Oath is constructed before the shared facade; start/first hydration is
+        // the safe ownership boundary. No separate task-data backend watcher.
+        this.committedReadStop = this.plugin.taskService.subscribe(() => { void this.refresh(); });
+        this.plugin.register(() => this.closeCommittedRead());
+    }
+    closeCommittedRead() {
+        this.readClosed = true;
+        this.readSequence = (this.readSequence ?? 0) + 1;
+        this.committedReadStop?.(); this.committedReadStop = null;
+    }
     async resolveWork() {
-        if (!this.committed || !this.ready()) return false;
-        const tasks = this.tasks(), contents = new Map();
-        const work = [];
-        for (const ref of this.current.tasks) {
-            const matches = tasks.filter(task => task.hubTaskId === ref.id);
-            let task = matches.length === 1 && !matches[0].identityConflict ? matches[0] : null;
-            if (task) this.awaitingIndex.delete(ref.id);
-            // Bridge only our own freshly assigned IDs until Dataview imports
-            // them. Other missing, nested or copied identities stay unavailable.
-            const fresh = this.awaitingIndex.get(ref.id);
-            if (!matches.length && fresh && tasks.some(item => !item.hubTaskId && item.path === fresh.path &&
-                item.line === fresh.line && normalizedTaskText(item.text) === normalizedTaskText(fresh.text))) task = fresh;
-            if (task) {
-                try {
-                    const file = this.app.vault.getAbstractFileByPath(task.path);
-                    if (!contents.has(task.path)) contents.set(task.path, await this.app.vault.read(file));
-                    const content = contents.get(task.path), lines = content.split(/\r?\n/);
-                    const line = lines.findIndex(value => taskIdentity(value) === ref.id && taskLineDetails(value));
-                    if (line < 0) throw Error("Selected task unavailable");
-                    const snapshot = readTaskSnapshot(content, { ...task, line, text: taskLineDetails(lines[line]).text, hubTaskId: ref.id });
-                    task = { ...task, ...snapshot, ...this.plugin.taskEditor.metadata(ref.id) };
-                } catch (_) { task = null; }
-            }
-            if (task && !this.ownsTask(this.current.workspace, task)) task = null;
-            work.push({ ref, task });
-        }
+        if (!this.committed || !this.ready() || this.disposed || this.readClosed) return false;
+        this.ensureCommittedRead();
+        const oath = this.current, revision = this.readRevision ?? 0, sequence = this.readSequence = (this.readSequence ?? 0) + 1;
+        const scope = () => { const context = this.resolveWorkspace(oath.workspace, false); return JSON.stringify(context ? [context.path, context.root] : null); };
+        const signature = scope(), commitment = JSON.stringify([oath.id, oath.workspace, oath.tasks]);
+        const current = () => !this.disposed && !this.readClosed && this.committed && sequence === this.readSequence && revision === (this.readRevision ?? 0) &&
+            commitment === JSON.stringify([this.current.id, this.current.workspace, this.current.tasks]);
+        let result;
+        try {
+            result = await this.plugin.taskService.resolveOathWork({ workspace: oath.workspace ?? null, references: oath.tasks,
+                awaitingIndex: [...this.awaitingIndex].map(([id, task]) => ({ id, path: task.path, line: task.line, text: task.text,
+                    metadata: Object.fromEntries(["description", "phaseId", "necessity", "fromDate", "fromTime", "dueDate", "dueTime", "captureSource"]
+                        .filter(key => task[key] !== undefined).map(key => [key, task[key]])) })) });
+        } catch (error) { if (!current()) return false; throw error; }
+        if (!current()) return false;
+        if (scope() !== signature) { this.needsRead = true; return false; }
+        if (result.consistency !== "legacy-source-checked" || result.rows.length !== oath.tasks.length || result.rows.some((row, index) =>
+            ["id", "path", "text"].some(key => row.reference[key] !== oath.tasks[index][key]) || row.task && row.task.hubTaskId !== row.reference.id))
+            throw Error("Committed task read returned inconsistent references.");
+        const work = result.rows.map((row, index) => ({ ref: oath.tasks[index], task: row.task }));
+        for (const row of result.rows) if (row.retireAwaitingIndex) this.awaitingIndex.delete(row.reference.id);
+        this.readDiagnostics = result.diagnostics;
         const changed = JSON.stringify(work) !== JSON.stringify(this.work);
         this.work = work;
         return changed;
     }
     refresh(readTasks = true) {
+        if (readTasks) this.readRevision = (this.readRevision ?? 0) + 1;
         this.needsRead ||= readTasks;
         if (this.refreshing || this.disposed) return this.refreshing ?? Promise.resolve();
         this.refreshing = this.enqueue(async () => {
@@ -420,6 +429,6 @@ class HubOathService {
         await this.persist(record, [...(this.bucket.history ?? []), record]);
         this.work = []; this.awaitingIndex.clear(); this.emit();
     }
-    destroy() { this.disposed = true; clearInterval(this.timer); this.listeners.clear(); this.clockListeners.clear(); this.strict.detach(); this.fullscreen.destroy(); }
+    destroy() { this.disposed = true; this.closeCommittedRead(); clearInterval(this.timer); this.listeners.clear(); this.clockListeners.clear(); this.strict.detach(); this.fullscreen.destroy(); }
 }
 module.exports = { HubOathService };

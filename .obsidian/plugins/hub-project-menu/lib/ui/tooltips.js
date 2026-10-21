@@ -64,13 +64,14 @@ let detailTooltipId = 0;
 
 // Opt-in immediate, two-line variant of Obsidian's tooltip surface. Existing
 // aria-label tooltips and their timing are deliberately untouched.
-function createImmediateHubTooltip(root) {
+function createImmediateHubTooltip(root, { interactive = false, contentOnly = false } = {}) {
     const doc = root.ownerDocument, win = doc.defaultView;
     const definitions = new WeakMap(), cleanups = [];
     let hovered = null, focused = null, active = null, tooltip = null;
-    let keyboardNavigation = false, activeDescription = null;
+    let keyboardNavigation = false, activeDescription = null, pinned = null, overTooltip = false, leaveTimer = null, detachedObserver = null;
     const id = `hub-detail-tooltip-${++detailTooltipId}`;
     function hide() {
+        win.clearTimeout(leaveTimer); detachedObserver?.disconnect(); detachedObserver = null;
         if (active) {
             const descriptions = (active.getAttribute('aria-describedby') ?? '').split(/\s+/).filter(value => value && value !== id);
             if (descriptions.length) active.setAttribute('aria-describedby', descriptions.join(' '));
@@ -80,28 +81,51 @@ function createImmediateHubTooltip(root) {
         activeDescription = null;
         tooltip?.remove(); tooltip = null; active = null;
     }
+    function dismiss() { hovered = focused = pinned = null; overTooltip = false; hide(); }
+    function position() {
+        if (!tooltip || !active?.isConnected) return;
+        const rect = active.getBoundingClientRect(), bounds = tooltip.getBoundingClientRect();
+        const viewport = win.visualViewport, left = (viewport?.offsetLeft ?? 0) + 8, top = (viewport?.offsetTop ?? 0) + 8;
+        const right = left + (viewport?.width ?? win.innerWidth) - 16, bottom = top + (viewport?.height ?? win.innerHeight) - 16;
+        tooltip.style.left = `${Math.max(left, Math.min(rect.left + rect.width / 2 - bounds.width / 2, right - bounds.width))}px`;
+        const below = rect.bottom + 6;
+        tooltip.style.top = `${Math.max(top, Math.min(below + bounds.height <= bottom ? below : rect.top - bounds.height - 6, bottom - bounds.height))}px`;
+    }
+    function leave() {
+        win.clearTimeout(leaveTimer);
+        leaveTimer = win.setTimeout(() => { if (!hovered && !focused && !pinned && !overTooltip) hide(); }, 150);
+    }
     function show() {
-        const button = hovered ?? focused;
-        if (!button || !root.contains(button) || button.disabled) { hide(); return; }
+        const button = pinned ?? hovered ?? focused;
+        if (!button || !root.contains(button) || button.disabled) { if (interactive) leave(); else hide(); return; }
+        win.clearTimeout(leaveTimer);
         if (active === button) return;
         hide(); active = button;
         const definition = definitions.get(button);
         tooltip = doc.createElement('div');
-        tooltip.className = 'tooltip mod-bottom hub-detail-tooltip hub-button-scope';
+        tooltip.className = 'tooltip mod-bottom hub-detail-tooltip hub-button-scope' + (contentOnly ? ' hub-task-description-tooltip' : '');
         tooltip.id = id; tooltip.setAttribute('role', 'tooltip');
-        const title = tooltip.appendChild(doc.createElement('strong'));
-        title.textContent = definition.title;
+        if (!contentOnly) { const title = tooltip.appendChild(doc.createElement('strong')); title.textContent = definition.title; }
         const description = tooltip.appendChild(doc.createElement('div'));
         description.className = 'hub-detail-tooltip-description';
         description.textContent = definition.description;
         doc.body.append(tooltip);
+        if (interactive) {
+            // The same native tooltip surface enters the top layer only for
+            // read-only task previews, so modal/popover scrolling cannot clip it.
+            tooltip.setAttribute('popover', 'manual'); tooltip.showPopover?.();
+            tooltip.addEventListener('pointerenter', () => { overTooltip = true; win.clearTimeout(leaveTimer); });
+            tooltip.addEventListener('pointerleave', () => { overTooltip = false; if (!hovered && !focused && !pinned) leave(); });
+            detachedObserver = new win.MutationObserver(() => {
+                if (!root.isConnected) dispose();
+                else if (!active?.isConnected || active.hidden) dismiss(); else position();
+            });
+            detachedObserver.observe(doc.body, { childList: true, subtree: true });
+        }
         activeDescription = button.getAttribute('aria-description');
         button.removeAttribute('aria-description');
         button.setAttribute('aria-describedby', [button.getAttribute('aria-describedby'), id].filter(Boolean).join(' '));
-        const rect = button.getBoundingClientRect(), bounds = tooltip.getBoundingClientRect();
-        tooltip.style.left = `${Math.max(8, Math.min(rect.left + rect.width / 2 - bounds.width / 2, win.innerWidth - bounds.width - 8))}px`;
-        const below = rect.bottom + 6;
-        tooltip.style.top = `${Math.max(8, below + bounds.height <= win.innerHeight - 8 ? below : rect.top - bounds.height - 6)}px`;
+        position();
     }
     const target = event => {
         const button = event.target.closest?.('button');
@@ -119,31 +143,45 @@ function createImmediateHubTooltip(root) {
     });
     listen(root, 'pointerout', event => {
         if (hovered?.contains(event.relatedTarget)) return;
+        if (interactive && tooltip?.contains(event.relatedTarget)) { hovered = null; overTooltip = true; return; }
         hovered = null; show();
     });
     // :focus-visible alone is insufficient: modal autofocus may inherit it
     // from the key that opened the report. Require a new navigation gesture.
+    if (interactive) listen(win, 'keydown', event => {
+        if (event.key === 'Escape' && tooltip) { dismiss(); event.preventDefault(); event.stopImmediatePropagation(); }
+    }, true);
     listen(doc, 'keydown', event => {
         keyboardNavigation = event.key === 'Tab' ||
             (root.contains(event.target) && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key));
     }, true);
     listen(doc, 'keyup', () => { keyboardNavigation = false; }, true);
-    listen(doc, 'pointerdown', () => {
+    listen(doc, 'pointerdown', event => {
+        if (interactive && tooltip?.contains(event.target)) return;
+        if (interactive && active && !active.contains(event.target)) dismiss();
         keyboardNavigation = false; focused = null; show();
     }, true);
     listen(root, 'focusin', event => {
         const button = target(event);
-        focused = keyboardNavigation && button?.matches(':focus-visible') ? button : null;
+        focused = interactive ? button : keyboardNavigation && button?.matches(':focus-visible') ? button : null;
         show();
     });
-    listen(root, 'focusout', () => { focused = null; show(); });
+    listen(root, 'focusout', () => {
+        focused = null;
+        if (interactive && !hovered && !pinned && !overTooltip) hide(); else show();
+    });
     listen(root, 'keydown', event => {
         if (event.key === 'Escape' && tooltip) {
             hide(); event.preventDefault(); event.stopPropagation();
         }
     });
-    listen(win, 'resize', hide);
-    listen(doc, 'scroll', hide, true);
+    if (interactive) listen(root, 'click', event => {
+        const button = target(event); if (!button) return;
+        if (pinned === button) dismiss(); else { pinned = button; show(); }
+    }, true);
+    listen(win, 'resize', interactive ? dismiss : hide);
+    listen(doc, 'scroll', event => { if (!interactive || !tooltip?.contains(event.target)) (interactive ? dismiss : hide)(); }, true);
+    function dispose() { dismiss(); cleanups.splice(0).forEach(cleanup => cleanup()); }
     return {
         bind(button, definition) {
             // Suppress the native duplicate without erasing the control's name.
@@ -157,9 +195,16 @@ function createImmediateHubTooltip(root) {
                 else button.style.removeProperty('--no-tooltip');
             });
             definitions.set(button, definition);
-            if (!button.hasAttribute('aria-description')) button.setAttribute('aria-description', `${definition.title} ${definition.description}`);
+            if (!button.hasAttribute('aria-description')) button.setAttribute('aria-description', contentOnly ? definition.description : `${definition.title} ${definition.description}`);
         },
-        dispose() { hide(); cleanups.splice(0).forEach(cleanup => cleanup()); }
+        update(button, definition) {
+            definitions.set(button, definition);
+            const text = contentOnly ? definition.description : `${definition.title} ${definition.description}`;
+            if (active === button) { activeDescription = text; tooltip.querySelector('.hub-detail-tooltip-description').textContent = definition.description; position(); }
+            else button.setAttribute('aria-description', text);
+        },
+        dismiss,
+        dispose
     };
 }
 

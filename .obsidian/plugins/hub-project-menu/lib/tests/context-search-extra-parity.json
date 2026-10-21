@@ -1,0 +1,394 @@
+{
+  "cases": [
+    {
+      "query": "Prototype",
+      "workspace": "app",
+      "groups": [
+        {
+          "kind": "phases",
+          "items": [
+            {
+              "title": "Prototype",
+              "path": "Projects/App/App.md",
+              "context": "2026-10-01 – 2026-10-31",
+              "score": 0,
+              "owner": "app",
+              "id": "phase",
+              "snippet": null,
+              "completed": null,
+              "due": null,
+              "dueTime": null
+            }
+          ]
+        },
+        {
+          "kind": "folders",
+          "items": [
+            {
+              "title": "Prototype",
+              "path": "Projects/App/Prototype",
+              "context": "App",
+              "score": 0,
+              "owner": "app",
+              "id": null,
+              "snippet": null,
+              "completed": null,
+              "due": null,
+              "dueTime": null
+            }
+          ]
+        },
+        {
+          "kind": "files",
+          "items": [
+            {
+              "title": "Prototype",
+              "path": "Projects/App/Prototype/Prototype.md",
+              "context": "App › Prototype",
+              "score": 0,
+              "owner": "app",
+              "id": null,
+              "snippet": null,
+              "completed": null,
+              "due": null,
+              "dueTime": null
+            }
+          ]
+        },
+        {
+          "kind": "milestones",
+          "items": [
+            {
+              "title": "Prototype demo",
+              "path": "Projects/App/App.md",
+              "context": "2026-10-20",
+              "score": 1,
+              "owner": "app",
+              "id": "milestone",
+              "snippet": null,
+              "completed": null,
+              "due": null,
+              "dueTime": null
+            }
+          ]
+        },
+        {
+          "kind": "tasks",
+          "items": [
+            {
+              "title": "Prototype",
+              "path": "Projects/App/Prototype/Prototype.md",
+              "context": "App › Prototype › Prototype",
+              "score": 10,
+              "owner": "app",
+              "id": null,
+              "snippet": null,
+              "completed": false,
+              "due": "2026-10-31",
+              "dueTime": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "query": "Prototype",
+      "workspace": null,
+      "groups": [
+        {
+          "kind": "folders",
+          "items": [
+            {
+              "title": "Prototype",
+              "path": "Projects/App/Prototype",
+              "context": "App",
+              "score": 0,
+              "owner": "app",
+              "id": null,
+              "snippet": null,
+              "completed": null,
+              "due": null,
+              "dueTime": null
+            }
+          ]
+        },
+        {
+          "kind": "files",
+          "items": [
+            {
+              "title": "Prototype",
+              "path": "Projects/App/Prototype/Prototype.md",
+              "context": "App › Prototype",
+              "score": 0,
+              "owner": "app",
+              "id": null,
+              "snippet": null,
+              "completed": null,
+              "due": null,
+              "dueTime": null
+            }
+          ]
+        },
+        {
+          "kind": "tasks",
+          "items": [
+            {
+              "title": "Prototype",
+              "path": "Projects/App/Prototype/Prototype.md",
+              "context": "App › Prototype › Prototype",
+              "score": 10,
+              "owner": "app",
+              "id": null,
+              "snippet": null,
+              "completed": false,
+              "due": "2026-10-31",
+              "dueTime": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "query": "Copied plan",
+      "workspace": null,
+      "groups": [
+        {
+          "kind": "tasks",
+          "items": [
+            {
+              "title": "Copied plan",
+              "path": "Projects/App/Meta/Copy.md",
+              "context": "App › Meta › Copy",
+              "score": 10,
+              "owner": "app",
+              "id": null,
+              "snippet": null,
+              "completed": false,
+              "due": null,
+              "dueTime": null
+            },
+            {
+              "title": "Copied plan",
+              "path": "Projects/Itacan/Meta/Copy.md",
+              "context": "Itacan › Meta › Copy",
+              "score": 10,
+              "owner": "itacan",
+              "id": null,
+              "snippet": null,
+              "completed": false,
+              "due": null,
+              "dueTime": null
+            }
+          ]
+        },
+        {
+          "kind": "notes",
+          "items": [
+            {
+              "title": "Copy",
+              "path": "Projects/App/Meta/Copy.md",
+              "context": "App › Meta",
+              "score": 20,
+              "owner": "app",
+              "id": null,
+              "snippet": "# Synthetic - [ ] Copied plan",
+              "completed": null,
+              "due": null,
+              "dueTime": null
+            },
+            {
+              "title": "Copy",
+              "path": "Projects/Itacan/Meta/Copy.md",
+              "context": "Itacan › Meta",
+              "score": 20,
+              "owner": "itacan",
+              "id": null,
+              "snippet": "# Synthetic - [ ] Copied plan",
+              "completed": null,
+              "due": null,
+              "dueTime": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "query": "Same locator",
+      "workspace": "app",
+      "groups": [
+        {
+          "kind": "tasks",
+          "items": [
+            {
+              "title": "Same locator",
+              "path": "Projects/App/Meta/Ambiguous.md",
+              "context": "App › Meta › Ambiguous",
+              "score": 10,
+              "owner": "app",
+              "id": null,
+              "snippet": null,
+              "completed": false,
+              "due": null,
+              "dueTime": null
+            },
+            {
+              "title": "Same locator",
+              "path": "Projects/App/Meta/Ambiguous.md",
+              "context": "App › Meta › Ambiguous",
+              "score": 10,
+              "owner": "app",
+              "id": null,
+              "snippet": null,
+              "completed": false,
+              "due": null,
+              "dueTime": null
+            }
+          ]
+        },
+        {
+          "kind": "notes",
+          "items": [
+            {
+              "title": "Ambiguous",
+              "path": "Projects/App/Meta/Ambiguous.md",
+              "context": "App › Meta",
+              "score": 20,
+              "owner": "app",
+              "id": null,
+              "snippet": "# Synthetic - [ ] Same locator - [ ] Same locator",
+              "completed": null,
+              "due": null,
+              "dueTime": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "query": "Deleted task",
+      "workspace": null,
+      "groups": []
+    },
+    {
+      "query": "zephyr",
+      "workspace": "app",
+      "groups": [
+        {
+          "kind": "tasks",
+          "items": [
+            {
+              "title": "Read experiment\ncontinuation zephyr evidence",
+              "path": "Projects/App/Meta/Moved Tasks.md",
+              "context": "App › Meta › Moved Tasks",
+              "score": 12,
+              "owner": "app",
+              "id": null,
+              "snippet": null,
+              "completed": false,
+              "due": null,
+              "dueTime": null
+            }
+          ]
+        },
+        {
+          "kind": "notes",
+          "items": [
+            {
+              "title": "Moved Tasks",
+              "path": "Projects/App/Meta/Moved Tasks.md",
+              "context": "App › Meta",
+              "score": 20,
+              "owner": "app",
+              "id": null,
+              "snippet": "…- [ ] Read experiment continuation zephyr evidence - [ ] step-exclusive tungsten Surrounding-only mercury - [ ] No identity plan",
+              "completed": null,
+              "due": null,
+              "dueTime": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "query": "plan",
+      "workspace": "app",
+      "groups": [
+        {
+          "kind": "files",
+          "items": [
+            {
+              "title": "Plans",
+              "path": "Projects/App/Meta/Plans.md",
+              "context": "App › Meta",
+              "score": 1,
+              "owner": "app",
+              "id": null,
+              "snippet": null,
+              "completed": null,
+              "due": null,
+              "dueTime": null
+            }
+          ]
+        },
+        {
+          "kind": "tasks",
+          "items": [
+            {
+              "title": "Copied plan",
+              "path": "Projects/App/Meta/Copy.md",
+              "context": "App › Meta › Copy",
+              "score": 12,
+              "owner": "app",
+              "id": null,
+              "snippet": null,
+              "completed": false,
+              "due": null,
+              "dueTime": null
+            },
+            {
+              "title": "No identity plan",
+              "path": "Projects/App/Meta/Moved Tasks.md",
+              "context": "App › Meta › Moved Tasks",
+              "score": 12,
+              "owner": "app",
+              "id": null,
+              "snippet": null,
+              "completed": false,
+              "due": null,
+              "dueTime": null
+            }
+          ]
+        },
+        {
+          "kind": "notes",
+          "items": [
+            {
+              "title": "Copy",
+              "path": "Projects/App/Meta/Copy.md",
+              "context": "App › Meta",
+              "score": 20,
+              "owner": "app",
+              "id": null,
+              "snippet": "# Synthetic - [ ] Copied plan",
+              "completed": null,
+              "due": null,
+              "dueTime": null
+            },
+            {
+              "title": "Moved Tasks",
+              "path": "Projects/App/Meta/Moved Tasks.md",
+              "context": "App › Meta",
+              "score": 20,
+              "owner": "app",
+              "id": null,
+              "snippet": "…ing-only mercury - [ ] No identity plan",
+              "completed": null,
+              "due": null,
+              "dueTime": null
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

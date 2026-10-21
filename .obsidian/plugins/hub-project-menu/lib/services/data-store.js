@@ -7,6 +7,29 @@ const {
     randomUUID
 } = require("crypto");
 
+// Explicit managed construction bypasses legacy device/vault/shared initialization.
+const managedStores = new WeakMap();
+function recognizedManaged(data) {
+    return data?.format === "itacan-application-transactions" ||
+        Array.isArray(data?.capabilities) && data.capabilities.includes("scoped-application-transactions-v1");
+}
+function refuseManaged(store, data) {
+    if (managedStores.has(store) || recognizedManaged(data)) {
+        const error = new Error("Managed application data requires scoped transactions.");
+        error.code = "MANAGED_TRANSACTIONS_REQUIRED"; throw error;
+    }
+}
+async function refuseManagedFile(store, filePath) {
+    refuseManaged(store);
+    if (!filePath) return;
+    try { refuseManaged(store, JSON.parse(await fs.promises.readFile(filePath, "utf8"))); }
+    catch (error) { if (error.code === "ENOENT" || error instanceof SyntaxError) return; throw error; }
+}
+function createTransactionalApplicationStore(config) {
+    const managed = require("./application-storage/transactions").createManagedApplicationStore(config);
+    const store = Object.create(HubDataStore.prototype);
+    managedStores.set(store, managed); return store;
+}
 const HUB_STATE_SCHEMA_VERSION = 1;
 const HUB_STATE_META_KEY = "hubState";
 const DEVICE_STORAGE_KEY = "obsidian-hub::device-id";
@@ -14,6 +37,19 @@ const { SharedProjectStore } = require("./shared-projects");
 
 function clonePluginData(data) {
     return JSON.parse(JSON.stringify(data ?? {}));
+}
+
+// Retire only the old task relationship, leaving Resource mounts, ownership,
+// history and task identities intact. Cleanup rides normal load/save boundaries.
+function removeRetiredTaskLinks(data) {
+    for (const metadata of Object.values(data.taskMetadata ?? {})) {
+        if (metadata && typeof metadata === "object") delete metadata.linkedProjectId;
+    }
+    for (const capture of Array.isArray(data.inbox?.captures) ? data.inbox.captures : []) {
+        if (capture?.intent) delete capture.intent.linkedProjectId;
+        if (capture?.operation?.values) delete capture.operation.values.linkedProjectId;
+    }
+    return data;
 }
 
 function stateMeta(data) {
@@ -83,7 +119,15 @@ class HubDataStore {
         this.sharedProjects = new SharedProjectStore(plugin.app?.vault?.adapter?.getBasePath?.());
     }
 
+    create(...args) { const managed = managedStores.get(this); if (!managed) throw new Error("Transactional mode was not explicitly constructed."); return managed.create(...args); }
+    open(...args) { const managed = managedStores.get(this); if (!managed) throw new Error("Transactional mode was not explicitly constructed."); return managed.open(...args); }
+    readScopes(...args) { const managed = managedStores.get(this); if (!managed) throw new Error("Transactional mode was not explicitly constructed."); return managed.readScopes(...args); }
+    transact(...args) { const managed = managedStores.get(this); if (!managed) throw new Error("Transactional mode was not explicitly constructed."); return managed.transact(...args); }
+    reconcile(...args) { const managed = managedStores.get(this); if (!managed) throw new Error("Transactional mode was not explicitly constructed."); return managed.reconcile(...args); }
+    close(...args) { const managed = managedStores.get(this); if (!managed) throw new Error("Transactional mode was not explicitly constructed."); return managed.close(...args); }
+
     pluginDirectoryPath() {
+        refuseManaged(this);
         const adapter = this.plugin.app?.vault?.adapter;
         const basePath = adapter?.getBasePath?.();
 
@@ -114,6 +158,7 @@ class HubDataStore {
     }
 
     dataFilePath() {
+        refuseManaged(this);
         const directory = this.pluginDirectoryPath();
         return directory
             ? path.join(directory, "data.json")
@@ -121,6 +166,7 @@ class HubDataStore {
     }
 
     normalizeLoadedData(data) {
+        refuseManaged(this, data);
         const normalized = clonePluginData(data);
         const meta = stateMeta(normalized);
         const schemaVersion = Number(meta.schemaVersion) || 0;
@@ -146,9 +192,10 @@ class HubDataStore {
     }
 
     async load() {
+        refuseManaged(this);
         const data = (await this.plugin.loadData()) ?? {};
         const originalMeta = stateMeta(data);
-        const normalized = await this.sharedProjects.load(this.normalizeLoadedData(data));
+        const normalized = removeRetiredTaskLinks(await this.sharedProjects.load(this.normalizeLoadedData(data)));
         const requiresVersionStamp =
             Number(originalMeta.schemaVersion) !==
                 HUB_STATE_SCHEMA_VERSION ||
@@ -175,6 +222,7 @@ class HubDataStore {
     }
 
     async readDiskData() {
+        refuseManaged(this);
         const filePath = this.dataFilePath();
 
         if (!filePath) {
@@ -209,6 +257,8 @@ class HubDataStore {
     }
 
     versionSnapshot(snapshot, diskData) {
+        refuseManaged(this, snapshot);
+        refuseManaged(this, diskData);
         const snapshotRevision =
             Number(stateMeta(snapshot).revision) || 0;
         const diskRevision =
@@ -230,6 +280,8 @@ class HubDataStore {
     }
 
     async atomicWrite(snapshot, filePath = this.dataFilePath()) {
+        refuseManaged(this, snapshot);
+        await refuseManagedFile(this, filePath);
 
         if (!filePath) {
             await this.plugin.saveData(snapshot);
@@ -264,6 +316,7 @@ class HubDataStore {
                 }
 
                 try {
+                    await refuseManagedFile(this, filePath);
                     await fs.promises.rename(
                         temporaryPath,
                         filePath
@@ -290,12 +343,14 @@ class HubDataStore {
     }
 
     save(data) {
-        const snapshot = clonePluginData(data);
+        refuseManaged(this, data);
+        const snapshot = removeRetiredTaskLinks(clonePluginData(data));
 
         const operation = this.writeQueue
             .catch(() => {})
             .then(async () => {
                 const diskData = await this.readDiskData();
+                refuseManaged(this, diskData);
                 this.assertDiskRevisionUnchanged(diskData);
 
                 const versioned = this.versionSnapshot(
@@ -329,6 +384,7 @@ class HubDataStore {
     }
 
     async findConflictFiles() {
+        refuseManaged(this);
         const directory = this.pluginDirectoryPath();
 
         if (!directory) {
@@ -384,6 +440,7 @@ class HubDataStore {
 }
 
 module.exports = {
+    createTransactionalApplicationStore,
     DEVICE_STORAGE_KEY,
     HUB_STATE_META_KEY,
     HUB_STATE_SCHEMA_VERSION,

@@ -79,7 +79,7 @@ assert.equal(taskIsFuture({ fromDate: "2026-09-22" }, new Date(2026, 8, 21, 23, 
 assert.equal(taskIsFuture({ ...scheduled, completed: true }, now), false);
 assert.equal(taskGroups([scheduled, { text: "Later", dueDate: "2026-09-23" }], now).future.length, 1);
 assert.deepEqual(taskGroups([scheduled, { text: "Later", dueDate: "2026-09-23" }], new Date(2026, 8, 21, 10)).active.map(t => t.text), ["Scheduled", "Later"]);
-assert.equal(taskDatePresentation({ fromDate: "2026-09-20", dueDate: "2026-12-15" }, now).label, "15 Dec");
+assert.equal(taskDatePresentation({ fromDate: "2026-09-20", dueDate: "2026-12-15" }, now).label, "Due 15 Dec");
 assert.equal(taskDatePresentation({ fromDate: "2026-09-20" }, now), null);
 assert.equal(taskDatePresentation({ fromDate: "2026-10-01" }, now).label, "Starts 1 Oct");
 assert.equal(taskDatePresentation({ fromDate: "2026-10-01", dueDate: "2026-10-31" }, now).label, "1 Oct \u2192 31 Oct");

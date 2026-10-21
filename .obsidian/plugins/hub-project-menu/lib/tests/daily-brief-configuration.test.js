@@ -81,6 +81,7 @@ async function run() {
     assert.deepEqual(modes.state.projects.p.configurations, worked, "Checking parent and Step from Home preserves real work configuration");
     assert.deepEqual(wizard.completedTaskHistory.map(x => x.kind ?? "task").sort(), ["step", "task"]);
     now = at(26, 9);
+    require("./task-read-test-host.cjs").attachLegacyFacade(plugin);
     const brief = new DailyBriefService(plugin, { now: () => new Date(now) }); brief.started = true;
     const morning = await brief.load();
     assert.equal(morning.context.workspaces[0].taskProgress.length, 2);
@@ -94,7 +95,7 @@ async function run() {
     plugin.recordEditorActivity(activeFile, { getValue: () => "Real mathematical work" });
     assert.equal(edited, 1); assert.equal(modes.state.projects.p.configurations[0].layout.active, "notes");
     assert.equal(modes.state.projects.p.configurations.length, 2);
-    assert.deepEqual(brief.context().workspaces[0].workingConfiguration, worked[0], "Even late-first generation selects the pre-day configuration");
+    assert.deepEqual((await brief.context()).workspaces[0].workingConfiguration, worked[0], "Even late-first generation selects the pre-day configuration");
     assert.deepEqual(await brief.load(), morning);
     wizard.data = copy(stored); wizard.data.dailyBriefSnapshot = copy(snapshot);
     const restarted = new DailyBriefService(plugin, { now: () => new Date(now) }); restarted.started = true;

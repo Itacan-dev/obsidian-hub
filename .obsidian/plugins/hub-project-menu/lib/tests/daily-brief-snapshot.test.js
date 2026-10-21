@@ -30,6 +30,7 @@ function fixture() {
         oath: { active: false, ready: () => true, api: () => ({}), tasks: () => [task], canOpen: () => true },
         workspaceModes: { openHome: async () => state.navigated.push("home"), openProjectNote: async path => state.navigated.push(path) } };
     const provider = { getRecommendation: context => { state.providerCalls++; return new RulesRecommendationProvider().getRecommendation(context); } };
+    require("./task-read-test-host.cjs").attachLegacyFacade(plugin);
     const make = () => {
         const service = new DailyBriefService(plugin, { provider, now: () => state.now }); service.started = true;
         service.open = brief => { if (service.blocked()) return false; state.opened.push(copy(brief)); return true; };
@@ -47,7 +48,7 @@ async function run() {
     const previousDocument = global.document; global.document = { querySelector: () => null };
     try {
         const f = fixture(), { state, wizard, task, project } = f, service = f.make();
-        service.refreshAvailability();
+        await service.refreshAvailability();
         assert.equal(service.availability().available, true);
         assert.equal(state.providerCalls, 0, "Availability does not create the day's artifact");
         await service.trigger.activate();
@@ -147,7 +148,7 @@ async function run() {
         const futureService = future.make(); assert.equal((await futureService.load()).recommendation.reason, "no-clear-action", "Eligibility is evaluated at 06:00 even if first opened later"); futureService.destroy();
 
         const empty = fixture(); empty.history.length = 0; empty.reports.length = 0; empty.wizard.data.reportFocusByDate = {};
-        const emptyService = empty.make(); emptyService.refreshAvailability();
+        const emptyService = empty.make(); await emptyService.refreshAvailability();
         assert.equal(emptyService.availability().available, false); assert.equal(await emptyService.openManual(), false);
         assert.equal(empty.state.providerCalls, 0); assert.ok(!empty.wizard.data.dailyBriefSnapshot); emptyService.destroy();
 

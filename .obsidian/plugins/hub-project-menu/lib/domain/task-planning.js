@@ -15,11 +15,13 @@ function taskCaptureSource(value) {
 function taskMetadata(value = {}) {
     const captureSource = taskCaptureSource(value?.captureSource);
     return {
+        // Optional plain Markdown text, kept in the existing identity-keyed
+        // metadata store. Never interpret note continuations as descriptions.
+        ...(typeof value?.description === "string" && value.description.length ? { description: value.description } : {}),
         ...(typeof value?.phaseId === "string" && value.phaseId.trim() ? { phaseId: value.phaseId.trim() } : {}),
         necessity: ["should", "must"].includes(value?.necessity) ? value.necessity : null,
         fromDate: parseLocalISODate(value?.fromDate) ? value.fromDate : null,
         dueDate: parseLocalISODate(value?.dueDate) ? value.dueDate : null,
-        ...(typeof value?.linkedProjectId === "string" && value.linkedProjectId.trim() ? { linkedProjectId: value.linkedProjectId.trim() } : {}),
         ...(parseLocalISODate(value?.fromDate) && validLocalTime(value?.fromTime) ? { fromTime: value.fromTime } : {}),
         ...(parseLocalISODate(value?.dueDate) && validLocalTime(value?.dueTime) ? { dueTime: value.dueTime } : {}),
         ...(captureSource ? { captureSource } : {})
@@ -63,7 +65,8 @@ function taskDatePresentation(task, now = new Date()) {
         return { label: "Starts " + taskDateLabel(task.fromDate, task.fromTime, false, now) };
     }
     if (!task.dueDate) return null;
-    return { label: taskDateLabel(task.dueDate, task.dueTime, true, now),
+    const prefix = !task.completed && taskIsOverdue(task, now) ? "Overdue " : "Due ";
+    return { label: prefix + taskDateLabel(task.dueDate, task.dueTime, true, now),
         dateTime: task.dueDate + (validLocalTime(task.dueTime) ? "T" + task.dueTime : "") };
 }
 
@@ -185,6 +188,8 @@ function saveTaskSnapshot(data, snapshot, values, id = snapshot.hubTaskId, creat
     let replacement = [];
     if (!deleting) {
         const text = singleTaskText(values.text);
+        const completed = typeof values.completed === "boolean" ? values.completed : current.completed;
+        if (completed && !current.completed) id ??= createId();
         const requested = (values.steps ?? snapshot.steps).map(step => ({ ...step }));
         const existing = new Map(snapshot.steps.map(step => [step.line, step]));
         for (const step of requested) {
@@ -204,7 +209,8 @@ function saveTaskSnapshot(data, snapshot, values, id = snapshot.hubTaskId, creat
         replacement = block.flatMap((value, offset) => {
             const originalLine = snapshot.line + offset;
             if (!offset) {
-                const prefix = value.match(/^([ \t]*(?:[-*+]|\d+[.)])\s+\[[^\]]\][ \t]*)/)[1];
+                let prefix = value.match(/^([ \t]*(?:[-*+]|\d+[.)])\s+\[[^\]]\][ \t]*)/)[1];
+                if (completed !== current.completed) prefix = prefix.replace(/\[[^\]]\]/, completed ? "[x]" : "[ ]");
                 // Put our comment before an existing native block ID.
                 const nativeId = text.match(/\s+\^[a-zA-Z0-9-]+$/)?.[0] ?? "";
                 const title = nativeId ? text.slice(0, -nativeId.length) : text;
@@ -232,6 +238,11 @@ function saveTaskSnapshot(data, snapshot, values, id = snapshot.hubTaskId, creat
     const saved = deleting ? null : readTaskSnapshot(content, { path: snapshot.path, line: current.line, text: values.text, hubTaskId: id });
     const progressTransitions = [];
     if (saved) {
+        if (saved.completed !== current.completed) {
+            progressTransitions.push({ kind: "task", hubTaskId: saved.hubTaskId,
+                text: saved.text, oldText: current.text, line: saved.line, lookupLine: current.line,
+                completed: saved.completed, ...(values.completedAt ? { timestamp: values.completedAt } : {}) });
+        }
         // Editor checkbox changes commit on Save, with the time of the action.
         for (const [index, step] of [...(values.steps ?? snapshot.steps)].sort((a, b) => (a.line ?? Infinity) - (b.line ?? Infinity)).entries()) {
             const before = snapshot.steps.find(item => item.line === step.line);

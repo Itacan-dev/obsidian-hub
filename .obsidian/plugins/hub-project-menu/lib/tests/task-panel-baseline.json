@@ -1,0 +1,566 @@
+[
+  {
+    "owner": "app",
+    "root": "Projects/App",
+    "facts": {
+      "tasks": [
+        {
+          "path": "Projects/App/Tasks/Start only.md",
+          "line": 1,
+          "text": "Start only",
+          "hubTaskId": "start",
+          "completed": false,
+          "necessity": null,
+          "fromDate": "2026-10-26",
+          "dueDate": null,
+          "steps": [],
+          "sourceLabel": "Tasks",
+          "actionable": true
+        },
+        {
+          "path": "Projects/App/Tasks/Due only.md",
+          "line": 1,
+          "text": "Due only",
+          "hubTaskId": "due",
+          "completed": false,
+          "necessity": "must",
+          "fromDate": null,
+          "dueDate": "2026-10-26",
+          "steps": [],
+          "sourceLabel": "Tasks",
+          "actionable": true
+        },
+        {
+          "path": "Projects/App/Tasks/Midnight.md",
+          "line": 1,
+          "text": "Midnight",
+          "hubTaskId": "midnight",
+          "completed": false,
+          "necessity": "should",
+          "fromDate": null,
+          "dueDate": "2026-10-26",
+          "dueTime": "00:00",
+          "steps": [],
+          "sourceLabel": "Tasks",
+          "actionable": true
+        },
+        {
+          "path": "Projects/App/Tasks/Timed.md",
+          "line": 1,
+          "text": "Timed",
+          "hubTaskId": "timed",
+          "completed": false,
+          "phaseId": "phase",
+          "necessity": null,
+          "fromDate": "2026-10-26",
+          "dueDate": "2026-10-26",
+          "fromTime": "06:00",
+          "dueTime": "17:30",
+          "steps": [],
+          "sourceLabel": "Tasks",
+          "actionable": true
+        },
+        {
+          "path": "Projects/App/Tasks/Month range.md",
+          "line": 1,
+          "text": "Month range",
+          "hubTaskId": "month",
+          "completed": false,
+          "necessity": null,
+          "fromDate": "2026-10-20",
+          "dueDate": "2026-11-04",
+          "steps": [],
+          "sourceLabel": "Tasks",
+          "actionable": true
+        },
+        {
+          "path": "Projects/App/Tasks/Year range.md",
+          "line": 1,
+          "text": "Year range",
+          "hubTaskId": "year",
+          "completed": false,
+          "necessity": null,
+          "fromDate": "2026-12-30",
+          "dueDate": "2027-01-03",
+          "steps": [],
+          "sourceLabel": "Tasks",
+          "actionable": true
+        },
+        {
+          "path": "Projects/App/Tasks/Overdue.md",
+          "line": 1,
+          "text": "Overdue",
+          "hubTaskId": "overdue",
+          "completed": false,
+          "necessity": null,
+          "fromDate": null,
+          "dueDate": "2026-10-24",
+          "steps": [],
+          "sourceLabel": "Tasks",
+          "actionable": true
+        },
+        {
+          "path": "Projects/App/Tasks/Future.md",
+          "line": 1,
+          "text": "Future",
+          "hubTaskId": "future",
+          "completed": false,
+          "necessity": null,
+          "fromDate": "2026-10-27",
+          "dueDate": null,
+          "steps": [],
+          "sourceLabel": "Tasks",
+          "actionable": true
+        },
+        {
+          "path": "Projects/App/Tasks/Completed.md",
+          "line": 1,
+          "text": "Completed",
+          "hubTaskId": "completed",
+          "completed": true,
+          "necessity": null,
+          "fromDate": null,
+          "dueDate": "2026-10-25",
+          "steps": [],
+          "sourceLabel": "Tasks",
+          "actionable": true
+        },
+        {
+          "path": "Projects/App/Tasks/Unscheduled.md",
+          "line": 1,
+          "text": "Unscheduled",
+          "hubTaskId": "unscheduled",
+          "completed": false,
+          "necessity": null,
+          "fromDate": null,
+          "dueDate": null,
+          "steps": [],
+          "sourceLabel": "Tasks",
+          "actionable": true
+        },
+        {
+          "path": "Projects/App/Tasks/ID-less.md",
+          "line": 1,
+          "text": "ID-less",
+          "hubTaskId": null,
+          "completed": false,
+          "necessity": null,
+          "fromDate": null,
+          "dueDate": null,
+          "steps": [],
+          "sourceLabel": "Tasks",
+          "actionable": true
+        },
+        {
+          "path": "Projects/App/Tasks/Continuation.md",
+          "line": 1,
+          "text": "Assignment\ncontinuation evidence",
+          "hubTaskId": "assignment",
+          "completed": false,
+          "description": "Metadata prose",
+          "necessity": null,
+          "fromDate": null,
+          "dueDate": "2026-10-27",
+          "steps": [
+            {
+              "path": "Projects/App/Tasks/Continuation.md",
+              "line": 3,
+              "text": "First",
+              "hubTaskId": "first",
+              "completed": true,
+              "parent": 1
+            },
+            {
+              "path": "Projects/App/Tasks/Continuation.md",
+              "line": 4,
+              "text": "Next",
+              "hubTaskId": "next",
+              "completed": false,
+              "parent": 1
+            }
+          ],
+          "sourceLabel": "Tasks",
+          "actionable": true
+        },
+        {
+          "path": "Projects/App/System/Excluded.md",
+          "line": 1,
+          "text": "Excluded System",
+          "hubTaskId": "excluded-System",
+          "completed": false,
+          "necessity": null,
+          "fromDate": null,
+          "dueDate": null,
+          "steps": [],
+          "sourceLabel": "System",
+          "actionable": true
+        },
+        {
+          "path": "Projects/App/Templates/Excluded.md",
+          "line": 1,
+          "text": "Excluded Templates",
+          "hubTaskId": "excluded-Templates",
+          "completed": false,
+          "necessity": null,
+          "fromDate": null,
+          "dueDate": null,
+          "steps": [],
+          "sourceLabel": "Templates",
+          "actionable": true
+        },
+        {
+          "path": "Projects/App/.hidden/Excluded.md",
+          "line": 1,
+          "text": "Excluded .hidden",
+          "hubTaskId": "excluded-hidden",
+          "completed": false,
+          "necessity": null,
+          "fromDate": null,
+          "dueDate": null,
+          "steps": [],
+          "sourceLabel": ".hidden",
+          "actionable": true
+        },
+        {
+          "path": "Projects/App/Nested/Deep/Notes.md",
+          "line": 1,
+          "text": "**Linked** [note](Other.md)\nParagraph\n- ordinary list",
+          "hubTaskId": "rich",
+          "completed": false,
+          "description": "Description",
+          "phaseId": "phase",
+          "necessity": "must",
+          "fromDate": null,
+          "dueDate": "2026-10-25",
+          "dueTime": "00:00",
+          "steps": [
+            {
+              "path": "Projects/App/Nested/Deep/Notes.md",
+              "line": 4,
+              "text": "Parent **Step**",
+              "hubTaskId": "parent",
+              "completed": false,
+              "parent": 1
+            },
+            {
+              "path": "Projects/App/Nested/Deep/Notes.md",
+              "line": 5,
+              "text": "Nested [Step](Other.md)",
+              "hubTaskId": "nested",
+              "completed": false,
+              "parent": 4
+            }
+          ],
+          "sourceLabel": "Deep",
+          "actionable": true
+        }
+      ],
+      "groups": {
+        "active": [
+          [
+            "Projects/App/Tasks/Overdue.md",
+            1
+          ],
+          [
+            "Projects/App/Nested/Deep/Notes.md",
+            1
+          ],
+          [
+            "Projects/App/Tasks/Midnight.md",
+            1
+          ],
+          [
+            "Projects/App/Tasks/Timed.md",
+            1
+          ],
+          [
+            "Projects/App/Tasks/Due only.md",
+            1
+          ],
+          [
+            "Projects/App/Tasks/Continuation.md",
+            1
+          ],
+          [
+            "Projects/App/Tasks/Month range.md",
+            1
+          ],
+          [
+            "Projects/App/Tasks/Start only.md",
+            1
+          ],
+          [
+            "Projects/App/Tasks/Unscheduled.md",
+            1
+          ],
+          [
+            "Projects/App/Tasks/ID-less.md",
+            1
+          ],
+          [
+            "Projects/App/System/Excluded.md",
+            1
+          ],
+          [
+            "Projects/App/Templates/Excluded.md",
+            1
+          ],
+          [
+            "Projects/App/.hidden/Excluded.md",
+            1
+          ]
+        ],
+        "future": [
+          [
+            "Projects/App/Tasks/Future.md",
+            1
+          ],
+          [
+            "Projects/App/Tasks/Year range.md",
+            1
+          ]
+        ],
+        "completed": [
+          [
+            "Projects/App/Tasks/Completed.md",
+            1
+          ]
+        ]
+      }
+    }
+  },
+  {
+    "owner": "other",
+    "root": "Projects/Other",
+    "facts": {
+      "tasks": [
+        {
+          "path": "Projects/Other/Tasks.md",
+          "line": 1,
+          "text": "Other work",
+          "hubTaskId": "owner-other",
+          "completed": false,
+          "necessity": null,
+          "fromDate": null,
+          "dueDate": null,
+          "steps": [],
+          "sourceLabel": "Other",
+          "actionable": true
+        }
+      ],
+      "groups": {
+        "active": [
+          [
+            "Projects/Other/Tasks.md",
+            1
+          ]
+        ],
+        "future": [],
+        "completed": []
+      }
+    }
+  },
+  {
+    "owner": "itacan",
+    "root": "Projects/Itacan",
+    "facts": {
+      "tasks": [
+        {
+          "path": "Projects/Itacan/Tasks.md",
+          "line": 1,
+          "text": "Itacan work",
+          "hubTaskId": "owner-itacan",
+          "completed": false,
+          "necessity": null,
+          "fromDate": null,
+          "dueDate": null,
+          "steps": [],
+          "sourceLabel": "Itacan",
+          "actionable": true
+        }
+      ],
+      "groups": {
+        "active": [
+          [
+            "Projects/Itacan/Tasks.md",
+            1
+          ]
+        ],
+        "future": [],
+        "completed": []
+      }
+    }
+  },
+  {
+    "owner": "hub",
+    "root": "Projects/Obsidian Hub",
+    "facts": {
+      "tasks": [
+        {
+          "path": "Projects/Obsidian Hub/Tasks.md",
+          "line": 1,
+          "text": "Obsidian Hub work",
+          "hubTaskId": "owner-hub",
+          "completed": false,
+          "necessity": null,
+          "fromDate": null,
+          "dueDate": null,
+          "steps": [],
+          "sourceLabel": "Obsidian Hub",
+          "actionable": true
+        }
+      ],
+      "groups": {
+        "active": [
+          [
+            "Projects/Obsidian Hub/Tasks.md",
+            1
+          ]
+        ],
+        "future": [],
+        "completed": []
+      }
+    }
+  },
+  {
+    "owner": "resource:study",
+    "root": "Resources/Knowledge",
+    "facts": {
+      "tasks": [
+        {
+          "path": "Resources/Knowledge/Mounted/Notes.md",
+          "line": 1,
+          "text": "Mounted resource",
+          "hubTaskId": "mounted",
+          "completed": false,
+          "necessity": null,
+          "fromDate": null,
+          "dueDate": null,
+          "steps": [],
+          "sourceLabel": "Mounted",
+          "actionable": true
+        },
+        {
+          "path": "Resources/Knowledge/Tasks.md",
+          "line": 1,
+          "text": "Knowledge work",
+          "hubTaskId": "owner-resource-study",
+          "completed": false,
+          "necessity": null,
+          "fromDate": null,
+          "dueDate": null,
+          "steps": [],
+          "sourceLabel": "Knowledge",
+          "actionable": true
+        }
+      ],
+      "groups": {
+        "active": [
+          [
+            "Resources/Knowledge/Mounted/Notes.md",
+            1
+          ],
+          [
+            "Resources/Knowledge/Tasks.md",
+            1
+          ]
+        ],
+        "future": [],
+        "completed": []
+      }
+    }
+  },
+  {
+    "owner": "resource:literature",
+    "root": "Resources/Research",
+    "facts": {
+      "tasks": [
+        {
+          "path": "Resources/Research/Tasks.md",
+          "line": 1,
+          "text": "Research work",
+          "hubTaskId": "owner-resource-literature",
+          "completed": false,
+          "necessity": null,
+          "fromDate": null,
+          "dueDate": null,
+          "steps": [],
+          "sourceLabel": "Research",
+          "actionable": true
+        }
+      ],
+      "groups": {
+        "active": [
+          [
+            "Resources/Research/Tasks.md",
+            1
+          ]
+        ],
+        "future": [],
+        "completed": []
+      }
+    }
+  },
+  {
+    "owner": "resource:references",
+    "root": "Resources/Explorations",
+    "facts": {
+      "tasks": [
+        {
+          "path": "Resources/Explorations/Tasks.md",
+          "line": 1,
+          "text": "Explorations work",
+          "hubTaskId": "owner-resource-references",
+          "completed": false,
+          "necessity": null,
+          "fromDate": null,
+          "dueDate": null,
+          "steps": [],
+          "sourceLabel": "Explorations",
+          "actionable": true
+        }
+      ],
+      "groups": {
+        "active": [
+          [
+            "Resources/Explorations/Tasks.md",
+            1
+          ]
+        ],
+        "future": [],
+        "completed": []
+      }
+    }
+  },
+  {
+    "owner": "resource:inspiration",
+    "root": "Resources/Inspiration",
+    "facts": {
+      "tasks": [
+        {
+          "path": "Resources/Inspiration/Tasks.md",
+          "line": 1,
+          "text": "Inspiration work",
+          "hubTaskId": "owner-resource-inspiration",
+          "completed": false,
+          "necessity": null,
+          "fromDate": null,
+          "dueDate": null,
+          "steps": [],
+          "sourceLabel": "Inspiration",
+          "actionable": true
+        }
+      ],
+      "groups": {
+        "active": [
+          [
+            "Resources/Inspiration/Tasks.md",
+            1
+          ]
+        ],
+        "future": [],
+        "completed": []
+      }
+    }
+  }
+]

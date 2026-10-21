@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "gate": "N3-C1-A",
+  "selected": [
+    "new-temp-only",
+    "local-private-only",
+    "one-lifetime-lease",
+    "immutable-scopes-and-dependencies",
+    "selected-field-CAS",
+    "data-and-receipt-one-publication",
+    "exact-replay",
+    "old-epoch-absent-unknown",
+    "no-pruning",
+    "no-automatic-lock-break"
+  ],
+  "excluded": [
+    "categories",
+    "projectPlanning",
+    "taskMetadata",
+    "headerImagePlacements"
+  ],
+  "limitations": [
+    "cooperative-local-writers",
+    "no-power-loss-guarantee",
+    "frozen-blind-writers-incompatible",
+    "domain-callers-not-adopted",
+    "no-whole-directory-rollback-detection"
+  ],
+  "sourceGraphDigest": "2b6a26e961e1fe0c72dc1c9133160809e6bfbf7fdd2daa7b77b3ad12f6ebe501",
+  "interruptionStages": [
+    "before-publication",
+    "after-temp-creation",
+    "after-flush",
+    "before-replacement",
+    "after-replacement",
+    "before-acknowledgement",
+    "during-reconciliation"
+  ],
+  "executedFiles": [
+    "baseline.test.cjs",
+    "authority.test.cjs",
+    "transactions.test.cjs",
+    "replay-recovery.test.cjs",
+    "shared-boundary.test.cjs",
+    "persistence.test.cjs"
+  ]
+}

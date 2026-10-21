@@ -2,6 +2,9 @@
 const assert = require("assert");
 const { ContextSearchService } = require("../services/context-search");
 const { nameScore } = require("../domain/context-search");
+const { TaskService } = require("../services/task-service");
+const { legacyDisplayQuery } = require("../services/task-service-legacy-display");
+const { workspaceRef } = require("../services/task-service-legacy-values");
 class Emitter {
     constructor() { this.listeners = new Map(); }
     on(name, fn) { const ref = { emitter: this, name, fn }; if (!this.listeners.has(name)) this.listeners.set(name, new Set()); this.listeners.get(name).add(ref); return ref; }
@@ -33,14 +36,20 @@ class Emitter {
     metadataCache.getFileCache = file => ({ frontmatter: { aliases: file.aliases } });
     const plugin = { app: { vault, metadataCache }, register: fn => cleanup.push(fn), registerEvent: ref => cleanup.push(() => ref.emitter.offref(ref)),
         projectWizard: { getProjectRecords: () => [project, other], getResourceTypes: () => resources },
-        taskData: { readPages: () => { taskReads++; return [{ file: { tasks } }]; }, currentPath: path => path, subscribe: (_, fn) => { invalidateTasks = fn; } },
+        taskData: { readPages: () => { throw Error("Search must enumerate through its task service"); }, currentPath: path => path,
+            subscribe: () => { throw Error("Search must subscribe through its task service"); } },
         workspaceModes: { openProjectFull: async (owner, source) => { calls.push(["workspace", owner, source]); return true; }, openProjectNote: async (...args) => { calls.push(["note", ...args]); return true; } } };
     const roadmap = { phases: [{id:"phase1",name:"Prototype",start:"2026-09-01",end:"2026-12-01"},{id:"phase2",name:"Prototype beta",start:"2026-11-01",end:"2027-01-01"}], milestones: [{id:"milestone1",name:"Prototype demo",date:"2026-10-02",achieved:false}] };
     plugin.planning = { read: id => id === "app" ? roadmap : {phases:[],milestones:[]}, subscribe() {} };
+    plugin.taskService = new TaskService({ capabilities: () => ({ operations: { queryDisplay: true } }),
+        queryDisplay: async () => { taskReads++; return legacyDisplayQuery(tasks, {
+            owner: path => workspaceRef(workspaces.find(owner => path.startsWith(owner.root + "/"))), file: path => files.get(path)
+        }); }, subscribe: fn => { invalidateTasks = fn; return () => {}; }, close: async () => {},
+        resolveReveal: async handle => ({ kind: "legacy-source", path: handle.locator.path, line: handle.locator.line }) });
     const search = new ContextSearchService(plugin), flat = groups => groups.flatMap(group => group.items);
     const global = await search.search("roadmap", null, {});
     assert.deepEqual(global.map(g => g.kind), ["files", "tasks", "notes"]);
-    assert.equal(global[0].items.length, 6); assert.equal(global[1].items[0].task, tasks[0], "Canonical task object retained");
+    assert.equal(global[0].items.length, 6); assert.equal(global[1].items[0].taskHandle.identity.value, tasks[0].hubTaskId, "Facade handle preserves existing task identity");
     assert.equal(flat(await search.search("App", null, {})).find(r => r.kind === "projects").owner, project);
     assert.equal(flat(await search.search("Knowledge", null, {})).find(r => r.kind === "resources").owner, resources[0]);
     const planningResults = flat(await search.search("Prototype",project,{}));
@@ -59,18 +68,18 @@ class Emitter {
         assert(scoped.length); assert(scoped.every(r => r.path.startsWith(resource.root + "/")), "Resource scope is structural");
     }
     const scoped = flat(await search.search("plan", project, {}));
-    assert(scoped.some(r => r.task === tasks[1]), "Project includes linked Resource task");
-    assert(!scoped.some(r => r.task === tasks[2]), "Project excludes unrelated task");
+    assert(!scoped.some(r => r.taskHandle?.identity.value === tasks[1].hubTaskId), "Legacy associations cannot include Resource tasks in Project search");
+    assert(!scoped.some(r => r.taskHandle?.identity.value === tasks[2].hubTaskId), "Project excludes unrelated task");
     assert(!flat(await search.search("shared phrase", project, {})).some(r => !r.path.startsWith(project.root + "/") || r.path.includes("/System/")));
     const note = files.get(project.root + "/Meta/Plans.md"); texts.set(note.path, "brand new phrase"); note.stat.mtime++;
     vault.emit("modify", note); assert(flat(await search.search("brand new", project, {})).some(r => r.path === note.path), "Edited content indexed");
-    tasks[0].text = "Changed task"; invalidateTasks(); assert(flat(await search.search("changed task", project, {})).some(r => r.task === tasks[0]));
+    tasks[0].text = "Changed task"; invalidateTasks(); assert(flat(await search.search("changed task", project, {})).some(r => r.taskHandle?.identity.value === tasks[0].hubTaskId));
     const old = note.path; files.delete(old); note.path = project.root + "/Meta/Renamed.md"; note.name = "Renamed.md"; note.basename = "Renamed"; files.set(note.path, note); texts.set(note.path, "renamed body");
     vault.emit("rename", note, old); assert(!flat(await search.search("Plans", project, {})).some(r => r.path === old));
     const source = { ownerDocument: {} };
     await search.open({ kind: "files", path: note.path, owner: project }, source);
     assert.deepEqual(calls.at(-1), ["note", note.path, "replace", source]);
-    await search.open({ kind: "tasks", path: tasks[0].path, task: tasks[0], owner: project }, source);
+    await search.open(flat(await search.search("changed task", project, {})).find(result => result.kind === "tasks"), source);
     assert.equal(calls.at(-1)[1], tasks[0].path, "Task opens canonical source");
     let selected, selectedPlanning;
     const root = { isConnected: true, closest: () => null, ownerDocument: source.ownerDocument };
@@ -96,5 +105,6 @@ class Emitter {
     assert.equal(selected, null, "Denied navigation does not select a folder");
     files.delete(note.path); vault.emit("delete", note); assert(!flat(await search.search("Renamed", project, {})).some(r => r.path === note.path));
     cleanup.reverse().forEach(fn => fn());
-    console.log("PASS: context search ranking, aliases, global/four Resource/Project scopes, linked canonical tasks, content caching/invalidation, rename/delete and navigation guards.");
+    await plugin.taskService.close();
+    console.log("PASS: context search ranking, aliases, global/four Resource/Project scopes, structural task ownership, content caching/invalidation, rename/delete and navigation guards.");
 })().catch(error => { console.error(error); process.exitCode = 1; });

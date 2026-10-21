@@ -1,5 +1,5 @@
 "use strict";
-const { createWindowTitle, setWindowUndertext } = require("./window-title");
+const { createModalHeader } = require("./window-title");
 const { Modal } = require("obsidian");
 const { setHubIcon } = require("./icons");
 
@@ -22,11 +22,8 @@ class CaptureModal extends Modal {
     }
     header(title, subtitle, icon) {
         this.contentEl.classList.add("hub-button-scope", "hub-capture-content", "hub-capture-form-scope");
-        const header = this.contentEl.createEl("header", { cls: "hub-capture-header" });
-        const heading = icon ? createWindowTitle(header, title, icon, { attr: { id: this.prefix + "-title" } }) :
-            header.createEl("h2", { text: title, attr: { id: this.prefix + "-title" } });
-        const description = header.createEl("p", { text: subtitle, cls: "hub-oath-muted", attr: { id: this.prefix + "-description" } });
-        if (icon) setWindowUndertext(heading, description);
+        createModalHeader(this.contentEl, { title, subtitle, icon,
+            titleId: this.prefix + "-title", descriptionId: this.prefix + "-description" });
         this.modalEl.setAttribute("aria-labelledby", this.prefix + "-title");
         this.modalEl.setAttribute("aria-describedby", this.prefix + "-description");
         const close = this.modalEl.querySelector(".modal-close-button");

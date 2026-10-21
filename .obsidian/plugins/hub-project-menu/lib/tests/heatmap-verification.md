@@ -1,5 +1,57 @@
 # Progress heatmap regression checks
 
+## First-visible-frame stability (2026-10-12)
+
+Home and Project/Resource built the Progress/History structure in a detached
+dashboard frame, committed that root, and queued the heatmap renderer with
+`frame.defer`. Activation dispatches deferred tasks using background
+`scheduler.postTask` or `MessageChannel`. Before that task ran, the calendar was
+empty and reserved only its padding/border. History therefore appeared in the
+space later occupied by the month row, seven calendar rows and navigation strip.
+ResizeObserver could measure an existing grid, but could not reserve a grid
+that had not been constructed. Earlier geometry fixtures rendered the calendar
+before measuring it and did not reproduce the dashboard lifecycle.
+
+`dashboard-frame.js` now has a synchronous `beforePaint` queue for attached
+layout initialization. Commit inserts the complete root, runs this queue while
+it is styled and measurable, then marks the structure ready and schedules
+secondary work. Prepared views committed into detached hosts keep this queue
+until connected activation; repeated activation drains it only once. Aborted or
+superseded frames retain the existing current-frame guards.
+
+The two actual dashboard view initializers use this queue for progress data and
+heatmap rendering. Home also seeds the existing History remaining-height
+calculation immediately. Workspace History retains the existing full-view CSS
+allocation. No heatmap geometry, CSS, colors, report calculations, dimensions,
+navigation or placeholder heights were changed. Other panel work remains deferred.
+
+`progress-first-frame.html` exercises the actual production initializer and
+render functions, dashboard frame, native heatmap renderer, shared geometry,
+host CSS and workspace height controller. Background activation is held so the
+test cannot accidentally pass after deferred geometry catches up. It asserts
+finite integral geometry immediately after attachment and at each sampled
+frame, full seven-row height, no History/calendar overlap, and unchanged grid
+and History top coordinates. The original implementation failed this test at
+the first attached frame, before production edits.
+
+At each native DPR (1.5 and 2), 43 cases cover cold mounts, same-view reloads,
+Home ↔ Project/Resource navigation, prepared attachment, widths 1080/1560,
+zoom 100%/125%, common/54-week leap years and repeated activation. Each run
+checks 160 successive animation frames. All 40 initial panel screenshots per
+run match an independently initialized settled production reference pixel for
+pixel, with exact final bounds and working History scrolling. The two DPR runs
+also passed all 1,390 existing dashboard layout checks, 388 raster scenarios,
+pure geometry/palette/report/typography checks, atomic structural navigation,
+Dataview style preservation, prepared rail and Home handoff, report editing,
+year/scope navigation, Home task actions, build and plugin-load checks.
+
+Reproduce with `node run-browser-test.js progress-first-frame 1800x1600` and
+`HUB_TEST_DPR` set to `1.5`, then `2`. The runner saves first-paint and settled
+reference screenshots in the OS temporary directory as
+`hub-progress-first-frame-1.5-initial.png` / `-reference.png` and corresponding
+`2` files. These are isolated Chromium cold mounts/reloads and modeled native
+attachment, not a live Obsidian process restart or physical-device observation.
+
 ## Current: separator-contained assembly (2026-10-11)
 
 The shared canvas cap is now **1560px**, up 60px (4%) from 1500px. Equal tracks,

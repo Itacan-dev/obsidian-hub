@@ -24,15 +24,16 @@ try{
   const fields=mountTaskFields({app:{},host,state}),choices=[...host.querySelectorAll('.hub-task-necessity-choice')],clear=host.querySelector('.hub-task-clear-necessity');
   assert(clear.disabled&&choices.every(button=>button.getAttribute('aria-pressed')==='false'),'Neutral initial state '+family);
   const dimensions=choices.map(button=>button.getBoundingClientRect().height);assert(dimensions.every(height=>height===48),'Existing field height retained');
-  for(const [index,necessity,color]of [[0,'should','rgb(230, 184, 77)'],[1,'must','rgb(241, 109, 115)']]){
-   choices[index].click();await settle();const button=choices[index],style=getComputedStyle(button);
+  for(const [index,necessity]of [[0,'should'],[1,'must']]){
+   const color='rgb(255, 255, 255)',border='rgb(137, 85, 237)',fill=border;
+   choices[index].click();await new Promise(resolve=>setTimeout(resolve,160));await settle();const button=choices[index],style=getComputedStyle(button);
    assert(state.necessity===necessity&&button.getAttribute('aria-pressed')==='true'&&choices[1-index].getAttribute('aria-pressed')==='false','Mutual exclusivity '+family);
-   assert(style.color===color&&style.borderColor===color,'Semantic color and border '+family);
+   assert(style.color===color&&style.borderColor===border&&style.backgroundColor===fill,'Existing purple selection fill and light text '+family);
    const background=style.backgroundColor,signature=[style.color,style.borderColor,background,style.boxShadow].join('|');if(styles.has(necessity))assert(styles.get(necessity)===signature,'Exact shared selected styling '+family);else styles.set(necessity,signature);
-   await hover(button);const hovered=getComputedStyle(button);assert(hovered.color===color&&hovered.borderColor===color&&hovered.backgroundColor!==background,'Semantic 18% selected hover '+family);
+   await hover(button);const hovered=getComputedStyle(button);assert(hovered.color===color&&hovered.backgroundColor!==background,'Purple selected hover '+family);
    clear.focus();await key('Tab');choices[0].focus();if(index===1)await key('Tab');assert(document.activeElement===button&&button.matches(':focus-visible')&&getComputedStyle(button).outlineWidth==='2px','Independent keyboard focus '+family);
    await key(' ');assert(state.necessity===null&&clear.disabled,'Keyboard deselection '+family);await key('Enter');assert(state.necessity===necessity,'Keyboard selection '+family);
-   button.disabled=true;const saved=state.necessity;button.click();assert(state.necessity===saved&&getComputedStyle(button).color===color,'Disabled selection cannot change '+family);button.disabled=false;
+   await new Promise(resolve=>setTimeout(resolve,160));button.disabled=true;const saved=state.necessity;button.click();assert(state.necessity===saved&&getComputedStyle(button).color===color,'Disabled selection cannot change '+family);button.disabled=false;
    clear.click();assert(state.necessity===null&&choices.every(item=>item.getAttribute('aria-pressed')==='false'),'Clear semantics '+family);
   }
   const group=host.createDiv({cls:'hub-option-group'}),other=group.createEl('button',{text:'Task type',attr:{'aria-pressed':'true'}});assert(getComputedStyle(other).backgroundColor==='rgb(137, 85, 237)','Unrelated purple option groups retained');fields.destroy();

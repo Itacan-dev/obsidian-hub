@@ -12,7 +12,8 @@ class Modal{constructor(app){this.app=app;this.containerEl=document.body.createD
 async function load(file,require=()=>{}){const module={exports:{}};new Function('module','require',await(await fetch('../'+file+'.js')).text())(module,require);return module.exports}
 try{
  const restoration=await load('ui/focus-restoration'),focusData=await load('domain/focus'),attention=await load('ui/attention');
- const taskForm=await load('ui/task-form',name=>name==='./focus-restoration'?restoration:name==='./icons'?{setHubIcon(){}}:name==='./completion-audio'?{bindCompletionSound(){},playStepCompletionSound(){}}:{mountTaskDateTime:()=>({setMin(){},refresh(){},destroy(){}})});
+ const taskModel=await load('domain/task-form',()=>({}));
+ const taskForm=await load('ui/task-form',name=>name==='../domain/task-form'?taskModel:name==='./focus-restoration'?restoration:name==='./icons'?{setHubIcon(){}}:name==='./completion-audio'?{bindCompletionSound(){},playStepCompletionSound(){}}:{mountTaskDateTime:()=>({setMin(){},refresh(){},destroy(){}})});
  const windowTitle=await load('ui/window-title',()=>({setIcon(){}}));
  const dates=await load('domain/dates'),planning=await load('ui/planning-editor',name=>name==='./window-title'?windowTitle:name==='./focus-restoration'?restoration:name==='obsidian'?{Modal,FuzzySuggestModal:class{open(){}}}:dates);
  const source=await(await fetch('../../plugin.js')).text(),code=source.slice(source.indexOf('class FocusListEditor'),source.indexOf('class ProjectAdvancementModal'));

@@ -1732,9 +1732,7 @@ function ownerOf(path, workspaces) {
 }
 function inScope(entry, scope, workspaces) {
     if (!scope) return !!ownerOf(entry.path, workspaces);
-    if (validLocation(entry.path, scope)) return true;
-    return entry.kind === "tasks" && scope.contextKind !== "resource" && entry.task.linkedProjectId === scope.projectId &&
-        workspaces.some(workspace => workspace.contextKind === "resource" && validLocation(entry.path, workspace));
+    return validLocation(entry.path, scope);
 }
 function contextLabel(path, owner) {
     const relative = path.slice(owner.root.length).replace(/^\//, "").replace(/\.md$/i, "");
@@ -2512,7 +2510,7 @@ function captureIntent(values = {}, attachments = []) {
     const type = attachments.length ? (["task", "note", "file"].includes(input.type) || input.workspaceId || input.folder ? "file" : null) : ["task", "note"].includes(input.type) ? input.type : null;
     if (!type) return null;
     const intent = { inputPath: attachments.length ? "file" : "text", type };
-    const keys = type === "task" ? ["workspaceId", "location", "necessity", "fromDate", "dueDate", "fromTime", "dueTime", "phaseId", "linkedProjectId"] :
+    const keys = type === "task" ? ["workspaceId", "location", "necessity", "fromDate", "dueDate", "fromTime", "dueTime", "phaseId"] :
         type === "note" ? ["workspaceId", "folder", "title"] : ["workspaceId", "folder"];
     for (const key of keys) {
         if (typeof input[key] === "string" || input[key] === null) intent[key] = input[key];
@@ -2552,6 +2550,7 @@ function captureDraft(capture = {}) {
     draft.inputPath = draft.attachments.length ? "file" : "text";
     if (Array.isArray(draft.steps)) draft.steps = draft.steps.map(step => ({ ...step }));
     delete draft.taskTitle;
+    delete draft.linkedProjectId;
     return draft;
 }
 
@@ -3657,9 +3656,65 @@ function seriesFor(model, metric, scope) {
 module.exports = { RANGES, formatDuration, isStatisticsNote, statisticsRange, prepareStatistics, aggregateStatistics, seriesFor };
 
 },
+"lib/domain/task-compact-form.js": function (module, exports, __hubRequire) {
+"use strict";
+const { parseLocalISODate, validLocalTime, taskDateLabel } = __hubRequire("lib/domain/dates.js");
+const { validateTaskMetadata } = __hubRequire("lib/domain/task-planning.js");
+
+// A form always shows both endpoints, even after the start date has passed.
+function taskDatesButtonLabel(state, now = new Date()) {
+    const from = parseLocalISODate(state.fromDate), due = parseLocalISODate(state.dueDate);
+    if (!from && !due) return "Dates";
+    if (!from) return "Due " + taskDateLabel(state.dueDate, state.dueTime, false, now);
+    if (!due) return "Start " + taskDateLabel(state.fromDate, state.fromTime, false, now);
+    const crossYear = from.getFullYear() !== due.getFullYear();
+    if (!validLocalTime(state.fromTime) && !validLocalTime(state.dueTime) && !crossYear && from.getMonth() === due.getMonth()) {
+        return from.getDate() + "\u2013" + taskDateLabel(state.dueDate, null, false, now);
+    }
+    return taskDateLabel(state.fromDate, state.fromTime, false, now, crossYear) + " \u2013 " +
+        taskDateLabel(state.dueDate, state.dueTime, false, now, crossYear);
+}
+
+function validateTaskDates(state) {
+    validateTaskMetadata(state);
+    // Missing times keep their existing start-of-day/end-of-day semantics.
+    if (state.fromDate && state.fromDate === state.dueDate &&
+        (state.fromTime || "00:00") > (state.dueTime || "23:59")) {
+        throw Error("Due time must be on or after Start time.");
+    }
+}
+
+function initialTaskLocation(service, creation = {}) {
+    const explicit = creation.location ?? creation.path;
+    if (explicit != null) return explicit; // Never silently replace an explicit destination.
+    const activePath = service.app.workspace.getActiveFile?.()?.path;
+    const context = creation.root ? service.context?.(creation.root) :
+        service.currentContext ? service.currentContext() : service.context?.(activePath);
+    const root = creation.root ?? context?.root;
+    if (!root) return ""; // Home has no inferred workspace.
+    const locations = service.locations?.(root) ?? [];
+    return locations.find(item => item.path === activePath)?.path ?? locations.find(item => item.path === root)?.path ?? "";
+}
+
+function initialComposerTaskLocation(service, creation = {}) {
+    const location = initialTaskLocation(service, creation);
+    // Explicit destinations (including invalid ones) never silently move.
+    if (location || creation.location != null || creation.path != null || creation.root != null) return location;
+    const resource = __hubRequire("lib/config.js").RESOURCE_TYPES.find(item => item.id === "references");
+    return resource ? initialTaskLocation(service, { root: resource.root }) : "";
+}
+
+module.exports = { taskDatesButtonLabel, validateTaskDates, initialTaskLocation, initialComposerTaskLocation };
+
+},
 "lib/domain/task-form.js": function (module, exports, __hubRequire) {
 "use strict";
 const { appendTask, validateTaskMetadata } = __hubRequire("lib/domain/task-planning.js");
+
+const TASK_FORM_ORDER = Object.freeze(["text", "destination", "necessity", "dates", "steps", "phase"]);
+const TASK_FIELD_LABELS = Object.freeze({ text: "Task", workspace: "Save to", location: "Location",
+    necessity: "Necessity", should: "Should do", must: "Must do", fromDate: "Start date", dueDate: "Due date",
+    steps: "Steps", phase: "Project phase", noPhase: "No phase" });
 
 // Every task surface submits the ordinary Markdown task text and metadata.
 // Routing remains the responsibility of the existing workspace/location APIs.
@@ -3671,14 +3726,16 @@ function taskFormValues(values = {}) {
         appendTask("", text);
         return { ...step, text, completed: !!step.completed };
     });
-    return { ...values, ...validateTaskMetadata(values), text, steps };
+    const canonical = { ...values, ...validateTaskMetadata(values), text, steps };
+    delete canonical.linkedProjectId; // Retired task association; never re-submit legacy data.
+    return canonical;
 }
 
 function validTaskForm(values) {
     try { taskFormValues(values); return true; } catch (_) { return false; }
 }
 
-module.exports = { taskFormValues, validTaskForm };
+module.exports = { TASK_FORM_ORDER, TASK_FIELD_LABELS, taskFormValues, validTaskForm };
 
 },
 "lib/domain/task-planning.js": function (module, exports, __hubRequire) {
@@ -3699,11 +3756,13 @@ function taskCaptureSource(value) {
 function taskMetadata(value = {}) {
     const captureSource = taskCaptureSource(value?.captureSource);
     return {
+        // Optional plain Markdown text, kept in the existing identity-keyed
+        // metadata store. Never interpret note continuations as descriptions.
+        ...(typeof value?.description === "string" && value.description.length ? { description: value.description } : {}),
         ...(typeof value?.phaseId === "string" && value.phaseId.trim() ? { phaseId: value.phaseId.trim() } : {}),
         necessity: ["should", "must"].includes(value?.necessity) ? value.necessity : null,
         fromDate: parseLocalISODate(value?.fromDate) ? value.fromDate : null,
         dueDate: parseLocalISODate(value?.dueDate) ? value.dueDate : null,
-        ...(typeof value?.linkedProjectId === "string" && value.linkedProjectId.trim() ? { linkedProjectId: value.linkedProjectId.trim() } : {}),
         ...(parseLocalISODate(value?.fromDate) && validLocalTime(value?.fromTime) ? { fromTime: value.fromTime } : {}),
         ...(parseLocalISODate(value?.dueDate) && validLocalTime(value?.dueTime) ? { dueTime: value.dueTime } : {}),
         ...(captureSource ? { captureSource } : {})
@@ -3747,7 +3806,8 @@ function taskDatePresentation(task, now = new Date()) {
         return { label: "Starts " + taskDateLabel(task.fromDate, task.fromTime, false, now) };
     }
     if (!task.dueDate) return null;
-    return { label: taskDateLabel(task.dueDate, task.dueTime, true, now),
+    const prefix = !task.completed && taskIsOverdue(task, now) ? "Overdue " : "Due ";
+    return { label: prefix + taskDateLabel(task.dueDate, task.dueTime, true, now),
         dateTime: task.dueDate + (validLocalTime(task.dueTime) ? "T" + task.dueTime : "") };
 }
 
@@ -3869,6 +3929,8 @@ function saveTaskSnapshot(data, snapshot, values, id = snapshot.hubTaskId, creat
     let replacement = [];
     if (!deleting) {
         const text = singleTaskText(values.text);
+        const completed = typeof values.completed === "boolean" ? values.completed : current.completed;
+        if (completed && !current.completed) id ??= createId();
         const requested = (values.steps ?? snapshot.steps).map(step => ({ ...step }));
         const existing = new Map(snapshot.steps.map(step => [step.line, step]));
         for (const step of requested) {
@@ -3888,7 +3950,8 @@ function saveTaskSnapshot(data, snapshot, values, id = snapshot.hubTaskId, creat
         replacement = block.flatMap((value, offset) => {
             const originalLine = snapshot.line + offset;
             if (!offset) {
-                const prefix = value.match(/^([ \t]*(?:[-*+]|\d+[.)])\s+\[[^\]]\][ \t]*)/)[1];
+                let prefix = value.match(/^([ \t]*(?:[-*+]|\d+[.)])\s+\[[^\]]\][ \t]*)/)[1];
+                if (completed !== current.completed) prefix = prefix.replace(/\[[^\]]\]/, completed ? "[x]" : "[ ]");
                 // Put our comment before an existing native block ID.
                 const nativeId = text.match(/\s+\^[a-zA-Z0-9-]+$/)?.[0] ?? "";
                 const title = nativeId ? text.slice(0, -nativeId.length) : text;
@@ -3916,6 +3979,11 @@ function saveTaskSnapshot(data, snapshot, values, id = snapshot.hubTaskId, creat
     const saved = deleting ? null : readTaskSnapshot(content, { path: snapshot.path, line: current.line, text: values.text, hubTaskId: id });
     const progressTransitions = [];
     if (saved) {
+        if (saved.completed !== current.completed) {
+            progressTransitions.push({ kind: "task", hubTaskId: saved.hubTaskId,
+                text: saved.text, oldText: current.text, line: saved.line, lookupLine: current.line,
+                completed: saved.completed, ...(values.completedAt ? { timestamp: values.completedAt } : {}) });
+        }
         // Editor checkbox changes commit on Save, with the time of the action.
         for (const [index, step] of [...(values.steps ?? snapshot.steps)].sort((a, b) => (a.line ?? Infinity) - (b.line ?? Infinity)).entries()) {
             const before = snapshot.steps.find(item => item.line === step.line);
@@ -4028,7 +4096,7 @@ function taskProgressMutation(previousChecks, previousHistory, edit, context, ti
             taskTransition = { kind: "task", hubTaskId: saved?.hubTaskId ?? edit.hubTaskId,
                 line: saved?.line ?? edit.line, lookupLine: edit.line,
                 oldText: edit.oldText, text: saved?.text ?? edit.oldText, completed: edit.completed };
-        } else if (target && edit.operation !== "add") {
+        } else if (target && edit.operation !== "add" && !edit.progressTransitions?.some(event => event.kind === "task")) {
             // Editing or deleting is housekeeping: only update/detach the binding.
             checks = checks.filter(check => check !== target);
             if (saved) checks.unshift({ ...target, path: edit.path, line: saved.line,
@@ -4113,8 +4181,8 @@ function filterTasks(tasks, state, now = new Date(), describe = task => task.pat
     });
 }
 
-function sortTasks(tasks, key = "due", direction = 1, describe = task => task.path, project = () => "") {
-    const value = task => ({ task: task.text, location: describe(task), project: project(task),
+function sortTasks(tasks, key = "due", direction = 1, describe = task => task.path) {
+    const value = task => ({ task: task.text, location: describe(task),
         necessity: { must: 0, should: 1 }[task.necessity] ?? null,
         start: task.fromDate ? task.fromDate + (task.fromTime ?? "00:00") : null,
         due: task.dueDate ? task.dueDate + (task.dueTime ?? "24:00") : null,
@@ -4321,7 +4389,8 @@ function applyTaskEdit(items, edit, resolvePath = task => task.path) {
         const remaining = applyTaskEdit(items, { ...edit, movedTo: null, tasks: [] }, resolvePath);
         if (remaining.length === items.length) return items;
         const wrapper = items.find(item => (item.task && typeof item.task === "object" ? item.task : item).path === edit.path);
-        return [...remaining, ...edit.tasks.map(task => wrapper?.task && typeof wrapper.task === "object" ? { ...wrapper, task } : task)];
+        return [...remaining, ...edit.tasks.map(task => wrapper?.task && typeof wrapper.task === "object" ?
+            { ...wrapper, task, ...(edit.destinationContext ? { owner: edit.destinationContext } : {}) } : task)];
     }
     const taskOf = item => item.task && typeof item.task === "object" ? item.task : item;
     const candidates = items.filter(item => {
@@ -5198,10 +5267,25 @@ module.exports = { YouTubeProvider };
 "use strict";
 const { taskWorkspaces } = __hubRequire("lib/services/task-locations.js");
 const { normalize, nameScore, ownerOf, inScope, contextLabel, groupResults } = __hubRequire("lib/domain/context-search.js");
+const { workspaceRef, sameWorkspace } = __hubRequire("lib/services/task-service-legacy-values.js");
+const { TaskServiceError } = __hubRequire("lib/services/task-service-errors.js");
+
+function taskSearchMessage(error, reveal = false) {
+    if (error?.code === "INDEX_UNAVAILABLE") return "Task search is not ready yet.";
+    if (!reveal) return "Task search is temporarily unavailable.";
+    if (error?.code === "SOURCE_MISSING") return "This task's note is no longer available.";
+    if (error?.code === "AMBIGUOUS_REFERENCE") return "This task has an ambiguous source. Refresh Search before opening it.";
+    if (["STALE_REFERENCE", "REFERENCE_UNRESOLVED"].includes(error?.code)) return "This task changed. Refresh Search and try again.";
+    return "This task cannot be opened right now. Refresh Search and try again.";
+}
 
 class ContextSearchService {
-    constructor(plugin) {
+    constructor(plugin, { taskService = plugin.taskService, onTaskDiagnostics = diagnostics => console.warn("Task Search diagnostics", diagnostics) } = {}) {
         this.plugin = plugin;
+        this.taskService = taskService;
+        if (!taskService?.capabilities().operations.queryDisplay) throw new TaskServiceError("UNSUPPORTED", "Search requires the task display-query capability.");
+        this.onTaskDiagnostics = onTaskDiagnostics;
+        this.taskGeneration = 0;
         this.files = null;
         this.tasks = null;
         this.notes = new Map();
@@ -5209,9 +5293,14 @@ class ContextSearchService {
         this.registrations = new Set();
         this.pendingFolder = null;
         this.disposed = false;
+        const notify = () => {
+            for (const listener of this.listeners) {
+                try { Promise.resolve(listener()).catch(() => {}); } catch (_) { /* Views cannot break cache invalidation. */ }
+            }
+        };
+        const invalidateTasks = () => { this.tasks = null; this.taskGeneration++; notify(); };
         const invalidate = () => {
-            this.files = null; this.tasks = null;
-            for (const listener of this.listeners) listener();
+            this.files = null; invalidateTasks();
         };
         for (const event of ["create", "delete", "rename", "modify"]) {
             plugin.registerEvent(plugin.app.vault.on(event, (file, oldPath) => {
@@ -5221,12 +5310,14 @@ class ContextSearchService {
             }));
         }
         plugin.registerEvent(plugin.app.metadataCache.on("changed", invalidate));
-        plugin.taskData.subscribe(plugin, () => { this.tasks = null; for (const listener of this.listeners) listener(); });
-        plugin.planning?.subscribe(plugin, () => { for (const listener of this.listeners) listener(); });
-        plugin.register(() => { this.disposed = true; this.notes.clear(); this.listeners.clear(); this.registrations.clear(); });
+        const unsubscribe = this.taskService.subscribe(invalidateTasks);
+        plugin.register(unsubscribe);
+        plugin.planning?.subscribe(plugin, notify);
+        plugin.register(() => { this.disposed = true; this.taskGeneration++; this.tasks = null; this.files = null;
+            this.notes.clear(); this.listeners.clear(); this.registrations.clear(); this.pendingFolder = null; });
     }
     subscribe(component, listener) { this.listeners.add(listener); component.register(() => this.listeners.delete(listener)); }
-    snapshot(dv) {
+    fileSnapshot() {
         if (!this.files) {
             this.workspaces = taskWorkspaces(this.plugin);
             const dashboards = new Set(this.workspaces.map(workspace => workspace.path));
@@ -5241,11 +5332,60 @@ class ContextSearchService {
                     context: contextLabel(file.parent?.path ?? file.path.slice(0, file.path.lastIndexOf("/")), owner) }];
             });
         }
-        if (!this.tasks) this.tasks = this.plugin.taskData.readPages(dv).flatMap(page => page.file.tasks).flatMap(task => {
-            const owner = ownerOf(task.path, this.workspaces);
-            return owner ? [{ kind: "tasks", title: task.text, path: task.path, task, owner, context: contextLabel(task.path, owner) }] : [];
-        });
-        return { workspaces: this.workspaces, files: this.files, tasks: this.tasks };
+        return { workspaces: this.workspaces, files: this.files };
+    }
+    report(diagnostics) {
+        if (!diagnostics.length || this.disposed) return;
+        try { Promise.resolve(this.onTaskDiagnostics(diagnostics)).catch(() => {}); } catch (_) { /* Diagnostics are not task state. */ }
+    }
+    async taskSnapshot(cancelled) {
+        while (!cancelled() && !this.disposed) {
+            const generation = this.taskGeneration;
+            let cached = this.tasks;
+            if (!cached) {
+                cached = { generation };
+                cached.promise = Promise.resolve().then(() => this.taskService.queryDisplay()).then(query => {
+                    if (!this.disposed && generation === this.taskGeneration) this.report(query.diagnostics);
+                    return { query, taskError: null };
+                }, error => {
+                    if (this.tasks === cached) this.tasks = null; // A later request may retry a transient failure.
+                    if (!this.disposed && generation === this.taskGeneration) this.report([{ level: "query", rowIndex: null,
+                        code: error.code ?? "READ_FAILED", sourcePath: null, message: error.message ?? "Task query failed." }]);
+                    return { query: null, taskError: error };
+                });
+                this.tasks = cached;
+            }
+            const result = await cached.promise;
+            if (cancelled() || this.disposed) return null;
+            if (generation !== this.taskGeneration) continue;
+            return result;
+        }
+        return null;
+    }
+    async snapshot(_dv, { cancelled = () => false } = {}) {
+        const taskSnapshot = await this.taskSnapshot(cancelled);
+        if (!taskSnapshot || cancelled() || this.disposed) return null;
+        const { files, workspaces } = this.fileSnapshot();
+        if (taskSnapshot.entries?.files === files) return { workspaces, files,
+            tasks: taskSnapshot.entries.tasks, taskError: taskSnapshot.taskError };
+        const tasks = [];
+        for (const row of taskSnapshot.query?.rows ?? []) {
+            const task = row.view;
+            if (!task) continue;
+            // This integration supports legacy display evidence only. A future
+            // native search adapter needs an explicit location/context policy.
+            if (task.source?.kind !== "legacy-indexed-source" || task.compatibility?.kind !== "legacy-indexed-text") {
+                this.report([{ level: "row", rowIndex: null, code: "UNSUPPORTED", sourcePath: null, message: "Unsupported task display projection." }]);
+                continue;
+            }
+            const path = task.source.path, owner = ownerOf(path, workspaces);
+            if (!owner || !sameWorkspace(workspaceRef(owner), task.owner)) continue;
+            tasks.push({ kind: "tasks", title: task.compatibility.displayText, searchText: task.compatibility.searchText,
+                path, task, taskHandle: task.handle, owner, context: contextLabel(path, owner), diagnostics: row.diagnostics,
+                key: JSON.stringify([path, task.handle?.kind === "legacy" ? task.handle.locator.line : task.compatibility.displayText]) });
+        }
+        taskSnapshot.entries = { files, tasks };
+        return { workspaces, files, tasks, taskError: taskSnapshot.taskError };
     }
     async note(file) {
         const key = file.path, stamp = file.stat?.mtime;
@@ -5259,10 +5399,18 @@ class ContextSearchService {
         this.notes.set(key, { stamp, promise });
         return promise;
     }
-    async search(query, scope, dv, { onNames = () => {}, cancelled = () => false } = {}) {
+    async search(query, scope, dv, { onNames = () => {}, cancelled = () => false, onTaskStatus = () => {} } = {}) {
+        const requestedScope = scope?.projectId ?? null;
+        let snapshotGeneration = null;
+        const obsolete = () => cancelled() || this.disposed || (scope?.projectId ?? null) !== requestedScope ||
+            snapshotGeneration !== null && snapshotGeneration !== this.taskGeneration;
         const term = normalize(query).trim();
-        if (!term) return [];
-        const snapshot = this.snapshot(dv), { workspaces } = snapshot;
+        if (!term || obsolete()) return [];
+        const snapshot = await this.snapshot(dv, { cancelled: obsolete });
+        if (!snapshot || obsolete()) return [];
+        snapshotGeneration = this.taskGeneration;
+        onTaskStatus(snapshot.taskError ? taskSearchMessage(snapshot.taskError) : "");
+        const { workspaces } = snapshot;
         // Follow renamed workspace roots via the existing canonical context IDs.
         scope = scope ? workspaces.find(item => item.projectId === scope.projectId) ?? scope : null;
         const files = snapshot.files.filter(entry => inScope(entry, scope, workspaces));
@@ -5278,22 +5426,23 @@ class ContextSearchService {
         }
         const results = [], namedPaths = new Set();
         for (const entry of candidates) {
-            const scores = [entry.title, ...(entry.aliases ?? [])].map(value => nameScore(value, term)).filter(value => value != null);
+            const scores = [entry.searchText ?? entry.title, ...(entry.aliases ?? [])].map(value => nameScore(value, term)).filter(value => value != null);
             // A path qualifier can disambiguate identically named notes/folders.
-            const contextual = term.includes(" ") ? nameScore(entry.context + " " + entry.title, term) : null;
+            const contextual = term.includes(" ") ? nameScore(entry.context + " " + (entry.searchText ?? entry.title), term) : null;
             if (contextual != null) scores.push(6 + contextual / 10);
             if (!scores.length) continue;
             results.push({ ...entry, score: Math.min(...scores) + (entry.kind === "tasks" ? 10 : 0) });
             if (entry.kind === "files") namedPaths.add(entry.path);
         }
+        if (obsolete()) return [];
         onNames(groupResults([...results]));
         const notes = files.filter(entry => entry.file.extension?.toLowerCase() === "md" && !namedPaths.has(entry.path));
         let cursor = 0;
         // Bounded concurrent cached reads, cancelled between files when typing/navigation changes.
         await Promise.all(Array.from({ length: 4 }, async () => {
-            while (cursor < notes.length && !cancelled() && !this.disposed) {
+            while (cursor < notes.length && !obsolete()) {
                 const entry = notes[cursor++], text = await this.note(entry.file);
-                if (!text) continue;
+                if (!text || obsolete()) continue;
                 const words = term.split(/\s+/);
                 if (!words.every(word => text.normalized.includes(word))) continue;
                 const position = text.normalized.indexOf(words[0]);
@@ -5302,7 +5451,7 @@ class ContextSearchService {
                 results.push({ ...entry, kind: "notes", snippet, score: 20 });
             }
         }));
-        return groupResults(results);
+        return obsolete() ? [] : groupResults(results);
     }
     registerWorkspace(component, root, workspace, selectFolder, selectPlanning) {
         const registration = { root, workspace, selectFolder, selectPlanning };
@@ -5320,7 +5469,23 @@ class ContextSearchService {
             this.pendingFolder = null;
         }
     }
-    async open(result, source) {
+    async open(result, source, { cancelled = () => false } = {}) {
+        if (result.kind === "tasks") {
+            try {
+                if (this.disposed) throw new TaskServiceError("CLOSED", "Search is closed.");
+                if (!result.taskHandle || !result.task?.capabilities.attemptReveal) {
+                    throw new TaskServiceError(result.diagnostics?.[0]?.code ?? "REFERENCE_UNRESOLVED", "The task row is not safely actionable.");
+                }
+                const target = await this.taskService.resolveReveal(result.taskHandle);
+                if (this.disposed || cancelled()) return false;
+                if (target.kind !== "legacy-source") throw new TaskServiceError("UNSUPPORTED", "No handler is installed for this reveal target.");
+                if (!this.plugin.app.vault.getAbstractFileByPath(target.path)) throw new TaskServiceError("SOURCE_MISSING", "The resolved source is unavailable.");
+                return await this.plugin.workspaceModes.openProjectNote(target.path, "replace", source);
+            } catch (error) {
+                this.report([{ level: "row", rowIndex: null, code: error.code ?? "REVEAL_FAILED", sourcePath: null, message: error.message ?? "Task reveal failed." }]);
+                throw new TaskServiceError(error.code ?? "REVEAL_FAILED", taskSearchMessage(error, true), {}, error);
+            }
+        }
         const modes = this.plugin.workspaceModes;
         const path = this.plugin.taskData.currentPath(result.path);
         if (!this.plugin.app.vault.getAbstractFileByPath(path)) throw Error("This item no longer exists.");
@@ -5340,7 +5505,7 @@ class ContextSearchService {
         } catch (error) { if (this.pendingFolder === request) this.pendingFolder = null; throw error; }
     }
 }
-module.exports = { ContextSearchService };
+module.exports = { ContextSearchService, taskSearchMessage };
 
 },
 "lib/services/daily-brief-trigger.js": function (module, exports, __hubRequire) {
@@ -5392,12 +5557,15 @@ const { DailyBriefTrigger } = __hubRequire("lib/services/daily-brief-trigger.js"
 const { DailyBriefModal } = __hubRequire("lib/ui/daily-brief.js");
 const { DailyReportModal } = __hubRequire("lib/ui/daily-report.js");
 const { reportDay } = __hubRequire("lib/domain/report-context.js");
-const { taskIsFuture, readTaskSnapshot } = __hubRequire("lib/domain/task-planning.js");
+const { taskIsFuture } = __hubRequire("lib/domain/task-planning.js");
+const { TaskReadSession } = __hubRequire("lib/services/task-read-session.js");
+const { legacyReadTask } = __hubRequire("lib/services/task-service-legacy-bridge.js");
 
 class DailyBriefService {
     constructor(plugin, { provider = new RulesRecommendationProvider(), now = () => new Date() } = {}) {
         this.plugin = plugin; this.app = plugin.app; this.provider = provider; this.now = now; this.disposed = false;
         this.listeners = new Set(); this.manualOpening = false; this.resolving = null;
+        this.availabilityGeneration = 0; this.readSession = null;
         this.trigger = new DailyBriefTrigger({ now, ready: () => this.ready(), blocked: () => this.manualOpening || this.blocked(),
             shownDay: () => plugin.projectWizard.data.lastDailyBriefAutoShownDay,
             load: date => this.load(date), open: brief => this.open(brief), persist: day => this.persistShown(day) });
@@ -5409,7 +5577,16 @@ class DailyBriefService {
     }
     blocked() { return this.oathBlocked() || !!document.querySelector(".modal-container"); }
     onChange(callback) { this.listeners.add(callback); return () => this.listeners.delete(callback); }
-    emit() { for (const callback of this.listeners) callback(); }
+    emit() { for (const callback of this.listeners) {
+        try { Promise.resolve(callback()).catch(error => console.error("Daily Brief listener failed", error)); }
+        catch (error) { console.error("Daily Brief listener failed", error); }
+    } }
+    reader() {
+        if (!this.readSession) this.readSession = new TaskReadSession(this.plugin.taskService, () => {
+            if (!this.disposed && this.started) { void this.refreshAvailability(); void this.trigger.resume(); }
+        });
+        return this.readSession;
+    }
     snapshot(now = this.now()) {
         const value = this.plugin.projectWizard.data.dailyBriefSnapshot;
         return value?.version === 1 && value.dayKey === dailyBriefDay(now) && Array.isArray(value.days) ? value : null;
@@ -5422,11 +5599,18 @@ class DailyBriefService {
             this.historyDay === dailyBriefDay(this.now()) && this.hasHistory;
         return { available: !!useful, reason: useful ? "" : "No meaningful work recorded before this Itacan day." };
     }
-    refreshAvailability() {
+    async refreshAvailability() {
         if (this.disposed) return;
+        const generation = ++this.availabilityGeneration, day = dailyBriefDay(this.now());
         if (this.ready() && !this.oathBlocked() && !this.snapshot()) {
-            try { this.hasHistory = !!this.context().lastWorkDate; this.historyDay = dailyBriefDay(this.now()); }
-            catch (error) { this.hasHistory = false; console.error("Daily Brief availability could not be read", error); }
+            try {
+                const context = await this.context();
+                if (this.disposed || generation !== this.availabilityGeneration || day !== dailyBriefDay(this.now()) || !this.ready() || this.oathBlocked()) return;
+                this.hasHistory = !!context?.lastWorkDate; this.historyDay = day;
+            } catch (error) {
+                if (this.disposed || generation !== this.availabilityGeneration) return;
+                this.hasHistory = false; console.error("Daily Brief availability could not be read", error);
+            }
         }
         this.emit();
     }
@@ -5443,9 +5627,10 @@ class DailyBriefService {
             return false;
         } finally { this.manualOpening = false; this.refreshAvailability(); }
     }
-    async persistSnapshot(snapshot) {
+    async persistSnapshot(snapshot, current = () => true) {
         // Let an already-saving wizard update publish its data before taking our copy.
         await this.plugin.dataStore.writeQueue?.catch(() => {});
+        if (!current()) return false;
         const data = this.plugin.projectWizard.data, previous = data.dailyBriefSnapshot;
         data.dailyBriefSnapshot = snapshot;
         try {
@@ -5481,8 +5666,9 @@ class DailyBriefService {
         this.plugin.registerDomEvent(window, "focus", foreground);
         this.plugin.registerDomEvent(window, "blur", () => this.trigger.background());
         this.plugin.registerDomEvent(document, "visibilitychange", foreground);
-        this.plugin.taskData.subscribe(this.plugin, () => { this.refreshAvailability(); void this.trigger.resume(); });
+        this.reader();
         this.stopOath = this.plugin.oath.onChange(() => {
+            this.readSession?.invalidate(); this.availabilityGeneration++;
             if (this.oathBlocked()) this.modal?.close();
             this.refreshAvailability();
         });
@@ -5502,14 +5688,19 @@ class DailyBriefService {
         return !!workspace && !!this.resolvePath(workspace.path) &&
             (workspace.contextKind === "resource" || workspace.status === "active");
     }
-    context(now = this.now()) {
-        const { projectWizard: wizard, oath, taskData } = this.plugin;
+    async context(now = this.now()) {
+        if (this.disposed) return null;
+        const query = await this.reader().read({ validation: "source" }, () => this.disposed);
+        if (!query || this.disposed) return null;
+        if (query.diagnostics.length) console.warn("Daily Brief task-read diagnostics", query.diagnostics);
+        const { projectWizard: wizard, oath } = this.plugin;
         const workspaceId = workspace => workspace?.contextKind === "resource" ? `resource:${workspace.resourceType}` : workspace?.projectId;
         const workspaces = [...wizard.getProjectRecords(), ...wizard.getResourceTypes()].map(workspace => ({
             workspaceId: workspaceId(workspace), name: workspace.name ?? workspace.label, path: workspace.path,
             type: workspace.contextKind, status: workspace.status, available: this.eligible(workspace) }));
-        const tasks = taskData.readPages(oath.api()).flatMap(page => page.file.tasks)
-            .map(task => ({ ...task, workspaceId: workspaceId(wizard.getContextForPath(task.path)) }));
+        const tasks = query.rows.filter(row => row.view?.legacy)
+            .map(row => ({ ...legacyReadTask(row.view), identityConflict: row.state !== "validated" || row.view.validation !== "source-checked",
+                workspaceId: row.view.owner?.type === "resource" ? `resource:${row.view.owner.id}` : row.view.owner?.id }));
         const workingConfigurations = workspaces.map(workspace => this.plugin.workspaceModes?.navigationHistory?.configurationAt(
             workspace.workspaceId, dailyBriefStart(now).getTime())).filter(Boolean);
         return buildDailyBriefContext(wizard, { now, workspaces, tasks, workingConfigurations,
@@ -5525,24 +5716,34 @@ class DailyBriefService {
         const saved = this.snapshot(now);
         if (saved) return briefFromSnapshot(saved);
         this.resolving = (async () => {
-            const context = this.context(now);
-            if (!context.lastWorkDate) return null;
-            let recommendation = await this.provider.getRecommendation(context);
-            if (recommendation?.continuation) {
-                const workspace = context.workspaces.find(item => item.workspaceId === recommendation.target.workspaceId);
-                const configuration = workspace?.workingConfiguration;
-                if (configuration) recommendation = { ...recommendation, target: {
-                    kind: "configuration", workspaceId: workspace.workspaceId, configuration
-                } };
-                else if (recommendation.target.taskId || recommendation.target.taskText) {
-                    // Progress knows the task storage location, not where work took place.
-                    recommendation = { ...recommendation, target: { kind: "workspace", workspaceId: recommendation.target.workspaceId } };
+            const activation = this.trigger.activation;
+            while (!this.disposed) {
+                const generation = this.reader().generation;
+                const context = await this.context(now);
+                if (!context) return null;
+                if (generation !== this.reader().generation) continue;
+                if (!context.lastWorkDate) return null;
+                let recommendation = await this.provider.getRecommendation(context);
+                if (recommendation?.continuation) {
+                    const workspace = context.workspaces.find(item => item.workspaceId === recommendation.target.workspaceId);
+                    const configuration = workspace?.workingConfiguration;
+                    if (configuration) recommendation = { ...recommendation, target: {
+                        kind: "configuration", workspaceId: workspace.workspaceId, configuration
+                    } };
+                    else if (recommendation.target.taskId || recommendation.target.taskText) {
+                        // Progress knows the task storage location, not where work took place.
+                        recommendation = { ...recommendation, target: { kind: "workspace", workspaceId: recommendation.target.workspaceId } };
+                    }
                 }
+                if (generation !== this.reader().generation) continue;
+                const current = () => !this.disposed && this.ready() && !this.oathBlocked() &&
+                    activation === this.trigger.activation && generation === this.reader().generation && dailyBriefDay(this.now()) === context.briefDate;
+                if (!current()) return null;
+                const snapshot = dailyBriefSnapshot(context, recommendation);
+                if (await this.persistSnapshot(snapshot, current) === false) return null;
+                return briefFromSnapshot(snapshot);
             }
-            if (this.disposed || !this.ready() || dailyBriefDay(this.now()) !== context.briefDate) return null;
-            const snapshot = dailyBriefSnapshot(context, recommendation);
-            await this.persistSnapshot(snapshot);
-            return briefFromSnapshot(snapshot);
+            return null;
         })();
         try { return await this.resolving; }
         finally { this.resolving = null; this.refreshAvailability(); }
@@ -5573,17 +5774,11 @@ class DailyBriefService {
         let path = this.resolvePath(target.path);
         if (target.taskId || target.taskText) {
             if (!this.plugin.oath.ready()) return null;
-            const matches = this.plugin.oath.tasks().filter(task => !task.identityConflict && (target.taskId
-                ? task.hubTaskId === target.taskId : task.path === path && task.text === target.taskText && task.line === target.taskLine));
-            if (matches.length !== 1) return null;
-            const task = matches[0]; path = this.resolvePath(task.path);
-            if (!path) return null;
             try {
-                const current = readTaskSnapshot(await this.app.vault.read(this.app.vault.getAbstractFileByPath(path)), task);
-                const metadata = this.plugin.taskEditor.metadata(current.hubTaskId);
-                if (current.completed || taskIsFuture(metadata, this.now()) ||
-                    (target.stepId || target.stepText) && !current.steps.some(step =>
-                        (target.stepId ? step.hubTaskId === target.stepId : step.text === target.stepText) && !step.completed)) return null;
+                const current = await this.plugin.taskService.resolveSavedTarget({ ...target, path: path ?? target.path });
+                if (this.disposed || current.validation !== "source-checked" || current.legacy?.kind !== "legacy-task-read") return null;
+                path = this.resolvePath(current.legacy.path);
+                if (!path || current.completed || taskIsFuture({ fromDate: current.start?.date, fromTime: current.start?.time }, this.now())) return null;
             } catch (_) { return null; }
         }
         if (!path || !this.plugin.oath.canOpen(path, false)) return null;
@@ -5653,7 +5848,7 @@ class DailyBriefService {
         if (target.kind === "home") document.querySelector(".home-dashboard .home-upcoming")?.scrollIntoView({ block: "center" });
         return true;
     }
-    destroy() { this.disposed = true; this.trigger.destroy(); this.stopOath?.(); this.modal?.close(); this.listeners.clear(); }
+    destroy() { this.disposed = true; this.availabilityGeneration++; this.readSession?.close(); this.trigger.destroy(); this.stopOath?.(); this.modal?.close(); this.listeners.clear(); }
 }
 module.exports = { DailyBriefService };
 
@@ -5675,6 +5870,19 @@ const { SharedProjectStore } = __hubRequire("lib/services/shared-projects.js");
 
 function clonePluginData(data) {
     return JSON.parse(JSON.stringify(data ?? {}));
+}
+
+// Retire only the old task relationship, leaving Resource mounts, ownership,
+// history and task identities intact. Cleanup rides normal load/save boundaries.
+function removeRetiredTaskLinks(data) {
+    for (const metadata of Object.values(data.taskMetadata ?? {})) {
+        if (metadata && typeof metadata === "object") delete metadata.linkedProjectId;
+    }
+    for (const capture of Array.isArray(data.inbox?.captures) ? data.inbox.captures : []) {
+        if (capture?.intent) delete capture.intent.linkedProjectId;
+        if (capture?.operation?.values) delete capture.operation.values.linkedProjectId;
+    }
+    return data;
 }
 
 function stateMeta(data) {
@@ -5809,7 +6017,7 @@ class HubDataStore {
     async load() {
         const data = (await this.plugin.loadData()) ?? {};
         const originalMeta = stateMeta(data);
-        const normalized = await this.sharedProjects.load(this.normalizeLoadedData(data));
+        const normalized = removeRetiredTaskLinks(await this.sharedProjects.load(this.normalizeLoadedData(data)));
         const requiresVersionStamp =
             Number(originalMeta.schemaVersion) !==
                 HUB_STATE_SCHEMA_VERSION ||
@@ -5951,7 +6159,7 @@ class HubDataStore {
     }
 
     save(data) {
-        const snapshot = clonePluginData(data);
+        const snapshot = removeRetiredTaskLinks(clonePluginData(data));
 
         const operation = this.writeQueue
             .catch(() => {})
@@ -6149,6 +6357,134 @@ class HomeCovers {
 module.exports = { HOME_COVER_PERIODS, homeTimePeriod, HomeCovers };
 
 },
+"lib/services/home-task-read.js": function (module, exports, __hubRequire) {
+"use strict";
+const { TaskReadSession } = __hubRequire("lib/services/task-read-session.js");
+const { legacyReadTask, legacyActionTask, legacyActionRequest, handleFor } = __hubRequire("lib/services/task-service-legacy-bridge.js");
+const { workspaceRef, sameWorkspace } = __hubRequire("lib/services/task-service-legacy-values.js");
+const { applyTaskEdit } = __hubRequire("lib/domain/tasks.js");
+const { taskMetadata } = __hubRequire("lib/domain/task-planning.js");
+const { TaskServiceError } = __hubRequire("lib/services/task-service-errors.js");
+const homes = new WeakMap();
+const taskFacts = task => [task.path, task.line, task.text, task.hubTaskId ?? null, !!task.completed, !!task.identityConflict,
+    taskMetadata(task), task.homePhysicalOwner ?? null, task.homeProjectReference ?? null,
+    (task.steps ?? []).map(step => [step.line, step.text, step.hubTaskId ?? null, !!step.completed, step.parent ?? null])];
+const signature = tasks => JSON.stringify(tasks.map(taskFacts));
+const clearSignature = tasks => JSON.stringify(tasks.map(task => [task.hubTaskId ?? null, task.text, !!task.completed, taskMetadata(task),
+    (task.steps ?? []).map(step => [step.hubTaskId ?? null, step.text, !!step.completed])]));
+const wrapperSignature = items => JSON.stringify(items.map(({ task, owner, phaseLabel }) => [taskFacts(task), owner.projectId, owner.resourceType,
+    owner.name, owner.status, !!owner.deleted, owner.path, owner.root, phaseLabel ?? null]));
+function displayOnly(view) {
+    return { path: view.source?.path, text: view.compatibility.displayText, completed: view.completed, identityConflict: true,
+        ...taskMetadata({ necessity: view.importance, description: view.description, phaseId: view.phase?.phaseId,
+            fromDate: view.start?.date, fromTime: view.start?.time, dueDate: view.due?.date, dueTime: view.due?.time }),
+        steps: view.steps.map(step => ({ text: step.title, completed: step.completed })) };
+}
+function createHomeTaskRead({ plugin, component, changed, resolveOwner, editTask }) {
+    let closed = false, generation = 0, indexedQuery = null, indexedTasks = [], last = null;
+    const pending = new Map();
+    const session = new TaskReadSession(plugin.taskService, () => { generation++; changed(); });
+    let consumers = homes.get(plugin);
+    if (!consumers) {
+        homes.set(plugin, consumers = new Set());
+        plugin.register(() => { for (const close of [...consumers]) close(); consumers.clear(); homes.delete(plugin); });
+    }
+    const alive = () => { if (closed) throw new TaskServiceError("CLOSED", "This Home task view has closed."); };
+    const checkOwner = (task, fresh) => {
+        const before = Object.hasOwn(task, "homePhysicalOwner") ? task.homePhysicalOwner : workspaceRef(plugin.projectWizard.getContextForPath(task.path));
+        const after = workspaceRef(plugin.projectWizard.getContextForPath(fresh.path));
+        if (!(before === null && after === null) && !sameWorkspace(before, after)) {
+            throw new TaskServiceError("STALE_REFERENCE", "This task moved to another workspace. Refresh Home Tasks.");
+        }
+    };
+    const resolve = async task => { const fresh = await legacyActionTask(plugin.taskService, task); checkOwner(task, fresh); return fresh; };
+    const current = async task => { alive(); const fresh = await resolve(task); alive(); return fresh; };
+    const wrap = tasks => tasks.flatMap(task => { const owner = resolveOwner(task);
+        return owner ? [{ task, owner, phaseLabel: plugin.planning?.phaseFor?.(task)?.name ?? null }] : []; });
+    const remember = (items, paths, cleared = true) => {
+        if (closed) return;
+        generation++; session.invalidate();
+        for (const path of new Set(paths.filter(Boolean))) {
+            const file = plugin.app.vault.getAbstractFileByPath(path);
+            pending.set(path, { tasks: items.filter(item => item.task.path === path).map(item => item.task), cleared, generation: session.generation, query: null,
+                source: file ? Promise.resolve().then(() => plugin.app.vault.read(file)).catch(() => null) : Promise.resolve(null) });
+        }
+        last = wrapperSignature(items);
+    };
+    const close = () => { if (closed) return; closed = true; generation++; session.close(); pending.clear(); indexedTasks = []; indexedQuery = null; consumers.delete(close); };
+    consumers.add(close); component.register(close);
+    return {
+        close, remember,
+        actions: {
+            // Existing inline UI may commit its accepted draft during cleanup.
+            // Closing a read subscription must not cancel that legacy write.
+            mutate: async request => { const fresh = await legacyActionRequest(plugin.taskService, request); checkOwner(request, fresh);
+                return plugin.mutateTask({ ...fresh, text: request.text }); },
+            editTask: async (task, saved) => {
+                try { const fresh = await current(task); editTask({ ...fresh, text: task.text }, saved); }
+                catch (error) { if (!closed) { console.error("Home task action unavailable", error); new (require("obsidian").Notice)(error.message); } }
+            }
+        },
+        async read() {
+            const ticket = ++generation;
+            const result = await session.read({ policy: "home", validation: "indexed" }, () => closed || ticket !== generation);
+            if (!result || closed || ticket !== generation) return null;
+            if (indexedQuery !== result) {
+                indexedQuery = result;
+                indexedTasks = result.rows.flatMap(row => {
+                    const task = row.view?.legacy ? legacyReadTask(row.view) : row.display ? displayOnly(row.display) : null;
+                    return task ? [{ ...task, homePhysicalOwner: row.home?.physicalOwner ?? null, homeProjectReference: row.home?.projectReference ?? null }] : [];
+                });
+            }
+            let tasks = indexedTasks;
+            for (const [path, record] of pending) {
+                const file = plugin.app.vault.getAbstractFileByPath(path);
+                if (!file) { pending.delete(path); continue; }
+                // The old clear event supplies deleted parent lines, not full
+                // block lengths. Once the remaining task/Step content matches,
+                // trust canonical imported locators instead of retaining old
+                // line offsets for a removed continuation or nested Step block.
+                const acknowledged = record.cleared ? clearSignature : signature;
+                if (acknowledged(tasks.filter(task => task.path === path)) === acknowledged(record.tasks)) { pending.delete(path); continue; }
+                if (session.generation > record.generation && record.query !== result) {
+                    const before = await record.source, source = await plugin.app.vault.read(file);
+                    if (closed || ticket !== generation) return null;
+                    record.query = result;
+                    if (before !== null && source !== before) { pending.delete(path); continue; }
+                }
+                const first = tasks.findIndex(task => task.path === path);
+                tasks = tasks.filter(task => task.path !== path);
+                tasks.splice(first < 0 ? tasks.length : first, 0, ...record.tasks);
+            }
+            const items = wrap(tasks);
+            return { items, changed: wrapperSignature(items) !== last, diagnostics: result.diagnostics };
+        },
+        accept(items) { last = wrapperSignature(items); },
+        reconcile(items, edit) {
+            const before = items.find(item => item.task.path === edit.path)?.task;
+            const updated = applyTaskEdit(items, edit, task => plugin.taskData.currentPath(task.path)).map(({ task }) => ({ ...task,
+                homePhysicalOwner: workspaceRef(plugin.projectWizard.getContextForPath(task.path)),
+                homeProjectReference: task.homeProjectReference ?? before?.homeProjectReference ?? null }));
+            const result = wrap(updated); remember(result, [edit.path, edit.movedTo?.path], false); return result;
+        },
+        async toggle(task, completed) { alive(); const fresh = await resolve(task);
+            return plugin.toggleTask(fresh.path, fresh.line, task.text, completed, fresh.hubTaskId); },
+        async clear(requests, confirmMany) {
+            alive(); const fresh = [];
+            for (const request of requests) fresh.push({ ...request, ...await resolve(request), text: request.text });
+            return plugin.clearCompletedTasks(fresh, confirmMany);
+        },
+        async reveal(task) {
+            alive(); if (task.identityConflict) throw new TaskServiceError("AMBIGUOUS_REFERENCE", "This task's source is unavailable or ambiguous.");
+            const target = await plugin.taskService.resolveReveal(handleFor(task)); alive();
+            if (target.kind !== "legacy-source") throw new TaskServiceError("UNSUPPORTED", "This task has no legacy source note.");
+            checkOwner(task, target); return target;
+        }
+    };
+}
+module.exports = { createHomeTaskRead };
+
+},
 "lib/services/inbox.js": function (module, exports, __hubRequire) {
 "use strict";
 
@@ -6284,7 +6620,7 @@ class HubInboxService {
             canonical.text !== operation.text) {
             throw Error("Retry this task's original title and location. Its saved action keeps the task from being created twice.");
         }
-        for (const key of ["necessity", "fromDate", "dueDate", "fromTime", "dueTime", "steps", "phaseId", "milestoneId", "linkedProjectId"]) {
+        for (const key of ["necessity", "fromDate", "dueDate", "fromTime", "dueTime", "steps", "phaseId", "milestoneId"]) {
             if (values[key] !== undefined && JSON.stringify(canonical[key]) !== JSON.stringify(operation.values[key])) {
                 throw Error("Retry this task's original details. Its saved action keeps the task from being created twice.");
             }
@@ -6811,7 +7147,7 @@ class HubInboxService {
                 const workspace = this.taskDestination(values);
                 this.plugin.taskEditor.checkedMetadata(taskValues, workspace);
                 const metadata = {};
-                for (const key of ["necessity", "fromDate", "dueDate", "fromTime", "dueTime", "steps", "phaseId", "linkedProjectId"]) {
+                for (const key of ["necessity", "fromDate", "dueDate", "fromTime", "dueTime", "steps", "phaseId"]) {
                     if (taskValues[key] !== undefined) metadata[key] = clone(taskValues[key]);
                 }
                 operation = { id: randomUUID(), kind: "task", state: "prepared", workspaceId: workspace.id, location: values.location,
@@ -7320,6 +7656,114 @@ class HubNavigationHistory {
 module.exports = { HubNavigationHistory };
 
 },
+"lib/services/oath-candidate-read.js": function (module, exports, __hubRequire) {
+"use strict";
+const { TaskReadSession } = __hubRequire("lib/services/task-read-session.js");
+const { legacyReadTask } = __hubRequire("lib/services/task-service-legacy-bridge.js");
+const { taskGroups } = __hubRequire("lib/domain/task-planning.js");
+const { taskKey, sameWorkspace } = __hubRequire("lib/domain/oath-workspace.js");
+const { oathRequirements, validateOath } = __hubRequire("lib/domain/oath.js");
+const { TaskServiceError } = __hubRequire("lib/services/task-service-errors.js");
+const consumers = new WeakMap();
+const sameReference = (a, b) => !!a && !!b && taskKey(a) === taskKey(b) &&
+    a.path === b.path && a.line === b.line && a.text === b.text && a.hubTaskId === b.hubTaskId;
+
+function preserveCandidateInteraction(body, render) {
+    const focused = body.ownerDocument.activeElement, row = body.contains(focused) ? focused.closest(".hub-oath-task-row") : null;
+    const key = row?.oathCandidateKey, index = row ? [...row.querySelectorAll("button,input,[tabindex]")].indexOf(focused) : -1, scroll = body.scrollTop;
+    render(); body.scrollTop = scroll;
+    if (key && !focused.isConnected) {
+        const next = [...body.querySelectorAll(".hub-oath-task-row")].find(item => item.oathCandidateKey === key);
+        (index >= 0 ? next?.querySelectorAll("button,input,[tabindex]")[index] : next)?.focus({ preventScroll: true });
+    }
+}
+function createOathCandidateRead(service, component) {
+    const plugin = service.plugin, listeners = new Set();
+    let closed = false, generation = 0, workspace = null, pending = null;
+    let indexedTasks = [], preparedAt = null;
+    const state = { status: "idle", tasks: [], diagnostics: [], error: null };
+    const notify = () => { for (const callback of [...listeners]) callback(); };
+    const session = new TaskReadSession(plugin.taskService, () => { if (workspace && !closed) void refresh(); });
+    let active = consumers.get(plugin);
+    if (!active) {
+        consumers.set(plugin, active = new Set());
+        plugin.register(() => { for (const close of [...active]) close(); active.clear(); consumers.delete(plugin); });
+    }
+    const signature = ref => { const context = service.resolveWorkspace(ref); return context ? JSON.stringify([context.path, context.root, context.status]) : null; };
+    async function refresh() {
+        if (closed || !workspace) return null;
+        const ticket = ++generation, ref = { type: workspace.type, id: workspace.id }, context = signature(ref);
+        state.status = "loading"; state.error = null; notify();
+        const work = (async () => {
+            try {
+                if (!context) throw new TaskServiceError("REFERENCE_UNRESOLVED", "Choose an available Active Project or Resource.");
+                const query = await session.read({ policy: "oath-candidates", workspace: ref, validation: "indexed" }, () => closed || generation !== ticket);
+                if (!query || closed || generation !== ticket) return null;
+                if (signature(ref) !== context) { session.invalidate(); return refresh(); }
+                if (query.policy !== "oath-candidates" || !sameWorkspace(query.candidateWorkspace, ref)) throw new TaskServiceError("INDEX_UNAVAILABLE", "Oath candidates are unavailable.");
+                indexedTasks = query.rows.filter(row => row.state === "indexed" && row.view?.capabilities.attemptReveal).map(row => legacyReadTask(row.view));
+                preparedAt = service.now();
+                const groups = taskGroups(indexedTasks, new Date(preparedAt));
+                state.tasks = [...groups.active, ...groups.future]; state.diagnostics = query.diagnostics;
+                if (query.complete === false) throw new TaskServiceError("INDEX_UNAVAILABLE", "The Oath candidate read is incomplete.");
+                state.status = "ready"; state.error = null; notify(); return state.tasks;
+            } catch (error) {
+                if (closed || generation !== ticket) return null;
+                state.status = "error"; state.error = error; notify(); return null;
+            }
+        })();
+        pending = work; return work;
+    }
+    function close() { if (closed) return; closed = true; generation++; session.close(); state.status = "closed"; listeners.clear(); active.delete(close); }
+    active.add(close); component.register(close);
+    const available = (tasks, ref = workspace) => !closed && sameWorkspace(workspace, ref) &&
+        service.ready() && !!service.resolveWorkspace(ref) && state.status !== "error" && state.status !== "idle" &&
+        tasks.every(task => state.tasks.some(current => sameReference(task, current)));
+    const requirements = draft => oathRequirements(draft, service.now()).map(field => {
+        if (field.key === "Workspace" && field.complete && !service.resolveWorkspace(draft.workspace)) return { ...field, complete: false, error: "Choose an available Active Project or Resource." };
+        if (field.key === "Tasks" && !service.ready()) return { ...field, complete: false, error: "Wait for the task index to finish loading." };
+        if (field.key === "Tasks" && (state.status === "error" || closed)) return { ...field, complete: false, error: "Tasks could not be loaded. Try again." };
+        if (field.key === "Tasks" && state.status === "loading" && !state.tasks.length) return { ...field, complete: false, error: "Wait for the task index to finish loading." };
+        if (field.key === "Tasks" && field.complete && !available(draft.tasks, draft.workspace)) return { ...field, complete: false, error: "Selected tasks must be open tasks from this workspace. Update your selection." };
+        return field;
+    });
+    return {
+        state, requirements, available, close,
+        tasks() {
+            if (preparedAt !== null && preparedAt !== service.now()) {
+                preparedAt = service.now(); const groups = taskGroups(indexedTasks, new Date(preparedAt));
+                state.tasks = [...groups.active, ...groups.future];
+            }
+            return state.tasks;
+        },
+        onChange(callback) { listeners.add(callback); return () => listeners.delete(callback); },
+        selectWorkspace(ref) {
+            if (sameWorkspace(workspace, ref)) return pending;
+            workspace = ref ? { type: ref.type, id: ref.id } : null; generation++; pending = null;
+            session.invalidate();
+            indexedTasks = []; preparedAt = null; state.tasks = []; state.status = "idle"; state.error = null;
+            return workspace ? refresh() : Promise.resolve(null);
+        },
+        read() { return pending ?? refresh(); },
+        retry() { session.invalidate(); return refresh(); },
+        enrollmentDraft(draft) {
+            validateOath(draft, service.now());
+            const missing = requirements(draft).find(field => !field.complete);
+            if (missing) throw Error(missing.error);
+            // Explicit legacy enrollment evidence. No generic DTO/handle, editor
+            // token, temporary selection key or read result is persisted.
+            return { ...draft, workspace: { ...draft.workspace }, tasks: draft.tasks.map(task => ({
+                path: task.path, line: task.line, text: task.text, hubTaskId: task.hubTaskId, completed: task.completed, identityConflict: false,
+                steps: (task.steps ?? []).map(step => ({ path: step.path, line: step.line, text: step.text, hubTaskId: step.hubTaskId, completed: step.completed, parent: step.parent })),
+                necessity: task.necessity, fromDate: task.fromDate, fromTime: task.fromTime, dueDate: task.dueDate, dueTime: task.dueTime,
+                description: task.description, phaseId: task.phaseId
+            })) };
+        }
+    };
+}
+module.exports = { createOathCandidateRead, preserveCandidateInteraction, sameReference };
+
+},
 "lib/services/oath-fullscreen.js": function (module, exports, __hubRequire) {
 "use strict";
 
@@ -7743,7 +8187,7 @@ class HubOathService {
         catch (error) { data.oathsByDevice = previous; throw error; }
     }
     async start() {
-        if (this.disposed) return;
+        if (this.disposed || this.timer) return;
         this.fullscreen.restore(!this.isStrict && this.active && this.current?.fullscreenOwned);
         try {
             if (this.active && this.isStrict) {
@@ -7755,7 +8199,7 @@ class HubOathService {
             }
             else if (this.committed && JSON.stringify(this.current) !== JSON.stringify(this.bucket.current)) await this.persist(this.current);
         } catch (error) { this.error(error); }
-        this.plugin.taskData.subscribe(this.plugin, () => { void this.refresh(); });
+        this.ensureCommittedRead();
         // Index events read work. The clock only checks timestamps, avoiding a
         // whole-vault task query and Markdown reads on every countdown tick.
         this.timer = setInterval(() => { this.tickDisplay(); void this.refresh(false); }, 1000);
@@ -7766,38 +8210,47 @@ class HubOathService {
         console.error("Oath update failed", error);
         if (this.lastError !== error.message) { this.lastError = error.message; this.notice(`The Oath could not be updated: ${error.message}`); }
     }
+    ensureCommittedRead() {
+        if (this.readClosed || this.disposed || this.committedReadStop) return;
+        // Oath is constructed before the shared facade; start/first hydration is
+        // the safe ownership boundary. No separate task-data backend watcher.
+        this.committedReadStop = this.plugin.taskService.subscribe(() => { void this.refresh(); });
+        this.plugin.register(() => this.closeCommittedRead());
+    }
+    closeCommittedRead() {
+        this.readClosed = true;
+        this.readSequence = (this.readSequence ?? 0) + 1;
+        this.committedReadStop?.(); this.committedReadStop = null;
+    }
     async resolveWork() {
-        if (!this.committed || !this.ready()) return false;
-        const tasks = this.tasks(), contents = new Map();
-        const work = [];
-        for (const ref of this.current.tasks) {
-            const matches = tasks.filter(task => task.hubTaskId === ref.id);
-            let task = matches.length === 1 && !matches[0].identityConflict ? matches[0] : null;
-            if (task) this.awaitingIndex.delete(ref.id);
-            // Bridge only our own freshly assigned IDs until Dataview imports
-            // them. Other missing, nested or copied identities stay unavailable.
-            const fresh = this.awaitingIndex.get(ref.id);
-            if (!matches.length && fresh && tasks.some(item => !item.hubTaskId && item.path === fresh.path &&
-                item.line === fresh.line && normalizedTaskText(item.text) === normalizedTaskText(fresh.text))) task = fresh;
-            if (task) {
-                try {
-                    const file = this.app.vault.getAbstractFileByPath(task.path);
-                    if (!contents.has(task.path)) contents.set(task.path, await this.app.vault.read(file));
-                    const content = contents.get(task.path), lines = content.split(/\r?\n/);
-                    const line = lines.findIndex(value => taskIdentity(value) === ref.id && taskLineDetails(value));
-                    if (line < 0) throw Error("Selected task unavailable");
-                    const snapshot = readTaskSnapshot(content, { ...task, line, text: taskLineDetails(lines[line]).text, hubTaskId: ref.id });
-                    task = { ...task, ...snapshot, ...this.plugin.taskEditor.metadata(ref.id) };
-                } catch (_) { task = null; }
-            }
-            if (task && !this.ownsTask(this.current.workspace, task)) task = null;
-            work.push({ ref, task });
-        }
+        if (!this.committed || !this.ready() || this.disposed || this.readClosed) return false;
+        this.ensureCommittedRead();
+        const oath = this.current, revision = this.readRevision ?? 0, sequence = this.readSequence = (this.readSequence ?? 0) + 1;
+        const scope = () => { const context = this.resolveWorkspace(oath.workspace, false); return JSON.stringify(context ? [context.path, context.root] : null); };
+        const signature = scope(), commitment = JSON.stringify([oath.id, oath.workspace, oath.tasks]);
+        const current = () => !this.disposed && !this.readClosed && this.committed && sequence === this.readSequence && revision === (this.readRevision ?? 0) &&
+            commitment === JSON.stringify([this.current.id, this.current.workspace, this.current.tasks]);
+        let result;
+        try {
+            result = await this.plugin.taskService.resolveOathWork({ workspace: oath.workspace ?? null, references: oath.tasks,
+                awaitingIndex: [...this.awaitingIndex].map(([id, task]) => ({ id, path: task.path, line: task.line, text: task.text,
+                    metadata: Object.fromEntries(["description", "phaseId", "necessity", "fromDate", "fromTime", "dueDate", "dueTime", "captureSource"]
+                        .filter(key => task[key] !== undefined).map(key => [key, task[key]])) })) });
+        } catch (error) { if (!current()) return false; throw error; }
+        if (!current()) return false;
+        if (scope() !== signature) { this.needsRead = true; return false; }
+        if (result.consistency !== "legacy-source-checked" || result.rows.length !== oath.tasks.length || result.rows.some((row, index) =>
+            ["id", "path", "text"].some(key => row.reference[key] !== oath.tasks[index][key]) || row.task && row.task.hubTaskId !== row.reference.id))
+            throw Error("Committed task read returned inconsistent references.");
+        const work = result.rows.map((row, index) => ({ ref: oath.tasks[index], task: row.task }));
+        for (const row of result.rows) if (row.retireAwaitingIndex) this.awaitingIndex.delete(row.reference.id);
+        this.readDiagnostics = result.diagnostics;
         const changed = JSON.stringify(work) !== JSON.stringify(this.work);
         this.work = work;
         return changed;
     }
     refresh(readTasks = true) {
+        if (readTasks) this.readRevision = (this.readRevision ?? 0) + 1;
         this.needsRead ||= readTasks;
         if (this.refreshing || this.disposed) return this.refreshing ?? Promise.resolve();
         this.refreshing = this.enqueue(async () => {
@@ -7999,9 +8452,139 @@ class HubOathService {
         await this.persist(record, [...(this.bucket.history ?? []), record]);
         this.work = []; this.awaitingIndex.clear(); this.emit();
     }
-    destroy() { this.disposed = true; clearInterval(this.timer); this.listeners.clear(); this.clockListeners.clear(); this.strict.detach(); this.fullscreen.destroy(); }
+    destroy() { this.disposed = true; this.closeCommittedRead(); clearInterval(this.timer); this.listeners.clear(); this.clockListeners.clear(); this.strict.detach(); this.fullscreen.destroy(); }
 }
 module.exports = { HubOathService };
+
+},
+"lib/services/phase-task-read.js": function (module, exports, __hubRequire) {
+"use strict";
+const { TaskReadSession } = __hubRequire("lib/services/task-read-session.js");
+const { legacyActionTask } = __hubRequire("lib/services/task-service-legacy-bridge.js");
+const { normalizedTaskText } = __hubRequire("lib/domain/tasks.js");
+const { validLocation } = __hubRequire("lib/domain/task-views.js");
+const taskKey = task => task.hubTaskId ?? task.path + ":" + task.line;
+const hosts = new WeakMap();
+function track(plugin, close) {
+    let sessions = hosts.get(plugin);
+    if (!sessions) { hosts.set(plugin, sessions = new Set()); plugin.register?.(() => { for (const end of [...sessions]) end(); hosts.delete(plugin); }); }
+    sessions.add(close); return () => sessions.delete(close);
+}
+class PhaseTaskRead {
+    constructor(service, projectId, phaseId, changed = () => {}) {
+        this.service = service; this.projectId = projectId; this.phaseId = phaseId; this.changed = changed;
+        this.baseline = new Map(); this.selected = new Map(); this.additions = new Map(); this.removals = new Map(); this.available = new Map();
+        this.candidates = []; this.order = new Map(); this.loaded = false; this.closed = false; this.saving = false; this.generation = 0;
+        // Canonical effective metadata retains assignment identity even when the
+        // very first index query omits a source or suppresses a copied ID.
+        // No owner/path/title is inferred for an unavailable assignment.
+        if (phaseId) for (const [id, metadata] of Object.entries(service.plugin.projectWizard.data.taskMetadata ?? {})) if (metadata?.phaseId === phaseId) {
+            const entry = { id, ref: null, text: "Assigned task unavailable", path: null, phaseId };
+            this.baseline.set(id, entry); this.selected.set(id, entry);
+        }
+        this.reader = new TaskReadSession(service.plugin.taskService, () => { this.generation++; if (!this.closed && !this.saving) changed(); });
+        this.untrack = track(service.plugin, () => { this.close(); this.onPluginClose?.(); });
+    }
+    async refresh() {
+        const generation = ++this.generation;
+        const query = await this.service.taskCandidates(this.projectId, this.reader, () => this.closed || this.saving || generation !== this.generation);
+        if (!query || this.closed || this.saving || generation !== this.generation) return null;
+        const indexedIds = new Set(query.tasks.map(task => task.hubTaskId).filter(Boolean));
+        const unknown = this.loaded ? [] : [...this.baseline.values()].filter(entry => !entry.ref && !indexedIds.has(entry.id));
+        if (unknown.length) {
+            // Legacy Phase IDs are Project-qualified. An index-only, cached
+            // scope check distinguishes an absent source from a known task in
+            // another Project/Resource or an excluded location. Missing rows
+            // stay unresolved; no owner is inferred from metadata alone.
+            const all = await this.reader.read({ validation: "indexed" }, () => this.closed || this.saving || generation !== this.generation);
+            if (!all || this.closed || this.saving || generation !== this.generation) return null;
+            const project = this.service.project(this.projectId), root = this.service.plugin.taskData.currentPath(project.root);
+            const owners = new Map(), stepIds = new Set();
+            for (const row of all.rows) if (row.view) {
+                const view = row.view, id = view.legacy?.hubTaskId;
+                if (id) { if (!owners.has(id)) owners.set(id, []); owners.get(id).push(view); }
+                for (const step of view.steps ?? []) if (step.handle.kind === "legacy-step" && step.handle.identity) stepIds.add(step.handle.identity);
+            }
+            for (const entry of unknown) {
+                const matches = owners.get(entry.id) ?? [];
+                if (matches.length ? matches.every(view => view.owner?.type !== "project" || view.owner.id !== this.projectId || !validLocation(view.source?.path ?? "", { ...project, root })) : stepIds.has(entry.id)) {
+                    this.baseline.delete(entry.id); this.selected.delete(entry.id); this.removals.delete(entry.id);
+                }
+            }
+        }
+        this.beforePublish?.();
+        this.candidates = query.tasks; this.available = new Map();
+        for (const task of query.tasks) {
+            const id = taskKey(task);
+            if (!this.order.has(id)) this.order.set(id, this.order.size);
+            if (this.available.has(id)) { this.available.set(id, null); continue; }
+            this.available.set(id, task.identityConflict ? null : task);
+            if (this.phaseId && task.phaseId === this.phaseId && !this.baseline.has(id) && !this.loaded) {
+                const entry = { id, ref: null, text: task.text, path: task.path, phaseId: task.phaseId };
+                this.baseline.set(id, entry); this.selected.set(id, entry);
+            }
+        }
+        for (const [id, entry] of this.baseline) {
+            const task = this.available.get(id);
+            if (!entry.ref && task && task.phaseId === entry.phaseId) { entry.ref = task; entry.text = task.text; entry.path = task.path; }
+        }
+        for (const entry of [...this.baseline.values(), ...this.additions.values()]) {
+            const task = this.available.get(entry.id);
+            if (entry.ref && task && normalizedTaskText(task.text) === normalizedTaskText(entry.ref.text) && (task.phaseId ?? null) === (entry.ref.phaseId ?? null)) {
+                entry.text = task.text; entry.path = task.path;
+            }
+        }
+        if (!this.loaded) {
+            const ordered = new Map();
+            for (const task of query.tasks) { const id = taskKey(task); if (this.selected.has(id)) ordered.set(id, this.selected.get(id)); }
+            for (const [id, entry] of this.selected) if (!ordered.has(id)) ordered.set(id, entry);
+            this.selected = ordered;
+        }
+        this.loaded = true; this.diagnostics = query.diagnostics; return query;
+    }
+    usable(entry) {
+        const task = this.available.get(entry.id);
+        return !!entry.ref && !!task && normalizedTaskText(task.text) === normalizedTaskText(entry.ref.text) &&
+            (task.phaseId ?? null) === (entry.ref.phaseId ?? null);
+    }
+    pickerItems() { return this.candidates.filter(task => !task.identityConflict && this.available.get(taskKey(task)) === task && !this.selected.has(taskKey(task))); }
+    add(task) {
+        if (this.closed || this.saving) return false;
+        const id = taskKey(task), current = this.available.get(id);
+        if (!current || current.identityConflict || normalizedTaskText(current.text) !== normalizedTaskText(task.text) || (current.phaseId ?? null) !== (task.phaseId ?? null)) return false;
+        const entry = this.baseline.get(id) ?? { id, ref: task, text: task.text, path: task.path, phaseId: task.phaseId };
+        this.selected.set(id, entry); this.removals.delete(id);
+        if (!this.baseline.has(id)) this.additions.set(id, entry);
+        return true;
+    }
+    remove(id) {
+        if (this.closed || this.saving) return;
+        const entry = this.selected.get(id); this.selected.delete(id); this.additions.delete(id);
+        if (this.baseline.has(id)) this.removals.set(id, entry);
+    }
+    freeze() { this.saving = true; this.generation++; }
+    resume() { this.saving = false; this.reader.invalidate(); }
+    async assignments() {
+        const result = [];
+        // Only explicit user deltas are submitted. A missing candidate never
+        // becomes included:false. Validate every delta before any writer runs.
+        const changes = [...this.removals.values()].map(entry => ({ entry, included: false }))
+            .concat([...this.additions.values()].map(entry => ({ entry, included: true })))
+            .sort((a, b) => (this.order.get(a.entry.id) ?? Infinity) - (this.order.get(b.entry.id) ?? Infinity));
+        for (const { entry, included } of changes) {
+            if (!entry?.ref) throw Error("An assigned task is unavailable. Your draft has been kept; refresh its source before saving this change.");
+            const fresh = await legacyActionTask(this.service.plugin.taskService, entry.ref);
+            const owner = this.service.plugin.projectWizard.getContextForPath(fresh.path);
+            if (owner?.contextKind === "resource" || owner?.projectId !== this.projectId) throw Error("Choose a task inside this Project.");
+            if ((fresh.phaseId ?? null) !== (entry.ref.phaseId ?? null)) throw Error("This task's phase changed. Reopen the phase before saving.");
+            result.push({ task: { ...fresh, phaseId: entry.ref.phaseId }, included });
+        }
+        if (this.closed) throw Error("The Phase editor has closed.");
+        return result;
+    }
+    close() { if (this.closed) return; this.closed = true; this.generation++; this.reader.close(); this.untrack?.(); }
+}
+module.exports = { PhaseTaskRead, taskKey };
 
 },
 "lib/services/presets.js": function (module, exports, __hubRequire) {
@@ -8213,11 +8796,22 @@ class ProjectPlanningService {
         const owner = this.plugin.projectWizard.getContextForPath(this.plugin.taskData.currentPath(task.path));
         return owner?.contextKind !== "resource" && owner?.projectId ? this.phases(owner.projectId).find(phase => phase.id === task.phaseId) : null;
     }
-    tasks(dv, id) {
-        const project = this.project(id);
-        // Reuse canonical indexed tasks; no task copies are stored on a Phase.
-        return this.plugin.taskData.readWorkspace(dv, project).filter(task =>
-            this.plugin.projectWizard.getContextForPath(task.path)?.projectId === id);
+    async tasks(_dv, id) {
+        return (await this.taskCandidates(id)).tasks;
+    }
+    async taskCandidates(id, reader = null, cancelled = () => false) {
+        this.project(id);
+        const options = { workspace: { type: "project", id }, policy: "workspace", validation: "indexed" };
+        const query = reader ? await reader.read(options, cancelled) : await this.plugin.taskService.queryStructured(options);
+        if (!query || cancelled()) return null;
+        this.project(id);
+        const { legacyReadTask } = __hubRequire("lib/services/task-service-legacy-bridge.js");
+        const tasks = query.rows.filter(row => row.view?.legacy && row.view.owner?.type === "project" && row.view.owner.id === id).map(row => {
+            const task = legacyReadTask(row.view);
+            if (!row.view.phase) delete task.phaseId;
+            return task;
+        });
+        return { tasks, diagnostics: query.diagnostics };
     }
     subscribe(component, callback) { this.listeners.add(callback); component.register(() => this.listeners.delete(callback)); }
     changed(id) { this.plugin.taskData.invalidateAll(); for (const listener of this.listeners) listener(id); }
@@ -8898,13 +9492,31 @@ module.exports = { SpotifySecretStorage };
 
 const { findProjectForPath, findResourceForPath } = __hubRequire("lib/domain/contexts.js");
 const { isStatisticsNote, prepareStatistics } = __hubRequire("lib/domain/statistics.js");
+const { TaskServiceError } = __hubRequire("lib/services/task-service-errors.js");
+const snapshotRecords = records => Array.isArray(records) ? records.map(record =>
+    record && typeof record === "object" ? { ...record } : record) : records;
+
+// Recorded event identity/kind/time/owner evidence, never canonical task fields
+// or the History dashboard's private focus keys. No sorting or deduplication.
+function statisticsCompletions(query) {
+    if (query?.consistency !== "legacy-recorded" || !Array.isArray(query.rows))
+        throw new TaskServiceError("HISTORY_UNAVAILABLE", "Statistics completion History is unavailable.");
+    const relevant = new Set(["id", "kind", "projectId", "projectName", "project", "targetKind", "contextKind", "resourceType", "path"]);
+    return query.rows.map(row => {
+        if (row.unavailableFields?.some(field => relevant.has(field)))
+            throw new TaskServiceError("HISTORY_UNAVAILABLE", "Statistics cannot interpret some recorded completion evidence safely.");
+        const recorded = row.fact?.recorded ?? row.recorded;
+        if (!recorded) throw new TaskServiceError("HISTORY_UNAVAILABLE", "Statistics completion evidence is incomplete.");
+        return { ...recorded };
+    });
+}
 
 // Snapshot once per opening. Range and workspace filter changes only query in-memory
 // aggregates; no Dataview parsing, file reads, or persistence is needed.
-function readStatistics(plugin, now = Date.now()) {
+async function readStatistics(plugin, now = Date.now()) {
     const wizard = plugin.projectWizard;
     const projects = wizard.getProjectRecords(), resources = wizard.getResourceTypes();
-    const workspaces = [...projects, ...resources];
+    const workspaces = snapshotRecords([...projects, ...resources]);
     const dashboardPaths = new Set(workspaces.map(workspace => workspace.path));
     const notes = plugin.app.vault.getMarkdownFiles().filter(file => isStatisticsNote(file.path, {
         dashboardPaths, frontmatter: plugin.app.metadataCache.getFileCache(file)?.frontmatter
@@ -8912,13 +9524,17 @@ function readStatistics(plugin, now = Date.now()) {
         const owner = findProjectForPath(projects, file.path) ?? findResourceForPath(resources, file.path);
         return { path: file.path, createdAt: file.stat?.ctime, projectId: owner?.projectId, contextKind: owner?.contextKind };
     });
-    const oaths = Object.values(wizard.data.oathsByDevice ?? {}).flatMap(bucket => Array.isArray(bucket?.history) ? bucket.history : []);
-    return prepareStatistics({ workspaces, notes, oaths, activity: wizard.activityLog,
-        completions: wizard.completedTaskHistory,
-        reports: [...wizard.getProgressReports(), ...wizard.getProgressReports({ kind: "resource" })] }, now);
+    const oaths = snapshotRecords(Object.values(wizard.data.oathsByDevice ?? {}).flatMap(bucket => Array.isArray(bucket?.history) ? bucket.history : []))
+        .map(record => record?.workspace && typeof record.workspace === "object" ? { ...record, workspace: { ...record.workspace } } : record);
+    // Bind the existing independent providers to this opening before awaiting
+    // History; an unrelated edit while loading must not alter the snapshot.
+    const activity = snapshotRecords(wizard.activityLog);
+    const reports = snapshotRecords([...wizard.getProgressReports(), ...wizard.getProgressReports({ kind: "resource" })]);
+    const completions = statisticsCompletions(await plugin.taskService.queryHistory({ projection: "recorded" }));
+    return prepareStatistics({ workspaces, notes, oaths, activity, completions, reports }, now);
 }
 
-module.exports = { readStatistics };
+module.exports = { readStatistics, statisticsCompletions };
 
 },
 "lib/services/task-data.js": function (module, exports, __hubRequire) {
@@ -8932,23 +9548,33 @@ const markdown = file => file?.extension?.toLowerCase() === "md";
 // Dataview updates page.file.path on rename, but list-item links (and thus
 // task.path) can retain the old path until the next content import. The page
 // is authoritative. Never mutate objects owned by Dataview's index.
-function tasksForPage(page) {
+function tasksForPage(page, onTaskError = null) {
     const path = page.file.path;
     const copies = new Map();
     const relocate = task => {
         if (copies.has(task)) return copies.get(task);
-        const copy = { ...task, path };
-        copies.set(task, copy);
-        for (const key of ["link", "section", "header"]) {
-            if (task[key]?.withPath) copy[key] = task[key].withPath(path);
+        try {
+            if (onTaskError && (!task || typeof task !== "object" || typeof task.text !== "string")) throw Error("Malformed indexed task text.");
+            const copy = { ...task, path };
+            copies.set(task, copy);
+            for (const key of ["link", "section", "header"]) {
+                if (task[key]?.withPath) copy[key] = task[key].withPath(path);
+            }
+            for (const key of ["children", "subtasks"]) {
+                if (task[key]) copy[key] = Array.from(task[key], relocate).filter(Boolean);
+            }
+            return copy;
+        } catch (error) {
+            if (!onTaskError) throw error;
+            copies.set(task, null); onTaskError(task, error); return null;
         }
-        for (const key of ["children", "subtasks"]) {
-            if (task[key]) copy[key] = Array.from(task[key], relocate);
-        }
-        return copy;
     };
-    const tasks = Array.from(page.file.tasks ?? [], relocate);
-    const byLine = new Map(Array.from(page.file.lists ?? tasks, item => [item.line, item]));
+    const tasks = Array.from(page.file.tasks ?? [], relocate).filter(Boolean);
+    const lists = onTaskError ? Array.from(page.file.lists ?? tasks, item => {
+        try { return item && { line: item.line, parent: item.parent }; }
+        catch (error) { onTaskError(item, error); return null; }
+    }).filter(Boolean) : page.file.lists ?? tasks;
+    const byLine = new Map(Array.from(lists, item => [item.line, item]));
     const taskLines = new Set(tasks.map(task => task.line));
     const hasTaskParent = task => {
         let parent = task.parent;
@@ -8961,8 +9587,12 @@ function tasksForPage(page) {
         return false;
     };
     // Children can include ordinary list items between a parent and a Step.
-    const descendants = task => Array.from(task.children ?? task.subtasks ?? []).flatMap(child =>
-        [...(child.task === false ? [] : [child]), ...descendants(child)]);
+    const descendants = (task, ancestors = null) => {
+        if (onTaskError && ancestors?.has(task)) { onTaskError(task, Error("Cyclic indexed task children.")); return []; }
+        const next = onTaskError ? new Set([...(ancestors ?? []), task]) : null;
+        return Array.from(task.children ?? task.subtasks ?? []).flatMap(child =>
+            [...(child.task === false ? [] : [child]), ...descendants(child, next)]);
+    };
     const childLines = new Set(tasks.flatMap(task => descendants(task).map(child => child.line)));
     return tasks.filter(task => !hasTaskParent(task) && !childLines.has(task.line)).map(task => ({
         ...task, text: taskDisplayText(task.text), hubTaskId: taskIdentity(task.text),
@@ -8993,12 +9623,12 @@ class HubTaskDataService {
         return file?.path ?? path;
     }
 
-    readPages(dv, root) {
+    readPages(dv, root, onTaskError = null) {
         const folder = root == null ? null : this.currentPath(root);
         // Count identities across the vault, even in a scoped Workspace. A
         // pasted copy must never silently share another task's metadata.
         const pages = dv.pages("").array().filter(page => markdown(this.app.vault.getAbstractFileByPath(page.file.path)))
-            .map(page => ({ ...page, file: { ...page.file, tasks: tasksForPage(page) } }));
+            .map(page => ({ ...page, file: { ...page.file, tasks: tasksForPage(page, onTaskError) } }));
         const counts = new Map();
         for (const page of pages) for (const parent of page.file.tasks) {
             for (const task of [parent, ...parent.steps]) {
@@ -9013,18 +9643,21 @@ class HubTaskDataService {
             ...page,
             file: { ...page.file, tasks: page.file.tasks.map(task => {
                 const identityConflict = !!task.hubTaskId && counts.get(task.hubTaskId) > 1;
-                return { ...task, ...taskMetadata(identityConflict ? {} : this.metadata(task.hubTaskId)), identityConflict };
+                try { return { ...task, ...taskMetadata(identityConflict ? {} : this.metadata(task.hubTaskId)), identityConflict }; }
+                catch (error) {
+                    if (!onTaskError) throw error;
+                    onTaskError(task, error, { retained: true });
+                    return { ...task, ...taskMetadata(), identityConflict, metadataUnavailable: true };
+                }
             }) }
         }));
     }
 
-    readWorkspace(dv, workspace, resources = []) {
+    readWorkspace(dv, workspace) {
         const { validLocation } = __hubRequire("lib/domain/task-views.js");
         const root = this.currentPath(workspace.root);
         return this.readPages(dv).flatMap(page => page.file.tasks).filter(task =>
-            validLocation(task.path, { ...workspace, root }) ||
-            (workspace.contextKind !== "resource" && task.linkedProjectId === workspace.projectId &&
-                resources.some(resource => validLocation(task.path, resource))));
+            validLocation(task.path, { ...workspace, root }));
     }
 
     subscribe(component, refresh, roots = () => null) {
@@ -9126,7 +9759,7 @@ module.exports = { HubTaskDataService, tasksForPage };
 const { processTaskWrite } = __hubRequire("lib/services/task-writes.js");
 const { randomUUID } = require("crypto");
 const { taskMetadata, validateTaskMetadata, readTaskSnapshot, saveTaskSnapshot, appendTask } = __hubRequire("lib/domain/task-planning.js");
-const { taskLocations, linkedProjects } = __hubRequire("lib/services/task-locations.js");
+const { taskLocations } = __hubRequire("lib/services/task-locations.js");
 const { validLocation } = __hubRequire("lib/domain/task-views.js");
 const { taskIdentity, taskLineDetails, normalizedTaskText } = __hubRequire("lib/domain/tasks.js");
 
@@ -9134,12 +9767,15 @@ class HubTaskEditor {
     constructor(plugin) { this.plugin = plugin; this.app = plugin.app; }
     metadata(id) { return taskMetadata(id ? this.plugin.projectWizard.data.taskMetadata?.[id] : {}); }
     context(path) { return this.plugin.projectWizard.getContextForPath(path); }
+    currentContext() {
+        return this.plugin.workspaceModes?.currentContext ? this.plugin.workspaceModes.currentContext() :
+            this.context(this.app.workspace?.getActiveFile?.()?.path) ?? null;
+    }
     locations(root) { return taskLocations(this.plugin, root ? this.plugin.taskData?.currentPath(root) ?? root : root); }
     phases(path) {
         const owner = this.context(path);
         return owner && owner.contextKind !== "resource" ? this.plugin.planning?.phases(owner.projectId) ?? [] : [];
     }
-    projects() { return linkedProjects(this.plugin); }
     file(path) {
         const current = this.plugin.taskData?.currentPath(path) ?? path;
         const file = this.app.vault.getAbstractFileByPath(current);
@@ -9165,13 +9801,11 @@ class HubTaskEditor {
     }
     checkedMetadata(values, workspace, previous = {}) {
         const metadata = validateTaskMetadata({ ...values,
+            ...(values.description === undefined && previous.description !== undefined ? { description: previous.description } : {}),
             ...(values.captureSource === undefined && previous.captureSource ? { captureSource: previous.captureSource } : {}) });
-        if (workspace?.contextKind !== "resource") delete metadata.linkedProjectId;
-        if (metadata.linkedProjectId && metadata.linkedProjectId !== previous.linkedProjectId &&
-            !this.projects().some(project => project.projectId === metadata.linkedProjectId)) {
-            throw Error("Choose an active Project.");
+        if (metadata.phaseId && (!workspace || workspace.contextKind === "resource")) {
+            throw Error("Choose a phase in the task's Project.");
         }
-        if (workspace?.contextKind === "resource") delete metadata.phaseId;
         if (metadata.phaseId && !this.phases(workspace?.root).some(phase => phase.id === metadata.phaseId)) {
             throw Error("This phase is no longer available in the task's Project.");
         }
@@ -9222,9 +9856,10 @@ class HubTaskEditor {
         return this.plugin.enqueueTaskMutation(async () => {
             const deleting = values.operation === "delete";
             const file = this.file(snapshot.file.path), owner = this.context(file.path);
-            const metadata = deleting ? taskMetadata() : this.checkedMetadata(values, owner, snapshot);
             const location = values.location ?? file.path;
             const moving = !deleting && location !== file.path;
+            const targetOwner = moving ? this.context(this.plugin.taskData?.currentPath(location) ?? location) : owner;
+            const metadata = deleting ? taskMetadata() : this.checkedMetadata(values, targetOwner, snapshot);
             const id = snapshot.hubTaskId ?? (!deleting && (moving || Object.values(metadata).some(Boolean)) ? randomUUID() : null);
             const request = { ...snapshot, path: file.path };
             if (snapshot.hubTaskId && JSON.stringify(this.metadata(snapshot.hubTaskId)) !== JSON.stringify(taskMetadata(snapshot))) {
@@ -9232,6 +9867,7 @@ class HubTaskEditor {
             }
             const withoutPhase = value => { const { phaseId, ...other } = taskMetadata(value); return other; };
             const phaseOnly = !deleting && !moving && (metadata.phaseId ?? null) !== (snapshot.phaseId ?? null) &&
+                (values.completed ?? snapshot.completed) === snapshot.completed &&
                 values.text === snapshot.text && JSON.stringify(withoutPhase(metadata)) === JSON.stringify(withoutPhase(snapshot)) &&
                 (values.steps ?? snapshot.steps).length === snapshot.steps.length &&
                 (values.steps ?? snapshot.steps).every((step, index) => step.line === snapshot.steps[index].line &&
@@ -9239,7 +9875,7 @@ class HubTaskEditor {
             const writes = [];
             let edit;
             try {
-                const target = moving ? await this.destination(location, owner) : file;
+                const target = moving ? await this.destination(location, targetOwner) : file;
                 if (target === file || target.path === file.path) {
                     await this.write(file, content => {
                         const result = saveTaskSnapshot(content, request, { ...values, ...metadata }, id, randomUUID);
@@ -9265,9 +9901,11 @@ class HubTaskEditor {
                     }, writes);
                     await this.write(file, content => {
                         const removed = saveTaskSnapshot(content, request, { operation: "delete" });
-                        edit = { ...removed.edit, operation: "edit", movedTo: { path: target.path, line: saved.line },
+                        edit = { ...removed.edit, operation: "edit", movedTo: { path: target.path, line: saved.line }, destinationContext: targetOwner,
                             tasks: [{ ...saved, ...metadata }], completed: saved.completed,
-                            progressTransitions: (result.edit.progressTransitions ?? []).map(event => ({ ...event, line: saved.line + event.line - updated.line })) };
+                            progressTransitions: (result.edit.progressTransitions ?? []).map(event => ({ ...event,
+                                line: saved.line + event.line - updated.line,
+                                ...(event.lookupLine != null ? { lookupLine: saved.line + event.lookupLine - updated.line } : {}) })) };
                         return removed.content;
                     }, writes);
                 }
@@ -9277,7 +9915,7 @@ class HubTaskEditor {
                 catch (_) { throw Error("The task could not be saved and a note also changed. Check its source and destination before retrying."); }
                 throw error;
             }
-            if (!phaseOnly) await this.record(edit, owner, actionTimestamp);
+            if (!phaseOnly) await this.record(edit, edit.movedTo ? targetOwner : owner, actionTimestamp);
             for (const write of writes) {
                 if (!phaseOnly) this.plugin.markProjectChangedByPath(write.file.path);
                 if (write.original === write.written) this.plugin.taskData?.invalidate(write.file.path);
@@ -9346,7 +9984,7 @@ class HubTaskEditor {
                     const appended = appendTask(content, text);
                     const line = content.split(/\r?\n/).length + (content.endsWith("\n") || !content ? -1 : 0);
                     const snapshot = readTaskSnapshot(appended, { path: file.path, line: line + 1, text });
-                    const result = saveTaskSnapshot(appended, snapshot, { ...values, ...metadata, text, steps: values.steps ?? [] }, id, randomUUID);
+                    const result = saveTaskSnapshot(appended, snapshot, { ...values, ...metadata, text, completed: values.completed === true, steps: values.steps ?? [] }, id, randomUUID);
                     edit = { ...result.edit, operation: "add", insertionLine: snapshot.line,
                         removedLines: 0, lineDelta: result.content.split(/\r?\n/).length - content.split(/\r?\n/).length };
                     return result.content;
@@ -9366,6 +10004,142 @@ class HubTaskEditor {
 module.exports = { HubTaskEditor };
 
 },
+"lib/services/task-history-legacy-read.js": function (module, exports, __hubRequire) {
+"use strict";
+const { historyKind } = __hubRequire("lib/domain/history.js");
+const { workspaceRef, validPath } = __hubRequire("lib/services/task-service-legacy-values.js");
+const { TaskServiceError } = __hubRequire("lib/services/task-service-errors.js");
+const fields = ["id", "kind", "hubTaskId", "parentTaskId", "parentText", "text", "path", "line", "timestamp", "archivedAt",
+    "projectId", "projectName", "project", "projectStatus", "projectPath", "projectRoot", "contextKind", "targetKind", "resourceType"];
+// The Wizard/domain query remains authoritative for stored inclusion/order and
+// owner filtering. This only detaches recorded evidence; no read deduplication,
+// current-task lookup, historical reassignment or persistence belongs here.
+function recordedHistoryQuery(records, taskId) {
+    if (!Array.isArray(records)) throw new TaskServiceError("HISTORY_UNAVAILABLE", "Recorded task History is unavailable.");
+    const rows = [], diagnostics = [];
+    for (const [rowIndex, source] of records.entries()) {
+        const rowDiagnostics = [], recorded = {}, unavailableFields = [];
+        const issue = (code, message) => {
+            const diagnostic = { level: "row", rowIndex, sourcePath: typeof recorded.path === "string" ? recorded.path : null, code, message };
+            rowDiagnostics.push(diagnostic); diagnostics.push(diagnostic);
+        };
+        try {
+            if (!source || typeof source !== "object" || Array.isArray(source)) throw Error("Invalid recorded History row.");
+            for (const field of fields) {
+                const descriptor = Object.getOwnPropertyDescriptor(source, field);
+                if (!descriptor) continue;
+                if (!Object.hasOwn(descriptor, "value")) { unavailableFields.push(field); issue("HISTORY_FIELD_UNAVAILABLE", "A recorded field is not a portable value: " + field); continue; }
+                const value = descriptor.value;
+                if (value === undefined) continue; // Absent in persisted JSON; explicit null is retained.
+                if (value === null || ["string", "boolean"].includes(typeof value) || typeof value === "number" && Number.isFinite(value)) recorded[field] = value;
+                else { unavailableFields.push(field); issue("HISTORY_FIELD_UNAVAILABLE", "A recorded field has unsupported evidence: " + field); }
+            }
+            if (typeof recorded.text !== "string" || typeof recorded.path !== "string") throw Error("Recorded History lacks trustworthy title or source evidence.");
+            const step = recorded.kind === "step";
+            if (taskId && (step ? recorded.parentTaskId : recorded.hubTaskId) !== taskId) continue;
+            const recordedSource = validPath(recorded.path) ? { kind: "recorded-legacy-note", path: recorded.path,
+                ...(Number.isInteger(recorded.line) && recorded.line >= 0 ? { line: recorded.line } : {}) } : null;
+            if (!recordedSource) issue("HISTORY_SOURCE_UNAVAILABLE", "The recorded note path is not a usable navigation reference.");
+            const ownerAtEvent = workspaceRef({ ...recorded, contextKind: historyKind(recorded),
+                resourceType: recorded.resourceType ?? (typeof recorded.projectId === "string" && recorded.projectId.startsWith("resource:") ? recorded.projectId.slice(9) : undefined) });
+            const identity = value => typeof value === "string" ? value : null;
+            const fact = { kind: step ? "step" : "task", recordId: identity(recorded.id),
+                taskIdentity: identity(step ? recorded.parentTaskId : recorded.hubTaskId), stepIdentity: step ? identity(recorded.hubTaskId) : null,
+                title: recorded.text, parentTitle: typeof recorded.parentText === "string" ? recorded.parentText : null,
+                timestamp: Number.isFinite(recorded.timestamp) ? recorded.timestamp : null, ownerAtEvent,
+                source: recordedSource ? { kind: "legacy-source", path: recordedSource.path, ...(recordedSource.line !== undefined ? { line: recordedSource.line } : {}) } : null,
+                recorded, recordedSource, consistency: "legacy-best-effort" };
+            rows.push({ state: rowDiagnostics.length ? "partial" : "recorded", fact, diagnostics: rowDiagnostics,
+                ...(unavailableFields.length ? { unavailableFields } : {}) });
+        } catch (_) {
+            issue("HISTORY_ROW_INVALID", "A recorded History row could not be projected safely.");
+            // Statistics does not require a display title/navigation path. Keep
+            // safe evidence without making this an eligible History UI row.
+            rows.push({ state: "invalid", fact: null, diagnostics: rowDiagnostics, recorded,
+                ...(unavailableFields.length ? { unavailableFields } : {}) });
+        }
+    }
+    return { consistency: "legacy-recorded", rows, diagnostics };
+}
+module.exports = { recordedHistoryQuery };
+
+},
+"lib/services/task-history-read.js": function (module, exports, __hubRequire) {
+"use strict";
+const { TaskServiceError } = __hubRequire("lib/services/task-service-errors.js");
+const { validPath } = __hubRequire("lib/services/task-service-legacy-values.js");
+const consumers = new WeakMap();
+function historyRecords(query) {
+    const occurrences = new Map();
+    return query.rows.flatMap(row => {
+        if (!row.fact) return [];
+        const recorded = row.fact.recorded;
+        const base = JSON.stringify(recorded.id != null ? ["event", recorded.id] : ["legacy", recorded.kind, recorded.path, recorded.line, recorded.timestamp, recorded.text, recorded.parentText]);
+        const occurrence = occurrences.get(base) ?? 0; occurrences.set(base, occurrence + 1);
+        // Ephemeral DOM/focus key only; never an event/task ID or persisted field.
+        return [{ ...recorded, historyReadKey: JSON.stringify([base, occurrence]) }];
+    });
+}
+function preserveHistoryInteraction(body, render) {
+    const document = body.ownerDocument, focused = document.activeElement;
+    const row = body.contains(focused) ? focused.closest("[role=button]") : null;
+    const key = row?.historyReadKey, controls = "a[href],button,input,textarea,select,[tabindex]";
+    const control = row ? [...row.querySelectorAll(controls)].indexOf(focused) : -1;
+    const scroll = body.scrollTop, count = body.childElementCount;
+    render();
+    // Keep already expanded 50-row batches when a real History refresh occurs.
+    // The existing pager remains the only pagination implementation.
+    let previous = -1;
+    while (body.childElementCount < count && previous !== body.childElementCount) {
+        previous = body.childElementCount; body.scrollTop = body.scrollHeight;
+        body.dispatchEvent(new document.defaultView.Event("scroll"));
+    }
+    body.scrollTop = scroll;
+    if (key && !focused.isConnected) {
+        const next = [...body.querySelectorAll("[role=button]")].find(row => row.historyReadKey === key);
+        (control >= 0 ? next?.querySelectorAll(controls)[control] : next)?.focus({ preventScroll: true });
+    }
+}
+function createTaskHistoryRead({ plugin, component }) {
+    let closed = false, generation = 0, cached = null, last = null;
+    let active = consumers.get(plugin);
+    if (!active) {
+        consumers.set(plugin, active = new Set());
+        plugin.register(() => { for (const close of [...active]) close(); active.clear(); consumers.delete(plugin); });
+    }
+    const invalidate = () => { generation++; cached = null; };
+    const close = () => { if (closed) return; closed = true; invalidate(); active.delete(close); };
+    active.add(close); component.register(close);
+    return {
+        invalidate, close,
+        async read(cancelled = () => false) {
+            if (closed || cancelled()) return null;
+            const ticket = generation;
+            if (!cached) cached = Promise.resolve().then(() => plugin.taskService.queryHistory({ projection: "recorded" })).then(query => {
+                const records = historyRecords(query); return { records, diagnostics: query.diagnostics, signature: JSON.stringify(records) };
+            });
+            const pending = cached;
+            let result;
+            try { result = await pending; }
+            catch (error) { if (cached === pending) cached = null; if (closed || ticket !== generation || cancelled()) return null; throw error; }
+            if (closed || ticket !== generation || cancelled()) return null;
+            return { ...result, changed: result.signature !== last };
+        },
+        accept(result) { last = result.signature; },
+        preserve(body, render) { preserveHistoryInteraction(body, render); },
+        reveal(record) {
+            if (closed) throw new TaskServiceError("CLOSED", "This History view has closed.");
+            if (!validPath(record?.path)) return null;
+            const file = plugin.app.vault.getAbstractFileByPath(record.path);
+            // Existing compatibility opens the exact recorded note, not a live
+            // task found by title or a fabricated source. Missing rows remain.
+            return file && !Array.isArray(file.children) ? file : null;
+        }
+    };
+}
+module.exports = { createTaskHistoryRead, historyRecords };
+
+},
 "lib/services/task-locations.js": function (module, exports, __hubRequire) {
 "use strict";
 const { locationLabel, validLocation } = __hubRequire("lib/domain/task-views.js");
@@ -9381,9 +10155,1231 @@ function taskLocations(plugin, root) {
             label: locationLabel(file.path, workspace, !root) })))
         .sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true }));
 }
-function linkedProjects(plugin) { return (plugin.projectWizard.getProjectRecords?.() ?? []).filter(project => project.status === "active"); }
+module.exports = { taskWorkspaces, taskLocations };
 
-module.exports = { taskWorkspaces, taskLocations, linkedProjects };
+},
+"lib/services/task-panel-read.js": function (module, exports, __hubRequire) {
+"use strict";
+const { TaskReadSession } = __hubRequire("lib/services/task-read-session.js");
+const { legacyReadTask, legacyActionTask, legacyActionRequest, handleFor } = __hubRequire("lib/services/task-service-legacy-bridge.js");
+const { applyTaskEdit } = __hubRequire("lib/domain/tasks.js");
+const { taskMetadata } = __hubRequire("lib/domain/task-planning.js");
+const { TaskServiceError } = __hubRequire("lib/services/task-service-errors.js");
+const { workspaceRef, sameWorkspace } = __hubRequire("lib/services/task-service-legacy-values.js");
+const pluginPanels = new WeakMap();
+function trackPanel(plugin, close) {
+    let panels = pluginPanels.get(plugin);
+    if (!panels) {
+        pluginPanels.set(plugin, panels = new Set());
+        plugin.register(() => { for (const dispose of [...panels]) dispose(); panels.clear(); pluginPanels.delete(plugin); });
+    }
+    panels.add(close);
+    return () => panels.delete(close);
+}
+
+// Only presentation evidence participates in equality. Handles and diagnostics
+// remain on the returned rows; no editor/file/index objects enter this cache.
+function panelTaskFacts(task) {
+    return [task.path, task.line, task.text, task.hubTaskId ?? null, !!task.completed, !!task.identityConflict, taskMetadata(task), task.taskPanelPhaseLabel ?? null,
+        (task.steps ?? []).map(step => [step.path ?? task.path, step.line, step.text, step.hubTaskId ?? null, !!step.completed, step.parent ?? null])];
+}
+const signature = tasks => JSON.stringify(tasks.map(panelTaskFacts));
+function displayTask(view) {
+    // An invalid locator can still carry trustworthy display evidence. Keep it
+    // explicitly unavailable, with no invented source line or action handle.
+    return { path: view.source?.path, text: view.compatibility.displayText, completed: view.completed, identityConflict: true,
+        necessity: view.importance, description: view.description, phaseId: view.phase?.phaseId ?? null,
+        fromDate: view.start?.date ?? null, fromTime: view.start?.time ?? null, dueDate: view.due?.date ?? null, dueTime: view.due?.time ?? null,
+        steps: view.steps.map(step => ({ text: step.title, completed: step.completed })) };
+}
+
+function createTaskPanelRead({ plugin, component, workspace, changed, editTask }) {
+    let closed = false, generation = 0, last = null, indexedQuery = null, indexedTasks = [], indexedSignature = null;
+    const pending = new Map();
+    const session = new TaskReadSession(plugin.taskService, () => { generation++; changed(); });
+    const withinWorkspace = task => {
+        const owner = workspace.type === "project" ? plugin.projectWizard.getProjectById(workspace.id) : plugin.projectWizard.getResourceById(workspace.id);
+        const root = owner && plugin.taskData.currentPath(owner.root);
+        return !!root && (task.path === root || task.path?.startsWith(root + "/"));
+    };
+    const alive = () => { if (closed) throw new TaskServiceError("CLOSED", "This task panel has closed."); };
+    const checkOwner = (task, fresh) => {
+        const before = task.taskPanelOwner ?? workspaceRef(plugin.projectWizard.getContextForPath(task.path));
+        const after = workspaceRef(plugin.projectWizard.getContextForPath(fresh.path));
+        if (before && !sameWorkspace(before, after)) throw new TaskServiceError("STALE_REFERENCE", "This task moved to another workspace. Refresh the task list.");
+    };
+    const resolveTask = async task => { const fresh = await legacyActionTask(plugin.taskService, task); checkOwner(task, fresh); return fresh; };
+    const current = async task => { alive(); const fresh = await resolveTask(task); alive(); return fresh; };
+    const actions = {
+        mutate: async request => {
+            // The existing inline UI commits its draft during component
+            // cleanup. Closing this read session must not cancel that accepted
+            // legacy write. Facade/plugin shutdown still rejects new preflight.
+            const fresh = await legacyActionRequest(plugin.taskService, request);
+            checkOwner(request, fresh);
+            // The old inline writer validates every indexed continuation line.
+            // Keep that display evidence after validating the parent identity.
+            return plugin.mutateTask({ ...fresh, text: request.text });
+        },
+        editTask: async (task, saved) => {
+            try { const fresh = await current(task); editTask({ ...fresh, text: task.text }, saved); }
+            catch (error) { if (!closed) { console.error("Task panel action unavailable", error); new (require("obsidian").Notice)(error.message); } }
+        }
+    };
+    const close = () => { if (closed) return; closed = true; generation++; pending.clear(); indexedQuery = null; indexedTasks = []; session.close(); untrack(); };
+    const untrack = trackPanel(plugin, close);
+    component.register(close);
+    return {
+        actions, close,
+        async read() {
+            const ticket = ++generation;
+            const result = await session.read({ workspace, policy: "panel", validation: "indexed" }, () => closed || ticket !== generation);
+            if (!result || closed || ticket !== generation) return null;
+            if (result !== indexedQuery) {
+                indexedQuery = result;
+                indexedTasks = result.rows.flatMap(row => row.view?.legacy ? [{ ...legacyReadTask(row.view), taskPanelOwner: row.view.owner }] : row.display ? [displayTask(row.display)] : [])
+                    .map(task => ({ ...task, taskPanelPhaseLabel: plugin.planning?.phaseFor?.(task)?.name ?? null }));
+                indexedSignature = signature(indexedTasks);
+            }
+            let tasks = indexedTasks;
+            // A completed import may still lag a local write. Retain only that
+            // note's immediate writer result until the index acknowledges it.
+            // Rename/delete cannot resurrect a retained source.
+            for (const [path, record] of pending) {
+                if (!plugin.app.vault.getAbstractFileByPath(path)) { pending.delete(path); continue; }
+                const expected = record.tasks;
+                const indexed = tasks.filter(task => task.path === path);
+                if (signature(indexed) === signature(expected)) { pending.delete(path); continue; }
+                // If a later import disagrees with both the immediate result
+                // and its source evidence, an external edit superseded it.
+                // This checks one affected note, only after a local mutation;
+                // ordinary enumeration never reads Markdown sources.
+                if (session.generation > record.generation && record.query !== result) {
+                    const before = await record.source, source = await plugin.app.vault.read(plugin.app.vault.getAbstractFileByPath(path));
+                    if (closed || ticket !== generation) return null;
+                    record.query = result;
+                    if (before !== null && source !== before) { pending.delete(path); continue; }
+                }
+                const first = tasks.findIndex(task => task.path === path);
+                tasks = tasks.filter(task => task.path !== path);
+                tasks.splice(first < 0 ? tasks.length : first, 0, ...expected);
+            }
+            const didChange = (tasks === indexedTasks ? indexedSignature : signature(tasks)) !== last;
+            return { tasks, changed: didChange, diagnostics: result.diagnostics };
+        },
+        accept(tasks) { last = signature(tasks); },
+        reconcile(items, edit) {
+            if (closed) return applyTaskEdit(items, edit);
+            generation++; session.invalidate();
+            const tasks = applyTaskEdit(items, edit).filter(withinWorkspace);
+            for (const path of [edit.path, edit.movedTo?.path].filter(Boolean)) {
+                if (withinWorkspace({ path })) {
+                    const file = plugin.app.vault.getAbstractFileByPath(path);
+                    pending.set(path, { tasks: tasks.filter(task => task.path === path), generation: session.generation, query: null,
+                        source: file ? Promise.resolve().then(() => plugin.app.vault.read(file)).catch(() => null) : Promise.resolve(null) });
+                }
+            }
+            last = signature(tasks); return tasks;
+        },
+        async toggle(task, completed) {
+            alive(); const fresh = await resolveTask(task);
+            return plugin.toggleTask(fresh.path, fresh.line, task.text, completed, fresh.hubTaskId);
+        },
+        async clear(requests, confirmMany) {
+            alive();
+            // Validate the entire batch before invoking the unchanged writer.
+            const fresh = [];
+            for (const request of requests) fresh.push({ ...request, ...await resolveTask(request), text: request.text });
+            return plugin.clearCompletedTasks(fresh, confirmMany);
+        },
+        async reveal(task) {
+            alive(); if (task.identityConflict) throw new TaskServiceError("AMBIGUOUS_REFERENCE", "This task's source is unavailable or ambiguous.");
+            const target = await plugin.taskService.resolveReveal(handleFor(task)); alive();
+            if (target.kind !== "legacy-source") throw new TaskServiceError("UNSUPPORTED", "This task has no legacy source note.");
+            checkOwner(task, target);
+            return target;
+        }
+    };
+}
+module.exports = { createTaskPanelRead, panelTaskFacts };
+
+},
+"lib/services/task-read-session.js": function (module, exports, __hubRequire) {
+"use strict";
+// Consumer-owned promise cache, invalidated by the one shared facade. It is not
+// task authority. Failures are observable and retryable; old reads never publish.
+class TaskReadSession {
+    constructor(service, changed = () => {}) {
+        this.service = service; this.generation = 0; this.cache = new Map(); this.closed = false;
+        this.unsubscribe = service.subscribe(() => { this.invalidate(); changed(); });
+    }
+    invalidate() { this.generation++; this.cache.clear(); }
+    async read(options, cancelled = () => false) {
+        const key = JSON.stringify(options);
+        while (!this.closed && !cancelled()) {
+            const generation = this.generation;
+            let pending = this.cache.get(key);
+            if (!pending) {
+                pending = Promise.resolve().then(() => this.service.queryStructured(options));
+                this.cache.set(key, pending);
+            }
+            let result;
+            try { result = await pending; }
+            catch (error) { if (this.cache.get(key) === pending) this.cache.delete(key); if (this.closed || cancelled()) return null;
+                if (generation !== this.generation) continue; throw error; }
+            if (this.closed || cancelled()) return null;
+            if (generation === this.generation) return result;
+        }
+        return null;
+    }
+    close() { if (this.closed) return; this.closed = true; this.invalidate(); this.unsubscribe(); }
+}
+module.exports = { TaskReadSession };
+
+},
+"lib/services/task-service-errors.js": function (module, exports, __hubRequire) {
+"use strict";
+
+class TaskServiceError extends Error {
+    constructor(code, message, details = {}, cause) {
+        super(message);
+        this.name = "TaskServiceError";
+        this.code = code;
+        this.details = details;
+        if (cause) this.cause = cause;
+    }
+}
+
+function requireTaskValue(condition, message) {
+    if (!condition) throw new TaskServiceError("VALIDATION", message);
+}
+
+function unsupported(operation, reason) {
+    throw new TaskServiceError("UNSUPPORTED", reason ?? `${operation} is not supported by this backend.`, { operation });
+}
+
+// Preserve the original Error as cause. These are actual legacy service messages,
+// not claims that an arbitrary I/O failure was rolled back successfully.
+function legacyError(error, writing = false) {
+    if (error instanceof TaskServiceError) return error;
+    const message = error?.message ?? String(error);
+    let code = writing ? "WRITE_FAILED" : "READ_FAILED";
+    if (error?.code === "HUB_STATE_CONFLICT") code = "STATE_CONFLICT";
+    else if (/could not be saved and .*note also changed/.test(message)) code = "PARTIAL_FAILURE";
+    else if (/copied|uniquely/.test(message)) code = "AMBIGUOUS_REFERENCE";
+    else if (/source note is no longer available|Task file not found/.test(message)) code = "SOURCE_MISSING";
+    else if (/metadata changed/.test(message)) code = "STATE_CONFLICT";
+    else if (/moved|changed|Reopen|reopen/.test(message)) code = "STALE_REFERENCE";
+    else if (/Choose|Enter task|one line|identity marker|valid date|valid time|Due must|Step changed|Close the open|phase is no longer available/.test(message)) code = "VALIDATION";
+    return new TaskServiceError(code, message, {
+        backend: "legacy-markdown",
+        ...(writing ? { persistence: "not-transactional; inspect canonical state before retry" } : {})
+    }, error);
+}
+
+module.exports = { TaskServiceError, requireTaskValue, unsupported, legacyError };
+
+},
+"lib/services/task-service-host.js": function (module, exports, __hubRequire) {
+"use strict";
+const { TaskService } = __hubRequire("lib/services/task-service.js");
+const { LegacyTaskAdapter } = __hubRequire("lib/services/task-service-legacy.js");
+
+function createLegacyTaskService(plugin) {
+    const service = new TaskService(new LegacyTaskAdapter({ plugin,
+        dataview: () => plugin.app.plugins.getPlugin?.("dataview")?.api ?? plugin.app.plugins.plugins?.dataview?.api,
+        onSubscriberError: error => console.error("Task service refresh failed", error)
+    }));
+    plugin.register(() => { void service.close().catch(error => console.error("Task service cleanup failed", error)); });
+    return service;
+}
+module.exports = { createLegacyTaskService };
+
+},
+"lib/services/task-service-legacy-bridge.js": function (module, exports, __hubRequire) {
+"use strict";
+const { legacyTaskHandle } = __hubRequire("lib/services/task-service-legacy-values.js");
+const { TaskServiceError } = __hubRequire("lib/services/task-service-errors.js");
+const { normalizedTaskText } = __hubRequire("lib/domain/tasks.js");
+
+function legacyReadTask(view) {
+    if (view?.legacy?.kind !== "legacy-task-read" || view.handle?.kind !== "legacy") {
+        throw new TaskServiceError("UNSUPPORTED", "No legacy task action is available for this record.");
+    }
+    return { ...view.legacy, steps: view.legacy.steps.map(step => ({ ...step })),
+        necessity: view.importance, description: view.description, phaseId: view.phase?.phaseId ?? null,
+        ...(view.captureSource ? { captureSource: { ...view.captureSource } } : {}),
+        fromDate: view.start?.date ?? null, fromTime: view.start?.time ?? null,
+        dueDate: view.due?.date ?? null, dueTime: view.due?.time ?? null,
+        taskServiceHandle: view.handle, identityConflict: !view.capabilities.attemptReveal };
+}
+const handleFor = task => {
+    const handle = task.taskServiceHandle;
+    // A legacy writer's immediate reconciliation may replace identity/title or
+    // line before Dataview imports. Use that actual returned reference.
+    return handle?.kind === "legacy" && handle.locator.path === task.path && handle.locator.line === task.line &&
+        handle.locator.expectedTitle === normalizedTaskText(task.text) && (handle.identity?.value ?? null) === (task.hubTaskId ?? null)
+        ? handle : legacyTaskHandle(task);
+};
+async function legacyActionTask(service, task) {
+    if (task.identityConflict) throw new TaskServiceError("AMBIGUOUS_REFERENCE", "This task's source is unavailable or ambiguous. Refresh the task list.");
+    return legacyReadTask(await service.resolveLegacyAction(handleFor(task)));
+}
+async function legacyActionRequest(service, request) {
+    const task = await legacyActionTask(service, request);
+    const result = { ...request, ...task, completed: request.completed ?? task.completed };
+    if (request.step) {
+        const matches = task.steps.filter(step => request.step.hubTaskId ? step.hubTaskId === request.step.hubTaskId && normalizedTaskText(step.text) === normalizedTaskText(request.step.text) :
+            step.line === request.step.line && step.text === request.step.text);
+        if (matches.length !== 1) throw new TaskServiceError("STALE_REFERENCE", "The selected Step changed. Refresh the task list.");
+        result.step = matches[0];
+    }
+    return result;
+}
+module.exports = { legacyReadTask, legacyActionTask, legacyActionRequest, handleFor };
+
+},
+"lib/services/task-service-legacy-display.js": function (module, exports, __hubRequire) {
+"use strict";
+const { taskMetadata } = __hubRequire("lib/domain/task-planning.js");
+const { normalizedTaskText } = __hubRequire("lib/domain/tasks.js");
+const { legacyTaskHandle, validPath } = __hubRequire("lib/services/task-service-legacy-values.js");
+
+// Projection only: no source reads, identities, metadata writes or shadow index.
+// Counts live only for this query; the existing task-data service is authoritative.
+function legacyDisplayQuery(tasks, { owner, file }) {
+    const ids = new Map(), titles = new Map();
+    const increment = (map, key) => map.set(key, (map.get(key) ?? 0) + 1);
+    for (const task of tasks) {
+        try {
+            if (!task || typeof task !== "object") continue;
+            for (const item of [task, ...(Array.isArray(task.steps) ? task.steps : [])]) {
+                if (typeof item?.hubTaskId === "string") increment(ids, item.hubTaskId);
+            }
+            if (typeof task.path === "string" && typeof task.text === "string") increment(titles, JSON.stringify([task.path, normalizedTaskText(task.text)]));
+        } catch (_) { /* The row below carries the conversion diagnostic. */ }
+    }
+    const diagnostics = [];
+    const rows = tasks.map((task, rowIndex) => {
+        const rowDiagnostics = [];
+        const issue = (code, message) => {
+            let sourcePath = null;
+            try { if (validPath(task?.path)) sourcePath = task.path; } catch (_) { /* No trustworthy source evidence. */ }
+            const diagnostic = { code, level: "row", rowIndex, sourcePath, message };
+            rowDiagnostics.push(diagnostic); diagnostics.push(diagnostic);
+        };
+        try {
+            if (!task || typeof task.text !== "string" || !validPath(task.path)) {
+                issue("ROW_CONVERSION_FAILED", "The indexed task has no trustworthy display text or source path.");
+                return { state: "invalid", view: null, diagnostics: rowDiagnostics };
+            }
+            let handle = null;
+            try { handle = legacyTaskHandle(task); }
+            catch (_) { issue("INVALID_REFERENCE", "The indexed task has no usable source locator."); }
+            const parentConflict = !!task.identityConflict || !!task.hubTaskId && ids.get(task.hubTaskId) > 1;
+            const stepConflict = Array.isArray(task.steps) && task.steps.some(step => step?.hubTaskId && ids.get(step.hubTaskId) > 1);
+            const locatorConflict = !task.hubTaskId && titles.get(JSON.stringify([task.path, normalizedTaskText(task.text)])) > 1;
+            const ambiguous = parentConflict || stepConflict || locatorConflict;
+            if (ambiguous) issue("AMBIGUOUS_REFERENCE", "The indexed task or a Step has an ambiguous identity or source locator.");
+            const available = file(task.path)?.extension?.toLowerCase() === "md";
+            if (!available) issue("SOURCE_MISSING", "The indexed task source is no longer available.");
+            if (task.metadataUnavailable) issue("METADATA_UNAVAILABLE", "The task's effective metadata could not be read.");
+            const metadata = taskMetadata(parentConflict ? {} : task);
+            const view = { handle, title: normalizedTaskText(task.text), completed: !!task.completed,
+                owner: owner(task.path), due: metadata.dueDate ? { date: metadata.dueDate, time: metadata.dueTime ?? null } : null,
+                description: metadata.description ?? "", source: { kind: "legacy-indexed-source", path: task.path },
+                compatibility: { kind: "legacy-indexed-text", displayText: task.text, searchText: task.text },
+                capabilities: { edit: false, attemptReveal: !!handle && !ambiguous && available && !task.metadataUnavailable } };
+            return { state: ambiguous ? "ambiguous" : !available || task.metadataUnavailable ? "unresolved" : !handle ? "invalid" : "indexed", view, diagnostics: rowDiagnostics };
+        } catch (_) {
+            issue("ROW_CONVERSION_FAILED", "The indexed task could not be converted to portable display data.");
+            return { state: "invalid", view: null, diagnostics: rowDiagnostics };
+        }
+    });
+    return { consistency: "legacy-index", rows, diagnostics };
+}
+module.exports = { legacyDisplayQuery };
+
+},
+"lib/services/task-service-legacy-oath-candidates.js": function (module, exports, __hubRequire) {
+"use strict";
+const { legacyReadView } = __hubRequire("lib/services/task-service-legacy-read.js");
+const { workspaceRef, sameWorkspace } = __hubRequire("lib/services/task-service-legacy-values.js");
+const { TaskServiceError } = __hubRequire("lib/services/task-service-errors.js");
+
+// Setup candidates only. This deliberately does not use the generic display
+// policy's stronger Step-ID / same-title locator rejection. Oath commits parents.
+function legacyOathCandidates(plugin, all, workspace) {
+    const wizard = plugin.projectWizard;
+    const context = workspace.type === "project" ? wizard.getProjectById(workspace.id) : wizard.getResourceById(workspace.id);
+    if (!context || !sameWorkspace(workspaceRef(context), workspace) ||
+        !plugin.app.vault.getAbstractFileByPath(context.path) || workspace.type === "project" && context.status !== "active")
+        throw new TaskServiceError("REFERENCE_UNRESOLVED", "Choose an available Active Project or Resource.");
+    const ids = new Map();
+    for (const task of all) for (const item of [task, ...(task.steps ?? [])])
+        if (item.hubTaskId) ids.set(item.hubTaskId, (ids.get(item.hubTaskId) ?? 0) + 1);
+    const rows = [], diagnostics = [];
+    let complete = true;
+    for (const task of all) {
+        if (task.completed || !(task.path === context.path || task.path?.startsWith(context.root + "/"))) continue;
+        const rowDiagnostics = [], rowIndex = rows.length;
+        const issue = (code, message) => {
+            const diagnostic = { level: "row", rowIndex, sourcePath: task.path ?? null, code, message };
+            rowDiagnostics.push(diagnostic); diagnostics.push(diagnostic);
+        };
+        let view = null;
+        const conflict = !!task.identityConflict || !!task.hubTaskId && ids.get(task.hubTaskId) > 1;
+        try {
+            if (task.metadataUnavailable) throw new TaskServiceError("METADATA_UNAVAILABLE", "Task metadata is not available.");
+            view = legacyReadView(task, workspaceRef(wizard.getContextForPath(task.path)), "indexed");
+            view.capabilities.attemptReveal = !conflict;
+            if (conflict) issue("AMBIGUOUS_REFERENCE", "This parent task has a copied identity.");
+            if ((task.steps ?? []).some(step => step.hubTaskId && ids.get(step.hubTaskId) > 1))
+                issue("OATH_STEP_ID_COPIED", "Recorded indexed Step ambiguity does not change the existing parent commitment policy.");
+        } catch (error) {
+            complete = false; issue(error.code ?? "ROW_CONVERSION_FAILED", "An Oath candidate cannot be read safely.");
+        }
+        rows.push({ state: !view ? "invalid" : conflict ? "ambiguous" : "indexed", view, diagnostics: rowDiagnostics });
+    }
+    return { consistency: "legacy-index", policy: "oath-candidates", candidateWorkspace: { ...workspace }, complete, rows, diagnostics };
+}
+module.exports = { legacyOathCandidates };
+
+},
+"lib/services/task-service-legacy-oath-committed.js": function (module, exports, __hubRequire) {
+"use strict";
+const { readTaskSnapshot, taskMetadata, taskBlockEnd } = __hubRequire("lib/domain/task-planning.js");
+const { taskIdentity, taskLineDetails, normalizedTaskText } = __hubRequire("lib/domain/tasks.js");
+const { workspaceRef, sameWorkspace } = __hubRequire("lib/domain/oath-workspace.js");
+const { legacyError } = __hubRequire("lib/services/task-service-errors.js");
+
+function sourceParents(lines) {
+    const parents = new Set();
+    let fence = null;
+    for (let line = 0; line < lines.length; line++) {
+        const token = lines[line].trim().match(/^(`{3,}|~{3,})/);
+        if (token) { if (!fence) fence = token[1][0]; else if (fence === token[1][0]) fence = null; continue; }
+        if (!fence && taskLineDetails(lines[line])) {
+            parents.add(line);
+            // Reuse the authoritative Markdown block boundary; its subordinate
+            // tasks remain Steps, even if the global index has not imported yet.
+            line = taskBlockEnd(lines, line) - 1;
+        }
+    }
+    return parents;
+}
+
+// Separate from setup eligibility and strict editing locators. Saved titles and
+// paths are historical; the unique current parent ID selects the source.
+async function legacyOathCommitted(plugin, tasks, request) {
+    const { workspace, references, awaitingIndex = [] } = request;
+    const context = () => {
+        if (!workspace) return null;
+        const wizard = plugin.projectWizard;
+        const value = workspace.type === "project" ? wizard.getProjectById(workspace.id) : wizard.getResourceById(workspace.id);
+        return value && sameWorkspace(workspaceRef(value), workspace) && plugin.app.vault.getAbstractFileByPath(value.path) ? value : null;
+    };
+    const owns = path => { const owner = context(); return !!owner && (path === owner.path || path?.startsWith(owner.root + "/")); };
+    const parents = new Map(), identities = new Map(), sources = new Map();
+    for (const parent of tasks) {
+        if (parent.hubTaskId) {
+            const matches = parents.get(parent.hubTaskId) ?? [];
+            matches.push(parent); parents.set(parent.hubTaskId, matches);
+        }
+        for (const item of [parent, ...(parent.steps ?? [])]) if (item.hubTaskId)
+            identities.set(item.hubTaskId, (identities.get(item.hubTaskId) ?? 0) + 1);
+    }
+    const pending = new Map(awaitingIndex.map(item => [item.id, item]));
+    const rows = [], diagnostics = [];
+    for (const ref of references) {
+        const matches = parents.get(ref.id) ?? [], fresh = pending.get(ref.id);
+        const canonical = matches.length === 1 && !matches[0].identityConflict && identities.get(ref.id) === 1;
+        const row = { reference: { ...ref }, state: "unavailable", task: null,
+            indexed: canonical, retireAwaitingIndex: canonical, diagnostics: [] };
+        const fail = (code, state = "unavailable") => {
+            row.state = state;
+            const diagnostic = { code, level: "row", rowIndex: rows.length, sourcePath: ref.path, message: "Committed task source is unavailable." };
+            row.diagnostics.push(diagnostic); diagnostics.push(diagnostic);
+        };
+        let task = canonical ? matches[0] : null, bridged = false;
+        if (matches.length > 1 || matches.length && !canonical) fail("AMBIGUOUS_REFERENCE", "ambiguous");
+        else if (!task && fresh && !matches.length && tasks.some(item => !item.hubTaskId && item.path === fresh.path &&
+            item.line === fresh.line && normalizedTaskText(item.text) === normalizedTaskText(fresh.text))) {
+            // Enrollment origin is supplied only by Oath's existing operation-local
+            // map. Both newly allocated and source-existing IDs may be in that map.
+            if (identities.has(ref.id)) fail("AMBIGUOUS_REFERENCE", "ambiguous");
+            else { task = { ...fresh, hubTaskId: ref.id }; bridged = true; }
+        }
+        if (task) {
+            try {
+                const file = plugin.app.vault.getAbstractFileByPath(task.path);
+                if (!file) { fail("SOURCE_MISSING"); task = null; }
+                else {
+                    if (!sources.has(task.path)) sources.set(task.path, Promise.resolve().then(() => plugin.app.vault.read(file)).then(content => {
+                        const lines = content.split(/\r?\n/);
+                        return { content, lines, parents: sourceParents(lines) };
+                    }));
+                    const source = await sources.get(task.path), { content, lines } = source;
+                    const line = lines.findIndex(value => taskIdentity(value) === ref.id && taskLineDetails(value));
+                    if (line < 0) { fail("SOURCE_ID_MISSING"); task = null; }
+                    else if (!source.parents.has(line)) { fail("SOURCE_NOT_PARENT"); task = null; }
+                    else {
+                        const snapshot = readTaskSnapshot(content, { path: task.path, line, text: taskLineDetails(lines[line]).text, hubTaskId: ref.id });
+                        if (file.path !== task.path || !plugin.app.vault.getAbstractFileByPath(task.path)) {
+                            fail("SOURCE_MOVED"); task = null;
+                        } else if (!owns(task.path)) { fail("WRONG_PHYSICAL_OWNER"); task = null; }
+                        else {
+                            // Detached primitive source evidence, no Dataview objects,
+                            // TFile, raw source block, editor token or new identity.
+                            task = { path: snapshot.path, line: snapshot.line, end: snapshot.end, text: snapshot.text,
+                                hubTaskId: snapshot.hubTaskId, completed: snapshot.completed, status: snapshot.status,
+                                steps: snapshot.steps.map(step => ({ ...step })), identityConflict: false,
+                                ...taskMetadata(bridged ? task.metadata : task), ...taskMetadata(plugin.taskEditor.metadata(ref.id)) };
+                        }
+                    }
+                }
+            } catch (error) {
+                const ambiguous = legacyError(error).code === "AMBIGUOUS_REFERENCE";
+                fail(ambiguous ? "AMBIGUOUS_REFERENCE" : error.code ?? "SOURCE_VALIDATION_FAILED", ambiguous ? "ambiguous" : "unavailable"); task = null;
+            }
+        } else if (!row.diagnostics.length) fail("ID_NOT_INDEXED");
+        if (task) { row.state = bridged ? "awaiting-index" : "resolved"; row.task = task; }
+        rows.push(row);
+    }
+    return { consistency: "legacy-source-checked", workspace: workspace ? { ...workspace } : null, rows, diagnostics };
+}
+module.exports = { legacyOathCommitted };
+
+},
+"lib/services/task-service-legacy-read.js": function (module, exports, __hubRequire) {
+"use strict";
+const { taskMetadata, readTaskSnapshot } = __hubRequire("lib/domain/task-planning.js");
+const { normalizedTaskText } = __hubRequire("lib/domain/tasks.js");
+const { legacyDisplayQuery } = __hubRequire("lib/services/task-service-legacy-display.js");
+const { legacyTaskHandle, workspaceRef } = __hubRequire("lib/services/task-service-legacy-values.js");
+const { TaskServiceError } = __hubRequire("lib/services/task-service-errors.js");
+
+// Explicit legacy compatibility evidence: primitives only, never a file, source
+// block, Dataview object, editor token or native source invented by a consumer.
+function legacyReadDisplay(task, owner, validation = "source-checked", indexed = task) {
+    const metadata = taskMetadata(task);
+    let handle = null; try { handle = legacyTaskHandle(task); } catch (_) { /* Display never grants an action. */ }
+    const steps = task.steps ?? [], handles = steps.map((step, ordinal) => ({ kind: "legacy-step",
+        taskIdentity: task.hubTaskId ?? null, identity: step.hubTaskId ?? null, ordinal }));
+    const byLine = new Map(steps.map((step, index) => [step.line, index])), parents = new Map(), seen = new Set();
+    const collectParents = item => {
+        if (!item || seen.has(item)) return; seen.add(item); parents.set(item.line, item.parent);
+        for (const child of item.children ?? item.subtasks ?? []) collectParents(child);
+    };
+    if (steps.some(step => !Number.isInteger(step.end))) collectParents(task);
+    const stack = [], orders = new Map();
+    const portableSteps = steps.map((step, ordinal) => {
+        while (stack.length && (Number.isInteger(stack.at(-1).end) ? step.line >= stack.at(-1).end :
+            step.parent !== stack.at(-1).line)) stack.pop();
+        let parent = stack.at(-1)?.ordinal ?? null;
+        if (!Number.isInteger(step.end)) {
+            let line = step.parent; const visited = new Set(); parent = null;
+            while (line != null && line !== task.line && !visited.has(line)) {
+                if (byLine.has(line)) { parent = byLine.get(line); break; }
+                visited.add(line); line = parents.get(line);
+            }
+        }
+        const order = orders.get(parent) ?? 0; orders.set(parent, order + 1);
+        stack.push({ ordinal, end: step.end, line: step.line });
+        return { handle: handles[ordinal], title: normalizedTaskText(step.text), completed: !!step.completed,
+            parent: parent === null ? null : handles[parent], order };
+    });
+    return { handle, title: normalizedTaskText(task.text), completed: !!task.completed, owner,
+        start: metadata.fromDate ? { date: metadata.fromDate, time: metadata.fromTime ?? null } : null,
+        due: metadata.dueDate ? { date: metadata.dueDate, time: metadata.dueTime ?? null } : null,
+        importance: metadata.necessity, description: metadata.description ?? "",
+        phase: metadata.phaseId && owner?.type === "project" ? { projectId: owner.id, phaseId: metadata.phaseId } : null,
+        steps: portableSteps, validation, ...(metadata.captureSource ? { captureSource: { ...metadata.captureSource } } : {}),
+        source: { kind: "legacy-indexed-source", path: task.path },
+        compatibility: { kind: "legacy-indexed-text", displayText: indexed.text, searchText: indexed.text },
+        capabilities: { edit: false, attemptReveal: false } };
+}
+function legacyReadView(task, owner, validation = "source-checked", indexed = task) {
+    const view = legacyReadDisplay(task, owner, validation, indexed);
+    view.handle = legacyTaskHandle(task);
+    const reference = item => {
+        legacyTaskHandle({ ...item, path: task.path }); // Validate every locator, including Steps.
+        return { path: task.path, line: item.line, text: item.text, hubTaskId: item.hubTaskId ?? null, completed: !!item.completed };
+    };
+    return { ...view, capabilities: { edit: false, attemptReveal: true },
+        legacy: { kind: "legacy-task-read", ...reference({ ...task, text: indexed.text }),
+            steps: (task.steps ?? []).map((step, ordinal) => ({ ...reference(step), parent: view.steps[ordinal].parent === null ? task.line :
+                task.steps[view.steps[ordinal].parent.ordinal].line })) } };
+}
+
+async function legacyStructuredQuery(plugin, tasks, { validation = "indexed", selected = null, preserveDisplay = false } = {}) {
+    const owner = path => workspaceRef(plugin.projectWizard.getContextForPath(path));
+    const query = legacyDisplayQuery(tasks, { owner, file: path => plugin.app.vault.getAbstractFileByPath(path) });
+    // Exactly one global index/identity context and at most one source read per
+    // selected note. Existing source parser and metadata semantics are reused.
+    const counts = new Map();
+    if (validation === "source") for (const parent of tasks) for (const item of [parent, ...(parent.steps ?? [])]) {
+        if (item.hubTaskId) counts.set(item.hubTaskId, (counts.get(item.hubTaskId) ?? 0) + 1);
+    }
+    const sources = new Map();
+    const issue = (row, index, error) => {
+        const diagnostic = { level: "row", rowIndex: index, sourcePath: row.view?.source?.path ?? null,
+            code: error.code ?? "SOURCE_READ_FAILED", message: error.message ?? "Task source could not be validated." };
+        row.diagnostics.push(diagnostic); query.diagnostics.push(diagnostic);
+        row.state = error.code === "AMBIGUOUS_REFERENCE" ? "ambiguous" : "unresolved";
+        if (row.view) row.view.capabilities.attemptReveal = false;
+    };
+    let cursor = 0;
+    await Promise.all(Array.from({ length: 4 }, async () => {
+        while (cursor < tasks.length) {
+            const index = cursor++, task = tasks[index], row = query.rows[index];
+            if (!row.view || selected && !selected.has(task)) continue;
+            try {
+                row.view = legacyReadView(task, row.view.owner, "indexed");
+                row.view.capabilities.attemptReveal = row.state === "indexed";
+                if (validation !== "source" || row.state !== "indexed") continue;
+                const file = plugin.app.vault.getAbstractFileByPath(task.path);
+                if (!file) throw new TaskServiceError("SOURCE_MISSING", "Task source is unavailable.");
+                if (!sources.has(task.path)) sources.set(task.path, Promise.resolve().then(() => plugin.app.vault.read(file)));
+                const snapshot = readTaskSnapshot(await sources.get(task.path), task);
+                if (file.path !== task.path || plugin.app.vault.getAbstractFileByPath(task.path) !== file) {
+                    throw new TaskServiceError("SOURCE_MISSING", "The source moved or was removed during validation.");
+                }
+                if (!task.hubTaskId && (snapshot.line !== task.line || snapshot.hubTaskId) ||
+                    normalizedTaskText(snapshot.text) !== normalizedTaskText(task.text)) {
+                    throw new TaskServiceError("STALE_REFERENCE", "The indexed task changed before source validation.");
+                }
+                const ids = [snapshot.hubTaskId, ...snapshot.steps.map(step => step.hubTaskId)].filter(Boolean);
+                if (new Set(ids).size !== ids.length || ids.some(id => counts.get(id) > 1)) {
+                    throw new TaskServiceError("AMBIGUOUS_REFERENCE", "A task or Step identity is copied.");
+                }
+                const enriched = { ...snapshot, ...taskMetadata(plugin.taskEditor.metadata(snapshot.hubTaskId)) };
+                row.view = legacyReadView(enriched, owner(snapshot.path), "source-checked", task);
+                row.state = "validated";
+            } catch (error) {
+                issue(row, index, error);
+                if (!row.view?.legacy) {
+                    if (preserveDisplay) try { row.display = legacyReadDisplay(task, row.view?.owner ?? null, "indexed"); } catch (_) { /* No trustworthy display evidence. */ }
+                    row.view = null; row.state = "invalid";
+                }
+            }
+        }
+    }));
+    return { ...query, consistency: validation === "source" ? "legacy-source-checked" : "legacy-index" };
+}
+module.exports = { legacyReadView, legacyStructuredQuery };
+
+},
+"lib/services/task-service-legacy-values.js": function (module, exports, __hubRequire) {
+"use strict";
+const { normalizedTaskText } = __hubRequire("lib/domain/tasks.js");
+const { taskMetadata } = __hubRequire("lib/domain/task-planning.js");
+const { requireTaskValue, TaskServiceError } = __hubRequire("lib/services/task-service-errors.js");
+
+function copy(value, ancestors = new Set()) {
+    if (value === null || typeof value === "string" || typeof value === "boolean") return value;
+    if (typeof value === "number") { requireTaskValue(Number.isFinite(value), "Task values must contain finite numbers."); return value; }
+    requireTaskValue(value && typeof value === "object" && !ancestors.has(value) && ancestors.size < 64 &&
+        (Array.isArray(value) || Object.getPrototypeOf(value) === Object.prototype || Object.getPrototypeOf(value) === null),
+        "Task values must be portable JSON objects without cycles.");
+    ancestors.add(value);
+    const result = Array.isArray(value) ? [] : {};
+    if (Array.isArray(value)) requireTaskValue(Object.keys(value).length === value.length &&
+        Object.keys(value).every((key, index) => key === String(index)), "Task arrays must be dense and undecorated.");
+    for (const key of Reflect.ownKeys(value)) {
+        if (Array.isArray(value) && key === "length") continue;
+        const descriptor = Object.getOwnPropertyDescriptor(value, key);
+        requireTaskValue(typeof key === "string" && descriptor.enumerable && Object.hasOwn(descriptor, "value") &&
+            !["__proto__", "constructor", "prototype"].includes(key), "Task values must have ordinary JSON fields.");
+        result[key] = copy(descriptor.value, ancestors);
+    }
+    ancestors.delete(value);
+    return result;
+}
+const validId = value => typeof value === "string" && /^[a-zA-Z0-9-]+$/.test(value);
+const validPath = path => typeof path === "string" && path.length > 0 &&
+    !/^(?:[a-z]+:|[\\/])/i.test(path) && !path.includes("\\") &&
+    !path.split("/").some(part => !part || part === "." || part === "..");
+
+function workspaceRef(context) {
+    if (!context) return null;
+    const type = context.contextKind === "resource" ? "resource" : "project";
+    const id = type === "resource" ? context.resourceType ?? context.id ?? context.projectId?.replace(/^resource:/, "") : context.projectId;
+    return typeof id === "string" && id.length ? { type, id } : null;
+}
+const sameWorkspace = (a, b) => !!a && !!b && a.type === b.type && a.id === b.id;
+function validateWorkspace(ref) {
+    requireTaskValue(ref && ["project", "resource"].includes(ref.type) && typeof ref.id === "string" && !!ref.id, "Choose a workspace identity.");
+}
+
+function legacyTaskHandle(task) {
+    requireTaskValue(task && validPath(task.path) && /\.md$/i.test(task.path) && Number.isInteger(task.line) && task.line >= 0 &&
+        typeof task.text === "string", "A legacy source note, line and expected title are required.");
+    const id = task.hubTaskId ?? null;
+    requireTaskValue(id === null || validId(id), "Invalid existing legacy task identity.");
+    return { kind: "legacy", identity: id === null ? null : { kind: "hidden-id", value: id },
+        locator: { path: task.path, line: task.line, expectedTitle: normalizedTaskText(task.text) } };
+}
+function validateHandle(handle) {
+    requireTaskValue(handle?.kind === "legacy", "This adapter requires a legacy task handle.");
+    requireTaskValue(handle.identity === null || handle.identity?.kind === "hidden-id" && validId(handle.identity.value), "Invalid legacy identity.");
+    const locator = handle.locator;
+    requireTaskValue(locator && validPath(locator.path) && /\.md$/i.test(locator.path) && Number.isInteger(locator.line) && locator.line >= 0 &&
+        typeof locator.expectedTitle === "string", "Invalid legacy source locator.");
+    return handle;
+}
+
+function normalizeLegacyTask(snapshot, owner, timestamp = null) {
+    const handle = legacyTaskHandle(snapshot), metadata = taskMetadata(snapshot);
+    const handles = snapshot.steps.map((step, ordinal) => ({ kind: "legacy-step", taskIdentity: snapshot.hubTaskId ?? null, identity: step.hubTaskId ?? null, ordinal }));
+    // Use the existing parser's block ranges, including Steps separated by prose
+    // list items. No Markdown parsing or native location registry lives here.
+    const stack = [], orders = new Map();
+    const steps = snapshot.steps.map((step, index) => {
+        while (stack.length && step.line >= stack.at(-1).end) stack.pop();
+        const parent = stack.at(-1)?.index ?? null;
+        const order = orders.get(parent) ?? 0; orders.set(parent, order + 1);
+        const result = { handle: handles[index], title: step.text, completed: !!step.completed,
+            parent: parent === null ? null : handles[parent], order };
+        stack.push({ index, end: step.end });
+        return result;
+    });
+    return { handle, existingId: snapshot.hubTaskId ?? null, title: snapshot.text, completed: !!snapshot.completed, steps,
+        importance: metadata.necessity, start: metadata.fromDate ? { date: metadata.fromDate, time: metadata.fromTime ?? null } : null,
+        due: metadata.dueDate ? { date: metadata.dueDate, time: metadata.dueTime ?? null } : null,
+        description: metadata.description ?? "", phase: metadata.phaseId && owner?.type === "project" ? { projectId: owner.id, phaseId: metadata.phaseId } : null,
+        owner, source: { kind: "legacy", locator: copy(handle.locator) }, location: null,
+        captureSource: metadata.captureSource ?? null,
+        progress: { completedSteps: steps.filter(step => step.completed).length, totalSteps: steps.length,
+            completedAt: Number.isFinite(timestamp) ? timestamp : null, consistency: "legacy-best-effort" },
+        revision: null, editSafety: { kind: "legacy-source-block", persistentIdentity: !!snapshot.hubTaskId,
+            saveSupported: !!snapshot.hubTaskId, durableRevision: false } };
+}
+
+function draftFromTask(task) {
+    return copy({ title: task.title, completed: task.completed, importance: task.importance, start: task.start, due: task.due,
+        description: task.description, phase: task.phase, captureSource: task.captureSource,
+        steps: task.steps.map(step => ({ handle: step.handle, title: step.title, completed: step.completed })) });
+}
+
+function legacyValues(draft, owner) {
+    requireTaskValue(draft && typeof draft.title === "string" && typeof draft.completed === "boolean" &&
+        (draft.importance === null || ["must", "should"].includes(draft.importance)) && typeof draft.description === "string" &&
+        Array.isArray(draft.steps), "Supply a complete editable draft.");
+    requireTaskValue(Object.keys(draft).every(key => ["title", "completed", "importance", "start", "due", "description", "phase", "steps", "captureSource", "completedAt"].includes(key)),
+        "Editable drafts contain task fields only; use explicit association operations.");
+    for (const endpoint of [draft.start, draft.due]) {
+        requireTaskValue(endpoint === null || endpoint && typeof endpoint.date === "string" && !!endpoint.date &&
+            (endpoint.time === null || typeof endpoint.time === "string" && !!endpoint.time), "Use a local date and optional local time.");
+    }
+    requireTaskValue(draft.phase === null || owner?.type === "project" && draft.phase?.projectId === owner.id &&
+        typeof draft.phase.phaseId === "string" && !!draft.phase.phaseId, "Choose a phase in the task's owning Project.");
+    requireTaskValue(draft.completedAt === undefined || Number.isSafeInteger(draft.completedAt) && draft.completedAt > 0, "Use an explicit completion action timestamp.");
+    return { text: draft.title, completed: draft.completed, necessity: draft.importance, description: draft.description,
+        fromDate: draft.start?.date ?? null, fromTime: draft.start?.time ?? null,
+        dueDate: draft.due?.date ?? null, dueTime: draft.due?.time ?? null,
+        phaseId: draft.phase?.phaseId ?? null, captureSource: draft.captureSource ?? null,
+        ...(draft.completedAt ? { completedAt: draft.completedAt } : {}) };
+}
+
+function stepIndex(snapshot, handle) {
+    requireTaskValue(handle?.kind === "legacy-step" && Number.isInteger(handle.ordinal) && handle.ordinal >= 0 &&
+        (handle.identity === null || validId(handle.identity)), "Choose a Step from this editable snapshot.");
+    const step = snapshot.steps[handle.ordinal];
+    if (!step || (step.hubTaskId ?? null) !== handle.identity || handle.taskIdentity !== (snapshot.hubTaskId ?? null)) {
+        throw new TaskServiceError("STALE_REFERENCE", "This Step does not belong to this editable snapshot.");
+    }
+    return handle.ordinal;
+}
+
+module.exports = { copy, validId, validPath, workspaceRef, sameWorkspace, validateWorkspace,
+    legacyTaskHandle, validateHandle, normalizeLegacyTask, draftFromTask, legacyValues, stepIndex };
+
+},
+"lib/services/task-service-legacy.js": function (module, exports, __hubRequire) {
+"use strict";
+const { normalizedTaskText } = __hubRequire("lib/domain/tasks.js");
+const { historyKind } = __hubRequire("lib/domain/history.js");
+const { validLocation, within } = __hubRequire("lib/domain/task-views.js");
+const { TaskServiceError, requireTaskValue, unsupported, legacyError } = __hubRequire("lib/services/task-service-errors.js");
+const { copy, validId, validPath, workspaceRef, sameWorkspace, validateWorkspace, validateHandle,
+    normalizeLegacyTask, draftFromTask, legacyValues, stepIndex } = __hubRequire("lib/services/task-service-legacy-values.js");
+let adapterSequence = 0; // Ephemeral snapshot namespaces; never task identities.
+
+class LegacyTaskAdapter {
+    #plugin;
+    #dv;
+    #closed = false;
+    #tokens = new Map();
+    #sequence = 0;
+    #namespace = ++adapterSequence;
+    #closing = false;
+    #listeners = new Set();
+    #dispose = null;
+    #pending = new Set();
+    #onSubscriberError;
+    constructor({ plugin, dataview, onSubscriberError = () => {} }) {
+        requireTaskValue(plugin?.taskData && plugin?.taskEditor && plugin?.projectWizard && (dataview?.pages || typeof dataview === "function"),
+            "Inject existing task data, editor, ownership and Dataview services.");
+        this.#plugin = plugin;
+        this.#dv = dataview;
+        this.#onSubscriberError = onSubscriberError;
+    }
+    #open() { if (this.#closed) throw new TaskServiceError("CLOSED", "The legacy task adapter is closed."); }
+    capabilities() {
+        this.#open();
+        return { backend: "legacy-markdown", guarantees: {
+            durableRevisions: false, atomicTaskHistory: false, persistentIdempotency: false,
+            nativeLocations: false, portableSharing: false, existingGitSharing: true,
+            crossWorkspaceRelocation: false, creationRetry: "caller-supplied-legacy-id",
+            completion: "editor-save", notifications: "invalidation"
+        }, operations: {
+            getTask: true, queryOwned: true, queryVisible: true, queryDisplay: true, queryStructured: true,
+            resolveOathWork: true, resolveLegacyAction: true, resolveSavedTarget: true, readSteps: true, readEditable: true,
+            releaseEditable: true, queryHistory: true, resolveReveal: true, createTask: true,
+            saveEditable: true, setCompleted: true, addStep: true, editStep: true, deleteStep: true,
+            setStepCompleted: true, deleteTask: true, reorderSteps: false, archiveTask: false,
+            clearCompleted: false, changeAssociations: true
+        }, restrictions: ["Existing hidden ID required for saves; reads never assign one.",
+            "Step additions append at the parent task level; reparent/reorder are unsupported.",
+            "Association changes support only an owning Project's existing Phase.",
+            "Strict Home/Oath queryVisible policies remain unsupported; Home uses structured indexed reads.",
+            "History persistence is unconfirmed even when an editor save succeeds."] };
+    }
+    #indexed(onTaskError = null, homeEvidence = null) {
+        const api = typeof this.#dv === "function" ? this.#dv() : this.#dv;
+        if (!api?.pages || api.index?.initialized === false) throw new TaskServiceError("INDEX_UNAVAILABLE", "The legacy task index is not ready.");
+        return this.#plugin.taskData.readPages(api, undefined, onTaskError).flatMap(page => {
+            if (homeEvidence) {
+                let projectReference = null;
+                try {
+                    const reference = page.project;
+                    // Match Home's existing .path ?? String(reference) rule,
+                    // without exporting a Dataview page/link through the DTO.
+                    if (reference) projectReference = String(reference.path ?? reference);
+                } catch (error) { onTaskError?.(null, error); }
+                for (const task of page.file.tasks) homeEvidence.set(task, projectReference);
+            }
+            return page.file.tasks;
+        });
+    }
+    async queryDisplay() {
+        this.#open();
+        try {
+            const { legacyDisplayQuery } = __hubRequire("lib/services/task-service-legacy-display.js");
+            const failures = [];
+            const tasks = this.#indexed((_task, error, options) => { if (!options?.retained) failures.push(error); });
+            const query = legacyDisplayQuery(tasks, { owner: path => this.#owner(path), file: path => this.#plugin.app.vault.getAbstractFileByPath(path) });
+            for (const failure of failures) {
+                const diagnostic = { code: "ROW_INDEX_FAILED", level: "row", rowIndex: query.rows.length, sourcePath: null,
+                    message: failure?.message ?? "An indexed task could not be normalized." };
+                query.rows.push({ state: "invalid", view: null, diagnostics: [diagnostic] }); query.diagnostics.push(diagnostic);
+            }
+            return query;
+        } catch (error) { throw legacyError(error); }
+    }
+    async queryStructured(options = {}) {
+        this.#open();
+        const { legacyStructuredQuery } = __hubRequire("lib/services/task-service-legacy-read.js");
+        requireTaskValue(!options.validation || ["indexed", "source"].includes(options.validation), "Choose an explicit read validation policy.");
+        requireTaskValue(!options.policy || ["workspace", "panel", "home", "oath-candidates"].includes(options.policy), "Unsupported structured visibility policy.");
+        requireTaskValue(options.policy !== "home" || !options.workspace, "Home is a global read policy.");
+        if (options.policy === "oath-candidates") {
+            validateWorkspace(options.workspace);
+            requireTaskValue(!options.validation || options.validation === "indexed", "Oath candidates use indexed evidence; enrollment validates sources.");
+        }
+        const failures = [];
+        try {
+            const homeEvidence = options.policy === "home" ? new Map() : null;
+            const all = this.#indexed((_task, error, detail) => { if (!detail?.retained) failures.push(error); }, homeEvidence);
+            if (options.policy === "oath-candidates") {
+                if (failures.length) throw new TaskServiceError("INDEX_UNAVAILABLE", "The Oath candidate index is incomplete.");
+                return __hubRequire("lib/services/task-service-legacy-oath-candidates.js").legacyOathCandidates(this.#plugin, all, options.workspace);
+            }
+            let tasks = all;
+            if (options.workspace) {
+                validateWorkspace(options.workspace);
+                const ref = options.workspace;
+                const context = ref.type === "project" ? this.#plugin.projectWizard.getProjectById?.(ref.id) : this.#plugin.projectWizard.getResourceById?.(ref.id);
+                if (!context || !sameWorkspace(workspaceRef(context), ref)) throw new TaskServiceError("REFERENCE_UNRESOLVED", "The requested workspace is unavailable.");
+                const root = this.#plugin.taskData.currentPath(context.root);
+                // Keep global duplicate accounting, even for excluded locations.
+                tasks = all.filter(task => options.policy === "panel" ? within(task.path, root) : validLocation(task.path, { ...context, root }));
+            }
+            // The display projection's identity diagnostics must see global rows.
+            const selected = new Set(tasks);
+            const query = await legacyStructuredQuery(this.#plugin, all, { validation: options.validation, selected, preserveDisplay: ["panel", "home"].includes(options.policy) });
+            if (homeEvidence) query.rows.forEach((row, index) => {
+                row.home = { physicalOwner: row.view?.owner ?? row.display?.owner ?? null, projectReference: homeEvidence.get(all[index]) ?? null };
+            });
+            if (options.workspace) query.rows = query.rows.filter((_row, index) => selected.has(all[index]));
+            for (const error of failures) {
+                const diagnostic = { code: "ROW_INDEX_FAILED", level: "row", rowIndex: query.rows.length, sourcePath: null, message: error.message };
+                query.rows.push({ state: "invalid", view: null, diagnostics: [diagnostic] }); query.diagnostics.push(diagnostic);
+            }
+            this.#open(); return query;
+        } catch (error) { throw legacyError(error); }
+    }
+    async resolveOathWork(request) {
+        this.#open();
+        requireTaskValue(request && Object.prototype.hasOwnProperty.call(request, "workspace"), "Supply the committed workspace, or null for a legacy unavailable workspace.");
+        if (request.workspace !== null) validateWorkspace(request.workspace);
+        requireTaskValue(Array.isArray(request.references) && Array.isArray(request.awaitingIndex ?? []), "Supply committed parent references and enrollment evidence.");
+        for (const ref of request.references) requireTaskValue(validId(ref?.id) && validPath(ref.path) && typeof ref.text === "string", "A committed reference requires its original ID, path and text.");
+        for (const item of request.awaitingIndex ?? []) requireTaskValue(validId(item?.id) && validPath(item.path) && Number.isInteger(item.line) && item.line >= 0 && typeof item.text === "string", "Invalid enrollment evidence.");
+        const input = { workspace: copy(request.workspace), references: request.references.map(({ id, path, text }) => ({ id, path, text })),
+            awaitingIndex: (request.awaitingIndex ?? []).map(({ id, path, line, text, metadata }) => ({ id, path, line, text,
+                ...(metadata ? { metadata: copy(metadata) } : {}) })) };
+        try {
+            const result = await __hubRequire("lib/services/task-service-legacy-oath-committed.js").legacyOathCommitted(this.#plugin, this.#indexed(), input);
+            this.#open(); return result;
+        } catch (error) { throw legacyError(error); }
+    }
+    async resolveLegacyAction(handle) {
+        try {
+            const snapshot = await this.#resolve(handle);
+            this.#open();
+            return __hubRequire("lib/services/task-service-legacy-read.js").legacyReadView(snapshot, this.#owner(snapshot.path));
+        } catch (error) { throw legacyError(error); }
+    }
+    async resolveSavedTarget(target) {
+        this.#open();
+        try {
+            const path = this.#plugin.taskData.currentPath(target.path);
+            const matches = this.#indexed().filter(task => !task.identityConflict && (target.taskId ? task.hubTaskId === target.taskId :
+                task.path === path && task.text === target.taskText && task.line === target.taskLine));
+            if (matches.length !== 1) throw new TaskServiceError("REFERENCE_UNRESOLVED", "The saved task target is missing or ambiguous.");
+            const { legacyTaskHandle } = __hubRequire("lib/services/task-service-legacy-values.js");
+            const view = await this.resolveLegacyAction(legacyTaskHandle(matches[0]));
+            if ((target.stepId || target.stepText) && !view.legacy.steps.some(step =>
+                (target.stepId ? step.hubTaskId === target.stepId : step.text === target.stepText) && !step.completed)) {
+                throw new TaskServiceError("STALE_REFERENCE", "The saved Step is no longer available.");
+            }
+            return view;
+        } catch (error) { throw legacyError(error); }
+    }
+    #owner(path) { return workspaceRef(this.#plugin.projectWizard.getContextForPath(path)); }
+    async #resolve(handle) {
+        this.#open();
+        if (handle?.kind === "native") unsupported("getTask", "Native task handles are not resolved by the legacy backend.");
+        validateHandle(handle);
+        const all = this.#indexed(), id = handle.identity?.value;
+        let task;
+        if (id) {
+            const occurrences = all.flatMap(parent => [parent, ...parent.steps]).filter(item => item.hubTaskId === id);
+            if (occurrences.length > 1 || occurrences[0]?.identityConflict) {
+                throw new TaskServiceError("AMBIGUOUS_REFERENCE", "This hidden task identity occurs more than once.");
+            }
+            const matches = all.filter(item => item.hubTaskId === id);
+            if (!matches.length) {
+                const path = this.#plugin.taskData.currentPath(handle.locator.path);
+                const file = this.#plugin.app.vault.getAbstractFileByPath(path);
+                throw new TaskServiceError(file ? "REFERENCE_UNRESOLVED" : "SOURCE_MISSING",
+                    "The task identity is not available in the current legacy index. Refresh before retrying.");
+            }
+            task = { ...matches[0], text: handle.locator.expectedTitle };
+        } else {
+            const { path, line, expectedTitle } = handle.locator;
+            if (!this.#plugin.app.vault.getAbstractFileByPath(path)) {
+                throw new TaskServiceError("SOURCE_MISSING", "The legacy source note is no longer available.");
+            }
+            const matches = all.filter(item => item.path === path && normalizedTaskText(item.text) === expectedTitle);
+            if (matches.length > 1) throw new TaskServiceError("AMBIGUOUS_REFERENCE", "An unassigned locator cannot distinguish identical task titles in this note.");
+            task = matches.find(item => item.line === line && !item.hubTaskId);
+            if (!task) throw new TaskServiceError("STALE_REFERENCE", "This temporary task locator moved or changed. Refresh the task list.");
+        }
+        const snapshot = await this.#plugin.taskEditor.read(task);
+        if ((!id && (snapshot.line !== handle.locator.line || snapshot.hubTaskId)) ||
+            normalizedTaskText(snapshot.text) !== handle.locator.expectedTitle || id && snapshot.hubTaskId !== id) {
+            throw new TaskServiceError("STALE_REFERENCE", "This legacy task locator moved or changed.");
+        }
+        // Parent/Step IDs share one legacy namespace. Never expose metadata or
+        // write through a copied Step identity, including copies in other notes.
+        const ids = [snapshot.hubTaskId, ...snapshot.steps.map(step => step.hubTaskId)].filter(Boolean);
+        if (new Set(ids).size !== ids.length || ids.some(value => all.flatMap(parent => [parent, ...parent.steps])
+            .filter(item => item.hubTaskId === value).length > 1)) {
+            throw new TaskServiceError("AMBIGUOUS_REFERENCE", "A task or Step has a copied hidden identity.");
+        }
+        return snapshot;
+    }
+    #dto(snapshot) {
+        snapshot = { ...snapshot, path: snapshot.file?.path ?? snapshot.path };
+        const timestamp = this.#plugin.projectWizard.getCompletedTaskTimestamp?.(
+            snapshot.path, snapshot.line, snapshot.text, snapshot.hubTaskId) ?? null;
+        return normalizeLegacyTask(snapshot, this.#owner(snapshot.path), timestamp);
+    }
+    async getTask(handle) {
+        try { return this.#dto(await this.#resolve(handle)); }
+        catch (error) { throw legacyError(error); }
+    }
+    async readSteps(handle) { return (await this.getTask(handle)).steps; }
+    async queryOwned(owner) {
+        this.#open(); validateWorkspace(owner);
+        return this.#query(task => sameWorkspace(this.#owner(task.path), owner));
+    }
+    async queryVisible(workspace, options = {}) {
+        this.#open(); validateWorkspace(workspace);
+        const policy = options.policy ?? "panel";
+        if (!["panel", "workspace"].includes(policy)) unsupported("queryVisible", `Legacy visibility policy '${policy}' is not integrated.`);
+        // Resolve the actual workspace, never a caller's viewing root or mounts.
+        const context = workspace.type === "project" ? this.#plugin.projectWizard.getProjectById?.(workspace.id) :
+            this.#plugin.projectWizard.getResourceById?.(workspace.id);
+        if (!context || !sameWorkspace(workspaceRef(context), workspace)) {
+            throw new TaskServiceError("REFERENCE_UNRESOLVED", "The requested workspace is unavailable.");
+        }
+        const root = this.#plugin.taskData.currentPath(context.root);
+        return this.#query(task => policy === "panel" ? within(task.path, root) : validLocation(task.path, { ...context, root }));
+    }
+    async #query(predicate) {
+        const { legacyTaskHandle } = __hubRequire("lib/services/task-service-legacy-values.js");
+        try {
+            // Preserve Dataview's current parent selection and order. Individual
+            // source reads validate its references; one unresolved row is explicit.
+            const result = [];
+            for (const task of this.#indexed().filter(predicate)) result.push(await this.getTask(legacyTaskHandle(task)));
+            return result;
+        } catch (error) { throw legacyError(error); }
+    }
+    async readEditable(handle) {
+        try {
+            const snapshot = await this.#resolve(handle), task = this.#dto(snapshot);
+            const token = { kind: "legacy-snapshot", value: `${this.#namespace}:${++this.#sequence}` };
+            this.#tokens.set(token.value, { snapshot, handle: copy(task.handle) });
+            return { token, task, draft: draftFromTask(task) };
+        } catch (error) { throw legacyError(error); }
+    }
+    async releaseEditable(token) {
+        this.#open(); this.#token(token); this.#tokens.delete(token.value);
+    }
+    #token(token) {
+        const entry = token?.kind === "legacy-snapshot" && this.#tokens.get(token.value);
+        if (!entry) throw new TaskServiceError("STALE_REFERENCE", "This editable snapshot has expired or belongs to another adapter.");
+        return entry;
+    }
+    async resolveReveal(handle) {
+        try {
+            const snapshot = await this.#resolve(handle);
+            return { kind: "legacy-source", path: snapshot.path, line: snapshot.line, existingId: snapshot.hubTaskId ?? null };
+        } catch (error) { throw legacyError(error); }
+    }
+    async queryHistory(query = {}) {
+        this.#open();
+        requireTaskValue(!query.projection || query.projection === "recorded", "Unsupported History projection.");
+        if (query.owner) validateWorkspace(query.owner);
+        if (query.handle) {
+            validateHandle(query.handle);
+            if (!query.handle.identity) unsupported("queryHistory", "Historical facts cannot be safely matched to an unassigned source locator.");
+        }
+        const workspaceId = query.owner ? (query.owner.type === "resource" ? `resource:${query.owner.id}` : query.owner.id) : null;
+        const records = this.#plugin.projectWizard.getCompletedTaskHistory?.(workspaceId);
+        if (!records) unsupported("queryHistory", "Inject the existing completion history reader.");
+        const id = query.handle?.identity.value;
+        if (query.projection === "recorded") return __hubRequire("lib/services/task-history-legacy-read.js").recordedHistoryQuery(records, id);
+        return records.filter(record => !id || (record.kind === "step" ? record.parentTaskId : record.hubTaskId) === id)
+            .map(record => ({ kind: record.kind === "step" ? "step" : "task", recordId: record.id ?? null,
+                taskIdentity: (record.kind === "step" ? record.parentTaskId : record.hubTaskId) ?? null,
+                stepIdentity: record.kind === "step" ? record.hubTaskId ?? null : null,
+                title: record.text ?? "", parentTitle: record.parentText ?? null,
+                timestamp: Number.isFinite(record.timestamp) ? record.timestamp : null,
+                ownerAtEvent: workspaceRef({ ...record, contextKind: historyKind(record), resourceType: record.resourceType ?? record.projectId?.replace(/^resource:/, "") }),
+                source: validPath(record.path) && Number.isInteger(record.line) ? { kind: "legacy-source", path: record.path, line: record.line } : null,
+                consistency: "legacy-best-effort" }));
+    }
+    #write(work) {
+        this.#open();
+        if (this.#closing) throw new TaskServiceError("CLOSED", "The legacy task adapter is closing.");
+        const actionTimestamp = Date.now();
+        const pending = Promise.resolve().then(() => work(actionTimestamp)).catch(error => { throw legacyError(error, true); });
+        this.#pending.add(pending);
+        pending.then(() => this.#pending.delete(pending), () => this.#pending.delete(pending));
+        return pending;
+    }
+    async createTask(request) {
+        request = copy(request);
+        return this.#write(async actionTimestamp => {
+            validateWorkspace(request?.owner);
+            requireTaskValue(request.destination?.kind === "legacy-source" && validPath(request.destination.path), "Choose an explicit existing legacy destination.");
+            const path = request.destination.path;
+            requireTaskValue(sameWorkspace(this.#owner(path), request.owner), "The destination must belong to the requested owner.");
+            const values = legacyValues(request.draft, request.owner);
+            if (values.completed && !values.completedAt) values.completedAt = actionTimestamp;
+            requireTaskValue(request.draft.steps.every(step => !step.handle && typeof step.title === "string" && typeof step.completed === "boolean"), "New Steps cannot carry existing handles.");
+            requireTaskValue(request.draft.steps.every(step => Object.keys(step).every(key => ["title", "completed", "completedAt"].includes(key)) &&
+                (step.completedAt === undefined || Number.isSafeInteger(step.completedAt) && step.completedAt > 0)), "New Steps must use supported fields and an optional action timestamp.");
+            if (request.retry) requireTaskValue(request.retry.kind === "legacy-create-id" && validId(request.retry.id), "Use the existing caller-owned legacy creation identity.");
+            const file = await this.#plugin.taskEditor.create(path, values.text, { ...values,
+                steps: request.draft.steps.map(step => ({ text: step.title, completed: step.completed,
+                    ...(step.completedAt || step.completed ? { completedAt: step.completedAt ?? actionTimestamp } : {}) })),
+                ...(request.retry ? { hubTaskId: request.retry.id } : {}) });
+            // Legacy create returns a file, not a canonical task. Never identify
+            // a new ID-less task by title or mistake a duplicate for this result.
+            return { status: "legacy-applied", task: null, reveal: { kind: "legacy-source", path: file.path },
+                existingId: request.retry?.id ?? null, refreshRequired: true, historyPersistence: "unconfirmed" };
+        });
+    }
+    async #save(token, draft, deleting = false, actionTimestamp) {
+        const { snapshot, handle } = this.#token(token);
+        if (!snapshot.hubTaskId) unsupported("saveEditable", "Saving an unassigned legacy locator requires a reviewed mutation guard; no identity is allocated by this facade.");
+        await this.#resolve(handle);
+        const values = deleting ? { operation: "delete" } : legacyValues(draft, this.#owner(snapshot.file.path));
+        if (!deleting) {
+            if (values.completed && !snapshot.completed && !values.completedAt) values.completedAt = actionTimestamp;
+            let previous = -1;
+            values.steps = draft.steps.map(step => {
+                requireTaskValue(typeof step.title === "string" && typeof step.completed === "boolean", "Supply a Step title and completion state.");
+                requireTaskValue(Object.keys(step).every(key => ["handle", "title", "completed", "completedAt"].includes(key)), "Step ancestry and ordering cannot be edited through legacy drafts.");
+                requireTaskValue(step.completedAt === undefined || Number.isSafeInteger(step.completedAt) && step.completedAt > 0, "Use an explicit Step completion timestamp.");
+                if (!step.handle) return { text: step.title, completed: step.completed,
+                    ...(step.completedAt || step.completed ? { completedAt: step.completedAt ?? actionTimestamp } : {}) };
+                const index = stepIndex(snapshot, step.handle);
+                if (index <= previous) unsupported("reorderSteps", "Legacy editor saves preserve source Step order.");
+                previous = index;
+                return { ...snapshot.steps[index], text: step.title, completed: step.completed,
+                    ...(step.completedAt || step.completed && !snapshot.steps[index].completed ? { completedAt: step.completedAt ?? actionTimestamp } : {}) };
+            });
+            // The old editor deletes an entire nested block. Reject drafts that
+            // retain a descendant while removing its ancestor.
+            const retained = new Set(values.steps.filter(step => step.line != null).map(step => step.line));
+            for (const step of snapshot.steps.filter(step => !retained.has(step.line))) {
+                requireTaskValue(!snapshot.steps.some(child => child.line > step.line && child.line < step.end && retained.has(child.line)),
+                    "Removing a Step also requires removing its descendant Steps.");
+            }
+            const firstNew = draft.steps.findIndex(step => !step.handle);
+            if (firstNew >= 0 && draft.steps.slice(firstNew).some(step => step.handle)) unsupported("reorderSteps", "New legacy Steps append after existing Steps.");
+        }
+        const edit = await this.#plugin.taskEditor.save(snapshot, values);
+        this.#tokens.delete(token.value);
+        const after = edit.tasks[0];
+        return { status: "legacy-applied", task: after ? this.#dto({ ...after, path: after.path ?? snapshot.file.path }) : null,
+            reveal: after ? { kind: "legacy-source", path: after.path ?? snapshot.file.path, line: after.line } : null,
+            refreshRequired: true, historyPersistence: "unconfirmed" };
+    }
+    saveEditable(token, draft) {
+        draft = copy(draft);
+        return this.#write(actionTimestamp => this.#save(token, draft, false, actionTimestamp));
+    }
+    #draft(token) { return draftFromTask(this.#dto(this.#token(token).snapshot)); }
+    setCompleted(token, completed) {
+        return this.#write(actionTimestamp => { requireTaskValue(typeof completed === "boolean", "Choose a completion state.");
+            const draft = this.#draft(token); draft.completed = completed; return this.#save(token, draft, false, actionTimestamp); });
+    }
+    addStep(token, step) {
+        return this.#write(actionTimestamp => { requireTaskValue(step && !step.handle && step.parent == null && step.order == null, "Legacy Step additions append at the task level.");
+            requireTaskValue(Object.keys(step).every(key => ["title", "completed", "completedAt", "parent", "order"].includes(key)), "Use supported Step fields.");
+            const draft = this.#draft(token); draft.steps.push({ title: step.title, completed: step.completed ?? false,
+                ...(step.completedAt !== undefined ? { completedAt: step.completedAt } : {}) }); return this.#save(token, draft, false, actionTimestamp); });
+    }
+    editStep(token, handle, patch) {
+        return this.#write(actionTimestamp => { requireTaskValue(patch && Object.keys(patch).every(key => key === "title"), "Step edits support title only; use explicit completion commands.");
+            const draft = this.#draft(token), index = stepIndex(this.#token(token).snapshot, handle);
+            Object.assign(draft.steps[index], patch); return this.#save(token, draft, false, actionTimestamp); });
+    }
+    setStepCompleted(token, handle, completed) {
+        return this.#write(actionTimestamp => { requireTaskValue(typeof completed === "boolean", "Choose a Step completion state.");
+            const draft = this.#draft(token), index = stepIndex(this.#token(token).snapshot, handle);
+            draft.steps[index].completed = completed; return this.#save(token, draft, false, actionTimestamp); });
+    }
+    deleteStep(token, handle, options = {}) {
+        return this.#write(actionTimestamp => { const entry = this.#token(token), index = stepIndex(entry.snapshot, handle);
+            const step = entry.snapshot.steps[index];
+            const descendants = entry.snapshot.steps.filter(child => child.line > step.line && child.line < step.end);
+            requireTaskValue(!descendants.length || options.cascade === true, "Explicit cascade is required to delete nested Steps.");
+            const removed = new Set([step, ...descendants]);
+            const draft = this.#draft(token); draft.steps = draft.steps.filter((_, i) => !removed.has(entry.snapshot.steps[i]));
+            return this.#save(token, draft, false, actionTimestamp); });
+    }
+    changeAssociations(token, associations) {
+        return this.#write(actionTimestamp => { if (!associations || Object.keys(associations).some(key => key !== "phase")) unsupported("changeAssociations", "Only an existing owning-Project Phase can be changed in this phase.");
+            requireTaskValue(Object.hasOwn(associations, "phase"), "Supply a Phase association or null.");
+            const draft = this.#draft(token); draft.phase = copy(associations.phase); return this.#save(token, draft, false, actionTimestamp); });
+    }
+    deleteTask(token) { return this.#write(() => this.#save(token, null, true)); }
+    reorderSteps() { this.#open(); unsupported("reorderSteps"); }
+    archiveTask() { this.#open(); unsupported("archiveTask"); }
+    clearCompleted() { this.#open(); unsupported("clearCompleted", "Bulk clear's archive/check removal workflow awaits Phase 2B-3 integration."); }
+    subscribe(listener) {
+        this.#open(); requireTaskValue(typeof listener === "function", "A task-change listener is required.");
+        const subscription = { listener };
+        this.#listeners.add(subscription);
+        if (!this.#dispose) {
+            try { this.#dispose = this.#plugin.taskData.subscribe({ register() {} }, () => {
+                for (const subscriber of [...this.#listeners]) {
+                    if (!this.#listeners.has(subscriber)) continue;
+                    try {
+                        Promise.resolve(subscriber.listener({ kind: "invalidation", backend: "legacy-markdown", reason: "legacy-refresh",
+                            requiresRequery: true, durability: "unknown", taskHandles: null })).catch(error => this.#report(error));
+                    } catch (error) { this.#report(error); }
+                }
+            }); } catch (error) { this.#listeners.delete(subscription); throw legacyError(error); }
+        }
+        return () => { this.#listeners.delete(subscription); if (!this.#listeners.size && this.#dispose) {
+            this.#dispose(); this.#dispose = null;
+        } };
+    }
+    #report(error) { try { this.#onSubscriberError(error); } catch (_) { /* Error reporters cannot break refreshes. */ } }
+    async close() {
+        if (this.#closed) return;
+        this.#closing = true;
+        // Finish already accepted work. Do not destroy the shared task-data
+        // service, the editor, or watchers belonging to current UI consumers.
+        await Promise.allSettled([...this.#pending]);
+        this.#closed = true;
+        this.#dispose?.(); this.#dispose = null;
+        this.#listeners.clear(); this.#tokens.clear();
+    }
+}
+
+module.exports = { LegacyTaskAdapter };
+
+},
+"lib/services/task-service.js": function (module, exports, __hubRequire) {
+"use strict";
+const { TaskServiceError, requireTaskValue, unsupported } = __hubRequire("lib/services/task-service-errors.js");
+
+// One explicitly injected authority, for this facade's entire lifetime. There is
+// no backend discovery, startup registration, native import or failure fallback.
+const TASK_SERVICE_OPERATIONS = Object.freeze([
+    "getTask", "queryOwned", "queryVisible", "queryDisplay", "queryStructured", "resolveOathWork", "resolveLegacyAction", "resolveSavedTarget", "readSteps", "readEditable", "releaseEditable",
+    "queryHistory", "resolveReveal", "createTask", "saveEditable", "setCompleted",
+    "addStep", "editStep", "deleteStep", "reorderSteps", "setStepCompleted",
+    "changeAssociations", "deleteTask", "archiveTask", "clearCompleted"
+]);
+
+class TaskService {
+    #adapter;
+    #closed = false;
+    constructor(adapter) {
+        requireTaskValue(adapter && typeof adapter.capabilities === "function" && typeof adapter.subscribe === "function" &&
+            typeof adapter.close === "function", "Inject one task-service adapter.");
+        this.#adapter = adapter;
+    }
+    capabilities() { this.#open(); return this.#adapter.capabilities(); }
+    #open() { if (this.#closed) throw new TaskServiceError("CLOSED", "The task service is closed."); }
+    async invoke(operation, ...args) {
+        this.#open();
+        if (!TASK_SERVICE_OPERATIONS.includes(operation)) unsupported(operation);
+        const method = this.#adapter[operation];
+        if (typeof method !== "function") unsupported(operation);
+        return method.apply(this.#adapter, args);
+    }
+    subscribe(listener) {
+        this.#open();
+        requireTaskValue(typeof listener === "function", "A task-change listener is required.");
+        return this.#adapter.subscribe(listener);
+    }
+    async close() {
+        if (this.#closed) return;
+        this.#closed = true;
+        await this.#adapter.close();
+    }
+}
+for (const operation of TASK_SERVICE_OPERATIONS) {
+    Object.defineProperty(TaskService.prototype, operation, {
+        value: function(...args) { return this.invoke(operation, ...args); }
+    });
+}
+
+module.exports = { TaskService, TASK_SERVICE_OPERATIONS };
 
 },
 "lib/services/task-writes.js": function (module, exports, __hubRequire) {
@@ -9947,7 +11943,7 @@ const { projectItemPath } = __hubRequire("lib/domain/files.js");
 const { openCaptureWorkspacePicker, openCaptureLocationPicker } = __hubRequire("lib/ui/capture-pickers.js");
 const { mountWorkspaceThumbnail } = __hubRequire("lib/ui/workspace-thumbnail.js");
 const { createCapturePickerTrigger } = __hubRequire("lib/ui/capture-picker-trigger.js");
-const { mountTaskFields, mountTaskRelationshipFields } = __hubRequire("lib/ui/task-form.js");
+const { mountTaskForm } = __hubRequire("lib/ui/task-form.js");
 const { openNotePositionPicker } = __hubRequire("lib/ui/note-position-picker.js");
 const { noteLocation, noteLocationSummary, resolveNoteLocation } = __hubRequire("lib/domain/note-insertion.js");
 
@@ -10046,12 +12042,15 @@ function mountCaptureForm({ host, service, draft = {}, onChange = () => {}, fixe
         picker = null;
         if (!disposed) [...element.querySelectorAll("button")].find(button => button.getAttribute("aria-label") === label)?.focus({ preventScroll: true });
     };
-    function workspaceField(parent) {
+    function workspaceControl() {
         const current = workspace();
         const category = current?.contextKind === "project" ? service.plugin.projectWizard.getCategories?.().find(item => item.id === current.categoryId || item.name === current.categoryId) : null;
-        pickerTrigger(parent, "Save to", current?.name ?? "Choose project or resource…",
-            current ? (current.contextKind === "resource" ? "Resource" : category?.name ? "Project · " + category.name : "Project") : null,
-            current?.contextKind === "resource" ? current.icon ?? "library" : "folder", () => {
+        return { title: current?.name ?? "Choose project or resource…",
+            subtitle: current ? (current.contextKind === "resource" ? "Resource" : category?.name ? "Project · " + category.name : "Project") : null,
+            icon: current?.contextKind === "resource" ? current.icon ?? "library" : "folder",
+            renderIcon: current ? button => mountWorkspaceThumbnail(button, service.plugin, current) : null,
+            onOpen: () => {
+                if (picker || disposed) return;
                 picker = openCaptureWorkspacePicker(service, {
                     selectedId: state.workspaceId,
                     onSelect: selected => {
@@ -10061,26 +12060,33 @@ function mountCaptureForm({ host, service, draft = {}, onChange = () => {}, fixe
                     },
                     restoreFocus: () => restorePickerFocus("Save to")
                 });
-            }, false, current);
+            } };
     }
-    function locationField(parent, task) {
-        const label = task ? "Task location" : "Destination folder", current = workspace();
+    function workspaceField(parent) {
+        createCapturePickerTrigger(fieldHost(parent, "Save to"), { ...workspaceControl(), label: "Save to" });
+    }
+    function locationControl(task) {
+        const label = task ? "Location" : "Destination folder", current = workspace();
         const items = task ? locations() : folders(), path = state[task ? "location" : "folder"];
         const selected = items.find(item => item.path === path);
-        pickerTrigger(parent, task ? "Location" : "Folder", selected?.label ?? selected?.name ?? (task ? "Choose a note or folder…" : "Choose a folder…"),
-            selected && task ? selected.folder ? "Folder · Tasks note" : "Markdown note · " + selected.path.split("/").pop() : null,
-            selected && task && !selected.folder ? "notebook-text" : "folder", () => {
+        return { label, title: selected?.label ?? selected?.name ?? (task ? "Choose a note or folder…" : "Choose a folder…"),
+            subtitle: selected && task ? selected.folder ? "Folder · Tasks note" : "Markdown note · " + selected.path.split("/").pop() : null,
+            icon: selected && task && !selected.folder ? "notebook-text" : "folder", disabled: !current,
+            onOpen: () => {
+                if (picker || disposed) return;
                 picker = openCaptureLocationPicker(service, {
                     workspace: current, task, selectedPath: path, getItems: task ? locations : folders,
                     onSelect: selected => { if (!disposed) { state[task ? "location" : "folder"] = selected.path; render(); notify(); } },
                     restoreFocus: () => restorePickerFocus(label)
                 });
-            }, !current).setAttribute("aria-label", label);
+            } };
+    }
+    function locationField(parent, task) {
+        createCapturePickerTrigger(fieldHost(parent, task ? "Location" : "Folder"), locationControl(task));
     }
     function renderTask() {
-        locationField(group(), true);
-        taskFields = mountTaskFields({ app: service.app, host: element, state, onChange: notify });
-        mountTaskRelationshipFields({ host: element, state, service: taskEditor,
+        taskFields = mountTaskForm({ app: service.app, host: element, state, service: taskEditor,
+            destination: { workspace: workspaceControl(), location: locationControl(true) },
             location: () => state.location || workspace()?.root, onChange: notify });
     }
     function existingNoteField(parent) {
@@ -10123,14 +12129,16 @@ function mountCaptureForm({ host, service, draft = {}, onChange = () => {}, fixe
             options: [["new", "New note", "notebook-plus"], ["existing", "Add text to existing note", "notebook-pen"]],
             onSelect: action => { state.noteAction = action; render(); notify();
                 element.querySelector(".hub-capture-note-actions button[aria-pressed=true]")?.focus(); } });
-        workspaceField(placement);
         if (state.type === "task") renderTask();
-        else if (state.type === "note" && state.noteAction === "existing") { existingNoteField(placement); checkNoteLocation(); }
         else {
-            locationField(placement, false);
-            if (state.type === "note") {
-                const title = field(placement, "Title", "text", "title", true); title.classList.add("hub-task-title-input");
-                title.setAttribute("aria-label", "Note title");
+            workspaceField(placement);
+            if (state.type === "note" && state.noteAction === "existing") { existingNoteField(placement); checkNoteLocation(); }
+            else {
+                locationField(placement, false);
+                if (state.type === "note") {
+                    const title = field(placement, "Title", "text", "title", true); title.classList.add("hub-task-title-input");
+                    title.setAttribute("aria-label", "Note title");
+                }
             }
         }
     }
@@ -10168,6 +12176,7 @@ function mountCaptureForm({ host, service, draft = {}, onChange = () => {}, fixe
             const layoutChanged = (!lockedType && patch.type !== undefined && patch.type !== state.type) ||
                 (patch.workspaceId !== undefined && patch.workspaceId !== state.workspaceId) ||
                 (patch.noteAction !== undefined && patch.noteAction !== state.noteAction) || patch.noteLocation !== undefined ||
+                (patch.location !== undefined && patch.location !== state.location) || patch.phaseId !== undefined ||
                 (patch.inputPath !== undefined && patch.inputPath !== state.inputPath);
             if (patch.workspaceId !== undefined && patch.workspaceId !== state.workspaceId) {
                 state.folder = ""; state.location = ""; state.noteLocation = null; state.phaseId = "";
@@ -10187,7 +12196,7 @@ module.exports = { mountCaptureForm, mountCaptureTypeControl, noteTitle };
 },
 "lib/ui/capture-modal.js": function (module, exports, __hubRequire) {
 "use strict";
-const { createWindowTitle, setWindowUndertext } = __hubRequire("lib/ui/window-title.js");
+const { createModalHeader } = __hubRequire("lib/ui/window-title.js");
 const { Modal } = require("obsidian");
 const { setHubIcon } = __hubRequire("lib/ui/icons.js");
 
@@ -10210,11 +12219,8 @@ class CaptureModal extends Modal {
     }
     header(title, subtitle, icon) {
         this.contentEl.classList.add("hub-button-scope", "hub-capture-content", "hub-capture-form-scope");
-        const header = this.contentEl.createEl("header", { cls: "hub-capture-header" });
-        const heading = icon ? createWindowTitle(header, title, icon, { attr: { id: this.prefix + "-title" } }) :
-            header.createEl("h2", { text: title, attr: { id: this.prefix + "-title" } });
-        const description = header.createEl("p", { text: subtitle, cls: "hub-oath-muted", attr: { id: this.prefix + "-description" } });
-        if (icon) setWindowUndertext(heading, description);
+        createModalHeader(this.contentEl, { title, subtitle, icon,
+            titleId: this.prefix + "-title", descriptionId: this.prefix + "-description" });
         this.modalEl.setAttribute("aria-labelledby", this.prefix + "-title");
         this.modalEl.setAttribute("aria-describedby", this.prefix + "-description");
         const close = this.modalEl.querySelector(".modal-close-button");
@@ -10886,12 +12892,14 @@ function mountContextSearch({ service, component, dv, root, toolbar, scope = nul
     async function open(result) {
         if (opening) return;
         opening = true; close();
-        try { await service.open(result, root); }
-        catch (error) { status.textContent = error.message ?? "Could not open this result."; }
+        try { await service.open(result, root, { cancelled: () => disposed }); }
+        catch (error) { if (!disposed) status.textContent = error.message ?? "Could not open this result."; }
         finally { opening = false; }
     }
+    let taskStatus = "", retainedSelection = null;
     function render(groups, busy) {
-        const selected = rows[active]?.result;
+        const selected = rows[active]?.result ?? retainedSelection;
+        retainedSelection = null;
         popup.replaceChildren(); rows = []; active = -1;
         for (const group of groups) {
             const headingId = `${id}-${group.kind}`;
@@ -10902,8 +12910,11 @@ function mountContextSearch({ service, component, dv, root, toolbar, scope = nul
                 element.createDiv({ cls: "hub-context-result-title", text: result.title });
                 element.createDiv({ cls: "hub-context-result-path", text: result.context });
                 if (result.kind === "tasks") {
-                    const date = result.task.dueDate ? taskDateLabel(result.task.dueDate, result.task.dueTime, true) : "";
+                    const date = result.task.due ? taskDateLabel(result.task.due.date, result.task.due.time, true) : "";
                     if (date || result.task.completed) element.createSpan({ cls: "hub-context-result-date", text: [result.task.completed ? "Completed" : "", date].filter(Boolean).join(" · ") });
+                    if (!result.task.capabilities.attemptReveal) {
+                        element.setAttribute("aria-disabled", "true"); element.title = "Refresh Search before opening this task.";
+                    }
                 }
                 if (result.snippet) element.createDiv({ cls: "hub-context-result-snippet", text: result.snippet });
                 const index = rows.length;
@@ -10913,21 +12924,27 @@ function mountContextSearch({ service, component, dv, root, toolbar, scope = nul
                 rows.push({ element, result });
             }
         }
-        if (!rows.length) popup.createDiv({ cls: "hub-context-empty", text: busy ? "Searching…" : "No matches in this scope." });
-        const selectedIndex = rows.findIndex(row => selected && row.result.kind === selected.kind && row.result.path === selected.path && row.result.id === selected.id && row.result.task?.line === selected.task?.line);
+        if (!rows.length) popup.createDiv({ cls: "hub-context-empty", text: busy ? "Searching…" : taskStatus || "No matches in this scope." });
+        const selectedIndex = rows.findIndex(row => selected && row.result.kind === selected.kind &&
+            (selected.kind === "tasks" ? row.result.key === selected.key : row.result.path === selected.path && row.result.id === selected.id));
         highlight(selectedIndex);
         popup.hidden = false; input.setAttribute("aria-expanded", "true"); popup.setAttribute("aria-busy", String(busy));
-        status.textContent = busy ? "Searching" : `${rows.length} results`;
+        status.textContent = busy ? "Searching" : `${rows.length} results` + (taskStatus ? `. ${taskStatus}` : "");
     }
     async function search(token) {
-        const cancelled = () => disposed || generation !== token || root.closest(".hub-project-rail") || doc.activeElement !== input;
+        const scopeId = scope?.projectId ?? null;
+        const cancelled = () => disposed || generation !== token || (scope?.projectId ?? null) !== scopeId || root.closest(".hub-project-rail") || doc.activeElement !== input;
+        if (cancelled()) return;
+        const selected = rows[active]?.result;
+        taskStatus = ""; render([], true); retainedSelection = selected;
         try {
             const groups = await service.search(input.value, scope, dv, {
-                cancelled, onNames: groups => { if (!cancelled()) render(groups, true); }
+                cancelled, onNames: groups => { if (!cancelled()) render(groups, true); },
+                onTaskStatus: message => { if (!cancelled()) taskStatus = message; }
             });
             if (!cancelled()) render(groups, false);
         } catch (error) {
-            if (!cancelled()) { render([], false); popup.firstElementChild.textContent = "Search is temporarily unavailable."; status.textContent = error.message; }
+            if (!cancelled()) { render([], false); popup.firstElementChild.textContent = "Search is temporarily unavailable."; status.textContent = "Search is temporarily unavailable."; }
         }
     }
     function schedule() {
@@ -11270,26 +13287,36 @@ function createDashboardFrame(container, component, className) {
     const root = container.ownerDocument.createElement("div");
     root.className = className;
     const work = [];
+    const layoutWork = [];
     const current = () => !controller.signal.aborted && frames.get(container) === frame && root.isConnected;
     const frame = {
         root, current,
         abort: () => controller.abort(),
         defer: task => work.push(task),
+        // Geometry needs attached, styled DOM, but must precede the first paint.
+        // Detached prepared views retain these tasks until their activation.
+        beforePaint: task => layoutWork.push(task),
+        prepareLayout() {
+            if (!current()) return;
+            for (const task of layoutWork.splice(0)) task();
+        },
         commit() {
             if (controller.signal.aborted || frames.get(container) !== frame) return;
-            root.dataset.hubReady = "true";
             // Dataview owns this container, including its scoped view.css style.
             // Replace only the Hub root, preserving every host-owned sibling.
             const previous = [...container.children].find(child =>
                 child.matches('.home-dashboard, .project-dashboard'));
             if (previous) previous.replaceWith(root);
             else container.appendChild(root);
+            frame.prepareLayout();
+            root.dataset.hubReady = "true";
             component.hubOnFrameCommit?.(frame);
             if (!component.hubDeferFrameActivation) frame.activate(true);
         },
         activate(allowDetached = false) {
             if (controller.signal.aborted || frames.get(container) !== frame ||
                 (!allowDetached && !root.isConnected)) return;
+            frame.prepareLayout();
             __hubRequire("lib/ui/header-image.js").refreshHeaderImages(root);
             for (const task of work.splice(0)) {
                 const run = () => current() ? task() : undefined;
@@ -11585,9 +13612,58 @@ const { layoutModal } = __hubRequire("lib/ui/window-title.js");
 const { parseLocalISODate, validLocalTime, formatDate } = __hubRequire("lib/domain/dates.js");
 const { setHubIcon } = __hubRequire("lib/ui/icons.js");
 
+// Independent native fields preserve optional time precision in both layouts.
+function createTaskDateTimeInput(host, type, label) {
+    return host.createEl("input", { type, attr: { "aria-label": label, lang: "en" } });
+}
+
+function createTaskDatePopoverInput(host, type, label, placeholder, { keyboardPicker = false } = {}) {
+    const surface = host.createDiv({ cls: "hub-task-date-surface" });
+    const input = createTaskDateTimeInput(surface, type, label);
+    // Once native segments have been shown, retain that presentation for this
+    // mounted editor. Pointer focus transfer precedes the dismissing click;
+    // reverting to its hint on blur would flash a placeholder before removal.
+    if (keyboardPicker) input.addEventListener("focus", () => surface.classList.add("is-native-editing"));
+    // Chromium omits its time indicator when disabled. Supply the native
+    // Lucide glyph only in that unavailable state; enabled fields keep theirs.
+    const unavailableIcon = type === "time" && keyboardPicker ? surface.createSpan({ cls: "hub-task-date-unavailable-icon", attr: { "aria-hidden": "true" } }) : null;
+    if (unavailableIcon) setHubIcon(unavailableIcon, "clock");
+    const hint = surface.createSpan({ cls: "hub-task-date-placeholder", text: placeholder, attr: { "aria-hidden": "true" } });
+    const clear = surface.createEl("button", { cls: "hub-task-date-clear", attr: { type: "button", "aria-label": "Clear " + label.toLowerCase() } });
+    setHubIcon(clear, "x");
+    const refresh = () => {
+        const populated = !!input.value || input.validity.badInput;
+        surface.classList.toggle("is-empty", !populated); surface.classList.toggle("is-disabled", input.disabled);
+        if (input.disabled) surface.classList.remove("is-native-editing");
+        hint.hidden = populated; clear.hidden = !input.value;
+        if (unavailableIcon) unavailableIcon.hidden = !input.disabled;
+    };
+    const picker = keyboardPicker ? bindNativeDateTimePicker({ input, surface, bindEvents: false, pickerKeys: [" "] }) : null;
+    return { input, clear, refresh, destroy: () => picker?.close() };
+}
+
+// Let Chromium measure its own localized segments, indicators and field chrome.
+// Measure an empty native field so configured/cleared endpoints retain geometry.
+function measureNativeDatePopover(element, availableWidth, { equalColumns = false } = {}) {
+    const fields = element.querySelector('.hub-task-popover-date-inputs');
+    const view = element.ownerDocument.defaultView;
+    const widths = [...fields.querySelectorAll('input')].map(input => {
+        const probe = input.cloneNode(); probe.value = ""; probe.disabled = false;
+        Object.assign(probe.style, { position: "absolute", visibility: "hidden", width: "auto", minWidth: "0", maxWidth: "none", fieldSizing: "content" });
+        input.parentElement.append(probe);
+        const width = Math.ceil(probe.getBoundingClientRect().width); probe.remove(); return width;
+    });
+    const style = view.getComputedStyle(element), gap = parseFloat(view.getComputedStyle(fields).columnGap);
+    const chrome = parseFloat(style.paddingLeft) + parseFloat(style.paddingRight) + parseFloat(style.borderLeftWidth) + parseFloat(style.borderRightWidth);
+    const desired = (equalColumns ? 2 * Math.max(...widths) : widths[0] + widths[1]) + gap + chrome;
+    const stacked = desired > availableWidth;
+    fields.style.gridTemplateColumns = stacked ? "minmax(0,1fr)" : equalColumns ? "repeat(2,minmax(0,1fr))" : `minmax(0,${widths[0]}fr) minmax(0,${widths[1]}fr)`;
+    return stacked ? Math.max(...widths) + chrome : desired;
+}
+
 // The native calendar/time interaction is shared with The Oath. Showing the
 // real input on typing also keeps the control usable without showPicker().
-function bindNativeDateTimePicker({ input, surface, beforeOpen = () => {}, onClose = () => {}, bindEvents = true }) {
+function bindNativeDateTimePicker({ input, surface, beforeOpen = () => {}, onClose = () => {}, bindEvents = true, pickerKeys = ["Enter", " "] }) {
     const view = input.ownerDocument.defaultView;
     let frame = null;
     const watch = () => {
@@ -11596,6 +13672,7 @@ function bindNativeDateTimePicker({ input, surface, beforeOpen = () => {}, onClo
         else onClose();
     };
     const open = () => {
+        if (input.disabled || input.readOnly) return;
         view.cancelAnimationFrame(frame);
         beforeOpen(); surface.classList.remove("is-typing"); input.focus();
         try {
@@ -11607,7 +13684,7 @@ function bindNativeDateTimePicker({ input, surface, beforeOpen = () => {}, onClo
     };
     if (bindEvents) input.addEventListener("click", open);
     input.addEventListener("keydown", event => {
-        if (event.key === "Enter" || event.key === " " || (event.altKey && event.key === "ArrowDown")) {
+        if (pickerKeys.includes(event.key) || (event.altKey && event.key === "ArrowDown")) {
             event.preventDefault(); open();
         } else if (!["Tab", "Escape", "Shift", "Alt", "Control", "Meta"].includes(event.key)) surface.classList.add("is-typing");
     });
@@ -11646,11 +13723,11 @@ function mountTaskDateTime({ app, host, label, state, dateKey, timeKey, onChange
             const fields = this.contentEl.createDiv({ cls: "hub-task-date-time-picker-fields" });
             const dateLabel = fields.createEl("label", { cls: "hub-capture-field" });
             dateLabel.createSpan({ cls: "hub-capture-field-title", text: "Date" });
-            this.date = dateLabel.createEl("input", { type: "date", attr: { "aria-label": label + " date", lang: "en" } });
+            this.date = createTaskDateTimeInput(dateLabel, "date", label + " date");
             const timeLabel = fields.createEl("label", { cls: "hub-capture-field" });
             timeLabel.createSpan({ cls: "hub-capture-field-title", text: "Time (optional)" });
             const timeRow = timeLabel.createDiv({ cls: "hub-task-time-field" });
-            this.time = timeRow.createEl("input", { type: "time", attr: { "aria-label": label + " time", lang: "en" } });
+            this.time = createTaskDateTimeInput(timeRow, "time", label + " time");
             this.clearTime = timeRow.createEl("button", { text: "Clear time", attr: { type: "button" } });
             this.clearTime.onclick = () => update(state[dateKey], "");
             for (const event of ["input", "change"]) {
@@ -11687,7 +13764,7 @@ function mountTaskDateTime({ app, host, label, state, dateKey, timeKey, onChange
     return { input: control, field, refresh: sync, setMin: date => { minimum = date ?? ""; picker?.refresh(); }, destroy: () => picker?.close() };
 }
 
-module.exports = { bindNativeDateTimePicker, mountTaskDateTime };
+module.exports = { bindNativeDateTimePicker, mountTaskDateTime, createTaskDateTimeInput, createTaskDatePopoverInput, measureNativeDatePopover };
 
 },
 "lib/ui/disclosure.js": function (module, exports, __hubRequire) {
@@ -12422,7 +14499,7 @@ function contentIcon(capture) {
 }
 
 function hasTypeSpecificDetails(draft) {
-    if (draft.type === "task") return ["location", "necessity", "fromDate", "dueDate", "fromTime", "dueTime", "phaseId", "linkedProjectId"]
+    if (draft.type === "task") return ["location", "necessity", "fromDate", "dueDate", "fromTime", "dueTime", "phaseId"]
         .some(key => !!draft[key]) || draft.steps?.some(step => String(step.text ?? "").trim() || step.completed);
     return draft.type === "note" && (!!draft.folder || !!draft.noteLocation || draft.noteAction === "existing" ||
         !!String(draft.title ?? "").trim() && draft.title !== noteTitle(draft));
@@ -12438,8 +14515,13 @@ class InboxModal extends CaptureModal {
         const aside = body.createEl("aside", { cls: "hub-inbox-sidebar", attr: { "aria-label": "Inbox items" } });
         const toolbar = aside.createDiv({ cls: "hub-inbox-toolbar" });
         this.filters = toolbar.createDiv({ cls: "hub-inbox-filters hub-equal-selectors hub-option-group", attr: { role: "group", "aria-label": "Filter items" } });
+        const counts = inboxCounts(this.service.captures);
         this.filterButtons = [["all", "All"], ["text", "Texts"], ["files", "Files"]].map(([key, label]) => {
-            const button = action(this.filters, label, null, () => { void this.changeFilter(key); });
+            // Layout reads in refresh must see the final initial selection,
+            // otherwise the shared button transition animates neutral to accent.
+            const selected = key === this.filter;
+            const button = action(this.filters, `${label} (${counts[key]})`, null, () => { void this.changeFilter(key); }, selected ? "is-selected" : "");
+            button.setAttribute("aria-pressed", String(selected));
             return { key, label, button };
         });
         const sort = toolbar.createDiv({ cls: "hub-inbox-sort" });
@@ -13020,17 +15102,22 @@ module.exports = { bindListReorder };
 function createHubMarkdown({ app, component, interactive = true }) {
     const { Component, MarkdownRenderer } = require("obsidian");
     const children = new Set();
+    let rendered = new WeakMap();
     let disposed = false;
     function clear() {
         for (const child of children) component.removeChild(child);
         children.clear();
+        rendered = new WeakMap();
     }
     component.register(() => { disposed = true; children.clear(); });
 
     function render(element, text, sourcePath, canCommit = () => true) {
         if (disposed) return Promise.resolve();
         const getPath = typeof sourcePath === "function" ? sourcePath : () => sourcePath || "";
+        const previous = rendered.get(element);
+        if (previous) { component.removeChild(previous); children.delete(previous); }
         const child = new Component();
+        rendered.set(element, child);
         component.addChild(child);
         children.add(child);
         element.classList.add("hub-markdown");
@@ -14021,6 +16108,7 @@ const { mountWorkspaceThumbnail } = __hubRequire("lib/ui/workspace-thumbnail.js"
 const { workspaceRef, sameWorkspace, taskKey } = __hubRequire("lib/domain/oath-workspace.js");
 const { isCommitted, oathTime, oathProgress, shortOathTime, fulfilmentLabel, oathDuration, validDuration } = __hubRequire("lib/domain/oath.js");
 const { mountOathApplications } = __hubRequire("lib/ui/oath-applications.js");
+const { createOathCandidateRead, preserveCandidateInteraction } = __hubRequire("lib/services/oath-candidate-read.js");
 
 const dateLabel = time => formatDateTime(new Date(time));
 const OATH_COPY = Object.freeze({
@@ -14121,7 +16209,7 @@ function openOathWorkspacePicker(service, type, selected, onSelect, restoreFocus
                 if (!contexts.length) body.createEl("p", { cls: "hub-oath-muted", text: type === "project" ? "No matching Active Projects." : "No matching Resources." });
             };
             search?.addEventListener("input", render);
-            service.plugin.taskData.subscribe(this.owner, render);
+            this.owner.register(service.plugin.taskService.subscribe(render));
             this.contentEl.createDiv({ cls: "hub-oath-actions" }).createEl("button", { text: "Cancel" }).addEventListener("click", () => this.close());
             render(); layoutModal(this, { headerEnd: search ?? this.contentEl.querySelector("h2"), body }); (search ?? body.querySelector('[tabindex="0"]'))?.focus();
         }
@@ -14130,7 +16218,7 @@ function openOathWorkspacePicker(service, type, selected, onSelect, restoreFocus
     const modal = new Picker(service.app); modal.open(); return modal;
 }
 
-function openOathPicker(service, workspace, selected, onSelect) {
+function openOathPicker(service, workspace, selected, onSelect, candidateRead = null) {
     const { Modal, Component } = require("obsidian");
     class Picker extends Modal {
         onOpen() {
@@ -14143,19 +16231,20 @@ function openOathPicker(service, workspace, selected, onSelect) {
             const cancel = actions.createEl("button", { text: "Cancel" });
             const add = actions.createEl("button", { cls: "mod-cta", text: "Add tasks" });
             this.owner = new Component(); this.owner.load();
+            const candidates = candidateRead ?? createOathCandidateRead(service, this.owner);
+            if (!candidateRead) void candidates.selectWorkspace(workspace);
             const existing = new Set(selected.map(taskKey)), chosen = new Map();
             const ui = createTaskUi({ app: service.app, component: this.owner, body });
-            const update = () => { add.disabled = !chosen.size; };
-            const render = () => {
+            const update = () => { add.disabled = !chosen.size || !candidates.available([...chosen.values()], workspace); };
+            const render = () => preserveCandidateInteraction(body, () => {
                 ui.beginRender(render); body.empty();
-                const available = service.workspaceTasks(workspace);
-                const keys = new Set(available.map(taskKey));
-                for (const key of chosen.keys()) if (!keys.has(key)) chosen.delete(key);
+                const available = candidates.tasks();
                 const query = search.value.toLocaleLowerCase().trim();
-                const groups = ui.groups(available);
+                const groups = ui.groups([...new Map([...available, ...chosen.values()].map(task => [taskKey(task), task])).values()]);
                 const tasks = [...groups.active, ...groups.future].filter(task => `${task.text} ${task.path}`.toLocaleLowerCase().includes(query));
                 for (const task of tasks) {
                     const row = selectionRow(ui, body, task), key = taskKey(task), included = existing.has(key);
+                    row.oathCandidateKey = key;
                     row.setAttribute("role", "button"); row.tabIndex = included ? -1 : 0;
                     row.setAttribute("aria-label", (included ? "Already selected: " : "Select task: ") + task.text);
                     row.setAttribute("aria-disabled", String(included));
@@ -14165,24 +16254,30 @@ function openOathPicker(service, workspace, selected, onSelect) {
                         row.setAttribute("aria-pressed", String(included || chosen.has(key)));
                     };
                     if (included) row.createSpan({ cls: "hub-oath-task-included", text: "Selected" });
-                    const toggle = () => { if (included) return; if (chosen.has(key)) chosen.delete(key); else chosen.set(key, task); paint(); update(); };
+                    const toggle = () => { if (included || !chosen.has(key) && !candidates.available([task], workspace)) return; if (chosen.has(key)) chosen.delete(key); else chosen.set(key, task); paint(); update(); };
                     row.addEventListener("click", toggle);
                     row.addEventListener("keydown", event => {
                         if (event.target === row && ["Enter", " "].includes(event.key)) { event.preventDefault(); toggle(); }
                     });
                     paint();
                 }
-                if (!tasks.length) body.createEl("p", { cls: "hub-oath-muted", text: service.ready() ? "No matching open tasks." : "Loading tasks..." });
+                if (!service.ready()) body.createEl("p", { cls: "hub-oath-muted", text: "Loading tasks..." });
+                else if (candidates.state.status === "error") {
+                    const status = body.createEl("p", { cls: "hub-oath-muted", attr: { role: "status" }, text: "Tasks could not be loaded. " });
+                    status.createEl("button", { text: "Try again", attr: { type: "button" } }).addEventListener("click", () => { void candidates.retry(); });
+                } else if (!tasks.length) body.createEl("p", { cls: "hub-oath-muted", text: service.ready() && candidates.state.status === "ready" ? "No matching open tasks." : "Loading tasks..." });
+                if (chosen.size && !candidates.available([...chosen.values()], workspace)) body.createEl("p", { cls: "hub-oath-muted", text: "Selected tasks are no longer available. Update your selection." });
                 update();
-            };
+            });
             cancel.addEventListener("click", () => this.close());
             add.addEventListener("click", () => {
-                const available = service.workspaceTasks(workspace);
+                if (!candidates.available([...chosen.values()], workspace)) return;
+                const available = candidates.tasks();
                 onSelect(available.filter(task => chosen.has(taskKey(task)) && !existing.has(taskKey(task))));
                 this.close();
             });
             search.addEventListener("input", render);
-            service.plugin.taskData.subscribe(this.owner, render);
+            this.owner.register(candidates.onChange(render));
             render(); layoutModal(this, { headerEnd: search, body }); search.focus();
         }
         onClose() { this.owner?.unload(); this.contentEl.empty(); }
@@ -14200,9 +16295,11 @@ function openOathSetup(service) {
             this.selectWorkspace(workspaceRef(service.plugin.workspaceModes?.currentContext()));
             this.choiceGroupId = ++choiceGroupId;
             this.owner = new Component(); this.owner.load();
-            service.plugin.taskData.subscribe(this.owner, () => {
+            this.candidates = createOathCandidateRead(service, this.owner);
+            this.owner.register(this.candidates.onChange(() => {
                 if (this.contentEl.classList.contains("hub-oath-setup")) this.renderSelected?.();
-            });
+            }));
+            void this.candidates.selectWorkspace(this.draft.workspace);
             this.owner.register(service.onChange(() => this.updateNext?.(), true));
             this.setup();
         }
@@ -14210,6 +16307,8 @@ function openOathSetup(service) {
             if (!service.resolveWorkspace(ref) || sameWorkspace(this.draft.workspace, ref)) return;
             this.draft.workspace = ref;
             this.draft.tasks = [];
+            this.picker?.close();
+            void this.candidates?.selectWorkspace(ref);
         }
         section(title) {
             const el = this.contentEl.createEl("section", { cls: "hub-oath-section" });
@@ -14315,7 +16414,7 @@ function openOathSetup(service) {
                 this.scheduledValue = new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
             }
             dateInput.value = this.scheduledValue ?? "";
-            const startValid = () => service.setupRequirements(draft).find(item => item.key === "Start").complete;
+            const startValid = () => this.candidates.requirements(draft).find(item => item.key === "Start").complete;
             const syncStart = () => {
                 const opened = this.dateDisclosure?.isOpen ?? false;
                 nowRadio.checked = draft.start === "now";
@@ -14377,20 +16476,17 @@ function openOathSetup(service) {
                 this.taskOwner = new Component(); this.taskOwner.load();
                 const ui = createTaskUi({ app: service.app, component: this.taskOwner, body });
                 let noOpenTasks = false;
-                this.renderSelected = () => {
+                this.renderSelected = () => preserveCandidateInteraction(body, () => {
                     ui.beginRender(this.renderSelected); body.empty();
-                    const ready = service.ready(), tasks = ready ? service.workspaceTasks(draft.workspace) : [];
+                    const ready = service.ready() && this.candidates.state.status === "ready", tasks = this.candidates.tasks();
                     noOpenTasks = ready && !tasks.length;
-                    if (ready) {
-                        const available = new Map(tasks.map(task => [taskKey(task), task]));
-                        draft.tasks = draft.tasks.map(task => available.get(taskKey(task))).filter(Boolean);
-                    }
                     // Suggest only the first Task-panel task; selection is always explicit.
                     const rows = [...new Map([...(tasks.length ? [tasks[0]] : []), ...draft.tasks].map(task => [taskKey(task), task])).values()];
                     const selected = new Set(draft.tasks.map(taskKey));
                     for (const task of rows) {
                         const row = selectionRow(ui, body, task);
                         const key = taskKey(task);
+                        row.oathCandidateKey = key;
                         row.classList.add("hub-oath-task-option");
                         row.classList.toggle("is-selected", selected.has(key));
                         row.dataset.taskKey = key;
@@ -14398,6 +16494,7 @@ function openOathSetup(service) {
                         row.setAttribute("aria-pressed", String(selected.has(key)));
                         row.setAttribute("aria-label", `Select for Oath: ${task.text}`);
                         const toggle = () => {
+                            if (!selected.has(key) && !this.candidates.available([task], draft.workspace)) return;
                             draft.tasks = selected.has(key) ? draft.tasks.filter(item => taskKey(item) !== key) : [...draft.tasks, task];
                             this.renderSelected();
                             [...body.children].find(item => item.dataset.taskKey === key)?.focus();
@@ -14418,15 +16515,19 @@ function openOathSetup(service) {
                             });
                         }
                     }
-                    if (!rows.length) body.createEl("p", { cls: "hub-oath-muted", text: !ready ? "Loading tasks..." :
+                    if (!service.ready()) body.createEl("p", { cls: "hub-oath-muted", text: "Loading tasks..." });
+                    else if (this.candidates.state.status === "error") body.createEl("p", { cls: "hub-oath-muted", attr: { role: "status" }, text: "Tasks could not be loaded. Try again." });
+                    else if (draft.tasks.length && !this.candidates.available(draft.tasks, draft.workspace)) body.createEl("p", { cls: "hub-oath-muted", attr: { role: "status" }, text: "Selected tasks must be open tasks from this workspace. Update your selection." });
+                    else if (!rows.length) body.createEl("p", { cls: "hub-oath-muted", text: !ready ? "Loading tasks..." :
                         `${workspaceName} has no open tasks. Create a task before making an Oath, or choose another ${draft.workspace.type}.` });
-                    taskAction.setAttribute("aria-label", noOpenTasks ? "Create task" : "Add tasks");
-                    taskAction.disabled = !ready || !service.resolveWorkspace(draft.workspace);
+                    taskAction.setAttribute("aria-label", service.ready() && this.candidates.state.status === "error" ? "Retry loading tasks" : noOpenTasks ? "Create task" : "Add tasks");
+                    taskAction.disabled = !service.ready() || !service.resolveWorkspace(draft.workspace);
                     this.updateNext?.();
-                };
+                });
                 this.renderSelected();
                 taskAction.addEventListener("click", () => {
                     this.dateDisclosure.close(); this.unitMenu?.hide();
+                    if (this.candidates.state.status === "error") { void this.candidates.retry(); return; }
                     if (noOpenTasks) {
                         const context = service.resolveWorkspace(draft.workspace);
                         if (context) this.creator = openTaskCreator(service.plugin.taskEditor, { root: context.root });
@@ -14435,7 +16536,7 @@ function openOathSetup(service) {
                     this.picker = openOathPicker(service, draft.workspace, draft.tasks, tasks => {
                         draft.tasks = [...new Map([...draft.tasks, ...tasks].map(task => [taskKey(task), task])).values()];
                         this.renderSelected();
-                    });
+                    }, this.candidates);
                 });
             }
             const duration = this.section(OATH_COPY.duration);
@@ -14582,7 +16683,7 @@ function openOathSetup(service) {
             const next = actions.createEl("button", { text: "Review Oath", cls: "mod-cta hub-guided-submit" });
             this.requirementGroups = { Start: start, Workspace: work, Tasks: work, Duration: duration };
             this.updateNext = () => {
-                const missing = service.setupRequirements(draft).find(item => !item.complete);
+                const missing = this.candidates.requirements(draft).find(item => !item.complete);
                 next.setAttribute("aria-disabled", String(!!missing));
                 if (!missing) error.textContent = "";
                 if (this.guidedGroup && this.requirementGroups[missing?.key] !== this.guidedGroup) {
@@ -14595,12 +16696,13 @@ function openOathSetup(service) {
             next.addEventListener("click", async () => {
                 if (this.reviewing) return;
                 try {
+                    this.candidates.enrollmentDraft(draft);
                     service.validateDraft(draft);
                     this.reviewing = true; next.disabled = true;
                     const review = draft.mode === "strict" ? await service.reviewStrict(draft) : null;
                     if (!this.closed) this.review(review);
                 } catch (problem) {
-                    const missing = service.setupRequirements(draft).find(item => !item.complete);
+                    const missing = this.candidates.requirements(draft).find(item => !item.complete);
                     // An empty choice only needs guidance. Invalid populated
                     // values, unavailable destinations/tasks and index errors
                     // still explain what the user needs to correct or await.
@@ -14631,6 +16733,7 @@ function openOathSetup(service) {
         }
         review(strictReview = null) {
             const draft = this.draft;
+            this.candidates.enrollmentDraft(draft);
             service.validateDraft(draft);
             this.clearSetupEffects();
             this.taskOwner?.unload(); this.updateNext = null;
@@ -14701,7 +16804,7 @@ function openOathSetup(service) {
             back.addEventListener("click", () => this.setup());
             take.addEventListener("click", async () => {
                 if (this.saving || this.reviewing || take.disabled) return; this.saving = true; take.disabled = back.disabled = true; if (refresh) refresh.disabled = true;
-                try { await service.take(draft); this.saving = false; this.close(); }
+                try { const submitted = this.candidates.enrollmentDraft(draft); await service.take(submitted); this.saving = false; this.close(); }
                 catch (problem) { this.saving = false; back.disabled = false; if (refresh) refresh.disabled = false; updateTake(); error.textContent = problem.message; }
             });
         }
@@ -14861,13 +16964,15 @@ module.exports = { openOathPicker, openOathSetup, openOathStatus, mountOathContr
 "use strict";
 const { hasKeyboardFocus, focusAfterRowRemoval } = __hubRequire("lib/ui/focus-restoration.js");
 const { createWindowTitle, setWindowUndertext, layoutModal } = __hubRequire("lib/ui/window-title.js");
-const { Modal, FuzzySuggestModal } = require("obsidian");
+const { Modal, FuzzySuggestModal, Component } = require("obsidian");
+const { PhaseTaskRead, taskKey } = __hubRequire("lib/services/phase-task-read.js");
 const { localISODate } = __hubRequire("lib/domain/dates.js");
 
 function openPlanningEditor(service, projectId, kind, value = null, dv, defaults = {}) {
     const phase = kind === "phases", noun = phase ? "phase" : "milestone";
     class PlanningModal extends Modal {
         onOpen() {
+            this.closed = false;
             this.modalEl.classList.add("hub-task-dialog");
             this.contentEl.classList.add("hub-button-scope", "hub-task-form", "hub-planning-form");
             const state = service.read(projectId), revision = state.revision;
@@ -14883,8 +16988,7 @@ function openPlanningEditor(service, projectId, kind, value = null, dv, defaults
             const name = field(section(phase ? "Phase" : "Milestone"), "Title", "text", value?.name);
             const dates = section(phase ? "Dates" : "Date").createDiv({ cls: "hub-task-date-fields" });
             const start = field(dates, phase ? "Start" : "Date", "date", (phase ? value?.start ?? defaults.start : value?.date ?? defaults.date) ?? localISODate());
-            let end, description, achieved, tasks = [], selected = new Map();
-            const key = task => task.hubTaskId ?? task.path + ":" + task.line;
+            let end, description, achieved, draft;
             if (phase) {
                 end = field(dates, "End", "date", value?.end ?? start.value);
                 start.addEventListener("change", () => { end.min = start.value; }); end.min = start.value;
@@ -14892,32 +16996,94 @@ function openPlanningEditor(service, projectId, kind, value = null, dv, defaults
                 label.createSpan({ text: "Description (optional)", cls: "hub-capture-label" });
                 description = label.createEl("textarea", { attr: { rows: "3", "aria-label": "Description (optional)" } }); description.value = value?.description ?? "";
                 const taskSection = section("Tasks"), list = taskSection.createDiv({ cls: "hub-phase-task-list" });
-                tasks = service.tasks(dv, projectId);
-                selected = new Map(tasks.filter(task => value?.id && task.phaseId === value.id).map(task => [key(task), task]));
+                this.readComponent = new Component();
+                let picker = null, pickerFrame = null, pickerState = state, pickerSnapshot = null;
+                const rows = new Map();
                 const renderTasks = () => {
-                    list.replaceChildren();
-                    if (!selected.size) list.createDiv({ cls: "hub-task-help", text: "No associated tasks." });
-                    for (const [id, task] of selected) {
+                    for (const [id, row] of rows) if (!draft.selected.has(id)) { row.remove(); rows.delete(id); }
+                    list.querySelector("[data-phase-empty]")?.remove();
+                    if (!draft.selected.size) list.createDiv({ cls: "hub-task-help", text: "No associated tasks.", attr: { "data-phase-empty": "" } });
+                    for (const [id, task] of draft.selected) {
+                        let existing = rows.get(id);
+                        if (existing) {
+                            existing.firstChild.firstChild.textContent = task.text;
+                            existing.firstChild.children[1].textContent = task.path ? task.path.replace(/\.md$/i, "").split("/").slice(2).join(" › ") : "Source unavailable";
+                            existing.querySelector("button").setAttribute("aria-label", "Remove phase from " + task.text);
+                            existing.querySelector("[data-phase-unavailable]")?.remove();
+                            if (!draft.usable(task)) existing.firstChild.createDiv({ cls: "hub-task-help", text: "Source changed or unavailable", attr: { "data-phase-unavailable": "" } });
+                            continue;
+                        }
                         const row = list.createDiv({ cls: "hub-phase-task-item" });
+                        rows.set(id, row);
                         const info = row.createDiv(); info.createDiv({ text: task.text });
-                        info.createDiv({ cls: "hub-task-help", text: task.path.replace(/\.md$/i, "").split("/").slice(2).join(" › ") });
+                        info.createDiv({ cls: "hub-task-help", text: task.path ? task.path.replace(/\.md$/i, "").split("/").slice(2).join(" › ") : "Source unavailable" });
+                        if (!draft.usable(task)) info.createDiv({ cls: "hub-task-help", text: "Source changed or unavailable", attr: { "data-phase-unavailable": "" } });
                         const remove = row.createEl("button", { text: "Remove", attr: { type: "button", "aria-label": "Remove phase from " + task.text } });
                         remove.addEventListener("click", event => {
-                            const restoreFocus = hasKeyboardFocus(remove, event), index = [...selected.keys()].indexOf(id);
-                            selected.delete(id); renderTasks();
+                            const restoreFocus = hasKeyboardFocus(remove, event), index = [...draft.selected.keys()].indexOf(id);
+                            draft.remove(id); renderTasks();
                             if (restoreFocus) focusAfterRowRemoval([...list.querySelectorAll(".hub-phase-task-item button")], index, add);
                         });
                     }
+                    const order = [...draft.selected.keys()].map(id => rows.get(id));
+                    if (order.some((row, index) => list.children[index] !== row)) {
+                        const focused = list.ownerDocument.activeElement;
+                        for (const row of order) list.appendChild(row);
+                        if (list.contains(focused)) focused.focus({ preventScroll: true });
+                    }
                 };
-                renderTasks();
                 const add = taskSection.createEl("button", { text: "Add tasks", attr: { type: "button" } });
+                const refresh = async () => {
+                    if (this.closed || this.saving) return;
+                    try {
+                        const result = await draft.refresh();
+                        if (!result || this.closed || this.saving) return;
+                        pickerState = service.read(projectId); readStatus.remove(); add.disabled = false; renderTasks();
+                        if (picker?.inputEl?.isConnected) {
+                            const currentPicker = picker;
+                            const saved = pickerSnapshot?.picker === picker ? pickerSnapshot : null;
+                            currentPicker.inputEl.dispatchEvent(new currentPicker.inputEl.ownerDocument.defaultView.Event("input", { bubbles: true }));
+                            if (pickerFrame !== null) cancelAnimationFrame(pickerFrame);
+                            pickerFrame = requestAnimationFrame(() => {
+                                pickerFrame = null; if (this.closed || picker !== currentPicker) return;
+                                const index = saved?.query === currentPicker.inputEl.value ? currentPicker.getSuggestions(currentPicker.inputEl.value).findIndex(item => taskKey(item.item) === saved.id) : -1;
+                                if (index >= 0) currentPicker.chooser?.setSelectedItem?.(index, false);
+                                if (currentPicker.resultContainerEl && saved) currentPicker.resultContainerEl.scrollTop = saved.scroll;
+                            });
+                        }
+                    } catch (_) {
+                        if (this.closed || this.saving) return;
+                        readStatus.textContent = "Tasks are temporarily unavailable. Your selection has been kept.";
+                        if (!readStatus.isConnected) taskSection.insertBefore(readStatus, add);
+                        renderTasks();
+                    }
+                };
+                draft = this.phaseRead = new PhaseTaskRead(service, projectId, value?.id ?? null, () => { void refresh(); });
+                draft.onPluginClose = () => this.close();
+                draft.beforePublish = () => {
+                    pickerSnapshot = null;
+                    if (!picker?.inputEl?.isConnected) return;
+                    const items = picker.getSuggestions(picker.inputEl.value), index = picker.chooser?.selectedItem;
+                    pickerSnapshot = { picker, query: picker.inputEl.value, id: items[index]?.item && taskKey(items[index].item), scroll: picker.resultContainerEl?.scrollTop ?? 0 };
+                };
+                const readStatus = taskSection.createDiv({ cls: "hub-task-help", text: "Loading tasks…", attr: { role: "status" } });
+                taskSection.insertBefore(readStatus, add); add.disabled = true; renderTasks();
+                service.subscribe(this.readComponent, id => { if (id === projectId && !this.saving) { pickerState = service.read(projectId); void refresh(); } });
+                this.readComponent.register(() => { picker?.close(); if (pickerFrame !== null) cancelAnimationFrame(pickerFrame); });
+                this.ready = refresh();
+                this.refreshPhaseTasks = refresh;
                 add.addEventListener("click", () => {
                     class TaskPicker extends FuzzySuggestModal {
-                        getItems() { return tasks.filter(task => !task.identityConflict && !selected.has(key(task))); }
-                        getItemText(task) { const current = state.phases.find(item => item.id === task.phaseId); return task.text + " · " + task.path + (current ? " · " + current.name : ""); }
-                        onChooseItem(task) { if (!add.isConnected) return; selected.set(key(task), task); renderTasks(); }
+                        getItems() { return draft.pickerItems(); }
+                        getItemText(task) { const current = pickerState.phases.find(item => item.id === task.phaseId); return task.text + " · " + task.path + (current ? " · " + current.name : ""); }
+                        onChooseItem(task) {
+                            if (!add.isConnected) return;
+                            if (draft.add(task)) renderTasks();
+                            else { readStatus.textContent = "This task changed. Open the picker and select it again."; if (!readStatus.isConnected) taskSection.insertBefore(readStatus, add); }
+                        }
+                        onClose() { if (picker === this) picker = null; super.onClose?.(); }
                     }
-                    new TaskPicker(service.plugin.app).open();
+                    picker = new TaskPicker(service.plugin.app); picker.open();
                 });
             } else {
                 const label = section("Status").createEl("label", { cls: "hub-milestone-achieved-label" });
@@ -14932,16 +17098,16 @@ function openPlanningEditor(service, projectId, kind, value = null, dv, defaults
             const commit = async deleting => {
                 if (this.saving || !deleting && !form.reportValidity()) return;
                 this.saving = true; error.textContent = "";
-                const controls = [...form.querySelectorAll("input,textarea,button")]; controls.forEach(control => { control.disabled = true; });
+                draft?.freeze();
+                const controls = [...form.querySelectorAll("input,textarea,button")], disabled = controls.map(control => control.disabled); controls.forEach(control => { control.disabled = true; });
                 try {
                     if (deleting) await service.remove(projectId, kind, value.id, revision);
                     else if (phase) {
-                        const assignments = tasks.filter(task => selected.has(key(task)) !== !!(value?.id && task.phaseId === value.id))
-                            .map(task => ({ task, included: selected.has(key(task)) }));
+                        const assignments = await draft.assignments();
                         await service.savePhase(projectId, { id: value?.id, name: name.value, start: start.value, end: end.value, description: description.value }, assignments, revision);
                     } else await service.saveMilestone(projectId, { id: value?.id, name: name.value, date: start.value, achieved: achieved.checked }, revision);
                     this.saving = false; this.close();
-                } catch (reason) { error.textContent = reason.message; this.saving = false; controls.forEach(control => { control.disabled = false; }); }
+                } catch (reason) { error.textContent = reason.message; this.saving = false; controls.forEach((control, index) => { control.disabled = disabled[index]; }); draft?.resume(); void this.refreshPhaseTasks?.(); }
             };
             form.addEventListener("submit", event => { event.preventDefault(); void commit(false); });
             let armed = false;
@@ -14953,7 +17119,7 @@ function openPlanningEditor(service, projectId, kind, value = null, dv, defaults
             name.focus();
         }
         close() { if (!this.saving) super.close(); }
-        onClose() { this.contentEl.empty(); }
+        onClose() { this.closed = true; this.phaseRead?.close(); this.readComponent?.unload(); this.contentEl.empty(); }
     }
     const modal = new PlanningModal(service.plugin.app); modal.open(); return modal;
 }
@@ -16306,6 +18472,7 @@ const { CaptureModal, action, attachments } = __hubRequire("lib/ui/capture-modal
 const { mountCaptureForm } = __hubRequire("lib/ui/capture-form.js");
 const { mountCaptureGuidance } = __hubRequire("lib/ui/inbox-guidance.js");
 const { linkFromText } = __hubRequire("lib/domain/inbox.js");
+const { mountTaskText } = __hubRequire("lib/ui/task-form.js");
 
 class QuickAddModal extends CaptureModal {
     constructor(app, service, options = {}) {
@@ -16321,15 +18488,14 @@ class QuickAddModal extends CaptureModal {
         this.textPath = this.body.createDiv({ cls: "hub-capture-input-path", attr: { "data-capture-field": "Content" } });
         this.label = this.textPath.createEl("label", { cls: "hub-capture-label", attr: { for: this.prefix + "-input" } }); this.label.hidden = true;
         this.textEditor = this.textPath.createDiv({ cls: "hub-capture-text-editor" });
-        this.input = this.textEditor.createEl("textarea", { cls: "hub-quick-add-input", attr: { id: this.prefix + "-input", "aria-label": "Write something", rows: "3", placeholder: "Start typing..." } });
+        this.input = mountTaskText(this.textEditor, this.draft, patch => {
+            this.draft.text = patch.text; this.form?.update(patch); this.sync();
+        }, { multiline: true, required: false, placeholder: "Start typing...",
+            attributes: { id: this.prefix + "-input", "aria-label": "Write something" } });
         this.clear = action(this.textEditor, "", "x", () => {
             this.input.value = ""; this.draft.text = ""; this.form?.update({ text: "" }); this.sync(); this.input.focus();
         }, "hub-capture-clear");
         this.clear.setAttribute("aria-label", "Clear"); this.clear.title = "Clear";
-        this.input.addEventListener("input", () => {
-            if (this.draft.attachments.length || this.pendingImports) return;
-            this.draft.text = this.input.value; this.form?.update({ text: this.input.value }); this.sync();
-        });
         this.input.addEventListener("keydown", event => {
             if (event.key === "Enter" && !event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey && !event.isComposing && event.keyCode !== 229) {
                 event.preventDefault();
@@ -16920,16 +19086,30 @@ function workspaceLabel(row) {
     return `${row.name}${state ? ` (${state})` : ""}`;
 }
 
+const consumers = new WeakMap();
+function ownModal(modal) {
+    const plugin = modal.plugin;
+    if (!plugin?.register) return;
+    let active = consumers.get(plugin);
+    if (!active) {
+        consumers.set(plugin, active = new Set());
+        plugin.register(() => { for (const item of [...active]) item.close(); active.clear(); consumers.delete(plugin); });
+    }
+    active.add(modal);
+}
+
 class StatisticsModal extends Modal {
     constructor(app, plugin, { source, onClose } = {}) {
         super(app); this.plugin = plugin; this.source = source; this.closed = onClose;
-        this.range = "3m"; this.workspace = "all";
+        this.suppliedSource = source; this.generation = 0; this.isOpen = false;
+        this.range = "all"; this.workspace = "all";
         this.cache = new Map(); this.chartCleanups = [];
     }
     onOpen() {
+        this.isOpen = true; this.generation++; this.contentEl.empty(); ownModal(this);
+        this.source = this.suppliedSource;
         this.contentEl.classList.add("hub-project-advancement-modal", "hub-statistics-modal", "hub-button-scope");
         this.modalEl.classList.add("hub-statistics-window");
-        this.source ??= readStatistics(this.plugin);
         this.helpTooltips = createImmediateHubTooltip(this.contentEl);
         const header = this.contentEl.createDiv({ cls: "hub-statistics-header" });
         createWindowTitle(header, "Statistics", "chart-no-axes-column");
@@ -16937,11 +19117,6 @@ class StatisticsModal extends Modal {
         this.workspaceSelect = controls.createEl("select", { cls: "hub-statistics-workspace",
             attr: { "aria-label": "Statistics workspace", "data-filter": "workspace" } });
         this.workspaceSelect.createEl("option", { text: "All workspaces", attr: { value: "all" } });
-        for (const [kind, label] of [["project", "Projects"], ["resource", "Resources"]]) {
-            const group = this.workspaceSelect.createEl("optgroup", { attr: { label } });
-            [...this.source.registry.values()].filter(row => row.kind === kind).sort((a, b) => a.name.localeCompare(b.name) || a.key.localeCompare(b.key))
-                .forEach(row => group.createEl("option", { text: workspaceLabel(row), attr: { value: row.key } }));
-        }
         this.workspaceSelect.value = this.workspace;
         this.workspaceSelect.addEventListener("change", () => {
             this.workspace = this.workspaceSelect.value; this.render();
@@ -16960,7 +19135,36 @@ class StatisticsModal extends Modal {
         });
         this.grid = this.contentEl.createDiv({ cls: "hub-statistics-grid" });
         layoutModal(this);
+        if (this.source) this.ready();
+        else void this.loadSource();
+    }
+    ready() {
+        this.status?.remove(); this.status = null;
+        this.workspaceSelect.querySelectorAll("optgroup").forEach(group => group.remove());
+        for (const [kind, label] of [["project", "Projects"], ["resource", "Resources"]]) {
+            const group = this.workspaceSelect.createEl("optgroup", { attr: { label } });
+            [...this.source.registry.values()].filter(row => row.kind === kind).sort((a, b) => a.name.localeCompare(b.name) || a.key.localeCompare(b.key))
+                .forEach(row => group.createEl("option", { text: workspaceLabel(row), attr: { value: row.key } }));
+        }
+        this.workspaceSelect.value = this.workspace;
         this.render();
+    }
+    async loadSource() {
+        const ticket = ++this.generation;
+        this.status?.remove();
+        this.status = this.grid.createDiv({ attr: { role: "status" }, text: "Loading Statistics…" });
+        try {
+            const source = await readStatistics(this.plugin);
+            if (!this.isOpen || ticket !== this.generation) return;
+            this.source = source; this.ready();
+        } catch (_) {
+            if (!this.isOpen || ticket !== this.generation) return;
+            this.source = undefined; this.cache.clear();
+            this.chartCleanups.splice(0).forEach(cleanup => cleanup()); this.grid.empty();
+            this.status = this.grid.createDiv({ attr: { role: "alert" }, text: "Statistics could not be loaded." });
+            const retry = this.status.createEl("button", { text: "Retry", attr: { type: "button" } });
+            retry.addEventListener("click", () => { void this.loadSource(); });
+        }
     }
     card(id, title, { wide = false } = {}) {
         const card = this.grid.createEl("section", { cls: `hub-report-card hub-statistics-card${wide ? " hub-statistics-wide" : ""}`,
@@ -16981,6 +19185,7 @@ class StatisticsModal extends Modal {
         if (cleanup) this.chartCleanups.push(cleanup);
     }
     render() {
+        if (!this.source || !this.isOpen) return;
         this.helpTooltips?.dispose();
         this.helpTooltips = createImmediateHubTooltip(this.contentEl);
         const cacheKey = `${this.range}/${this.workspace}`;
@@ -17073,58 +19278,558 @@ class StatisticsModal extends Modal {
             row.createEl("td", { text: formatDuration(project.time) });
         }
     }
-    onClose() { this.helpTooltips?.dispose(); this.chartCleanups.splice(0).forEach(cleanup => cleanup()); this.cache.clear(); this.contentEl.empty(); this.closed?.(); }
+    onClose() { this.isOpen = false; this.generation++; consumers.get(this.plugin)?.delete(this); this.helpTooltips?.dispose(); this.chartCleanups.splice(0).forEach(cleanup => cleanup()); this.cache.clear(); this.contentEl.empty(); this.closed?.(); }
 }
 
 module.exports = { StatisticsModal };
 
 },
+"lib/ui/task-accordion.js": function (module, exports, __hubRequire) {
+"use strict";
+const { setHubIcon } = __hubRequire("lib/ui/icons.js");
+let sequence = 0;
+
+// Disclosure only: callers retain their existing controls and draft ownership.
+function mountTaskAccordion(host) {
+    const doc = host.ownerDocument, view = doc.defaultView;
+    let active = null, pinned = false;
+    const entries = [], modal = host.closest(".modal");
+    const bodyRegion = () => host.closest(".hub-modal-body");
+    const surface = host.previousElementSibling;
+    const fitCard = () => {
+        const region = bodyRegion(); if (!pinned || !modal || !region || !surface) return;
+        const chrome = modal.getBoundingClientRect().height - region.getBoundingClientRect().height;
+        const available = parseFloat(view.getComputedStyle(modal).maxHeight) - chrome;
+        const heading = (active?.control.button ?? entries[0]?.control.button)?.getBoundingClientRect().height ?? 0;
+        // A checklist taller than the body must retain its ordinary scrolling;
+        // pinning it would make every configuration control unreachable.
+        const inset = parseFloat(view.getComputedStyle(surface).top) || 0;
+        surface.style.position = surface.getBoundingClientRect().height + heading + inset + 8 > available ? "static" : "";
+    };
+    const cardObserver = new view.ResizeObserver(fitCard);
+    if (surface) cardObserver.observe(surface);
+    const position = () => {
+        if (!pinned || !modal) return;
+        const chrome = modal.getBoundingClientRect().height - (bodyRegion()?.getBoundingClientRect().height ?? 0);
+        const top = Math.min(initialTop, Math.max(16, view.innerHeight - chrome - 32));
+        modal.style.top = top + "px";
+        modal.style.left = Math.max(16, (view.innerWidth - modal.getBoundingClientRect().width) / 2) + "px";
+        modal.style.maxHeight = Math.min(maxHeight, view.innerHeight - top - 16) + "px";
+        fitCard();
+        if (active && typeof active.options.width === "function") {
+            active.section.style.setProperty("--hub-task-endpoint-width", active.options.width(active.section, active.section.clientWidth) + "px");
+        }
+    };
+    let initialTop, maxHeight;
+    const pin = () => {
+        if (pinned || !modal) return;
+        const box = modal.getBoundingClientRect(); initialTop = box.top;
+        maxHeight = parseFloat(view.getComputedStyle(modal).maxHeight) || view.innerHeight - 32;
+        pinned = true; Object.assign(modal.style, { position: "fixed", margin: "0", transform: "none" }); position();
+        if (bodyRegion()) cardObserver.observe(bodyRegion());
+    };
+    const reveal = entry => {
+        const region = bodyRegion(); if (!region) return;
+        const bounds = region.getBoundingClientRect(), section = entry.section.getBoundingClientRect();
+        // Scroll the modal body alone. Keep the heading visible when possible.
+        const heading = entry.control.button.getBoundingClientRect();
+        const card = host.previousElementSibling?.getBoundingClientRect();
+        const inset = surface ? parseFloat(view.getComputedStyle(surface).top) || 0 : 0;
+        const contentTop = bounds.top + (surface?.style.position === "static" ? 0 : (card?.height ?? 0) + inset) + 8;
+        const delta = Math.min(section.bottom - bounds.bottom, heading.top - contentTop);
+        if (delta > 0) region.scrollTop += delta;
+    };
+    const bind = (control, options) => {
+        const id = "hub-task-configuration-" + ++sequence;
+        const group = host.createDiv({ cls: "hub-task-config-group" });
+        control.button.before(group); group.append(control.button);
+        const section = group.createDiv({ cls: "hub-task-config-section hub-button-scope hub-capture-form-scope " + (options.className || ""),
+            attr: { id, role: "region", "aria-label": options.title } });
+        control.button.after(section); section.hidden = true;
+        control.button.id ||= id + "-heading"; section.setAttribute("aria-labelledby", control.button.id);
+        control.button.setAttribute("aria-controls", id); control.button.setAttribute("aria-expanded", "false");
+        const chevron = control.button.createSpan({ cls: "hub-task-config-chevron", attr: { "aria-hidden": "true" } });
+        setHubIcon(chevron, "chevron-right");
+        const entry = { control, section, options, cleanups: [] };
+        entries.push(entry);
+        const finish = () => { section.hidden = true; section.replaceChildren(); };
+        const close = (restore = true) => {
+            if (active !== entry) return;
+            active = null; section.hidden = true; group.classList.remove("is-expanded");
+            control.button.setAttribute("aria-expanded", "false"); setHubIcon(chevron, "chevron-right"); section.inert = true;
+            entry.cleanups.splice(0).forEach(fn => fn()); options.onClose?.();
+            if (restore && control.button.isConnected && !control.button.disabled) control.button.focus({ preventScroll: true });
+            finish();
+        };
+        entry.close = close;
+        const open = () => {
+            if (control.button.disabled || control.button.hidden) return;
+            if (active === entry) { close(); return; }
+            pin(); active?.close(false);
+            active = entry; group.classList.add("is-expanded"); section.hidden = false; section.inert = false;
+            control.button.setAttribute("aria-expanded", "true"); setHubIcon(chevron, "chevron-down");
+            options.render({ body: section, element: section, close, register: fn => entry.cleanups.push(fn) });
+            fitCard();
+            if (typeof options.width === "function") {
+                const width = options.width(section, section.clientWidth); section.style.setProperty("--hub-task-endpoint-width", width + "px");
+            }
+            const focus = section.querySelector('[aria-checked="true"]') ?? section.querySelector('input:not(:disabled),textarea,button:not(:disabled)');
+            focus?.focus({ preventScroll: true }); reveal(entry);
+        };
+        const key = event => { if (event.key === "ArrowDown") { event.preventDefault(); open(); } };
+        const beforeFocus = () => { if (!control.button.disabled && !control.button.hidden) pin(); };
+        control.button.addEventListener("pointerdown", beforeFocus); control.button.addEventListener("click", open); control.button.addEventListener("keydown", key);
+        return { close, destroy() { close(false); finish(); control.button.removeEventListener("pointerdown", beforeFocus); control.button.removeEventListener("click", open); control.button.removeEventListener("keydown", key); group.remove(); } };
+    };
+    const retainDateFocus = event => {
+        if (event.button !== 0 || !active?.section.classList.contains("hub-task-date-endpoint")) return;
+        const input = doc.activeElement;
+        if (!active.section.contains(input) || !input.matches("input[type=date],input[type=time]") || input.matches(":open")) return;
+        const target = event.target.closest?.(".hub-task-config-action, .hub-task-popover-actions > button, .hub-task-steps-toggle.is-empty-steps, .hub-task-add-step, .hub-task-dialog-actions > button:not(.hub-task-remove), .modal-close-button");
+        // Native mousedown otherwise blurs the segmented field before click
+        // dismisses it, leaving a paintable unfocused frame during the press.
+        // Keep normal click/submit and canceled-drag behavior; close already
+        // hides the section synchronously before cleanup and focus restoration.
+        if (target && !target.disabled && target.closest(".modal") === modal) event.preventDefault();
+    };
+    const escape = event => {
+        if (event.key !== "Escape" || event.isComposing || !active || doc.querySelector(".hub-task-description-tooltip") || host.querySelector("input:open")) return;
+        event.preventDefault(); event.stopImmediatePropagation(); active.close();
+    };
+    // The native Modal listens on the document. Handle disclosure first.
+    modal?.addEventListener("mousedown", retainDateFocus);
+    view.addEventListener("keydown", escape, true); view.addEventListener("resize", position);
+    return { bind, close: (restore = false) => active?.close(restore), destroy() { entries.forEach(entry => entry.close(false)); cardObserver.disconnect(); modal?.removeEventListener("mousedown", retainDateFocus); view.removeEventListener("keydown", escape, true); view.removeEventListener("resize", position); } };
+}
+module.exports = { mountTaskAccordion };
+
+},
+"lib/ui/task-card.js": function (module, exports, __hubRequire) {
+"use strict";
+
+function taskSourceLabel(path) {
+    const parts = String(path ?? "").replace(/\\/g, "/").split("/").filter(Boolean);
+    return parts.length > 1 ? parts[parts.length - 2] : (parts[0]?.replace(/\.md$/i, "") || "Vault");
+}
+
+// The original Tasks-panel row, with its Home/Project host class convention.
+// Editing adapters attach controls to these parts; they do not recreate a card.
+function createTaskRow(parent, task, completed = task.completed, { variant = "project", checkboxScope } = {}) {
+    const row = parent.createDiv({ cls: variant + "-task-row" + (completed ? " is-completed" : "") });
+    // Native Modal overrides checkbox-size with its smaller UI font. A composer
+    // can inherit the dashboard's theme token without a second checkbox design.
+    if (checkboxScope) row.style.setProperty("--checkbox-size", parent.ownerDocument.defaultView.getComputedStyle(checkboxScope).getPropertyValue("--checkbox-size"));
+    const checkbox = row.createEl("input", { type: "checkbox", cls: variant + "-task-checkbox" });
+    checkbox.checked = !!completed;
+    const info = row.createDiv({ cls: variant + "-task-info" });
+    const textEl = info.createDiv({ cls: variant + "-task-text", text: task.text });
+    const source = info.createDiv({ cls: variant + "-task-location" });
+    return { row, checkbox, info, textEl, source };
+}
+
+function mountDescriptionIndicator(row, info) {
+    let indicator, tooltip;
+    return {
+        update(description) {
+            const value = description ?? "";
+            if (!indicator && value.trim()) {
+                const { setHubIcon } = __hubRequire("lib/ui/icons.js");
+                indicator = info.createEl("button", { cls: "hub-task-description-indicator", attr: {
+                    type: "button", "aria-label": "Read task description" } });
+                // square-info is absent from Obsidian 1.14.4's icon registry.
+                // Use its native Lucide information icon in both contexts.
+                setHubIcon(indicator, "info");
+                tooltip = __hubRequire("lib/ui/tooltips.js").createImmediateHubTooltip(row, { interactive: true, contentOnly: true });
+                tooltip.bind(indicator, { description: value });
+                for (const type of ["pointerdown", "click", "keydown", "contextmenu"]) indicator.addEventListener(type, event => {
+                    if (type !== "keydown" || ["Enter", " "].includes(event.key)) event.stopPropagation();
+                });
+            }
+            if (indicator) indicator.hidden = !value.trim();
+            row.classList.toggle("has-description", !!value.trim());
+            if (indicator) tooltip.update(indicator, { description: value });
+            if (!value.trim()) tooltip?.dismiss();
+        }, get element() { return indicator; }, destroy() { tooltip?.dispose(); }
+    };
+}
+
+// Extracted verbatim presentation rules from createTaskUi.bind. Both panel
+// handlers and the draft composer use this renderer and the existing panel CSS.
+function mountTaskCardPresentation(row, textEl, task, getPath, { now = new Date(), phaseLabel, ...options } = {}) {
+    const { taskDatePresentation, taskIsFuture, taskIsOverdue } = __hubRequire("lib/domain/task-planning.js");
+    row.classList.add("hub-planned-task-row");
+    const info = textEl.parentElement, checkbox = row.querySelector('input[type="checkbox"]');
+    const source = info.querySelector(".home-task-location, .project-task-location");
+    const description = options.selection || options.description === false ? null : mountDescriptionIndicator(row, info);
+    let indicator, dates, dateSpan, dateValue, phase;
+    function update(next = task) {
+        task = next;
+        row.classList.toggle("is-completed", !!task.completed);
+        checkbox?.setAttribute("aria-label", `Complete task: ${task.text}`);
+        if (task.necessity === "must" || task.necessity === "should") {
+            if (!indicator) {
+                indicator = row.ownerDocument.createElement("span");
+                indicator.setAttribute("role", "img"); checkbox?.before(indicator);
+            }
+            indicator.classList.remove("is-must", "is-should");
+            indicator.classList.add("hub-task-necessity-bar", "is-" + task.necessity);
+            indicator.setAttribute("aria-label", task.necessity === "must" ? "Must do" : "Should do");
+        } else { indicator?.remove(); indicator = null; }
+        const future = taskIsFuture(task, now), presentation = taskDatePresentation(task, now);
+        if (options.dates !== false && presentation?.label) {
+            if (!dates) {
+                dates = info.createDiv({ cls: "hub-task-dates" });
+                dateSpan = dates.createSpan();
+            }
+            const tag = presentation.dateTime ? "TIME" : "SPAN";
+            if (dateValue?.tagName !== tag) { dateSpan.replaceChildren(); dateValue = dateSpan.createEl(tag.toLowerCase()); }
+            if (presentation.dateTime) dateValue.dateTime = presentation.dateTime;
+            dateValue.textContent = presentation.label;
+            const overdue = taskIsOverdue(task, now) && !task.completed && !future;
+            dateSpan.className = overdue ? "is-overdue" : "";
+            if (overdue) { dateSpan.title = "Overdue"; dateSpan.setAttribute("aria-label", presentation.label + " (overdue)"); }
+            else { dateSpan.removeAttribute("title"); dateSpan.removeAttribute("aria-label"); }
+        } else { dates?.remove(); dates = dateSpan = dateValue = null; }
+        if (source) {
+            const label = options.sourceLabel ?? (options.selection && !options.normalSource ? getPath().replace(/\.md$/i, "").split("/").join(" › ") : taskSourceLabel(getPath()));
+            const labelText = source.firstChild;
+            if (labelText?.nodeType === 3) labelText.textContent = label;
+            else source.prepend(row.ownerDocument.createTextNode(label));
+            const phaseText = !options.selection && phaseLabel?.(task);
+            if (phaseText) {
+                phase ??= source.createSpan({ cls: "hub-task-phase" });
+                phase.textContent = phaseText; phase.title = "Phase: " + phaseText;
+            } else { phase?.remove(); phase = null; }
+        }
+        description?.update(task.description);
+    }
+    update();
+    return { update, get indicator() { return indicator; }, get dates() { return dates; }, get phase() { return phase; },
+        get descriptionIndicator() { return description?.element; }, destroy() { description?.destroy(); } };
+}
+
+// Actual Tasks-panel disclosure/checklist markup. The panel and draft Step
+// adapter own their state and interactions, while sharing every visible part.
+function createTaskChecklist(info, { setIcon = __hubRequire("lib/ui/icons.js").setHubIcon, emptyAction = false } = {}) {
+    const host = info.createDiv({ cls: "hub-task-steps" });
+    for (const event of ["click", "keydown", "contextmenu"]) host.addEventListener(event, e => e.stopPropagation());
+    const toggle = host.createEl("button", { cls: "hub-task-steps-toggle", attr: { type: "button" } });
+    const chevron = toggle.createSpan({ cls: "hub-task-steps-chevron", attr: { "aria-hidden": "true" } });
+    const label = toggle.createSpan({ cls: "hub-task-steps-label", text: "Steps" });
+    const progress = toggle.createSpan({ cls: "hub-task-step-progress", attr: { "aria-live": "polite" } });
+    const list = host.createDiv({ cls: "hub-task-step-items" });
+    const rowsHost = list.createDiv({ cls: "hub-task-step-list" });
+    function update(open, completed, count) {
+        const empty = emptyAction && !count;
+        label.textContent = empty ? "Add steps" : "Steps";
+        progress.hidden = empty;
+        if (emptyAction) host.hidden = false;
+        progress.textContent = empty ? "" : `${completed}/${count}`;
+        toggle.classList.toggle("is-empty-steps", empty);
+        toggle.setAttribute("aria-expanded", String(!empty && open));
+        toggle.setAttribute("aria-label", empty ? "Add steps" : `${open ? "Collapse" : "Expand"} Steps: ${progress.textContent}`);
+        setIcon(chevron, empty ? "list-tree" : open ? "chevron-down" : "chevron-right"); list.hidden = empty || !open;
+    }
+    function createRow(step, parent = rowsHost) {
+        const row = parent.createEl("label", { cls: "hub-task-step-item" });
+        const checkbox = row.createEl("input", { type: "checkbox", attr: { "aria-label": `Complete Step: ${step.text}` } });
+        const text = row.createSpan({ cls: "hub-task-step-text" });
+        return { row, checkbox, text };
+    }
+    return { host, toggle, chevron, progress, list, rowsHost, update, createRow };
+}
+
+module.exports = { createTaskRow, taskSourceLabel, mountTaskCardPresentation, createTaskChecklist };
+
+},
+"lib/ui/task-compact-form.js": function (module, exports, __hubRequire) {
+"use strict";
+const { mountTaskText, mountWrappingTaskInput, mountTaskSteps, mountTaskDestinationFields, taskSection } = __hubRequire("lib/ui/task-form.js");
+const { openTaskPopover } = __hubRequire("lib/ui/task-popover.js");
+const { setHubIcon } = __hubRequire("lib/ui/icons.js");
+const { createTaskDatePopoverInput } = __hubRequire("lib/ui/date-time.js");
+const { taskDatesButtonLabel, validateTaskDates } = __hubRequire("lib/domain/task-compact-form.js");
+const { bindCompletionSound, playTaskCompletionSound } = __hubRequire("lib/ui/completion-audio.js");
+let descriptionId = 0;
+
+function propertyButton(host, name, icon) {
+    const button = host.createEl("button", { cls: "hub-task-property", attr: { type: "button", "aria-label": name, "aria-expanded": "false" } });
+    const graphic = button.createSpan({ cls: "hub-task-property-icon", attr: { "aria-hidden": "true" } });
+    setHubIcon(graphic, icon);
+    const label = button.createSpan({ cls: "hub-task-property-value", text: name });
+    return { button, graphic, label, update(text) { label.textContent = text; button.title = name + ": " + text; button.setAttribute("aria-label", text === name ? name : name + ": " + text); } };
+}
+
+function bindPropertyPopover(control, options) {
+    let picker = null;
+    const close = (restore = true) => picker?.close(restore);
+    const open = () => {
+        if (control.button.disabled) return;
+        if (picker) { close(); return; }
+        picker = openTaskPopover(control.button, { ...options, onClose: () => { picker = null; options.onClose?.(); } });
+    };
+    control.button.setAttribute("aria-haspopup", "dialog");
+    control.button.addEventListener("click", open);
+    control.button.addEventListener("keydown", event => { if (event.key === "ArrowDown") { event.preventDefault(); open(); } });
+    return { close, destroy: () => close(false) };
+}
+
+function mountTaskDescription(host, state, onChange = () => {}) {
+    const section = taskSection(host); section.dataset.taskField = "description";
+    const heading = section.createEl("h3", { text: "Description" });
+    const action = section.createEl("button", { cls: "hub-task-inline-action hub-task-description-action", attr: {
+        type: "button", "aria-expanded": "false", "aria-controls": "hub-task-description-" + ++descriptionId } });
+    setHubIcon(action.createSpan({ attr: { "aria-hidden": "true" } }), "align-left"); action.createSpan({ text: "Add a description" });
+    const input = section.createEl("textarea", { cls: "hub-task-description", attr: { rows: "1", id: action.getAttribute("aria-controls"),
+        "aria-label": "Description", placeholder: "Add a description..." } });
+    const preview = section.createEl("button", { cls: "hub-task-description-preview", attr: { type: "button", "aria-label": "Edit description",
+        "aria-controls": input.id, "aria-describedby": input.id + "-copy" } });
+    const copy = preview.createSpan({ cls: "hub-task-description-copy", attr: { id: input.id + "-copy" } });
+    setHubIcon(preview.createSpan({ cls: "hub-task-description-edit", attr: { "aria-hidden": "true" } }), "pencil");
+    input.value = state.description ?? "";
+    const resize = () => { if (!input.hidden) { input.style.height = "auto"; input.style.height = input.scrollHeight + 2 + "px"; } };
+    const show = (expanded, focus = false) => {
+        const populated = !!state.description;
+        heading.hidden = !expanded && !populated;
+        input.hidden = !expanded; action.hidden = expanded || populated; preview.hidden = expanded || !populated;
+        copy.textContent = state.description ?? "";
+        action.setAttribute("aria-expanded", String(expanded)); preview.setAttribute("aria-expanded", String(expanded)); resize();
+        if (focus) input.focus();
+    };
+    action.addEventListener("click", () => show(true, true));
+    preview.addEventListener("click", () => show(true, true));
+    input.addEventListener("blur", () => show(false));
+    input.addEventListener("keydown", event => {
+        if (event.key === "Escape" && !event.isComposing && event.keyCode !== 229) {
+            event.preventDefault(); event.stopPropagation(); show(false);
+            (state.description ? preview : action).focus({ preventScroll: true });
+        }
+    });
+    input.addEventListener("input", () => { state.description = input.value; resize(); onChange({ description: state.description }); });
+    let width;
+    const observer = new input.ownerDocument.defaultView.ResizeObserver(() => {
+        if (width !== input.clientWidth) { width = input.clientWidth; resize(); }
+    });
+    observer.observe(input); show(false);
+    return { input, destroy: () => observer.disconnect() };
+}
+
+function mountTaskDates(host, state, onChange = () => {}) {
+    const control = propertyButton(host, "Dates", "calendar-days"); control.button.dataset.taskProperty = "dates";
+    const refresh = () => control.update(taskDatesButtonLabel(state));
+    const picker = bindPropertyPopover(control, { title: "Dates", className: "hub-task-dates-popover", width: 420, render({ body, close }) {
+        const draft = Object.fromEntries(["fromDate", "fromTime", "dueDate", "dueTime"].map(key => [key, state[key] ?? ""]));
+        const fields = [];
+        for (const [prefix, name] of [["from", "Start date"], ["due", "Due date"]]) {
+            const field = body.createEl("section", { cls: "hub-task-popover-date" });
+            const heading = field.createDiv({ cls: "hub-task-popover-date-heading" }); heading.createEl("strong", { text: name });
+            const inputs = field.createDiv({ cls: "hub-task-popover-date-inputs" });
+            const nativeField = (type, label, placeholder) => createTaskDatePopoverInput(inputs, type, label, placeholder);
+            const dateField = nativeField("date", name, "Select date"), timeField = nativeField("time", name + " time", "Add time");
+            const { input: date, clear: clearDate } = dateField, { input: time, clear: clearTime } = timeField;
+            const refresh = () => { time.disabled = !date.value; dateField.refresh(); timeField.refresh(); };
+            const sync = () => { date.value = draft[prefix + "Date"]; time.value = draft[prefix + "Time"]; refresh(); };
+            clearDate.onclick = () => { draft[prefix + "Date"] = ""; draft[prefix + "Time"] = ""; sync(); date.focus(); };
+            clearTime.onclick = () => { draft[prefix + "Time"] = ""; sync(); time.focus(); };
+            for (const event of ["input", "change"]) {
+                date.addEventListener(event, () => {
+                    if (date.validity.badInput) return;
+                    draft[prefix + "Date"] = date.value;
+                    if (!date.value) draft[prefix + "Time"] = "";
+                    time.value = draft[prefix + "Time"]; refresh();
+                });
+                time.addEventListener(event, () => { if (!time.validity.badInput && !time.disabled) draft[prefix + "Time"] = time.value; refresh(); });
+            }
+            sync(); fields.push({ date, time, sync });
+        }
+        const error = body.createDiv({ cls: "hub-task-error", attr: { role: "alert" } });
+        const actions = body.createDiv({ cls: "hub-task-popover-actions" });
+        actions.createEl("button", { text: "Clear all", attr: { type: "button" } }).onclick = () => { for (const key of Object.keys(draft)) draft[key] = ""; fields.forEach(field => field.sync()); error.textContent = ""; fields[0].date.focus(); };
+        actions.createEl("button", { text: "Cancel", attr: { type: "button" } }).onclick = () => close();
+        const apply = actions.createEl("button", { text: "Apply", cls: "mod-cta", attr: { type: "button" } });
+        apply.onclick = () => {
+            if (!fields.every(({ date, time }) => date.reportValidity() && time.reportValidity())) return;
+            try { validateTaskDates(draft); } catch (problem) { error.textContent = problem.message; return; }
+            Object.assign(state, draft); refresh(); onChange(draft); close();
+        };
+        body.addEventListener("keydown", event => { if (event.key === "Enter" && event.target.tagName === "INPUT") { event.preventDefault(); apply.click(); } });
+    } });
+    refresh(); return { ...picker, refresh };
+}
+
+function selectionOption(body, { label, value, selected, marker, reserveMarker = false, onSelect }) {
+    const button = body.createEl("button", { cls: "hub-task-property-option", attr: { type: "button", role: "menuitemradio", "aria-checked": String(selected), "data-value": value } });
+    if (marker || reserveMarker) button.createSpan({ cls: "hub-task-necessity-bar " + (marker ? "is-" + marker : "hub-task-necessity-spacer"), attr: { "aria-hidden": "true" } });
+    button.createSpan({ text: label }); button.onclick = onSelect;
+    return button;
+}
+function selectionKeys(body) {
+    body.setAttribute("role", "menu");
+    body.addEventListener("keydown", event => {
+        const options = [...body.querySelectorAll('[role="menuitemradio"]')], index = options.indexOf(body.ownerDocument.activeElement);
+        const next = event.key === "Home" ? 0 : event.key === "End" ? options.length - 1 : event.key === "ArrowDown" ? (index + 1) % options.length : event.key === "ArrowUp" ? (index + options.length - 1) % options.length : null;
+        if (next !== null) { event.preventDefault(); options[next]?.focus(); }
+    });
+}
+function mountTaskNecessity(host, state, onChange = () => {}, { control = propertyButton(host, "Necessity", "flag"), heading = true, keepLabel = false, clearLabel = "None / Clear selection", persistent = false, order = ["must", "should"], terminology = "necessity", bind = bindPropertyPopover } = {}) {
+    const title = terminology === "importance" ? "Importance" : "Necessity";
+    const actionLabel = terminology === "importance" ? "Set importance" : "Select necessity level";
+    control.button.dataset.taskProperty = "necessity";
+    const refresh = () => {
+        const value = state.necessity;
+        const configured = value === "must" || value === "should";
+        control.update(keepLabel ? (terminology === "importance" && configured ? "Change importance" : actionLabel) : value === "must" ? "Must do" : value === "should" ? "Should do" : title);
+        if (keepLabel) return;
+        control.graphic.replaceChildren();
+        if (value) control.graphic.createSpan({ cls: "hub-task-necessity-bar is-" + value }); else setHubIcon(control.graphic, "flag");
+    };
+    const picker = bind(control, { title, heading, avoidFooter: persistent, className: "hub-task-necessity-popover", width: 240, render({ body, close }) {
+        const choices = persistent ? body.createDiv() : body;
+        selectionKeys(choices);
+        const select = value => {
+            state.necessity = value; refresh(); onChange({ necessity: value });
+            for (const option of choices.querySelectorAll('[role="menuitemradio"]')) option.setAttribute("aria-checked", String(option.dataset.value === (value ?? "")));
+            if (!persistent) close();
+        };
+        for (const [value, label] of [...order.map(value => [value, value === "must" ? "Must do" : "Should do"]), ...(!persistent ? [[null, clearLabel]] : [])]) {
+            selectionOption(choices, { value: value ?? "", label, marker: value, reserveMarker: true, selected: (state.necessity || null) === value,
+                onSelect: () => select(value) });
+        }
+        if (persistent) {
+            const actions = body.createDiv({ cls: "hub-task-popover-actions hub-task-popover-clear-actions" });
+            actions.createEl("button", { text: "Clear", attr: { type: "button", "aria-label": "Clear " + terminology } }).onclick = () => select(null);
+            actions.createEl("button", { text: "Done", cls: "mod-cta", attr: { type: "button" } }).onclick = () => close();
+        }
+    } });
+    refresh(); return { ...picker, refresh };
+}
+
+function mountTaskPhaseButton({ host, state, service, location, notice, onChange = () => {}, control = propertyButton(host, "Phase", "layers"), heading = true, keepLabel = false, persistent = false, unassignedLabel = "No phase", bind = bindPropertyPopover }) {
+    control.button.dataset.taskProperty = "phase";
+    let previousOwner, initialized = false;
+    const picker = bind(control, { title: "Phase", heading, avoidFooter: persistent, maxHeight: persistent ? 360 : Infinity, className: "hub-task-phase-popover" + (persistent ? " hub-task-phase-live" : ""), width: 300, render({ body, close }) {
+        if (body.classList.contains("hub-task-config-section")) body.style.setProperty("--hub-task-phase-scrollbar", (body.offsetWidth - body.clientWidth) + "px");
+        selectionKeys(body);
+        for (const item of [{ id: "", name: unassignedLabel }, ...(service.phases?.(location()) ?? [])]) {
+            selectionOption(body, { value: item.id, label: item.name, selected: (state.phaseId || "") === item.id,
+                onSelect: () => { state.phaseId = item.id || null; notice.textContent = ""; refresh(); onChange({ phaseId: state.phaseId });
+                    for (const option of body.querySelectorAll('[role="menuitemradio"]')) option.setAttribute("aria-checked", String(option.dataset.value === (state.phaseId ?? "")));
+                    if (!persistent) close(); } });
+        }
+    } });
+    function refresh() {
+        const path = location(), owner = path ? service.context?.(path) : null;
+        const key = owner ? owner.contextKind + ":" + (owner.projectId ?? owner.root) : null;
+        const phases = owner?.contextKind === "project" ? service.phases?.(path) ?? [] : [];
+        if (initialized && key !== previousOwner && state.phaseId) {
+            state.phaseId = null; notice.textContent = "Phase cleared because the task's workspace changed. Choose a phase in the new project if needed.";
+            onChange({ phaseId: null }); picker.close(false);
+        }
+        if (state.phaseId && !phases.some(phase => phase.id === state.phaseId)) {
+            state.phaseId = null; notice.textContent = "The previous phase is no longer available and has been cleared from this draft.";
+            onChange({ phaseId: null });
+        }
+        control.button.hidden = !phases.length; if (!phases.length) picker.close(false);
+        const assigned = phases.find(phase => phase.id === state.phaseId);
+        control.update(keepLabel ? (assigned ? "Change Phase assignment" : "Assign to Phase") : assigned?.name ?? (state.phaseId ? "Unavailable phase" : "Phase"));
+        previousOwner = key; initialized = true;
+    }
+    refresh(); return { ...picker, refresh, value: () => ({ phaseId: state.phaseId || null }) };
+}
+
+// One draft, one set of domain rules; only the ordinary Add/Edit adapter opts
+// into this compact layout. Capture/Inbox keep their existing presentation.
+function mountWrappingTaskTitle(host, state, onChange, options) {
+    const input = mountTaskText(host, state, onChange, { ...options, wrapTitle: true });
+    // Measurement must use the final editor typography/padding, not the native
+    // textarea defaults that will be replaced by its editing adapter.
+    if (options?.className) input.classList.add(options.className);
+    const sizing = mountWrappingTaskInput(input);
+    const submit = event => { event.preventDefault(); if (!input.disabled && !input.readOnly) input.form?.requestSubmit(); };
+    input.addEventListener("keydown", event => {
+        if (event.key === "Enter" && !event.isComposing && event.keyCode !== 229) submit(event);
+    });
+    // Native/mobile editing commands can insert a break without a keydown.
+    input.addEventListener("beforeinput", event => {
+        if (!event.isComposing && ["insertLineBreak", "insertParagraph"].includes(event.inputType)) submit(event);
+    });
+    return { input, ...sizing };
+}
+
+function mountCompactTaskForm({ host, state, service, location, destination, text, onChange = () => {} }) {
+    const element = host.createDiv({ cls: "hub-task-fields hub-task-compact-fields" });
+    const task = taskSection(element); task.dataset.taskField = "task"; task.classList.add("hub-task-content");
+    const title = task.createDiv({ cls: "hub-task-title-row has-completion", attr: { "data-task-field": "text" } });
+    const completion = title.createEl("input", { type: "checkbox", attr: { "aria-label": "Task complete" } });
+    const refreshCompletion = () => { title.classList.toggle("is-completed", !!state.completed); if (completion) completion.checked = !!state.completed; };
+    if (completion) {
+        completion.checked = !!state.completed; bindCompletionSound(completion, playTaskCompletionSound);
+        completion.addEventListener("change", () => { state.completed = completion.checked; state.completedAt = completion.checked ? Date.now() : null;
+            refreshCompletion();
+            onChange({ completed: state.completed, completedAt: state.completedAt }); });
+    }
+    const wrappingTitle = mountWrappingTaskTitle(title, state, onChange, text), input = wrappingTitle.input;
+    refreshCompletion();
+    const stepsSection = taskSection(task); stepsSection.dataset.taskField = "steps";
+    const steps = mountTaskSteps({ host: stepsSection, state, inlineAdd: true, onChange });
+    const description = mountTaskDescription(task, state, onChange);
+    const target = element.createDiv({ cls: "hub-task-destination-fields" }); target.dataset.taskField = "destination";
+    const destinations = mountTaskDestinationFields({ host: target, ...destination });
+    const planning = taskSection(element, "Planning"); planning.dataset.taskField = "properties";
+    const row = planning.createDiv({ cls: "hub-task-properties", attr: { role: "group", "aria-label": "Task planning" } });
+    const dates = mountTaskDates(row, state, onChange), necessity = mountTaskNecessity(row, state, onChange);
+    const notice = element.createDiv({ cls: "hub-task-location-notice", attr: { role: "status" } });
+    const phase = mountTaskPhaseButton({ host: row, state, service, location, notice, onChange });
+    return { element, input, completion, destinations, phase, commitPending: steps.commitPending,
+        closePopovers() { dates.close(false); necessity.close(false); phase.close(false); },
+        refresh() { dates.refresh(); necessity.refresh(); steps.refresh(); phase.refresh(); refreshCompletion(); },
+        destroy() { dates.destroy(); necessity.destroy(); phase.destroy(); steps.destroy(); description.destroy(); wrappingTitle.destroy(); element.remove(); } };
+}
+
+module.exports = { mountCompactTaskForm, mountTaskDescription, mountTaskDates, mountTaskNecessity, mountTaskPhaseButton, mountWrappingTaskTitle, bindPropertyPopover };
+
+},
 "lib/ui/task-editor.js": function (module, exports, __hubRequire) {
 "use strict";
-const { createWindowTitle, layoutModal } = __hubRequire("lib/ui/window-title.js");
+const { createModalHeader, layoutModal } = __hubRequire("lib/ui/window-title.js");
 const { taskFormValues } = __hubRequire("lib/domain/task-form.js");
-const { taskSection, mountTaskText, mountTaskFields, mountTaskRelationshipFields } = __hubRequire("lib/ui/task-form.js");
-const { openCaptureLocationPicker } = __hubRequire("lib/ui/capture-pickers.js");
-const { createCapturePickerTrigger } = __hubRequire("lib/ui/capture-picker-trigger.js");
+const { mountLiveTaskForm } = __hubRequire("lib/ui/task-live-form.js");
+const { initialComposerTaskLocation, validateTaskDates } = __hubRequire("lib/domain/task-compact-form.js");
 
 function openTaskEditor(service, task, onEdit = () => {}, creation = null) {
     const { Modal, Notice } = require("obsidian");
     class TaskModal extends Modal {
-        async onOpen() {
-            this.closed = false;
-            this.modalEl.classList.add("hub-task-dialog");
-            this.contentEl.classList.add("hub-button-scope", "hub-task-form");
-            createWindowTitle(this.contentEl, creation ? "Add task" : "Edit task", creation ? "square-plus" : "square-pen", { cls: "hub-task-dialog-title" });
-            if (creation) {
-                const locations = availableLocations(service, creation.root);
-                const activePath = service.app.workspace.getActiveFile()?.path;
-                const location = locations.find(item => item.path === (creation.location ?? creation.path)) ??
-                    locations.find(item => item.path === creation.root) ??
-                    locations.find(item => item.path === activePath) ?? locations[0];
-                this.snapshot = { text: "", steps: [], necessity: null, ...creation, path: location?.path ?? "" };
-                this.render(); return;
-            }
-            const loading = this.contentEl.createEl("p", { text: "Loading task…" });
-            try {
-                this.snapshot = await service.read(task);
-                if (this.closed) return;
-                loading.remove(); this.render();
-            } catch (error) { new Notice(error.message); this.close(); }
+        constructor(app) {
+            super(app); this.closed = false;
+            // Modal.open runs its first-control focus pass after onOpen. Own
+            // focus here so that pass cannot move Add's caret to the checkbox.
+            this.hasInitialInputFocus = false;
+        }
+        onOpen() {
+            this.modalEl.classList.add("hub-task-dialog", "hub-task-compact-dialog");
+            this.modalEl.classList.add("hub-task-live-dialog");
+            this.modalEl.setAttribute("aria-label", creation ? "Add task" : "Edit task");
+            this.contentEl.classList.add("hub-button-scope", "hub-task-form", "hub-capture-form-scope", "hub-capture-content");
+            createModalHeader(this.contentEl, { title: creation ? "Add task" : "Edit task",
+                icon: creation ? "square-plus" : "square-pen" });
+            this.render();
         }
         render() {
             const snapshot = this.snapshot;
             const form = this.contentEl.createEl("form");
+            let errorEl;
+            const clearError = () => { if (errorEl) errorEl.textContent = ""; };
             const state = { ...snapshot, steps: snapshot.steps.map(step => ({ ...step })) };
-            const section = (title, help) => taskSection(form, title, help);
-            const input = mountTaskText(section("Task"), state, () => {}, { placeholder: creation ? "What needs doing?" : "" });
-            this.taskFields = mountTaskFields({ app: service.app, host: form, state, section });
-            const location = section("Location");
-            const owner = service.context?.(snapshot.path);
-            const fieldsLocation = locationFields(service, location, snapshot, creation?.root ?? owner?.root);
-            this.locationFields = fieldsLocation;
-            const relationships = mountTaskRelationshipFields({ host: form, state, service, location: () => fieldsLocation.value(), section });
-            fieldsLocation.onChange(() => relationships.refresh());
-            const errorEl = form.createDiv({ cls: "hub-task-error", attr: { role: "alert" } });
+            // Location selection is deferred. Preserve the exact destination,
+            // including the native file object following a rename while open.
+            const location = () => snapshot.file?.path ?? snapshot.path;
+            this.taskFields = mountLiveTaskForm({ host: form, state, service,
+                initialStepsOpen: !creation && snapshot.steps.length > 0,
+                onChange: clearError,
+                text: { placeholder: creation ? "What needs doing?" : "" },
+                location });
+            const { input, phase } = this.taskFields;
+            errorEl = form.createDiv({ cls: "hub-task-error", attr: { role: "alert" } });
             const actions = form.createDiv({ cls: "hub-task-dialog-actions" });
             const remove = actions.createEl("button", { text: "Delete task", cls: "hub-task-remove", attr: { type: "button" } });
             const cancel = actions.createEl("button", { text: "Cancel", attr: { type: "button" } });
@@ -17133,24 +19838,29 @@ function openTaskEditor(service, task, onEdit = () => {}, creation = null) {
             cancel.addEventListener("click", () => this.close());
             const commit = async deleting => {
                 if (this.saving) return;
+                this.taskFields.closePopovers();
+                if (!deleting && !this.taskFields.commitPending()) return;
                 if (!deleting && !form.reportValidity()) return;
                 this.saving = true; errorEl.textContent = "";
                 // Disable every control while persistence is pending, including
                 // Cancel/Escape, so closing cannot misleadingly cancel a save.
-                const controls = [...form.querySelectorAll("button,input,select")];
+                const controls = [...new Set([...form.querySelectorAll("button,input,select,textarea"), input, ...(this.taskFields.steps?.controls ?? [])])];
+                const previews = [...form.querySelectorAll('[role="button"]')].map(element => ({ element, tabIndex: element.tabIndex }));
+                previews.forEach(({ element }) => { element.tabIndex = -1; element.setAttribute("aria-disabled", "true"); });
                 const states = controls.map(control => control.disabled); controls.forEach(control => control.disabled = true);
                 try {
-                    const values = { ...state, ...relationships.value(), text: input.value,
-                        operation: deleting ? "delete" : "edit", location: fieldsLocation.value() };
-                    if (!deleting) Object.assign(values, taskFormValues(values));
+                    const values = { ...state, ...phase.value(), text: input.value,
+                        operation: deleting ? "delete" : "edit", location: location() };
+                    if (!deleting) { validateTaskDates(values); Object.assign(values, taskFormValues(values)); }
                     if (creation) {
-                        if (!values.location) throw Error("Choose a Location.");
+                        if (!values.location) throw Error("Explorations is unavailable. Open Add task from a valid Project or Resource destination.");
                         await service.create(values.location, values.text, values);
                         creation.onCreated?.();
                     } else onEdit(await service.save(snapshot, values));
                     this.saving = false; this.close();
                 } catch (error) {
                     this.saving = false; controls.forEach((control, i) => control.disabled = states[i]);
+                    previews.forEach(({ element, tabIndex }) => { element.tabIndex = tabIndex; element.removeAttribute("aria-disabled"); });
                     errorEl.textContent = error.message;
                 }
             };
@@ -17161,43 +19871,39 @@ function openTaskEditor(service, task, onEdit = () => {}, creation = null) {
                     errorEl.textContent = snapshot.steps.length ? "Delete this task and its Steps from the note?" : "Delete this task from the note?"; return; }
                 void commit(true);
             });
-            layoutModal(this, { container: form, footer: actions });
-            input.focus(); input.setSelectionRange(input.value.length, input.value.length);
+            const body = layoutModal(this, { container: form, footer: actions });
+            // Reserve the real native scrollbar outside the original content
+            // width, before title measurement. Inline expansion cannot rewrap
+            // the card just because the body's scrollbar becomes necessary.
+            body.style.overflowY = "scroll";
+            const gutter = body.offsetWidth - body.clientWidth;
+            body.style.marginRight = (-5 - gutter) + "px";
+            body.style.scrollbarGutter = "stable"; body.style.overflowY = "auto";
+            // Region ownership and scrollbar constraints are final now. Measure
+            // the styled title synchronously before Modal.open can present it.
+            this.taskFields.resizeTitle();
+            if (creation) { input.focus({ preventScroll: true }); input.setSelectionRange(input.value.length, input.value.length); }
+            else { this.modalEl.tabIndex = -1; this.modalEl.focus({ preventScroll: true }); }
         }
-        close() { if (!this.saving) super.close(); }
-        onClose() { this.closed = true; this.locationFields?.destroy(); this.taskFields?.destroy(); this.contentEl.empty(); }
+        close() { if (!this.saving) { this.closed = true; super.close(); } }
+        onClose() { this.closed = true; this.taskFields?.destroy(); this.contentEl.empty(); }
     }
-    const modal = new TaskModal(service.app); modal.open(); return modal;
-}
-
-function availableLocations(service, root) {
-    if (service.locations) return service.locations(root);
-    return service.app.vault.getMarkdownFiles().filter(file => !root || file.path.startsWith(root + "/"))
-        .map(file => ({ path: file.path, file, label: file.path.replace(/\.md$/i, "").split("/").slice(-2).join(" › ") }));
-}
-
-function locationFields(service, host, snapshot, root) {
-    let path = snapshot.path, changed = () => {}, picker = null, disposed = false;
-    const getItems = () => availableLocations(service, root);
-    const sync = () => {
-        const location = getItems().find(item => item.path === path);
-        trigger.update({
-            title: location?.label ?? location?.name ?? (path ? path.split("/").pop().replace(/\.md$/i, "") : "Choose a note or folder…"),
-            subtitle: location ? location.folder ? "Folder · Tasks note" : "Markdown note · " + path.split("/").pop() : null,
-            icon: location?.folder || !path ? "folder" : "notebook-text"
-        });
-    };
-    const trigger = createCapturePickerTrigger(host, { label: "Location", onOpen: () => {
-        if (picker || disposed) return;
-        picker = openCaptureLocationPicker(service, {
-            workspace: root ? service.context?.(root) : null, task: true, selectedPath: path, getItems,
-            onSelect: selected => { if (!disposed) { path = selected.path; sync(); changed(); } },
-            restoreFocus: () => { picker = null; if (!disposed) trigger.button.focus({ preventScroll: true }); }
-        });
-    } });
-    sync();
-    return { value: () => path, onChange: callback => { changed = callback; },
-        destroy() { disposed = true; picker?.close(); } };
+    const modal = new TaskModal(service.app);
+    // Obsidian appends the modal before calling onOpen and does not await it.
+    // Keep the native container detached until the snapshot is available; there
+    // is no intermediate modal, backdrop, focus transfer or loading geometry.
+    const present = () => { if (modal.closed) return null; modal.open(); return modal; };
+    const failed = error => { if (modal.closed) return null; modal.close(); new Notice(error.message); return null; };
+    if (creation) {
+        try {
+            modal.snapshot = { text: "", steps: [], necessity: null, ...creation, completed: false, path: initialComposerTaskLocation(service, creation) };
+            modal.ready = Promise.resolve(present());
+        } catch (error) { modal.ready = Promise.resolve(failed(error)); }
+    } else modal.ready = (async () => {
+        try { modal.snapshot = await service.read(task); return present(); }
+        catch (error) { return failed(error); }
+    })();
+    return modal;
 }
 
 function openTaskCreator(service, options = {}) {
@@ -17213,6 +19919,9 @@ const { hasKeyboardFocus, focusAfterRowRemoval } = __hubRequire("lib/ui/focus-re
 const { setHubIcon } = __hubRequire("lib/ui/icons.js");
 const { bindCompletionSound, playStepCompletionSound } = __hubRequire("lib/ui/completion-audio.js");
 const { mountTaskDateTime } = __hubRequire("lib/ui/date-time.js");
+const { createCapturePickerTrigger } = __hubRequire("lib/ui/capture-picker-trigger.js");
+const { TASK_FORM_ORDER, TASK_FIELD_LABELS: labels } = __hubRequire("lib/domain/task-form.js");
+const { appendTask } = __hubRequire("lib/domain/task-planning.js");
 
 function taskSection(host, title, help) {
     const section = host.createEl("section", { cls: "hub-task-section" });
@@ -17221,22 +19930,62 @@ function taskSection(host, title, help) {
     return section;
 }
 
-function mountTaskText(host, state, onChange = () => {}, { placeholder = "", multiline = false } = {}) {
-    const input = host.createEl(multiline ? "textarea" : "input", { cls: multiline ? "hub-quick-add-input" : "hub-task-title-input",
-        attr: { ...(multiline ? { rows: "3" } : { type: "text" }), "aria-label": "Task", required: "" } });
+function mountTaskText(host, state, onChange = () => {}, { placeholder = "", multiline = false, wrapTitle = false, required = true, attributes = {} } = {}) {
+    const input = host.createEl(multiline || wrapTitle ? "textarea" : "input", { cls: multiline ? "hub-quick-add-input" : "hub-task-title-input",
+        attr: { ...(wrapTitle ? { rows: "1", wrap: "soft" } : multiline ? { rows: "3" } : { type: "text" }), "aria-label": labels.text, ...(required ? { required: "" } : {}), ...attributes } });
     input.value = state.text ?? ""; input.placeholder = placeholder;
-    input.addEventListener("input", () => { state.text = input.value; onChange({ text: state.text }); });
+    input.addEventListener("input", () => { if (!input.disabled && !input.readOnly) {
+        // Match the single-line input's native CR/LF stripping for paste/drop.
+        // Soft wrapping is presentation only; it never creates Markdown lines.
+        if (wrapTitle && /[\r\n]/.test(input.value)) {
+            const value = input.value, start = input.selectionStart, end = input.selectionEnd, direction = input.selectionDirection;
+            input.value = value.replace(/[\r\n]/g, "");
+            input.setSelectionRange(value.slice(0, start).replace(/[\r\n]/g, "").length, value.slice(0, end).replace(/[\r\n]/g, "").length, direction);
+        }
+        state.text = input.value; onChange({ text: state.text });
+    } });
     return input;
 }
 
+// Shared natural-height measurement for the task title and editable checklist
+// text. Call resize after attaching/showing a field, before assigning focus.
+function mountWrappingTaskInput(input) {
+    let width, frame;
+    const resize = () => {
+        if (!input.isConnected || !input.getClientRects().length) return;
+        const originalWidth = input.style.width;
+        for (let pass = 0; pass < 2; pass++) {
+            const measuredWidth = input.getBoundingClientRect().width;
+            input.style.width = measuredWidth + "px";
+            input.style.height = "auto"; input.style.height = input.scrollHeight + "px";
+            input.style.width = originalWidth;
+            if (Math.abs(input.getBoundingClientRect().width - measuredWidth) < 0.1) break;
+        }
+        width = input.clientWidth;
+    };
+    input.addEventListener("input", resize);
+    const view = input.ownerDocument.defaultView;
+    const observer = new view.ResizeObserver(() => {
+        if (width !== input.clientWidth) {
+            width = input.clientWidth;
+            if (frame === undefined) frame = view.requestAnimationFrame(() => { frame = undefined; resize(); });
+        }
+    });
+    observer.observe(input); resize();
+    return { resize, destroy() { observer.disconnect(); input.removeEventListener("input", resize); if (frame !== undefined) view.cancelAnimationFrame(frame); } };
+}
+
 function mountTaskFields({ app, host, state, onChange = () => {}, section = (title, help) => taskSection(host, title, help) }) {
-    const necessity = section("Necessity");
+    const necessity = section(labels.necessity);
     const heading = necessity.createDiv({ cls: "hub-task-necessity-heading" });
     const title = necessity.querySelector("h3"); if (title) heading.appendChild(title);
-    const choices = necessity.createDiv({ cls: "hub-task-necessity-choices", attr: { role: "group", "aria-label": "Necessity" } });
+    const choices = necessity.createDiv({ cls: "hub-task-necessity-choices hub-option-group", attr: { role: "group", "aria-label": labels.necessity } });
     const buttons = ["should", "must"].map(value => {
-        const button = choices.createEl("button", { text: value === "should" ? "Should do" : "Must do",
+        const button = choices.createEl("button", {
             cls: `hub-task-necessity-choice is-${value}`, attr: { type: "button" } });
+        const group = button.createSpan({ cls: "hub-task-necessity-label" });
+        group.createSpan({ cls: `hub-task-necessity-bar is-${value}`, attr: { "aria-hidden": "true" } });
+        group.createSpan({ text: labels[value] });
         button.addEventListener("click", () => { state.necessity = state.necessity === value ? null : value; syncNecessity(); onChange({ necessity: state.necessity }); });
         return { button, value };
     });
@@ -17249,24 +19998,102 @@ function mountTaskFields({ app, host, state, onChange = () => {}, section = (tit
 
     const dates = section();
     const fields = dates.createDiv({ cls: "hub-task-date-fields" });
-    const from = mountTaskDateTime({ app, host: fields, label: "Start date", state, dateKey: "fromDate", timeKey: "fromTime", onChange: patch => {
+    const from = mountTaskDateTime({ app, host: fields, label: labels.fromDate, state, dateKey: "fromDate", timeKey: "fromTime", onChange: patch => {
         due.setMin(state.fromDate); onChange(patch);
     } });
-    const due = mountTaskDateTime({ app, host: fields, label: "Due date", state, dateKey: "dueDate", timeKey: "dueTime", onChange });
+    const due = mountTaskDateTime({ app, host: fields, label: labels.dueDate, state, dateKey: "dueDate", timeKey: "dueTime", onChange });
     due.setMin(state.fromDate);
 
-    const steps = section("Steps");
-    const list = steps.createDiv({ cls: "hub-task-step-list" });
+    const steps = mountTaskSteps({ host: section(labels.steps), state, onChange });
+    return {
+        refresh() { syncNecessity(); from.refresh(); due.refresh(); due.setMin(state.fromDate); steps.refresh(); },
+        destroy() { from.destroy(); due.destroy(); }
+    };
+}
+
+// Both form layouts edit the same draft Step objects and Markdown line anchors.
+function mountTaskSteps({ host: steps, state, onChange = () => {}, emptyPrompt = false, inlineAdd = false, checklist = null, markdown = null, getPath = () => state.path, actionLabel = "Add step", pendingPlaceholder = "Add a step...", focusFallback = null, canAdd = null, onBeforeAdd = () => {} }) {
+    const list = checklist?.rowsHost ?? steps.createDiv({ cls: "hub-task-step-list" });
+    const editors = new Set(), sizes = new Map();
+    const textInput = (parent, attributes, value = "") => {
+        const input = parent.createEl(checklist ? "textarea" : "input", { attr: { ...(checklist ? { rows: "1", wrap: "soft" } : { type: "text" }), ...attributes } });
+        input.value = value;
+        if (checklist) {
+            input.classList.add("hub-task-card-edit-input");
+            input.addEventListener("input", () => {
+                // Soft wrapping never becomes extra Markdown task lines.
+                if (/[\r\n]/.test(input.value)) {
+                    const value = input.value, start = input.selectionStart, end = input.selectionEnd, direction = input.selectionDirection;
+                    input.value = value.replace(/[\r\n]/g, "");
+                    input.setSelectionRange(value.slice(0, start).replace(/[\r\n]/g, "").length, value.slice(0, end).replace(/[\r\n]/g, "").length, direction);
+                }
+            });
+            sizes.set(input, mountWrappingTaskInput(input));
+        }
+        return input;
+    };
     state.steps ??= [];
-    const renderSteps = () => {
-        list.replaceChildren();
+    const renderSteps = (appendOnly = false) => {
+        if (!appendOnly) { for (const input of editors) { sizes.get(input)?.destroy(); sizes.delete(input); } list.replaceChildren(); editors.clear(); }
+        if (emptyPrompt && !state.steps.length) {
+            const prompt = list.createEl("input", { type: "text", attr: { "aria-label": "New step", placeholder: "Add a step..." } });
+            prompt.addEventListener("input", () => {
+                if (!prompt.value.trim()) return;
+                const position = prompt.selectionStart;
+                state.steps.push({ text: prompt.value, completed: false }); renderSteps(); onChange({ steps: state.steps });
+                const input = list.querySelector("input[type=text]"); input.focus(); input.setSelectionRange(position, position);
+            });
+        }
         state.steps.forEach((step, index) => {
-            const row = list.createDiv({ cls: "hub-task-step" });
-            const checkbox = row.createEl("input", { type: "checkbox", attr: { "aria-label": "Step complete" } }); checkbox.checked = !!step.completed;
+            if (appendOnly && index !== state.steps.length - 1) return;
+            const parts = checklist?.createRow(step);
+            const row = parts?.row ?? list.createDiv({ cls: "hub-task-step" });
+            if (!parts) row.classList.add("hub-task-step"); row.classList.toggle("is-completed", inlineAdd && !!step.completed);
+            const checkbox = parts?.checkbox ?? row.createEl("input", { type: "checkbox", attr: { "aria-label": "Step complete" } }); checkbox.checked = !!step.completed;
             bindCompletionSound(checkbox, playStepCompletionSound);
-            checkbox.addEventListener("change", () => { step.completed = checkbox.checked; step.completedAt = checkbox.checked ? Date.now() : null; onChange({ steps: state.steps }); });
-            const input = row.createEl("input", { type: "text", attr: { "aria-label": "Step text", required: "" } }); input.value = step.text ?? "";
-            input.addEventListener("input", () => { step.text = input.value; onChange({ steps: state.steps }); });
+            checkbox.addEventListener("change", () => { step.completed = checkbox.checked; step.completedAt = checkbox.checked ? Date.now() : null;
+                if (inlineAdd) row.classList.toggle("is-completed", step.completed); onChange({ steps: state.steps }); });
+            const input = textInput(parts?.text ?? row, { "aria-label": "Step text", required: "" }, step.text ?? "");
+            editors.add(input);
+            input.addEventListener("input", () => { if (!input.disabled && !input.readOnly) { step.text = input.value; onChange({ steps: state.steps }); } });
+            if (parts) {
+                input.classList.add("hub-task-card-edit-input");
+                parts.text.tabIndex = 0; parts.text.setAttribute("role", "button"); parts.text.setAttribute("aria-label", "Edit Step: " + step.text);
+                const show = () => { if (input.disabled) return; parts.text.removeAttribute("role"); parts.text.tabIndex = -1; parts.text.replaceChildren(input); sizes.get(input)?.resize(); input.focus(); };
+                const preview = () => {
+                    try { appendTask("", input.value); }
+                    catch (error) { input.setCustomValidity(error.message); return; }
+                    input.remove();
+                    parts.text.textContent = step.text;
+                    parts.text.setAttribute("role", "button"); parts.text.tabIndex = 0;
+                    void markdown.render(parts.text, step.text, getPath, () => !parts.text.contains(input));
+                };
+                parts.text.addEventListener("click", event => { if (event.target !== input) { event.preventDefault(); event.stopImmediatePropagation(); show(); } }, true);
+                parts.text.addEventListener("keydown", event => {
+                    if (event.target !== input && ["Enter", " "].includes(event.key)) { event.preventDefault(); show(); }
+                });
+                input.addEventListener("blur", preview); preview();
+            }
+            if (inlineAdd) {
+                const confirm = () => {
+                    try { appendTask("", input.value); }
+                    catch (error) { input.setCustomValidity(error.message); input.reportValidity(); return; }
+                    input.blur(); add.focus({ preventScroll: true });
+                };
+                input.addEventListener("input", () => input.setCustomValidity(""));
+                input.addEventListener("keydown", event => {
+                    if (event.isComposing || event.keyCode === 229 || !["Enter", "Escape"].includes(event.key)) return;
+                    // A checklist key finishes this row, never implicitly saves
+                    // the parent task form. The task's Save commits all edits.
+                    event.preventDefault(); event.stopPropagation();
+                    if (event.key === "Enter") {
+                        confirm();
+                    } else { input.blur(); checkbox.focus({ preventScroll: true }); }
+                });
+                input.addEventListener("beforeinput", event => {
+                    if (!event.isComposing && ["insertLineBreak", "insertParagraph"].includes(event.inputType)) { event.preventDefault(); confirm(); }
+                });
+            }
             const remove = row.createEl("button", { attr: { type: "button", "aria-label": "Remove step " + (index + 1) } }); setHubIcon(remove, "x");
             remove.addEventListener("click", event => {
                 const restoreFocus = hasKeyboardFocus(remove, event);
@@ -17274,57 +20101,522 @@ function mountTaskFields({ app, host, state, onChange = () => {}, section = (tit
                 // descendants, exactly as in the ordinary editor.
                 state.steps = state.steps.filter(child => child !== step && !(step.line != null && child.line > step.line && child.line < step.end));
                 renderSteps(); onChange({ steps: state.steps });
-                if (restoreFocus) focusAfterRowRemoval([...list.querySelectorAll(".hub-task-step > button")], index, add);
+                if (restoreFocus) focusAfterRowRemoval([...list.querySelectorAll(".hub-task-step > button, .hub-task-step-item > button")], index, draft && !draft.hidden ? draftInput : (add.getClientRects().length ? add : focusFallback ?? add));
             });
         });
     };
     renderSteps();
-    const add = steps.createEl("button", { cls: "hub-task-add-step", attr: { type: "button" } });
-    setHubIcon(add.createSpan(), "plus"); add.createSpan({ text: "Add step" });
+    const draftParts = inlineAdd && checklist ? checklist.createRow({ text: "" }, checklist.list) : null;
+    const draft = inlineAdd ? draftParts?.row ?? steps.createDiv({ cls: "hub-task-step-draft hub-task-step" }) : null;
+    if (draft) draft.classList.add("hub-task-step-draft");
+    if (draft && !checklist) draft.classList.add("hub-task-step");
+    if (draft) draft.hidden = true;
+    const draftCheckbox = draftParts?.checkbox ?? draft?.createEl("input", { type: "checkbox", attr: { "aria-label": "New step complete" } });
+    draftCheckbox?.setAttribute("aria-label", "New step complete");
+    let draftCompletedAt = null, composing = false;
+    if (draftCheckbox) {
+        bindCompletionSound(draftCheckbox, playStepCompletionSound);
+        draftCheckbox.addEventListener("change", () => { draftCompletedAt = draftCheckbox.checked ? Date.now() : null;
+            draft.classList.toggle("is-completed", draftCheckbox.checked); onChange({ steps: state.steps }); });
+    }
+    const draftInput = draft ? textInput(draftParts?.text ?? draft, { "aria-label": "New step", placeholder: pendingPlaceholder }) : null;
+    if (checklist) draftInput?.classList.add("hub-task-card-edit-input");
+    const cancelDraft = draft?.createEl("button", { attr: { type: "button", "aria-label": "Cancel new step" } });
+    if (cancelDraft) setHubIcon(cancelDraft, "x");
+    const add = (checklist?.list ?? steps).createEl("button", { cls: "hub-task-add-step" + (inlineAdd ? " hub-task-inline-action" : ""), attr: { type: "button" } });
+    setHubIcon(add.createSpan(), inlineAdd ? "circle-plus" : "plus"); add.createSpan({ text: actionLabel });
+    const meaningfulPending = () => {
+        if (!draft || draft.hidden || !draftInput.value.trim()) return false;
+        try { appendTask("", draftInput.value); return true; } catch (_) { return false; }
+    };
+    // Editor opt-in; generic forms retain their existing creation conventions.
+    const refreshReadiness = () => { if (canAdd) add.disabled = !canAdd() || !!draft && !draft.hidden && !meaningfulPending(); };
+    let draftVersion = 0, pointerDown = false, emptyBlurVersion = null, pointerTimer = null;
+    const pointerRoot = inlineAdd ? steps.closest(".modal") ?? steps.closest("form") ?? steps : null;
+    const view = steps.ownerDocument.defaultView;
+    const closeDraft = (focus = false) => {
+        if (!draft) return;
+        draftVersion++;
+        draft.hidden = true; draftInput.value = ""; draftInput.setCustomValidity(""); draftCheckbox.checked = false;
+        draftCompletedAt = null; draft.classList.remove("is-completed"); add.hidden = false;
+        refreshReadiness();
+        if (checklist) onChange({ steps: state.steps });
+        if (focus) (add.getClientRects().length ? add : focusFallback ?? add).focus({ preventScroll: true });
+    };
+    const commitPending = (focus = false) => {
+        if (!draft || draft.hidden) return true;
+        if (composing) return false;
+        if (!draftInput.value.trim() && !focus) { closeDraft(); return true; }
+        try { appendTask("", draftInput.value); }
+        catch (error) { draftInput.setCustomValidity(error.message); draftInput.reportValidity(); return false; }
+        state.steps.push({ text: draftInput.value.trim(), completed: !!draftCheckbox.checked,
+            ...(draftCompletedAt ? { completedAt: draftCompletedAt } : {}) });
+        // Append without replacing existing rows: a blur caused by clicking an
+        // existing Step must preserve that row's native focus/click target.
+        closeDraft(focus); renderSteps(true); onChange({ steps: state.steps }); return true;
+    };
+    const finishBlur = () => {
+        if (!draft?.isConnected || draft.hidden || composing || draft.contains(steps.ownerDocument.activeElement)) return;
+        // A valid confirmation replaces a row of the same height. Empty rows
+        // must survive pointer-down until click finishes, or the clicked control
+        // can move out from under pointer-up and lose its intended action.
+        if (pointerDown && !draftInput.value.trim()) emptyBlurVersion = draftVersion;
+        else commitPending(); // Never restore Add focus for blur or Save.
+    };
+    const flushEmptyBlur = () => {
+        const version = emptyBlurVersion; emptyBlurVersion = null;
+        if (version !== null && version === draftVersion) finishBlur();
+    };
+    // A disabled native button rejects clicks but can still blur the editor.
+    // Cancel focus transfer at the existing capture boundary, only for this
+    // editor-opted-in action. All other targets retain their normal blur path.
+    const preventDisabledAddFocus = event => {
+        if (canAdd && add.disabled && event.composedPath().includes(add)) {
+            event.preventDefault(); return true;
+        }
+        return false;
+    };
+    const beginPointer = event => { if (!preventDisabledAddFocus(event)) pointerDown = true; };
+    const endPointer = () => {
+        if (!pointerDown) return;
+        pointerDown = false; view.clearTimeout(pointerTimer);
+        // Click normally flushes after its target handler. This also handles a
+        // released drag that produces no click; timers run after native click.
+        pointerTimer = view.setTimeout(flushEmptyBlur, 0);
+    };
+    const keyboardPointerReset = () => { pointerDown = false; flushEmptyBlur(); };
+    const pointerListeners = [[pointerRoot, "pointerdown", beginPointer, true], [pointerRoot, "mousedown", preventDisabledAddFocus, true],
+        [steps.ownerDocument, "pointerup", endPointer, true], [steps.ownerDocument, "pointercancel", endPointer, true],
+        [pointerRoot, "click", flushEmptyBlur, false], [pointerRoot, "keydown", keyboardPointerReset, true]];
+    if (pointerRoot) pointerListeners.forEach(([target, type, handler, capture]) => target.addEventListener(type, handler, capture));
+    if (draftInput) {
+        draftInput.addEventListener("compositionstart", () => { composing = true; });
+        draftInput.addEventListener("compositionend", () => { composing = false;
+            finishBlur(); });
+        draftInput.addEventListener("input", () => { draftInput.setCustomValidity(""); refreshReadiness(); onChange({ steps: state.steps }); });
+        draftInput.addEventListener("keydown", event => {
+            if (event.isComposing || event.keyCode === 229) return;
+            if (event.key === "Enter") { event.preventDefault(); event.stopPropagation(); commitPending(true); }
+            if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); closeDraft(true); }
+        });
+        draftInput.addEventListener("beforeinput", event => {
+            if (!event.isComposing && ["insertLineBreak", "insertParagraph"].includes(event.inputType)) { event.preventDefault(); commitPending(true); }
+        });
+        draft.addEventListener("focusout", event => {
+            // Native pointer focus can run a microtask between blur and focus,
+            // while activeElement is temporarily body. Trust relatedTarget for
+            // row-internal controls so their click is not removed mid-event.
+            if (draft.contains(event.relatedTarget)) return;
+            queueMicrotask(finishBlur);
+        });
+        cancelDraft.addEventListener("click", event => closeDraft(canAdd ? hasKeyboardFocus(cancelDraft, event) : true));
+    }
     add.addEventListener("click", () => {
+        if (add.disabled) return;
+        onBeforeAdd();
+        if (inlineAdd) { if (!commitPending()) return; draftVersion++; draft.hidden = false; refreshReadiness(); if (checklist) onChange({ steps: state.steps }); sizes.get(draftInput)?.resize(); draftInput.focus(); return; }
         state.steps.push({ text: "", completed: false }); renderSteps();
         list.lastElementChild?.querySelector("input[type=text]")?.focus(); onChange({ steps: state.steps });
     });
-    return {
-        refresh() { syncNecessity(); from.refresh(); due.refresh(); due.setMin(state.fromDate); renderSteps(); },
-        destroy() { from.destroy(); due.destroy(); }
-    };
+    refreshReadiness();
+    return { refresh: renderSteps, refreshReadiness, commitPending, list, draftInput, add,
+        get controls() { return [...editors, ...(draftInput ? [draftInput] : [])]; },
+        get hasPending() { return !!draft && !draft.hidden; }, get pendingCompleted() { return !!draftCheckbox?.checked; },
+        get meaningfulPending() { return meaningfulPending(); },
+        destroy() { view.clearTimeout(pointerTimer); emptyBlurVersion = null;
+            for (const sizing of sizes.values()) sizing.destroy(); sizes.clear();
+            if (pointerRoot) pointerListeners.forEach(([target, type, handler, capture]) => target.removeEventListener(type, handler, capture)); },
+        focusNew() { if (inlineAdd || !state.steps.length && !emptyPrompt) add.click(); else list.querySelector("input[type=text]")?.focus(); } };
 }
 
-function mountTaskRelationshipFields({ host, state, service, location, onChange = () => {}, section = (title, help) => taskSection(host, title, help) }) {
-    const project = section("Project (optional)");
-    const association = project.createEl("select", { attr: { "aria-label": "Project (optional)" } });
-    const phaseSection = section("Phase");
-    const phaseLabel = phaseSection.createEl("label");
-    phaseLabel.createSpan({ text: "Project phase (optional)", cls: "hub-capture-label" });
-    const phase = phaseLabel.createEl("select", { attr: { "aria-label": "Project phase (optional)" } });
+function mountTaskPhase({ host, state, service, location, onChange = () => {}, section = (title, help) => taskSection(host, title, help) }) {
+    const phaseSection = section(labels.phase);
+    const control = phaseSection.createDiv({ cls: "hub-task-select-control hub-task-picker-control" });
+    const phase = control.createEl("select", { attr: { "aria-label": labels.phase } });
+    for (const [state, icon] of [["closed", "chevron-down"], ["open", "chevron-up"]]) {
+        setHubIcon(control.createSpan({ cls: "hub-capture-icon is-" + state, attr: { "aria-hidden": "true" } }), icon);
+    }
     const options = (select, items, selected, placeholder) => {
         select.replaceChildren(); select.createEl("option", { text: placeholder, attr: { value: "" } });
         for (const item of items) select.createEl("option", { text: item.name, attr: { value: item.id } });
         if (selected && !items.some(item => item.id === selected)) select.createEl("option", { text: "Unavailable selection", attr: { value: selected } });
         select.value = selected ?? "";
     };
-    let initialized = false;
+    let initialized = false, previousOwner;
     const refresh = () => {
-        if (initialized) { state.linkedProjectId = association.value; state.phaseId = phase.value; }
         const path = location(); const owner = path ? service.context?.(path) : null;
-        project.hidden = owner?.contextKind !== "resource";
+        const ownerKey = owner ? `${owner.contextKind}:${owner.projectId ?? owner.root}` : null;
+        // Read state, never an old DOM selection. A different owning Project
+        // cannot inherit the previous Project's phase, even if IDs collide.
+        if (initialized && ownerKey !== previousOwner) state.phaseId = "";
         phaseSection.hidden = owner?.contextKind !== "project";
-        options(association, (service.projects?.() ?? []).map(item => ({ ...item, id: item.projectId })), state.linkedProjectId, "No project");
-        options(phase, path ? service.phases?.(path) ?? [] : [], state.phaseId, "No phase");
-        initialized = true;
+        options(phase, !phaseSection.hidden ? service.phases?.(path) ?? [] : [], state.phaseId, labels.noPhase);
+        previousOwner = ownerKey; initialized = true;
     };
-    association.addEventListener("change", () => { state.linkedProjectId = association.value; onChange({ linkedProjectId: state.linkedProjectId }); });
     phase.addEventListener("change", () => { state.phaseId = phase.value; onChange({ phaseId: state.phaseId }); });
-    refresh(); return { refresh, value: () => ({ linkedProjectId: project.hidden ? null : association.value, phaseId: phaseSection.hidden ? null : phase.value }) };
+    refresh(); return { refresh, value: () => ({ phaseId: phaseSection.hidden ? null : phase.value }) };
 }
 
-module.exports = { taskSection, mountTaskText, mountTaskFields, mountTaskRelationshipFields };
+function mountTaskDestinationFields({ host, workspace, location }) {
+    const controls = {};
+    for (const [key, options] of [["workspace", workspace], ["location", location]]) {
+        if (!options) continue;
+        const section = taskSection(host, labels[key]);
+        section.dataset.taskField = key;
+        section.dataset.captureField = key === "workspace" ? "Workspace" : "Location";
+        controls[key] = createCapturePickerTrigger(section, { ...options, label: labels[key] });
+    }
+    return controls;
+}
+
+// Workflow adapters provide routing and save behavior. Field order, markup,
+// labels and controls live here for Quick Add, Inbox and the ordinary editor.
+// Capture owns its primary text above Type; it uses mountTaskText there too.
+function mountTaskForm({ app, host, state, service, location, destination, text, onChange = () => {} }) {
+    const element = host.createDiv({ cls: "hub-task-fields" });
+    const sections = {};
+    for (const key of TASK_FORM_ORDER) {
+        if (key === "text" && !text) continue;
+        const section = key === "destination" ? element.createDiv({ cls: "hub-task-destination-fields" }) : taskSection(element, labels[key]);
+        section.dataset.taskField = key; sections[key] = section;
+    }
+    if (sections.text) sections.text.dataset.captureField = "Content";
+    const input = text ? mountTaskText(sections.text, state, onChange, text) : null;
+    const destinations = mountTaskDestinationFields({ host: sections.destination, ...destination });
+    const fields = mountTaskFields({ app, host: element, state, onChange,
+        section: title => sections[title === labels.necessity ? "necessity" : title === labels.steps ? "steps" : "dates"] });
+    const phase = mountTaskPhase({ host: element, state, service, location, onChange, section: () => sections.phase });
+    return { element, input, destinations, phase,
+        refresh() { fields.refresh(); phase.refresh(); },
+        destroy() { fields.destroy(); element.remove(); } };
+}
+
+module.exports = { taskSection, mountTaskText, mountWrappingTaskInput, mountTaskSteps, mountTaskFields, mountTaskPhase, mountTaskDestinationFields, mountTaskForm };
+
+},
+"lib/ui/task-live-form.js": function (module, exports, __hubRequire) {
+"use strict";
+const { Component } = require("obsidian");
+const { createTaskRow, mountTaskCardPresentation, createTaskChecklist } = __hubRequire("lib/ui/task-card.js");
+const { createHubMarkdown } = __hubRequire("lib/ui/markdown.js");
+const { mountTaskSteps } = __hubRequire("lib/ui/task-form.js");
+const { mountWrappingTaskTitle, mountTaskNecessity, mountTaskPhaseButton, bindPropertyPopover } = __hubRequire("lib/ui/task-compact-form.js");
+const { mountTaskAccordion } = __hubRequire("lib/ui/task-accordion.js");
+const { createTaskDatePopoverInput, measureNativeDatePopover } = __hubRequire("lib/ui/date-time.js");
+const { validateTaskDates } = __hubRequire("lib/domain/task-compact-form.js");
+const { bindCompletionSound, playTaskCompletionSound } = __hubRequire("lib/ui/completion-audio.js");
+const { setHubIcon } = __hubRequire("lib/ui/icons.js");
+const { mountTransientEffects } = __hubRequire("lib/ui/attention.js");
+
+function configurationAction(host, name, icon, property) {
+    const button = host.createEl("button", { cls: "hub-task-config-action", attr: { type: "button", "aria-label": name, "data-task-property": property } });
+    const graphic = button.createSpan({ attr: { "aria-hidden": "true" } }); setHubIcon(graphic, icon);
+    const label = button.createSpan({ cls: "hub-task-config-label", text: name });
+    const indicator = button.createSpan({ cls: "hub-task-config-check", attr: { "aria-hidden": "true" } }); setHubIcon(indicator, "check");
+    return { button, graphic, update(value) { label.textContent = value; button.setAttribute("aria-label", value + (button.classList.contains("is-configured") ? ", configured" : "")); } };
+}
+
+function mountTaskDateEndpoint(control, state, prefix, onChange, bind = bindPropertyPopover) {
+    const name = prefix === "from" ? "Start date" : "Due date", dateKey = prefix + "Date", timeKey = prefix + "Time";
+    const refresh = () => control.update((state[dateKey] ? "Change " : "Add ") + name.toLowerCase());
+    const picker = bind(control, { title: name, width: (element, width) => measureNativeDatePopover(element, width, { equalColumns: true }), avoidFooter: true, className: "hub-task-date-endpoint",
+        render({ body, close, register }) {
+            const draft = { ...state };
+            const fields = body.createDiv({ cls: "hub-task-popover-date-inputs hub-task-popover-date" });
+            const date = createTaskDatePopoverInput(fields, "date", name, "Select date", { keyboardPicker: true });
+            const time = createTaskDatePopoverInput(fields, "time", name + " time", "Add time", { keyboardPicker: true });
+            register(() => { date.destroy(); time.destroy(); });
+            const sync = () => {
+                date.input.value = draft[dateKey] ?? ""; time.input.value = draft[timeKey] ?? "";
+                time.input.disabled = !draft[dateKey]; date.refresh(); time.refresh();
+            };
+            date.clear.onclick = () => { draft[dateKey] = draft[timeKey] = ""; sync(); date.input.focus(); };
+            time.clear.onclick = () => { draft[timeKey] = ""; sync(); time.input.focus(); };
+            for (const type of ["input", "change"]) {
+                date.input.addEventListener(type, () => {
+                    if (date.input.validity.badInput) return;
+                    draft[dateKey] = date.input.value; if (!draft[dateKey]) draft[timeKey] = "";
+                    time.input.value = draft[timeKey] ?? ""; time.input.disabled = !draft[dateKey]; date.refresh(); time.refresh();
+                });
+                time.input.addEventListener(type, () => {
+                    if (time.input.disabled || time.input.validity.badInput) return;
+                    draft[timeKey] = time.input.value; time.refresh();
+                });
+            }
+            sync();
+            const error = body.createDiv({ cls: "hub-task-error", attr: { role: "alert" } });
+            const actions = body.createDiv({ cls: "hub-task-popover-actions" });
+            actions.createEl("button", { text: "Cancel", attr: { type: "button" } }).onclick = () => close();
+            const apply = actions.createEl("button", { text: "Apply", cls: "mod-cta", attr: { type: "button" } });
+            apply.onclick = () => {
+                if (!date.input.reportValidity() || !time.input.reportValidity()) return;
+                const next = { ...state, [dateKey]: draft[dateKey], [timeKey]: draft[timeKey] };
+                try { validateTaskDates(next); } catch (problem) { error.textContent = problem.message; return; }
+                state[dateKey] = draft[dateKey] ?? ""; state[timeKey] = draft[timeKey] ?? "";
+                refresh(); onChange({ [dateKey]: state[dateKey], [timeKey]: state[timeKey] }); close();
+            };
+            body.addEventListener("keydown", event => {
+                if (event.key === "Enter" && !event.isComposing && event.target.tagName === "INPUT") { event.preventDefault(); apply.click(); }
+            });
+        } });
+    refresh(); return { ...picker, refresh };
+}
+
+function mountTaskDescriptionPopover(control, state, onChange, onFeedback, bind = bindPropertyPopover) {
+    const refresh = () => control.update(state.description?.trim() ? "Edit description" : "Add description");
+    let original, introduced;
+    const picker = bind(control, { title: "Description", avoidFooter: true, className: "hub-task-description-editor", width: 400,
+        onClose() { refresh(); if (!introduced && original !== state.description && state.description?.trim()) onFeedback(); },
+        render({ body, close }) {
+            original = state.description ?? ""; introduced = false;
+            const input = body.createEl("textarea", { cls: "hub-task-description", attr: { rows: "3", "aria-label": "Description", placeholder: "Add a description..." } });
+            input.value = original;
+            input.addEventListener("input", () => {
+                if (!state.description?.trim() && input.value.trim()) introduced = true;
+                state.description = input.value; onChange({ description: state.description });
+            });
+            const actions = body.createDiv({ cls: "hub-task-popover-actions" });
+            actions.createEl("button", { text: "Clear", attr: { type: "button" } }).onclick = () => {
+                state.description = input.value = ""; onChange({ description: "" }); input.focus();
+            };
+            actions.createEl("button", { text: "Done", cls: "mod-cta", attr: { type: "button" } }).onclick = () => close();
+        } });
+    refresh(); return { ...picker, refresh };
+}
+
+function mountLiveTaskForm({ host, state, service, location, text, initialStepsOpen = false, onChange = () => {} }) {
+    const element = host.createDiv({ cls: "hub-task-live-fields" });
+    const surface = element.createDiv({ cls: "hub-task-card-container" });
+    const parts = createTaskRow(surface, state, state.completed, { checkboxScope: host.ownerDocument.body });
+    element.style.setProperty("--hub-task-card-checkbox-size", host.ownerDocument.defaultView.getComputedStyle(parts.row).getPropertyValue("--checkbox-size"));
+    const effects = mountTransientEffects(element);
+    const component = new Component(); component.load();
+    const markdown = createHubMarkdown({ app: service.app, component });
+    // Folder destinations use the existing Tasks.md convention on Save. The
+    // card shows that eventual note's normal source label without creating it.
+    const cardPath = () => { const path = location(), file = service.app.vault.getAbstractFileByPath(path);
+        return Array.isArray(file?.children) ? path + "/Tasks.md" : path; };
+    const phaseLabel = task => (service.phases?.(location()) ?? []).find(phase => phase.id === task.phaseId)?.name;
+    const presentation = mountTaskCardPresentation(parts.row, parts.textEl, state, cardPath, { phaseLabel });
+    parts.textEl.classList.add("hub-task-markdown");
+    const checklist = createTaskChecklist(parts.info, { emptyAction: true });
+    // Only seed disclosure at construction; refreshes respect the user's choice.
+    let steps, phase, openSteps = initialStepsOpen && state.steps.length > 0, editingTitle = true, initialized = false, descriptionMeaningful = !!state.description?.trim();
+    let last = { necessity: state.necessity, dates: [state.fromDate, state.fromTime, state.dueDate, state.dueTime].join("|"), phase: state.phaseId };
+    const pulse = target => {
+        if (!initialized || !state.text?.trim() || !target || element.ownerDocument.defaultView.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+        target.style.setProperty("--hub-attention-color", "var(--interactive-accent)"); effects.run(target, "hub-attention");
+    };
+    const refreshChecklist = () => {
+        const pending = steps?.hasPending ? 1 : 0, count = state.steps.length + pending;
+        const completed = state.steps.filter(step => step.completed).length + (pending && steps.pendingCompleted ? 1 : 0);
+        checklist.update(openSteps, completed, count);
+        checklist.toggle.disabled = !count && !state.text?.trim();
+        return completed + "/" + count;
+    };
+    let specificationControls = [], configurationPickers = [], specifications = [];
+    const refreshReadiness = () => {
+        const disabled = !state.text?.trim();
+        element.classList.toggle("is-title-empty", disabled);
+        for (const button of specificationControls) button.disabled = disabled;
+        steps?.refreshReadiness();
+        const configured = [!!state.fromDate, !!state.dueDate, ["must", "should"].includes(state.necessity), !!state.description?.trim(),
+            !!state.phaseId && !!presentation.phase];
+        specifications.forEach((control, index) => {
+            control.button.classList.toggle("is-configured", !!configured[index]);
+            const label = control.button.querySelector(".hub-task-config-label").textContent;
+            control.button.setAttribute("aria-label", label + (configured[index] ? ", configured" : ""));
+        });
+        if (disabled) for (const picker of configurationPickers) picker.close(false);
+        if (disabled) for (const target of element.querySelectorAll(".hub-attention")) effects.cancel(target);
+    };
+    let renderedCompleted = !!state.completed;
+    const refresh = () => {
+        // Native checkbox preactivation precedes click bubbling and change.
+        // An unrelated Step blur refresh must not undo that in-flight toggle.
+        if (renderedCompleted !== !!state.completed) parts.checkbox.checked = renderedCompleted = !!state.completed;
+        presentation.update(state); refreshChecklist(); refreshReadiness();
+    };
+    const changed = patch => {
+        refresh(); onChange(patch);
+        const next = { necessity: state.necessity, dates: [state.fromDate, state.fromTime, state.dueDate, state.dueTime].join("|"), phase: state.phaseId };
+        for (const [key, target] of [["necessity", presentation.indicator], ["dates", presentation.dates], ["phase", presentation.phase]])
+            if (next[key] !== last[key]) pulse(target);
+        if (!descriptionMeaningful && state.description?.trim()) pulse(presentation.descriptionIndicator);
+        descriptionMeaningful = !!state.description?.trim(); last = next;
+    };
+    parts.textEl.replaceChildren();
+    const title = mountWrappingTaskTitle(parts.textEl, state, changed, { ...text, className: "hub-task-card-edit-input" }), input = title.input;
+    parts.textEl.tabIndex = -1; parts.textEl.setAttribute("aria-label", "Edit task title");
+    const editTitle = () => {
+        if (input.disabled) return;
+        editingTitle = true; parts.textEl.removeAttribute("role"); parts.textEl.tabIndex = -1;
+        if (!parts.textEl.contains(input)) parts.textEl.replaceChildren(input);
+        title.resize();
+        input.focus();
+    };
+    const showTitle = () => {
+        if (!input.value) return; // Retain native placeholder/required validation.
+        editingTitle = false; parts.textEl.setAttribute("role", "button"); parts.textEl.tabIndex = 0; input.remove();
+        parts.textEl.textContent = state.text;
+        void markdown.render(parts.textEl, state.text, cardPath, () => !editingTitle);
+    };
+    input.addEventListener("blur", showTitle);
+    // Focus the editor before an existing Step's blur commit can change row
+    // height and retarget pointer-up. Active native input clicks stay native.
+    parts.textEl.addEventListener("pointerdown", event => {
+        if (event.button === 0 && event.target !== input && !input.disabled) { event.preventDefault(); editTitle(); }
+    });
+    parts.textEl.addEventListener("click", event => {
+        if (event.target === input) return;
+        event.preventDefault(); event.stopImmediatePropagation(); editTitle();
+    }, true);
+    parts.textEl.addEventListener("keydown", event => {
+        if (event.target !== input && ["Enter", " "].includes(event.key)) { event.preventDefault(); editTitle(); }
+    });
+    bindCompletionSound(parts.checkbox, playTaskCompletionSound);
+    parts.checkbox.addEventListener("change", () => {
+        if (parts.checkbox.disabled) return;
+        state.completed = parts.checkbox.checked; state.completedAt = state.completed ? Date.now() : null;
+        changed({ completed: state.completed, completedAt: state.completedAt });
+    });
+    const actions = element.createDiv({ cls: "hub-task-config-actions" });
+    const accordion = mountTaskAccordion(actions);
+    const fromControl = configurationAction(actions, "Add start date", "calendar", "start");
+    const dueControl = configurationAction(actions, "Add due date", "calendar-clock", "due");
+    const necessityControl = configurationAction(actions, "Set importance", "flag", "necessity");
+    const descriptionControl = configurationAction(actions, "Add description", "text-align-start", "description");
+    const phaseControl = configurationAction(actions, "Assign to Phase", "layers", "phase");
+    specifications = [fromControl, dueControl, necessityControl, descriptionControl, phaseControl];
+    steps = mountTaskSteps({ host: checklist.list, state, checklist, markdown, getPath: cardPath, inlineAdd: true, actionLabel: "Add step", pendingPlaceholder: "Describe this step...", focusFallback: checklist.toggle, onChange: changed,
+        canAdd: () => !!state.text?.trim(), onBeforeAdd() { accordion.close(); openSteps = true; } });
+    specificationControls = [fromControl.button, dueControl.button, necessityControl.button, descriptionControl.button, phaseControl.button];
+    const start = mountTaskDateEndpoint(fromControl, state, "from", changed, accordion.bind), due = mountTaskDateEndpoint(dueControl, state, "due", changed, accordion.bind);
+    const necessity = mountTaskNecessity(actions, state, changed, { control: necessityControl, keepLabel: true, persistent: true, order: ["should", "must"], terminology: "importance", bind: accordion.bind });
+    const description = mountTaskDescriptionPopover(descriptionControl, state, changed, () => pulse(presentation.descriptionIndicator), accordion.bind);
+    const notice = element.createDiv({ cls: "hub-task-location-notice", attr: { role: "status" } });
+    phase = mountTaskPhaseButton({ host: actions, state, service, location, notice, onChange: changed, control: phaseControl, keepLabel: true, persistent: true, unassignedLabel: "Unassigned", bind: accordion.bind });
+    configurationPickers = [start, due, necessity, description, phase];
+    checklist.toggle.addEventListener("click", () => {
+        if (checklist.toggle.disabled) return;
+        if (!state.steps.length && !steps.hasPending) { steps.focusNew(); return; }
+        openSteps = !openSteps; refreshChecklist();
+    });
+    refresh();
+    let refreshingPhase = false;
+    const refreshContext = () => {
+        if (!refreshingPhase) { refreshingPhase = true; phase.refresh(); refreshingPhase = false; }
+        refresh();
+    };
+    for (const event of ["rename", "delete"]) if (service.app.vault.on) component.registerEvent(service.app.vault.on(event, refreshContext));
+    service.plugin?.taskData?.subscribe?.(component, refreshContext, () => [location()]);
+    initialized = true;
+    return { element, input, completion: parts.checkbox, phase, card: parts, presentation, checklist, steps, state,
+        commitPending: steps.commitPending, refresh, resizeTitle: title.resize,
+        closePopovers() { start.close(false); due.close(false); necessity.close(false); description.close(false); phase.close(false); },
+        destroy() { start.destroy(); due.destroy(); necessity.destroy(); description.destroy(); phase.destroy(); steps.destroy(); title.destroy();
+            accordion.destroy(); presentation.destroy(); effects.destroy(); component.unload(); element.remove(); } };
+}
+
+module.exports = { mountLiveTaskForm, mountTaskDateEndpoint };
+
+},
+"lib/ui/task-popover.js": function (module, exports, __hubRequire) {
+"use strict";
+const { setHubIcon } = __hubRequire("lib/ui/icons.js");
+let sequence = 0;
+const active = new WeakMap();
+
+// Contextual controls remain inside the modal's focus scope. The native top
+// layer avoids clipping by its scrolling body; no second Modal is opened.
+function openTaskPopover(anchor, { title, heading = true, autofocus = true, exclusive = true, avoidFooter = false, maxHeight = Infinity, className = "", width = 300, render, onClose = () => {} }) {
+    const doc = anchor.ownerDocument, win = doc.defaultView;
+    if (exclusive) active.get(doc)?.close(false);
+    const parent = anchor.closest(".modal") ?? doc.body;
+    const element = parent.createDiv({ cls: "hub-task-popover hub-button-scope hub-capture-form-scope " + className,
+        attr: { role: "dialog", "aria-label": title, id: "hub-task-popover-" + ++sequence, popover: "manual" } });
+    const header = element.createDiv({ cls: "hub-task-popover-heading" });
+    if (heading) header.createEl("strong", { text: title });
+    else element.classList.add("is-titleless");
+    const dismiss = header.createEl("button", { cls: "hub-button-plain", attr: { type: "button", "aria-label": "Close " + title } });
+    setHubIcon(dismiss, "x");
+    const body = element.createDiv({ cls: "hub-task-popover-body", attr: { "aria-label": title } });
+    const cleanups = [];
+    let closed = false;
+    const listen = (target, name, callback, options) => {
+        target.addEventListener(name, callback, options);
+        cleanups.push(() => target.removeEventListener(name, callback, options));
+    };
+    const close = (restore = true) => {
+        if (closed) return;
+        closed = true; cleanups.splice(0).forEach(fn => fn());
+        observer.disconnect(); element.remove();
+        anchor.setAttribute("aria-expanded", "false"); anchor.removeAttribute("aria-controls");
+        if (active.get(doc)?.element === element) active.delete(doc);
+        onClose();
+        if (restore && anchor.isConnected && !anchor.disabled) anchor.focus({ preventScroll: true });
+    };
+    function position() {
+        if (closed) return;
+        if (!anchor.isConnected) { close(false); return; }
+        const viewport = win.visualViewport, left = (viewport?.offsetLeft ?? 0) + 8, top = (viewport?.offsetTop ?? 0) + 8;
+        const right = left + (viewport?.width ?? win.innerWidth) - 16, bottom = top + (viewport?.height ?? win.innerHeight) - 16;
+        element.style.width = Math.min(typeof width === "function" ? width(element, right - left) : width, right - left) + "px";
+        element.style.maxHeight = Math.max(0, Math.min(maxHeight, bottom - top)) + "px";
+        const rect = anchor.getBoundingClientRect(), naturalHeight = element.getBoundingClientRect().height;
+        const belowRoom = Math.max(0, bottom - rect.bottom - 6), aboveRoom = Math.max(0, rect.top - top - 6);
+        const footer = avoidFooter ? parent.querySelector('.hub-task-dialog-actions')?.getBoundingClientRect() : null;
+        const overlapsFooter = footer && rect.bottom + 6 < footer.bottom && rect.bottom + 6 + naturalHeight > footer.top;
+        const above = naturalHeight > belowRoom && aboveRoom > belowRoom || overlapsFooter && naturalHeight <= aboveRoom;
+        // Long menus scroll in the available side, preserving the anchor gap
+        // instead of growing across their trigger when neither side fits.
+        element.style.maxHeight = Math.min(maxHeight, bottom - top, Math.max(64, above ? aboveRoom : belowRoom)) + "px";
+        const height = element.getBoundingClientRect().height;
+        element.style.left = Math.max(left, Math.min(rect.left, right - element.offsetWidth)) + "px";
+        element.style.top = Math.max(top, Math.min(above ? rect.top - height - 6 : rect.bottom + 6, bottom - height)) + "px";
+    }
+    const observer = new win.ResizeObserver(position);
+    const api = { element, body, close, position, register: cleanup => cleanups.push(cleanup) };
+    dismiss.onclick = () => close();
+    anchor.setAttribute("aria-expanded", "true"); anchor.setAttribute("aria-controls", element.id);
+    render(api);
+    if (typeof element.showPopover === "function") element.showPopover();
+    else { element.removeAttribute("popover"); doc.body.append(element); }
+    position(); observer.observe(element); if (exclusive) active.set(doc, api);
+    // A checklist commit can move an action without scrolling or resizing the
+    // viewport. Observe its containing layout as well as the popover itself.
+    for (let ancestor = anchor.parentElement; ancestor && ancestor !== doc.body; ancestor = ancestor.parentElement) observer.observe(ancestor);
+    listen(doc, "pointerdown", event => { if (!element.contains(event.target) && !anchor.contains(event.target)) close(false); }, true);
+    listen(doc, "keydown", event => {
+        if (event.key === "Escape") {
+            const newest = [...doc.querySelectorAll(".hub-task-popover")].sort((a, b) => Number(a.id.split("-").at(-1)) - Number(b.id.split("-").at(-1))).at(-1);
+            if (newest !== element) return;
+            event.preventDefault(); event.stopImmediatePropagation(); close();
+        }
+        else if (event.key === "Tab") {
+            if (!autofocus && !element.contains(doc.activeElement)) { close(false); return; }
+            const controls = [...element.querySelectorAll("button,input,textarea,select,[tabindex]")]
+                .filter(control => !control.disabled && control.tabIndex >= 0 && control.getClientRects().length && !control.closest("[hidden]"));
+            const index = controls.indexOf(doc.activeElement);
+            if (index < 0 || !event.shiftKey && index === controls.length - 1 || event.shiftKey && index === 0) close();
+            // Keep the outer modal's focus trap from cycling out of this popover.
+            else event.stopPropagation();
+        }
+    }, true);
+    listen(win, "resize", position); listen(doc, "scroll", position, true);
+    if (win.visualViewport) { listen(win.visualViewport, "resize", position); listen(win.visualViewport, "scroll", position); }
+    if (autofocus) (body.querySelector('[aria-checked="true"]') ?? body.querySelector('input:not(:disabled)') ?? body.querySelector('textarea,button,select,[tabindex="0"]') ?? dismiss).focus({ preventScroll: true });
+    return api;
+}
+
+module.exports = { openTaskPopover };
 
 },
 "lib/ui/task-steps.js": function (module, exports, __hubRequire) {
 "use strict";
 const { bindCompletionSound, playStepCompletionSound } = __hubRequire("lib/ui/completion-audio.js");
+
+const { createTaskChecklist } = __hubRequire("lib/ui/task-card.js");
 
 // Panel-local disclosure and pending state; reusable wherever a parent task is
 // rendered. Receives existing Markdown rendering and source-mutation boundaries.
@@ -17338,19 +20630,9 @@ function createTaskSteps({ markdown, mutate, onEdit, report, setIcon }) {
         // First completion can assign an ID; retain the open/pending disclosure.
         if (state && key !== sourceKey) { states.set(key, state); states.delete(sourceKey); }
         if (!state) states.set(key, state = { open: false, pending: null });
-        const host = info.createDiv({ cls: "hub-task-steps" });
-        // Neither disclosure nor Step interactions bubble into parent editing,
-        // source navigation, or the parent's context menu.
-        for (const event of ["click", "keydown", "contextmenu"]) host.addEventListener(event, e => e.stopPropagation());
-        const toggle = host.createEl("button", { cls: "hub-task-steps-toggle", attr: { type: "button" } });
-        const chevron = toggle.createSpan({ cls: "hub-task-steps-chevron", attr: { "aria-hidden": "true" } });
-        toggle.createSpan({ cls: "hub-task-steps-label", text: "Steps" });
-        const progress = toggle.createSpan({ cls: "hub-task-step-progress", attr: { "aria-live": "polite" } });
-        const list = host.createDiv({ cls: "hub-task-step-items" });
+        const checklist = createTaskChecklist(info, { setIcon });
         const rows = task.steps.map(step => {
-            const row = list.createEl("label", { cls: "hub-task-step-item" });
-            const checkbox = row.createEl("input", { type: "checkbox", attr: { "aria-label": `Complete Step: ${step.text}` } });
-            const text = row.createSpan({ cls: "hub-task-step-text" });
+            const { row, checkbox, text } = checklist.createRow(step);
             void markdown.render(text, step.text, getPath);
             bindCompletionSound(checkbox, playStepCompletionSound);
             checkbox.addEventListener("change", async () => {
@@ -17372,18 +20654,14 @@ function createTaskSteps({ markdown, mutate, onEdit, report, setIcon }) {
         function refresh() {
             let completed = 0;
             for (const { row, checkbox, step } of rows) {
-                checkbox.checked = state.pending?.line === step.line ? state.pending.completed : step.completed;
+                checkbox.checked = state.pending && state.pending.line === step.line ? state.pending.completed : step.completed;
                 checkbox.disabled = !!state.pending;
                 row.classList.toggle("is-completed", checkbox.checked);
                 if (checkbox.checked) completed++;
             }
-            progress.textContent = `${completed}/${rows.length}`;
-            toggle.setAttribute("aria-expanded", String(state.open));
-            toggle.setAttribute("aria-label", `${state.open ? "Collapse" : "Expand"} Steps: ${progress.textContent}`);
-            setIcon(chevron, state.open ? "chevron-down" : "chevron-right");
-            list.hidden = !state.open;
+            checklist.update(state.open, completed, rows.length);
         }
-        toggle.addEventListener("click", () => { state.open = !state.open; refresh(); });
+        checklist.toggle.addEventListener("click", () => { state.open = !state.open; refresh(); });
         state.refresh = refresh;
         refresh();
     }
@@ -17463,10 +20741,6 @@ function stepsSummary(host, task, edit) {
     const progress = el.createEl("progress", { attr: { max: String(task.steps.length), value: String(completed), "aria-hidden": "true" } });
     return progress;
 }
-function projectBadge(host, task, context) {
-    const label = context.projectLabel(task);
-    if (context.resource && label) host.createSpan({ cls: "hub-task-project-link", text: label, attr: { title: label } });
-}
 function date(host, task, key = "dueDate", now = new Date()) {
     if (!task[key]) return;
     const time = key === "fromDate" ? task.fromTime : task.dueTime;
@@ -17508,7 +20782,6 @@ function taskCard(host, task, context, compact = false) {
     if (!compact) {
         const metadata = info.createDiv({ cls: "hub-full-card-context" });
         source(metadata, task, context);
-        projectBadge(metadata, task, context);
         const phase = context.phaseLabel?.(task);
         if (phase) metadata.createSpan({ cls: "hub-task-phase", text: phase, attr: { title: "Phase: " + phase } });
         const schedule = info.createDiv({ cls: "hub-full-card-date" }); date(schedule, task, "dueDate", context.now);
@@ -17528,9 +20801,8 @@ function compactRow(host, task, context) {
     const location = row.createDiv(); source(location, task, context);
     const due = row.createDiv(); date(due, task, "dueDate", context.now);
     const steps = row.createDiv(); stepsSummary(steps, task, context.edit);
-    const project = row.createDiv(); projectBadge(project, task, context);
 }
-module.exports = { button, iconButton, empty, stepsSummary, projectBadge, date, source, bindTask, taskCard, compactRow };
+module.exports = { button, iconButton, empty, stepsSummary, date, source, bindTask, taskCard, compactRow };
 
 },
 "lib/ui/task-view-upcoming.js": function (module, exports, __hubRequire) {
@@ -17575,6 +20847,8 @@ const { renderTaskCalendar } = __hubRequire("lib/ui/task-view-calendar.js");
 const { renderUpcoming } = __hubRequire("lib/ui/task-view-upcoming.js");
 const { renderScheduleToolbar } = __hubRequire("lib/ui/schedule-toolbar.js");
 const { mountProjectRoadmap } = __hubRequire("lib/ui/project-roadmap.js");
+const { TaskReadSession } = __hubRequire("lib/services/task-read-session.js");
+const { legacyReadTask, legacyActionTask, legacyActionRequest, handleFor } = __hubRequire("lib/services/task-service-legacy-bridge.js");
 
 // Weakly scoped to the owning Dataview container, including warm frame rebuilds.
 const states = new WeakMap();
@@ -17632,7 +20906,9 @@ function mountTaskWorkspace({ plugin, component, dv, root, toolbar, filesGrid, f
     };
     content.addEventListener("focusin", revealFocusedControl);
     component.register(() => content.removeEventListener("focusin", revealFocusedControl));
-    let tasks = [], locations = [], workspaces = [], dirty = true, disposed = false;
+    let tasks = [], locations = [], workspaces = [], dirty = true, disposed = false, readGeneration = 0;
+    const reads = new TaskReadSession(plugin.taskService, () => { void refresh(); });
+    component.register(() => { readGeneration++; reads.close(); });
     const pending = new Set();
     let scheduleFocusRequest;
     const inNoteRail = () => !!root.closest(".hub-project-rail");
@@ -17667,33 +20943,50 @@ function mountTaskWorkspace({ plugin, component, dv, root, toolbar, filesGrid, f
     const currentPath = path => plugin.taskData.currentPath(path);
     const owner = task => workspaces.find(item => validLocation(currentPath(task.path), item)) ?? workspace;
     const describe = task => locationLabel(currentPath(task.path), owner(task), owner(task).root !== workspace.root);
-    const projectLabel = task => {
-        if (!task.linkedProjectId) return "";
-        const project = workspaces.find(item => item.contextKind !== "resource" && item.projectId === task.linkedProjectId);
-        return project ? project.name + (project.status === "shelved" ? " (shelved)" : "") : "";
+    const belongs = task => validLocation(task.path, workspace);
+    const apply = edit => { readGeneration++; reads.invalidate(); content.removeAttribute("aria-busy");
+        tasks = applyTaskEdit(tasks, edit).filter(belongs); dirty = false; render(); };
+    const editTask = (task, saved = apply) => {
+        void legacyActionTask(plugin.taskService, task).then(fresh => {
+            if (!disposed) return openTaskEditor(plugin.taskEditor, fresh, saved);
+        }).catch(error => { if (!disposed) new (require("obsidian").Notice)(error.message || "Could not open this task."); });
     };
-    const belongs = task => validLocation(task.path, workspace) || (!resource && task.linkedProjectId === workspace.projectId &&
-        workspaces.some(item => item.contextKind === "resource" && validLocation(task.path, item)));
-    const apply = edit => { tasks = applyTaskEdit(tasks, edit).filter(belongs); render(); };
-    const edit = task => openTaskEditor(plugin.taskEditor, { ...task, path: currentPath(task.path) }, apply);
-    const ui = createTaskUi({ app: plugin.app, component, body: content, mutate: request => plugin.mutateTask(request),
-        onEdit: apply, editTask: (task, saved) => openTaskEditor(plugin.taskEditor, task, saved),
+    const edit = task => editTask(task);
+    const mutate = async request => {
+        const reference = await legacyActionRequest(plugin.taskService, request);
+        if (disposed) throw Error("The task view was closed. Reopen it before changing the task.");
+        return plugin.mutateTask(reference);
+    };
+    const ui = createTaskUi({ app: plugin.app, component, body: content, mutate,
+        onEdit: apply, editTask,
         createTask: options => create(options), phaseLabel: task => plugin.planning?.phaseFor(task)?.name });
     function create(options) {
         openTaskCreator(plugin.taskEditor, { root: workspace.root, location: state.location || workspace.root, ...options });
     }
-    function refresh() {
+    async function refresh() {
         dirty = true;
+        const generation = ++readGeneration;
         if (disposed || state.mode !== "schedule" || inNoteRail()) return;
+        const projectId = workspace.projectId;
+        const cancelled = () => disposed || !root.isConnected || generation !== readGeneration || state.mode !== "schedule" || inNoteRail() || workspace.projectId !== projectId;
         workspace = { ...workspace, root: currentPath(workspace.root) };
         workspaces = taskWorkspaces(plugin).sort((a, b) => b.root.length - a.root.length);
-        tasks = plugin.taskData.readWorkspace(dv, workspace, workspaces.filter(item => item.contextKind === "resource"));
-        locations = plugin.taskEditor.locations(workspace.root);
-        if (state.location) {
-            state.location = currentPath(state.location);
-            if (!locations.some(item => item.path === state.location)) state.location = "";
-        }
-        dirty = false; render();
+        content.setAttribute("aria-busy", "true");
+        try {
+            const query = await reads.read({ workspace: { type: "project", id: projectId }, policy: "workspace", validation: "indexed" }, cancelled);
+            if (!query || cancelled()) return;
+            if (query.diagnostics.length) console.warn("Schedule task-read diagnostics", query.diagnostics);
+            tasks = query.rows.filter(row => row.view?.legacy).map(row => legacyReadTask(row.view));
+            locations = plugin.taskEditor.locations(workspace.root);
+            if (state.location) {
+                state.location = currentPath(state.location);
+                if (!locations.some(item => item.path === state.location)) state.location = "";
+            }
+            dirty = false; render();
+        } catch (error) {
+            if (!cancelled()) { console.error("Schedule task read failed", error);
+                new (require("obsidian").Notice)("Schedule tasks could not be loaded. Please try again."); }
+        } finally { if (generation === readGeneration) content.removeAttribute("aria-busy"); }
     }
     function render(event) {
         if (disposed || state.mode !== "schedule" || inNoteRail()) return;
@@ -17706,7 +20999,7 @@ function mountTaskWorkspace({ plugin, component, dv, root, toolbar, filesGrid, f
         content.setAttribute("aria-label", "Schedule");
         const selection = { ...state, status: "open", necessity: "", date: "" };
         const now = new Date();
-        const visible = filterTasks(tasks, selection, now, task => describe(task) + " " + projectLabel(task));
+        const visible = filterTasks(tasks, selection, now, describe);
         const focused = content.ownerDocument.activeElement;
         const requestedFocus = scheduleFocusRequest?.control === focused ? scheduleFocusRequest.key : undefined;
         const focusKey = requestedFocus !== undefined ? requestedFocus :
@@ -17714,9 +21007,15 @@ function mountTaskWorkspace({ plugin, component, dv, root, toolbar, filesGrid, f
         scheduleFocusRequest = undefined;
         content.empty();
         const context = { workspace, resource, folders: locations.filter(item => item.folder), now,
-            ui, pending, currentPath, locationLabel: describe, projectLabel, phaseLabel: task => plugin.planning?.phaseFor(task)?.name, apply, edit, create, render,
-            toggle: request => plugin.mutateTask(request),
-            openSource: task => openSource(currentPath(task.path)) };
+            ui, pending, currentPath, locationLabel: describe, phaseLabel: task => plugin.planning?.phaseFor(task)?.name, apply, edit, create, render,
+            toggle: mutate,
+            openSource: async task => {
+                if (task.identityConflict) throw Error("This task's source is unavailable or ambiguous. Refresh the task list.");
+                const target = await plugin.taskService.resolveReveal(handleFor(task));
+                if (disposed) return false;
+                if (target.kind !== "legacy-source") throw Error("This task location cannot be opened here.");
+                return openSource(target.path);
+            } };
         if (state.scheduleView !== "upcoming") renderTaskCalendar(content, visible, context, state);
         else {
             const panel = content.createDiv({ cls: "hub-task-calendar-panel hub-schedule-upcoming" });
@@ -17727,6 +21026,7 @@ function mountTaskWorkspace({ plugin, component, dv, root, toolbar, filesGrid, f
     }
     function mode(value, initial = false) {
         syncHeaderHeight();
+        readGeneration++; content.removeAttribute("aria-busy");
         scheduleFocusRequest = undefined;
         state.mode = value;
         const active = value === "schedule";
@@ -17743,11 +21043,10 @@ function mountTaskWorkspace({ plugin, component, dv, root, toolbar, filesGrid, f
             control.classList.toggle("is-active", value === key);
             control.setAttribute("aria-pressed", String(value === key));
         });
-        if (active) { if (dirty) refresh(); else render(); }
+        if (active) { if (dirty) void refresh(); else render(); }
         else if (!initial) onFiles?.();
         if (value === "work") syncModeWidth();
     }
-    plugin.taskData.subscribe(component, refresh);
     // Project state/name changes can alter association labels without a task edit.
     const update = () => refresh();
     if (plugin.app.metadataCache?.on) component.registerEvent(plugin.app.metadataCache.on("changed", file => {
@@ -17760,6 +21059,7 @@ function mountTaskWorkspace({ plugin, component, dv, root, toolbar, filesGrid, f
         const rail = inNoteRail();
         if (disposed || wasRail === rail) return;
         wasRail = rail;
+        readGeneration++; content.removeAttribute("aria-busy");
         if (rail) onFiles?.();
         else if (state.mode === "schedule") { if (dirty) refresh(); else render(); }
     };
@@ -17778,24 +21078,11 @@ module.exports = { mountTaskWorkspace };
 "use strict";
 const { bindCompletionSound, playTaskCompletionSound } = __hubRequire("lib/ui/completion-audio.js");
 const { createHubMarkdown } = __hubRequire("lib/ui/markdown.js");
-const { taskGroups, taskIsOverdue, taskIsFuture, taskStartDate, taskDatePresentation } = __hubRequire("lib/domain/task-planning.js");
+const { taskGroups, taskIsFuture, taskStartDate } = __hubRequire("lib/domain/task-planning.js");
 const { createTaskSteps } = __hubRequire("lib/ui/task-steps.js");
 const { createOathTaskSection } = __hubRequire("lib/ui/oath-tasks.js");
 
-function taskSourceLabel(path) {
-    const parts = String(path ?? "").replace(/\\/g, "/").split("/").filter(Boolean);
-    return parts.length > 1 ? parts[parts.length - 2] : (parts[0]?.replace(/\.md$/i, "") || "Vault");
-}
-
-function createTaskRow(parent, task, completed = task.completed) {
-    const row = parent.createDiv({ cls: "project-task-row" + (completed ? " is-completed" : "") });
-    const checkbox = row.createEl("input", { type: "checkbox", cls: "project-task-checkbox" });
-    checkbox.checked = !!completed;
-    const info = row.createDiv({ cls: "project-task-info" });
-    const textEl = info.createDiv({ cls: "project-task-text", text: task.text });
-    info.createDiv({ cls: "project-task-location" });
-    return { row, checkbox, info, textEl };
-}
+const { createTaskRow, taskSourceLabel, mountTaskCardPresentation } = __hubRequire("lib/ui/task-card.js");
 
 // Presentation only: no checkbox, edit bindings, menus or navigation.
 function renderReadOnlyTask(parent, task, markdown, { unavailable = false } = {}) {
@@ -17822,6 +21109,9 @@ function createTaskUi({ app, component, body, mutate, onEdit, editTask, createTa
     const report = error => { console.error("Hub task action failed", error); new Notice(error.message || "Could not update task."); };
     const steps = createTaskSteps({ markdown, mutate, onEdit, report, setIcon });
     component.register(() => steps.clear());
+    const presentations = new Set();
+    const clearPresentations = () => { for (const item of presentations) item.destroy(); presentations.clear(); };
+    component.register(clearPresentations);
     const oathSection = createOathTaskSection(oath, body, component);
     if (oath) component.register(oath.onChange(() => { if (!disposed && body.isConnected) lastRender?.(); }));
 
@@ -17839,6 +21129,7 @@ function createTaskUi({ app, component, body, mutate, onEdit, editTask, createTa
         clearTimeout(refreshTimer); refreshAt = Infinity;
         const midnight = new Date(renderNow); midnight.setHours(24, 0, 0, 0);
         scheduleRefresh(midnight.getTime());
+        clearPresentations();
         markdown.clear();
         return true;
     }
@@ -17973,36 +21264,13 @@ function createTaskUi({ app, component, body, mutate, onEdit, editTask, createTa
     }
 
     function bind(row, textEl, task, getPath, options = {}) {
-        row.classList.add("hub-planned-task-row");
         const checkbox = row.querySelector('input[type="checkbox"]');
-        checkbox?.setAttribute("aria-label", `Complete task: ${task.text}`);
         if (checkbox && !options.selection) bindCompletionSound(checkbox, playTaskCompletionSound);
-        if (task.necessity === "must" || task.necessity === "should") {
-            const indicator = document.createElement("span");
-            indicator.className = `hub-task-necessity-bar is-${task.necessity}`;
-            indicator.setAttribute("role", "img");
-            indicator.setAttribute("aria-label", task.necessity === "must" ? "Must do" : "Should do");
-            checkbox?.before(indicator);
-        }
+        if (taskIsFuture(task, renderNow)) scheduleRefresh(taskStartDate(task).getTime());
+        const presentation = mountTaskCardPresentation(row, textEl, task, getPath, { ...options,
+            description: options.description ?? options.dates !== false, now: renderNow, phaseLabel });
+        presentations.add(presentation);
         const info = textEl.parentElement;
-        const future = taskIsFuture(task, renderNow);
-        if (future) scheduleRefresh(taskStartDate(task).getTime());
-        const presentation = taskDatePresentation(task, renderNow);
-        if (options.dates !== false && presentation?.label) {
-            const dates = document.createElement("div"); dates.className = "hub-task-dates";
-            const overdue = taskIsOverdue(task, renderNow) && !task.completed && !future;
-            const span = document.createElement("span"); span.className = overdue ? "is-overdue" : "";
-            const value = document.createElement(presentation.dateTime ? "time" : "span");
-            if (presentation.dateTime) value.dateTime = presentation.dateTime;
-            value.textContent = presentation.label;
-            span.appendChild(value);
-            if (overdue) { span.title = "Overdue"; span.setAttribute("aria-label", presentation.label + " (overdue)"); }
-            dates.appendChild(span); info.appendChild(dates);
-        }
-        const source = info.querySelector(".home-task-location, .project-task-location");
-        if (source) source.textContent = options.sourceLabel ?? (options.selection && !options.normalSource ? getPath().replace(/\.md$/i, "").split("/").join(" › ") : taskSourceLabel(getPath()));
-        const phase = !options.selection && phaseLabel?.(task);
-        if (source && phase) source.createSpan({ cls: "hub-task-phase", text: phase, attr: { title: "Phase: " + phase } });
         if (!options.selection && options.steps !== false) steps.bind(info, task, getPath);
         if (editTask) {
             textEl.tabIndex = 0; textEl.setAttribute("role", "button"); textEl.setAttribute("aria-label", `Edit task: ${task.text}`);
@@ -18211,13 +21479,14 @@ let detailTooltipId = 0;
 
 // Opt-in immediate, two-line variant of Obsidian's tooltip surface. Existing
 // aria-label tooltips and their timing are deliberately untouched.
-function createImmediateHubTooltip(root) {
+function createImmediateHubTooltip(root, { interactive = false, contentOnly = false } = {}) {
     const doc = root.ownerDocument, win = doc.defaultView;
     const definitions = new WeakMap(), cleanups = [];
     let hovered = null, focused = null, active = null, tooltip = null;
-    let keyboardNavigation = false, activeDescription = null;
+    let keyboardNavigation = false, activeDescription = null, pinned = null, overTooltip = false, leaveTimer = null, detachedObserver = null;
     const id = `hub-detail-tooltip-${++detailTooltipId}`;
     function hide() {
+        win.clearTimeout(leaveTimer); detachedObserver?.disconnect(); detachedObserver = null;
         if (active) {
             const descriptions = (active.getAttribute('aria-describedby') ?? '').split(/\s+/).filter(value => value && value !== id);
             if (descriptions.length) active.setAttribute('aria-describedby', descriptions.join(' '));
@@ -18227,28 +21496,51 @@ function createImmediateHubTooltip(root) {
         activeDescription = null;
         tooltip?.remove(); tooltip = null; active = null;
     }
+    function dismiss() { hovered = focused = pinned = null; overTooltip = false; hide(); }
+    function position() {
+        if (!tooltip || !active?.isConnected) return;
+        const rect = active.getBoundingClientRect(), bounds = tooltip.getBoundingClientRect();
+        const viewport = win.visualViewport, left = (viewport?.offsetLeft ?? 0) + 8, top = (viewport?.offsetTop ?? 0) + 8;
+        const right = left + (viewport?.width ?? win.innerWidth) - 16, bottom = top + (viewport?.height ?? win.innerHeight) - 16;
+        tooltip.style.left = `${Math.max(left, Math.min(rect.left + rect.width / 2 - bounds.width / 2, right - bounds.width))}px`;
+        const below = rect.bottom + 6;
+        tooltip.style.top = `${Math.max(top, Math.min(below + bounds.height <= bottom ? below : rect.top - bounds.height - 6, bottom - bounds.height))}px`;
+    }
+    function leave() {
+        win.clearTimeout(leaveTimer);
+        leaveTimer = win.setTimeout(() => { if (!hovered && !focused && !pinned && !overTooltip) hide(); }, 150);
+    }
     function show() {
-        const button = hovered ?? focused;
-        if (!button || !root.contains(button) || button.disabled) { hide(); return; }
+        const button = pinned ?? hovered ?? focused;
+        if (!button || !root.contains(button) || button.disabled) { if (interactive) leave(); else hide(); return; }
+        win.clearTimeout(leaveTimer);
         if (active === button) return;
         hide(); active = button;
         const definition = definitions.get(button);
         tooltip = doc.createElement('div');
-        tooltip.className = 'tooltip mod-bottom hub-detail-tooltip hub-button-scope';
+        tooltip.className = 'tooltip mod-bottom hub-detail-tooltip hub-button-scope' + (contentOnly ? ' hub-task-description-tooltip' : '');
         tooltip.id = id; tooltip.setAttribute('role', 'tooltip');
-        const title = tooltip.appendChild(doc.createElement('strong'));
-        title.textContent = definition.title;
+        if (!contentOnly) { const title = tooltip.appendChild(doc.createElement('strong')); title.textContent = definition.title; }
         const description = tooltip.appendChild(doc.createElement('div'));
         description.className = 'hub-detail-tooltip-description';
         description.textContent = definition.description;
         doc.body.append(tooltip);
+        if (interactive) {
+            // The same native tooltip surface enters the top layer only for
+            // read-only task previews, so modal/popover scrolling cannot clip it.
+            tooltip.setAttribute('popover', 'manual'); tooltip.showPopover?.();
+            tooltip.addEventListener('pointerenter', () => { overTooltip = true; win.clearTimeout(leaveTimer); });
+            tooltip.addEventListener('pointerleave', () => { overTooltip = false; if (!hovered && !focused && !pinned) leave(); });
+            detachedObserver = new win.MutationObserver(() => {
+                if (!root.isConnected) dispose();
+                else if (!active?.isConnected || active.hidden) dismiss(); else position();
+            });
+            detachedObserver.observe(doc.body, { childList: true, subtree: true });
+        }
         activeDescription = button.getAttribute('aria-description');
         button.removeAttribute('aria-description');
         button.setAttribute('aria-describedby', [button.getAttribute('aria-describedby'), id].filter(Boolean).join(' '));
-        const rect = button.getBoundingClientRect(), bounds = tooltip.getBoundingClientRect();
-        tooltip.style.left = `${Math.max(8, Math.min(rect.left + rect.width / 2 - bounds.width / 2, win.innerWidth - bounds.width - 8))}px`;
-        const below = rect.bottom + 6;
-        tooltip.style.top = `${Math.max(8, below + bounds.height <= win.innerHeight - 8 ? below : rect.top - bounds.height - 6)}px`;
+        position();
     }
     const target = event => {
         const button = event.target.closest?.('button');
@@ -18266,31 +21558,45 @@ function createImmediateHubTooltip(root) {
     });
     listen(root, 'pointerout', event => {
         if (hovered?.contains(event.relatedTarget)) return;
+        if (interactive && tooltip?.contains(event.relatedTarget)) { hovered = null; overTooltip = true; return; }
         hovered = null; show();
     });
     // :focus-visible alone is insufficient: modal autofocus may inherit it
     // from the key that opened the report. Require a new navigation gesture.
+    if (interactive) listen(win, 'keydown', event => {
+        if (event.key === 'Escape' && tooltip) { dismiss(); event.preventDefault(); event.stopImmediatePropagation(); }
+    }, true);
     listen(doc, 'keydown', event => {
         keyboardNavigation = event.key === 'Tab' ||
             (root.contains(event.target) && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key));
     }, true);
     listen(doc, 'keyup', () => { keyboardNavigation = false; }, true);
-    listen(doc, 'pointerdown', () => {
+    listen(doc, 'pointerdown', event => {
+        if (interactive && tooltip?.contains(event.target)) return;
+        if (interactive && active && !active.contains(event.target)) dismiss();
         keyboardNavigation = false; focused = null; show();
     }, true);
     listen(root, 'focusin', event => {
         const button = target(event);
-        focused = keyboardNavigation && button?.matches(':focus-visible') ? button : null;
+        focused = interactive ? button : keyboardNavigation && button?.matches(':focus-visible') ? button : null;
         show();
     });
-    listen(root, 'focusout', () => { focused = null; show(); });
+    listen(root, 'focusout', () => {
+        focused = null;
+        if (interactive && !hovered && !pinned && !overTooltip) hide(); else show();
+    });
     listen(root, 'keydown', event => {
         if (event.key === 'Escape' && tooltip) {
             hide(); event.preventDefault(); event.stopPropagation();
         }
     });
-    listen(win, 'resize', hide);
-    listen(doc, 'scroll', hide, true);
+    if (interactive) listen(root, 'click', event => {
+        const button = target(event); if (!button) return;
+        if (pinned === button) dismiss(); else { pinned = button; show(); }
+    }, true);
+    listen(win, 'resize', interactive ? dismiss : hide);
+    listen(doc, 'scroll', event => { if (!interactive || !tooltip?.contains(event.target)) (interactive ? dismiss : hide)(); }, true);
+    function dispose() { dismiss(); cleanups.splice(0).forEach(cleanup => cleanup()); }
     return {
         bind(button, definition) {
             // Suppress the native duplicate without erasing the control's name.
@@ -18304,9 +21610,16 @@ function createImmediateHubTooltip(root) {
                 else button.style.removeProperty('--no-tooltip');
             });
             definitions.set(button, definition);
-            if (!button.hasAttribute('aria-description')) button.setAttribute('aria-description', `${definition.title} ${definition.description}`);
+            if (!button.hasAttribute('aria-description')) button.setAttribute('aria-description', contentOnly ? definition.description : `${definition.title} ${definition.description}`);
         },
-        dispose() { hide(); cleanups.splice(0).forEach(cleanup => cleanup()); }
+        update(button, definition) {
+            definitions.set(button, definition);
+            const text = contentOnly ? definition.description : `${definition.title} ${definition.description}`;
+            if (active === button) { activeDescription = text; tooltip.querySelector('.hub-detail-tooltip-description').textContent = definition.description; position(); }
+            else button.setAttribute('aria-description', text);
+        },
+        dismiss,
+        dispose
     };
 }
 
@@ -18415,10 +21728,21 @@ function setWindowUndertext(title, undertext) {
     return undertext;
 }
 
+// Capture windows and the task editor use the same heading/undertext structure.
+function createModalHeader(parent, { title, subtitle, icon, titleId, descriptionId }) {
+    const header = parent.createEl("header", { cls: "hub-capture-header" });
+    const options = titleId ? { attr: { id: titleId } } : {};
+    const heading = icon ? createWindowTitle(header, title, icon, options) : header.createEl("h2", { text: title, ...options });
+    const description = subtitle == null ? null : header.createEl("p", { text: subtitle, cls: "hub-oath-muted",
+        ...(descriptionId ? { attr: { id: descriptionId } } : {}) });
+    if (icon && description) setWindowUndertext(heading, description);
+    return { header, heading, description };
+}
+
 // Keep native chrome and existing form ownership; only the middle region scrolls.
 function layoutModal(modal, { container = modal.contentEl, headerEnd, footer, body, bodyClass = "" } = {}) {
     const root = modal.contentEl;
-    headerEnd ??= root.querySelector(":scope > .hub-window-header, :scope > h2, :scope > .hub-statistics-header");
+    headerEnd ??= root.querySelector(":scope > .hub-capture-header, :scope > .hub-window-header, :scope > h2, :scope > .hub-statistics-header");
     if (headerEnd?.nextElementSibling?.classList.contains("hub-project-advancement-divider"))
         headerEnd = headerEnd.nextElementSibling;
     footer ??= container.querySelector(":scope > .hub-capture-actions, :scope > .hub-task-dialog-actions, :scope > .hub-oath-actions, :scope > .hub-project-advancement-actions, :scope > .hub-project-wizard-actions");
@@ -18438,7 +21762,7 @@ function layoutModal(modal, { container = modal.contentEl, headerEnd, footer, bo
     return body;
 }
 
-module.exports = { createWindowTitle, setWindowUndertext, layoutModal };
+module.exports = { createWindowTitle, setWindowUndertext, createModalHeader, layoutModal };
 
 },
 "lib/ui/workspace-cards.js": function (module, exports, __hubRequire) {
@@ -31731,9 +35055,9 @@ module.exports = class HubProjectMenu extends Plugin {
         window.hubCreateTaskRow = __hubRequire("lib/ui/tasks.js").createTaskRow;
         window.hubTaskGroups = taskGroups;
         window.hubTaskOwner = path => this.projectWizard.getContextForPath(path);
-        window.hubCreateTaskUi = (component, body, onEdit) => createTaskUi({
-            app: this.app, component, body, onEdit, oath: this.oath, phaseLabel: task => this.planning?.phaseFor(task)?.name, mutate: request => this.mutateTask(request),
-            editTask: (task, saved) => openTaskEditor(this.taskEditor, task, saved),
+        window.hubCreateTaskUi = (component, body, onEdit, actions = {}) => createTaskUi({
+            app: this.app, component, body, onEdit, oath: this.oath, phaseLabel: task => this.planning?.phaseFor(task)?.name, mutate: actions.mutate ?? (request => this.mutateTask(request)),
+            editTask: actions.editTask ?? ((task, saved) => openTaskEditor(this.taskEditor, task, saved)),
             createTask: options => openTaskCreator(this.taskEditor, options)
         });
         window.hubCreateMarkdown = component => createHubMarkdown({ app: this.app, component });
@@ -31742,6 +35066,14 @@ module.exports = class HubProjectMenu extends Plugin {
         this.planning = new (__hubRequire("lib/services/project-planning.js").ProjectPlanningService)(this);
         window.hubMountFullViewLayout = (root, component) => __hubRequire("lib/ui/full-view-layout.js").mountFullViewLayout({ root, component, app: this.app });
         window.hubMountTaskWorkspace = options => __hubRequire("lib/ui/task-workspace.js").mountTaskWorkspace({ plugin: this, ...options });
+        this.taskService = __hubRequire("lib/services/task-service-host.js").createLegacyTaskService(this);
+        window.hubCreateTaskPanelRead = options => __hubRequire("lib/services/task-panel-read.js").createTaskPanelRead({
+            plugin: this, ...options, editTask: (task, saved) => openTaskEditor(this.taskEditor, task, saved)
+        });
+        window.hubCreateHomeTaskRead = options => __hubRequire("lib/services/home-task-read.js").createHomeTaskRead({
+            plugin: this, ...options, editTask: (task, saved) => openTaskEditor(this.taskEditor, task, saved)
+        });
+        window.hubCreateTaskHistoryRead = options => __hubRequire("lib/services/task-history-read.js").createTaskHistoryRead({ plugin: this, ...options });
         this.contextSearch = new (__hubRequire("lib/services/context-search.js").ContextSearchService)(this);
         window.hubMountContextSearch = options => __hubRequire("lib/ui/context-search.js").mountContextSearch({ service: this.contextSearch, ...options });
         window.hubRegisterSearchWorkspace = (...args) => this.contextSearch.registerWorkspace(...args);
@@ -31953,6 +35285,9 @@ module.exports = class HubProjectMenu extends Plugin {
         delete window.hubToggleTask;
         delete window.hubApplyTaskEdit;
         delete window.hubCreateTaskUi;
+        delete window.hubCreateTaskPanelRead;
+        delete window.hubCreateHomeTaskRead;
+        delete window.hubCreateTaskHistoryRead;
         delete window.hubTaskGroups;
         delete window.hubTaskOwner;
         delete window.hubCreateMarkdown;

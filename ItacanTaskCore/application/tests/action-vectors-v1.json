@@ -1,0 +1,316 @@
+{
+  "format": "itacan-application-action-vectors",
+  "version": 1,
+  "decisionRevision": "N3-B1-B01-B11-r1",
+  "sourceGraphSha256": "706cb099807f0496ab42563a3521ed914b22ff0ed8f1c1719dd75b6f5143ed48",
+  "rows": [
+    {
+      "key": "create-simple",
+      "classification": "A",
+      "nativeAtomic": true,
+      "crossAuthority": false
+    },
+    {
+      "key": "create-steps",
+      "classification": "A",
+      "nativeAtomic": true,
+      "crossAuthority": false
+    },
+    {
+      "key": "create-metadata",
+      "classification": "A",
+      "nativeAtomic": true,
+      "crossAuthority": false
+    },
+    {
+      "key": "create-checked",
+      "classification": "A",
+      "nativeAtomic": true,
+      "crossAuthority": false
+    },
+    {
+      "key": "rich-create",
+      "classification": "B",
+      "nativeAtomic": false,
+      "crossAuthority": false
+    },
+    {
+      "key": "title",
+      "classification": "A",
+      "nativeAtomic": true,
+      "crossAuthority": false
+    },
+    {
+      "key": "description",
+      "classification": "A",
+      "nativeAtomic": true,
+      "crossAuthority": false
+    },
+    {
+      "key": "continuation",
+      "classification": "A",
+      "nativeAtomic": true,
+      "crossAuthority": false
+    },
+    {
+      "key": "necessity",
+      "classification": "A",
+      "nativeAtomic": true,
+      "crossAuthority": false
+    },
+    {
+      "key": "start",
+      "classification": "A",
+      "nativeAtomic": true,
+      "crossAuthority": false
+    },
+    {
+      "key": "due",
+      "classification": "A",
+      "nativeAtomic": true,
+      "crossAuthority": false
+    },
+    {
+      "key": "metadata-together",
+      "classification": "A",
+      "nativeAtomic": true,
+      "crossAuthority": false
+    },
+    {
+      "key": "content-structure",
+      "classification": "A",
+      "nativeAtomic": true,
+      "crossAuthority": false
+    },
+    {
+      "key": "metadata-completion",
+      "classification": "B",
+      "nativeAtomic": false,
+      "crossAuthority": false
+    },
+    {
+      "key": "metadata-structure",
+      "classification": "B",
+      "nativeAtomic": false,
+      "crossAuthority": false
+    },
+    {
+      "key": "full-save",
+      "classification": "B",
+      "nativeAtomic": false,
+      "crossAuthority": false
+    },
+    {
+      "key": "step-add",
+      "classification": "A",
+      "nativeAtomic": true,
+      "crossAuthority": false
+    },
+    {
+      "key": "step-add-body",
+      "classification": "A",
+      "nativeAtomic": true,
+      "crossAuthority": false
+    },
+    {
+      "key": "step-title",
+      "classification": "A",
+      "nativeAtomic": true,
+      "crossAuthority": false
+    },
+    {
+      "key": "step-body",
+      "classification": "A",
+      "nativeAtomic": true,
+      "crossAuthority": false
+    },
+    {
+      "key": "step-reorder",
+      "classification": "A",
+      "nativeAtomic": true,
+      "crossAuthority": false
+    },
+    {
+      "key": "step-reparent",
+      "classification": "A",
+      "nativeAtomic": true,
+      "crossAuthority": false
+    },
+    {
+      "key": "step-reorder-delete",
+      "classification": "A",
+      "nativeAtomic": true,
+      "crossAuthority": false
+    },
+    {
+      "key": "step-delete",
+      "classification": "A",
+      "nativeAtomic": true,
+      "crossAuthority": false
+    },
+    {
+      "key": "step-complete",
+      "classification": "A",
+      "nativeAtomic": true,
+      "crossAuthority": false
+    },
+    {
+      "key": "parent-complete",
+      "classification": "A",
+      "nativeAtomic": true,
+      "crossAuthority": false
+    },
+    {
+      "key": "parent-reopen",
+      "classification": "A",
+      "nativeAtomic": true,
+      "crossAuthority": false
+    },
+    {
+      "key": "delete-tree",
+      "classification": "A",
+      "nativeAtomic": true,
+      "crossAuthority": false
+    },
+    {
+      "key": "delete-promote",
+      "classification": "D",
+      "nativeAtomic": false,
+      "crossAuthority": false
+    },
+    {
+      "key": "archive",
+      "classification": "A",
+      "nativeAtomic": true,
+      "crossAuthority": false
+    },
+    {
+      "key": "clear-completed",
+      "classification": "D",
+      "nativeAtomic": false,
+      "crossAuthority": false
+    },
+    {
+      "key": "relocate",
+      "classification": "A",
+      "nativeAtomic": true,
+      "crossAuthority": false
+    },
+    {
+      "key": "cross-owner",
+      "classification": "D",
+      "nativeAtomic": false,
+      "crossAuthority": false
+    },
+    {
+      "key": "phase-frozen",
+      "classification": "A",
+      "nativeAtomic": true,
+      "crossAuthority": false
+    },
+    {
+      "key": "phase-live",
+      "classification": "C",
+      "nativeAtomic": false,
+      "crossAuthority": true
+    },
+    {
+      "key": "planning-edit",
+      "classification": "D",
+      "nativeAtomic": false,
+      "crossAuthority": false
+    },
+    {
+      "key": "phase-assignments",
+      "classification": "C",
+      "nativeAtomic": false,
+      "crossAuthority": true
+    },
+    {
+      "key": "schedule-dates",
+      "classification": "A",
+      "nativeAtomic": true,
+      "crossAuthority": false
+    },
+    {
+      "key": "schedule-create",
+      "classification": "A",
+      "nativeAtomic": true,
+      "crossAuthority": false
+    },
+    {
+      "key": "inbox-draft",
+      "classification": "D",
+      "nativeAtomic": false,
+      "crossAuthority": false
+    },
+    {
+      "key": "quick-add-task",
+      "classification": "C",
+      "nativeAtomic": false,
+      "crossAuthority": true
+    },
+    {
+      "key": "inbox-send",
+      "classification": "C",
+      "nativeAtomic": false,
+      "crossAuthority": true
+    },
+    {
+      "key": "oath-complete",
+      "classification": "C",
+      "nativeAtomic": false,
+      "crossAuthority": true
+    },
+    {
+      "key": "recurrence-complete",
+      "classification": "A",
+      "nativeAtomic": true,
+      "crossAuthority": false
+    },
+    {
+      "key": "recurrence-recomplete",
+      "classification": "A",
+      "nativeAtomic": true,
+      "crossAuthority": false
+    },
+    {
+      "key": "recurrence-definition",
+      "classification": "A",
+      "nativeAtomic": true,
+      "crossAuthority": false
+    },
+    {
+      "key": "unsupported-recurrence",
+      "classification": "D",
+      "nativeAtomic": false,
+      "crossAuthority": false
+    },
+    {
+      "key": "source-position",
+      "classification": "D",
+      "nativeAtomic": false,
+      "crossAuthority": false
+    },
+    {
+      "key": "source-edit",
+      "classification": "D",
+      "nativeAtomic": false,
+      "crossAuthority": false
+    }
+  ],
+  "decisions": {
+    "B01": "evidence-and-adapter",
+    "B02": "future-task-specific-compound",
+    "B03": "explicit-synthetic-drafts",
+    "B04": "rich-initializer-deferred",
+    "B05": "recurrence-compound-deferred",
+    "B06": "closed-phase-only",
+    "B07": "clear-deferred",
+    "B08": "inbox-coordination-deferred",
+    "B09": "same-owner",
+    "B10": "explicit-backend",
+    "B11": "preserve-oath-causality"
+  },
+  "observations": "Executed outputs are recorded separately in the private acceptance archive, not inferred from these proposed vectors."
+}

@@ -37,7 +37,7 @@ function contentIcon(capture) {
 }
 
 function hasTypeSpecificDetails(draft) {
-    if (draft.type === "task") return ["location", "necessity", "fromDate", "dueDate", "fromTime", "dueTime", "phaseId", "linkedProjectId"]
+    if (draft.type === "task") return ["location", "necessity", "fromDate", "dueDate", "fromTime", "dueTime", "phaseId"]
         .some(key => !!draft[key]) || draft.steps?.some(step => String(step.text ?? "").trim() || step.completed);
     return draft.type === "note" && (!!draft.folder || !!draft.noteLocation || draft.noteAction === "existing" ||
         !!String(draft.title ?? "").trim() && draft.title !== noteTitle(draft));
@@ -53,8 +53,13 @@ class InboxModal extends CaptureModal {
         const aside = body.createEl("aside", { cls: "hub-inbox-sidebar", attr: { "aria-label": "Inbox items" } });
         const toolbar = aside.createDiv({ cls: "hub-inbox-toolbar" });
         this.filters = toolbar.createDiv({ cls: "hub-inbox-filters hub-equal-selectors hub-option-group", attr: { role: "group", "aria-label": "Filter items" } });
+        const counts = inboxCounts(this.service.captures);
         this.filterButtons = [["all", "All"], ["text", "Texts"], ["files", "Files"]].map(([key, label]) => {
-            const button = action(this.filters, label, null, () => { void this.changeFilter(key); });
+            // Layout reads in refresh must see the final initial selection,
+            // otherwise the shared button transition animates neutral to accent.
+            const selected = key === this.filter;
+            const button = action(this.filters, `${label} (${counts[key]})`, null, () => { void this.changeFilter(key); }, selected ? "is-selected" : "");
+            button.setAttribute("aria-pressed", String(selected));
             return { key, label, button };
         });
         const sort = toolbar.createDiv({ cls: "hub-inbox-sort" });

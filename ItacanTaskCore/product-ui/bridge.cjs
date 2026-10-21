@@ -1,0 +1,25 @@
+"use strict";
+(function(root,factory){if(typeof module!=="undefined"&&module.exports)module.exports=factory();else root.ProductBridge=factory();})(globalThis,()=>{
+ const clone=v=>JSON.parse(JSON.stringify(v)),uuid=()=>globalThis.crypto.randomUUID();
+ function check(ok,message){if(!ok)throw Error(message);}
+ function editable(e){check(e&&e.draft&&e.guards,"Editor evidence is unavailable.");check(!e.draft.steps.some(s=>s.parentStepId!==null),"Nested native Steps are preserved; editing is unavailable in this prototype.");check(e.draft.metadata.phase===null,"Phase-bound editing requires planning integration.");check(e.guards.recurrence.kind==="none","Recurring task changes are unavailable in this prototype.");return e;}
+ function endpoint(date,time){check(!time||!!date,"A time requires its date.");return date?{date,time:time||null}:null;}
+ function visible(values){return {text:values.text,description:values.description??"",necessity:values.necessity??null,fromDate:values.fromDate??null,fromTime:values.fromTime??null,dueDate:values.dueDate??null,dueTime:values.dueTime??null,completed:!!values.completed,...(Object.hasOwn(values,"completedAt")?{completedAt:values.completedAt}:{}),steps:(values.steps??[]).map(s=>({...s})),operation:values.operation??"edit"};}
+ function metadata(v,previous={location:null,phase:null}){check(typeof v.text==="string"&&v.text.trim(),"Give the task a title.");check([null,"must","should"].includes(v.necessity??null),"Invalid Necessity.");return {...clone(previous),title:v.text.trim(),description:v.description??"",importance:v.necessity??null,start:endpoint(v.fromDate,v.fromTime),due:endpoint(v.dueDate,v.dueTime)};}
+ function initial(v){return v.completed?{completed:true,...(Object.hasOwn(v,"completedAt")?{completedAt:v.completedAt}:{})}:{completed:false,completedAt:null};}
+ function transition(before,v){return before===!!v.completed?{kind:"keep"}:v.completed?{kind:"complete",...(Object.hasOwn(v,"completedAt")?{completedAt:v.completedAt}:{})}:{kind:"reopen"};}
+ function toForm(editor){const e=editable(editor),m=e.draft.metadata,completion=new Map(e.currentCompletion.map(c=>[c.stepId,c]));return {text:m.title,description:m.description,necessity:m.importance,fromDate:m.start?.date??null,fromTime:m.start?.time??null,dueDate:m.due?.date??null,dueTime:m.due?.time??null,completed:completion.get(null).completed,steps:e.draft.steps.map(s=>({id:s.id,text:s.title,completed:completion.get(s.id).completed}))};}
+ function base(c,operationId,version){return {version,operationId,reason:"Existing Itacan product interface",authority:clone(c.authority),owner:clone(c.owner),guard:clone(c.guard)};}
+ function create(context,values,operationId=uuid()){const v=visible(values);return {...base(context,operationId,2),action:{kind:"rich-create",draft:{version:1,metadata:metadata(v),continuation:"",initial:initial(v),steps:v.steps.map((s,i)=>{check(!s.id,"New Steps cannot reuse an existing identity.");return {id:uuid(),parentStepId:null,order:i,title:s.text.trim(),body:"",initial:initial(s)};})}}};}
+ function save(editor,values,operationId=uuid()){
+  const e=editable(editor),v=visible(values),old=new Map(e.draft.steps.map(s=>[s.id,s])),states=new Map(e.currentCompletion.map(s=>[s.stepId,s])),seen=new Set();
+  for(const s of v.steps)if(s.id){check(old.has(s.id)&&!seen.has(s.id),"A Step identity changed or was duplicated. Reopen the task.");seen.add(s.id);}
+  const expectedOrder=e.draft.steps.filter(s=>seen.has(s.id)).map(s=>s.id),actualOrder=v.steps.filter(s=>s.id).map(s=>s.id);check(JSON.stringify(expectedOrder)===JSON.stringify(actualOrder),"Step reordering is unavailable in this form.");
+  let nextOrder=Math.max(-1,...e.draft.steps.map(s=>s.order))+1;
+  const steps=v.steps.map(s=>s.id?{...clone(old.get(s.id)),title:s.text.trim(),completion:transition(states.get(s.id).completed,s)}:{state:"new",id:uuid(),parentStepId:null,order:nextOrder++,title:s.text.trim(),body:"",initial:initial(s)});
+  const c={authority:e.authority,owner:e.owner,guard:e.guard};return {...base(c,operationId,2),action:{kind:"full-save",target:{taskId:e.taskId,expectedTaskRevision:e.taskRevision},guards:clone(e.guards),draft:{...clone(e.draft),metadata:metadata(v,e.draft.metadata),steps,deletions:e.draft.steps.filter(s=>!seen.has(s.id)).map(s=>({stepId:s.id,cascade:false,descendantIds:[]})),parentCompletion:transition(states.get(null).completed,v)}}};
+ }
+ function complete(editor,completed,stepId=null,operationId=uuid()){const e=editable(editor);if(stepId!==null)check(e.draft.steps.some(s=>s.id===stepId),"Step unavailable.");return {...base(e,operationId,1),action:{kind:stepId===null?"set-completion":"set-step-completion",target:{taskId:e.taskId,expectedTaskRevision:e.taskRevision,...(stepId===null?{}:{stepId})},completed}};}
+ function remove(editor,operationId=uuid()){const e=editable(editor);return {...base(e,operationId,1),action:{kind:"delete-tree",target:{taskId:e.taskId,expectedTaskRevision:e.taskRevision}}};}
+ return Object.freeze({clone,editable,toForm,visible,create,save,complete,remove,fingerprint:values=>JSON.stringify(visible(values))});
+});

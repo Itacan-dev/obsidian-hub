@@ -1,0 +1,1330 @@
+[
+  {
+    "mode": "active",
+    "pin": {
+      "html": "<div class=\"hub-oath-pinned\"><div class=\"hub-oath-pinned-heading\"><div class=\"hub-oath-pinned-title\"><span class=\"hub-oath-icon\" data-icon=\"pin\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M12 17v5M9 3h6l-1 7 4 4v3H6v-3l4-4Z\"></path></svg></span><strong class=\"\">Pinned for Oath</strong></div><div class=\"hub-oath-pinned-status\"><span class=\"hub-oath-pinned-timer\">24:00 remaining</span><span class=\"hub-oath-pinned-completion\"><span class=\"\" aria-hidden=\"true\">·</span><span class=\"\">1 / 4 completed</span></span></div></div><div class=\"project-task-row hub-planned-task-row\"><span role=\"img\" class=\"hub-task-necessity-bar is-must\" aria-label=\"Must do\"></span><input class=\"project-task-checkbox\" type=\"checkbox\" aria-label=\"Complete task: Parent **markdown**\"><div class=\"project-task-info\"><div class=\"project-task-text hub-task-markdown hub-markdown\" tabindex=\"0\" role=\"button\" aria-label=\"Edit task: Parent **markdown**\">Parent **markdown**</div><div class=\"project-task-location\">Private</div><div class=\"hub-task-dates\"><span class=\"\"><time class=\"\" datetime=\"2026-10-25T00:00\">Due 25 Oct, 00:00</time></span></div><div class=\"hub-task-steps\"><button class=\"hub-task-steps-toggle\" type=\"button\" aria-expanded=\"true\" aria-label=\"Collapse Steps: 1/2\"><span class=\"hub-task-steps-chevron\" aria-hidden=\"true\" data-icon=\"chevron-down\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"m6 9 6 6 6-6\"></path></svg></span><span class=\"hub-task-steps-label\">Steps</span><span class=\"hub-task-step-progress\" aria-live=\"polite\">1/2</span></button><div class=\"hub-task-step-items\"><div class=\"hub-task-step-list\"><label class=\"hub-task-step-item is-completed\"><input class=\"\" aria-label=\"Complete Step: First\" type=\"checkbox\"><span class=\"hub-task-step-text hub-markdown\">First</span></label><label class=\"hub-task-step-item\"><input class=\"\" aria-label=\"Complete Step: Nested\" type=\"checkbox\"><span class=\"hub-task-step-text hub-markdown\">Nested</span></label></div></div></div></div></div><div class=\"project-task-row is-completed hub-planned-task-row\"><input class=\"project-task-checkbox\" type=\"checkbox\" aria-label=\"Complete task: Completed\"><div class=\"project-task-info\"><div class=\"project-task-text hub-task-markdown hub-markdown\" tabindex=\"0\" role=\"button\" aria-label=\"Edit task: Completed\">Completed</div><div class=\"project-task-location\">Private</div></div></div><div class=\"project-task-row hub-planned-task-row\"><input class=\"project-task-checkbox\" type=\"checkbox\" aria-label=\"Complete task: Copied Step parent\"><div class=\"project-task-info\"><div class=\"project-task-text hub-task-markdown hub-markdown\" tabindex=\"0\" role=\"button\" aria-label=\"Edit task: Copied Step parent\">Copied Step parent</div><div class=\"project-task-location\">Private</div><div class=\"hub-task-steps\"><button class=\"hub-task-steps-toggle\" type=\"button\" aria-expanded=\"false\" aria-label=\"Expand Steps: 0/1\"><span class=\"hub-task-steps-chevron\" aria-hidden=\"true\" data-icon=\"chevron-right\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"m9 6 6 6-6 6\"></path></svg></span><span class=\"hub-task-steps-label\">Steps</span><span class=\"hub-task-step-progress\" aria-live=\"polite\">0/1</span></button><div class=\"hub-task-step-items\" hidden=\"\"><div class=\"hub-task-step-list\"><label class=\"hub-task-step-item\"><input class=\"\" aria-label=\"Complete Step: Copied Step\" type=\"checkbox\"><span class=\"hub-task-step-text hub-markdown\">Copied Step</span></label></div></div></div></div></div><div class=\"hub-oath-missing\"><strong class=\"\">Saved missing commitment</strong><div class=\"\">Source task unavailable. The commitment timer continues.</div></div></div>",
+      "rects": [
+        [
+          "DIV",
+          "project-tasks-body hub-button-scope",
+          24,
+          24,
+          1030,
+          379.5
+        ],
+        [
+          "DIV",
+          "hub-oath-pinned-status",
+          861.39,
+          36,
+          179.61,
+          15
+        ],
+        [
+          "DIV",
+          "project-task-row hub-planned-task-row",
+          35,
+          66,
+          1008,
+          130.06
+        ],
+        [
+          "INPUT",
+          "project-task-checkbox",
+          47,
+          82,
+          16,
+          16
+        ],
+        [
+          "BUTTON",
+          "hub-task-steps-toggle",
+          75,
+          112.06,
+          963,
+          28
+        ],
+        [
+          "INPUT",
+          "",
+          95,
+          145.06,
+          16,
+          16
+        ],
+        [
+          "INPUT",
+          "",
+          95,
+          169.06,
+          16,
+          16
+        ],
+        [
+          "DIV",
+          "project-task-row is-completed hub-planned-task-row",
+          35,
+          196.06,
+          1008,
+          49.22
+        ],
+        [
+          "INPUT",
+          "project-task-checkbox",
+          47,
+          213.06,
+          16,
+          16
+        ],
+        [
+          "DIV",
+          "project-task-row hub-planned-task-row",
+          35,
+          245.28,
+          1008,
+          81.22
+        ],
+        [
+          "INPUT",
+          "project-task-checkbox",
+          47,
+          262.28,
+          16,
+          16
+        ],
+        [
+          "BUTTON",
+          "hub-task-steps-toggle",
+          75,
+          290.5,
+          963,
+          28
+        ],
+        [
+          "INPUT",
+          "",
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          "DIV",
+          "hub-oath-missing",
+          35,
+          326.5,
+          1008,
+          58
+        ]
+      ]
+    },
+    "status": {
+      "html": "<button class=\"modal-close-button\">×</button><div class=\"modal-content hub-button-scope hub-modal-layout\"><div class=\"hub-window-header\" style=\"margin: 0px 0px 13.44px; min-height: 95.1562px;\"><span class=\"hub-window-title-icon\" aria-hidden=\"true\" data-icon=\"shield-user\" style=\"color: rgb(224, 228, 239);\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1zM6.376 18.91a6 6 0 0 1 11.249.003\"></path><circle cx=\"12\" cy=\"11\" r=\"4\"></circle></svg></span><div class=\"hub-window-header-copy\"><h2 class=\"hub-window-title\" style=\"margin: 0px;\">Oathbound</h2><p class=\"hub-oath-status-time hub-window-undertext\" style=\"margin: 6px 0px 0px;\">24m remaining</p><p class=\"hub-oath-muted hub-window-undertext\" style=\"margin: 16px 0px 0px;\">After 25 minutes or when all selected tasks are complete</p></div></div><div class=\"hub-modal-body\"><div class=\"hub-oath-status-work\"><div class=\"hub-oath-selected hub-readonly-task\"><span class=\"hub-report-section-icon\" role=\"img\" aria-label=\"Incomplete\" data-icon=\"square\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><rect x=\"3\" y=\"3\" width=\"18\" height=\"18\" rx=\"2\"></rect></svg></span><div class=\"project-task-info project-task-text hub-markdown\">Parent **markdown**</div></div><div class=\"hub-oath-selected hub-readonly-task\"><span class=\"hub-report-section-icon hub-report-check\" role=\"img\" aria-label=\"Completed\" data-icon=\"square-check\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" aria-hidden=\"true\"><path d=\"M8 3L18 13M7 4L5 10L14 19L20 17M11 14L3 22\"></path></svg></span><div class=\"project-task-info project-task-text hub-markdown\">Completed</div></div><div class=\"hub-oath-selected hub-readonly-task\"><span class=\"hub-report-section-icon\" role=\"img\" aria-label=\"Incomplete\" data-icon=\"square\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><rect x=\"3\" y=\"3\" width=\"18\" height=\"18\" rx=\"2\"></rect></svg></span><div class=\"project-task-info project-task-text hub-markdown\">Copied Step parent</div></div><div class=\"hub-oath-selected hub-readonly-task\"><span class=\"hub-report-section-icon\" role=\"img\" aria-label=\"Source unavailable\" data-icon=\"circle-help\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><circle cx=\"12\" cy=\"12\" r=\"10\"></circle><path d=\"M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3M12 17h.01\"></path></svg></span><div class=\"project-task-info project-task-text hub-markdown\">Saved missing commitment</div><span class=\"hub-oath-muted\">Source unavailable</span></div></div><div class=\"hub-task-error\" role=\"alert\"></div></div><div class=\"hub-oath-actions\"><button class=\"\">End Oath</button><button class=\"mod-cta\">Close</button></div></div>",
+      "rects": [
+        [
+          "DIV",
+          "modal hub-oath-dialog hub-oath-status hub-modal-window",
+          375,
+          267.41,
+          530,
+          465.19
+        ],
+        [
+          "BUTTON",
+          "modal-close-button",
+          402,
+          294.41,
+          476,
+          37
+        ],
+        [
+          "DIV",
+          "hub-oath-status-work",
+          402,
+          440,
+          476,
+          198.59
+        ],
+        [
+          "BUTTON",
+          "",
+          700.05,
+          668.59,
+          99.64,
+          37
+        ],
+        [
+          "BUTTON",
+          "mod-cta",
+          807.69,
+          668.59,
+          70.31,
+          37
+        ]
+      ]
+    },
+    "progress": {
+      "total": 4,
+      "completed": 1,
+      "missing": 1,
+      "allComplete": false
+    },
+    "work": [
+      {
+        "ref": {
+          "id": "parent",
+          "path": "Projects/Private/Tasks.md",
+          "text": "Parent **markdown**"
+        },
+        "task": {
+          "path": "Projects/Private/Tasks.md",
+          "line": 0,
+          "text": "Parent **markdown**",
+          "id": "parent",
+          "completed": false,
+          "steps": [
+            {
+              "line": 2,
+              "text": "First",
+              "hubTaskId": "first",
+              "completed": true,
+              "status": "x",
+              "indent": 4,
+              "end": 4
+            },
+            {
+              "line": 3,
+              "text": "Nested",
+              "hubTaskId": "nested",
+              "completed": false,
+              "status": " ",
+              "indent": 8,
+              "end": 4
+            }
+          ]
+        }
+      },
+      {
+        "ref": {
+          "id": "complete",
+          "path": "Projects/Private/Tasks.md",
+          "text": "Completed"
+        },
+        "task": {
+          "path": "Projects/Private/Tasks.md",
+          "line": 7,
+          "text": "Completed",
+          "id": "complete",
+          "completed": true,
+          "steps": []
+        }
+      },
+      {
+        "ref": {
+          "id": "steps-parent",
+          "path": "Projects/Private/Tasks.md",
+          "text": "Copied Step parent"
+        },
+        "task": {
+          "path": "Projects/Private/Tasks.md",
+          "line": 11,
+          "text": "Copied Step parent",
+          "id": "steps-parent",
+          "completed": false,
+          "steps": [
+            {
+              "line": 12,
+              "text": "Copied Step",
+              "hubTaskId": "step-copy",
+              "completed": false,
+              "status": " ",
+              "indent": 4,
+              "end": 13
+            }
+          ]
+        }
+      },
+      {
+        "ref": {
+          "id": "absent",
+          "path": "Saved/Missing.md",
+          "text": "Saved missing commitment"
+        },
+        "task": null
+      }
+    ]
+  },
+  {
+    "mode": "scheduled",
+    "pin": {
+      "html": "",
+      "rects": [
+        [
+          "DIV",
+          "project-tasks-body hub-button-scope",
+          24,
+          24,
+          1030,
+          0
+        ]
+      ]
+    },
+    "status": {
+      "html": "<button class=\"modal-close-button\">×</button><div class=\"modal-content hub-button-scope hub-modal-layout\"><div class=\"hub-window-header\" style=\"margin: 0px 0px 13.44px; min-height: 95.1562px;\"><span class=\"hub-window-title-icon\" aria-hidden=\"true\" data-icon=\"shield-user\" style=\"color: rgb(224, 228, 239);\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1zM6.376 18.91a6 6 0 0 1 11.249.003\"></path><circle cx=\"12\" cy=\"11\" r=\"4\"></circle></svg></span><div class=\"hub-window-header-copy\"><h2 class=\"hub-window-title\" style=\"margin: 0px;\">Scheduled Oath</h2><p class=\"hub-oath-status-time hub-window-undertext\" style=\"margin: 6px 0px 0px;\">Starts 26 Oct 2026, 12:01</p><p class=\"hub-oath-muted hub-window-undertext\" style=\"margin: 16px 0px 0px;\">After 25 minutes or when all selected tasks are complete</p></div></div><div class=\"hub-modal-body\"><div class=\"hub-oath-status-work\"><div class=\"hub-oath-selected hub-readonly-task\"><span class=\"hub-report-section-icon\" role=\"img\" aria-label=\"Incomplete\" data-icon=\"square\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><rect x=\"3\" y=\"3\" width=\"18\" height=\"18\" rx=\"2\"></rect></svg></span><div class=\"project-task-info project-task-text hub-markdown\">Parent **markdown**</div></div><div class=\"hub-oath-selected hub-readonly-task\"><span class=\"hub-report-section-icon hub-report-check\" role=\"img\" aria-label=\"Completed\" data-icon=\"square-check\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" aria-hidden=\"true\"><path d=\"M8 3L18 13M7 4L5 10L14 19L20 17M11 14L3 22\"></path></svg></span><div class=\"project-task-info project-task-text hub-markdown\">Completed</div></div><div class=\"hub-oath-selected hub-readonly-task\"><span class=\"hub-report-section-icon\" role=\"img\" aria-label=\"Incomplete\" data-icon=\"square\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><rect x=\"3\" y=\"3\" width=\"18\" height=\"18\" rx=\"2\"></rect></svg></span><div class=\"project-task-info project-task-text hub-markdown\">Copied Step parent</div></div><div class=\"hub-oath-selected hub-readonly-task\"><span class=\"hub-report-section-icon\" role=\"img\" aria-label=\"Source unavailable\" data-icon=\"circle-help\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><circle cx=\"12\" cy=\"12\" r=\"10\"></circle><path d=\"M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3M12 17h.01\"></path></svg></span><div class=\"project-task-info project-task-text hub-markdown\">Saved missing commitment</div><span class=\"hub-oath-muted\">Source unavailable</span></div></div><div class=\"hub-task-error\" role=\"alert\"></div></div><div class=\"hub-oath-actions\"><button class=\"\">Cancel Oath</button><button class=\"mod-cta\">Close</button></div></div>",
+      "rects": [
+        [
+          "DIV",
+          "modal hub-oath-dialog hub-oath-status hub-modal-window",
+          375,
+          267.41,
+          530,
+          465.19
+        ],
+        [
+          "BUTTON",
+          "modal-close-button",
+          402,
+          294.41,
+          476,
+          37
+        ],
+        [
+          "DIV",
+          "hub-oath-status-work",
+          402,
+          440,
+          476,
+          198.59
+        ],
+        [
+          "BUTTON",
+          "",
+          679.89,
+          668.59,
+          119.8,
+          37
+        ],
+        [
+          "BUTTON",
+          "mod-cta",
+          807.69,
+          668.59,
+          70.31,
+          37
+        ]
+      ]
+    },
+    "progress": {
+      "total": 4,
+      "completed": 1,
+      "missing": 1,
+      "allComplete": false
+    },
+    "work": [
+      {
+        "ref": {
+          "id": "parent",
+          "path": "Projects/Private/Tasks.md",
+          "text": "Parent **markdown**"
+        },
+        "task": {
+          "path": "Projects/Private/Tasks.md",
+          "line": 0,
+          "text": "Parent **markdown**",
+          "id": "parent",
+          "completed": false,
+          "steps": [
+            {
+              "line": 2,
+              "text": "First",
+              "hubTaskId": "first",
+              "completed": true,
+              "status": "x",
+              "indent": 4,
+              "end": 4
+            },
+            {
+              "line": 3,
+              "text": "Nested",
+              "hubTaskId": "nested",
+              "completed": false,
+              "status": " ",
+              "indent": 8,
+              "end": 4
+            }
+          ]
+        }
+      },
+      {
+        "ref": {
+          "id": "complete",
+          "path": "Projects/Private/Tasks.md",
+          "text": "Completed"
+        },
+        "task": {
+          "path": "Projects/Private/Tasks.md",
+          "line": 7,
+          "text": "Completed",
+          "id": "complete",
+          "completed": true,
+          "steps": []
+        }
+      },
+      {
+        "ref": {
+          "id": "steps-parent",
+          "path": "Projects/Private/Tasks.md",
+          "text": "Copied Step parent"
+        },
+        "task": {
+          "path": "Projects/Private/Tasks.md",
+          "line": 11,
+          "text": "Copied Step parent",
+          "id": "steps-parent",
+          "completed": false,
+          "steps": [
+            {
+              "line": 12,
+              "text": "Copied Step",
+              "hubTaskId": "step-copy",
+              "completed": false,
+              "status": " ",
+              "indent": 4,
+              "end": 13
+            }
+          ]
+        }
+      },
+      {
+        "ref": {
+          "id": "absent",
+          "path": "Saved/Missing.md",
+          "text": "Saved missing commitment"
+        },
+        "task": null
+      }
+    ]
+  },
+  {
+    "mode": "strict",
+    "pin": {
+      "html": "<div class=\"hub-oath-pinned\"><div class=\"hub-oath-pinned-heading\"><div class=\"hub-oath-pinned-title\"><span class=\"hub-oath-icon\" data-icon=\"pin\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M12 17v5M9 3h6l-1 7 4 4v3H6v-3l4-4Z\"></path></svg></span><strong class=\"\">Pinned for Oath</strong></div><div class=\"hub-oath-pinned-status\"><span class=\"hub-oath-pinned-timer\">24:00 remaining</span><span class=\"hub-oath-pinned-completion\"><span class=\"\" aria-hidden=\"true\">·</span><span class=\"\">1 / 4 completed</span></span></div></div><div class=\"project-task-row hub-planned-task-row\"><span role=\"img\" class=\"hub-task-necessity-bar is-must\" aria-label=\"Must do\"></span><input class=\"project-task-checkbox\" type=\"checkbox\" aria-label=\"Complete task: Parent **markdown**\"><div class=\"project-task-info\"><div class=\"project-task-text hub-task-markdown hub-markdown\" tabindex=\"0\" role=\"button\" aria-label=\"Edit task: Parent **markdown**\">Parent **markdown**</div><div class=\"project-task-location\">Private</div><div class=\"hub-task-dates\"><span class=\"\"><time class=\"\" datetime=\"2026-10-25T00:00\">Due 25 Oct, 00:00</time></span></div><div class=\"hub-task-steps\"><button class=\"hub-task-steps-toggle\" type=\"button\" aria-expanded=\"true\" aria-label=\"Collapse Steps: 1/2\"><span class=\"hub-task-steps-chevron\" aria-hidden=\"true\" data-icon=\"chevron-down\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"m6 9 6 6 6-6\"></path></svg></span><span class=\"hub-task-steps-label\">Steps</span><span class=\"hub-task-step-progress\" aria-live=\"polite\">1/2</span></button><div class=\"hub-task-step-items\"><div class=\"hub-task-step-list\"><label class=\"hub-task-step-item is-completed\"><input class=\"\" aria-label=\"Complete Step: First\" type=\"checkbox\"><span class=\"hub-task-step-text hub-markdown\">First</span></label><label class=\"hub-task-step-item\"><input class=\"\" aria-label=\"Complete Step: Nested\" type=\"checkbox\"><span class=\"hub-task-step-text hub-markdown\">Nested</span></label></div></div></div></div></div><div class=\"project-task-row is-completed hub-planned-task-row\"><input class=\"project-task-checkbox\" type=\"checkbox\" aria-label=\"Complete task: Completed\"><div class=\"project-task-info\"><div class=\"project-task-text hub-task-markdown hub-markdown\" tabindex=\"0\" role=\"button\" aria-label=\"Edit task: Completed\">Completed</div><div class=\"project-task-location\">Private</div></div></div><div class=\"project-task-row hub-planned-task-row\"><input class=\"project-task-checkbox\" type=\"checkbox\" aria-label=\"Complete task: Copied Step parent\"><div class=\"project-task-info\"><div class=\"project-task-text hub-task-markdown hub-markdown\" tabindex=\"0\" role=\"button\" aria-label=\"Edit task: Copied Step parent\">Copied Step parent</div><div class=\"project-task-location\">Private</div><div class=\"hub-task-steps\"><button class=\"hub-task-steps-toggle\" type=\"button\" aria-expanded=\"false\" aria-label=\"Expand Steps: 0/1\"><span class=\"hub-task-steps-chevron\" aria-hidden=\"true\" data-icon=\"chevron-right\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"m9 6 6 6-6 6\"></path></svg></span><span class=\"hub-task-steps-label\">Steps</span><span class=\"hub-task-step-progress\" aria-live=\"polite\">0/1</span></button><div class=\"hub-task-step-items\" hidden=\"\"><div class=\"hub-task-step-list\"><label class=\"hub-task-step-item\"><input class=\"\" aria-label=\"Complete Step: Copied Step\" type=\"checkbox\"><span class=\"hub-task-step-text hub-markdown\">Copied Step</span></label></div></div></div></div></div><div class=\"hub-oath-missing\"><strong class=\"\">Saved missing commitment</strong><div class=\"\">Source task unavailable. The commitment timer continues.</div></div></div>",
+      "rects": [
+        [
+          "DIV",
+          "project-tasks-body hub-button-scope",
+          24,
+          24,
+          1030,
+          379.5
+        ],
+        [
+          "DIV",
+          "hub-oath-pinned-status",
+          861.39,
+          36,
+          179.61,
+          15
+        ],
+        [
+          "DIV",
+          "project-task-row hub-planned-task-row",
+          35,
+          66,
+          1008,
+          130.06
+        ],
+        [
+          "INPUT",
+          "project-task-checkbox",
+          47,
+          82,
+          16,
+          16
+        ],
+        [
+          "BUTTON",
+          "hub-task-steps-toggle",
+          75,
+          112.06,
+          963,
+          28
+        ],
+        [
+          "INPUT",
+          "",
+          95,
+          145.06,
+          16,
+          16
+        ],
+        [
+          "INPUT",
+          "",
+          95,
+          169.06,
+          16,
+          16
+        ],
+        [
+          "DIV",
+          "project-task-row is-completed hub-planned-task-row",
+          35,
+          196.06,
+          1008,
+          49.22
+        ],
+        [
+          "INPUT",
+          "project-task-checkbox",
+          47,
+          213.06,
+          16,
+          16
+        ],
+        [
+          "DIV",
+          "project-task-row hub-planned-task-row",
+          35,
+          245.28,
+          1008,
+          81.22
+        ],
+        [
+          "INPUT",
+          "project-task-checkbox",
+          47,
+          262.28,
+          16,
+          16
+        ],
+        [
+          "BUTTON",
+          "hub-task-steps-toggle",
+          75,
+          290.5,
+          963,
+          28
+        ],
+        [
+          "INPUT",
+          "",
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          "DIV",
+          "hub-oath-missing",
+          35,
+          326.5,
+          1008,
+          58
+        ]
+      ]
+    },
+    "status": {
+      "html": "<button class=\"modal-close-button\">×</button><div class=\"modal-content hub-button-scope hub-modal-layout\"><div class=\"hub-window-header\" style=\"margin: 0px 0px 13.44px; min-height: 95.1562px;\"><span class=\"hub-window-title-icon\" aria-hidden=\"true\" data-icon=\"shield-user\" style=\"color: rgb(224, 228, 239);\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1zM6.376 18.91a6 6 0 0 1 11.249.003\"></path><circle cx=\"12\" cy=\"11\" r=\"4\"></circle></svg></span><div class=\"hub-window-header-copy\"><h2 class=\"hub-window-title\" style=\"margin: 0px;\">Oathbound</h2><p class=\"hub-oath-status-time hub-window-undertext\" style=\"margin: 6px 0px 0px;\">24m remaining</p><p class=\"hub-oath-muted hub-window-undertext\" style=\"margin: 16px 0px 0px;\">After 25 minutes or when all selected tasks are complete</p></div></div><div class=\"hub-modal-body\"><p class=\"hub-oath-muted\">Strict Oath: ordinary exit becomes available after fulfillment. Desktop application checks are best effort.</p><div class=\"hub-oath-status-work\"><div class=\"hub-oath-selected hub-readonly-task\"><span class=\"hub-report-section-icon\" role=\"img\" aria-label=\"Incomplete\" data-icon=\"square\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><rect x=\"3\" y=\"3\" width=\"18\" height=\"18\" rx=\"2\"></rect></svg></span><div class=\"project-task-info project-task-text hub-markdown\">Parent **markdown**</div></div><div class=\"hub-oath-selected hub-readonly-task\"><span class=\"hub-report-section-icon hub-report-check\" role=\"img\" aria-label=\"Completed\" data-icon=\"square-check\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" aria-hidden=\"true\"><path d=\"M8 3L18 13M7 4L5 10L14 19L20 17M11 14L3 22\"></path></svg></span><div class=\"project-task-info project-task-text hub-markdown\">Completed</div></div><div class=\"hub-oath-selected hub-readonly-task\"><span class=\"hub-report-section-icon\" role=\"img\" aria-label=\"Incomplete\" data-icon=\"square\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><rect x=\"3\" y=\"3\" width=\"18\" height=\"18\" rx=\"2\"></rect></svg></span><div class=\"project-task-info project-task-text hub-markdown\">Copied Step parent</div></div><div class=\"hub-oath-selected hub-readonly-task\"><span class=\"hub-report-section-icon\" role=\"img\" aria-label=\"Source unavailable\" data-icon=\"circle-help\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><circle cx=\"12\" cy=\"12\" r=\"10\"></circle><path d=\"M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3M12 17h.01\"></path></svg></span><div class=\"project-task-info project-task-text hub-markdown\">Saved missing commitment</div><span class=\"hub-oath-muted\">Source unavailable</span></div></div><div class=\"hub-task-error\" role=\"alert\"></div><section class=\"hub-oath-section\"><h3 class=\"\">Permitted applications</h3><p class=\"hub-oath-muted\">Open may create another window. Use Alt+Tab to switch existing windows.</p><button class=\"\" type=\"button\">Return to Itacan</button></section></div><div class=\"hub-oath-actions\"><button class=\"\" disabled=\"\">Available after fulfillment</button><button class=\"mod-cta\">Close</button></div></div>",
+      "rects": [
+        [
+          "DIV",
+          "modal hub-oath-dialog hub-oath-status hub-modal-window",
+          375,
+          163.52,
+          530,
+          672.97
+        ],
+        [
+          "BUTTON",
+          "modal-close-button",
+          402,
+          190.52,
+          476,
+          37
+        ],
+        [
+          "DIV",
+          "hub-oath-status-work",
+          402,
+          403.3,
+          476,
+          198.59
+        ],
+        [
+          "SECTION",
+          "hub-oath-section",
+          402,
+          623.89,
+          476,
+          126.59
+        ],
+        [
+          "BUTTON",
+          "",
+          402,
+          713.48,
+          128.53,
+          37
+        ],
+        [
+          "BUTTON",
+          "",
+          589.88,
+          772.48,
+          209.81,
+          37
+        ],
+        [
+          "BUTTON",
+          "mod-cta",
+          807.69,
+          772.48,
+          70.31,
+          37
+        ]
+      ]
+    },
+    "progress": {
+      "total": 4,
+      "completed": 1,
+      "missing": 1,
+      "allComplete": false
+    },
+    "work": [
+      {
+        "ref": {
+          "id": "parent",
+          "path": "Projects/Private/Tasks.md",
+          "text": "Parent **markdown**"
+        },
+        "task": {
+          "path": "Projects/Private/Tasks.md",
+          "line": 0,
+          "text": "Parent **markdown**",
+          "id": "parent",
+          "completed": false,
+          "steps": [
+            {
+              "line": 2,
+              "text": "First",
+              "hubTaskId": "first",
+              "completed": true,
+              "status": "x",
+              "indent": 4,
+              "end": 4
+            },
+            {
+              "line": 3,
+              "text": "Nested",
+              "hubTaskId": "nested",
+              "completed": false,
+              "status": " ",
+              "indent": 8,
+              "end": 4
+            }
+          ]
+        }
+      },
+      {
+        "ref": {
+          "id": "complete",
+          "path": "Projects/Private/Tasks.md",
+          "text": "Completed"
+        },
+        "task": {
+          "path": "Projects/Private/Tasks.md",
+          "line": 7,
+          "text": "Completed",
+          "id": "complete",
+          "completed": true,
+          "steps": []
+        }
+      },
+      {
+        "ref": {
+          "id": "steps-parent",
+          "path": "Projects/Private/Tasks.md",
+          "text": "Copied Step parent"
+        },
+        "task": {
+          "path": "Projects/Private/Tasks.md",
+          "line": 11,
+          "text": "Copied Step parent",
+          "id": "steps-parent",
+          "completed": false,
+          "steps": [
+            {
+              "line": 12,
+              "text": "Copied Step",
+              "hubTaskId": "step-copy",
+              "completed": false,
+              "status": " ",
+              "indent": 4,
+              "end": 13
+            }
+          ]
+        }
+      },
+      {
+        "ref": {
+          "id": "absent",
+          "path": "Saved/Missing.md",
+          "text": "Saved missing commitment"
+        },
+        "task": null
+      }
+    ]
+  },
+  {
+    "mode": "fulfilled",
+    "pin": {
+      "html": "<div class=\"hub-oath-pinned\"><div class=\"hub-oath-pinned-heading\"><div class=\"hub-oath-pinned-title\"><span class=\"hub-oath-icon\" data-icon=\"pin\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M12 17v5M9 3h6l-1 7 4 4v3H6v-3l4-4Z\"></path></svg></span><strong class=\"\">Pinned for Oath</strong></div><div class=\"hub-oath-pinned-status\"><span class=\"hub-oath-pinned-timer\">Fulfilled</span><span class=\"hub-oath-pinned-completion\"><span class=\"\" aria-hidden=\"true\">·</span><span class=\"\">1 / 4 completed</span></span></div></div><div class=\"project-task-row hub-planned-task-row\"><span role=\"img\" class=\"hub-task-necessity-bar is-must\" aria-label=\"Must do\"></span><input class=\"project-task-checkbox\" type=\"checkbox\" aria-label=\"Complete task: Parent **markdown**\"><div class=\"project-task-info\"><div class=\"project-task-text hub-task-markdown hub-markdown\" tabindex=\"0\" role=\"button\" aria-label=\"Edit task: Parent **markdown**\">Parent **markdown**</div><div class=\"project-task-location\">Private</div><div class=\"hub-task-dates\"><span class=\"\"><time class=\"\" datetime=\"2026-10-25T00:00\">Due 25 Oct, 00:00</time></span></div><div class=\"hub-task-steps\"><button class=\"hub-task-steps-toggle\" type=\"button\" aria-expanded=\"true\" aria-label=\"Collapse Steps: 1/2\"><span class=\"hub-task-steps-chevron\" aria-hidden=\"true\" data-icon=\"chevron-down\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"m6 9 6 6 6-6\"></path></svg></span><span class=\"hub-task-steps-label\">Steps</span><span class=\"hub-task-step-progress\" aria-live=\"polite\">1/2</span></button><div class=\"hub-task-step-items\"><div class=\"hub-task-step-list\"><label class=\"hub-task-step-item is-completed\"><input class=\"\" aria-label=\"Complete Step: First\" type=\"checkbox\"><span class=\"hub-task-step-text hub-markdown\">First</span></label><label class=\"hub-task-step-item\"><input class=\"\" aria-label=\"Complete Step: Nested\" type=\"checkbox\"><span class=\"hub-task-step-text hub-markdown\">Nested</span></label></div></div></div></div></div><div class=\"project-task-row is-completed hub-planned-task-row\"><input class=\"project-task-checkbox\" type=\"checkbox\" aria-label=\"Complete task: Completed\"><div class=\"project-task-info\"><div class=\"project-task-text hub-task-markdown hub-markdown\" tabindex=\"0\" role=\"button\" aria-label=\"Edit task: Completed\">Completed</div><div class=\"project-task-location\">Private</div></div></div><div class=\"project-task-row hub-planned-task-row\"><input class=\"project-task-checkbox\" type=\"checkbox\" aria-label=\"Complete task: Copied Step parent\"><div class=\"project-task-info\"><div class=\"project-task-text hub-task-markdown hub-markdown\" tabindex=\"0\" role=\"button\" aria-label=\"Edit task: Copied Step parent\">Copied Step parent</div><div class=\"project-task-location\">Private</div><div class=\"hub-task-steps\"><button class=\"hub-task-steps-toggle\" type=\"button\" aria-expanded=\"false\" aria-label=\"Expand Steps: 0/1\"><span class=\"hub-task-steps-chevron\" aria-hidden=\"true\" data-icon=\"chevron-right\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"m9 6 6 6-6 6\"></path></svg></span><span class=\"hub-task-steps-label\">Steps</span><span class=\"hub-task-step-progress\" aria-live=\"polite\">0/1</span></button><div class=\"hub-task-step-items\" hidden=\"\"><div class=\"hub-task-step-list\"><label class=\"hub-task-step-item\"><input class=\"\" aria-label=\"Complete Step: Copied Step\" type=\"checkbox\"><span class=\"hub-task-step-text hub-markdown\">Copied Step</span></label></div></div></div></div></div><div class=\"hub-oath-missing\"><strong class=\"\">Saved missing commitment</strong><div class=\"\">Source task unavailable. The commitment timer continues.</div></div></div>",
+      "rects": [
+        [
+          "DIV",
+          "project-tasks-body hub-button-scope",
+          24,
+          24,
+          1030,
+          379.5
+        ],
+        [
+          "DIV",
+          "hub-oath-pinned-status",
+          904.23,
+          36,
+          136.77,
+          15
+        ],
+        [
+          "DIV",
+          "project-task-row hub-planned-task-row",
+          35,
+          66,
+          1008,
+          130.06
+        ],
+        [
+          "INPUT",
+          "project-task-checkbox",
+          47,
+          82,
+          16,
+          16
+        ],
+        [
+          "BUTTON",
+          "hub-task-steps-toggle",
+          75,
+          112.06,
+          963,
+          28
+        ],
+        [
+          "INPUT",
+          "",
+          95,
+          145.06,
+          16,
+          16
+        ],
+        [
+          "INPUT",
+          "",
+          95,
+          169.06,
+          16,
+          16
+        ],
+        [
+          "DIV",
+          "project-task-row is-completed hub-planned-task-row",
+          35,
+          196.06,
+          1008,
+          49.22
+        ],
+        [
+          "INPUT",
+          "project-task-checkbox",
+          47,
+          213.06,
+          16,
+          16
+        ],
+        [
+          "DIV",
+          "project-task-row hub-planned-task-row",
+          35,
+          245.28,
+          1008,
+          81.22
+        ],
+        [
+          "INPUT",
+          "project-task-checkbox",
+          47,
+          262.28,
+          16,
+          16
+        ],
+        [
+          "BUTTON",
+          "hub-task-steps-toggle",
+          75,
+          290.5,
+          963,
+          28
+        ],
+        [
+          "INPUT",
+          "",
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          "DIV",
+          "hub-oath-missing",
+          35,
+          326.5,
+          1008,
+          58
+        ]
+      ]
+    },
+    "status": {
+      "html": "<button class=\"modal-close-button\">×</button><div class=\"modal-content hub-button-scope hub-modal-layout\"><div class=\"hub-window-header\" style=\"margin: 0px 0px 13.44px; min-height: 95.1562px;\"><span class=\"hub-window-title-icon\" aria-hidden=\"true\" data-icon=\"shield-user\" style=\"color: rgb(224, 228, 239);\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1zM6.376 18.91a6 6 0 0 1 11.249.003\"></path><circle cx=\"12\" cy=\"11\" r=\"4\"></circle></svg></span><div class=\"hub-window-header-copy\"><h2 class=\"hub-window-title\" style=\"margin: 0px;\">Oathbound</h2><p class=\"hub-oath-status-time hub-window-undertext\" style=\"margin: 6px 0px 0px;\">Fulfilled · 1m Oathbound</p><p class=\"hub-oath-muted hub-window-undertext\" style=\"margin: 16px 0px 0px;\">Fulfilled · Still Oathbound</p></div></div><div class=\"hub-modal-body\"><div class=\"hub-oath-status-work\"><div class=\"hub-oath-selected hub-readonly-task\"><span class=\"hub-report-section-icon\" role=\"img\" aria-label=\"Incomplete\" data-icon=\"square\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><rect x=\"3\" y=\"3\" width=\"18\" height=\"18\" rx=\"2\"></rect></svg></span><div class=\"project-task-info project-task-text hub-markdown\">Parent **markdown**</div></div><div class=\"hub-oath-selected hub-readonly-task\"><span class=\"hub-report-section-icon hub-report-check\" role=\"img\" aria-label=\"Completed\" data-icon=\"square-check\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" aria-hidden=\"true\"><path d=\"M8 3L18 13M7 4L5 10L14 19L20 17M11 14L3 22\"></path></svg></span><div class=\"project-task-info project-task-text hub-markdown\">Completed</div></div><div class=\"hub-oath-selected hub-readonly-task\"><span class=\"hub-report-section-icon\" role=\"img\" aria-label=\"Incomplete\" data-icon=\"square\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><rect x=\"3\" y=\"3\" width=\"18\" height=\"18\" rx=\"2\"></rect></svg></span><div class=\"project-task-info project-task-text hub-markdown\">Copied Step parent</div></div><div class=\"hub-oath-selected hub-readonly-task\"><span class=\"hub-report-section-icon\" role=\"img\" aria-label=\"Source unavailable\" data-icon=\"circle-help\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><circle cx=\"12\" cy=\"12\" r=\"10\"></circle><path d=\"M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3M12 17h.01\"></path></svg></span><div class=\"project-task-info project-task-text hub-markdown\">Saved missing commitment</div><span class=\"hub-oath-muted\">Source unavailable</span></div></div><div class=\"hub-task-error\" role=\"alert\"></div></div><div class=\"hub-oath-actions\"><button class=\"\">End Oath</button><button class=\"mod-cta\">Close</button></div></div>",
+      "rects": [
+        [
+          "DIV",
+          "modal hub-oath-dialog hub-oath-status hub-modal-window",
+          375,
+          267.41,
+          530,
+          465.19
+        ],
+        [
+          "BUTTON",
+          "modal-close-button",
+          402,
+          294.41,
+          476,
+          37
+        ],
+        [
+          "DIV",
+          "hub-oath-status-work",
+          402,
+          440,
+          476,
+          198.59
+        ],
+        [
+          "BUTTON",
+          "",
+          700.05,
+          668.59,
+          99.64,
+          37
+        ],
+        [
+          "BUTTON",
+          "mod-cta",
+          807.69,
+          668.59,
+          70.31,
+          37
+        ]
+      ]
+    },
+    "progress": {
+      "total": 4,
+      "completed": 1,
+      "missing": 1,
+      "allComplete": false
+    },
+    "work": [
+      {
+        "ref": {
+          "id": "parent",
+          "path": "Projects/Private/Tasks.md",
+          "text": "Parent **markdown**"
+        },
+        "task": {
+          "path": "Projects/Private/Tasks.md",
+          "line": 0,
+          "text": "Parent **markdown**",
+          "id": "parent",
+          "completed": false,
+          "steps": [
+            {
+              "line": 2,
+              "text": "First",
+              "hubTaskId": "first",
+              "completed": true,
+              "status": "x",
+              "indent": 4,
+              "end": 4
+            },
+            {
+              "line": 3,
+              "text": "Nested",
+              "hubTaskId": "nested",
+              "completed": false,
+              "status": " ",
+              "indent": 8,
+              "end": 4
+            }
+          ]
+        }
+      },
+      {
+        "ref": {
+          "id": "complete",
+          "path": "Projects/Private/Tasks.md",
+          "text": "Completed"
+        },
+        "task": {
+          "path": "Projects/Private/Tasks.md",
+          "line": 7,
+          "text": "Completed",
+          "id": "complete",
+          "completed": true,
+          "steps": []
+        }
+      },
+      {
+        "ref": {
+          "id": "steps-parent",
+          "path": "Projects/Private/Tasks.md",
+          "text": "Copied Step parent"
+        },
+        "task": {
+          "path": "Projects/Private/Tasks.md",
+          "line": 11,
+          "text": "Copied Step parent",
+          "id": "steps-parent",
+          "completed": false,
+          "steps": [
+            {
+              "line": 12,
+              "text": "Copied Step",
+              "hubTaskId": "step-copy",
+              "completed": false,
+              "status": " ",
+              "indent": 4,
+              "end": 13
+            }
+          ]
+        }
+      },
+      {
+        "ref": {
+          "id": "absent",
+          "path": "Saved/Missing.md",
+          "text": "Saved missing commitment"
+        },
+        "task": null
+      }
+    ]
+  },
+  {
+    "mode": "changed",
+    "pin": {
+      "html": "<div class=\"hub-oath-pinned\"><div class=\"hub-oath-pinned-heading\"><div class=\"hub-oath-pinned-title\"><span class=\"hub-oath-icon\" data-icon=\"pin\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M12 17v5M9 3h6l-1 7 4 4v3H6v-3l4-4Z\"></path></svg></span><strong class=\"\">Pinned for Oath</strong></div><div class=\"hub-oath-pinned-status\"><span class=\"hub-oath-pinned-timer\">24:00 remaining</span><span class=\"hub-oath-pinned-completion\"><span class=\"\" aria-hidden=\"true\">·</span><span class=\"\">1 / 4 completed</span></span></div></div><div class=\"project-task-row hub-planned-task-row\"><span role=\"img\" class=\"hub-task-necessity-bar is-must\" aria-label=\"Must do\"></span><input class=\"project-task-checkbox\" type=\"checkbox\" aria-label=\"Complete task: Current changed **title**\"><div class=\"project-task-info\"><div class=\"project-task-text hub-task-markdown hub-markdown\" tabindex=\"0\" role=\"button\" aria-label=\"Edit task: Current changed **title**\">Current changed **title**</div><div class=\"project-task-location\">Private</div><div class=\"hub-task-dates\"><span class=\"\"><time class=\"\" datetime=\"2026-10-25T00:00\">Due 25 Oct, 00:00</time></span></div><div class=\"hub-task-steps\"><button class=\"hub-task-steps-toggle\" type=\"button\" aria-expanded=\"true\" aria-label=\"Collapse Steps: 1/2\"><span class=\"hub-task-steps-chevron\" aria-hidden=\"true\" data-icon=\"chevron-down\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"m6 9 6 6 6-6\"></path></svg></span><span class=\"hub-task-steps-label\">Steps</span><span class=\"hub-task-step-progress\" aria-live=\"polite\">1/2</span></button><div class=\"hub-task-step-items\"><div class=\"hub-task-step-list\"><label class=\"hub-task-step-item is-completed\"><input class=\"\" aria-label=\"Complete Step: First\" type=\"checkbox\"><span class=\"hub-task-step-text hub-markdown\">First</span></label><label class=\"hub-task-step-item\"><input class=\"\" aria-label=\"Complete Step: Nested\" type=\"checkbox\"><span class=\"hub-task-step-text hub-markdown\">Nested</span></label></div></div></div></div></div><div class=\"project-task-row is-completed hub-planned-task-row\"><input class=\"project-task-checkbox\" type=\"checkbox\" aria-label=\"Complete task: Completed\"><div class=\"project-task-info\"><div class=\"project-task-text hub-task-markdown hub-markdown\" tabindex=\"0\" role=\"button\" aria-label=\"Edit task: Completed\">Completed</div><div class=\"project-task-location\">Private</div></div></div><div class=\"project-task-row hub-planned-task-row\"><input class=\"project-task-checkbox\" type=\"checkbox\" aria-label=\"Complete task: Copied Step parent\"><div class=\"project-task-info\"><div class=\"project-task-text hub-task-markdown hub-markdown\" tabindex=\"0\" role=\"button\" aria-label=\"Edit task: Copied Step parent\">Copied Step parent</div><div class=\"project-task-location\">Private</div><div class=\"hub-task-steps\"><button class=\"hub-task-steps-toggle\" type=\"button\" aria-expanded=\"false\" aria-label=\"Expand Steps: 0/1\"><span class=\"hub-task-steps-chevron\" aria-hidden=\"true\" data-icon=\"chevron-right\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"m9 6 6 6-6 6\"></path></svg></span><span class=\"hub-task-steps-label\">Steps</span><span class=\"hub-task-step-progress\" aria-live=\"polite\">0/1</span></button><div class=\"hub-task-step-items\" hidden=\"\"><div class=\"hub-task-step-list\"><label class=\"hub-task-step-item\"><input class=\"\" aria-label=\"Complete Step: Copied Step\" type=\"checkbox\"><span class=\"hub-task-step-text hub-markdown\">Copied Step</span></label></div></div></div></div></div><div class=\"hub-oath-missing\"><strong class=\"\">Saved missing commitment</strong><div class=\"\">Source task unavailable. The commitment timer continues.</div></div></div>",
+      "rects": [
+        [
+          "DIV",
+          "project-tasks-body hub-button-scope",
+          24,
+          24,
+          1030,
+          379.5
+        ],
+        [
+          "DIV",
+          "hub-oath-pinned-status",
+          861.39,
+          36,
+          179.61,
+          15
+        ],
+        [
+          "DIV",
+          "project-task-row hub-planned-task-row",
+          35,
+          66,
+          1008,
+          130.06
+        ],
+        [
+          "INPUT",
+          "project-task-checkbox",
+          47,
+          82,
+          16,
+          16
+        ],
+        [
+          "BUTTON",
+          "hub-task-steps-toggle",
+          75,
+          112.06,
+          963,
+          28
+        ],
+        [
+          "INPUT",
+          "",
+          95,
+          145.06,
+          16,
+          16
+        ],
+        [
+          "INPUT",
+          "",
+          95,
+          169.06,
+          16,
+          16
+        ],
+        [
+          "DIV",
+          "project-task-row is-completed hub-planned-task-row",
+          35,
+          196.06,
+          1008,
+          49.22
+        ],
+        [
+          "INPUT",
+          "project-task-checkbox",
+          47,
+          213.06,
+          16,
+          16
+        ],
+        [
+          "DIV",
+          "project-task-row hub-planned-task-row",
+          35,
+          245.28,
+          1008,
+          81.22
+        ],
+        [
+          "INPUT",
+          "project-task-checkbox",
+          47,
+          262.28,
+          16,
+          16
+        ],
+        [
+          "BUTTON",
+          "hub-task-steps-toggle",
+          75,
+          290.5,
+          963,
+          28
+        ],
+        [
+          "INPUT",
+          "",
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          "DIV",
+          "hub-oath-missing",
+          35,
+          326.5,
+          1008,
+          58
+        ]
+      ]
+    },
+    "status": {
+      "html": "<button class=\"modal-close-button\">×</button><div class=\"modal-content hub-button-scope hub-modal-layout\"><div class=\"hub-window-header\" style=\"margin: 0px 0px 13.44px; min-height: 95.1562px;\"><span class=\"hub-window-title-icon\" aria-hidden=\"true\" data-icon=\"shield-user\" style=\"color: rgb(224, 228, 239);\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1zM6.376 18.91a6 6 0 0 1 11.249.003\"></path><circle cx=\"12\" cy=\"11\" r=\"4\"></circle></svg></span><div class=\"hub-window-header-copy\"><h2 class=\"hub-window-title\" style=\"margin: 0px;\">Oathbound</h2><p class=\"hub-oath-status-time hub-window-undertext\" style=\"margin: 6px 0px 0px;\">24m remaining</p><p class=\"hub-oath-muted hub-window-undertext\" style=\"margin: 16px 0px 0px;\">After 25 minutes or when all selected tasks are complete</p></div></div><div class=\"hub-modal-body\"><div class=\"hub-oath-status-work\"><div class=\"hub-oath-selected hub-readonly-task\"><span class=\"hub-report-section-icon\" role=\"img\" aria-label=\"Incomplete\" data-icon=\"square\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><rect x=\"3\" y=\"3\" width=\"18\" height=\"18\" rx=\"2\"></rect></svg></span><div class=\"project-task-info project-task-text hub-markdown\">Current changed **title**</div></div><div class=\"hub-oath-selected hub-readonly-task\"><span class=\"hub-report-section-icon hub-report-check\" role=\"img\" aria-label=\"Completed\" data-icon=\"square-check\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" aria-hidden=\"true\"><path d=\"M8 3L18 13M7 4L5 10L14 19L20 17M11 14L3 22\"></path></svg></span><div class=\"project-task-info project-task-text hub-markdown\">Completed</div></div><div class=\"hub-oath-selected hub-readonly-task\"><span class=\"hub-report-section-icon\" role=\"img\" aria-label=\"Incomplete\" data-icon=\"square\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><rect x=\"3\" y=\"3\" width=\"18\" height=\"18\" rx=\"2\"></rect></svg></span><div class=\"project-task-info project-task-text hub-markdown\">Copied Step parent</div></div><div class=\"hub-oath-selected hub-readonly-task\"><span class=\"hub-report-section-icon\" role=\"img\" aria-label=\"Source unavailable\" data-icon=\"circle-help\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><circle cx=\"12\" cy=\"12\" r=\"10\"></circle><path d=\"M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3M12 17h.01\"></path></svg></span><div class=\"project-task-info project-task-text hub-markdown\">Saved missing commitment</div><span class=\"hub-oath-muted\">Source unavailable</span></div></div><div class=\"hub-task-error\" role=\"alert\"></div></div><div class=\"hub-oath-actions\"><button class=\"\">End Oath</button><button class=\"mod-cta\">Close</button></div></div>",
+      "rects": [
+        [
+          "DIV",
+          "modal hub-oath-dialog hub-oath-status hub-modal-window",
+          375,
+          267.41,
+          530,
+          465.19
+        ],
+        [
+          "BUTTON",
+          "modal-close-button",
+          402,
+          294.41,
+          476,
+          37
+        ],
+        [
+          "DIV",
+          "hub-oath-status-work",
+          402,
+          440,
+          476,
+          198.59
+        ],
+        [
+          "BUTTON",
+          "",
+          700.05,
+          668.59,
+          99.64,
+          37
+        ],
+        [
+          "BUTTON",
+          "mod-cta",
+          807.69,
+          668.59,
+          70.31,
+          37
+        ]
+      ]
+    },
+    "progress": {
+      "total": 4,
+      "completed": 1,
+      "missing": 1,
+      "allComplete": false
+    },
+    "work": [
+      {
+        "ref": {
+          "id": "parent",
+          "path": "Projects/Private/Tasks.md",
+          "text": "Parent **markdown**"
+        },
+        "task": {
+          "path": "Projects/Private/Tasks.md",
+          "line": 0,
+          "text": "Current changed **title**",
+          "id": "parent",
+          "completed": false,
+          "steps": [
+            {
+              "line": 2,
+              "text": "First",
+              "hubTaskId": "first",
+              "completed": true,
+              "status": "x",
+              "indent": 4,
+              "end": 4
+            },
+            {
+              "line": 3,
+              "text": "Nested",
+              "hubTaskId": "nested",
+              "completed": false,
+              "status": " ",
+              "indent": 8,
+              "end": 4
+            }
+          ]
+        }
+      },
+      {
+        "ref": {
+          "id": "complete",
+          "path": "Projects/Private/Tasks.md",
+          "text": "Completed"
+        },
+        "task": {
+          "path": "Projects/Private/Tasks.md",
+          "line": 7,
+          "text": "Completed",
+          "id": "complete",
+          "completed": true,
+          "steps": []
+        }
+      },
+      {
+        "ref": {
+          "id": "steps-parent",
+          "path": "Projects/Private/Tasks.md",
+          "text": "Copied Step parent"
+        },
+        "task": {
+          "path": "Projects/Private/Tasks.md",
+          "line": 11,
+          "text": "Copied Step parent",
+          "id": "steps-parent",
+          "completed": false,
+          "steps": [
+            {
+              "line": 12,
+              "text": "Copied Step",
+              "hubTaskId": "step-copy",
+              "completed": false,
+              "status": " ",
+              "indent": 4,
+              "end": 13
+            }
+          ]
+        }
+      },
+      {
+        "ref": {
+          "id": "absent",
+          "path": "Saved/Missing.md",
+          "text": "Saved missing commitment"
+        },
+        "task": null
+      }
+    ]
+  },
+  {
+    "mode": "missing",
+    "pin": {
+      "html": "<div class=\"hub-oath-pinned\"><div class=\"hub-oath-pinned-heading\"><div class=\"hub-oath-pinned-title\"><span class=\"hub-oath-icon\" data-icon=\"pin\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M12 17v5M9 3h6l-1 7 4 4v3H6v-3l4-4Z\"></path></svg></span><strong class=\"\">Pinned for Oath</strong></div><div class=\"hub-oath-pinned-status\"><span class=\"hub-oath-pinned-timer\">24:00 remaining</span><span class=\"hub-oath-pinned-completion\"><span class=\"\" aria-hidden=\"true\">·</span><span class=\"\">0 / 4 completed</span></span></div></div><div class=\"hub-oath-missing\"><strong class=\"\">Parent **markdown**</strong><div class=\"\">Source task unavailable. The commitment timer continues.</div></div><div class=\"hub-oath-missing\"><strong class=\"\">Completed</strong><div class=\"\">Source task unavailable. The commitment timer continues.</div></div><div class=\"hub-oath-missing\"><strong class=\"\">Copied Step parent</strong><div class=\"\">Source task unavailable. The commitment timer continues.</div></div><div class=\"hub-oath-missing\"><strong class=\"\">Saved missing commitment</strong><div class=\"\">Source task unavailable. The commitment timer continues.</div></div></div>",
+      "rects": [
+        [
+          "DIV",
+          "project-tasks-body hub-button-scope",
+          24,
+          24,
+          1030,
+          293
+        ],
+        [
+          "DIV",
+          "hub-oath-pinned-status",
+          861.39,
+          36,
+          179.61,
+          15
+        ],
+        [
+          "DIV",
+          "hub-oath-missing",
+          35,
+          66,
+          1008,
+          58
+        ],
+        [
+          "DIV",
+          "hub-oath-missing",
+          35,
+          124,
+          1008,
+          58
+        ],
+        [
+          "DIV",
+          "hub-oath-missing",
+          35,
+          182,
+          1008,
+          58
+        ],
+        [
+          "DIV",
+          "hub-oath-missing",
+          35,
+          240,
+          1008,
+          58
+        ]
+      ]
+    },
+    "status": {
+      "html": "<button class=\"modal-close-button\">×</button><div class=\"modal-content hub-button-scope hub-modal-layout\"><div class=\"hub-window-header\" style=\"margin: 0px 0px 13.44px; min-height: 95.1562px;\"><span class=\"hub-window-title-icon\" aria-hidden=\"true\" data-icon=\"shield-user\" style=\"color: rgb(224, 228, 239);\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1zM6.376 18.91a6 6 0 0 1 11.249.003\"></path><circle cx=\"12\" cy=\"11\" r=\"4\"></circle></svg></span><div class=\"hub-window-header-copy\"><h2 class=\"hub-window-title\" style=\"margin: 0px;\">Oathbound</h2><p class=\"hub-oath-status-time hub-window-undertext\" style=\"margin: 6px 0px 0px;\">24m remaining</p><p class=\"hub-oath-muted hub-window-undertext\" style=\"margin: 16px 0px 0px;\">After 25 minutes or when all selected tasks are complete</p></div></div><div class=\"hub-modal-body\"><div class=\"hub-oath-status-work\"><div class=\"hub-oath-selected hub-readonly-task\"><span class=\"hub-report-section-icon\" role=\"img\" aria-label=\"Source unavailable\" data-icon=\"circle-help\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><circle cx=\"12\" cy=\"12\" r=\"10\"></circle><path d=\"M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3M12 17h.01\"></path></svg></span><div class=\"project-task-info project-task-text hub-markdown\">Parent **markdown**</div><span class=\"hub-oath-muted\">Source unavailable</span></div><div class=\"hub-oath-selected hub-readonly-task\"><span class=\"hub-report-section-icon\" role=\"img\" aria-label=\"Source unavailable\" data-icon=\"circle-help\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><circle cx=\"12\" cy=\"12\" r=\"10\"></circle><path d=\"M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3M12 17h.01\"></path></svg></span><div class=\"project-task-info project-task-text hub-markdown\">Completed</div><span class=\"hub-oath-muted\">Source unavailable</span></div><div class=\"hub-oath-selected hub-readonly-task\"><span class=\"hub-report-section-icon\" role=\"img\" aria-label=\"Source unavailable\" data-icon=\"circle-help\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><circle cx=\"12\" cy=\"12\" r=\"10\"></circle><path d=\"M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3M12 17h.01\"></path></svg></span><div class=\"project-task-info project-task-text hub-markdown\">Copied Step parent</div><span class=\"hub-oath-muted\">Source unavailable</span></div><div class=\"hub-oath-selected hub-readonly-task\"><span class=\"hub-report-section-icon\" role=\"img\" aria-label=\"Source unavailable\" data-icon=\"circle-help\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><circle cx=\"12\" cy=\"12\" r=\"10\"></circle><path d=\"M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3M12 17h.01\"></path></svg></span><div class=\"project-task-info project-task-text hub-markdown\">Saved missing commitment</div><span class=\"hub-oath-muted\">Source unavailable</span></div></div><div class=\"hub-task-error\" role=\"alert\"></div></div><div class=\"hub-oath-actions\"><button class=\"\">End Oath</button><button class=\"mod-cta\">Close</button></div></div>",
+      "rects": [
+        [
+          "DIV",
+          "modal hub-oath-dialog hub-oath-status hub-modal-window",
+          375,
+          262.39,
+          530,
+          475.22
+        ],
+        [
+          "BUTTON",
+          "modal-close-button",
+          402,
+          289.39,
+          476,
+          37
+        ],
+        [
+          "DIV",
+          "hub-oath-status-work",
+          402,
+          434.98,
+          476,
+          208.63
+        ],
+        [
+          "BUTTON",
+          "",
+          700.05,
+          673.61,
+          99.64,
+          37
+        ],
+        [
+          "BUTTON",
+          "mod-cta",
+          807.69,
+          673.61,
+          70.31,
+          37
+        ]
+      ]
+    },
+    "progress": {
+      "total": 4,
+      "completed": 0,
+      "missing": 4,
+      "allComplete": false
+    },
+    "work": [
+      {
+        "ref": {
+          "id": "parent",
+          "path": "Projects/Private/Tasks.md",
+          "text": "Parent **markdown**"
+        },
+        "task": null
+      },
+      {
+        "ref": {
+          "id": "complete",
+          "path": "Projects/Private/Tasks.md",
+          "text": "Completed"
+        },
+        "task": null
+      },
+      {
+        "ref": {
+          "id": "steps-parent",
+          "path": "Projects/Private/Tasks.md",
+          "text": "Copied Step parent"
+        },
+        "task": null
+      },
+      {
+        "ref": {
+          "id": "absent",
+          "path": "Saved/Missing.md",
+          "text": "Saved missing commitment"
+        },
+        "task": null
+      }
+    ]
+  }
+]

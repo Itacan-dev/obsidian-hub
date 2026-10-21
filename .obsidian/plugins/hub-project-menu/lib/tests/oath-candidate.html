@@ -1,0 +1,70 @@
+﻿<!doctype html><meta charset="utf-8"><title>Hub Oath workflow</title>
+<link rel="stylesheet" href="../../styles.css">
+<link rel="stylesheet" href="../../../../../System/Dashboards/Home/view.css">
+<link rel="stylesheet" href="../../../../../System/Dashboards/Project/view.css">
+<style>
+body{color-scheme:dark;margin:0;background:#191b1e;color:#e0e4ef;font:16px system-ui;--background-primary:#202329;--background-secondary:#262a31;--text-normal:#e0e4ef;--text-muted:#a6afbe;--text-faint:#818996;--background-modifier-border:#3c424e;--background-modifier-hover:#ffffff0c;--interactive-accent:#5957da;--text-accent:#78c7ec;--text-on-accent:white;--color-red:#f5787e;--color-yellow:#ebbd58}
+*{box-sizing:border-box}button,input{font:inherit;color:inherit;border:1px solid var(--background-modifier-border);border-radius:6px;background:var(--background-primary);padding:7px}button{cursor:pointer}input[type=checkbox]{width:16px;height:16px;accent-color:var(--interactive-accent)}button:disabled{opacity:.45}.app-container{height:100vh;display:flex;flex-direction:column}.horizontal-main-container{flex:1 0 0;min-height:0;overflow:auto;padding:24px}.status-bar{position:absolute;bottom:0;right:0;display:flex}.modal-container{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:#0008;z-index:10}.modal{background:var(--background-primary);border:1px solid var(--background-modifier-border);border-radius:12px;padding:26px;max-height:94vh;overflow:auto}.modal-close-button{float:right}#fixture{width:100%;max-width:1030px}.home-panel,.project-panel{padding:16px;border:1px solid var(--background-modifier-border);border-radius:12px}.home-tasks-body,.project-tasks-body{max-height:640px}#result{white-space:pre-wrap;font-size:11px}.hub-task-markdown p{margin:0}
+</style>
+<div class="app-container"><div class="horizontal-main-container"><div id="fixture"></div><pre id="result">RUNNING</pre></div><div class="status-bar"><span>Native status controls</span></div></div>
+<script>
+HTMLElement.prototype.createEl=function(tag,o={}){const e=document.createElement(tag);e.className=o.cls||'';e.textContent=o.text||'';for(const[k,v]of Object.entries(o.attr||{}))e.setAttribute(k,v);if(o.type)e.type=o.type;this.append(e);return e};
+HTMLElement.prototype.createDiv=function(o){return this.createEl('div',o)};HTMLElement.prototype.createSpan=function(o){return this.createEl('span',o)};HTMLElement.prototype.empty=function(){this.replaceChildren()};
+class Component{constructor(){this.children=new Set();this.cleanups=[]}load(){}register(fn){this.cleanups.push(fn)}addChild(c){this.children.add(c)}removeChild(c){c.unload();this.children.delete(c)}unload(){this.cleanups.splice(0).forEach(fn=>fn());this.children.forEach(c=>c.unload());this.children.clear()}}
+class Modal{constructor(app){this.app=app;this.containerEl=document.createElement('div');this.containerEl.className='modal-container';this.modalEl=this.containerEl.createDiv({cls:'modal'});this.modalEl.createEl('button',{text:'×',cls:'modal-close-button'}).onclick=()=>this.close();this.contentEl=this.modalEl.createDiv({cls:'modal-content'});this.escape=e=>{if(e.key==='Escape'&&this.containerEl===[...document.querySelectorAll('.modal-container')].at(-1))this.close()}}open(){document.body.append(this.containerEl);document.addEventListener('keydown',this.escape);this.onOpen()}close(){this.onClose?.();this.containerEl.remove();document.removeEventListener('keydown',this.escape)}}
+let sourcePicker;
+const notices=[],obsidian={Component,Modal,Menu:class{
+ constructor(){this.items=[]}
+ addItem(build){const item={setTitle(value){this.title=value;return this},setChecked(value){this.checked=value;return this},onClick(fn){this.action=fn;return this}};build(item);this.items.push(item);return this}
+ onHide(fn){this.onhide=fn;return this}
+ showAtPosition(point){
+  this.el=document.body.createDiv({cls:'menu'});Object.assign(this.el.style,{position:'fixed',left:point.x+'px',top:point.y+'px',zIndex:100});
+  for(const item of this.items){const b=this.el.createEl('button',{text:item.title,attr:{role:'menuitemradio','aria-checked':String(item.checked)}});b.onclick=()=>{item.action();this.hide()}}
+  this.outside=event=>{if(!this.el.contains(event.target))this.hide()};
+  this.escape=event=>{if(event.key==='Escape'){event.preventDefault();event.stopImmediatePropagation();this.hide()}};
+  document.addEventListener('pointerdown',this.outside);document.addEventListener('keydown',this.escape,true);this.el.querySelector('button').focus();
+ }
+ hide(){if(!this.el?.isConnected)return;this.el.remove();document.removeEventListener('pointerdown',this.outside);document.removeEventListener('keydown',this.escape,true);this.onhide?.()}
+},FuzzySuggestModal:class{open(){sourcePicker=this}},Notice:class{constructor(text){notices.push(text)}},setIcon:(el,name)=>{el.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="'+(name==='shield'?'M12 3L21 7V13Q20 18 12 22Q4 18 3 13V7Z':'M8 3L18 13M7 4L5 10L14 19L20 17M11 14L3 22')+'"/></svg>'},MarkdownRenderer:{render:async(app,text,el)=>el.createEl('p',{text})}};
+// Representative Lucide outlines make modal previews useful as well as recording icon names.
+const iconShapes={
+ 'chevron-down':'<path d="m6 9 6 6 6-6"/>',
+ "chevrons-up-down":'<path d="m7 15 5 5 5-5"/><path d="m7 9 5-5 5 5"/>',
+ "triangle-alert":"<path d=\"m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3\"/><path d=\"M12 9v4\"/><path d=\"M12 17h.01\"/>",
+ "timer-off":"<path d=\"M10 2h4\"/><path d=\"M4.6 11a8 8 0 0 0 1.7 8.7 8 8 0 0 0 8.7 1.7\"/><path d=\"M7.4 7.4a8 8 0 0 1 10.3 1 8 8 0 0 1 .9 10.2\"/><path d=\"m2 2 20 20\"/><path d=\"M12 12v-2\"/>",
+ "clipboard-clock":"<path d=\"M16 14v2.2l1.6 1\"/><path d=\"M16 4h2a2 2 0 0 1 2 2v.832\"/><path d=\"M8 4H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h2\"/><circle cx=\"16\" cy=\"16\" r=\"6\"/><rect x=\"8\" y=\"2\" width=\"8\" height=\"4\" rx=\"1\"/>",
+ "scroll-text":"<path d=\"M15 12h-5\"/><path d=\"M15 8h-5\"/><path d=\"M19 17V5a2 2 0 0 0-2-2H4\"/><path d=\"M8 21h12a2 2 0 0 0 2-2v-1a1 1 0 0 0-1-1H11a1 1 0 0 0-1 1v1a2 2 0 1 1-4 0V5a2 2 0 1 0-4 0v2a1 1 0 0 0 1 1h3\"/>",
+
+ fullscreen:"<path d=\"M3 7V5a2 2 0 0 1 2-2h2\"/><path d=\"M17 3h2a2 2 0 0 1 2 2v2\"/><path d=\"M21 17v2a2 2 0 0 1-2 2h-2\"/><path d=\"M7 21H5a2 2 0 0 1-2-2v-2\"/><rect x=\"7\" y=\"8\" width=\"10\" height=\"8\" rx=\"1\"/>",
+ 'shield-user':'<path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1zM6.376 18.91a6 6 0 0 1 11.249.003"/><circle cx="12" cy="11" r="4"/>',
+ 'bell-off':'<path d="m2 2 20 20M10.6 4.1A6 6 0 0 1 18 10c0 1.1.1 2 .3 2.8M6.3 6.3A6 6 0 0 0 6 8v2c0 7-3 7-3 7h14M10 21h4"/>',
+ 'chart-no-axes-column-increasing':'<path d="M5 21v-6M12 21V9M19 21V3"/>',
+ square:'<rect x="3" y="3" width="18" height="18" rx="2"/>',
+ x:'<path d="m18 6-12 12M6 6l12 12"/>',
+ plus:'<path d="M12 5v14M5 12h14"/>',
+ clock:'<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>',
+ 'file-text':'<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8ZM14 2v6h6M8 13h8M8 17h6"/>',
+ timer:'<circle cx="12" cy="14" r="8"/><path d="M10 2h4M12 6V2M12 10v4M18 8l2-2"/>',
+ monitor:'<rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/>',
+ maximize:'<path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M21 16v3a2 2 0 0 1-2 2h-3M8 21H5a2 2 0 0 1-2-2v-3"/>',
+ minimize:'<path d="M8 3v3a2 2 0 0 1-2 2H3M21 8h-3a2 2 0 0 1-2-2V3M16 21v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3"/>',
+ pin:'<path d="M12 17v5M9 3h6l-1 7 4 4v3H6v-3l4-4Z"/>',
+ 'circle-check':'<circle cx="12" cy="12" r="10"/><path d="m8 12 3 3 5-6"/>',
+ 'circle-alert':'<circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/>',
+ 'circle-help':'<circle cx="12" cy="12" r="10"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3M12 17h.01"/>',
+ history:'<path d="M3 12a9 9 0 1 0 2.8-6.5L3 8M3 3v5h5M12 7v5l4 2"/>',
+ 'list-todo':'<rect x="3" y="4" width="4" height="4" rx="1"/><path d="m3 16 2 2 3-4M11 6h10M11 16h10"/>'
+};
+Object.assign(iconShapes,{'chevron-right':'<path d="m9 6 6 6-6 6"/>','chevron-down':'<path d="m6 9 6 6 6-6"/>'});
+obsidian.getIcon=name=>name==='lucide-folder'?document.createElementNS('http://www.w3.org/2000/svg','svg'):null;
+const fallbackIcon=obsidian.setIcon;obsidian.setIcon=(el,name)=>{el.dataset.icon=name==='folder'?'folder-open':name;name=name.startsWith('lucide-')?name.slice(7):name==='fullscreen'?'maximize':name;if(iconShapes[name])el.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'+iconShapes[name]+'</svg>';else fallbackIcon(el,name)};
+const assert=(ok,message)=>{if(!ok)throw Error(message)};
+const isBlocked=button=>button.disabled||button.getAttribute('aria-disabled')==='true';
+const click=(scope,text)=>{const button=[...scope.querySelectorAll('button')].find(el=>el.textContent===text||el.getAttribute('aria-label')===text)||[...scope.querySelectorAll('.hub-oath-choice')].find(el=>(el.querySelector('.hub-oath-choice-title')?.textContent===text||el.querySelector('input[type=radio]')?.value===text.toLowerCase()))?.querySelector('input');assert(button,'Missing control '+text);button.click();return button};
+const selectSuggestion=screen=>screen.querySelector('.hub-oath-task-option:not(.is-selected)')?.click();
+const modal=()=>[...document.querySelectorAll('.modal-content')].at(-1);
+const settle=async()=>{for(let i=0;i<80;i++)await Promise.resolve();await new Promise(r=>requestAnimationFrame(r))};
+const runtimeErrors=[];
+window.addEventListener('error',event=>runtimeErrors.push(event.message));
+window.addEventListener('unhandledrejection',event=>runtimeErrors.push(String(event.reason)));
+</script><script src="oath-candidate-browser.js"></script>
