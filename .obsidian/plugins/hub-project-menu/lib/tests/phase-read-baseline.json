@@ -1,0 +1,310 @@
+[
+  {
+    "id": "app",
+    "facts": {
+      "tasks": [
+        {
+          "path": "Projects/App/Tasks/Start only.md",
+          "line": 1,
+          "text": "Start only",
+          "hubTaskId": "start",
+          "completed": false,
+          "necessity": null,
+          "fromDate": "2026-10-26",
+          "dueDate": null,
+          "steps": []
+        },
+        {
+          "path": "Projects/App/Tasks/Due only.md",
+          "line": 1,
+          "text": "Due only",
+          "hubTaskId": "due",
+          "completed": false,
+          "phaseId": "other-app",
+          "necessity": "must",
+          "fromDate": null,
+          "dueDate": "2026-10-26",
+          "steps": []
+        },
+        {
+          "path": "Projects/App/Tasks/Midnight.md",
+          "line": 1,
+          "text": "Midnight",
+          "hubTaskId": "midnight",
+          "completed": false,
+          "necessity": "should",
+          "fromDate": null,
+          "dueDate": "2026-10-26",
+          "dueTime": "00:00",
+          "steps": []
+        },
+        {
+          "path": "Projects/App/Tasks/Timed.md",
+          "line": 1,
+          "text": "Timed",
+          "hubTaskId": "timed",
+          "completed": false,
+          "phaseId": "phase",
+          "necessity": null,
+          "fromDate": "2026-10-26",
+          "dueDate": "2026-10-26",
+          "fromTime": "06:00",
+          "dueTime": "17:30",
+          "steps": []
+        },
+        {
+          "path": "Projects/App/Tasks/Month range.md",
+          "line": 1,
+          "text": "Month range",
+          "hubTaskId": "month",
+          "completed": false,
+          "necessity": null,
+          "fromDate": "2026-10-20",
+          "dueDate": "2026-11-04",
+          "steps": []
+        },
+        {
+          "path": "Projects/App/Tasks/Year range.md",
+          "line": 1,
+          "text": "Year range",
+          "hubTaskId": "year",
+          "completed": false,
+          "necessity": null,
+          "fromDate": "2026-12-30",
+          "dueDate": "2027-01-03",
+          "steps": []
+        },
+        {
+          "path": "Projects/App/Tasks/Overdue.md",
+          "line": 1,
+          "text": "Overdue",
+          "hubTaskId": "overdue",
+          "completed": false,
+          "necessity": null,
+          "fromDate": null,
+          "dueDate": "2026-10-24",
+          "steps": []
+        },
+        {
+          "path": "Projects/App/Tasks/Future.md",
+          "line": 1,
+          "text": "Future",
+          "hubTaskId": "future",
+          "completed": false,
+          "necessity": null,
+          "fromDate": "2026-10-27",
+          "dueDate": null,
+          "steps": []
+        },
+        {
+          "path": "Projects/App/Tasks/Completed.md",
+          "line": 1,
+          "text": "Completed",
+          "hubTaskId": "completed",
+          "completed": true,
+          "necessity": null,
+          "fromDate": null,
+          "dueDate": "2026-10-25",
+          "steps": []
+        },
+        {
+          "path": "Projects/App/Tasks/Unscheduled.md",
+          "line": 1,
+          "text": "Unscheduled",
+          "hubTaskId": "unscheduled",
+          "completed": false,
+          "necessity": null,
+          "fromDate": null,
+          "dueDate": null,
+          "steps": []
+        },
+        {
+          "path": "Projects/App/Tasks/ID-less.md",
+          "line": 1,
+          "text": "ID-less",
+          "hubTaskId": null,
+          "completed": false,
+          "necessity": null,
+          "fromDate": null,
+          "dueDate": null,
+          "steps": []
+        },
+        {
+          "path": "Projects/App/Tasks/Continuation.md",
+          "line": 1,
+          "text": "Assignment\ncontinuation evidence",
+          "hubTaskId": "assignment",
+          "completed": false,
+          "description": "Metadata prose",
+          "necessity": null,
+          "fromDate": null,
+          "dueDate": "2026-10-27",
+          "steps": [
+            {
+              "path": "Projects/App/Tasks/Continuation.md",
+              "line": 3,
+              "text": "First",
+              "hubTaskId": "first",
+              "completed": true
+            },
+            {
+              "path": "Projects/App/Tasks/Continuation.md",
+              "line": 4,
+              "text": "Next",
+              "hubTaskId": "next",
+              "completed": false
+            }
+          ]
+        },
+        {
+          "path": "Projects/App/Nested/Deep/Notes.md",
+          "line": 1,
+          "text": "**Linked** [note](Other.md)\nParagraph\n- ordinary list",
+          "hubTaskId": "rich",
+          "completed": false,
+          "description": "Description",
+          "phaseId": "phase",
+          "necessity": "must",
+          "fromDate": null,
+          "dueDate": "2026-10-25",
+          "dueTime": "00:00",
+          "steps": [
+            {
+              "path": "Projects/App/Nested/Deep/Notes.md",
+              "line": 4,
+              "text": "Parent **Step**",
+              "hubTaskId": "parent",
+              "completed": false
+            },
+            {
+              "path": "Projects/App/Nested/Deep/Notes.md",
+              "line": 5,
+              "text": "Nested [Step](Other.md)",
+              "hubTaskId": "nested",
+              "completed": false
+            }
+          ]
+        }
+      ],
+      "selected": [
+        "timed",
+        "rich"
+      ],
+      "picker": [
+        {
+          "id": "start",
+          "label": "Start only · Projects/App/Tasks/Start only.md"
+        },
+        {
+          "id": "due",
+          "label": "Due only · Projects/App/Tasks/Due only.md · Review"
+        },
+        {
+          "id": "midnight",
+          "label": "Midnight · Projects/App/Tasks/Midnight.md"
+        },
+        {
+          "id": "month",
+          "label": "Month range · Projects/App/Tasks/Month range.md"
+        },
+        {
+          "id": "year",
+          "label": "Year range · Projects/App/Tasks/Year range.md"
+        },
+        {
+          "id": "overdue",
+          "label": "Overdue · Projects/App/Tasks/Overdue.md"
+        },
+        {
+          "id": "future",
+          "label": "Future · Projects/App/Tasks/Future.md"
+        },
+        {
+          "id": "completed",
+          "label": "Completed · Projects/App/Tasks/Completed.md"
+        },
+        {
+          "id": "unscheduled",
+          "label": "Unscheduled · Projects/App/Tasks/Unscheduled.md"
+        },
+        {
+          "id": "Projects/App/Tasks/ID-less.md:1",
+          "label": "ID-less · Projects/App/Tasks/ID-less.md"
+        },
+        {
+          "id": "assignment",
+          "label": "Assignment\ncontinuation evidence · Projects/App/Tasks/Continuation.md"
+        }
+      ]
+    }
+  },
+  {
+    "id": "other",
+    "facts": {
+      "tasks": [
+        {
+          "path": "Projects/Other/Tasks.md",
+          "line": 1,
+          "text": "Other work",
+          "hubTaskId": "owner-other",
+          "completed": false,
+          "phaseId": "phase-other",
+          "necessity": null,
+          "fromDate": null,
+          "dueDate": null,
+          "steps": []
+        }
+      ],
+      "selected": [
+        "owner-other"
+      ],
+      "picker": []
+    }
+  },
+  {
+    "id": "itacan",
+    "facts": {
+      "tasks": [
+        {
+          "path": "Projects/Itacan/Tasks.md",
+          "line": 1,
+          "text": "Itacan work",
+          "hubTaskId": "owner-itacan",
+          "completed": false,
+          "phaseId": "phase-itacan",
+          "necessity": null,
+          "fromDate": null,
+          "dueDate": null,
+          "steps": []
+        }
+      ],
+      "selected": [
+        "owner-itacan"
+      ],
+      "picker": []
+    }
+  },
+  {
+    "id": "hub",
+    "facts": {
+      "tasks": [
+        {
+          "path": "Projects/Obsidian Hub/Tasks.md",
+          "line": 1,
+          "text": "Obsidian Hub work",
+          "hubTaskId": "owner-hub",
+          "completed": false,
+          "phaseId": "phase-hub",
+          "necessity": null,
+          "fromDate": null,
+          "dueDate": null,
+          "steps": []
+        }
+      ],
+      "selected": [
+        "owner-hub"
+      ],
+      "picker": []
+    }
+  }
+]

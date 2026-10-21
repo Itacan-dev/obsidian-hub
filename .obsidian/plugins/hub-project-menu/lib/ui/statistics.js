@@ -13,16 +13,30 @@ function workspaceLabel(row) {
     return `${row.name}${state ? ` (${state})` : ""}`;
 }
 
+const consumers = new WeakMap();
+function ownModal(modal) {
+    const plugin = modal.plugin;
+    if (!plugin?.register) return;
+    let active = consumers.get(plugin);
+    if (!active) {
+        consumers.set(plugin, active = new Set());
+        plugin.register(() => { for (const item of [...active]) item.close(); active.clear(); consumers.delete(plugin); });
+    }
+    active.add(modal);
+}
+
 class StatisticsModal extends Modal {
-    constructor(app, plugin, { source, onClose } = {}) {
+    constructor(app, plugin, { source, onClose, completionFeed } = {}) {
         super(app); this.plugin = plugin; this.source = source; this.closed = onClose;
-        this.range = "3m"; this.workspace = "all";
+        this.completionFeed = completionFeed; this.suppliedSource = completionFeed ? undefined : source; this.generation = 0; this.isOpen = false;
+        this.range = "all"; this.workspace = "all";
         this.cache = new Map(); this.chartCleanups = [];
     }
     onOpen() {
+        this.isOpen = true; this.generation++; this.contentEl.empty(); ownModal(this);
+        this.source = this.suppliedSource;
         this.contentEl.classList.add("hub-project-advancement-modal", "hub-statistics-modal", "hub-button-scope");
         this.modalEl.classList.add("hub-statistics-window");
-        this.source ??= readStatistics(this.plugin);
         this.helpTooltips = createImmediateHubTooltip(this.contentEl);
         const header = this.contentEl.createDiv({ cls: "hub-statistics-header" });
         createWindowTitle(header, "Statistics", "chart-no-axes-column");
@@ -30,11 +44,6 @@ class StatisticsModal extends Modal {
         this.workspaceSelect = controls.createEl("select", { cls: "hub-statistics-workspace",
             attr: { "aria-label": "Statistics workspace", "data-filter": "workspace" } });
         this.workspaceSelect.createEl("option", { text: "All workspaces", attr: { value: "all" } });
-        for (const [kind, label] of [["project", "Projects"], ["resource", "Resources"]]) {
-            const group = this.workspaceSelect.createEl("optgroup", { attr: { label } });
-            [...this.source.registry.values()].filter(row => row.kind === kind).sort((a, b) => a.name.localeCompare(b.name) || a.key.localeCompare(b.key))
-                .forEach(row => group.createEl("option", { text: workspaceLabel(row), attr: { value: row.key } }));
-        }
         this.workspaceSelect.value = this.workspace;
         this.workspaceSelect.addEventListener("change", () => {
             this.workspace = this.workspaceSelect.value; this.render();
@@ -53,7 +62,40 @@ class StatisticsModal extends Modal {
         });
         this.grid = this.contentEl.createDiv({ cls: "hub-statistics-grid" });
         layoutModal(this);
+        this.stopCompletionFeed = this.completionFeed?.subscribe(() => {
+            if (!this.isOpen) return;
+            this.generation++; this.source = undefined; this.cache.clear(); this.chartCleanups.splice(0).forEach(cleanup => cleanup()); this.grid.empty(); void this.loadSource();
+        });
+        if (this.source) this.ready();
+        else void this.loadSource();
+    }
+    ready() {
+        this.status?.remove(); this.status = null;
+        this.workspaceSelect.querySelectorAll("optgroup").forEach(group => group.remove());
+        for (const [kind, label] of [["project", "Projects"], ["resource", "Resources"]]) {
+            const group = this.workspaceSelect.createEl("optgroup", { attr: { label } });
+            [...this.source.registry.values()].filter(row => row.kind === kind).sort((a, b) => a.name.localeCompare(b.name) || a.key.localeCompare(b.key))
+                .forEach(row => group.createEl("option", { text: workspaceLabel(row), attr: { value: row.key } }));
+        }
+        this.workspaceSelect.value = this.workspace;
         this.render();
+    }
+    async loadSource() {
+        const ticket = ++this.generation;
+        this.status?.remove();
+        this.status = this.grid.createDiv({ attr: { role: "status" }, text: "Loading Statistics…" });
+        try {
+            const source = await readStatistics(this.plugin, Date.now(), this.completionFeed);
+            if (!this.isOpen || ticket !== this.generation) return;
+            this.source = source; this.ready();
+        } catch (_) {
+            if (!this.isOpen || ticket !== this.generation) return;
+            this.source = undefined; this.cache.clear();
+            this.chartCleanups.splice(0).forEach(cleanup => cleanup()); this.grid.empty();
+            this.status = this.grid.createDiv({ attr: { role: "alert" }, text: "Statistics could not be loaded." });
+            const retry = this.status.createEl("button", { text: "Retry", attr: { type: "button" } });
+            retry.addEventListener("click", () => { void this.loadSource(); });
+        }
     }
     card(id, title, { wide = false } = {}) {
         const card = this.grid.createEl("section", { cls: `hub-report-card hub-statistics-card${wide ? " hub-statistics-wide" : ""}`,
@@ -74,6 +116,7 @@ class StatisticsModal extends Modal {
         if (cleanup) this.chartCleanups.push(cleanup);
     }
     render() {
+        if (!this.source || !this.isOpen) return;
         this.helpTooltips?.dispose();
         this.helpTooltips = createImmediateHubTooltip(this.contentEl);
         const cacheKey = `${this.range}/${this.workspace}`;
@@ -166,7 +209,7 @@ class StatisticsModal extends Modal {
             row.createEl("td", { text: formatDuration(project.time) });
         }
     }
-    onClose() { this.helpTooltips?.dispose(); this.chartCleanups.splice(0).forEach(cleanup => cleanup()); this.cache.clear(); this.contentEl.empty(); this.closed?.(); }
+    onClose() { this.isOpen = false; this.stopCompletionFeed?.(); this.stopCompletionFeed = null; this.generation++; consumers.get(this.plugin)?.delete(this); this.helpTooltips?.dispose(); this.chartCleanups.splice(0).forEach(cleanup => cleanup()); this.cache.clear(); this.contentEl.empty(); this.closed?.(); }
 }
 
 module.exports = { StatisticsModal };

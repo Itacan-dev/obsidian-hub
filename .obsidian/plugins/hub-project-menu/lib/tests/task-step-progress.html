@@ -8,7 +8,7 @@ HTMLElement.prototype.createEl=function(tag,o={}){const e=document.createElement
 HTMLElement.prototype.createDiv=function(o){return this.createEl('div',o)};HTMLElement.prototype.createSpan=function(o){return this.createEl('span',o)};
 const assert=(v,m)=>{if(!v)throw Error(m)},settle=async()=>{for(let i=0;i<20;i++)await Promise.resolve()};
 const sources={},cache={};
-for(const name of ['domain/tasks','domain/dates','domain/task-planning','domain/task-progress','ui/completion-audio','ui/task-steps'])sources[name]=await(await fetch('../'+name+'.js')).text();
+for(const name of ['domain/tasks','domain/dates','domain/task-planning','domain/task-progress','ui/completion-audio','ui/task-card','ui/task-steps'])sources[name]=await(await fetch('../'+name+'.js')).text();
 function load(name){if(cache[name])return cache[name].exports;const m=cache[name]={exports:{}};new Function('module','require',sources[name])(m,n=>load(name.slice(0,name.lastIndexOf('/'))+'/'+n.replace('./','')));return m.exports}
 try{
  const {readTaskSnapshot,toggleTaskStep}=load('domain/task-planning'),{taskProgressMutation}=load('domain/task-progress');

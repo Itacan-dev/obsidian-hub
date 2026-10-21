@@ -1,0 +1,2258 @@
+{
+  "files": [
+    [
+      "Projects/App/App.md",
+      {
+        "path": "Projects/App/App.md",
+        "name": "App.md",
+        "basename": "App",
+        "extension": "md",
+        "stat": {
+          "mtime": 1
+        },
+        "parent": {
+          "path": "Projects/App"
+        },
+        "aliases": []
+      }
+    ],
+    [
+      "Projects/App/Meta",
+      {
+        "path": "Projects/App/Meta",
+        "name": "Meta",
+        "basename": "Meta",
+        "stat": {
+          "mtime": 1
+        },
+        "parent": {
+          "path": "Projects/App"
+        },
+        "aliases": [],
+        "children": []
+      }
+    ],
+    [
+      "Projects/App/Meta/ROADMAP.md",
+      {
+        "path": "Projects/App/Meta/ROADMAP.md",
+        "name": "ROADMAP.md",
+        "basename": "ROADMAP",
+        "extension": "md",
+        "stat": {
+          "mtime": 1
+        },
+        "parent": {
+          "path": "Projects/App/Meta"
+        },
+        "aliases": []
+      }
+    ],
+    [
+      "Projects/Other/Other.md",
+      {
+        "path": "Projects/Other/Other.md",
+        "name": "Other.md",
+        "basename": "Other",
+        "extension": "md",
+        "stat": {
+          "mtime": 1
+        },
+        "parent": {
+          "path": "Projects/Other"
+        },
+        "aliases": []
+      }
+    ],
+    [
+      "Projects/Other/Meta",
+      {
+        "path": "Projects/Other/Meta",
+        "name": "Meta",
+        "basename": "Meta",
+        "stat": {
+          "mtime": 1
+        },
+        "parent": {
+          "path": "Projects/Other"
+        },
+        "aliases": [],
+        "children": []
+      }
+    ],
+    [
+      "Projects/Other/Meta/ROADMAP.md",
+      {
+        "path": "Projects/Other/Meta/ROADMAP.md",
+        "name": "ROADMAP.md",
+        "basename": "ROADMAP",
+        "extension": "md",
+        "stat": {
+          "mtime": 1
+        },
+        "parent": {
+          "path": "Projects/Other/Meta"
+        },
+        "aliases": []
+      }
+    ],
+    [
+      "Projects/Itacan/Itacan.md",
+      {
+        "path": "Projects/Itacan/Itacan.md",
+        "name": "Itacan.md",
+        "basename": "Itacan",
+        "extension": "md",
+        "stat": {
+          "mtime": 1
+        },
+        "parent": {
+          "path": "Projects/Itacan"
+        },
+        "aliases": []
+      }
+    ],
+    [
+      "Projects/Itacan/Meta",
+      {
+        "path": "Projects/Itacan/Meta",
+        "name": "Meta",
+        "basename": "Meta",
+        "stat": {
+          "mtime": 1
+        },
+        "parent": {
+          "path": "Projects/Itacan"
+        },
+        "aliases": [],
+        "children": []
+      }
+    ],
+    [
+      "Projects/Itacan/Meta/ROADMAP.md",
+      {
+        "path": "Projects/Itacan/Meta/ROADMAP.md",
+        "name": "ROADMAP.md",
+        "basename": "ROADMAP",
+        "extension": "md",
+        "stat": {
+          "mtime": 1
+        },
+        "parent": {
+          "path": "Projects/Itacan/Meta"
+        },
+        "aliases": []
+      }
+    ],
+    [
+      "Projects/Obsidian Hub/Obsidian Hub.md",
+      {
+        "path": "Projects/Obsidian Hub/Obsidian Hub.md",
+        "name": "Obsidian Hub.md",
+        "basename": "Obsidian Hub",
+        "extension": "md",
+        "stat": {
+          "mtime": 1
+        },
+        "parent": {
+          "path": "Projects/Obsidian Hub"
+        },
+        "aliases": []
+      }
+    ],
+    [
+      "Projects/Obsidian Hub/Meta",
+      {
+        "path": "Projects/Obsidian Hub/Meta",
+        "name": "Meta",
+        "basename": "Meta",
+        "stat": {
+          "mtime": 1
+        },
+        "parent": {
+          "path": "Projects/Obsidian Hub"
+        },
+        "aliases": [],
+        "children": []
+      }
+    ],
+    [
+      "Projects/Obsidian Hub/Meta/ROADMAP.md",
+      {
+        "path": "Projects/Obsidian Hub/Meta/ROADMAP.md",
+        "name": "ROADMAP.md",
+        "basename": "ROADMAP",
+        "extension": "md",
+        "stat": {
+          "mtime": 1
+        },
+        "parent": {
+          "path": "Projects/Obsidian Hub/Meta"
+        },
+        "aliases": []
+      }
+    ],
+    [
+      "Resources/Knowledge/Knowledge.md",
+      {
+        "path": "Resources/Knowledge/Knowledge.md",
+        "name": "Knowledge.md",
+        "basename": "Knowledge",
+        "extension": "md",
+        "stat": {
+          "mtime": 1
+        },
+        "parent": {
+          "path": "Resources/Knowledge"
+        },
+        "aliases": []
+      }
+    ],
+    [
+      "Resources/Knowledge/Meta",
+      {
+        "path": "Resources/Knowledge/Meta",
+        "name": "Meta",
+        "basename": "Meta",
+        "stat": {
+          "mtime": 1
+        },
+        "parent": {
+          "path": "Resources/Knowledge"
+        },
+        "aliases": [],
+        "children": []
+      }
+    ],
+    [
+      "Resources/Knowledge/Meta/ROADMAP.md",
+      {
+        "path": "Resources/Knowledge/Meta/ROADMAP.md",
+        "name": "ROADMAP.md",
+        "basename": "ROADMAP",
+        "extension": "md",
+        "stat": {
+          "mtime": 1
+        },
+        "parent": {
+          "path": "Resources/Knowledge/Meta"
+        },
+        "aliases": []
+      }
+    ],
+    [
+      "Resources/Research/Research.md",
+      {
+        "path": "Resources/Research/Research.md",
+        "name": "Research.md",
+        "basename": "Research",
+        "extension": "md",
+        "stat": {
+          "mtime": 1
+        },
+        "parent": {
+          "path": "Resources/Research"
+        },
+        "aliases": []
+      }
+    ],
+    [
+      "Resources/Research/Meta",
+      {
+        "path": "Resources/Research/Meta",
+        "name": "Meta",
+        "basename": "Meta",
+        "stat": {
+          "mtime": 1
+        },
+        "parent": {
+          "path": "Resources/Research"
+        },
+        "aliases": [],
+        "children": []
+      }
+    ],
+    [
+      "Resources/Research/Meta/ROADMAP.md",
+      {
+        "path": "Resources/Research/Meta/ROADMAP.md",
+        "name": "ROADMAP.md",
+        "basename": "ROADMAP",
+        "extension": "md",
+        "stat": {
+          "mtime": 1
+        },
+        "parent": {
+          "path": "Resources/Research/Meta"
+        },
+        "aliases": []
+      }
+    ],
+    [
+      "Resources/Explorations/Explorations.md",
+      {
+        "path": "Resources/Explorations/Explorations.md",
+        "name": "Explorations.md",
+        "basename": "Explorations",
+        "extension": "md",
+        "stat": {
+          "mtime": 1
+        },
+        "parent": {
+          "path": "Resources/Explorations"
+        },
+        "aliases": []
+      }
+    ],
+    [
+      "Resources/Explorations/Meta",
+      {
+        "path": "Resources/Explorations/Meta",
+        "name": "Meta",
+        "basename": "Meta",
+        "stat": {
+          "mtime": 1
+        },
+        "parent": {
+          "path": "Resources/Explorations"
+        },
+        "aliases": [],
+        "children": []
+      }
+    ],
+    [
+      "Resources/Explorations/Meta/ROADMAP.md",
+      {
+        "path": "Resources/Explorations/Meta/ROADMAP.md",
+        "name": "ROADMAP.md",
+        "basename": "ROADMAP",
+        "extension": "md",
+        "stat": {
+          "mtime": 1
+        },
+        "parent": {
+          "path": "Resources/Explorations/Meta"
+        },
+        "aliases": []
+      }
+    ],
+    [
+      "Resources/Inspiration/Inspiration.md",
+      {
+        "path": "Resources/Inspiration/Inspiration.md",
+        "name": "Inspiration.md",
+        "basename": "Inspiration",
+        "extension": "md",
+        "stat": {
+          "mtime": 1
+        },
+        "parent": {
+          "path": "Resources/Inspiration"
+        },
+        "aliases": []
+      }
+    ],
+    [
+      "Resources/Inspiration/Meta",
+      {
+        "path": "Resources/Inspiration/Meta",
+        "name": "Meta",
+        "basename": "Meta",
+        "stat": {
+          "mtime": 1
+        },
+        "parent": {
+          "path": "Resources/Inspiration"
+        },
+        "aliases": [],
+        "children": []
+      }
+    ],
+    [
+      "Resources/Inspiration/Meta/ROADMAP.md",
+      {
+        "path": "Resources/Inspiration/Meta/ROADMAP.md",
+        "name": "ROADMAP.md",
+        "basename": "ROADMAP",
+        "extension": "md",
+        "stat": {
+          "mtime": 1
+        },
+        "parent": {
+          "path": "Resources/Inspiration/Meta"
+        },
+        "aliases": []
+      }
+    ],
+    [
+      "Projects/App/Meta/Plans.md",
+      {
+        "path": "Projects/App/Meta/Plans.md",
+        "name": "Plans.md",
+        "basename": "Plans",
+        "extension": "md",
+        "stat": {
+          "mtime": 1
+        },
+        "parent": {
+          "path": "Projects/App/Meta"
+        },
+        "aliases": [
+          "Product direction"
+        ]
+      }
+    ],
+    [
+      "Projects/App/Meta/Paper.pdf",
+      {
+        "path": "Projects/App/Meta/Paper.pdf",
+        "name": "Paper.pdf",
+        "basename": "Paper",
+        "extension": "pdf",
+        "stat": {
+          "mtime": 1
+        },
+        "parent": {
+          "path": "Projects/App/Meta"
+        },
+        "aliases": []
+      }
+    ],
+    [
+      "Projects/App/System/Templates/secret.md",
+      {
+        "path": "Projects/App/System/Templates/secret.md",
+        "name": "secret.md",
+        "basename": "secret",
+        "extension": "md",
+        "stat": {
+          "mtime": 1
+        },
+        "parent": {
+          "path": "Projects/App/System/Templates"
+        },
+        "aliases": []
+      }
+    ],
+    [
+      "Projects/App/Meta/Tasks.md",
+      {
+        "path": "Projects/App/Meta/Tasks.md",
+        "name": "Tasks.md",
+        "basename": "Tasks",
+        "extension": "md",
+        "stat": {
+          "mtime": 1
+        },
+        "parent": {
+          "path": "Projects/App/Meta"
+        },
+        "aliases": []
+      }
+    ],
+    [
+      "Resources/Knowledge/Mounted/Notes.md",
+      {
+        "path": "Resources/Knowledge/Mounted/Notes.md",
+        "name": "Notes.md",
+        "basename": "Notes",
+        "extension": "md",
+        "stat": {
+          "mtime": 1
+        },
+        "parent": {
+          "path": "Resources/Knowledge/Mounted"
+        },
+        "aliases": []
+      }
+    ],
+    [
+      "Projects/App/Tasks/Start only.md",
+      {
+        "path": "Projects/App/Tasks/Start only.md",
+        "name": "Start only.md",
+        "basename": "Start only",
+        "extension": "md",
+        "stat": {
+          "mtime": 1
+        },
+        "parent": {
+          "path": "Projects/App/Tasks"
+        },
+        "aliases": []
+      }
+    ],
+    [
+      "Projects/App/Tasks/Due only.md",
+      {
+        "path": "Projects/App/Tasks/Due only.md",
+        "name": "Due only.md",
+        "basename": "Due only",
+        "extension": "md",
+        "stat": {
+          "mtime": 1
+        },
+        "parent": {
+          "path": "Projects/App/Tasks"
+        },
+        "aliases": []
+      }
+    ],
+    [
+      "Projects/App/Tasks/Midnight.md",
+      {
+        "path": "Projects/App/Tasks/Midnight.md",
+        "name": "Midnight.md",
+        "basename": "Midnight",
+        "extension": "md",
+        "stat": {
+          "mtime": 1
+        },
+        "parent": {
+          "path": "Projects/App/Tasks"
+        },
+        "aliases": []
+      }
+    ],
+    [
+      "Projects/App/Tasks/Timed.md",
+      {
+        "path": "Projects/App/Tasks/Timed.md",
+        "name": "Timed.md",
+        "basename": "Timed",
+        "extension": "md",
+        "stat": {
+          "mtime": 1
+        },
+        "parent": {
+          "path": "Projects/App/Tasks"
+        },
+        "aliases": []
+      }
+    ],
+    [
+      "Projects/App/Tasks/Month range.md",
+      {
+        "path": "Projects/App/Tasks/Month range.md",
+        "name": "Month range.md",
+        "basename": "Month range",
+        "extension": "md",
+        "stat": {
+          "mtime": 1
+        },
+        "parent": {
+          "path": "Projects/App/Tasks"
+        },
+        "aliases": []
+      }
+    ],
+    [
+      "Projects/App/Tasks/Year range.md",
+      {
+        "path": "Projects/App/Tasks/Year range.md",
+        "name": "Year range.md",
+        "basename": "Year range",
+        "extension": "md",
+        "stat": {
+          "mtime": 1
+        },
+        "parent": {
+          "path": "Projects/App/Tasks"
+        },
+        "aliases": []
+      }
+    ],
+    [
+      "Projects/App/Tasks/Overdue.md",
+      {
+        "path": "Projects/App/Tasks/Overdue.md",
+        "name": "Overdue.md",
+        "basename": "Overdue",
+        "extension": "md",
+        "stat": {
+          "mtime": 1
+        },
+        "parent": {
+          "path": "Projects/App/Tasks"
+        },
+        "aliases": []
+      }
+    ],
+    [
+      "Projects/App/Tasks/Future.md",
+      {
+        "path": "Projects/App/Tasks/Future.md",
+        "name": "Future.md",
+        "basename": "Future",
+        "extension": "md",
+        "stat": {
+          "mtime": 1
+        },
+        "parent": {
+          "path": "Projects/App/Tasks"
+        },
+        "aliases": []
+      }
+    ],
+    [
+      "Projects/App/Tasks/Completed.md",
+      {
+        "path": "Projects/App/Tasks/Completed.md",
+        "name": "Completed.md",
+        "basename": "Completed",
+        "extension": "md",
+        "stat": {
+          "mtime": 1
+        },
+        "parent": {
+          "path": "Projects/App/Tasks"
+        },
+        "aliases": []
+      }
+    ],
+    [
+      "Projects/App/Tasks/Unscheduled.md",
+      {
+        "path": "Projects/App/Tasks/Unscheduled.md",
+        "name": "Unscheduled.md",
+        "basename": "Unscheduled",
+        "extension": "md",
+        "stat": {
+          "mtime": 1
+        },
+        "parent": {
+          "path": "Projects/App/Tasks"
+        },
+        "aliases": []
+      }
+    ],
+    [
+      "Projects/App/Tasks/ID-less.md",
+      {
+        "path": "Projects/App/Tasks/ID-less.md",
+        "name": "ID-less.md",
+        "basename": "ID-less",
+        "extension": "md",
+        "stat": {
+          "mtime": 1
+        },
+        "parent": {
+          "path": "Projects/App/Tasks"
+        },
+        "aliases": []
+      }
+    ],
+    [
+      "Projects/App/Tasks/Continuation.md",
+      {
+        "path": "Projects/App/Tasks/Continuation.md",
+        "name": "Continuation.md",
+        "basename": "Continuation",
+        "extension": "md",
+        "stat": {
+          "mtime": 1
+        },
+        "parent": {
+          "path": "Projects/App/Tasks"
+        },
+        "aliases": []
+      }
+    ],
+    [
+      "Projects/App/System/Excluded.md",
+      {
+        "path": "Projects/App/System/Excluded.md",
+        "name": "Excluded.md",
+        "basename": "Excluded",
+        "extension": "md",
+        "stat": {
+          "mtime": 1
+        },
+        "parent": {
+          "path": "Projects/App/System"
+        },
+        "aliases": []
+      }
+    ],
+    [
+      "Projects/App/Templates/Excluded.md",
+      {
+        "path": "Projects/App/Templates/Excluded.md",
+        "name": "Excluded.md",
+        "basename": "Excluded",
+        "extension": "md",
+        "stat": {
+          "mtime": 1
+        },
+        "parent": {
+          "path": "Projects/App/Templates"
+        },
+        "aliases": []
+      }
+    ],
+    [
+      "Projects/App/.hidden/Excluded.md",
+      {
+        "path": "Projects/App/.hidden/Excluded.md",
+        "name": "Excluded.md",
+        "basename": "Excluded",
+        "extension": "md",
+        "stat": {
+          "mtime": 1
+        },
+        "parent": {
+          "path": "Projects/App/.hidden"
+        },
+        "aliases": []
+      }
+    ],
+    [
+      "Projects/Other/Tasks.md",
+      {
+        "path": "Projects/Other/Tasks.md",
+        "name": "Tasks.md",
+        "basename": "Tasks",
+        "extension": "md",
+        "stat": {
+          "mtime": 1
+        },
+        "parent": {
+          "path": "Projects/Other"
+        },
+        "aliases": []
+      }
+    ],
+    [
+      "Projects/Itacan/Tasks.md",
+      {
+        "path": "Projects/Itacan/Tasks.md",
+        "name": "Tasks.md",
+        "basename": "Tasks",
+        "extension": "md",
+        "stat": {
+          "mtime": 1
+        },
+        "parent": {
+          "path": "Projects/Itacan"
+        },
+        "aliases": []
+      }
+    ],
+    [
+      "Projects/Obsidian Hub/Tasks.md",
+      {
+        "path": "Projects/Obsidian Hub/Tasks.md",
+        "name": "Tasks.md",
+        "basename": "Tasks",
+        "extension": "md",
+        "stat": {
+          "mtime": 1
+        },
+        "parent": {
+          "path": "Projects/Obsidian Hub"
+        },
+        "aliases": []
+      }
+    ],
+    [
+      "Resources/Knowledge/Tasks.md",
+      {
+        "path": "Resources/Knowledge/Tasks.md",
+        "name": "Tasks.md",
+        "basename": "Tasks",
+        "extension": "md",
+        "stat": {
+          "mtime": 1
+        },
+        "parent": {
+          "path": "Resources/Knowledge"
+        },
+        "aliases": []
+      }
+    ],
+    [
+      "Resources/Research/Tasks.md",
+      {
+        "path": "Resources/Research/Tasks.md",
+        "name": "Tasks.md",
+        "basename": "Tasks",
+        "extension": "md",
+        "stat": {
+          "mtime": 1
+        },
+        "parent": {
+          "path": "Resources/Research"
+        },
+        "aliases": []
+      }
+    ],
+    [
+      "Resources/Explorations/Tasks.md",
+      {
+        "path": "Resources/Explorations/Tasks.md",
+        "name": "Tasks.md",
+        "basename": "Tasks",
+        "extension": "md",
+        "stat": {
+          "mtime": 1
+        },
+        "parent": {
+          "path": "Resources/Explorations"
+        },
+        "aliases": []
+      }
+    ],
+    [
+      "Resources/Inspiration/Tasks.md",
+      {
+        "path": "Resources/Inspiration/Tasks.md",
+        "name": "Tasks.md",
+        "basename": "Tasks",
+        "extension": "md",
+        "stat": {
+          "mtime": 1
+        },
+        "parent": {
+          "path": "Resources/Inspiration"
+        },
+        "aliases": []
+      }
+    ],
+    [
+      "Projects/App/Nested/Deep/Notes.md",
+      {
+        "path": "Projects/App/Nested/Deep/Notes.md",
+        "name": "Notes.md",
+        "basename": "Notes",
+        "extension": "md",
+        "stat": {
+          "mtime": 1
+        },
+        "parent": {
+          "path": "Projects/App/Nested/Deep"
+        },
+        "aliases": []
+      }
+    ]
+  ],
+  "contents": [
+    [
+      "Projects/App/App.md",
+      "# Synthetic\n"
+    ],
+    [
+      "Projects/App/Meta",
+      ""
+    ],
+    [
+      "Projects/App/Meta/ROADMAP.md",
+      "# Synthetic\n"
+    ],
+    [
+      "Projects/Other/Other.md",
+      "# Synthetic\n"
+    ],
+    [
+      "Projects/Other/Meta",
+      ""
+    ],
+    [
+      "Projects/Other/Meta/ROADMAP.md",
+      "# Synthetic\n"
+    ],
+    [
+      "Projects/Itacan/Itacan.md",
+      "# Synthetic\n"
+    ],
+    [
+      "Projects/Itacan/Meta",
+      ""
+    ],
+    [
+      "Projects/Itacan/Meta/ROADMAP.md",
+      "# Synthetic\n"
+    ],
+    [
+      "Projects/Obsidian Hub/Obsidian Hub.md",
+      "# Synthetic\n"
+    ],
+    [
+      "Projects/Obsidian Hub/Meta",
+      ""
+    ],
+    [
+      "Projects/Obsidian Hub/Meta/ROADMAP.md",
+      "# Synthetic\n"
+    ],
+    [
+      "Resources/Knowledge/Knowledge.md",
+      "# Synthetic\n"
+    ],
+    [
+      "Resources/Knowledge/Meta",
+      ""
+    ],
+    [
+      "Resources/Knowledge/Meta/ROADMAP.md",
+      "# Synthetic\n"
+    ],
+    [
+      "Resources/Research/Research.md",
+      "# Synthetic\n"
+    ],
+    [
+      "Resources/Research/Meta",
+      ""
+    ],
+    [
+      "Resources/Research/Meta/ROADMAP.md",
+      "# Synthetic\n"
+    ],
+    [
+      "Resources/Explorations/Explorations.md",
+      "# Synthetic\n"
+    ],
+    [
+      "Resources/Explorations/Meta",
+      ""
+    ],
+    [
+      "Resources/Explorations/Meta/ROADMAP.md",
+      "# Synthetic\n"
+    ],
+    [
+      "Resources/Inspiration/Inspiration.md",
+      "# Synthetic\n"
+    ],
+    [
+      "Resources/Inspiration/Meta",
+      ""
+    ],
+    [
+      "Resources/Inspiration/Meta/ROADMAP.md",
+      "# Synthetic\n"
+    ],
+    [
+      "Projects/App/Meta/Plans.md",
+      "# Synthetic\n"
+    ],
+    [
+      "Projects/App/Meta/Paper.pdf",
+      ""
+    ],
+    [
+      "Projects/App/System/Templates/secret.md",
+      "# Synthetic\n"
+    ],
+    [
+      "Projects/App/Meta/Tasks.md",
+      "# Synthetic\n"
+    ],
+    [
+      "Resources/Knowledge/Mounted/Notes.md",
+      "# Synthetic\n- [ ] Mounted resource <!-- hub-task:mounted -->\n"
+    ],
+    [
+      "Projects/App/Tasks/Start only.md",
+      "# Synthetic\n- [ ] Start only <!-- hub-task:start -->\n"
+    ],
+    [
+      "Projects/App/Tasks/Due only.md",
+      "# Synthetic\n- [ ] Due only <!-- hub-task:due -->\n"
+    ],
+    [
+      "Projects/App/Tasks/Midnight.md",
+      "# Synthetic\n- [ ] Midnight <!-- hub-task:midnight -->\n"
+    ],
+    [
+      "Projects/App/Tasks/Timed.md",
+      "# Synthetic\n- [ ] Timed <!-- hub-task:timed -->\n"
+    ],
+    [
+      "Projects/App/Tasks/Month range.md",
+      "# Synthetic\n- [ ] Month range <!-- hub-task:month -->\n"
+    ],
+    [
+      "Projects/App/Tasks/Year range.md",
+      "# Synthetic\n- [ ] Year range <!-- hub-task:year -->\n"
+    ],
+    [
+      "Projects/App/Tasks/Overdue.md",
+      "# Synthetic\n- [ ] Overdue <!-- hub-task:overdue -->\n"
+    ],
+    [
+      "Projects/App/Tasks/Future.md",
+      "# Synthetic\n- [ ] Future <!-- hub-task:future -->\n"
+    ],
+    [
+      "Projects/App/Tasks/Completed.md",
+      "# Synthetic\n- [x] Completed <!-- hub-task:completed -->\n"
+    ],
+    [
+      "Projects/App/Tasks/Unscheduled.md",
+      "# Synthetic\n- [ ] Unscheduled <!-- hub-task:unscheduled -->\n"
+    ],
+    [
+      "Projects/App/Tasks/ID-less.md",
+      "# Synthetic\n- [ ] ID-less\n"
+    ],
+    [
+      "Projects/App/Tasks/Continuation.md",
+      "# Synthetic\n- [ ] Assignment <!-- hub-task:assignment -->\n    continuation evidence\n    - [x] First <!-- hub-task:first -->\n    - [ ] Next <!-- hub-task:next -->\n"
+    ],
+    [
+      "Projects/App/System/Excluded.md",
+      "# Synthetic\n- [ ] Excluded System <!-- hub-task:excluded-System -->\n"
+    ],
+    [
+      "Projects/App/Templates/Excluded.md",
+      "# Synthetic\n- [ ] Excluded Templates <!-- hub-task:excluded-Templates -->\n"
+    ],
+    [
+      "Projects/App/.hidden/Excluded.md",
+      "# Synthetic\n- [ ] Excluded .hidden <!-- hub-task:excluded-hidden -->\n"
+    ],
+    [
+      "Projects/Other/Tasks.md",
+      "# Synthetic\n- [ ] Other work <!-- hub-task:owner-other -->\n"
+    ],
+    [
+      "Projects/Itacan/Tasks.md",
+      "# Synthetic\n- [ ] Itacan work <!-- hub-task:owner-itacan -->\n"
+    ],
+    [
+      "Projects/Obsidian Hub/Tasks.md",
+      "# Synthetic\n- [ ] Obsidian Hub work <!-- hub-task:owner-hub -->\n"
+    ],
+    [
+      "Resources/Knowledge/Tasks.md",
+      "# Synthetic\n- [ ] Knowledge work <!-- hub-task:owner-resource-study -->\n"
+    ],
+    [
+      "Resources/Research/Tasks.md",
+      "# Synthetic\n- [ ] Research work <!-- hub-task:owner-resource-literature -->\n"
+    ],
+    [
+      "Resources/Explorations/Tasks.md",
+      "# Synthetic\n- [ ] Explorations work <!-- hub-task:owner-resource-references -->\n"
+    ],
+    [
+      "Resources/Inspiration/Tasks.md",
+      "# Synthetic\n- [ ] Inspiration work <!-- hub-task:owner-resource-inspiration -->\n"
+    ],
+    [
+      "Projects/App/Nested/Deep/Notes.md",
+      "# Synthetic\n- [ ] **Linked** [note](Other.md) <!-- hub-task:rich -->\n    Paragraph\n    - ordinary list\n    - [ ] Parent **Step** <!-- hub-task:parent -->\n        - [ ] Nested [Step](Other.md) <!-- hub-task:nested -->\n"
+    ]
+  ],
+  "pages": [
+    [
+      "Projects/App/App.md",
+      {
+        "file": {
+          "path": "Projects/App/App.md",
+          "tasks": [],
+          "lists": []
+        }
+      }
+    ],
+    [
+      "Projects/App/Meta/ROADMAP.md",
+      {
+        "file": {
+          "path": "Projects/App/Meta/ROADMAP.md",
+          "tasks": [],
+          "lists": []
+        }
+      }
+    ],
+    [
+      "Projects/Other/Other.md",
+      {
+        "file": {
+          "path": "Projects/Other/Other.md",
+          "tasks": [],
+          "lists": []
+        }
+      }
+    ],
+    [
+      "Projects/Other/Meta/ROADMAP.md",
+      {
+        "file": {
+          "path": "Projects/Other/Meta/ROADMAP.md",
+          "tasks": [],
+          "lists": []
+        }
+      }
+    ],
+    [
+      "Projects/Itacan/Itacan.md",
+      {
+        "file": {
+          "path": "Projects/Itacan/Itacan.md",
+          "tasks": [],
+          "lists": []
+        }
+      }
+    ],
+    [
+      "Projects/Itacan/Meta/ROADMAP.md",
+      {
+        "file": {
+          "path": "Projects/Itacan/Meta/ROADMAP.md",
+          "tasks": [],
+          "lists": []
+        }
+      }
+    ],
+    [
+      "Projects/Obsidian Hub/Obsidian Hub.md",
+      {
+        "file": {
+          "path": "Projects/Obsidian Hub/Obsidian Hub.md",
+          "tasks": [],
+          "lists": []
+        }
+      }
+    ],
+    [
+      "Projects/Obsidian Hub/Meta/ROADMAP.md",
+      {
+        "file": {
+          "path": "Projects/Obsidian Hub/Meta/ROADMAP.md",
+          "tasks": [],
+          "lists": []
+        }
+      }
+    ],
+    [
+      "Resources/Knowledge/Knowledge.md",
+      {
+        "file": {
+          "path": "Resources/Knowledge/Knowledge.md",
+          "tasks": [],
+          "lists": []
+        }
+      }
+    ],
+    [
+      "Resources/Knowledge/Meta/ROADMAP.md",
+      {
+        "file": {
+          "path": "Resources/Knowledge/Meta/ROADMAP.md",
+          "tasks": [],
+          "lists": []
+        }
+      }
+    ],
+    [
+      "Resources/Research/Research.md",
+      {
+        "file": {
+          "path": "Resources/Research/Research.md",
+          "tasks": [],
+          "lists": []
+        }
+      }
+    ],
+    [
+      "Resources/Research/Meta/ROADMAP.md",
+      {
+        "file": {
+          "path": "Resources/Research/Meta/ROADMAP.md",
+          "tasks": [],
+          "lists": []
+        }
+      }
+    ],
+    [
+      "Resources/Explorations/Explorations.md",
+      {
+        "file": {
+          "path": "Resources/Explorations/Explorations.md",
+          "tasks": [],
+          "lists": []
+        }
+      }
+    ],
+    [
+      "Resources/Explorations/Meta/ROADMAP.md",
+      {
+        "file": {
+          "path": "Resources/Explorations/Meta/ROADMAP.md",
+          "tasks": [],
+          "lists": []
+        }
+      }
+    ],
+    [
+      "Resources/Inspiration/Inspiration.md",
+      {
+        "file": {
+          "path": "Resources/Inspiration/Inspiration.md",
+          "tasks": [],
+          "lists": []
+        }
+      }
+    ],
+    [
+      "Resources/Inspiration/Meta/ROADMAP.md",
+      {
+        "file": {
+          "path": "Resources/Inspiration/Meta/ROADMAP.md",
+          "tasks": [],
+          "lists": []
+        }
+      }
+    ],
+    [
+      "Projects/App/Meta/Plans.md",
+      {
+        "file": {
+          "path": "Projects/App/Meta/Plans.md",
+          "tasks": [],
+          "lists": []
+        }
+      }
+    ],
+    [
+      "Projects/App/System/Templates/secret.md",
+      {
+        "file": {
+          "path": "Projects/App/System/Templates/secret.md",
+          "tasks": [],
+          "lists": []
+        }
+      }
+    ],
+    [
+      "Projects/App/Meta/Tasks.md",
+      {
+        "file": {
+          "path": "Projects/App/Meta/Tasks.md",
+          "tasks": [],
+          "lists": []
+        }
+      }
+    ],
+    [
+      "Resources/Knowledge/Mounted/Notes.md",
+      {
+        "file": {
+          "path": "Resources/Knowledge/Mounted/Notes.md",
+          "tasks": [
+            {
+              "path": "Resources/Knowledge/Mounted/Notes.md",
+              "line": 1,
+              "text": "Mounted resource <!-- hub-task:mounted -->",
+              "completed": false,
+              "task": true,
+              "parent": null,
+              "children": []
+            }
+          ],
+          "lists": [
+            {
+              "path": "Resources/Knowledge/Mounted/Notes.md",
+              "line": 1,
+              "text": "Mounted resource <!-- hub-task:mounted -->",
+              "completed": false,
+              "task": true,
+              "parent": null,
+              "children": []
+            }
+          ]
+        }
+      }
+    ],
+    [
+      "Projects/App/Tasks/Start only.md",
+      {
+        "file": {
+          "path": "Projects/App/Tasks/Start only.md",
+          "tasks": [
+            {
+              "path": "Projects/App/Tasks/Start only.md",
+              "line": 1,
+              "text": "Start only <!-- hub-task:start -->",
+              "completed": false,
+              "task": true,
+              "parent": null,
+              "children": []
+            }
+          ],
+          "lists": [
+            {
+              "path": "Projects/App/Tasks/Start only.md",
+              "line": 1,
+              "text": "Start only <!-- hub-task:start -->",
+              "completed": false,
+              "task": true,
+              "parent": null,
+              "children": []
+            }
+          ]
+        }
+      }
+    ],
+    [
+      "Projects/App/Tasks/Due only.md",
+      {
+        "file": {
+          "path": "Projects/App/Tasks/Due only.md",
+          "tasks": [
+            {
+              "path": "Projects/App/Tasks/Due only.md",
+              "line": 1,
+              "text": "Due only <!-- hub-task:due -->",
+              "completed": false,
+              "task": true,
+              "parent": null,
+              "children": []
+            }
+          ],
+          "lists": [
+            {
+              "path": "Projects/App/Tasks/Due only.md",
+              "line": 1,
+              "text": "Due only <!-- hub-task:due -->",
+              "completed": false,
+              "task": true,
+              "parent": null,
+              "children": []
+            }
+          ]
+        }
+      }
+    ],
+    [
+      "Projects/App/Tasks/Midnight.md",
+      {
+        "file": {
+          "path": "Projects/App/Tasks/Midnight.md",
+          "tasks": [
+            {
+              "path": "Projects/App/Tasks/Midnight.md",
+              "line": 1,
+              "text": "Midnight <!-- hub-task:midnight -->",
+              "completed": false,
+              "task": true,
+              "parent": null,
+              "children": []
+            }
+          ],
+          "lists": [
+            {
+              "path": "Projects/App/Tasks/Midnight.md",
+              "line": 1,
+              "text": "Midnight <!-- hub-task:midnight -->",
+              "completed": false,
+              "task": true,
+              "parent": null,
+              "children": []
+            }
+          ]
+        }
+      }
+    ],
+    [
+      "Projects/App/Tasks/Timed.md",
+      {
+        "file": {
+          "path": "Projects/App/Tasks/Timed.md",
+          "tasks": [
+            {
+              "path": "Projects/App/Tasks/Timed.md",
+              "line": 1,
+              "text": "Timed <!-- hub-task:timed -->",
+              "completed": false,
+              "task": true,
+              "parent": null,
+              "children": []
+            }
+          ],
+          "lists": [
+            {
+              "path": "Projects/App/Tasks/Timed.md",
+              "line": 1,
+              "text": "Timed <!-- hub-task:timed -->",
+              "completed": false,
+              "task": true,
+              "parent": null,
+              "children": []
+            }
+          ]
+        }
+      }
+    ],
+    [
+      "Projects/App/Tasks/Month range.md",
+      {
+        "file": {
+          "path": "Projects/App/Tasks/Month range.md",
+          "tasks": [
+            {
+              "path": "Projects/App/Tasks/Month range.md",
+              "line": 1,
+              "text": "Month range <!-- hub-task:month -->",
+              "completed": false,
+              "task": true,
+              "parent": null,
+              "children": []
+            }
+          ],
+          "lists": [
+            {
+              "path": "Projects/App/Tasks/Month range.md",
+              "line": 1,
+              "text": "Month range <!-- hub-task:month -->",
+              "completed": false,
+              "task": true,
+              "parent": null,
+              "children": []
+            }
+          ]
+        }
+      }
+    ],
+    [
+      "Projects/App/Tasks/Year range.md",
+      {
+        "file": {
+          "path": "Projects/App/Tasks/Year range.md",
+          "tasks": [
+            {
+              "path": "Projects/App/Tasks/Year range.md",
+              "line": 1,
+              "text": "Year range <!-- hub-task:year -->",
+              "completed": false,
+              "task": true,
+              "parent": null,
+              "children": []
+            }
+          ],
+          "lists": [
+            {
+              "path": "Projects/App/Tasks/Year range.md",
+              "line": 1,
+              "text": "Year range <!-- hub-task:year -->",
+              "completed": false,
+              "task": true,
+              "parent": null,
+              "children": []
+            }
+          ]
+        }
+      }
+    ],
+    [
+      "Projects/App/Tasks/Overdue.md",
+      {
+        "file": {
+          "path": "Projects/App/Tasks/Overdue.md",
+          "tasks": [
+            {
+              "path": "Projects/App/Tasks/Overdue.md",
+              "line": 1,
+              "text": "Overdue <!-- hub-task:overdue -->",
+              "completed": false,
+              "task": true,
+              "parent": null,
+              "children": []
+            }
+          ],
+          "lists": [
+            {
+              "path": "Projects/App/Tasks/Overdue.md",
+              "line": 1,
+              "text": "Overdue <!-- hub-task:overdue -->",
+              "completed": false,
+              "task": true,
+              "parent": null,
+              "children": []
+            }
+          ]
+        }
+      }
+    ],
+    [
+      "Projects/App/Tasks/Future.md",
+      {
+        "file": {
+          "path": "Projects/App/Tasks/Future.md",
+          "tasks": [
+            {
+              "path": "Projects/App/Tasks/Future.md",
+              "line": 1,
+              "text": "Future <!-- hub-task:future -->",
+              "completed": false,
+              "task": true,
+              "parent": null,
+              "children": []
+            }
+          ],
+          "lists": [
+            {
+              "path": "Projects/App/Tasks/Future.md",
+              "line": 1,
+              "text": "Future <!-- hub-task:future -->",
+              "completed": false,
+              "task": true,
+              "parent": null,
+              "children": []
+            }
+          ]
+        }
+      }
+    ],
+    [
+      "Projects/App/Tasks/Completed.md",
+      {
+        "file": {
+          "path": "Projects/App/Tasks/Completed.md",
+          "tasks": [
+            {
+              "path": "Projects/App/Tasks/Completed.md",
+              "line": 1,
+              "text": "Completed <!-- hub-task:completed -->",
+              "completed": true,
+              "task": true,
+              "parent": null,
+              "children": []
+            }
+          ],
+          "lists": [
+            {
+              "path": "Projects/App/Tasks/Completed.md",
+              "line": 1,
+              "text": "Completed <!-- hub-task:completed -->",
+              "completed": true,
+              "task": true,
+              "parent": null,
+              "children": []
+            }
+          ]
+        }
+      }
+    ],
+    [
+      "Projects/App/Tasks/Unscheduled.md",
+      {
+        "file": {
+          "path": "Projects/App/Tasks/Unscheduled.md",
+          "tasks": [
+            {
+              "path": "Projects/App/Tasks/Unscheduled.md",
+              "line": 1,
+              "text": "Unscheduled <!-- hub-task:unscheduled -->",
+              "completed": false,
+              "task": true,
+              "parent": null,
+              "children": []
+            }
+          ],
+          "lists": [
+            {
+              "path": "Projects/App/Tasks/Unscheduled.md",
+              "line": 1,
+              "text": "Unscheduled <!-- hub-task:unscheduled -->",
+              "completed": false,
+              "task": true,
+              "parent": null,
+              "children": []
+            }
+          ]
+        }
+      }
+    ],
+    [
+      "Projects/App/Tasks/ID-less.md",
+      {
+        "file": {
+          "path": "Projects/App/Tasks/ID-less.md",
+          "tasks": [
+            {
+              "path": "Projects/App/Tasks/ID-less.md",
+              "line": 1,
+              "text": "ID-less",
+              "completed": false,
+              "task": true,
+              "parent": null,
+              "children": []
+            }
+          ],
+          "lists": [
+            {
+              "path": "Projects/App/Tasks/ID-less.md",
+              "line": 1,
+              "text": "ID-less",
+              "completed": false,
+              "task": true,
+              "parent": null,
+              "children": []
+            }
+          ]
+        }
+      }
+    ],
+    [
+      "Projects/App/Tasks/Continuation.md",
+      {
+        "file": {
+          "path": "Projects/App/Tasks/Continuation.md",
+          "tasks": [
+            {
+              "path": "Projects/App/Tasks/Continuation.md",
+              "line": 1,
+              "text": "Assignment <!-- hub-task:assignment -->\ncontinuation evidence",
+              "completed": false,
+              "task": true,
+              "parent": null,
+              "children": [
+                {
+                  "path": "Projects/App/Tasks/Continuation.md",
+                  "line": 3,
+                  "text": "First <!-- hub-task:first -->",
+                  "completed": true,
+                  "task": true,
+                  "parent": 1,
+                  "children": []
+                },
+                {
+                  "path": "Projects/App/Tasks/Continuation.md",
+                  "line": 4,
+                  "text": "Next <!-- hub-task:next -->",
+                  "completed": false,
+                  "task": true,
+                  "parent": 1,
+                  "children": []
+                }
+              ]
+            },
+            {
+              "path": "Projects/App/Tasks/Continuation.md",
+              "line": 3,
+              "text": "First <!-- hub-task:first -->",
+              "completed": true,
+              "task": true,
+              "parent": 1,
+              "children": []
+            },
+            {
+              "path": "Projects/App/Tasks/Continuation.md",
+              "line": 4,
+              "text": "Next <!-- hub-task:next -->",
+              "completed": false,
+              "task": true,
+              "parent": 1,
+              "children": []
+            }
+          ],
+          "lists": [
+            {
+              "path": "Projects/App/Tasks/Continuation.md",
+              "line": 1,
+              "text": "Assignment <!-- hub-task:assignment -->\ncontinuation evidence",
+              "completed": false,
+              "task": true,
+              "parent": null,
+              "children": [
+                {
+                  "path": "Projects/App/Tasks/Continuation.md",
+                  "line": 3,
+                  "text": "First <!-- hub-task:first -->",
+                  "completed": true,
+                  "task": true,
+                  "parent": 1,
+                  "children": []
+                },
+                {
+                  "path": "Projects/App/Tasks/Continuation.md",
+                  "line": 4,
+                  "text": "Next <!-- hub-task:next -->",
+                  "completed": false,
+                  "task": true,
+                  "parent": 1,
+                  "children": []
+                }
+              ]
+            },
+            {
+              "path": "Projects/App/Tasks/Continuation.md",
+              "line": 3,
+              "text": "First <!-- hub-task:first -->",
+              "completed": true,
+              "task": true,
+              "parent": 1,
+              "children": []
+            },
+            {
+              "path": "Projects/App/Tasks/Continuation.md",
+              "line": 4,
+              "text": "Next <!-- hub-task:next -->",
+              "completed": false,
+              "task": true,
+              "parent": 1,
+              "children": []
+            }
+          ]
+        }
+      }
+    ],
+    [
+      "Projects/App/System/Excluded.md",
+      {
+        "file": {
+          "path": "Projects/App/System/Excluded.md",
+          "tasks": [
+            {
+              "path": "Projects/App/System/Excluded.md",
+              "line": 1,
+              "text": "Excluded System <!-- hub-task:excluded-System -->",
+              "completed": false,
+              "task": true,
+              "parent": null,
+              "children": []
+            }
+          ],
+          "lists": [
+            {
+              "path": "Projects/App/System/Excluded.md",
+              "line": 1,
+              "text": "Excluded System <!-- hub-task:excluded-System -->",
+              "completed": false,
+              "task": true,
+              "parent": null,
+              "children": []
+            }
+          ]
+        }
+      }
+    ],
+    [
+      "Projects/App/Templates/Excluded.md",
+      {
+        "file": {
+          "path": "Projects/App/Templates/Excluded.md",
+          "tasks": [
+            {
+              "path": "Projects/App/Templates/Excluded.md",
+              "line": 1,
+              "text": "Excluded Templates <!-- hub-task:excluded-Templates -->",
+              "completed": false,
+              "task": true,
+              "parent": null,
+              "children": []
+            }
+          ],
+          "lists": [
+            {
+              "path": "Projects/App/Templates/Excluded.md",
+              "line": 1,
+              "text": "Excluded Templates <!-- hub-task:excluded-Templates -->",
+              "completed": false,
+              "task": true,
+              "parent": null,
+              "children": []
+            }
+          ]
+        }
+      }
+    ],
+    [
+      "Projects/App/.hidden/Excluded.md",
+      {
+        "file": {
+          "path": "Projects/App/.hidden/Excluded.md",
+          "tasks": [
+            {
+              "path": "Projects/App/.hidden/Excluded.md",
+              "line": 1,
+              "text": "Excluded .hidden <!-- hub-task:excluded-hidden -->",
+              "completed": false,
+              "task": true,
+              "parent": null,
+              "children": []
+            }
+          ],
+          "lists": [
+            {
+              "path": "Projects/App/.hidden/Excluded.md",
+              "line": 1,
+              "text": "Excluded .hidden <!-- hub-task:excluded-hidden -->",
+              "completed": false,
+              "task": true,
+              "parent": null,
+              "children": []
+            }
+          ]
+        }
+      }
+    ],
+    [
+      "Projects/Other/Tasks.md",
+      {
+        "file": {
+          "path": "Projects/Other/Tasks.md",
+          "tasks": [
+            {
+              "path": "Projects/Other/Tasks.md",
+              "line": 1,
+              "text": "Other work <!-- hub-task:owner-other -->",
+              "completed": false,
+              "task": true,
+              "parent": null,
+              "children": []
+            }
+          ],
+          "lists": [
+            {
+              "path": "Projects/Other/Tasks.md",
+              "line": 1,
+              "text": "Other work <!-- hub-task:owner-other -->",
+              "completed": false,
+              "task": true,
+              "parent": null,
+              "children": []
+            }
+          ]
+        }
+      }
+    ],
+    [
+      "Projects/Itacan/Tasks.md",
+      {
+        "file": {
+          "path": "Projects/Itacan/Tasks.md",
+          "tasks": [
+            {
+              "path": "Projects/Itacan/Tasks.md",
+              "line": 1,
+              "text": "Itacan work <!-- hub-task:owner-itacan -->",
+              "completed": false,
+              "task": true,
+              "parent": null,
+              "children": []
+            }
+          ],
+          "lists": [
+            {
+              "path": "Projects/Itacan/Tasks.md",
+              "line": 1,
+              "text": "Itacan work <!-- hub-task:owner-itacan -->",
+              "completed": false,
+              "task": true,
+              "parent": null,
+              "children": []
+            }
+          ]
+        }
+      }
+    ],
+    [
+      "Projects/Obsidian Hub/Tasks.md",
+      {
+        "file": {
+          "path": "Projects/Obsidian Hub/Tasks.md",
+          "tasks": [
+            {
+              "path": "Projects/Obsidian Hub/Tasks.md",
+              "line": 1,
+              "text": "Obsidian Hub work <!-- hub-task:owner-hub -->",
+              "completed": false,
+              "task": true,
+              "parent": null,
+              "children": []
+            }
+          ],
+          "lists": [
+            {
+              "path": "Projects/Obsidian Hub/Tasks.md",
+              "line": 1,
+              "text": "Obsidian Hub work <!-- hub-task:owner-hub -->",
+              "completed": false,
+              "task": true,
+              "parent": null,
+              "children": []
+            }
+          ]
+        }
+      }
+    ],
+    [
+      "Resources/Knowledge/Tasks.md",
+      {
+        "file": {
+          "path": "Resources/Knowledge/Tasks.md",
+          "tasks": [
+            {
+              "path": "Resources/Knowledge/Tasks.md",
+              "line": 1,
+              "text": "Knowledge work <!-- hub-task:owner-resource-study -->",
+              "completed": false,
+              "task": true,
+              "parent": null,
+              "children": []
+            }
+          ],
+          "lists": [
+            {
+              "path": "Resources/Knowledge/Tasks.md",
+              "line": 1,
+              "text": "Knowledge work <!-- hub-task:owner-resource-study -->",
+              "completed": false,
+              "task": true,
+              "parent": null,
+              "children": []
+            }
+          ]
+        }
+      }
+    ],
+    [
+      "Resources/Research/Tasks.md",
+      {
+        "file": {
+          "path": "Resources/Research/Tasks.md",
+          "tasks": [
+            {
+              "path": "Resources/Research/Tasks.md",
+              "line": 1,
+              "text": "Research work <!-- hub-task:owner-resource-literature -->",
+              "completed": false,
+              "task": true,
+              "parent": null,
+              "children": []
+            }
+          ],
+          "lists": [
+            {
+              "path": "Resources/Research/Tasks.md",
+              "line": 1,
+              "text": "Research work <!-- hub-task:owner-resource-literature -->",
+              "completed": false,
+              "task": true,
+              "parent": null,
+              "children": []
+            }
+          ]
+        }
+      }
+    ],
+    [
+      "Resources/Explorations/Tasks.md",
+      {
+        "file": {
+          "path": "Resources/Explorations/Tasks.md",
+          "tasks": [
+            {
+              "path": "Resources/Explorations/Tasks.md",
+              "line": 1,
+              "text": "Explorations work <!-- hub-task:owner-resource-references -->",
+              "completed": false,
+              "task": true,
+              "parent": null,
+              "children": []
+            }
+          ],
+          "lists": [
+            {
+              "path": "Resources/Explorations/Tasks.md",
+              "line": 1,
+              "text": "Explorations work <!-- hub-task:owner-resource-references -->",
+              "completed": false,
+              "task": true,
+              "parent": null,
+              "children": []
+            }
+          ]
+        }
+      }
+    ],
+    [
+      "Resources/Inspiration/Tasks.md",
+      {
+        "file": {
+          "path": "Resources/Inspiration/Tasks.md",
+          "tasks": [
+            {
+              "path": "Resources/Inspiration/Tasks.md",
+              "line": 1,
+              "text": "Inspiration work <!-- hub-task:owner-resource-inspiration -->",
+              "completed": false,
+              "task": true,
+              "parent": null,
+              "children": []
+            }
+          ],
+          "lists": [
+            {
+              "path": "Resources/Inspiration/Tasks.md",
+              "line": 1,
+              "text": "Inspiration work <!-- hub-task:owner-resource-inspiration -->",
+              "completed": false,
+              "task": true,
+              "parent": null,
+              "children": []
+            }
+          ]
+        }
+      }
+    ],
+    [
+      "Projects/App/Nested/Deep/Notes.md",
+      {
+        "file": {
+          "path": "Projects/App/Nested/Deep/Notes.md",
+          "tasks": [
+            {
+              "path": "Projects/App/Nested/Deep/Notes.md",
+              "line": 1,
+              "text": "**Linked** [note](Other.md) <!-- hub-task:rich -->\nParagraph\n- ordinary list",
+              "completed": false,
+              "task": true,
+              "parent": null,
+              "children": [
+                {
+                  "path": "Projects/App/Nested/Deep/Notes.md",
+                  "line": 4,
+                  "text": "Parent **Step** <!-- hub-task:parent -->",
+                  "completed": false,
+                  "task": true,
+                  "parent": 1,
+                  "children": [
+                    {
+                      "path": "Projects/App/Nested/Deep/Notes.md",
+                      "line": 5,
+                      "text": "Nested [Step](Other.md) <!-- hub-task:nested -->",
+                      "completed": false,
+                      "task": true,
+                      "parent": 4,
+                      "children": []
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "path": "Projects/App/Nested/Deep/Notes.md",
+              "line": 4,
+              "text": "Parent **Step** <!-- hub-task:parent -->",
+              "completed": false,
+              "task": true,
+              "parent": 1,
+              "children": [
+                {
+                  "path": "Projects/App/Nested/Deep/Notes.md",
+                  "line": 5,
+                  "text": "Nested [Step](Other.md) <!-- hub-task:nested -->",
+                  "completed": false,
+                  "task": true,
+                  "parent": 4,
+                  "children": []
+                }
+              ]
+            },
+            {
+              "path": "Projects/App/Nested/Deep/Notes.md",
+              "line": 5,
+              "text": "Nested [Step](Other.md) <!-- hub-task:nested -->",
+              "completed": false,
+              "task": true,
+              "parent": 4,
+              "children": []
+            }
+          ],
+          "lists": [
+            {
+              "path": "Projects/App/Nested/Deep/Notes.md",
+              "line": 1,
+              "text": "**Linked** [note](Other.md) <!-- hub-task:rich -->\nParagraph\n- ordinary list",
+              "completed": false,
+              "task": true,
+              "parent": null,
+              "children": [
+                {
+                  "path": "Projects/App/Nested/Deep/Notes.md",
+                  "line": 4,
+                  "text": "Parent **Step** <!-- hub-task:parent -->",
+                  "completed": false,
+                  "task": true,
+                  "parent": 1,
+                  "children": [
+                    {
+                      "path": "Projects/App/Nested/Deep/Notes.md",
+                      "line": 5,
+                      "text": "Nested [Step](Other.md) <!-- hub-task:nested -->",
+                      "completed": false,
+                      "task": true,
+                      "parent": 4,
+                      "children": []
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "path": "Projects/App/Nested/Deep/Notes.md",
+              "line": 4,
+              "text": "Parent **Step** <!-- hub-task:parent -->",
+              "completed": false,
+              "task": true,
+              "parent": 1,
+              "children": [
+                {
+                  "path": "Projects/App/Nested/Deep/Notes.md",
+                  "line": 5,
+                  "text": "Nested [Step](Other.md) <!-- hub-task:nested -->",
+                  "completed": false,
+                  "task": true,
+                  "parent": 4,
+                  "children": []
+                }
+              ]
+            },
+            {
+              "path": "Projects/App/Nested/Deep/Notes.md",
+              "line": 5,
+              "text": "Nested [Step](Other.md) <!-- hub-task:nested -->",
+              "completed": false,
+              "task": true,
+              "parent": 4,
+              "children": []
+            }
+          ]
+        }
+      }
+    ]
+  ],
+  "metadata": {
+    "start": {
+      "fromDate": "2026-10-26"
+    },
+    "due": {
+      "dueDate": "2026-10-26",
+      "necessity": "must"
+    },
+    "midnight": {
+      "dueDate": "2026-10-26",
+      "dueTime": "00:00",
+      "necessity": "should"
+    },
+    "timed": {
+      "fromDate": "2026-10-26",
+      "fromTime": "06:00",
+      "dueDate": "2026-10-26",
+      "dueTime": "17:30",
+      "phaseId": "phase"
+    },
+    "month": {
+      "fromDate": "2026-10-20",
+      "dueDate": "2026-11-04"
+    },
+    "year": {
+      "fromDate": "2026-12-30",
+      "dueDate": "2027-01-03"
+    },
+    "overdue": {
+      "dueDate": "2026-10-24"
+    },
+    "future": {
+      "fromDate": "2026-10-27"
+    },
+    "completed": {
+      "dueDate": "2026-10-25"
+    },
+    "unscheduled": {},
+    "assignment": {
+      "description": "Metadata prose",
+      "dueDate": "2026-10-27"
+    },
+    "rich": {
+      "description": "Description",
+      "necessity": "must",
+      "phaseId": "phase",
+      "dueDate": "2026-10-25",
+      "dueTime": "00:00"
+    }
+  },
+  "workspaces": [
+    {
+      "projectId": "app",
+      "name": "App",
+      "status": "active",
+      "contextKind": "project",
+      "root": "Projects/App",
+      "path": "Projects/App/App.md",
+      "resourceFolderIds": [
+        "mounted"
+      ]
+    },
+    {
+      "projectId": "other",
+      "name": "Other",
+      "status": "shelved",
+      "contextKind": "project",
+      "root": "Projects/Other",
+      "path": "Projects/Other/Other.md",
+      "resourceFolderIds": [
+        "mounted"
+      ]
+    },
+    {
+      "projectId": "itacan",
+      "name": "Itacan",
+      "status": "active",
+      "contextKind": "project",
+      "root": "Projects/Itacan",
+      "path": "Projects/Itacan/Itacan.md",
+      "resourceFolderIds": [
+        "mounted"
+      ]
+    },
+    {
+      "projectId": "hub",
+      "name": "Obsidian Hub",
+      "status": "active",
+      "contextKind": "project",
+      "root": "Projects/Obsidian Hub",
+      "path": "Projects/Obsidian Hub/Obsidian Hub.md",
+      "resourceFolderIds": [
+        "mounted"
+      ]
+    },
+    {
+      "resourceType": "study",
+      "projectId": "resource:study",
+      "name": "Knowledge",
+      "contextKind": "resource",
+      "root": "Resources/Knowledge",
+      "path": "Resources/Knowledge/Knowledge.md"
+    },
+    {
+      "resourceType": "literature",
+      "projectId": "resource:literature",
+      "name": "Research",
+      "contextKind": "resource",
+      "root": "Resources/Research",
+      "path": "Resources/Research/Research.md"
+    },
+    {
+      "resourceType": "references",
+      "projectId": "resource:references",
+      "name": "Explorations",
+      "contextKind": "resource",
+      "root": "Resources/Explorations",
+      "path": "Resources/Explorations/Explorations.md"
+    },
+    {
+      "resourceType": "inspiration",
+      "projectId": "resource:inspiration",
+      "name": "Inspiration",
+      "contextKind": "resource",
+      "root": "Resources/Inspiration",
+      "path": "Resources/Inspiration/Inspiration.md"
+    }
+  ]
+}

@@ -1,14 +1,14 @@
 {
   "schemaVersion": 1,
   "files": {
-    "lib/services/oath-strict-host.js": "f9bad361922362ec03b941146b64e1e1193208084a432c00ff7371811afeb59a",
-    "lib/services/oath-strict.js": "004ab95df3b78804dbcb62ab42a74be462b9b8b4a7b70504fe9a51fd2f32ab2a",
-    "lib/services/oath-process-observer.js": "6eb66a1d2cb35cf0c1efbd04b5bf3046dea1baf73a7aa68fb112b2e1e7f9968a",
-    "lib/services/oath-dock.js": "25b1219e858abd03b63d3597dc6df29fdbcfdb118675e8a3f34b935039b29b12",
-    "lib/domain/oath-strict.js": "f4cc6f67d6976874ad435fc32c6211711aa7cdf328c1a1bb2607aa943aa7e8f6",
-    "lib/ui/oath-dock/preload.cjs": "0a93cd3b92c62c56268e25ddc7469b789a7f5622f512b9f65904c4fe5e45a217",
+    "lib/services/oath-strict-host.js": "6d3b057edbf7f482c3e47349fc580e81b1b0d8a89813c597ac6067cf49ae46a3",
+    "lib/services/oath-strict.js": "db85d155687ea174cbfcfdfe374262eccbf3affdbeda78ea8c99c153a4a0f4a2",
+    "lib/services/oath-process-observer.js": "2218e8ccf1c482dd182c89bf0ddc4e55cd9ceed767cb737385ae4c459d01f3d4",
+    "lib/services/oath-dock.js": "809807c05df9ceae2f69810fa76eadf6379ca6bb4e86f22c3c99d5dc62c2901c",
+    "lib/domain/oath-strict.js": "7e75432c50ba2edccfb9b81b76fcb4f9348847d48612f4d62eed2b2479d30490",
+    "lib/ui/oath-dock/preload.cjs": "85a2678083a4e17f650e3191e6059671ea64ae30a6583d0a39576441e9de52aa",
     "lib/ui/oath-dock/index.html": "abce070afe79b7606a375abd7390063f765d15852c47090b58f3f59b1ae30d24",
-    "lib/ui/oath-dock/dock.js": "979ef4ca212b4cd7f05c9d967d9ed6090f17975bfe094c81ee3bee22a23370d0",
+    "lib/ui/oath-dock/dock.js": "34bd6855ea81b8b43774627020dc3c779c7dea6f123da9a25412bf6ea308879d",
     "lib/ui/oath-dock/dock.css": "eb616b2c6286a4d2987661cd04be4d9fb4c7a1772acca9447274fb7e798b56f5"
   }
 }

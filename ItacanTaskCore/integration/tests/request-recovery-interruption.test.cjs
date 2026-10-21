@@ -1,0 +1,27 @@
+"use strict";
+const test=require("node:test"),S=require("./support.cjs"),{assert}=S,{spawn}=require("node:child_process"),{once}=require("node:events");
+async function rawFiles(directory){const out={};for(const n of await S.fs.readdir(directory)){const p=S.path.join(directory,n);if((await S.fs.lstat(p)).isFile()){const raw=await S.fs.readFile(p);out[n]={bytes:raw.toString("base64"),sha256:S.crypto.createHash("sha256").update(raw).digest("hex")};}}return out;}
+for(const stage of ["before-publication","after-publication"])test("actual process death during permitted replay: "+stage,async t=>{
+ const f=await S.fixture(t);let intent;
+ if(stage==="before-publication")intent=await f.intent({text:"Interrupted initializer",completed:true,steps:[{text:"Checked Step",completed:true}]});
+ else{const created=await f.runtime.mutate(await f.intent()),editor=await f.runtime.editor(created.taskIds[0]),form=S.B.toForm(editor);intent=S.B.save(editor,{...form,text:"Atomic Save after recovery",operation:"edit",completed:true,steps:form.steps.map(s=>({...s,completed:true}))});}
+ const session=S.sessions.at(-1),cap=await session.authorize({version:1,owners:f.writerPolicy.owners,commands:f.writerPolicy.commands}),record=await session.requests.prepare(cap,intent);session.revoke(cap);await f.runtime.close();
+ const evidence=await S.fs.mkdtemp(S.path.join(S.audit,"recovery-death-")),control=S.path.join(evidence,"control.json");await S.fs.writeFile(control,JSON.stringify({c:{config:f.config,owner:f.owner,writerPolicy:f.writerPolicy,rehearsalId:f.rehearsalId},registry:await f.registry.read(),operationId:intent.operationId}));
+ const args=[...process.execArgv.filter(x=>!x.startsWith("--test")),S.path.join(__dirname,"request-recovery-crash-worker.cjs"),control,stage],child=spawn(process.execPath,args,{env:process.env,stdio:["ignore","pipe","pipe","ipc"]}),ended=once(child,"exit");let stdout="",stderr="";const messages=[],waiters=[];child.stdout.on("data",b=>stdout+=b);child.stderr.on("data",b=>stderr+=b);child.on("message",m=>{messages.push(m);for(const notify of waiters)notify(m);});
+ const wait=kind=>new Promise((resolve,reject)=>{const previous=messages.find(m=>m.kind===kind);if(previous)return resolve(previous);const timer=setTimeout(()=>{child.kill();reject(Error("Missing "+kind+stderr));},20000);waiters.push(m=>{if(m.kind==="error"){clearTimeout(timer);reject(Error(JSON.stringify(m)));}if(m.kind===kind){clearTimeout(timer);resolve(m);}});});
+ t.after(async()=>{if(child.exitCode===null&&child.signalCode===null)child.kill();await ended;});
+ const reviewed=await wait("review");assert.deepEqual(reviewed.record,record);const paused=await wait("paused");assert.equal(paused.stage,stage);
+ const lockPath=S.path.join(f.directory,"WRITER.lock"),raw=await S.fs.readFile(lockPath),lock=JSON.parse(raw);assert.equal(lock.pid,child.pid);assert.equal(lock.host,S.os.hostname());S.V.uuid(lock.token);
+ await S.fs.writeFile(S.path.join(evidence,"paused.json"),JSON.stringify({command:{executable:process.execPath,args},stage,pid:child.pid,host:lock.host,token:lock.token,review:reviewed.review,original:record,files:await rawFiles(f.directory)},null,2));
+ assert(child.kill());const[exitCode,signal]=await ended;assert.throws(()=>process.kill(lock.pid,0));assert.deepEqual(await S.fs.readFile(lockPath),raw);
+ await S.fs.writeFile(S.path.join(evidence,"death-before-lock-movement.json"),JSON.stringify({exitCode,signal,deathProven:true,lockBytes:raw.toString("base64"),lockSha256:S.crypto.createHash("sha256").update(raw).digest("hex"),stdout,stderr,files:await rawFiles(f.directory)},null,2));
+ const root=await S.fs.realpath(f.directory),rel=S.path.relative(await S.fs.realpath(S.os.tmpdir()),root);assert(rel&&!rel.startsWith("..")&&!S.path.isAbsolute(rel));await S.fs.rename(lockPath,S.path.join(root,".dead-recovery-writer-"+lock.token));
+ await f.reopen();await assert.rejects(f.runtime.recovery.replay(reviewed.review));assert.deepEqual(await f.runtime.getRetained(intent.operationId),record);
+ const reconciled=await f.runtime.reconcile(intent.operationId),committed=stage==="after-publication";assert.equal(reconciled.state,committed?"committed":"missing");
+ if(!committed)assert.equal((await f.runtime.replay(intent.operationId)).status,"uncertain");
+ const result=await f.runtime.recovery.replay(await f.runtime.recovery.inspect(intent.operationId));assert.equal(result.status,committed?"replayed":"committed");
+ const current=S.repositories.at(-1),receipt=current.getReceipt(intent.operationId),history=current.queryHistory();assert.equal(history.length,stage==="before-publication"?2:3);assert.equal((await f.runtime.list()).tasks.length,1);
+ const first=await f.runtime.list(),again=await f.runtime.recovery.replay(await f.runtime.recovery.inspect(intent.operationId));assert.equal(again.status,"replayed");assert.deepEqual(again.eventIds,result.eventIds);assert.deepEqual(current.getReceipt(intent.operationId),receipt);assert.deepEqual(current.queryHistory(),history);assert.deepEqual((await f.runtime.list()).tasks,first.tasks);
+ const target=first.tasks[0];assert.equal(target.id,stage==="before-publication"?intent.action.draft.id:intent.action.target.taskId);assert.deepEqual(target.steps.map(s=>s.id),intent.action.draft.steps.map(s=>s.id));
+ assert.equal((await f.runtime.mutate(await f.intent({text:"After recovered operation"}))).status,"committed");await f.runtime.close();await S.fs.writeFile(S.path.join(evidence,"final-files.json"),JSON.stringify(await rawFiles(f.directory),null,2));
+});

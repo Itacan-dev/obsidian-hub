@@ -1,0 +1,19 @@
+{
+  "name": "@itacan/native-tasks",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Inactive, portable native task repository foundation. No application integration.",
+  "type": "commonjs",
+  "main": "src/index.js",
+  "types": "src/contracts.d.ts",
+  "exports": {
+    ".": { "types": "./src/contracts.d.ts", "require": "./src/index.js" },
+    "./json": { "types": "./src/json-repository.d.ts", "require": "./src/json-repository.js" }
+  },
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "test": "node --test tests/contract.test.cjs tests/persistence.test.cjs",
+    "benchmark": "node tests/benchmark.cjs"
+  },
+  "license": "UNLICENSED"
+}

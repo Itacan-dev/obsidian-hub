@@ -3,7 +3,12 @@ const assert = require("node:assert/strict"), fs = require("fs"), path = require
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 async function until(check, label, timeout = 15000) { const end = Date.now() + timeout; while (Date.now() < end) { const value = check(); if (value) return value; await delay(40); } throw Error("Timed out: " + label); }
 module.exports = async scratch => {
-  let plugin = app.plugins.plugins["hub-project-menu"]; assert(plugin.athena, "Production Hub owns Athena integration");
+  const readyPlugin = () => {
+    const candidate = app.plugins.plugins["hub-project-menu"];
+    return candidate?.athena ? candidate : null;
+  };
+  let plugin = await until(readyPlugin, "Production Hub Athena initialization");
+  assert(plugin.athena, "Production Hub owns Athena integration");
   await until(() => app.workspace.layoutReady, "native workspace restoration");
   document.querySelectorAll(".modal-container .modal-close-button,.modal-container .modal-header-button").forEach(button => button.click());
   assert(app.commands.executeCommandById("hub-project-menu:open-athena")); const view = await until(() => app.workspace.getLeavesOfType("hub-athena")[0]?.view?.presenter, "native Athena ItemView");
@@ -43,7 +48,7 @@ module.exports = async scratch => {
   document.querySelector(".hub-athena-source-modal .modal-close-button,.hub-athena-source-modal .modal-header-button")?.click();
   const directory = controller.store.directory; assert(!directory.startsWith(path.join(scratch, "vault") + path.sep)); await controller.persist();
   const stored = JSON.parse(fs.readFileSync(path.join(directory, "state.json"), "utf8")); assert.equal(stored.conversations[0].turns[0].state, "complete");
-  const id = conversation.id; await app.plugins.disablePlugin("hub-project-menu"); await delay(100); await app.plugins.enablePlugin("hub-project-menu"); plugin = app.plugins.plugins["hub-project-menu"]; await plugin.athena.open();
+  const id = conversation.id; await app.plugins.disablePlugin("hub-project-menu"); await delay(100); await app.plugins.enablePlugin("hub-project-menu"); plugin = await until(readyPlugin, "Reloaded Hub Athena initialization"); await plugin.athena.open();
   const restored = await until(() => app.workspace.getLeavesOfType("hub-athena").find(leaf => leaf.view.presenter)?.view.presenter, "restored native view"); assert(restored.controller.state.conversations.some(item => item.id === id && item.turns[0]?.state === "complete"));
   const shared = restored.controller, oathListeners = plugin.oath.listeners.size;
   for (let index = 0; index < 50; index++) {

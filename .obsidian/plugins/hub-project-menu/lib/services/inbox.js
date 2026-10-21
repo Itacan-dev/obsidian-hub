@@ -132,7 +132,7 @@ class HubInboxService {
             canonical.text !== operation.text) {
             throw Error("Retry this task's original title and location. Its saved action keeps the task from being created twice.");
         }
-        for (const key of ["necessity", "fromDate", "dueDate", "fromTime", "dueTime", "steps", "phaseId", "milestoneId", "linkedProjectId"]) {
+        for (const key of ["necessity", "fromDate", "dueDate", "fromTime", "dueTime", "steps", "phaseId", "milestoneId"]) {
             if (values[key] !== undefined && JSON.stringify(canonical[key]) !== JSON.stringify(operation.values[key])) {
                 throw Error("Retry this task's original details. Its saved action keeps the task from being created twice.");
             }
@@ -659,7 +659,7 @@ class HubInboxService {
                 const workspace = this.taskDestination(values);
                 this.plugin.taskEditor.checkedMetadata(taskValues, workspace);
                 const metadata = {};
-                for (const key of ["necessity", "fromDate", "dueDate", "fromTime", "dueTime", "steps", "phaseId", "linkedProjectId"]) {
+                for (const key of ["necessity", "fromDate", "dueDate", "fromTime", "dueTime", "steps", "phaseId"]) {
                     if (taskValues[key] !== undefined) metadata[key] = clone(taskValues[key]);
                 }
                 operation = { id: randomUUID(), kind: "task", state: "prepared", workspaceId: workspace.id, location: values.location,

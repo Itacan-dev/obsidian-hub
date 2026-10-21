@@ -1,0 +1,149 @@
+<!doctype html><meta charset="utf-8"><title>Task form polish and simplification</title>
+<link rel="stylesheet" href="../../styles.css">
+<body class="theme-dark"><main id="fixture"></main><pre id="result">RUNNING</pre>
+<script type="module">
+let checks=0;
+const check=(ok,message)=>{checks++;if(!ok)throw Error(message)};
+const settle=()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+const key=value=>new Promise(resolve=>{window.hubTestKeyDone=resolve;window.hubTestKeyRequest=value});
+const screenshot=name=>new Promise(resolve=>{window.hubTestScreenshotDone=resolve;window.hubTestScreenshotRequest=name});
+try {
+ const template=await(await fetch('inbox.html')).text();
+ for(const style of template.matchAll(/<style>([\s\S]*?)<\/style>/g)){
+  const element=document.createElement('style');element.textContent=style[1];document.head.append(element);
+ }
+ const nativeCss=new URLSearchParams(location.search).get('preview');
+ if(nativeCss){const link=document.createElement('link');link.rel='stylesheet';link.href=nativeCss;document.head.prepend(link);await new Promise((resolve,reject)=>{link.onload=resolve;link.onerror=reject})}
+ // Make the old input surface visibly different so equality catches regressions.
+ document.body.style.setProperty('--background-modifier-form-field','#383838');
+ const source=await(await fetch('inbox-browser.js')).text();
+ const bootstrap=source.slice(0,source.indexOf('window.onload = async')).replace('["ui/quick-add",','["ui/task-editor", "ui/quick-add",');
+ const AsyncFunction=Object.getPrototypeOf(async function(){}).constructor;
+ const {load,memory,Emitter,obsidian}=await new AsyncFunction(bootstrap+';return {load:await modules(),memory:isolatedVault(),Emitter,obsidian};')();
+ const {titleIcons}=await import('./window-title-icons.js'),originalSetIcon=obsidian.setIcon;
+ obsidian.setIcon=(element,name)=>{
+  const outlines=titleIcons[name];if(!outlines)return originalSetIcon(element,name);
+  const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');
+  for(const [key,value] of Object.entries({viewBox:'0 0 24 24',fill:'none',stroke:'currentColor','stroke-width':2,'stroke-linecap':'round','stroke-linejoin':'round'}))svg.setAttribute(key,value);
+  for(const [type,...values] of outlines){const tags={1:'circle',2:'polyline',5:'rect',6:'path'},attributes={1:['cx','cy','r'],2:['points'],5:['x','y','width','height','rx','ry'],6:['d']};const shape=document.createElementNS(svg.namespaceURI,tags[type]);values.forEach((value,index)=>{if(attributes[type][index])shape.setAttribute(attributes[type][index],value)});svg.append(shape)}
+  element.replaceChildren(svg);element.dataset.icon=name;
+ };
+ const {vault,folder,file,contents}=memory;
+ const project={root:'Projects/P',projectId:'p',name:'Project P',contextKind:'project',status:'active'};
+ const resource={root:'Resources/R',projectId:'resource:r',id:'r',name:'Resource R',contextKind:'resource'};
+ const path=project.root+'/Work/Tasks.md',resourcePath=resource.root+'/Tasks.md';
+ for(const owner of [project,resource]){folder(owner.root);folder(owner.root+'/Work')}
+ const steps=Array.from({length:20},(_,index)=>({text:'Step '+(index+1),completed:false}));
+ file(path,'- [ ] Existing task <!-- hub-task:task-p -->\n'+steps.map((step,index)=>'    - [ ] '+step.text+' <!-- hub-task:step-'+index+' -->\n').join(''));
+ file(resourcePath,'- [ ] Legacy Resource task <!-- hub-task:task-r -->\n');
+ const workspace=new Emitter();workspace.getActiveFile=()=>null;
+ const plugin={app:{vault,workspace,metadataCache:new Emitter()},enqueueTaskMutation:work=>work(),dataStore:{async save(){}},markProjectChangedByPath(){}};
+ plugin.projectWizard={data:{taskMetadata:{'task-p':{necessity:'should',dueDate:'2026-10-14',phaseId:'phase-p'},'task-r':{linkedProjectId:'p',necessity:'must',dueDate:'2026-10-14'}}},
+  getProjectRecords:()=>[project],getResourceTypes:()=>[resource],getProjectById:id=>id==='p'?project:null,
+  getContextForPath:path=>[project,resource].find(owner=>path===owner.root||path?.startsWith(owner.root+'/')),
+  async recordTaskMutation(){return false}};
+ plugin.planning={phases:id=>id==='p'?[{id:'phase-p',name:'Research'},{id:'phase-review',name:'Review'}]:[],subscribe(){}};
+ plugin.taskEditor=new(load('services/task-editor').HubTaskEditor)(plugin);
+ const service=plugin.inbox=new(load('services/inbox').HubInboxService)(plugin);
+ const draft={text:'Task form polish',type:'task',workspaceId:'p',location:path,necessity:'should',dueDate:'2026-10-14',phaseId:'phase-p',steps};
+ const capture=await service.capture(draft);
+ const legacy=await service.capture({text:'Resource capture',type:'task',workspaceId:resource.projectId,location:resourcePath,linkedProjectId:'p'});
+ const signature=element=>{const s=getComputedStyle(element);return[s.backgroundColor,s.borderTopColor,s.borderTopWidth,s.borderRadius,s.fontSize].join('|')};
+ const rectangle=element=>element.getBoundingClientRect();
+ const isVisible=element=>getComputedStyle(element).display!=='none';
+ async function verify(modal,family){
+  const host=modal.contentEl,fields=host.querySelector('.hub-task-fields');
+  const body=host.querySelector(family==='Inbox'?'.hub-inbox-action-body':family==='Quick Add'?'.hub-capture-body':'.hub-modal-body');
+  const footer=host.querySelector(family==='Inbox'?'.hub-inbox-action-footer':family==='Quick Add'?'.hub-capture-actions':'.hub-task-dialog-actions');
+  const header=host.querySelector('.hub-capture-header');
+  check(fields&&body&&footer&&header,family+' uses common fields and structural modal regions');
+  if(family==='Edit Task'){
+   check(getComputedStyle(fields).rowGap==='16px','Compact Edit has 16px field spacing');
+   check(host.querySelector('[aria-label=Task]')&&host.querySelector('[aria-label=Description]'),'Task and optional description');
+   const properties=[...host.querySelectorAll('.hub-task-property:not([hidden])')];check(properties.length===3,'Dates, Necessity and Phase properties');
+   check(properties.every(button=>getComputedStyle(button).backgroundColor===getComputedStyle(properties[0]).backgroundColor),'Configured properties remain neutral');
+   check(host.querySelectorAll('.hub-task-step-list .hub-task-step').length===20,'Existing Steps directly visible');await settle();
+   const top=rectangle(header).top,bottom=rectangle(footer).top;body.scrollTop=body.scrollHeight;await settle();
+   check(body.scrollHeight>body.clientHeight&&rectangle(header).top===top&&rectangle(footer).top===bottom,'Compact Edit keeps fixed regions with expanded Steps');
+   host.querySelector('.hub-task-add-step').scrollIntoView({block:'nearest'});await settle();check(rectangle(host.querySelector('.hub-task-add-step')).bottom<=rectangle(body).bottom,'Inline step action can scroll into view');
+   await screenshot('task-polish-compact-edit-'+innerWidth);return;
+  }
+  check(getComputedStyle(fields).rowGap==='24px',family+' uses shared 24px field spacing');
+  const primary=host.querySelector('[data-capture-field=Content]');
+  if(family!=='Quick Add')check(getComputedStyle(primary).borderBottomWidth==='0px',family+' has no Task separator');
+  else check(getComputedStyle(modal.expanded).borderTopWidth==='1px','Quick Add retains its capture/Type separator');
+  check(getComputedStyle(header).borderBottomWidth==='1px'&&getComputedStyle(footer).borderTopWidth==='1px',family+' retains header/footer separators');
+  const location=host.querySelector('button[aria-label=Location]'),dates=[...host.querySelectorAll('.hub-date-time-trigger')];
+  const phase=host.querySelector('select[aria-label="Project phase"]'),phaseControl=phase.parentElement;
+  check(dates.every(date=>signature(date)===signature(location))&&signature(phaseControl)===signature(location),family+' Date, Location and phase share surface, border, radius, text size and padding');
+  check(dates.every(date=>getComputedStyle(date).paddingLeft===getComputedStyle(location).paddingLeft)&&getComputedStyle(phase).paddingLeft===getComputedStyle(location).paddingLeft,family+' picker text uses shared horizontal padding');
+  check(dates.every(date=>rectangle(date).height===40)&&rectangle(phaseControl).height===40,family+' single-line picker controls share 40px height');
+  const chevrons=[location.lastElementChild,dates[0].lastElementChild,phaseControl.querySelector('.is-closed')];
+  const owners=[location,dates[0],phaseControl];
+  check(chevrons.every((arrow,index)=>Math.abs(rectangle(owners[index]).right-rectangle(arrow).right-11)<1),family+' picker chevrons share right alignment');
+  check(CSS.supports('selector(select:open)'),family+' host supports actual native dropdown state');
+  check(isVisible(phaseControl.querySelector('.is-closed'))&&!isVisible(phaseControl.querySelector('.is-open')),family+' phase is down while closed');
+  body.scrollTop=body.scrollHeight;await settle();phase.focus();await key({key:'ArrowDown',modifiers:1});
+  check(phase.matches(':open')&&isVisible(phaseControl.querySelector('.is-open'))&&!isVisible(phaseControl.querySelector('.is-closed')),family+' actual open phase dropdown shows chevron up');
+  await key('Escape');await settle();
+  check(!phase.matches(':open')&&isVisible(phaseControl.querySelector('.is-closed')),family+' Escape closes phase and restores chevron down');
+  const previousPhase=phase.value;
+  await key({key:'ArrowDown',modifiers:1});await key('ArrowDown');await key('Enter');await settle();
+  check(phase.value!==previousPhase&&!phase.matches(':open')&&isVisible(phaseControl.querySelector('.is-closed')),family+' native keyboard selection closes the dropdown and restores chevron down');
+  check((family==='Edit Task'?modal.taskFields.phase.value():modal.form.value()).phaseId===phase.value,family+' native phase selection updates shared form state');
+  phase.value=previousPhase;phase.dispatchEvent(new Event('change'));
+  location.disabled=true;dates.forEach(date=>date.disabled=true);phase.disabled=true;
+  check(dates.every(date=>getComputedStyle(date).opacity===getComputedStyle(location).opacity)&&getComputedStyle(phaseControl).opacity===getComputedStyle(location).opacity&&getComputedStyle(phase).cursor==='default',family+' picker disabled states share opacity and cursor');
+  location.disabled=false;dates.forEach(date=>date.disabled=false);phase.disabled=false;
+  const choices=[...host.querySelectorAll('.hub-task-necessity-choice')],clear=host.querySelector('.hub-task-clear-necessity');
+  clear.click();await new Promise(resolve=>setTimeout(resolve,160));
+  const reference=host.createDiv({cls:'hub-option-group'}).createEl('button',{text:'Reference',attr:{'aria-pressed':'true'}});
+  for(const [index,button] of choices.entries()){
+   button.scrollIntoView({block:'nearest'});await settle();
+   const group=button.querySelector('.hub-task-necessity-label'),indicator=group.firstElementChild,label=group.lastElementChild;
+   const bounds=rectangle(button),combined=rectangle(group),bar=rectangle(indicator),text=rectangle(label);
+   check(Math.abs((combined.left+combined.right)/2-(bounds.left+bounds.right)/2)<1&&Math.abs((combined.top+combined.bottom)/2-(bounds.top+bounds.bottom)/2)<1,family+' centers the combined indicator/label group');
+   check(bar.width===4&&bar.height===26&&Math.abs(text.left-bar.right-8)<1&&bar.left>bounds.left+20,family+' indicator sits 8px beside label, away from button edge');
+   const panelBar=host.createSpan({cls:'hub-task-necessity-bar is-'+(index?'must':'should')});
+   check(getComputedStyle(indicator).backgroundColor===getComputedStyle(panelBar).backgroundColor,family+' indicator reuses exact Tasks panel colors');panelBar.remove();
+   const neutral=getComputedStyle(button).backgroundColor;
+   button.focus();await key('Enter');await new Promise(resolve=>setTimeout(resolve,160));
+   check(button.getAttribute('aria-pressed')==='true'&&choices[1-index].getAttribute('aria-pressed')==='false',family+' keyboard selection stays exclusive');
+   check(getComputedStyle(button).backgroundColor===getComputedStyle(reference).backgroundColor&&getComputedStyle(button).color===getComputedStyle(reference).color,family+' selected necessity matches existing purple option styling');
+   check(isVisible(indicator)&&indicator.getAttribute('aria-hidden')==='true',family+' semantic indicator stays visible without adding spoken label text');
+   check(button.matches(':focus-visible')&&getComputedStyle(button).outlineWidth==='2px',family+' keyboard focus remains distinct');
+   await key(' ');await new Promise(resolve=>setTimeout(resolve,160));
+   check(button.getAttribute('aria-pressed')==='false'&&getComputedStyle(button).backgroundColor===neutral&&isVisible(indicator),family+' Space deselects while retaining neutral indicator');
+   button.click();clear.click();await new Promise(resolve=>setTimeout(resolve,160));
+   check(choices.every(choice=>choice.getAttribute('aria-pressed')==='false')&&clear.disabled,family+' Clear resets necessity without hiding indicators');
+  }
+  reference.parentElement.remove();
+  choices[0].click();await new Promise(resolve=>setTimeout(resolve,160));
+  choices[0].scrollIntoView({block:'center'});await settle();await screenshot('task-polish-'+family.toLowerCase().replaceAll(' ','-')+'-necessity-'+innerWidth);
+  const footerTop=rectangle(footer).top,headerTop=rectangle(header).top;
+  body.scrollTop=body.scrollHeight;await settle();
+  const final=rectangle(phaseControl),viewport=rectangle(body);
+  check(body.scrollHeight>body.clientHeight,family+' long Steps scroll in the intended body');
+  // scrollHeight is integer-rounded while layout bounds retain fractional pixels.
+  check(getComputedStyle(fields).paddingBottom==='24px'&&final.top>=viewport.top&&final.bottom<=viewport.bottom-20&&footerTop-final.bottom>=23,family+' final field scrolls fully into view with footer breathing room '+JSON.stringify({finalTop:final.top,finalBottom:final.bottom,bodyTop:viewport.top,bodyBottom:viewport.bottom,footerTop,scroll:body.scrollTop,height:body.scrollHeight,client:body.clientHeight}));
+  body.scrollTop=0;await settle();
+  check(Math.abs(rectangle(footer).top-footerTop)<1&&Math.abs(rectangle(header).top-headerTop)<1,family+' header and footer stay fixed while fields scroll');
+  body.scrollTop=body.scrollHeight;await settle();await screenshot('task-polish-'+family.toLowerCase().replaceAll(' ','-')+'-'+innerWidth);
+ }
+ let quick=new(load('ui/quick-add').QuickAddModal)(plugin.app,service);quick.draft={...quick.draft,...draft};quick.open();quick.expand();await settle();
+ await verify(quick,'Quick Add');quick.close();
+ const edit=load('ui/task-editor').openTaskEditor(plugin.taskEditor,{path,line:0,text:'Existing task'});await settle();
+ const title=edit.contentEl.querySelector('.hub-window-title'),subtitle=edit.contentEl.querySelector('.hub-window-undertext'),icon=edit.contentEl.querySelector('.hub-window-title-icon');
+ check(title.textContent==='Edit task'&&subtitle.textContent==='Make changes to this task'&&icon.dataset.icon==='square-pen','Edit Task uses requested shared header content');
+ check(rectangle(icon).width===44&&rectangle(icon).height===44&&getComputedStyle(icon.parentElement).columnGap==='14px','Edit Task shares icon geometry and column gap');
+ await verify(edit,'Edit Task');edit.close();
+ let inbox=new(load('ui/inbox').InboxModal)(plugin.app,service);inbox.open();await inbox.select(capture.id);await settle();
+ await verify(inbox,'Inbox');await inbox.select(legacy.id);await settle();
+ check(!inbox.detail.querySelector('[aria-label=Project]')&&inbox.detail.querySelector('[aria-label="Project phase"]').closest('section').hidden,'Resource Inbox form has no Project association or phase');
+ await inbox.close();await settle();
+ const resourceEdit=load('ui/task-editor').openTaskEditor(plugin.taskEditor,{path:resourcePath,line:0,text:'Legacy Resource task'});await settle();
+ check(resourceEdit.taskFields.input.value==='Legacy Resource task'&&!resourceEdit.contentEl.querySelector('[aria-label=Project]')&&resourceEdit.taskFields.phase.value().phaseId===null,'Existing Resource task remains editable without associations');resourceEdit.close();
+ check(contents.get(resourcePath).includes('hub-task:task-r')&&plugin.taskEditor.metadata('task-r').dueDate==='2026-10-14'&&!plugin.taskEditor.metadata('task-r').linkedProjectId,'Legacy Resource identity and ordinary metadata remain intact');
+ service.destroy();document.getElementById('result').textContent='PASS: '+checks+' task-form polish checks at '+innerWidth+'px; shared headers, picker surfaces, actual native chevrons, centered necessity indicators, keyboard selection, long-form scrolling and Resource simplification.';
+}catch(error){document.getElementById('result').textContent='FAIL: '+error.stack}
+</script>

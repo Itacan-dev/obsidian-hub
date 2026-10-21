@@ -1,10 +1,25 @@
 "use strict";
 const { taskWorkspaces } = require("./task-locations");
 const { normalize, nameScore, ownerOf, inScope, contextLabel, groupResults } = require("../domain/context-search");
+const { workspaceRef, sameWorkspace } = require("./task-service-legacy-values");
+const { TaskServiceError } = require("./task-service-errors");
+
+function taskSearchMessage(error, reveal = false) {
+    if (error?.code === "INDEX_UNAVAILABLE") return "Task search is not ready yet.";
+    if (!reveal) return "Task search is temporarily unavailable.";
+    if (error?.code === "SOURCE_MISSING") return "This task's note is no longer available.";
+    if (error?.code === "AMBIGUOUS_REFERENCE") return "This task has an ambiguous source. Refresh Search before opening it.";
+    if (["STALE_REFERENCE", "REFERENCE_UNRESOLVED"].includes(error?.code)) return "This task changed. Refresh Search and try again.";
+    return "This task cannot be opened right now. Refresh Search and try again.";
+}
 
 class ContextSearchService {
-    constructor(plugin) {
+    constructor(plugin, { taskService = plugin.taskService, onTaskDiagnostics = diagnostics => console.warn("Task Search diagnostics", diagnostics) } = {}) {
         this.plugin = plugin;
+        this.taskService = taskService;
+        if (!taskService?.capabilities().operations.queryDisplay) throw new TaskServiceError("UNSUPPORTED", "Search requires the task display-query capability.");
+        this.onTaskDiagnostics = onTaskDiagnostics;
+        this.taskGeneration = 0;
         this.files = null;
         this.tasks = null;
         this.notes = new Map();
@@ -12,9 +27,14 @@ class ContextSearchService {
         this.registrations = new Set();
         this.pendingFolder = null;
         this.disposed = false;
+        const notify = () => {
+            for (const listener of this.listeners) {
+                try { Promise.resolve(listener()).catch(() => {}); } catch (_) { /* Views cannot break cache invalidation. */ }
+            }
+        };
+        const invalidateTasks = () => { this.tasks = null; this.taskGeneration++; notify(); };
         const invalidate = () => {
-            this.files = null; this.tasks = null;
-            for (const listener of this.listeners) listener();
+            this.files = null; invalidateTasks();
         };
         for (const event of ["create", "delete", "rename", "modify"]) {
             plugin.registerEvent(plugin.app.vault.on(event, (file, oldPath) => {
@@ -24,12 +44,14 @@ class ContextSearchService {
             }));
         }
         plugin.registerEvent(plugin.app.metadataCache.on("changed", invalidate));
-        plugin.taskData.subscribe(plugin, () => { this.tasks = null; for (const listener of this.listeners) listener(); });
-        plugin.planning?.subscribe(plugin, () => { for (const listener of this.listeners) listener(); });
-        plugin.register(() => { this.disposed = true; this.notes.clear(); this.listeners.clear(); this.registrations.clear(); });
+        const unsubscribe = this.taskService.subscribe(invalidateTasks);
+        plugin.register(unsubscribe);
+        plugin.planning?.subscribe(plugin, notify);
+        plugin.register(() => { this.disposed = true; this.taskGeneration++; this.tasks = null; this.files = null;
+            this.notes.clear(); this.listeners.clear(); this.registrations.clear(); this.pendingFolder = null; });
     }
     subscribe(component, listener) { this.listeners.add(listener); component.register(() => this.listeners.delete(listener)); }
-    snapshot(dv) {
+    fileSnapshot() {
         if (!this.files) {
             this.workspaces = taskWorkspaces(this.plugin);
             const dashboards = new Set(this.workspaces.map(workspace => workspace.path));
@@ -44,11 +66,60 @@ class ContextSearchService {
                     context: contextLabel(file.parent?.path ?? file.path.slice(0, file.path.lastIndexOf("/")), owner) }];
             });
         }
-        if (!this.tasks) this.tasks = this.plugin.taskData.readPages(dv).flatMap(page => page.file.tasks).flatMap(task => {
-            const owner = ownerOf(task.path, this.workspaces);
-            return owner ? [{ kind: "tasks", title: task.text, path: task.path, task, owner, context: contextLabel(task.path, owner) }] : [];
-        });
-        return { workspaces: this.workspaces, files: this.files, tasks: this.tasks };
+        return { workspaces: this.workspaces, files: this.files };
+    }
+    report(diagnostics) {
+        if (!diagnostics.length || this.disposed) return;
+        try { Promise.resolve(this.onTaskDiagnostics(diagnostics)).catch(() => {}); } catch (_) { /* Diagnostics are not task state. */ }
+    }
+    async taskSnapshot(cancelled) {
+        while (!cancelled() && !this.disposed) {
+            const generation = this.taskGeneration;
+            let cached = this.tasks;
+            if (!cached) {
+                cached = { generation };
+                cached.promise = Promise.resolve().then(() => this.taskService.queryDisplay()).then(query => {
+                    if (!this.disposed && generation === this.taskGeneration) this.report(query.diagnostics);
+                    return { query, taskError: null };
+                }, error => {
+                    if (this.tasks === cached) this.tasks = null; // A later request may retry a transient failure.
+                    if (!this.disposed && generation === this.taskGeneration) this.report([{ level: "query", rowIndex: null,
+                        code: error.code ?? "READ_FAILED", sourcePath: null, message: error.message ?? "Task query failed." }]);
+                    return { query: null, taskError: error };
+                });
+                this.tasks = cached;
+            }
+            const result = await cached.promise;
+            if (cancelled() || this.disposed) return null;
+            if (generation !== this.taskGeneration) continue;
+            return result;
+        }
+        return null;
+    }
+    async snapshot(_dv, { cancelled = () => false } = {}) {
+        const taskSnapshot = await this.taskSnapshot(cancelled);
+        if (!taskSnapshot || cancelled() || this.disposed) return null;
+        const { files, workspaces } = this.fileSnapshot();
+        if (taskSnapshot.entries?.files === files) return { workspaces, files,
+            tasks: taskSnapshot.entries.tasks, taskError: taskSnapshot.taskError };
+        const tasks = [];
+        for (const row of taskSnapshot.query?.rows ?? []) {
+            const task = row.view;
+            if (!task) continue;
+            // This integration supports legacy display evidence only. A future
+            // native search adapter needs an explicit location/context policy.
+            if (task.source?.kind !== "legacy-indexed-source" || task.compatibility?.kind !== "legacy-indexed-text") {
+                this.report([{ level: "row", rowIndex: null, code: "UNSUPPORTED", sourcePath: null, message: "Unsupported task display projection." }]);
+                continue;
+            }
+            const path = task.source.path, owner = ownerOf(path, workspaces);
+            if (!owner || !sameWorkspace(workspaceRef(owner), task.owner)) continue;
+            tasks.push({ kind: "tasks", title: task.compatibility.displayText, searchText: task.compatibility.searchText,
+                path, task, taskHandle: task.handle, owner, context: contextLabel(path, owner), diagnostics: row.diagnostics,
+                key: JSON.stringify([path, task.handle?.kind === "legacy" ? task.handle.locator.line : task.compatibility.displayText]) });
+        }
+        taskSnapshot.entries = { files, tasks };
+        return { workspaces, files, tasks, taskError: taskSnapshot.taskError };
     }
     async note(file) {
         const key = file.path, stamp = file.stat?.mtime;
@@ -62,10 +133,18 @@ class ContextSearchService {
         this.notes.set(key, { stamp, promise });
         return promise;
     }
-    async search(query, scope, dv, { onNames = () => {}, cancelled = () => false } = {}) {
+    async search(query, scope, dv, { onNames = () => {}, cancelled = () => false, onTaskStatus = () => {} } = {}) {
+        const requestedScope = scope?.projectId ?? null;
+        let snapshotGeneration = null;
+        const obsolete = () => cancelled() || this.disposed || (scope?.projectId ?? null) !== requestedScope ||
+            snapshotGeneration !== null && snapshotGeneration !== this.taskGeneration;
         const term = normalize(query).trim();
-        if (!term) return [];
-        const snapshot = this.snapshot(dv), { workspaces } = snapshot;
+        if (!term || obsolete()) return [];
+        const snapshot = await this.snapshot(dv, { cancelled: obsolete });
+        if (!snapshot || obsolete()) return [];
+        snapshotGeneration = this.taskGeneration;
+        onTaskStatus(snapshot.taskError ? taskSearchMessage(snapshot.taskError) : "");
+        const { workspaces } = snapshot;
         // Follow renamed workspace roots via the existing canonical context IDs.
         scope = scope ? workspaces.find(item => item.projectId === scope.projectId) ?? scope : null;
         const files = snapshot.files.filter(entry => inScope(entry, scope, workspaces));
@@ -81,22 +160,23 @@ class ContextSearchService {
         }
         const results = [], namedPaths = new Set();
         for (const entry of candidates) {
-            const scores = [entry.title, ...(entry.aliases ?? [])].map(value => nameScore(value, term)).filter(value => value != null);
+            const scores = [entry.searchText ?? entry.title, ...(entry.aliases ?? [])].map(value => nameScore(value, term)).filter(value => value != null);
             // A path qualifier can disambiguate identically named notes/folders.
-            const contextual = term.includes(" ") ? nameScore(entry.context + " " + entry.title, term) : null;
+            const contextual = term.includes(" ") ? nameScore(entry.context + " " + (entry.searchText ?? entry.title), term) : null;
             if (contextual != null) scores.push(6 + contextual / 10);
             if (!scores.length) continue;
             results.push({ ...entry, score: Math.min(...scores) + (entry.kind === "tasks" ? 10 : 0) });
             if (entry.kind === "files") namedPaths.add(entry.path);
         }
+        if (obsolete()) return [];
         onNames(groupResults([...results]));
         const notes = files.filter(entry => entry.file.extension?.toLowerCase() === "md" && !namedPaths.has(entry.path));
         let cursor = 0;
         // Bounded concurrent cached reads, cancelled between files when typing/navigation changes.
         await Promise.all(Array.from({ length: 4 }, async () => {
-            while (cursor < notes.length && !cancelled() && !this.disposed) {
+            while (cursor < notes.length && !obsolete()) {
                 const entry = notes[cursor++], text = await this.note(entry.file);
-                if (!text) continue;
+                if (!text || obsolete()) continue;
                 const words = term.split(/\s+/);
                 if (!words.every(word => text.normalized.includes(word))) continue;
                 const position = text.normalized.indexOf(words[0]);
@@ -105,7 +185,7 @@ class ContextSearchService {
                 results.push({ ...entry, kind: "notes", snippet, score: 20 });
             }
         }));
-        return groupResults(results);
+        return obsolete() ? [] : groupResults(results);
     }
     registerWorkspace(component, root, workspace, selectFolder, selectPlanning) {
         const registration = { root, workspace, selectFolder, selectPlanning };
@@ -123,7 +203,23 @@ class ContextSearchService {
             this.pendingFolder = null;
         }
     }
-    async open(result, source) {
+    async open(result, source, { cancelled = () => false } = {}) {
+        if (result.kind === "tasks") {
+            try {
+                if (this.disposed) throw new TaskServiceError("CLOSED", "Search is closed.");
+                if (!result.taskHandle || !result.task?.capabilities.attemptReveal) {
+                    throw new TaskServiceError(result.diagnostics?.[0]?.code ?? "REFERENCE_UNRESOLVED", "The task row is not safely actionable.");
+                }
+                const target = await this.taskService.resolveReveal(result.taskHandle);
+                if (this.disposed || cancelled()) return false;
+                if (target.kind !== "legacy-source") throw new TaskServiceError("UNSUPPORTED", "No handler is installed for this reveal target.");
+                if (!this.plugin.app.vault.getAbstractFileByPath(target.path)) throw new TaskServiceError("SOURCE_MISSING", "The resolved source is unavailable.");
+                return await this.plugin.workspaceModes.openProjectNote(target.path, "replace", source);
+            } catch (error) {
+                this.report([{ level: "row", rowIndex: null, code: error.code ?? "REVEAL_FAILED", sourcePath: null, message: error.message ?? "Task reveal failed." }]);
+                throw new TaskServiceError(error.code ?? "REVEAL_FAILED", taskSearchMessage(error, true), {}, error);
+            }
+        }
         const modes = this.plugin.workspaceModes;
         const path = this.plugin.taskData.currentPath(result.path);
         if (!this.plugin.app.vault.getAbstractFileByPath(path)) throw Error("This item no longer exists.");
@@ -143,4 +239,4 @@ class ContextSearchService {
         } catch (error) { if (this.pendingFolder === request) this.pendingFolder = null; throw error; }
     }
 }
-module.exports = { ContextSearchService };
+module.exports = { ContextSearchService, taskSearchMessage };

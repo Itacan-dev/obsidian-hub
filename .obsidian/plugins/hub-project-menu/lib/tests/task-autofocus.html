@@ -1,0 +1,45 @@
+<!doctype html><meta charset="utf-8"><title>Task native autofocus</title>
+<link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../../../../../System/Dashboards/Project/view.css"><link rel="stylesheet" href="../../../../../System/Dashboards/Home/view.css">
+<style>#fixture,#result{display:none}</style><body class="theme-dark"><main id="fixture"></main><pre id="result">RUNNING</pre>
+<script type="module">
+let checks=0;const check=(ok,message)=>{checks++;if(!ok)throw Error(message)};
+const key=key=>new Promise(resolve=>{window.hubTestKeyDone=resolve;window.hubTestKeyRequest=key});
+const frame=()=>new Promise(resolve=>requestAnimationFrame(resolve));
+const screenshot=name=>new Promise(resolve=>{window.hubTestScreenshotDone=resolve;window.hubTestScreenshotRequest='task-autofocus-'+name});
+try {
+ const source=await(await fetch('task-opening.html')).text(),setup=source.slice(source.indexOf(' const source=await'),source.indexOf(' const originalRead='));
+ const AsyncFunction=Object.getPrototypeOf(async function(){}).constructor,env=await new AsyncFunction('check',setup+';return env;')(check);
+ const {service,openTaskCreator,openTaskEditor,p,r,plugin}=env;
+ const baseline=JSON.stringify(plugin.projectWizard.data),rect=el=>{const r=el.getBoundingClientRect();return{x:r.x,y:r.y,w:r.width,h:r.height}};
+ const stable=(a,b,name)=>{for(const prop of ['x','y','w','h'])check(Math.abs(a[prop]-b[prop])<.8,name+' '+prop)};
+ const evidence=[];window.hubTaskOpeningFrames=evidence;
+ for(const [name,options]of[['home',{}],['project',{root:p.root}],['resource',{root:r.root}],['warm-home',{}]]) {
+  const modal=openTaskCreator(service,options),input=modal.taskFields.input;
+  check(modal.hasInitialInputFocus===false,'Composer owns focus instead of native first-control pass');
+  check(input instanceof HTMLTextAreaElement&&input.isConnected&&input.parentElement===modal.taskFields.card.textEl,'Actual native editor attached at opening');
+  check(document.activeElement===input&&input.matches(':focus')&&!modal.taskFields.card.textEl.hasAttribute('role'),'Native editor active, wrapper is not focus owner');
+  check(!input.disabled&&!input.readOnly&&input.selectionStart===0&&input.selectionEnd===0,'Empty collapsed selection at beginning');
+  check(input.value===''&&input.placeholder==='What needs doing?','Real placeholder, no simulated caret character');
+  check([...modal.contentEl.querySelectorAll('.hub-task-config-action')].every(button=>button.disabled),'Specifications initially disabled');
+  const style=getComputedStyle(input);check(style.caretColor!=='transparent'&&style.caretColor!=='rgba(0, 0, 0, 0)'&&style.visibility==='visible'&&style.display!=='none'&&style.opacity!=='0','Native caret/editor not suppressed by CSS');
+  const before={modal:rect(modal.modalEl),card:rect(modal.taskFields.card.row),input:rect(input)};
+  // Send a trusted Chromium key immediately, without click, focus helper or
+  // settling frames. Updating value programmatically would miss this bug.
+  await key('q');
+  check(input.value==='q'&&modal.taskFields.state.text==='q','Immediate native keyboard input reaches title/draft');
+  check(input.selectionStart===1&&input.selectionEnd===1,'Native insertion advances collapsed caret');
+  await key({key:'Home',modifiers:2}); // Ctrl+Home: beginning of native textarea.
+  check(input.selectionStart===0&&input.selectionEnd===0,'Native keyboard moves insertion to beginning');
+  await key('a');check(input.value==='aq'&&input.selectionStart===1&&input.selectionEnd===1,'Native insertion occurs at selected beginning');
+  await key({key:'a',modifiers:2});check(input.selectionStart===0&&input.selectionEnd===2,'Native Select All owns text selection');
+  await key('Backspace');check(input.value===''&&input.selectionStart===0&&input.selectionEnd===0&&input.placeholder==='What needs doing?','Native clearing restores empty placeholder/caret');
+  const frames=[];for(let i=0;i<8;i++){await frame();const sample={modal:rect(modal.modalEl),card:rect(modal.taskFields.card.row),input:rect(input),focused:document.activeElement===input,selection:[input.selectionStart,input.selectionEnd]};frames.push(sample);stable(before.modal,sample.modal,'Opening modal');stable(before.card,sample.card,'Opening card');stable(before.input,sample.input,'Native input');check(sample.focused&&sample.selection[0]===0&&sample.selection[1]===0,'Focus/caret retained after keyboard/frames');}
+  evidence.push({name,caretColor:style.caretColor,immediateKeyboard:true,frames});await screenshot(name);modal.close();
+ }
+ const edit=openTaskEditor(service,{path:p.root+'/Tasks.md',line:3,text:'Assignment 4 ^native',hubTaskId:'existing'});await edit.ready;
+ check(document.activeElement===edit.modalEl&&document.activeElement!==edit.taskFields.input,'Edit retains dialog focus and does not activate title');
+ const existing=edit.taskFields.input.value;await key('z');check(edit.taskFields.input.value===existing,'Unrequested typing does not alter Edit title');edit.close();
+ check(JSON.stringify(plugin.projectWizard.data)===baseline,'Keyboard and Cancel never persist live metadata');
+ document.querySelector('#result').textContent='PASS: '+checks+' native autofocus checks; immediate trusted typing, insertion/selection, caret CSS, attached editor, native post-open focus, unchanged frame geometry and Edit restraint.';document.body.dataset.test='passed';
+}catch(error){document.querySelector('#result').textContent='FAIL '+error.stack;document.body.dataset.test='failed';}
+</script>

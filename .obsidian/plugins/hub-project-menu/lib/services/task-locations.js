@@ -12,6 +12,4 @@ function taskLocations(plugin, root) {
             label: locationLabel(file.path, workspace, !root) })))
         .sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true }));
 }
-function linkedProjects(plugin) { return (plugin.projectWizard.getProjectRecords?.() ?? []).filter(project => project.status === "active"); }
-
-module.exports = { taskWorkspaces, taskLocations, linkedProjects };
+module.exports = { taskWorkspaces, taskLocations };

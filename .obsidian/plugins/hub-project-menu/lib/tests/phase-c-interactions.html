@@ -37,6 +37,7 @@ class ToggleComponent{
 }
 const notices=[],native={Modal,Menu,ToggleComponent,Notice:class{constructor(m){notices.push(m)}},getIcon:()=>true,setIcon:(e,name)=>{e.dataset.icon=name;e.innerHTML='<svg viewBox="0 0 24 24"><path d="M5 12h14"/></svg>'}};
 const sources={},cache={},names=['ui/tooltips','ui/statistics-charts','ui/statistics','ui/window-title','ui/presets','ui/pointer-list-reorder','ui/modal-save','ui/music-settings','ui/menu-toggle','ui/focus-restoration','ui/icons','ui/settings-pages','domain/music','domain/statistics','domain/dates','domain/history','domain/contexts','services/statistics'];
+names.push('services/task-service-errors');
 for(const name of names)sources[name]=await(await fetch('../'+name+'.js')).text();
 cache['ui/capture-modal']={exports:{action(host,text,icon,callback,cls=''){const button=host.createEl('button',{cls,text,attr:{type:'button'}});button.onclick=callback;return button}}};
 cache['ui/music-item-editor']={exports:{openMusicItemEditor(service,options){const container=document.body.createDiv({cls:'modal-container'}),input=container.createEl('input');input.focus();return editor={options,close(){container.remove();options.onClose()}}}}};
@@ -46,7 +47,7 @@ try{
  // Statistics buttons, shared ratings-style consumers, and owned descriptions.
  const {StatisticsModal}=load('ui/statistics'),{prepareStatistics}=load('domain/statistics');
  const now=Date.now(),source=prepareStatistics({workspaces:[{projectId:'p',name:'Project',status:'active'}],notes:[{projectId:'p',createdAt:now-1000}],completions:[{id:'t',projectId:'p',kind:'task',timestamp:now-1000}]},now);
- let closed=0;const modal=new StatisticsModal({},null,{source,onClose:()=>closed++});modal.open();await settle();
+ let closed=0;const modal=new StatisticsModal({},null,{source,onClose:()=>closed++});modal.range='3m';modal.open();await settle();
  const help=[...modal.contentEl.querySelectorAll('.hub-statistics-help')];
  assert(help.map(b=>b.getAttribute('aria-label')).join('|')==='About Work distribution|About Activity over time|About Oathbound time|About Notes|About Project activity|About Projects vs Resources','Six approved Statistics help accessible names');
  for(const button of help){

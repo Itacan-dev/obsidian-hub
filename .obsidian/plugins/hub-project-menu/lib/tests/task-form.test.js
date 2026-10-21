@@ -1,6 +1,7 @@
 "use strict";
 const assert = require("assert").strict;
 const { taskFormValues, validTaskForm } = require("../domain/task-form");
+const { HubTaskEditor } = require("../services/task-editor");
 
 const input = { text: "  Review research  ", workspaceId: "p1", location: "Projects/Thesis/Work",
     necessity: "must", fromDate: "2026-10-03", dueDate: "2026-10-05", phaseId: "phase1",
@@ -24,4 +25,18 @@ for (const invalid of [
     assert.ok(!validTaskForm(invalid));
     assert.throws(() => taskFormValues(invalid));
 }
-console.log("Shared task form passed: canonical text/Steps, optional enrichment, snapshot safety and date-only semantics.");
+const project = { root: "Projects/P", projectId: "p", contextKind: "project" };
+const other = { root: "Projects/Q", projectId: "q", contextKind: "project" };
+const resource = { root: "Resources/R", projectId: "resource:r", contextKind: "resource" };
+const editor = new HubTaskEditor({ app: {}, projectWizard: {
+    getContextForPath: path => [project, other, resource].find(owner => path === owner.root || path?.startsWith(owner.root + "/")),
+    getProjectRecords: () => [{ ...project, status: "active", name: "P" }], data: {}
+}, planning: { phases: id => id === "p" ? [{ id: "phase-p", name: "P phase" }] : [{ id: "phase-q", name: "Q phase" }] } });
+assert.equal(editor.checkedMetadata({ phaseId: "phase-p" }, project).phaseId, "phase-p");
+assert.throws(() => editor.checkedMetadata({ phaseId: "phase-p" }, other), /no longer available/);
+assert.throws(() => editor.checkedMetadata({ phaseId: "phase-p" }, resource), /task's Project/);
+assert.throws(() => editor.checkedMetadata({ phaseId: "phase-p" }, null), /task's Project/);
+assert.equal(editor.checkedMetadata({ linkedProjectId: "p" }, resource).linkedProjectId, undefined, "Retired Resource association is ignored");
+assert.equal(taskFormValues({ text: "Legacy", linkedProjectId: "p" }).linkedProjectId, undefined);
+assert.equal(editor.checkedMetadata({ linkedProjectId: "p" }, project).linkedProjectId, undefined);
+console.log("Shared task form passed: canonical text/Steps, optional enrichment, snapshot safety, date-only semantics and project-scoped phase validation.");

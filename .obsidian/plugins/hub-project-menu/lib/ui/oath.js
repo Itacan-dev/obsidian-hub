@@ -17,6 +17,7 @@ const { mountWorkspaceThumbnail } = require("./workspace-thumbnail");
 const { workspaceRef, sameWorkspace, taskKey } = require("../domain/oath-workspace");
 const { isCommitted, oathTime, oathProgress, shortOathTime, fulfilmentLabel, oathDuration, validDuration } = require("../domain/oath");
 const { mountOathApplications } = require("./oath-applications");
+const { createOathCandidateRead, preserveCandidateInteraction } = require("../services/oath-candidate-read");
 
 const dateLabel = time => formatDateTime(new Date(time));
 const OATH_COPY = Object.freeze({
@@ -117,7 +118,7 @@ function openOathWorkspacePicker(service, type, selected, onSelect, restoreFocus
                 if (!contexts.length) body.createEl("p", { cls: "hub-oath-muted", text: type === "project" ? "No matching Active Projects." : "No matching Resources." });
             };
             search?.addEventListener("input", render);
-            service.plugin.taskData.subscribe(this.owner, render);
+            this.owner.register(service.plugin.taskService.subscribe(render));
             this.contentEl.createDiv({ cls: "hub-oath-actions" }).createEl("button", { text: "Cancel" }).addEventListener("click", () => this.close());
             render(); layoutModal(this, { headerEnd: search ?? this.contentEl.querySelector("h2"), body }); (search ?? body.querySelector('[tabindex="0"]'))?.focus();
         }
@@ -126,7 +127,7 @@ function openOathWorkspacePicker(service, type, selected, onSelect, restoreFocus
     const modal = new Picker(service.app); modal.open(); return modal;
 }
 
-function openOathPicker(service, workspace, selected, onSelect) {
+function openOathPicker(service, workspace, selected, onSelect, candidateRead = null) {
     const { Modal, Component } = require("obsidian");
     class Picker extends Modal {
         onOpen() {
@@ -139,19 +140,20 @@ function openOathPicker(service, workspace, selected, onSelect) {
             const cancel = actions.createEl("button", { text: "Cancel" });
             const add = actions.createEl("button", { cls: "mod-cta", text: "Add tasks" });
             this.owner = new Component(); this.owner.load();
+            const candidates = candidateRead ?? createOathCandidateRead(service, this.owner);
+            if (!candidateRead) void candidates.selectWorkspace(workspace);
             const existing = new Set(selected.map(taskKey)), chosen = new Map();
             const ui = createTaskUi({ app: service.app, component: this.owner, body });
-            const update = () => { add.disabled = !chosen.size; };
-            const render = () => {
+            const update = () => { add.disabled = !chosen.size || !candidates.available([...chosen.values()], workspace); };
+            const render = () => preserveCandidateInteraction(body, () => {
                 ui.beginRender(render); body.empty();
-                const available = service.workspaceTasks(workspace);
-                const keys = new Set(available.map(taskKey));
-                for (const key of chosen.keys()) if (!keys.has(key)) chosen.delete(key);
+                const available = candidates.tasks();
                 const query = search.value.toLocaleLowerCase().trim();
-                const groups = ui.groups(available);
+                const groups = ui.groups([...new Map([...available, ...chosen.values()].map(task => [taskKey(task), task])).values()]);
                 const tasks = [...groups.active, ...groups.future].filter(task => `${task.text} ${task.path}`.toLocaleLowerCase().includes(query));
                 for (const task of tasks) {
                     const row = selectionRow(ui, body, task), key = taskKey(task), included = existing.has(key);
+                    row.oathCandidateKey = key;
                     row.setAttribute("role", "button"); row.tabIndex = included ? -1 : 0;
                     row.setAttribute("aria-label", (included ? "Already selected: " : "Select task: ") + task.text);
                     row.setAttribute("aria-disabled", String(included));
@@ -161,24 +163,30 @@ function openOathPicker(service, workspace, selected, onSelect) {
                         row.setAttribute("aria-pressed", String(included || chosen.has(key)));
                     };
                     if (included) row.createSpan({ cls: "hub-oath-task-included", text: "Selected" });
-                    const toggle = () => { if (included) return; if (chosen.has(key)) chosen.delete(key); else chosen.set(key, task); paint(); update(); };
+                    const toggle = () => { if (included || !chosen.has(key) && !candidates.available([task], workspace)) return; if (chosen.has(key)) chosen.delete(key); else chosen.set(key, task); paint(); update(); };
                     row.addEventListener("click", toggle);
                     row.addEventListener("keydown", event => {
                         if (event.target === row && ["Enter", " "].includes(event.key)) { event.preventDefault(); toggle(); }
                     });
                     paint();
                 }
-                if (!tasks.length) body.createEl("p", { cls: "hub-oath-muted", text: service.ready() ? "No matching open tasks." : "Loading tasks..." });
+                if (!service.ready()) body.createEl("p", { cls: "hub-oath-muted", text: "Loading tasks..." });
+                else if (candidates.state.status === "error") {
+                    const status = body.createEl("p", { cls: "hub-oath-muted", attr: { role: "status" }, text: "Tasks could not be loaded. " });
+                    status.createEl("button", { text: "Try again", attr: { type: "button" } }).addEventListener("click", () => { void candidates.retry(); });
+                } else if (!tasks.length) body.createEl("p", { cls: "hub-oath-muted", text: service.ready() && candidates.state.status === "ready" ? "No matching open tasks." : "Loading tasks..." });
+                if (chosen.size && !candidates.available([...chosen.values()], workspace)) body.createEl("p", { cls: "hub-oath-muted", text: "Selected tasks are no longer available. Update your selection." });
                 update();
-            };
+            });
             cancel.addEventListener("click", () => this.close());
             add.addEventListener("click", () => {
-                const available = service.workspaceTasks(workspace);
+                if (!candidates.available([...chosen.values()], workspace)) return;
+                const available = candidates.tasks();
                 onSelect(available.filter(task => chosen.has(taskKey(task)) && !existing.has(taskKey(task))));
                 this.close();
             });
             search.addEventListener("input", render);
-            service.plugin.taskData.subscribe(this.owner, render);
+            this.owner.register(candidates.onChange(render));
             render(); layoutModal(this, { headerEnd: search, body }); search.focus();
         }
         onClose() { this.owner?.unload(); this.contentEl.empty(); }
@@ -196,9 +204,11 @@ function openOathSetup(service) {
             this.selectWorkspace(workspaceRef(service.plugin.workspaceModes?.currentContext()));
             this.choiceGroupId = ++choiceGroupId;
             this.owner = new Component(); this.owner.load();
-            service.plugin.taskData.subscribe(this.owner, () => {
+            this.candidates = createOathCandidateRead(service, this.owner);
+            this.owner.register(this.candidates.onChange(() => {
                 if (this.contentEl.classList.contains("hub-oath-setup")) this.renderSelected?.();
-            });
+            }));
+            void this.candidates.selectWorkspace(this.draft.workspace);
             this.owner.register(service.onChange(() => this.updateNext?.(), true));
             this.setup();
         }
@@ -206,6 +216,8 @@ function openOathSetup(service) {
             if (!service.resolveWorkspace(ref) || sameWorkspace(this.draft.workspace, ref)) return;
             this.draft.workspace = ref;
             this.draft.tasks = [];
+            this.picker?.close();
+            void this.candidates?.selectWorkspace(ref);
         }
         section(title) {
             const el = this.contentEl.createEl("section", { cls: "hub-oath-section" });
@@ -311,7 +323,7 @@ function openOathSetup(service) {
                 this.scheduledValue = new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
             }
             dateInput.value = this.scheduledValue ?? "";
-            const startValid = () => service.setupRequirements(draft).find(item => item.key === "Start").complete;
+            const startValid = () => this.candidates.requirements(draft).find(item => item.key === "Start").complete;
             const syncStart = () => {
                 const opened = this.dateDisclosure?.isOpen ?? false;
                 nowRadio.checked = draft.start === "now";
@@ -373,20 +385,17 @@ function openOathSetup(service) {
                 this.taskOwner = new Component(); this.taskOwner.load();
                 const ui = createTaskUi({ app: service.app, component: this.taskOwner, body });
                 let noOpenTasks = false;
-                this.renderSelected = () => {
+                this.renderSelected = () => preserveCandidateInteraction(body, () => {
                     ui.beginRender(this.renderSelected); body.empty();
-                    const ready = service.ready(), tasks = ready ? service.workspaceTasks(draft.workspace) : [];
+                    const ready = service.ready() && this.candidates.state.status === "ready", tasks = this.candidates.tasks();
                     noOpenTasks = ready && !tasks.length;
-                    if (ready) {
-                        const available = new Map(tasks.map(task => [taskKey(task), task]));
-                        draft.tasks = draft.tasks.map(task => available.get(taskKey(task))).filter(Boolean);
-                    }
                     // Suggest only the first Task-panel task; selection is always explicit.
                     const rows = [...new Map([...(tasks.length ? [tasks[0]] : []), ...draft.tasks].map(task => [taskKey(task), task])).values()];
                     const selected = new Set(draft.tasks.map(taskKey));
                     for (const task of rows) {
                         const row = selectionRow(ui, body, task);
                         const key = taskKey(task);
+                        row.oathCandidateKey = key;
                         row.classList.add("hub-oath-task-option");
                         row.classList.toggle("is-selected", selected.has(key));
                         row.dataset.taskKey = key;
@@ -394,6 +403,7 @@ function openOathSetup(service) {
                         row.setAttribute("aria-pressed", String(selected.has(key)));
                         row.setAttribute("aria-label", `Select for Oath: ${task.text}`);
                         const toggle = () => {
+                            if (!selected.has(key) && !this.candidates.available([task], draft.workspace)) return;
                             draft.tasks = selected.has(key) ? draft.tasks.filter(item => taskKey(item) !== key) : [...draft.tasks, task];
                             this.renderSelected();
                             [...body.children].find(item => item.dataset.taskKey === key)?.focus();
@@ -414,15 +424,19 @@ function openOathSetup(service) {
                             });
                         }
                     }
-                    if (!rows.length) body.createEl("p", { cls: "hub-oath-muted", text: !ready ? "Loading tasks..." :
+                    if (!service.ready()) body.createEl("p", { cls: "hub-oath-muted", text: "Loading tasks..." });
+                    else if (this.candidates.state.status === "error") body.createEl("p", { cls: "hub-oath-muted", attr: { role: "status" }, text: "Tasks could not be loaded. Try again." });
+                    else if (draft.tasks.length && !this.candidates.available(draft.tasks, draft.workspace)) body.createEl("p", { cls: "hub-oath-muted", attr: { role: "status" }, text: "Selected tasks must be open tasks from this workspace. Update your selection." });
+                    else if (!rows.length) body.createEl("p", { cls: "hub-oath-muted", text: !ready ? "Loading tasks..." :
                         `${workspaceName} has no open tasks. Create a task before making an Oath, or choose another ${draft.workspace.type}.` });
-                    taskAction.setAttribute("aria-label", noOpenTasks ? "Create task" : "Add tasks");
-                    taskAction.disabled = !ready || !service.resolveWorkspace(draft.workspace);
+                    taskAction.setAttribute("aria-label", service.ready() && this.candidates.state.status === "error" ? "Retry loading tasks" : noOpenTasks ? "Create task" : "Add tasks");
+                    taskAction.disabled = !service.ready() || !service.resolveWorkspace(draft.workspace);
                     this.updateNext?.();
-                };
+                });
                 this.renderSelected();
                 taskAction.addEventListener("click", () => {
                     this.dateDisclosure.close(); this.unitMenu?.hide();
+                    if (this.candidates.state.status === "error") { void this.candidates.retry(); return; }
                     if (noOpenTasks) {
                         const context = service.resolveWorkspace(draft.workspace);
                         if (context) this.creator = openTaskCreator(service.plugin.taskEditor, { root: context.root });
@@ -431,7 +445,7 @@ function openOathSetup(service) {
                     this.picker = openOathPicker(service, draft.workspace, draft.tasks, tasks => {
                         draft.tasks = [...new Map([...draft.tasks, ...tasks].map(task => [taskKey(task), task])).values()];
                         this.renderSelected();
-                    });
+                    }, this.candidates);
                 });
             }
             const duration = this.section(OATH_COPY.duration);
@@ -578,7 +592,7 @@ function openOathSetup(service) {
             const next = actions.createEl("button", { text: "Review Oath", cls: "mod-cta hub-guided-submit" });
             this.requirementGroups = { Start: start, Workspace: work, Tasks: work, Duration: duration };
             this.updateNext = () => {
-                const missing = service.setupRequirements(draft).find(item => !item.complete);
+                const missing = this.candidates.requirements(draft).find(item => !item.complete);
                 next.setAttribute("aria-disabled", String(!!missing));
                 if (!missing) error.textContent = "";
                 if (this.guidedGroup && this.requirementGroups[missing?.key] !== this.guidedGroup) {
@@ -591,12 +605,13 @@ function openOathSetup(service) {
             next.addEventListener("click", async () => {
                 if (this.reviewing) return;
                 try {
+                    this.candidates.enrollmentDraft(draft);
                     service.validateDraft(draft);
                     this.reviewing = true; next.disabled = true;
                     const review = draft.mode === "strict" ? await service.reviewStrict(draft) : null;
                     if (!this.closed) this.review(review);
                 } catch (problem) {
-                    const missing = service.setupRequirements(draft).find(item => !item.complete);
+                    const missing = this.candidates.requirements(draft).find(item => !item.complete);
                     // An empty choice only needs guidance. Invalid populated
                     // values, unavailable destinations/tasks and index errors
                     // still explain what the user needs to correct or await.
@@ -627,6 +642,7 @@ function openOathSetup(service) {
         }
         review(strictReview = null) {
             const draft = this.draft;
+            this.candidates.enrollmentDraft(draft);
             service.validateDraft(draft);
             this.clearSetupEffects();
             this.taskOwner?.unload(); this.updateNext = null;
@@ -697,7 +713,7 @@ function openOathSetup(service) {
             back.addEventListener("click", () => this.setup());
             take.addEventListener("click", async () => {
                 if (this.saving || this.reviewing || take.disabled) return; this.saving = true; take.disabled = back.disabled = true; if (refresh) refresh.disabled = true;
-                try { await service.take(draft); this.saving = false; this.close(); }
+                try { const submitted = this.candidates.enrollmentDraft(draft); await service.take(submitted); this.saving = false; this.close(); }
                 catch (problem) { this.saving = false; back.disabled = false; if (refresh) refresh.disabled = false; updateTake(); error.textContent = problem.message; }
             });
         }

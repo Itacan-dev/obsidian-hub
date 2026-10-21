@@ -5,6 +5,8 @@ const path = require("path");
 
 const pluginRoot = __dirname;
 const entryPath = path.join(pluginRoot, "plugin.js");
+const nativeRoot = path.resolve(pluginRoot, "../../../ItacanTaskCore");
+const inside = (root, file) => { const r = path.relative(root, file); return r !== ".." && !r.startsWith(".." + path.sep) && !path.isAbsolute(r); };
 // Build current sources into a disposable profile without replacing installed bundles.
 const outputFlag = process.argv.indexOf("--output-dir");
 if (outputFlag >= 0 && !process.argv[outputFlag + 1]) throw Error("--output-dir requires a directory");
@@ -72,8 +74,7 @@ function resolveLocalModule(fromPath, request) {
     const relative = path.relative(pluginRoot, resolved);
 
     if (
-        relative.startsWith("..") ||
-        path.isAbsolute(relative)
+        !inside(pluginRoot, resolved) && !inside(nativeRoot, resolved)
     ) {
         throw new Error(
             `Local module escapes the plugin directory: ${request}`
@@ -92,7 +93,12 @@ function collectModule(filePath) {
 
     modules.set(id, null);
 
-    const source = fs.readFileSync(filePath, "utf8");
+    let source = fs.readFileSync(filePath, "utf8");
+    // Resolve only the two reviewed sibling-import closures at build time.
+    if (["integration/project-runtime.js", "integration/completion-feed.js"].some(name => filePath === path.join(nativeRoot, name))) {
+        source = source.replace(/require\((?:pluginRoot|lib) \+ (["'])([^"']+)\1\)/g,
+            (_match, _quote, suffix) => `require(${JSON.stringify("../../.obsidian/plugins/hub-project-menu/lib/" + suffix)})`);
+    }
     const transformed = source.replace(
         /require\(\s*(["'])(\.\.?\/[^"']+)\1\s*\)/g,
         (_match, _quote, request) => {

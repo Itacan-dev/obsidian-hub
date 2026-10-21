@@ -70,7 +70,7 @@ const obsidian = { Component, Modal, Menu, Notice: class { constructor(t) { noti
             (name === "plus" ? "M12 5v14M5 12h14" : "m9 5 7 7-7 7") + '"/></svg>';
     } };
 window.onload = async () => { try {
-    const names = ["ui/tasks", "ui/markdown", "ui/completion-audio", "ui/task-steps", "ui/oath-tasks", "domain/task-planning", "domain/tasks", "domain/dates", "domain/oath", "domain/oath-workspace"];
+    const names = ["ui/tasks", "ui/markdown", "ui/completion-audio", "ui/task-card","ui/task-steps", "ui/oath-tasks", "domain/task-planning", "domain/tasks", "domain/dates", "domain/oath", "domain/oath-workspace"];
     const sources = Object.fromEntries(await Promise.all(names.map(async name => [name, await (await fetch("../" + name + ".js")).text()])));
     const cache = {}, load = name => {
         if (name === "obsidian") return obsidian;
@@ -84,7 +84,7 @@ window.onload = async () => { try {
             return load(out.join("/"));
         }); return module.exports;
     };
-    const home = await (await fetch("../../../../../System/Dashboards/Home/view.js")).text();
+    const home = await (await fetch(new URLSearchParams(location.search).get("home-source") || "../../../../../System/Dashboards/Home/view.js")).text();
     const plugin = await (await fetch("../../plugin.js")).text();
     const ConfirmModal = new Function("Modal", plugin.slice(plugin.indexOf("class ConfirmModal extends"), plugin.indexOf("class FocusListEditor")) + ";return ConfirmModal;")(Modal);
     const confirmAction = new Function("ConfirmModal", plugin.slice(plugin.indexOf("function confirmAction("), plugin.indexOf("class ProjectCategoryModal")) + ";return confirmAction;")(ConfirmModal);
@@ -101,6 +101,7 @@ window.onload = async () => { try {
         .map((t, line) => ({ task: { ...t, line, path: line === 2 ? "Resources/Knowledge/Tasks.md" : "Projects/A/Tasks.md" },
             owner: line === 2 ? { name: "Knowledge", root: "Resources/Knowledge", path: "Resources/Knowledge/Knowledge.md", contextKind: "resource", resourceType: "study" } : owner }));
     window.hubApplyTaskEdit = domain.applyTaskEdit;
+    window.hubCreateTaskRow = load("ui/tasks").createTaskRow;
     window.hubCreateTaskUi = (_c, body, onEdit) => load("ui/tasks").createTaskUi({ app: {}, component, body, onEdit,
         mutate: async () => {}, createTask: () => created++, editTask: () => edited++ });
     window.hubClearCompletedTasks = async (requests, confirm) => {
@@ -109,6 +110,12 @@ window.onload = async () => { try {
         cleared++; return { deleted: requests };
     };
     window.hubToggleTask = async (path, line, text, completed) => { toggled++; return { path, line, requestLine: line, oldText: text, lineDelta: 0, tasks: [{ line, text, completed }] }; };
+    // This existing fixture exercises native controls/menus. Full facade and
+    // actual writer integration is verified independently by home-read.html.
+    window.hubCreateHomeTaskRead = () => ({ actions: {},
+        reconcile: (items, edit) => domain.applyTaskEdit(items, edit),
+        toggle: (task, completed) => window.hubToggleTask(task.path, task.line, task.text, completed, task.hubTaskId),
+        clear: (items, confirm) => window.hubClearCompletedTasks(items, confirm), reveal: async task => ({ path: task.path }) });
     const taskCode = home.slice(home.indexOf("// ---------- Tasks to Do ----------"), home.indexOf("// ---------- CALENDAR ----------"));
     const controller = new Function("grid", "root", "panel", "markDashboardRow", "dv", "items", `
         let projectTasks=items.slice(0,2),resourceTasks=items.slice(2);

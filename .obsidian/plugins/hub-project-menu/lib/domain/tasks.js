@@ -151,7 +151,8 @@ function applyTaskEdit(items, edit, resolvePath = task => task.path) {
         const remaining = applyTaskEdit(items, { ...edit, movedTo: null, tasks: [] }, resolvePath);
         if (remaining.length === items.length) return items;
         const wrapper = items.find(item => (item.task && typeof item.task === "object" ? item.task : item).path === edit.path);
-        return [...remaining, ...edit.tasks.map(task => wrapper?.task && typeof wrapper.task === "object" ? { ...wrapper, task } : task)];
+        return [...remaining, ...edit.tasks.map(task => wrapper?.task && typeof wrapper.task === "object" ?
+            { ...wrapper, task, ...(edit.destinationContext ? { owner: edit.destinationContext } : {}) } : task)];
     }
     const taskOf = item => item.task && typeof item.task === "object" ? item.task : item;
     const candidates = items.filter(item => {

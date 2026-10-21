@@ -1,0 +1,28 @@
+import type {AtomicTaskSummaryV1} from "../src/atomic-task";
+import type {Command, WorkspaceRef, PhaseRef, NativeTask} from "../src/contracts";
+import type {HostOptionsV1, NativeAuthorityConfigV1, NativeRepositoryHostV1} from "../host";
+import type {ExternalReservations} from "../src/recurrence";
+export interface WriterCapabilityV1 {readonly version:1;readonly privacy:"local-private";readonly __opaqueWriterCapability:unique symbol}
+type CleanStep<T> = Omit<T,"createdAt"|"modifiedAt"> & {createdAt?:never;modifiedAt?:never};
+type CleanCreate<T> = Omit<T,"migration"|"captureSource"|"createdAt"|"modifiedAt"|"archivedAt"|"deletedAt"|"steps"> & {migration?:never;captureSource?:never;createdAt?:never;modifiedAt?:never;archivedAt?:never;deletedAt?:never;steps?:T extends {steps?: (infer S)[]} ? CleanStep<S>[] : never};
+type WithoutCoord<C> = Omit<C,"coordination"> & {coordination?:never};
+type Narrow<C> = C extends {type:"task.create";payload:{task:infer T}} ? WithoutCoord<Omit<C,"payload">> & {payload:{task:CleanCreate<T>}} :
+ C extends {type:"task.createMany";payload:{tasks:(infer T)[]}} ? WithoutCoord<Omit<C,"payload">> & {payload:{tasks:CleanCreate<T>[]}} :
+ C extends {type:"step.add";payload:{step:infer T}} ? WithoutCoord<Omit<C,"payload">> & {payload:{step:CleanStep<T>}} :
+ C extends {type:"task.update";payload:{patch:infer T}} ? WithoutCoord<Omit<C,"payload">> & {payload:{patch:Omit<T,"captureSource"> & {captureSource?:never}}} :
+ C extends {type:"task.editStructure";payload:infer T} ? T extends {content:infer X} ? WithoutCoord<Omit<C,"payload">> & {payload:Omit<T,"content"> & {content:Omit<X,"appendOriginals"> & {appendOriginals:[]}}} : never : WithoutCoord<C>;
+export type NativeTaskWriteV1=Narrow<Extract<Command,{type:"task.save"|"task.createRich"|"task.create"|"task.createMany"|"task.update"|"task.relocate"|"task.complete"|"task.archive"|"task.delete"|"task.editStructure"}>>;
+export type NativeStepWriteV1=Narrow<Extract<Command,{type:"step.add"|"step.update"|"step.reorder"|"step.delete"|"step.complete"}>>;
+export type NativeRecurrenceWriteV1=Narrow<Extract<Command,{type:`recurrence.${string}`}>>;
+export interface WriterGrantScopeV1 {version:1;owners:readonly {owner:WorkspaceRef;partitionId:string}[];commands:readonly (NativeTaskWriteV1|NativeStepWriteV1|NativeRecurrenceWriteV1)["type"][]}
+export interface WriterPolicyV1 extends WriterGrantScopeV1 {inventory:ExternalReservations;phases:{version:1;revision:string;values:readonly PhaseRef[]}}
+export interface WriterScopeV1 {authorityId:string;ownerContextPin:string;identityPin:string|null;inventoryPin:string;phasePin:string;partitions:readonly {id:string;owner:WorkspaceRef;expectedRevision:number}[]}
+export interface WriterRequestV1<C> {version:1;reason:string;scope:WriterScopeV1;command:C & {expectedRepositoryRevision:number}}
+interface Base {version:1;privacy:"local-private";operationId:string}
+export type WriterOutcomeV1=(Base & {status:"committed";receipt:{operationId:string;repositoryRevision:number;revisionId:string};replayed:boolean;tasks:readonly Pick<NativeTask,"id"|"revision"|"partitionId">[];eventIds:readonly string[];atomicTask?:AtomicTaskSummaryV1;recurrence?:{seriesId:string;completionEventId:string|null;successorId:string|null;reused:boolean;originalGenerationOperationId:string|null}})|(Base & {status:"rejected";code:string;attempt:"not-started"|"not-published";priorOutcome:"not-checked";retry:"explicit-reopen"|"review-or-refresh"})|(Base & {status:"cancelled";boundary:"before-admission"|"before-publication";priorOutcome:"not-checked"})|(Base & {status:"uncertain";code:"ACKNOWLEDGEMENT_LOST"|"PUBLICATION_UNCERTAIN"|"OUTCOME_RECONCILIATION_REQUIRED"|"OPERATION_CONFLICT";retry:"identical-operation-after-authoritative-reconciliation"});
+export interface NativeWriterPortV1 {task(capability:WriterCapabilityV1,request:WriterRequestV1<NativeTaskWriteV1>,signal?:AbortSignal):Promise<WriterOutcomeV1>;step(capability:WriterCapabilityV1,request:WriterRequestV1<NativeStepWriteV1>,signal?:AbortSignal):Promise<WriterOutcomeV1>;recurrence(capability:WriterCapabilityV1,request:WriterRequestV1<NativeRecurrenceWriteV1>,signal?:AbortSignal):Promise<WriterOutcomeV1>}
+export interface NativeWriterSessionV1 {readonly host:NativeRepositoryHostV1;readonly writer:NativeWriterPortV1;authorize(scope:WriterGrantScopeV1):Promise<WriterCapabilityV1>;revoke(capability:WriterCapabilityV1):void;close():Promise<void>;dispose():Promise<void>}
+export function createNativeWriterSession(config:NativeAuthorityConfigV1,options:HostOptionsV1 & {writerPolicy:WriterPolicyV1}):NativeWriterSessionV1;
+
+export interface RetainedNativeWriterSessionV1 extends NativeWriterSessionV1 {readonly requests:import("../host/pending-requests").RetainedRequestPortV1}
+export function createNativeWriterSession(config:NativeAuthorityConfigV1,options:HostOptionsV1 & {writerPolicy:WriterPolicyV1;requestRetention:import("../host/pending-requests").RequestRetentionOptionsV1}):RetainedNativeWriterSessionV1;

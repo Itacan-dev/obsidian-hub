@@ -1,0 +1,1695 @@
+{
+  "format": "itacan-oath-compatibility-vectors",
+  "version": 1,
+  "decisionRevision": "N1-F1-F01-F10-r1",
+  "privacy": "synthetic-only",
+  "sourceGraphSha256": "083a068348e9bf2f26bddcf288612061f0437c79028a9b78e79bee2968c763bd",
+  "policies": {
+    "F02": "selected-defer-committed-trees",
+    "F03": "selected-parent-only-enrollment",
+    "F04": "selected-genuine-receipt-after-enrollment",
+    "F06": "inactive-proposal-retain-archived-commitment",
+    "F10": "no-persistence-or-production-routing"
+  },
+  "legacyObservations": [
+    {
+      "id": "LEGACY-unique",
+      "name": "unique",
+      "status": "actual-source-observation",
+      "observed": {
+        "references": [
+          {
+            "id": "parent",
+            "path": "Projects/Private/Tasks.md",
+            "text": "Parent **markdown**"
+          }
+        ],
+        "work": [
+          {
+            "ref": {
+              "id": "parent",
+              "path": "Projects/Private/Tasks.md",
+              "text": "Parent **markdown**"
+            },
+            "task": {
+              "path": "Projects/Private/Tasks.md",
+              "line": 0,
+              "end": 4,
+              "text": "Parent **markdown**",
+              "hubTaskId": "parent",
+              "completed": false,
+              "status": " ",
+              "steps": [
+                {
+                  "line": 2,
+                  "text": "First",
+                  "hubTaskId": "first",
+                  "completed": true,
+                  "status": "x",
+                  "indent": 4,
+                  "end": 4
+                },
+                {
+                  "line": 3,
+                  "text": "Nested",
+                  "hubTaskId": "nested",
+                  "completed": false,
+                  "status": " ",
+                  "indent": 8,
+                  "end": 4
+                }
+              ],
+              "description": "Recorded **metadata**",
+              "necessity": "must",
+              "fromDate": null,
+              "dueDate": "2026-10-25",
+              "dueTime": "00:00"
+            }
+          }
+        ],
+        "pending": [],
+        "diagnostics": [],
+        "state": "active",
+        "fulfilledAt": null
+      }
+    },
+    {
+      "id": "LEGACY-title",
+      "name": "title",
+      "status": "actual-source-observation",
+      "observed": {
+        "references": [
+          {
+            "id": "parent",
+            "path": "Projects/Private/Tasks.md",
+            "text": "Parent **markdown**"
+          }
+        ],
+        "work": [
+          {
+            "ref": {
+              "id": "parent",
+              "path": "Projects/Private/Tasks.md",
+              "text": "Parent **markdown**"
+            },
+            "task": {
+              "path": "Projects/Private/Tasks.md",
+              "line": 0,
+              "end": 4,
+              "text": "New current title",
+              "hubTaskId": "parent",
+              "completed": false,
+              "status": " ",
+              "steps": [
+                {
+                  "line": 2,
+                  "text": "First",
+                  "hubTaskId": "first",
+                  "completed": true,
+                  "status": "x",
+                  "indent": 4,
+                  "end": 4
+                },
+                {
+                  "line": 3,
+                  "text": "Nested",
+                  "hubTaskId": "nested",
+                  "completed": false,
+                  "status": " ",
+                  "indent": 8,
+                  "end": 4
+                }
+              ],
+              "description": "Recorded **metadata**",
+              "necessity": "must",
+              "fromDate": null,
+              "dueDate": "2026-10-25",
+              "dueTime": "00:00"
+            }
+          }
+        ],
+        "pending": [],
+        "diagnostics": [],
+        "state": "active",
+        "fulfilledAt": null
+      }
+    },
+    {
+      "id": "LEGACY-continuation",
+      "name": "continuation",
+      "status": "actual-source-observation",
+      "observed": {
+        "references": [
+          {
+            "id": "parent",
+            "path": "Projects/Private/Tasks.md",
+            "text": "Parent **markdown**"
+          }
+        ],
+        "work": [
+          {
+            "ref": {
+              "id": "parent",
+              "path": "Projects/Private/Tasks.md",
+              "text": "Parent **markdown**"
+            },
+            "task": {
+              "path": "Projects/Private/Tasks.md",
+              "line": 0,
+              "end": 4,
+              "text": "Parent **markdown**",
+              "hubTaskId": "parent",
+              "completed": false,
+              "status": " ",
+              "steps": [
+                {
+                  "line": 2,
+                  "text": "First",
+                  "hubTaskId": "first",
+                  "completed": true,
+                  "status": "x",
+                  "indent": 4,
+                  "end": 4
+                },
+                {
+                  "line": 3,
+                  "text": "Nested",
+                  "hubTaskId": "nested",
+                  "completed": false,
+                  "status": " ",
+                  "indent": 8,
+                  "end": 4
+                }
+              ],
+              "description": "Recorded **metadata**",
+              "necessity": "must",
+              "fromDate": null,
+              "dueDate": "2026-10-25",
+              "dueTime": "00:00"
+            }
+          }
+        ],
+        "pending": [],
+        "diagnostics": [],
+        "state": "active",
+        "fulfilledAt": null
+      }
+    },
+    {
+      "id": "LEGACY-line",
+      "name": "line",
+      "status": "actual-source-observation",
+      "observed": {
+        "references": [
+          {
+            "id": "parent",
+            "path": "Projects/Private/Tasks.md",
+            "text": "Parent **markdown**"
+          }
+        ],
+        "work": [
+          {
+            "ref": {
+              "id": "parent",
+              "path": "Projects/Private/Tasks.md",
+              "text": "Parent **markdown**"
+            },
+            "task": {
+              "path": "Projects/Private/Tasks.md",
+              "line": 2,
+              "end": 6,
+              "text": "Parent **markdown**",
+              "hubTaskId": "parent",
+              "completed": false,
+              "status": " ",
+              "steps": [
+                {
+                  "line": 4,
+                  "text": "First",
+                  "hubTaskId": "first",
+                  "completed": true,
+                  "status": "x",
+                  "indent": 4,
+                  "end": 6
+                },
+                {
+                  "line": 5,
+                  "text": "Nested",
+                  "hubTaskId": "nested",
+                  "completed": false,
+                  "status": " ",
+                  "indent": 8,
+                  "end": 6
+                }
+              ],
+              "description": "Recorded **metadata**",
+              "necessity": "must",
+              "fromDate": null,
+              "dueDate": "2026-10-25",
+              "dueTime": "00:00"
+            }
+          }
+        ],
+        "pending": [],
+        "diagnostics": [],
+        "state": "active",
+        "fulfilledAt": null
+      }
+    },
+    {
+      "id": "LEGACY-rename",
+      "name": "rename",
+      "status": "actual-source-observation",
+      "observed": {
+        "references": [
+          {
+            "id": "parent",
+            "path": "Projects/Private/Tasks.md",
+            "text": "Parent **markdown**"
+          }
+        ],
+        "work": [
+          {
+            "ref": {
+              "id": "parent",
+              "path": "Projects/Private/Tasks.md",
+              "text": "Parent **markdown**"
+            },
+            "task": {
+              "path": "Projects/Private/Renamed.md",
+              "line": 0,
+              "end": 4,
+              "text": "Parent **markdown**",
+              "hubTaskId": "parent",
+              "completed": false,
+              "status": " ",
+              "steps": [
+                {
+                  "line": 2,
+                  "text": "First",
+                  "hubTaskId": "first",
+                  "completed": true,
+                  "status": "x",
+                  "indent": 4,
+                  "end": 4
+                },
+                {
+                  "line": 3,
+                  "text": "Nested",
+                  "hubTaskId": "nested",
+                  "completed": false,
+                  "status": " ",
+                  "indent": 8,
+                  "end": 4
+                }
+              ],
+              "description": "Recorded **metadata**",
+              "necessity": "must",
+              "fromDate": null,
+              "dueDate": "2026-10-25",
+              "dueTime": "00:00"
+            }
+          }
+        ],
+        "pending": [],
+        "diagnostics": [],
+        "state": "active",
+        "fulfilledAt": null
+      }
+    },
+    {
+      "id": "LEGACY-move",
+      "name": "move",
+      "status": "actual-source-observation",
+      "observed": {
+        "references": [
+          {
+            "id": "parent",
+            "path": "Projects/Private/Tasks.md",
+            "text": "Parent **markdown**"
+          }
+        ],
+        "work": [
+          {
+            "ref": {
+              "id": "parent",
+              "path": "Projects/Private/Tasks.md",
+              "text": "Parent **markdown**"
+            },
+            "task": {
+              "path": "Projects/Private/Nested/Moved.md",
+              "line": 0,
+              "end": 4,
+              "text": "Parent **markdown**",
+              "hubTaskId": "parent",
+              "completed": false,
+              "status": " ",
+              "steps": [
+                {
+                  "line": 2,
+                  "text": "First",
+                  "hubTaskId": "first",
+                  "completed": true,
+                  "status": "x",
+                  "indent": 4,
+                  "end": 4
+                },
+                {
+                  "line": 3,
+                  "text": "Nested",
+                  "hubTaskId": "nested",
+                  "completed": false,
+                  "status": " ",
+                  "indent": 8,
+                  "end": 4
+                }
+              ],
+              "description": "Recorded **metadata**",
+              "necessity": "must",
+              "fromDate": null,
+              "dueDate": "2026-10-25",
+              "dueTime": "00:00"
+            }
+          }
+        ],
+        "pending": [],
+        "diagnostics": [],
+        "state": "active",
+        "fulfilledAt": null
+      }
+    },
+    {
+      "id": "LEGACY-between-notes",
+      "name": "between-notes",
+      "status": "actual-source-observation",
+      "observed": {
+        "references": [
+          {
+            "id": "parent",
+            "path": "Projects/Private/Tasks.md",
+            "text": "Parent **markdown**"
+          }
+        ],
+        "work": [
+          {
+            "ref": {
+              "id": "parent",
+              "path": "Projects/Private/Tasks.md",
+              "text": "Parent **markdown**"
+            },
+            "task": {
+              "path": "Projects/Private/Other.md",
+              "line": 0,
+              "end": 4,
+              "text": "Parent **markdown**",
+              "hubTaskId": "parent",
+              "completed": false,
+              "status": " ",
+              "steps": [
+                {
+                  "line": 2,
+                  "text": "First",
+                  "hubTaskId": "first",
+                  "completed": true,
+                  "status": "x",
+                  "indent": 4,
+                  "end": 4
+                },
+                {
+                  "line": 3,
+                  "text": "Nested",
+                  "hubTaskId": "nested",
+                  "completed": false,
+                  "status": " ",
+                  "indent": 8,
+                  "end": 4
+                }
+              ],
+              "description": "Recorded **metadata**",
+              "necessity": "must",
+              "fromDate": null,
+              "dueDate": "2026-10-25",
+              "dueTime": "00:00"
+            }
+          }
+        ],
+        "pending": [],
+        "diagnostics": [],
+        "state": "active",
+        "fulfilledAt": null
+      }
+    },
+    {
+      "id": "LEGACY-cross-owner",
+      "name": "cross-owner",
+      "status": "actual-source-observation",
+      "observed": {
+        "references": [
+          {
+            "id": "parent",
+            "path": "Projects/Private/Tasks.md",
+            "text": "Parent **markdown**"
+          }
+        ],
+        "work": [
+          {
+            "ref": {
+              "id": "parent",
+              "path": "Projects/Private/Tasks.md",
+              "text": "Parent **markdown**"
+            },
+            "task": null
+          }
+        ],
+        "pending": [],
+        "diagnostics": [
+          "WRONG_PHYSICAL_OWNER"
+        ],
+        "state": "active",
+        "fulfilledAt": null
+      }
+    },
+    {
+      "id": "LEGACY-other-project",
+      "name": "other-project",
+      "status": "actual-source-observation",
+      "observed": {
+        "references": [
+          {
+            "id": "parent",
+            "path": "Projects/Private/Tasks.md",
+            "text": "Parent **markdown**"
+          }
+        ],
+        "work": [
+          {
+            "ref": {
+              "id": "parent",
+              "path": "Projects/Private/Tasks.md",
+              "text": "Parent **markdown**"
+            },
+            "task": null
+          }
+        ],
+        "pending": [],
+        "diagnostics": [
+          "WRONG_PHYSICAL_OWNER"
+        ],
+        "state": "active",
+        "fulfilledAt": null
+      }
+    },
+    {
+      "id": "LEGACY-copy-same-note",
+      "name": "copy-same-note",
+      "status": "actual-source-observation",
+      "observed": {
+        "references": [
+          {
+            "id": "parent",
+            "path": "Projects/Private/Tasks.md",
+            "text": "Parent **markdown**"
+          }
+        ],
+        "work": [
+          {
+            "ref": {
+              "id": "parent",
+              "path": "Projects/Private/Tasks.md",
+              "text": "Parent **markdown**"
+            },
+            "task": null
+          }
+        ],
+        "pending": [],
+        "diagnostics": [
+          "AMBIGUOUS_REFERENCE"
+        ],
+        "state": "active",
+        "fulfilledAt": null
+      }
+    },
+    {
+      "id": "LEGACY-copy-outside",
+      "name": "copy-outside",
+      "status": "actual-source-observation",
+      "observed": {
+        "references": [
+          {
+            "id": "parent",
+            "path": "Projects/Private/Tasks.md",
+            "text": "Parent **markdown**"
+          }
+        ],
+        "work": [
+          {
+            "ref": {
+              "id": "parent",
+              "path": "Projects/Private/Tasks.md",
+              "text": "Parent **markdown**"
+            },
+            "task": null
+          }
+        ],
+        "pending": [],
+        "diagnostics": [
+          "AMBIGUOUS_REFERENCE"
+        ],
+        "state": "active",
+        "fulfilledAt": null
+      }
+    },
+    {
+      "id": "LEGACY-copy-project",
+      "name": "copy-project",
+      "status": "actual-source-observation",
+      "observed": {
+        "references": [
+          {
+            "id": "parent",
+            "path": "Projects/Private/Tasks.md",
+            "text": "Parent **markdown**"
+          }
+        ],
+        "work": [
+          {
+            "ref": {
+              "id": "parent",
+              "path": "Projects/Private/Tasks.md",
+              "text": "Parent **markdown**"
+            },
+            "task": null
+          }
+        ],
+        "pending": [],
+        "diagnostics": [
+          "AMBIGUOUS_REFERENCE"
+        ],
+        "state": "active",
+        "fulfilledAt": null
+      }
+    },
+    {
+      "id": "LEGACY-copy-resource",
+      "name": "copy-resource",
+      "status": "actual-source-observation",
+      "observed": {
+        "references": [
+          {
+            "id": "parent",
+            "path": "Projects/Private/Tasks.md",
+            "text": "Parent **markdown**"
+          }
+        ],
+        "work": [
+          {
+            "ref": {
+              "id": "parent",
+              "path": "Projects/Private/Tasks.md",
+              "text": "Parent **markdown**"
+            },
+            "task": null
+          }
+        ],
+        "pending": [],
+        "diagnostics": [
+          "AMBIGUOUS_REFERENCE"
+        ],
+        "state": "active",
+        "fulfilledAt": null
+      }
+    },
+    {
+      "id": "LEGACY-copy-step",
+      "name": "copy-step",
+      "status": "actual-source-observation",
+      "observed": {
+        "references": [
+          {
+            "id": "parent",
+            "path": "Projects/Private/Tasks.md",
+            "text": "Parent **markdown**"
+          }
+        ],
+        "work": [
+          {
+            "ref": {
+              "id": "parent",
+              "path": "Projects/Private/Tasks.md",
+              "text": "Parent **markdown**"
+            },
+            "task": null
+          }
+        ],
+        "pending": [],
+        "diagnostics": [
+          "AMBIGUOUS_REFERENCE"
+        ],
+        "state": "active",
+        "fulfilledAt": null
+      }
+    },
+    {
+      "id": "LEGACY-unrelated-step-copy",
+      "name": "unrelated-step-copy",
+      "status": "actual-source-observation",
+      "observed": {
+        "references": [
+          {
+            "id": "parent",
+            "path": "Projects/Private/Tasks.md",
+            "text": "Parent **markdown**"
+          }
+        ],
+        "work": [
+          {
+            "ref": {
+              "id": "parent",
+              "path": "Projects/Private/Tasks.md",
+              "text": "Parent **markdown**"
+            },
+            "task": {
+              "path": "Projects/Private/Tasks.md",
+              "line": 0,
+              "end": 4,
+              "text": "Parent **markdown**",
+              "hubTaskId": "parent",
+              "completed": false,
+              "status": " ",
+              "steps": [
+                {
+                  "line": 2,
+                  "text": "First",
+                  "hubTaskId": "first",
+                  "completed": true,
+                  "status": "x",
+                  "indent": 4,
+                  "end": 4
+                },
+                {
+                  "line": 3,
+                  "text": "Nested",
+                  "hubTaskId": "nested",
+                  "completed": false,
+                  "status": " ",
+                  "indent": 8,
+                  "end": 4
+                }
+              ],
+              "description": "Recorded **metadata**",
+              "necessity": "must",
+              "fromDate": null,
+              "dueDate": "2026-10-25",
+              "dueTime": "00:00"
+            }
+          }
+        ],
+        "pending": [],
+        "diagnostics": [],
+        "state": "active",
+        "fulfilledAt": null
+      }
+    },
+    {
+      "id": "LEGACY-delete-note",
+      "name": "delete-note",
+      "status": "actual-source-observation",
+      "observed": {
+        "references": [
+          {
+            "id": "parent",
+            "path": "Projects/Private/Tasks.md",
+            "text": "Parent **markdown**"
+          }
+        ],
+        "work": [
+          {
+            "ref": {
+              "id": "parent",
+              "path": "Projects/Private/Tasks.md",
+              "text": "Parent **markdown**"
+            },
+            "task": null
+          }
+        ],
+        "pending": [],
+        "diagnostics": [
+          "ID_NOT_INDEXED"
+        ],
+        "state": "active",
+        "fulfilledAt": null
+      }
+    },
+    {
+      "id": "LEGACY-delete-task",
+      "name": "delete-task",
+      "status": "actual-source-observation",
+      "observed": {
+        "references": [
+          {
+            "id": "parent",
+            "path": "Projects/Private/Tasks.md",
+            "text": "Parent **markdown**"
+          }
+        ],
+        "work": [
+          {
+            "ref": {
+              "id": "parent",
+              "path": "Projects/Private/Tasks.md",
+              "text": "Parent **markdown**"
+            },
+            "task": null
+          }
+        ],
+        "pending": [],
+        "diagnostics": [
+          "SOURCE_ID_MISSING"
+        ],
+        "state": "active",
+        "fulfilledAt": null
+      }
+    },
+    {
+      "id": "LEGACY-remove-id",
+      "name": "remove-id",
+      "status": "actual-source-observation",
+      "observed": {
+        "references": [
+          {
+            "id": "parent",
+            "path": "Projects/Private/Tasks.md",
+            "text": "Parent **markdown**"
+          }
+        ],
+        "work": [
+          {
+            "ref": {
+              "id": "parent",
+              "path": "Projects/Private/Tasks.md",
+              "text": "Parent **markdown**"
+            },
+            "task": null
+          }
+        ],
+        "pending": [],
+        "diagnostics": [
+          "SOURCE_ID_MISSING"
+        ],
+        "state": "active",
+        "fulfilledAt": null
+      }
+    },
+    {
+      "id": "LEGACY-same-title",
+      "name": "same-title",
+      "status": "actual-source-observation",
+      "observed": {
+        "references": [
+          {
+            "id": "parent",
+            "path": "Projects/Private/Tasks.md",
+            "text": "Parent **markdown**"
+          }
+        ],
+        "work": [
+          {
+            "ref": {
+              "id": "parent",
+              "path": "Projects/Private/Tasks.md",
+              "text": "Parent **markdown**"
+            },
+            "task": null
+          }
+        ],
+        "pending": [],
+        "diagnostics": [
+          "ID_NOT_INDEXED"
+        ],
+        "state": "active",
+        "fulfilledAt": null
+      }
+    },
+    {
+      "id": "LEGACY-complete",
+      "name": "complete",
+      "status": "actual-source-observation",
+      "observed": {
+        "references": [
+          {
+            "id": "parent",
+            "path": "Projects/Private/Tasks.md",
+            "text": "Parent **markdown**"
+          }
+        ],
+        "work": [
+          {
+            "ref": {
+              "id": "parent",
+              "path": "Projects/Private/Tasks.md",
+              "text": "Parent **markdown**"
+            },
+            "task": {
+              "path": "Projects/Private/Tasks.md",
+              "line": 0,
+              "end": 4,
+              "text": "Parent **markdown**",
+              "hubTaskId": "parent",
+              "completed": true,
+              "status": "x",
+              "steps": [
+                {
+                  "line": 2,
+                  "text": "First",
+                  "hubTaskId": "first",
+                  "completed": true,
+                  "status": "x",
+                  "indent": 4,
+                  "end": 4
+                },
+                {
+                  "line": 3,
+                  "text": "Nested",
+                  "hubTaskId": "nested",
+                  "completed": false,
+                  "status": " ",
+                  "indent": 8,
+                  "end": 4
+                }
+              ],
+              "description": "Recorded **metadata**",
+              "necessity": "must",
+              "fromDate": null,
+              "dueDate": "2026-10-25",
+              "dueTime": "00:00"
+            }
+          }
+        ],
+        "pending": [],
+        "diagnostics": [],
+        "state": "active",
+        "fulfilledAt": null
+      }
+    },
+    {
+      "id": "LEGACY-steps",
+      "name": "steps",
+      "status": "actual-source-observation",
+      "observed": {
+        "references": [
+          {
+            "id": "parent",
+            "path": "Projects/Private/Tasks.md",
+            "text": "Parent **markdown**"
+          }
+        ],
+        "work": [
+          {
+            "ref": {
+              "id": "parent",
+              "path": "Projects/Private/Tasks.md",
+              "text": "Parent **markdown**"
+            },
+            "task": {
+              "path": "Projects/Private/Tasks.md",
+              "line": 0,
+              "end": 4,
+              "text": "Parent **markdown**",
+              "hubTaskId": "parent",
+              "completed": false,
+              "status": " ",
+              "steps": [
+                {
+                  "line": 2,
+                  "text": "First",
+                  "hubTaskId": "first",
+                  "completed": true,
+                  "status": "x",
+                  "indent": 4,
+                  "end": 4
+                },
+                {
+                  "line": 3,
+                  "text": "Nested",
+                  "hubTaskId": "nested",
+                  "completed": true,
+                  "status": "x",
+                  "indent": 8,
+                  "end": 4
+                }
+              ],
+              "description": "Recorded **metadata**",
+              "necessity": "must",
+              "fromDate": null,
+              "dueDate": "2026-10-25",
+              "dueTime": "00:00"
+            }
+          }
+        ],
+        "pending": [],
+        "diagnostics": [],
+        "state": "active",
+        "fulfilledAt": null
+      }
+    },
+    {
+      "id": "LEGACY-metadata",
+      "name": "metadata",
+      "status": "actual-source-observation",
+      "observed": {
+        "references": [
+          {
+            "id": "parent",
+            "path": "Projects/Private/Tasks.md",
+            "text": "Parent **markdown**"
+          }
+        ],
+        "work": [
+          {
+            "ref": {
+              "id": "parent",
+              "path": "Projects/Private/Tasks.md",
+              "text": "Parent **markdown**"
+            },
+            "task": {
+              "path": "Projects/Private/Tasks.md",
+              "line": 0,
+              "end": 4,
+              "text": "Parent **markdown**",
+              "hubTaskId": "parent",
+              "completed": false,
+              "status": " ",
+              "steps": [
+                {
+                  "line": 2,
+                  "text": "First",
+                  "hubTaskId": "first",
+                  "completed": true,
+                  "status": "x",
+                  "indent": 4,
+                  "end": 4
+                },
+                {
+                  "line": 3,
+                  "text": "Nested",
+                  "hubTaskId": "nested",
+                  "completed": false,
+                  "status": " ",
+                  "indent": 8,
+                  "end": 4
+                }
+              ],
+              "description": "new",
+              "phaseId": "phase-1",
+              "necessity": "should",
+              "fromDate": "2026-10-26",
+              "dueDate": null,
+              "fromTime": "00:00"
+            }
+          }
+        ],
+        "pending": [],
+        "diagnostics": [],
+        "state": "active",
+        "fulfilledAt": null
+      }
+    },
+    {
+      "id": "LEGACY-future",
+      "name": "future",
+      "status": "actual-source-observation",
+      "observed": {
+        "references": [
+          {
+            "id": "parent",
+            "path": "Projects/Private/Tasks.md",
+            "text": "Parent **markdown**"
+          }
+        ],
+        "work": [
+          {
+            "ref": {
+              "id": "parent",
+              "path": "Projects/Private/Tasks.md",
+              "text": "Parent **markdown**"
+            },
+            "task": {
+              "path": "Projects/Private/Tasks.md",
+              "line": 0,
+              "end": 4,
+              "text": "Parent **markdown**",
+              "hubTaskId": "parent",
+              "completed": false,
+              "status": " ",
+              "steps": [
+                {
+                  "line": 2,
+                  "text": "First",
+                  "hubTaskId": "first",
+                  "completed": true,
+                  "status": "x",
+                  "indent": 4,
+                  "end": 4
+                },
+                {
+                  "line": 3,
+                  "text": "Nested",
+                  "hubTaskId": "nested",
+                  "completed": false,
+                  "status": " ",
+                  "indent": 8,
+                  "end": 4
+                }
+              ],
+              "description": "Recorded **metadata**",
+              "necessity": "must",
+              "fromDate": null,
+              "dueDate": "2026-10-25",
+              "dueTime": "00:00"
+            }
+          }
+        ],
+        "pending": [],
+        "diagnostics": [],
+        "state": "active",
+        "fulfilledAt": null
+      }
+    },
+    {
+      "id": "LEGACY-shelved",
+      "name": "shelved",
+      "status": "actual-source-observation",
+      "observed": {
+        "references": [
+          {
+            "id": "parent",
+            "path": "Projects/Private/Tasks.md",
+            "text": "Parent **markdown**"
+          }
+        ],
+        "work": [
+          {
+            "ref": {
+              "id": "parent",
+              "path": "Projects/Private/Tasks.md",
+              "text": "Parent **markdown**"
+            },
+            "task": {
+              "path": "Projects/Private/Tasks.md",
+              "line": 0,
+              "end": 4,
+              "text": "Parent **markdown**",
+              "hubTaskId": "parent",
+              "completed": false,
+              "status": " ",
+              "steps": [
+                {
+                  "line": 2,
+                  "text": "First",
+                  "hubTaskId": "first",
+                  "completed": true,
+                  "status": "x",
+                  "indent": 4,
+                  "end": 4
+                },
+                {
+                  "line": 3,
+                  "text": "Nested",
+                  "hubTaskId": "nested",
+                  "completed": false,
+                  "status": " ",
+                  "indent": 8,
+                  "end": 4
+                }
+              ],
+              "description": "Recorded **metadata**",
+              "necessity": "must",
+              "fromDate": null,
+              "dueDate": "2026-10-25",
+              "dueTime": "00:00"
+            }
+          }
+        ],
+        "pending": [],
+        "diagnostics": [],
+        "state": "active",
+        "fulfilledAt": null
+      }
+    },
+    {
+      "id": "LEGACY-rename-project",
+      "name": "rename-project",
+      "status": "actual-source-observation",
+      "observed": {
+        "references": [
+          {
+            "id": "parent",
+            "path": "Projects/Private/Tasks.md",
+            "text": "Parent **markdown**"
+          }
+        ],
+        "work": [
+          {
+            "ref": {
+              "id": "parent",
+              "path": "Projects/Private/Tasks.md",
+              "text": "Parent **markdown**"
+            },
+            "task": {
+              "path": "Projects/Private/Tasks.md",
+              "line": 0,
+              "end": 4,
+              "text": "Parent **markdown**",
+              "hubTaskId": "parent",
+              "completed": false,
+              "status": " ",
+              "steps": [
+                {
+                  "line": 2,
+                  "text": "First",
+                  "hubTaskId": "first",
+                  "completed": true,
+                  "status": "x",
+                  "indent": 4,
+                  "end": 4
+                },
+                {
+                  "line": 3,
+                  "text": "Nested",
+                  "hubTaskId": "nested",
+                  "completed": false,
+                  "status": " ",
+                  "indent": 8,
+                  "end": 4
+                }
+              ],
+              "description": "Recorded **metadata**",
+              "necessity": "must",
+              "fromDate": null,
+              "dueDate": "2026-10-25",
+              "dueTime": "00:00"
+            }
+          }
+        ],
+        "pending": [],
+        "diagnostics": [],
+        "state": "active",
+        "fulfilledAt": null
+      }
+    },
+    {
+      "id": "LEGACY-missing-dashboard",
+      "name": "missing-dashboard",
+      "status": "actual-source-observation",
+      "observed": {
+        "references": [
+          {
+            "id": "parent",
+            "path": "Projects/Private/Tasks.md",
+            "text": "Parent **markdown**"
+          }
+        ],
+        "work": [
+          {
+            "ref": {
+              "id": "parent",
+              "path": "Projects/Private/Tasks.md",
+              "text": "Parent **markdown**"
+            },
+            "task": null
+          }
+        ],
+        "pending": [],
+        "diagnostics": [
+          "WRONG_PHYSICAL_OWNER"
+        ],
+        "state": "active",
+        "fulfilledAt": null
+      }
+    },
+    {
+      "id": "LEGACY-delete-project",
+      "name": "delete-project",
+      "status": "actual-source-observation",
+      "observed": {
+        "references": [
+          {
+            "id": "parent",
+            "path": "Projects/Private/Tasks.md",
+            "text": "Parent **markdown**"
+          }
+        ],
+        "work": [
+          {
+            "ref": {
+              "id": "parent",
+              "path": "Projects/Private/Tasks.md",
+              "text": "Parent **markdown**"
+            },
+            "task": null
+          }
+        ],
+        "pending": [],
+        "diagnostics": [
+          "WRONG_PHYSICAL_OWNER"
+        ],
+        "state": "active",
+        "fulfilledAt": null
+      }
+    },
+    {
+      "id": "LEGACY-root-moved",
+      "name": "root-moved",
+      "status": "actual-source-observation",
+      "observed": {
+        "references": [
+          {
+            "id": "parent",
+            "path": "Projects/Private/Tasks.md",
+            "text": "Parent **markdown**"
+          }
+        ],
+        "work": [
+          {
+            "ref": {
+              "id": "parent",
+              "path": "Projects/Private/Tasks.md",
+              "text": "Parent **markdown**"
+            },
+            "task": {
+              "path": "Projects/New/Tasks.md",
+              "line": 0,
+              "end": 4,
+              "text": "Parent **markdown**",
+              "hubTaskId": "parent",
+              "completed": false,
+              "status": " ",
+              "steps": [
+                {
+                  "line": 2,
+                  "text": "First",
+                  "hubTaskId": "first",
+                  "completed": true,
+                  "status": "x",
+                  "indent": 4,
+                  "end": 4
+                },
+                {
+                  "line": 3,
+                  "text": "Nested",
+                  "hubTaskId": "nested",
+                  "completed": false,
+                  "status": " ",
+                  "indent": 8,
+                  "end": 4
+                }
+              ],
+              "description": "Recorded **metadata**",
+              "necessity": "must",
+              "fromDate": null,
+              "dueDate": "2026-10-25",
+              "dueTime": "00:00"
+            }
+          }
+        ],
+        "pending": [],
+        "diagnostics": [],
+        "state": "active",
+        "fulfilledAt": null
+      }
+    },
+    {
+      "id": "LEGACY-bridge-new",
+      "name": "bridge-new",
+      "status": "actual-source-observation",
+      "observed": {
+        "pending": {
+          "references": [
+            {
+              "id": "fixture-oath-1",
+              "path": "Projects/Private/Bridge.md",
+              "text": "Bridge"
+            }
+          ],
+          "work": [
+            {
+              "ref": {
+                "id": "fixture-oath-1",
+                "path": "Projects/Private/Bridge.md",
+                "text": "Bridge"
+              },
+              "task": {
+                "path": "Projects/Private/Bridge.md",
+                "line": 0,
+                "end": 3,
+                "text": "Bridge",
+                "hubTaskId": "fixture-oath-1",
+                "completed": false,
+                "status": " ",
+                "steps": [
+                  {
+                    "line": 1,
+                    "text": "Done",
+                    "hubTaskId": null,
+                    "completed": true,
+                    "status": "x",
+                    "indent": 4,
+                    "end": 3
+                  },
+                  {
+                    "line": 2,
+                    "text": "Nested",
+                    "hubTaskId": null,
+                    "completed": false,
+                    "status": " ",
+                    "indent": 8,
+                    "end": 3
+                  }
+                ],
+                "necessity": null,
+                "fromDate": null,
+                "dueDate": null
+              }
+            }
+          ],
+          "pending": [
+            "fixture-oath-1"
+          ],
+          "diagnostics": [],
+          "state": "scheduled",
+          "fulfilledAt": null
+        },
+        "indexed": {
+          "references": [
+            {
+              "id": "fixture-oath-1",
+              "path": "Projects/Private/Bridge.md",
+              "text": "Bridge"
+            }
+          ],
+          "work": [
+            {
+              "ref": {
+                "id": "fixture-oath-1",
+                "path": "Projects/Private/Bridge.md",
+                "text": "Bridge"
+              },
+              "task": {
+                "path": "Projects/Private/Bridge.md",
+                "line": 0,
+                "end": 3,
+                "text": "Bridge",
+                "hubTaskId": "fixture-oath-1",
+                "completed": false,
+                "status": " ",
+                "steps": [
+                  {
+                    "line": 1,
+                    "text": "Done",
+                    "hubTaskId": null,
+                    "completed": true,
+                    "status": "x",
+                    "indent": 4,
+                    "end": 3
+                  },
+                  {
+                    "line": 2,
+                    "text": "Nested",
+                    "hubTaskId": null,
+                    "completed": false,
+                    "status": " ",
+                    "indent": 8,
+                    "end": 3
+                  }
+                ],
+                "necessity": null,
+                "fromDate": null,
+                "dueDate": null
+              }
+            }
+          ],
+          "pending": [],
+          "diagnostics": [],
+          "state": "scheduled",
+          "fulfilledAt": null
+        }
+      }
+    },
+    {
+      "id": "LEGACY-bridge-existing",
+      "name": "bridge-existing",
+      "status": "actual-source-observation",
+      "observed": {
+        "pending": {
+          "references": [
+            {
+              "id": "source-existing",
+              "path": "Projects/Private/Bridge.md",
+              "text": "Bridge"
+            }
+          ],
+          "work": [
+            {
+              "ref": {
+                "id": "source-existing",
+                "path": "Projects/Private/Bridge.md",
+                "text": "Bridge"
+              },
+              "task": {
+                "path": "Projects/Private/Bridge.md",
+                "line": 0,
+                "end": 3,
+                "text": "Bridge",
+                "hubTaskId": "source-existing",
+                "completed": false,
+                "status": " ",
+                "steps": [
+                  {
+                    "line": 1,
+                    "text": "Done",
+                    "hubTaskId": null,
+                    "completed": true,
+                    "status": "x",
+                    "indent": 4,
+                    "end": 3
+                  },
+                  {
+                    "line": 2,
+                    "text": "Nested",
+                    "hubTaskId": null,
+                    "completed": false,
+                    "status": " ",
+                    "indent": 8,
+                    "end": 3
+                  }
+                ],
+                "necessity": null,
+                "fromDate": null,
+                "dueDate": null
+              }
+            }
+          ],
+          "pending": [
+            "source-existing"
+          ],
+          "diagnostics": [],
+          "state": "scheduled",
+          "fulfilledAt": null
+        },
+        "indexed": {
+          "references": [
+            {
+              "id": "source-existing",
+              "path": "Projects/Private/Bridge.md",
+              "text": "Bridge"
+            }
+          ],
+          "work": [
+            {
+              "ref": {
+                "id": "source-existing",
+                "path": "Projects/Private/Bridge.md",
+                "text": "Bridge"
+              },
+              "task": {
+                "path": "Projects/Private/Bridge.md",
+                "line": 0,
+                "end": 3,
+                "text": "Bridge",
+                "hubTaskId": "source-existing",
+                "completed": false,
+                "status": " ",
+                "steps": [
+                  {
+                    "line": 1,
+                    "text": "Done",
+                    "hubTaskId": null,
+                    "completed": true,
+                    "status": "x",
+                    "indent": 4,
+                    "end": 3
+                  },
+                  {
+                    "line": 2,
+                    "text": "Nested",
+                    "hubTaskId": null,
+                    "completed": false,
+                    "status": " ",
+                    "indent": 8,
+                    "end": 3
+                  }
+                ],
+                "necessity": null,
+                "fromDate": null,
+                "dueDate": null
+              }
+            }
+          ],
+          "pending": [],
+          "diagnostics": [],
+          "state": "scheduled",
+          "fulfilledAt": null
+        }
+      }
+    }
+  ],
+  "policyVectors": [
+    {
+      "id": "NATIVE-ready",
+      "policy": "F01/F08",
+      "input": {
+        "change": "none"
+      },
+      "expected": {
+        "state": "resolved-native"
+      },
+      "status": "reviewed-policy-expectation; not legacy observation"
+    },
+    {
+      "id": "NATIVE-not-ready",
+      "policy": "F01/F08",
+      "input": {
+        "change": "not-ready"
+      },
+      "expected": {
+        "state": "unavailable"
+      },
+      "status": "reviewed-policy-expectation; not legacy observation"
+    },
+    {
+      "id": "NATIVE-unavailable",
+      "policy": "F01/F08",
+      "input": {
+        "change": "unavailable"
+      },
+      "expected": {
+        "state": "unavailable"
+      },
+      "status": "reviewed-policy-expectation; not legacy observation"
+    },
+    {
+      "id": "NATIVE-recovering",
+      "policy": "F01/F08",
+      "input": {
+        "change": "recovering"
+      },
+      "expected": {
+        "state": "unavailable"
+      },
+      "status": "reviewed-policy-expectation; not legacy observation"
+    },
+    {
+      "id": "NATIVE-unsupported",
+      "policy": "F01/F08",
+      "input": {
+        "change": "unsupported"
+      },
+      "expected": {
+        "state": "unavailable"
+      },
+      "status": "reviewed-policy-expectation; not legacy observation"
+    },
+    {
+      "id": "NATIVE-wrong-authority",
+      "policy": "F01/F08",
+      "input": {
+        "change": "wrong-authority"
+      },
+      "expected": {
+        "state": "authority-mismatch"
+      },
+      "status": "reviewed-policy-expectation; not legacy observation"
+    },
+    {
+      "id": "NATIVE-wrong-anchor",
+      "policy": "F01/F08",
+      "input": {
+        "change": "wrong-anchor"
+      },
+      "expected": {
+        "state": "unavailable"
+      },
+      "status": "reviewed-policy-expectation; not legacy observation"
+    },
+    {
+      "id": "NATIVE-missing",
+      "policy": "F01/F08",
+      "input": {
+        "change": "missing"
+      },
+      "expected": {
+        "state": "missing"
+      },
+      "status": "reviewed-policy-expectation; not legacy observation"
+    },
+    {
+      "id": "NATIVE-unknown-recovery",
+      "policy": "F01/F08",
+      "input": {
+        "change": "unknown-recovery"
+      },
+      "expected": {
+        "state": "unavailable"
+      },
+      "status": "reviewed-policy-expectation; not legacy observation"
+    },
+    {
+      "id": "NATIVE-fenced-target",
+      "policy": "F01/F08",
+      "input": {
+        "change": "fenced-target"
+      },
+      "expected": {
+        "state": "unavailable"
+      },
+      "status": "reviewed-policy-expectation; not legacy observation"
+    },
+    {
+      "id": "NATIVE-fenced-other",
+      "policy": "F01/F08",
+      "input": {
+        "change": "fenced-other"
+      },
+      "expected": {
+        "state": "resolved-native"
+      },
+      "status": "reviewed-policy-expectation; not legacy observation"
+    },
+    {
+      "id": "NATIVE-owner-unavailable",
+      "policy": "F01/F08",
+      "input": {
+        "change": "owner-unavailable"
+      },
+      "expected": {
+        "state": "unavailable"
+      },
+      "status": "reviewed-policy-expectation; not legacy observation"
+    }
+  ],
+  "limitations": [
+    "Unsaved latch does not survive reconstructed service after reopen",
+    "No cross-store atomicity",
+    "No live Oath, Strict, transport or native host"
+  ]
+}

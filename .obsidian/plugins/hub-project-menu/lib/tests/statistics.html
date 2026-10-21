@@ -10,6 +10,7 @@ HTMLElement.prototype.createDiv=function(o){return this.createEl('div',o)};HTMLE
 class Modal{constructor(app){this.app=app;this.containerEl=document.body.createDiv({cls:'modal-container'});this.modalEl=this.containerEl.createDiv({cls:'modal'});this.contentEl=this.modalEl.createDiv({cls:'modal-content'});this.modalEl.createEl('button',{cls:'modal-close-button',text:'×',attr:{'aria-label':'Close'}}).onclick=()=>this.close();this.escape=e=>{if(e.key==='Escape')this.close()}}open(){this.onOpen();document.addEventListener('keydown',this.escape)}close(){this.onClose();document.removeEventListener('keydown',this.escape);this.containerEl.remove()}}
 const native={Modal,setIcon:(el,name)=>{el.dataset.icon=name;el.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="10"/><path d="M12 10v7M12 7v1"/></svg>'}};
 const names=["ui/window-title",'domain/dates','domain/history','domain/contexts','domain/statistics','services/statistics','ui/statistics-charts','ui/tooltips','ui/statistics'],sources={},cache={};
+names.push('services/task-service-errors');
 for(const name of names)sources[name]=await(await fetch('../'+name+'.js')).text();
 function load(name){if(name==='obsidian')return native;if(cache[name])return cache[name].exports;const m=cache[name]={exports:{}};new Function('module','require',sources[name])(m,n=>{if(n==='obsidian')return native;const path=(name.slice(0,name.lastIndexOf('/'))+'/'+n).split('/'),out=[];for(const p of path){if(p==='..')out.pop();else if(p!=='.')out.push(p)}return load(out.join('/'))});return m.exports}
 const assert=(v,m)=>{if(!v)throw Error(m)},settle=()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
@@ -44,7 +45,7 @@ try{
  assert(grid.children.length===7,'Seven analytics sections with combined completions');
  assert([...grid.children].map(e=>e.dataset.statistic).join(',')==='distribution,activity,completions,oaths,notes,projects,comparison','Mockup section order');
  assert(root.querySelectorAll('.hub-statistics-ranges button').length===5,'Five real range buttons');
- assert(root.querySelector('.hub-statistics-ranges .is-active').textContent==='3 months','Default range');
+ assert(root.querySelector('.hub-statistics-ranges .is-active').textContent==='All time','User-authorized default range');
  const rangeButtons=[...root.querySelectorAll('.hub-statistics-ranges button')],rangeWidth=rangeButtons[2].getBoundingClientRect().width;
  rangeButtons.forEach(button=>assert(Math.abs(button.getBoundingClientRect().width-rangeWidth)<.1,'Exactly equal range widths'));
  const probe=rangeButtons[2].cloneNode(true);probe.style.cssText='position:absolute;width:max-content;visibility:hidden';rangeButtons[2].parentElement.append(probe);

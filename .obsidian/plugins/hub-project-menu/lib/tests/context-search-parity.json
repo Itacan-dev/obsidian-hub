@@ -1,0 +1,799 @@
+{
+  "cases": [
+    {
+      "query": "roadmap",
+      "workspace": null,
+      "groups": [
+        {
+          "kind": "files",
+          "items": [
+            {
+              "title": "ROADMAP",
+              "path": "Projects/App/Meta/ROADMAP.md",
+              "context": "App › Meta",
+              "score": 0,
+              "owner": "app",
+              "id": null,
+              "snippet": null,
+              "completed": null,
+              "due": null,
+              "dueTime": null
+            },
+            {
+              "title": "ROADMAP",
+              "path": "Projects/Itacan/Meta/ROADMAP.md",
+              "context": "Itacan › Meta",
+              "score": 0,
+              "owner": "itacan",
+              "id": null,
+              "snippet": null,
+              "completed": null,
+              "due": null,
+              "dueTime": null
+            },
+            {
+              "title": "ROADMAP",
+              "path": "Projects/Obsidian Hub/Meta/ROADMAP.md",
+              "context": "Obsidian Hub › Meta",
+              "score": 0,
+              "owner": "hub",
+              "id": null,
+              "snippet": null,
+              "completed": null,
+              "due": null,
+              "dueTime": null
+            },
+            {
+              "title": "ROADMAP",
+              "path": "Projects/Other/Meta/ROADMAP.md",
+              "context": "Other › Meta",
+              "score": 0,
+              "owner": "other",
+              "id": null,
+              "snippet": null,
+              "completed": null,
+              "due": null,
+              "dueTime": null
+            },
+            {
+              "title": "ROADMAP",
+              "path": "Resources/Explorations/Meta/ROADMAP.md",
+              "context": "Explorations › Meta",
+              "score": 0,
+              "owner": "resource:references",
+              "id": null,
+              "snippet": null,
+              "completed": null,
+              "due": null,
+              "dueTime": null
+            },
+            {
+              "title": "ROADMAP",
+              "path": "Resources/Inspiration/Meta/ROADMAP.md",
+              "context": "Inspiration › Meta",
+              "score": 0,
+              "owner": "resource:inspiration",
+              "id": null,
+              "snippet": null,
+              "completed": null,
+              "due": null,
+              "dueTime": null
+            },
+            {
+              "title": "ROADMAP",
+              "path": "Resources/Knowledge/Meta/ROADMAP.md",
+              "context": "Knowledge › Meta",
+              "score": 0,
+              "owner": "resource:study",
+              "id": null,
+              "snippet": null,
+              "completed": null,
+              "due": null,
+              "dueTime": null
+            },
+            {
+              "title": "ROADMAP",
+              "path": "Resources/Research/Meta/ROADMAP.md",
+              "context": "Research › Meta",
+              "score": 0,
+              "owner": "resource:literature",
+              "id": null,
+              "snippet": null,
+              "completed": null,
+              "due": null,
+              "dueTime": null
+            }
+          ]
+        },
+        {
+          "kind": "tasks",
+          "items": [
+            {
+              "title": "ROADMAP",
+              "path": "Projects/App/Meta/ROADMAP.md",
+              "context": "App › Meta › ROADMAP",
+              "score": 10,
+              "owner": "app",
+              "id": null,
+              "snippet": null,
+              "completed": true,
+              "due": "2026-10-18",
+              "dueTime": "00:00"
+            }
+          ]
+        },
+        {
+          "kind": "notes",
+          "items": [
+            {
+              "title": "Plans",
+              "path": "Projects/App/Meta/Plans.md",
+              "context": "App › Meta",
+              "score": 20,
+              "owner": "app",
+              "id": null,
+              "snippet": "…ote about quantum field theory and roadmap details",
+              "completed": null,
+              "due": null,
+              "dueTime": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "query": "zephyr",
+      "workspace": "app",
+      "groups": [
+        {
+          "kind": "tasks",
+          "items": [
+            {
+              "title": "Read experiment\ncontinuation zephyr evidence",
+              "path": "Projects/App/Meta/Tasks.md",
+              "context": "App › Meta › Tasks",
+              "score": 12,
+              "owner": "app",
+              "id": null,
+              "snippet": null,
+              "completed": false,
+              "due": null,
+              "dueTime": null
+            }
+          ]
+        },
+        {
+          "kind": "notes",
+          "items": [
+            {
+              "title": "Tasks",
+              "path": "Projects/App/Meta/Tasks.md",
+              "context": "App › Meta",
+              "score": 20,
+              "owner": "app",
+              "id": null,
+              "snippet": "…- [ ] Read experiment continuation zephyr evidence - [ ] step-exclusive tungsten Surrounding-only mercury - [ ] No identity plan",
+              "completed": null,
+              "due": null,
+              "dueTime": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "query": "plan",
+      "workspace": "app",
+      "groups": [
+        {
+          "kind": "files",
+          "items": [
+            {
+              "title": "Plans",
+              "path": "Projects/App/Meta/Plans.md",
+              "context": "App › Meta",
+              "score": 1,
+              "owner": "app",
+              "id": null,
+              "snippet": null,
+              "completed": null,
+              "due": null,
+              "dueTime": null
+            }
+          ]
+        },
+        {
+          "kind": "tasks",
+          "items": [
+            {
+              "title": "No identity plan",
+              "path": "Projects/App/Meta/Tasks.md",
+              "context": "App › Meta › Tasks",
+              "score": 12,
+              "owner": "app",
+              "id": null,
+              "snippet": null,
+              "completed": false,
+              "due": null,
+              "dueTime": null
+            }
+          ]
+        },
+        {
+          "kind": "notes",
+          "items": [
+            {
+              "title": "Tasks",
+              "path": "Projects/App/Meta/Tasks.md",
+              "context": "App › Meta",
+              "score": 20,
+              "owner": "app",
+              "id": null,
+              "snippet": "…ing-only mercury - [ ] No identity plan",
+              "completed": null,
+              "due": null,
+              "dueTime": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "query": "plan",
+      "workspace": "resource:study",
+      "groups": [
+        {
+          "kind": "tasks",
+          "items": [
+            {
+              "title": "Knowledge plan",
+              "path": "Resources/Knowledge/Meta/ROADMAP.md",
+              "context": "Knowledge › Meta › ROADMAP",
+              "score": 12,
+              "owner": "resource:study",
+              "id": null,
+              "snippet": null,
+              "completed": false,
+              "due": null,
+              "dueTime": null
+            },
+            {
+              "title": "Mounted resource plan",
+              "path": "Resources/Knowledge/Mounted/Notes.md",
+              "context": "Knowledge › Mounted › Notes",
+              "score": 12,
+              "owner": "resource:study",
+              "id": null,
+              "snippet": null,
+              "completed": false,
+              "due": null,
+              "dueTime": null
+            }
+          ]
+        },
+        {
+          "kind": "notes",
+          "items": [
+            {
+              "title": "Notes",
+              "path": "Resources/Knowledge/Mounted/Notes.md",
+              "context": "Knowledge › Mounted",
+              "score": 20,
+              "owner": "resource:study",
+              "id": null,
+              "snippet": "# Synthetic - [ ] Mounted resource plan",
+              "completed": null,
+              "due": null,
+              "dueTime": null
+            },
+            {
+              "title": "ROADMAP",
+              "path": "Resources/Knowledge/Meta/ROADMAP.md",
+              "context": "Knowledge › Meta",
+              "score": 20,
+              "owner": "resource:study",
+              "id": null,
+              "snippet": "…in every workspace - [ ] Knowledge plan",
+              "completed": null,
+              "due": null,
+              "dueTime": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "query": "plan",
+      "workspace": "resource:literature",
+      "groups": [
+        {
+          "kind": "tasks",
+          "items": [
+            {
+              "title": "Research plan",
+              "path": "Resources/Research/Meta/ROADMAP.md",
+              "context": "Research › Meta › ROADMAP",
+              "score": 12,
+              "owner": "resource:literature",
+              "id": null,
+              "snippet": null,
+              "completed": false,
+              "due": null,
+              "dueTime": null
+            }
+          ]
+        },
+        {
+          "kind": "notes",
+          "items": [
+            {
+              "title": "ROADMAP",
+              "path": "Resources/Research/Meta/ROADMAP.md",
+              "context": "Research › Meta",
+              "score": 20,
+              "owner": "resource:literature",
+              "id": null,
+              "snippet": "… in every workspace - [ ] Research plan",
+              "completed": null,
+              "due": null,
+              "dueTime": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "query": "plan",
+      "workspace": "resource:references",
+      "groups": [
+        {
+          "kind": "tasks",
+          "items": [
+            {
+              "title": "Explorations plan",
+              "path": "Resources/Explorations/Meta/ROADMAP.md",
+              "context": "Explorations › Meta › ROADMAP",
+              "score": 12,
+              "owner": "resource:references",
+              "id": null,
+              "snippet": null,
+              "completed": false,
+              "due": null,
+              "dueTime": null
+            }
+          ]
+        },
+        {
+          "kind": "notes",
+          "items": [
+            {
+              "title": "ROADMAP",
+              "path": "Resources/Explorations/Meta/ROADMAP.md",
+              "context": "Explorations › Meta",
+              "score": 20,
+              "owner": "resource:references",
+              "id": null,
+              "snippet": "…every workspace - [ ] Explorations plan",
+              "completed": null,
+              "due": null,
+              "dueTime": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "query": "plan",
+      "workspace": "resource:inspiration",
+      "groups": [
+        {
+          "kind": "tasks",
+          "items": [
+            {
+              "title": "Inspiration plan",
+              "path": "Resources/Inspiration/Meta/ROADMAP.md",
+              "context": "Inspiration › Meta › ROADMAP",
+              "score": 12,
+              "owner": "resource:inspiration",
+              "id": null,
+              "snippet": null,
+              "completed": false,
+              "due": null,
+              "dueTime": null
+            }
+          ]
+        },
+        {
+          "kind": "notes",
+          "items": [
+            {
+              "title": "ROADMAP",
+              "path": "Resources/Inspiration/Meta/ROADMAP.md",
+              "context": "Inspiration › Meta",
+              "score": 20,
+              "owner": "resource:inspiration",
+              "id": null,
+              "snippet": "… every workspace - [ ] Inspiration plan",
+              "completed": null,
+              "due": null,
+              "dueTime": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "query": "shelved",
+      "workspace": null,
+      "groups": [
+        {
+          "kind": "tasks",
+          "items": [
+            {
+              "title": "Shelved project plan",
+              "path": "Projects/Other/Meta/ROADMAP.md",
+              "context": "Other › Meta › ROADMAP",
+              "score": 11,
+              "owner": "other",
+              "id": null,
+              "snippet": null,
+              "completed": false,
+              "due": null,
+              "dueTime": null
+            }
+          ]
+        },
+        {
+          "kind": "notes",
+          "items": [
+            {
+              "title": "ROADMAP",
+              "path": "Projects/Other/Meta/ROADMAP.md",
+              "context": "Other › Meta",
+              "score": 20,
+              "owner": "other",
+              "id": null,
+              "snippet": "…ed phrase in every workspace - [ ] Shelved project plan",
+              "completed": null,
+              "due": null,
+              "dueTime": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "query": "shared task",
+      "workspace": null,
+      "groups": [
+        {
+          "kind": "tasks",
+          "items": [
+            {
+              "title": "Shared task plan",
+              "path": "Projects/Itacan/Meta/ROADMAP.md",
+              "context": "Itacan › Meta › ROADMAP",
+              "score": 11,
+              "owner": "itacan",
+              "id": null,
+              "snippet": null,
+              "completed": false,
+              "due": null,
+              "dueTime": null
+            },
+            {
+              "title": "Shared task plan",
+              "path": "Projects/Obsidian Hub/Meta/ROADMAP.md",
+              "context": "Obsidian Hub › Meta › ROADMAP",
+              "score": 11,
+              "owner": "hub",
+              "id": null,
+              "snippet": null,
+              "completed": false,
+              "due": null,
+              "dueTime": null
+            }
+          ]
+        },
+        {
+          "kind": "notes",
+          "items": [
+            {
+              "title": "ROADMAP",
+              "path": "Projects/Itacan/Meta/ROADMAP.md",
+              "context": "Itacan › Meta",
+              "score": 20,
+              "owner": "itacan",
+              "id": null,
+              "snippet": "Shared phrase in every workspace - [ ] Shared task plan",
+              "completed": null,
+              "due": null,
+              "dueTime": null
+            },
+            {
+              "title": "ROADMAP",
+              "path": "Projects/Obsidian Hub/Meta/ROADMAP.md",
+              "context": "Obsidian Hub › Meta",
+              "score": 20,
+              "owner": "hub",
+              "id": null,
+              "snippet": "Shared phrase in every workspace - [ ] Shared task plan",
+              "completed": null,
+              "due": null,
+              "dueTime": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "query": "description-only",
+      "workspace": null,
+      "groups": []
+    },
+    {
+      "query": "step-exclusive",
+      "workspace": "app",
+      "groups": [
+        {
+          "kind": "notes",
+          "items": [
+            {
+              "title": "Tasks",
+              "path": "Projects/App/Meta/Tasks.md",
+              "context": "App › Meta",
+              "score": 20,
+              "owner": "app",
+              "id": null,
+              "snippet": "…continuation zephyr evidence - [ ] step-exclusive tungsten Surrounding-only mercury - [ ] No identity plan",
+              "completed": null,
+              "due": null,
+              "dueTime": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "query": "surrounding-only",
+      "workspace": "app",
+      "groups": [
+        {
+          "kind": "notes",
+          "items": [
+            {
+              "title": "Tasks",
+              "path": "Projects/App/Meta/Tasks.md",
+              "context": "App › Meta",
+              "score": 20,
+              "owner": "app",
+              "id": null,
+              "snippet": "…ence - [ ] step-exclusive tungsten Surrounding-only mercury - [ ] No identity plan",
+              "completed": null,
+              "due": null,
+              "dueTime": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "query": "product direction",
+      "workspace": "app",
+      "groups": [
+        {
+          "kind": "files",
+          "items": [
+            {
+              "title": "Plans",
+              "path": "Projects/App/Meta/Plans.md",
+              "context": "App › Meta",
+              "score": 0,
+              "owner": "app",
+              "id": null,
+              "snippet": null,
+              "completed": null,
+              "due": null,
+              "dueTime": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "query": "Prototype",
+      "workspace": "app",
+      "groups": [
+        {
+          "kind": "phases",
+          "items": [
+            {
+              "title": "Prototype",
+              "path": "Projects/App/App.md",
+              "context": "2026-10-01 – 2026-10-31",
+              "score": 0,
+              "owner": "app",
+              "id": "phase",
+              "snippet": null,
+              "completed": null,
+              "due": null,
+              "dueTime": null
+            }
+          ]
+        },
+        {
+          "kind": "milestones",
+          "items": [
+            {
+              "title": "Prototype demo",
+              "path": "Projects/App/App.md",
+              "context": "2026-10-20",
+              "score": 1,
+              "owner": "app",
+              "id": "milestone",
+              "snippet": null,
+              "completed": null,
+              "due": null,
+              "dueTime": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "query": "Prototype",
+      "workspace": "resource:study",
+      "groups": []
+    },
+    {
+      "query": "App",
+      "workspace": null,
+      "groups": [
+        {
+          "kind": "projects",
+          "items": [
+            {
+              "title": "App",
+              "path": "Projects/App/App.md",
+              "context": "Projects/App",
+              "score": 0,
+              "owner": "app",
+              "id": null,
+              "snippet": null,
+              "completed": null,
+              "due": null,
+              "dueTime": null
+            }
+          ]
+        },
+        {
+          "kind": "files",
+          "items": [
+            {
+              "title": "Paper.pdf",
+              "path": "Projects/App/Meta/Paper.pdf",
+              "context": "App › Meta",
+              "score": 4.555555555555555,
+              "owner": "app",
+              "id": null,
+              "snippet": null,
+              "completed": null,
+              "due": null,
+              "dueTime": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "query": "Knowledge",
+      "workspace": null,
+      "groups": [
+        {
+          "kind": "resources",
+          "items": [
+            {
+              "title": "Knowledge",
+              "path": "Resources/Knowledge/Knowledge.md",
+              "context": "Resources/Knowledge",
+              "score": 0,
+              "owner": "resource:study",
+              "id": null,
+              "snippet": null,
+              "completed": null,
+              "due": null,
+              "dueTime": null
+            }
+          ]
+        },
+        {
+          "kind": "tasks",
+          "items": [
+            {
+              "title": "Knowledge plan",
+              "path": "Resources/Knowledge/Meta/ROADMAP.md",
+              "context": "Knowledge › Meta › ROADMAP",
+              "score": 11,
+              "owner": "resource:study",
+              "id": null,
+              "snippet": null,
+              "completed": false,
+              "due": null,
+              "dueTime": null
+            }
+          ]
+        },
+        {
+          "kind": "notes",
+          "items": [
+            {
+              "title": "ROADMAP",
+              "path": "Resources/Knowledge/Meta/ROADMAP.md",
+              "context": "Knowledge › Meta",
+              "score": 20,
+              "owner": "resource:study",
+              "id": null,
+              "snippet": "…ed phrase in every workspace - [ ] Knowledge plan",
+              "completed": null,
+              "due": null,
+              "dueTime": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "query": "App Meta roadmap",
+      "workspace": null,
+      "groups": [
+        {
+          "kind": "files",
+          "items": [
+            {
+              "title": "ROADMAP",
+              "path": "Projects/App/Meta/ROADMAP.md",
+              "context": "App › Meta",
+              "score": 6.3,
+              "owner": "app",
+              "id": null,
+              "snippet": null,
+              "completed": null,
+              "due": null,
+              "dueTime": null
+            }
+          ]
+        },
+        {
+          "kind": "tasks",
+          "items": [
+            {
+              "title": "ROADMAP",
+              "path": "Projects/App/Meta/ROADMAP.md",
+              "context": "App › Meta › ROADMAP",
+              "score": 16.3,
+              "owner": "app",
+              "id": null,
+              "snippet": null,
+              "completed": true,
+              "due": "2026-10-18",
+              "dueTime": "00:00"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "taskReveal": [
+    "note",
+    "Projects/App/Meta/Tasks.md",
+    "replace",
+    null
+  ],
+  "counts": {
+    "files": 1,
+    "notes": 11,
+    "sources": 0,
+    "indexes": 1,
+    "writes": 0
+  }
+}

@@ -1,0 +1,1100 @@
+{
+  "format": "itacan-coordination-decision-vectors",
+  "version": 1,
+  "privacy": "local-private",
+  "phase": "N3-C0",
+  "sourceGraphDigest": "0fbd6e90f1821d26b41b7a2ce9c10ceaa4bf7c96b13d5bdd618b6c52fa1c471d",
+  "persistentProtocolImplemented": false,
+  "rows": [
+    {
+      "id": "native-commit-app-failure",
+      "evidenceClass": "adversarial",
+      "observation": {
+        "version": 1,
+        "privacy": "local-private",
+        "id": "native-commit-app-failure",
+        "kind": "inbox-task",
+        "sourceIdentity": "capture-id",
+        "preparationDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "preparation": "confirmed",
+        "originalIntent": "retained",
+        "authority": "matched",
+        "recovery": "intact",
+        "source": "unchanged",
+        "proof": "not-required",
+        "protocol": "observed-existing",
+        "native": [
+          {
+            "authorityId": "native-authority",
+            "operationId": "native-operation",
+            "intentDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "state": "confirmed",
+            "basis": "native-receipt",
+            "receipt": {
+              "operationId": "native-operation",
+              "intentDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "revision": 2,
+              "headDigest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+            }
+          }
+        ],
+        "application": [
+          {
+            "authorityId": "application-authority",
+            "operationId": "application-operation",
+            "intentDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "state": "rejected",
+            "basis": "filesystem-readback",
+            "receipt": null
+          }
+        ]
+      },
+      "expectedState": "partial",
+      "meaning": "Evidence-only interpretation; this does not implement participant coordination."
+    },
+    {
+      "id": "preparation-native-rejection",
+      "evidenceClass": "adversarial",
+      "observation": {
+        "version": 1,
+        "privacy": "local-private",
+        "id": "preparation-native-rejection",
+        "kind": "inbox-task",
+        "sourceIdentity": "capture-id",
+        "preparationDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "preparation": "confirmed",
+        "originalIntent": "retained",
+        "authority": "matched",
+        "recovery": "intact",
+        "source": "unchanged",
+        "proof": "not-required",
+        "protocol": "observed-existing",
+        "native": [
+          {
+            "authorityId": "native-authority",
+            "operationId": "native-operation",
+            "intentDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "state": "rejected",
+            "basis": "native-receipt",
+            "receipt": null
+          }
+        ],
+        "application": [
+          {
+            "authorityId": "application-authority",
+            "operationId": "application-operation",
+            "intentDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "state": "confirmed",
+            "basis": "filesystem-readback",
+            "receipt": {
+              "operationId": "application-operation",
+              "intentDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "revision": 2,
+              "headDigest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+            }
+          }
+        ]
+      },
+      "expectedState": "partial",
+      "meaning": "Evidence-only interpretation; this does not implement participant coordination."
+    },
+    {
+      "id": "native-ack-loss",
+      "evidenceClass": "adversarial",
+      "observation": {
+        "version": 1,
+        "privacy": "local-private",
+        "id": "native-ack-loss",
+        "kind": "inbox-task",
+        "sourceIdentity": "capture-id",
+        "preparationDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "preparation": "confirmed",
+        "originalIntent": "retained",
+        "authority": "matched",
+        "recovery": "intact",
+        "source": "unchanged",
+        "proof": "not-required",
+        "protocol": "observed-existing",
+        "native": [
+          {
+            "authorityId": "native-authority",
+            "operationId": "native-operation",
+            "intentDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "state": "uncertain",
+            "basis": "native-receipt",
+            "receipt": null
+          }
+        ],
+        "application": [
+          {
+            "authorityId": "application-authority",
+            "operationId": "application-operation",
+            "intentDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "state": "confirmed",
+            "basis": "filesystem-readback",
+            "receipt": {
+              "operationId": "application-operation",
+              "intentDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "revision": 2,
+              "headDigest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+            }
+          }
+        ]
+      },
+      "expectedState": "uncertain",
+      "meaning": "Evidence-only interpretation; this does not implement participant coordination."
+    },
+    {
+      "id": "application-ack-loss",
+      "evidenceClass": "adversarial",
+      "observation": {
+        "version": 1,
+        "privacy": "local-private",
+        "id": "application-ack-loss",
+        "kind": "inbox-task",
+        "sourceIdentity": "capture-id",
+        "preparationDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "preparation": "confirmed",
+        "originalIntent": "retained",
+        "authority": "matched",
+        "recovery": "intact",
+        "source": "unchanged",
+        "proof": "not-required",
+        "protocol": "observed-existing",
+        "native": [
+          {
+            "authorityId": "native-authority",
+            "operationId": "native-operation",
+            "intentDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "state": "confirmed",
+            "basis": "native-receipt",
+            "receipt": {
+              "operationId": "native-operation",
+              "intentDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "revision": 2,
+              "headDigest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+            }
+          }
+        ],
+        "application": [
+          {
+            "authorityId": "application-authority",
+            "operationId": "application-operation",
+            "intentDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "state": "uncertain",
+            "basis": "filesystem-readback",
+            "receipt": null
+          }
+        ]
+      },
+      "expectedState": "uncertain",
+      "meaning": "Evidence-only interpretation; this does not implement participant coordination."
+    },
+    {
+      "id": "crash-between-commits",
+      "evidenceClass": "adversarial",
+      "observation": {
+        "version": 1,
+        "privacy": "local-private",
+        "id": "crash-between-commits",
+        "kind": "inbox-task",
+        "sourceIdentity": "capture-id",
+        "preparationDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "preparation": "confirmed",
+        "originalIntent": "retained",
+        "authority": "matched",
+        "recovery": "intact",
+        "source": "unchanged",
+        "proof": "not-required",
+        "protocol": "observed-existing",
+        "native": [
+          {
+            "authorityId": "native-authority",
+            "operationId": "native-operation",
+            "intentDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "state": "confirmed",
+            "basis": "native-receipt",
+            "receipt": {
+              "operationId": "native-operation",
+              "intentDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "revision": 2,
+              "headDigest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+            }
+          }
+        ],
+        "application": [
+          {
+            "authorityId": "application-authority",
+            "operationId": "application-operation",
+            "intentDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "state": "unavailable",
+            "basis": "filesystem-readback",
+            "receipt": null
+          }
+        ]
+      },
+      "expectedState": "uncertain",
+      "meaning": "Evidence-only interpretation; this does not implement participant coordination."
+    },
+    {
+      "id": "intent-publication-crash",
+      "evidenceClass": "adversarial",
+      "observation": {
+        "version": 1,
+        "privacy": "local-private",
+        "id": "intent-publication-crash",
+        "kind": "inbox-task",
+        "sourceIdentity": "capture-id",
+        "preparationDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "preparation": "uncertain",
+        "originalIntent": "retained",
+        "authority": "matched",
+        "recovery": "intact",
+        "source": "unchanged",
+        "proof": "not-required",
+        "protocol": "observed-existing",
+        "native": [],
+        "application": []
+      },
+      "expectedState": "uncertain",
+      "meaning": "Evidence-only interpretation; this does not implement participant coordination."
+    },
+    {
+      "id": "both-commit-final-ack-loss",
+      "evidenceClass": "adversarial",
+      "observation": {
+        "version": 1,
+        "privacy": "local-private",
+        "id": "both-commit-final-ack-loss",
+        "kind": "inbox-task",
+        "sourceIdentity": "capture-id",
+        "preparationDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "preparation": "confirmed",
+        "originalIntent": "retained",
+        "authority": "matched",
+        "recovery": "intact",
+        "source": "unchanged",
+        "proof": "not-required",
+        "protocol": "observed-existing",
+        "native": [
+          {
+            "authorityId": "native-authority",
+            "operationId": "native-operation",
+            "intentDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "state": "confirmed",
+            "basis": "native-receipt",
+            "receipt": {
+              "operationId": "native-operation",
+              "intentDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "revision": 2,
+              "headDigest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+            }
+          }
+        ],
+        "application": [
+          {
+            "authorityId": "application-authority",
+            "operationId": "application-operation",
+            "intentDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "state": "uncertain",
+            "basis": "filesystem-readback",
+            "receipt": null
+          }
+        ]
+      },
+      "expectedState": "uncertain",
+      "meaning": "Evidence-only interpretation; this does not implement participant coordination."
+    },
+    {
+      "id": "older-state-recovered",
+      "evidenceClass": "adversarial",
+      "observation": {
+        "version": 1,
+        "privacy": "local-private",
+        "id": "older-state-recovered",
+        "kind": "inbox-task",
+        "sourceIdentity": "capture-id",
+        "preparationDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "preparation": "confirmed",
+        "originalIntent": "retained",
+        "authority": "matched",
+        "recovery": "unknown",
+        "source": "unchanged",
+        "proof": "not-required",
+        "protocol": "observed-existing",
+        "native": [
+          {
+            "authorityId": "native-authority",
+            "operationId": "native-operation",
+            "intentDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "state": "confirmed",
+            "basis": "native-receipt",
+            "receipt": {
+              "operationId": "native-operation",
+              "intentDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "revision": 2,
+              "headDigest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+            }
+          }
+        ],
+        "application": [
+          {
+            "authorityId": "application-authority",
+            "operationId": "application-operation",
+            "intentDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "state": "confirmed",
+            "basis": "filesystem-readback",
+            "receipt": {
+              "operationId": "application-operation",
+              "intentDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "revision": 2,
+              "headDigest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+            }
+          }
+        ]
+      },
+      "expectedState": "blocked",
+      "meaning": "Evidence-only interpretation; this does not implement participant coordination."
+    },
+    {
+      "id": "native-fenced",
+      "evidenceClass": "adversarial",
+      "observation": {
+        "version": 1,
+        "privacy": "local-private",
+        "id": "native-fenced",
+        "kind": "inbox-task",
+        "sourceIdentity": "capture-id",
+        "preparationDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "preparation": "confirmed",
+        "originalIntent": "retained",
+        "authority": "matched",
+        "recovery": "fenced",
+        "source": "unchanged",
+        "proof": "not-required",
+        "protocol": "observed-existing",
+        "native": [
+          {
+            "authorityId": "native-authority",
+            "operationId": "native-operation",
+            "intentDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "state": "confirmed",
+            "basis": "native-receipt",
+            "receipt": {
+              "operationId": "native-operation",
+              "intentDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "revision": 2,
+              "headDigest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+            }
+          }
+        ],
+        "application": [
+          {
+            "authorityId": "application-authority",
+            "operationId": "application-operation",
+            "intentDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "state": "confirmed",
+            "basis": "filesystem-readback",
+            "receipt": {
+              "operationId": "application-operation",
+              "intentDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "revision": 2,
+              "headDigest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+            }
+          }
+        ]
+      },
+      "expectedState": "blocked",
+      "meaning": "Evidence-only interpretation; this does not implement participant coordination."
+    },
+    {
+      "id": "registry-changed",
+      "evidenceClass": "adversarial",
+      "observation": {
+        "version": 1,
+        "privacy": "local-private",
+        "id": "registry-changed",
+        "kind": "inbox-task",
+        "sourceIdentity": "capture-id",
+        "preparationDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "preparation": "confirmed",
+        "originalIntent": "retained",
+        "authority": "mismatched",
+        "recovery": "intact",
+        "source": "unchanged",
+        "proof": "not-required",
+        "protocol": "observed-existing",
+        "native": [
+          {
+            "authorityId": "native-authority",
+            "operationId": "native-operation",
+            "intentDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "state": "confirmed",
+            "basis": "native-receipt",
+            "receipt": {
+              "operationId": "native-operation",
+              "intentDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "revision": 2,
+              "headDigest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+            }
+          }
+        ],
+        "application": [
+          {
+            "authorityId": "application-authority",
+            "operationId": "application-operation",
+            "intentDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "state": "confirmed",
+            "basis": "filesystem-readback",
+            "receipt": {
+              "operationId": "application-operation",
+              "intentDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "revision": 2,
+              "headDigest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+            }
+          }
+        ]
+      },
+      "expectedState": "blocked",
+      "meaning": "Evidence-only interpretation; this does not implement participant coordination."
+    },
+    {
+      "id": "concurrent-duplicate",
+      "evidenceClass": "adversarial",
+      "observation": {
+        "version": 1,
+        "privacy": "local-private",
+        "id": "concurrent-duplicate",
+        "kind": "inbox-task",
+        "sourceIdentity": "capture-id",
+        "preparationDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "preparation": "confirmed",
+        "originalIntent": "retained",
+        "authority": "matched",
+        "recovery": "intact",
+        "source": "unchanged",
+        "proof": "not-required",
+        "protocol": "proposed",
+        "native": [
+          {
+            "authorityId": "native-authority",
+            "operationId": "native-operation",
+            "intentDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "state": "confirmed",
+            "basis": "native-receipt",
+            "receipt": {
+              "operationId": "native-operation",
+              "intentDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "revision": 2,
+              "headDigest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+            }
+          }
+        ],
+        "application": [
+          {
+            "authorityId": "application-authority",
+            "operationId": "application-operation",
+            "intentDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "state": "confirmed",
+            "basis": "filesystem-readback",
+            "receipt": {
+              "operationId": "application-operation",
+              "intentDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "revision": 2,
+              "headDigest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+            }
+          }
+        ]
+      },
+      "expectedState": "blocked",
+      "meaning": "Evidence-only interpretation; this does not implement participant coordination."
+    },
+    {
+      "id": "operation-payload-changed",
+      "evidenceClass": "adversarial",
+      "observation": {
+        "version": 1,
+        "privacy": "local-private",
+        "id": "operation-payload-changed",
+        "kind": "inbox-task",
+        "sourceIdentity": "capture-id",
+        "preparationDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "preparation": "confirmed",
+        "originalIntent": "retained",
+        "authority": "matched",
+        "recovery": "intact",
+        "source": "unchanged",
+        "proof": "not-required",
+        "protocol": "observed-existing",
+        "native": [
+          {
+            "authorityId": "native-authority",
+            "operationId": "native-operation",
+            "intentDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "state": "conflict",
+            "basis": "native-receipt",
+            "receipt": {
+              "operationId": "native-operation",
+              "intentDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "revision": 2,
+              "headDigest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+            }
+          }
+        ],
+        "application": [
+          {
+            "authorityId": "application-authority",
+            "operationId": "application-operation",
+            "intentDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "state": "confirmed",
+            "basis": "filesystem-readback",
+            "receipt": {
+              "operationId": "application-operation",
+              "intentDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "revision": 2,
+              "headDigest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+            }
+          }
+        ]
+      },
+      "expectedState": "conflict",
+      "meaning": "Evidence-only interpretation; this does not implement participant coordination."
+    },
+    {
+      "id": "receipt-unavailable",
+      "evidenceClass": "adversarial",
+      "observation": {
+        "version": 1,
+        "privacy": "local-private",
+        "id": "receipt-unavailable",
+        "kind": "inbox-task",
+        "sourceIdentity": "capture-id",
+        "preparationDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "preparation": "confirmed",
+        "originalIntent": "retained",
+        "authority": "matched",
+        "recovery": "intact",
+        "source": "unchanged",
+        "proof": "not-required",
+        "protocol": "observed-existing",
+        "native": [
+          {
+            "authorityId": "native-authority",
+            "operationId": "native-operation",
+            "intentDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "state": "unavailable",
+            "basis": "native-receipt",
+            "receipt": null
+          }
+        ],
+        "application": [
+          {
+            "authorityId": "application-authority",
+            "operationId": "application-operation",
+            "intentDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "state": "confirmed",
+            "basis": "filesystem-readback",
+            "receipt": {
+              "operationId": "application-operation",
+              "intentDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "revision": 2,
+              "headDigest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+            }
+          }
+        ]
+      },
+      "expectedState": "uncertain",
+      "meaning": "Evidence-only interpretation; this does not implement participant coordination."
+    },
+    {
+      "id": "oath-terminal-during-work",
+      "evidenceClass": "adversarial",
+      "observation": {
+        "version": 1,
+        "privacy": "local-private",
+        "id": "oath-terminal-during-work",
+        "kind": "oath-enrollment",
+        "sourceIdentity": "capture-id",
+        "preparationDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "preparation": "confirmed",
+        "originalIntent": "retained",
+        "authority": "matched",
+        "recovery": "intact",
+        "source": "terminal",
+        "proof": "not-required",
+        "protocol": "observed-existing",
+        "native": [
+          {
+            "authorityId": "native-authority",
+            "operationId": "native-operation",
+            "intentDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "state": "confirmed",
+            "basis": "native-receipt",
+            "receipt": {
+              "operationId": "native-operation",
+              "intentDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "revision": 2,
+              "headDigest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+            }
+          }
+        ],
+        "application": [
+          {
+            "authorityId": "application-authority",
+            "operationId": "application-operation",
+            "intentDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "state": "confirmed",
+            "basis": "filesystem-readback",
+            "receipt": {
+              "operationId": "application-operation",
+              "intentDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "revision": 2,
+              "headDigest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+            }
+          }
+        ]
+      },
+      "expectedState": "conflict",
+      "meaning": "Evidence-only interpretation; this does not implement participant coordination."
+    },
+    {
+      "id": "inbox-edited",
+      "evidenceClass": "adversarial",
+      "observation": {
+        "version": 1,
+        "privacy": "local-private",
+        "id": "inbox-edited",
+        "kind": "inbox-task",
+        "sourceIdentity": "capture-id",
+        "preparationDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "preparation": "confirmed",
+        "originalIntent": "retained",
+        "authority": "matched",
+        "recovery": "intact",
+        "source": "changed",
+        "proof": "not-required",
+        "protocol": "observed-existing",
+        "native": [
+          {
+            "authorityId": "native-authority",
+            "operationId": "native-operation",
+            "intentDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "state": "confirmed",
+            "basis": "native-receipt",
+            "receipt": {
+              "operationId": "native-operation",
+              "intentDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "revision": 2,
+              "headDigest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+            }
+          }
+        ],
+        "application": [
+          {
+            "authorityId": "application-authority",
+            "operationId": "application-operation",
+            "intentDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "state": "confirmed",
+            "basis": "filesystem-readback",
+            "receipt": {
+              "operationId": "application-operation",
+              "intentDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "revision": 2,
+              "headDigest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+            }
+          }
+        ]
+      },
+      "expectedState": "conflict",
+      "meaning": "Evidence-only interpretation; this does not implement participant coordination."
+    },
+    {
+      "id": "phase-deleted-during-save",
+      "evidenceClass": "adversarial",
+      "observation": {
+        "version": 1,
+        "privacy": "local-private",
+        "id": "phase-deleted-during-save",
+        "kind": "phase-deletion",
+        "sourceIdentity": "capture-id",
+        "preparationDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "preparation": "confirmed",
+        "originalIntent": "retained",
+        "authority": "matched",
+        "recovery": "intact",
+        "source": "changed",
+        "proof": "not-required",
+        "protocol": "observed-existing",
+        "native": [
+          {
+            "authorityId": "native-authority",
+            "operationId": "native-operation",
+            "intentDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "state": "confirmed",
+            "basis": "native-receipt",
+            "receipt": {
+              "operationId": "native-operation",
+              "intentDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "revision": 2,
+              "headDigest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+            }
+          }
+        ],
+        "application": [
+          {
+            "authorityId": "application-authority",
+            "operationId": "application-operation",
+            "intentDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "state": "confirmed",
+            "basis": "filesystem-readback",
+            "receipt": {
+              "operationId": "application-operation",
+              "intentDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "revision": 2,
+              "headDigest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+            }
+          }
+        ]
+      },
+      "expectedState": "conflict",
+      "meaning": "Evidence-only interpretation; this does not implement participant coordination."
+    },
+    {
+      "id": "two-reconcilers",
+      "evidenceClass": "adversarial",
+      "observation": {
+        "version": 1,
+        "privacy": "local-private",
+        "id": "two-reconcilers",
+        "kind": "inbox-task",
+        "sourceIdentity": "capture-id",
+        "preparationDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "preparation": "confirmed",
+        "originalIntent": "retained",
+        "authority": "matched",
+        "recovery": "intact",
+        "source": "unchanged",
+        "proof": "not-required",
+        "protocol": "proposed",
+        "native": [
+          {
+            "authorityId": "native-authority",
+            "operationId": "native-operation",
+            "intentDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "state": "confirmed",
+            "basis": "native-receipt",
+            "receipt": {
+              "operationId": "native-operation",
+              "intentDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "revision": 2,
+              "headDigest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+            }
+          }
+        ],
+        "application": [
+          {
+            "authorityId": "application-authority",
+            "operationId": "application-operation",
+            "intentDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "state": "confirmed",
+            "basis": "filesystem-readback",
+            "receipt": {
+              "operationId": "application-operation",
+              "intentDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "revision": 2,
+              "headDigest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+            }
+          }
+        ]
+      },
+      "expectedState": "blocked",
+      "meaning": "Evidence-only interpretation; this does not implement participant coordination."
+    },
+    {
+      "id": "snapshot-overwrite",
+      "evidenceClass": "adversarial",
+      "observation": {
+        "version": 1,
+        "privacy": "local-private",
+        "id": "snapshot-overwrite",
+        "kind": "inbox-task",
+        "sourceIdentity": "capture-id",
+        "preparationDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "preparation": "confirmed",
+        "originalIntent": "missing",
+        "authority": "matched",
+        "recovery": "intact",
+        "source": "unchanged",
+        "proof": "not-required",
+        "protocol": "observed-existing",
+        "native": [
+          {
+            "authorityId": "native-authority",
+            "operationId": "native-operation",
+            "intentDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "state": "confirmed",
+            "basis": "native-receipt",
+            "receipt": {
+              "operationId": "native-operation",
+              "intentDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "revision": 2,
+              "headDigest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+            }
+          }
+        ],
+        "application": [
+          {
+            "authorityId": "application-authority",
+            "operationId": "application-operation",
+            "intentDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "state": "confirmed",
+            "basis": "filesystem-readback",
+            "receipt": {
+              "operationId": "application-operation",
+              "intentDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "revision": 2,
+              "headDigest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+            }
+          }
+        ]
+      },
+      "expectedState": "uncertain",
+      "meaning": "Evidence-only interpretation; this does not implement participant coordination."
+    },
+    {
+      "id": "created-task-deleted",
+      "evidenceClass": "adversarial",
+      "observation": {
+        "version": 1,
+        "privacy": "local-private",
+        "id": "created-task-deleted",
+        "kind": "inbox-task",
+        "sourceIdentity": "capture-id",
+        "preparationDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "preparation": "confirmed",
+        "originalIntent": "retained",
+        "authority": "matched",
+        "recovery": "intact",
+        "source": "target-deleted",
+        "proof": "not-required",
+        "protocol": "observed-existing",
+        "native": [
+          {
+            "authorityId": "native-authority",
+            "operationId": "native-operation",
+            "intentDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "state": "confirmed",
+            "basis": "native-receipt",
+            "receipt": {
+              "operationId": "native-operation",
+              "intentDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "revision": 2,
+              "headDigest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+            }
+          }
+        ],
+        "application": [
+          {
+            "authorityId": "application-authority",
+            "operationId": "application-operation",
+            "intentDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "state": "confirmed",
+            "basis": "filesystem-readback",
+            "receipt": {
+              "operationId": "application-operation",
+              "intentDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "revision": 2,
+              "headDigest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+            }
+          }
+        ]
+      },
+      "expectedState": "partial",
+      "meaning": "Evidence-only interpretation; this does not implement participant coordination."
+    },
+    {
+      "id": "shutdown-pending",
+      "evidenceClass": "adversarial",
+      "observation": {
+        "version": 1,
+        "privacy": "local-private",
+        "id": "shutdown-pending",
+        "kind": "inbox-task",
+        "sourceIdentity": "capture-id",
+        "preparationDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "preparation": "confirmed",
+        "originalIntent": "retained",
+        "authority": "matched",
+        "recovery": "intact",
+        "source": "unchanged",
+        "proof": "not-required",
+        "protocol": "observed-existing",
+        "native": [
+          {
+            "authorityId": "native-authority",
+            "operationId": "native-operation",
+            "intentDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "state": "uncertain",
+            "basis": "native-receipt",
+            "receipt": null
+          }
+        ],
+        "application": [
+          {
+            "authorityId": "application-authority",
+            "operationId": "application-operation",
+            "intentDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "state": "confirmed",
+            "basis": "filesystem-readback",
+            "receipt": {
+              "operationId": "application-operation",
+              "intentDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "revision": 2,
+              "headDigest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+            }
+          }
+        ]
+      },
+      "expectedState": "uncertain",
+      "meaning": "Evidence-only interpretation; this does not implement participant coordination."
+    },
+    {
+      "id": "C01-evidence-only",
+      "evidenceClass": "policy",
+      "status": "approved-evidence-boundary-or-proposal",
+      "executable": false
+    },
+    {
+      "id": "C02-scope-bound-ack",
+      "evidenceClass": "policy",
+      "status": "approved-evidence-boundary-or-proposal",
+      "executable": false
+    },
+    {
+      "id": "C03-persisted-oath-goal",
+      "evidenceClass": "policy",
+      "status": "selected",
+      "executable": false
+    },
+    {
+      "id": "C04-scheduling-cut",
+      "evidenceClass": "policy",
+      "status": "approved-evidence-boundary-or-proposal",
+      "executable": false
+    },
+    {
+      "id": "C05-no-enforcement-change",
+      "evidenceClass": "policy",
+      "status": "approved-evidence-boundary-or-proposal",
+      "executable": false
+    },
+    {
+      "id": "C06-existing-outcome-authority",
+      "evidenceClass": "policy",
+      "status": "approved-evidence-boundary-or-proposal",
+      "executable": false
+    },
+    {
+      "id": "C07-prepare-inbox-first",
+      "evidenceClass": "policy",
+      "status": "approved-evidence-boundary-or-proposal",
+      "executable": false
+    },
+    {
+      "id": "C08-freeze-original",
+      "evidenceClass": "policy",
+      "status": "approved-evidence-boundary-or-proposal",
+      "executable": false
+    },
+    {
+      "id": "C09-deleted-retain-review",
+      "evidenceClass": "policy",
+      "status": "selected",
+      "executable": false
+    },
+    {
+      "id": "C10-delete-and-clear",
+      "evidenceClass": "policy",
+      "status": "selected",
+      "executable": false
+    },
+    {
+      "id": "C11-existing-app-authority-first",
+      "evidenceClass": "policy",
+      "status": "approved-evidence-boundary-or-proposal",
+      "executable": false
+    },
+    {
+      "id": "C12-unknown-version-closed",
+      "evidenceClass": "policy",
+      "status": "approved-evidence-boundary-or-proposal",
+      "executable": false
+    },
+    {
+      "id": "C13-retain-receipts-identities",
+      "evidenceClass": "policy",
+      "status": "approved-evidence-boundary-or-proposal",
+      "executable": false
+    },
+    {
+      "id": "C14-rich-reads-deferred",
+      "evidenceClass": "policy",
+      "status": "approved-evidence-boundary-or-proposal",
+      "executable": false
+    },
+    {
+      "id": "no-persisted-order-protocol",
+      "evidenceClass": "limitation",
+      "established": false,
+      "executable": false
+    },
+    {
+      "id": "unpublished-latch-not-recoverable",
+      "evidenceClass": "limitation",
+      "established": false,
+      "executable": false
+    },
+    {
+      "id": "no-cross-store-atomicity",
+      "evidenceClass": "limitation",
+      "established": false,
+      "executable": false
+    },
+    {
+      "id": "no-power-loss-claim",
+      "evidenceClass": "limitation",
+      "established": false,
+      "executable": false
+    },
+    {
+      "id": "no-cloud-rollback-claim",
+      "evidenceClass": "limitation",
+      "established": false,
+      "executable": false
+    },
+    {
+      "id": "no-hostile-writer-claim",
+      "evidenceClass": "limitation",
+      "established": false,
+      "executable": false
+    },
+    {
+      "id": "no-distributed-uniqueness",
+      "evidenceClass": "limitation",
+      "established": false,
+      "executable": false
+    },
+    {
+      "id": "no-complete-directory-rollback-detection",
+      "evidenceClass": "limitation",
+      "established": false,
+      "executable": false
+    },
+    {
+      "id": "no-native-authority-activation",
+      "evidenceClass": "limitation",
+      "established": false,
+      "executable": false
+    }
+  ]
+}

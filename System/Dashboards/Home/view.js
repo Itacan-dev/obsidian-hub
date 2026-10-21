@@ -837,12 +837,43 @@ const upcomingBody =
             "home-tasks-body"
     });
 
-upcomingBody.hubTaskUi = window.hubCreateTaskUi?.(dv.component, upcomingBody, edit => {
-    const resolvePath = (task, item) => currentPath(task.path, item.owner);
-    projectTasks = window.hubApplyTaskEdit(projectTasks, edit, resolvePath);
-    resourceTasks = window.hubApplyTaskEdit(resourceTasks, edit, resolvePath);
-    if (root.isConnected) renderTaskContext();
+let homeTaskDisposed = false, homeTaskGeneration = 0, homeTaskStatus = null;
+let homeTaskRefreshPending = false, homeTaskCountComplete = true;
+const homeTaskDocument = upcomingBody.ownerDocument;
+function deferHomeTaskInteraction() {
+    const interaction = homeTaskRead?.availability ? ".menu, .modal-container form" : ".menu, .modal-container";
+    if (!homeTaskDocument.querySelector(interaction)) return false;
+    homeTaskRefreshPending = true;
+    return true;
+}
+const resumeHomeTaskRead = () => { void Promise.resolve().then(() => {
+    if (homeTaskDisposed || !homeTaskRefreshPending || deferHomeTaskInteraction()) return;
+    homeTaskRefreshPending = false;
+    if (root.isConnected) void loadTaskData();
+}); };
+for (const event of ["pointerdown", "click", "keydown", "focusin"]) {
+    homeTaskDocument.addEventListener(event, resumeHomeTaskRead);
+    dv.component.register(() => homeTaskDocument.removeEventListener(event, resumeHomeTaskRead));
+}
+const homeTaskRead = window.hubCreateHomeTaskRead?.({
+    component: dv.component,
+    resolveNativeOwner: owner => projects.find(project => project.projectId === owner.id),
+    resolveOwner: task => {
+        const page = { file: { path: task.path }, project: task.homeProjectReference };
+        return resourceForPage(page) ?? projectForPage(page);
+    },
+    changed: () => { queueMicrotask(() => { if (!homeTaskDisposed && root.isConnected) void loadTaskData(); }); }
 });
+dv.component.register(() => { homeTaskDisposed = true; homeTaskGeneration++; });
+function reconcileHomeTaskEdit(edit) {
+    homeTaskGeneration++;
+    const items = homeTaskRead.reconcile([...projectTasks, ...resourceTasks], edit);
+    if (edit.backend === "native") homeTaskCountComplete = edit.availability === "current";
+    projectTasks = items.filter(item => item.owner.contextKind !== "resource");
+    resourceTasks = items.filter(item => item.owner.contextKind === "resource");
+    if (!homeTaskDisposed && root.isConnected) renderTaskContext();
+}
+upcomingBody.hubTaskUi = window.hubCreateTaskUi?.(dv.component, upcomingBody, reconcileHomeTaskEdit, homeTaskRead?.actions);
 const addTaskButton = upcomingBody.hubTaskUi?.addButton(upcomingHeader);
 
 function renderTasksToDo(
@@ -851,6 +882,13 @@ function renderTasksToDo(
 ) {
 
     if (upcomingBody.hubTaskUi && !upcomingBody.hubTaskUi.beginRender(() => renderTaskContext())) return;
+    const focused = homeTaskDocument.activeElement;
+    const focusedRow = focused?.closest(".home-task-row");
+    const focusKey = focusedRow?.homeTaskKey;
+    const focusIndex = focusedRow ? [...focusedRow.querySelectorAll("button,input,textarea,select,a[href],[tabindex]")].indexOf(focused) : -1;
+    const focusedGroup = focused?.classList.contains("hub-task-group-toggle") ? focused.textContent.replace(/^\d+\s*/, "") : null;
+    const scrollTop = upcomingBody.scrollTop;
+    try {
     upcomingBody.empty();
 
 
@@ -890,7 +928,7 @@ function renderTasksToDo(
             upcomingBody,
             "div",
             "home-empty",
-            "No tasks to do."
+            homeTaskCountComplete ? "No tasks to do." : "Tasks are temporarily unavailable."
         );
 
         return;
@@ -905,49 +943,10 @@ function renderTasksToDo(
         } = item;
 
 
-        const row =
-            target.createDiv({
-                cls:
-                    "home-task-row" +
-                    (
-                        completed
-                            ? " is-completed"
-                            : ""
-                    )
-            });
-
-
-        const checkbox = row.createEl(
-            "input",
-            {
-                cls: "home-task-checkbox"
-            }
-        );
-
-        checkbox.type = "checkbox";
-        checkbox.checked = completed;
-
-
-        const info =
-            row.createDiv({
-                cls:
-                    "home-task-info"
-            });
-
-
-        const textEl = el(info, "div", "home-task-text", task.text);
-
-
-        el(
-            info,
-            "div",
-            "home-task-location",
-            homeTaskLocation(
-                task.path,
-                owner
-            )
-        );
-        upcomingBody.hubTaskUi?.bind(row, textEl, task, () => currentPath(task.path, owner));
+        const { row, checkbox, textEl } = window.hubCreateTaskRow(target, task, completed, { variant: "home" });
+        row.homeTaskKey = task.nativeReference ? JSON.stringify([task.nativeReference.authorityId, task.nativeReference.owner, task.nativeReference.taskId]) : task.hubTaskId ?? `${task.path}\0${task.line}`;
+        upcomingBody.hubTaskUi?.bind(row, textEl, task, () => task.nativeReference ? "" : currentPath(task.path, owner), task.nativeReference ? { sourceLabel: owner.name } : {});
+        if (task.nativeReference) row.querySelector(".home-task-location")?.setAttribute("aria-disabled", "true");
 
 
         if (completed) {
@@ -974,11 +973,13 @@ function renderTasksToDo(
             );
 
 
+            if (task.nativeReference) { deleteButton.disabled = true; deleteButton.title = "Native clear-completed is unavailable."; }
             deleteButton.addEventListener(
                 "click",
                 async event => {
 
                     event.stopPropagation();
+                    if (task.nativeReference) return;
 
                     deleteButton.disabled =
                         true;
@@ -1022,6 +1023,7 @@ function renderTasksToDo(
         checkbox.addEventListener(
             "change",
             async () => {
+                if (task.nativeReadOnly) { checkbox.checked = !!task.completed; return; }
 
                 checkbox.disabled = true;
 
@@ -1030,32 +1032,21 @@ function renderTasksToDo(
                 const requestedState = checkbox.checked;
 
                 const path =
-                    currentPath(
+                    task.nativeReference ? null : currentPath(
                         task.path,
                         owner
                     );
 
                 try {
 
-                    if (!window.hubToggleTask) {
+                    if (!task.nativeReference && !window.hubToggleTask) {
                         throw new Error(
                             "Task toggle bridge is unavailable."
                         );
                     }
 
-                    const edit = await window.hubToggleTask(
-                        path,
-                        task.line,
-                        task.text,
-                        requestedState,
-                        task.hubTaskId
-                    );
-
-                    const resolveTaskPath = (task, item) => currentPath(task.path, item.owner);
-                    projectTasks = window.hubApplyTaskEdit(projectTasks, edit, resolveTaskPath);
-                    resourceTasks = window.hubApplyTaskEdit(resourceTasks, edit, resolveTaskPath);
-
-                    if (root.isConnected) renderActiveContext();
+                    const edit = await homeTaskRead.toggle(task, requestedState);
+                    reconcileHomeTaskEdit(edit);
 
                 } catch (error) {
 
@@ -1078,17 +1069,20 @@ function renderTasksToDo(
 
         row.addEventListener(
             "click",
-            async () => {
+            async event => {
+                if (task.nativeReference && event.target.closest(".home-task-location")) return;
 
                 const path =
-                    currentPath(
+                    task.nativeReference ? null : currentPath(
                         task.path,
                         owner
                     );
 
-                await openFileFromHome(
-                    path
-                );
+                try {
+                    if (task.nativeReference) { homeTaskRead.actions.editTask(task, reconcileHomeTaskEdit); return; }
+                    const target = await homeTaskRead.reveal(task);
+                    await openFileFromHome(target.path);
+                } catch (error) { console.error("Could not open task source:", error); }
             }
         );
     }
@@ -1107,7 +1101,7 @@ function renderTasksToDo(
         upcomingBody.hubTaskUi.group("future", futureTasks, item => renderTask(item, false));
         upcomingBody.hubTaskUi.group("completed", completedTasks, item => renderTask(item, true), {
             clear: () => clearVisibleCompletedTasks(),
-            canClear: () => !clearingCompletedTasks
+            canClear: () => !clearingCompletedTasks && !completedTasks.some(item => item.task.nativeReference)
         });
         return;
     }
@@ -1128,6 +1122,15 @@ function renderTasksToDo(
 
     for (const item of completedTasks) {
         renderTask(item, true);
+    }
+    } finally {
+        upcomingBody.scrollTop = scrollTop;
+        if (focusKey && !focused.isConnected) {
+            const row = [...upcomingBody.querySelectorAll(".home-task-row")].find(row => row.homeTaskKey === focusKey);
+            row?.querySelectorAll("button,input,textarea,select,a[href],[tabindex]")[focusIndex]?.focus({ preventScroll: true });
+        } else if (focusedGroup && !focused.isConnected) {
+            [...upcomingBody.querySelectorAll(".hub-task-group-toggle")].find(button => button.textContent.replace(/^\d+\s*/, "") === focusedGroup)?.focus({ preventScroll: true });
+        }
     }
 }
 
@@ -1189,6 +1192,7 @@ async function clearCompletedTaskItems(
     confirmMany = false
 ) {
 
+    if (items.some(item => item.task.nativeReference)) throw new Error("Native clear-completed is unavailable.");
     if (!window.hubClearCompletedTasks) {
         throw new Error(
             "Completed-task archive bridge is unavailable."
@@ -1196,9 +1200,9 @@ async function clearCompletedTaskItems(
     }
 
 
-    return window.hubClearCompletedTasks(
+    return homeTaskRead.clear(
         items.map(
-            completedTaskRequest
+            item => ({ ...item.task, ...completedTaskRequest(item) })
         ),
         confirmMany
     );
@@ -4018,7 +4022,7 @@ nextYear.addEventListener(
     }
 );
 
-frame.defer(() => { refreshWorkProgress(); refreshProgressYears(); renderProgressYear(); });
+frame.beforePaint(() => { refreshWorkProgress(); refreshProgressYears(); renderProgressYear(); syncRecentActivityHeight(); });
 
 
 root.addEventListener(
@@ -4106,6 +4110,9 @@ const recentBody =
     });
 recentBody.hubMarkdown = window.hubCreateMarkdown?.(dv.component);
 const historyPager = createHistoryPager(recentBody, dv.component);
+let historyReadDisposed = false, historyReadGeneration = 0, historyReadStatus = null;
+const completedHistoryRead = window.hubCreateTaskHistoryRead?.({ component: dv.component, changed: () => queueMicrotask(() => { if (!historyReadDisposed && root.isConnected) void refreshCompletedTaskHistory(); }) });
+dv.component.register(() => { historyReadDisposed = true; historyReadGeneration++; });
 
 
 // ---------- ACTIVITY SCROLL HEIGHT ----------
@@ -4730,7 +4737,31 @@ function renderRecentReports() {
 }
 
 
+async function refreshCompletedTaskHistory(render = true) {
+    const ticket = ++historyReadGeneration;
+    if (historyReadDisposed || !root.isConnected) return;
+    try {
+        if (!completedHistoryRead) throw new Error("Recorded task History reader is unavailable.");
+        const result = await completedHistoryRead.read(() => historyReadDisposed || ticket !== historyReadGeneration || !root.isConnected);
+        if (!result || historyReadDisposed || !root.isConnected || ticket !== historyReadGeneration) return;
+        historyReadStatus?.remove(); historyReadStatus = null;
+        completedTaskHistory = result.records;
+        completedHistoryRead.accept(result);
+        if (render && result.changed && progressView === "tasks") {
+            completedHistoryRead.preserve(recentBody, renderCompletedTaskHistory);
+            scheduleRecentActivityHeight();
+        }
+    } catch (error) {
+        if (historyReadDisposed || !root.isConnected || ticket !== historyReadGeneration) return;
+        if (!historyReadStatus) historyReadStatus = recentBody.parentElement.createDiv({ cls: "home-empty", text: "Task History is temporarily unavailable. Existing History is retained." });
+        historyReadStatus.setAttribute("role", "status"); historyReadStatus.setAttribute("data-task-history-status", "");
+        historyReadStatus.hidden = progressView !== "tasks";
+        console.error("Recorded task History read failed", error);
+    }
+}
+
 function renderCompletedTaskHistory() {
+    if (historyReadStatus && completedTaskHistory.length === 0) return;
     historyPager.reset();
 
     recentBody.hubMarkdown?.clear();
@@ -4748,7 +4779,7 @@ function renderCompletedTaskHistory() {
             })
             .sort(
                 (a, b) =>
-                    Number(b.timestamp) -
+                    a.nativeHistory && a.timestamp === null ? (b.nativeHistory && b.timestamp === null ? 0 : 1) : b.nativeHistory && b.timestamp === null ? -1 : Number(b.timestamp) -
                     Number(a.timestamp)
             );
 
@@ -4775,6 +4806,7 @@ function renderCompletedTaskHistory() {
                 cls:
                     "home-recent-row home-completed-task-row"
             });
+        row.historyReadKey = item.historyReadKey;
 
 
         const info =
@@ -4839,7 +4871,7 @@ function renderCompletedTaskHistory() {
 
         const projectName =
             displayProjectName(
-                resource?.label ??
+                item.nativeHistory ? (item.projectName ?? (item.nativeHistory.owner ? item.nativeHistory.owner.type + ": " + item.nativeHistory.owner.id : "Unassigned")) : resource?.label ??
                 project?.name ??
                 item.projectName
             );
@@ -4872,6 +4904,10 @@ function renderCompletedTaskHistory() {
             });
 
 
+        if (item.nativeHistory && item.timestamp === null) {
+            row.setAttribute("data-history-undated", "true"); time.title = "Completion time unavailable";
+            el(time, "div", "home-recent-date", "Completion time unavailable");
+        } else {
         time.title = formatDateTime(when);
         el(
             time,
@@ -4887,16 +4923,17 @@ function renderCompletedTaskHistory() {
             "home-recent-clock",
             formatTime(when)
         );
+        }
 
 
-        const file =
+        const file = item.nativeHistory ? null :
             app.vault
                 .getAbstractFileByPath(
                     item.path
                 );
 
 
-        if (file) {
+        if (file || item.nativeHistory?.navigation.state === "available") {
 
             row.addClass(
                 "home-recent-clickable"
@@ -4907,9 +4944,8 @@ function renderCompletedTaskHistory() {
                 row,
                 async () => {
 
-                    await openFileFromHome(
-                        item.path
-                    );
+                    const target = await completedHistoryRead.reveal(item);
+                    if (!item.nativeHistory && target) await openFileFromHome(target.path);
                 }
             );
         }
@@ -4918,6 +4954,7 @@ function renderCompletedTaskHistory() {
 
 
 function renderActiveProgressView() {
+    if (historyReadStatus) historyReadStatus.hidden = progressView !== "tasks";
 
     reportsTab.toggleClass(
         "is-active",
@@ -5022,6 +5059,7 @@ tasksTab.addEventListener(
         recentBody.scrollTop = 0;
         recentScrollTarget = 0;
         renderActiveProgressView();
+        if (historyReadStatus) void refreshCompletedTaskHistory();
     }
 );
 
@@ -5458,6 +5496,7 @@ function removeClearedTasksFromCache(
         retainExistingTasks(
             resourceTasks
         );
+    homeTaskRead?.remember([...projectTasks, ...resourceTasks], [...linesByPath.keys()]);
 }
 
 
@@ -5465,62 +5504,58 @@ root.addEventListener(
     "hub-completed-tasks-changed",
     event => {
 
-        removeClearedTasksFromCache(
-            event.detail?.deleted
-        );
-
-        completedTaskHistory =
-            window
-                .hubGetCompletedTaskHistory?.()
-            ?? [];
-
-        renderActiveContext();
+        if (event.detail?.deleted?.length) {
+            removeClearedTasksFromCache(event.detail.deleted);
+            renderTaskContext();
+        }
+        completedHistoryRead?.invalidate();
+        void refreshCompletedTaskHistory();
     }
 );
 
 
-function loadTaskData() {
+async function loadTaskData(render = true) {
+    const ticket = ++homeTaskGeneration;
+    if (homeTaskDisposed || !root.isConnected) return;
+    if (deferHomeTaskInteraction()) return;
+    if (upcomingBody.hubTaskUi?.defer(() => { void loadTaskData(render); })) return;
     const taskData = window.hubTaskData;
-    const pages = taskData?.readPages(dv) ?? dv.pages("").array();
     // Keep the existing owner objects: status/delete handlers update them in
     // place. Resolve relocated roots before assigning tasks to their owners.
     for (const owner of [...projects, ...resourceTypes]) {
         owner.path = taskData?.currentPath(owner.path) ?? owner.path;
         owner.root = taskData?.currentPath(owner.root) ?? owner.root;
     }
-    const taskOwners = pages.flatMap(page => {
-        const resourceOwner = resourceForPage(page);
-        const projectOwner = resourceOwner ? null : projectForPage(page);
-        return Array.from(page.file.tasks ?? [], task => ({
-            task, resourceOwner, projectOwner
-        }));
-    });
-
-
-    resourceTasks =
-        taskOwners
-            .map(item => ({
-                task: item.task,
-                owner:
-                    item.resourceOwner
-            }))
-            .filter(item => item.owner);
-
-
-    projectTasks =
-        taskOwners
-            .map(item => ({
-                task: item.task,
-                owner:
-                    item.projectOwner
-            }))
-            .filter(item => item.owner);
-
-
+    try {
+        if (!homeTaskRead) throw new Error("Home task reader is unavailable.");
+        const result = await homeTaskRead.read();
+        if (!result || homeTaskDisposed || !root.isConnected || ticket !== homeTaskGeneration) return;
+        if (deferHomeTaskInteraction()) return;
+        if (upcomingBody.hubTaskUi?.defer(() => { void loadTaskData(render); })) return;
+        homeTaskCountComplete = result.countComplete !== false;
+        homeTaskStatus?.remove(); homeTaskStatus = null;
+        if (!homeTaskCountComplete) {
+            homeTaskStatus = upcoming.createDiv({ cls: "home-empty", text: "Native tasks are unavailable. Retained tasks are not a complete current total." });
+            homeTaskStatus.setAttribute("role", "status");
+        }
+        if (result.changed) {
+            projectTasks = result.items.filter(item => item.owner.contextKind !== "resource");
+            resourceTasks = result.items.filter(item => item.owner.contextKind === "resource");
+            homeTaskRead.accept(result.items);
+            if (render) renderTaskContext();
+        }
+    } catch (error) {
+        if (homeTaskDisposed || !root.isConnected || ticket !== homeTaskGeneration) return;
+        if (homeTaskRead?.availability) { homeTaskCountComplete = false; homeTaskCount = null; if (typeof homeContext !== "undefined") homeContext.setText("Tasks temporarily unavailable."); }
+        if (!homeTaskStatus) homeTaskStatus = upcoming.createDiv({ cls: "home-empty", text: "Tasks are temporarily unavailable. Existing tasks are retained." });
+        homeTaskStatus.setAttribute("role", "status");
+        console.error("Home task read failed", error);
+    }
 }
 
-function loadSecondaryData() {
-    loadTaskData();
+async function loadSecondaryData() {
+    await loadTaskData(false);
+    if (homeTaskDisposed || !root.isConnected) return;
 
     recentItems =
         window.hubGetActivityLog?.()
@@ -5529,9 +5564,8 @@ function loadSecondaryData() {
     progressReports =
         getScopedProgressReports();
 
-    completedTaskHistory =
-        window.hubGetCompletedTaskHistory?.()
-        ?? [];
+    await refreshCompletedTaskHistory(false);
+    if (historyReadDisposed || !root.isConnected) return;
 
     renderActiveContext();
 }
@@ -5546,10 +5580,11 @@ function renderTaskContext() {
 
 
     const homeTasks = [...activeProjectTasks, ...resourceTasks];
-    homeTaskCount = (window.hubTaskGroups?.(homeTasks).active ?? homeTasks.filter(item => !item.task.completed)).length;
+    homeTaskCount = homeTaskCountComplete ? (window.hubTaskGroups?.(homeTasks).active ?? homeTasks.filter(item => !item.task.completed)).length : null;
 
 
-    updateHomeContext();
+    if (!homeTaskCountComplete && typeof homeContext !== "undefined") homeContext.setText("Tasks temporarily unavailable.");
+    else updateHomeContext();
 
 
     renderTasksToDo(
@@ -5563,14 +5598,6 @@ function renderActiveContext() {
     renderActiveProgressView();
 }
 
-window.hubTaskData?.subscribe(dv.component, () => {
-    if (!root.isConnected) return;
-    if (upcomingBody.hubTaskUi?.defer(() => { loadTaskData(); renderTaskContext(); })) return;
-    loadTaskData();
-    renderTaskContext();
-});
-
-
-frame.defer(() => loadSecondaryData());
+frame.defer(() => { void loadSecondaryData(); });
 frame.commit();
 window.hubEnterDashboard?.(root);

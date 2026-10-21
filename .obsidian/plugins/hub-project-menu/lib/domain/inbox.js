@@ -102,7 +102,7 @@ function captureIntent(values = {}, attachments = []) {
     const type = attachments.length ? (["task", "note", "file"].includes(input.type) || input.workspaceId || input.folder ? "file" : null) : ["task", "note"].includes(input.type) ? input.type : null;
     if (!type) return null;
     const intent = { inputPath: attachments.length ? "file" : "text", type };
-    const keys = type === "task" ? ["workspaceId", "location", "necessity", "fromDate", "dueDate", "fromTime", "dueTime", "phaseId", "linkedProjectId"] :
+    const keys = type === "task" ? ["workspaceId", "location", "necessity", "fromDate", "dueDate", "fromTime", "dueTime", "phaseId"] :
         type === "note" ? ["workspaceId", "folder", "title"] : ["workspaceId", "folder"];
     for (const key of keys) {
         if (typeof input[key] === "string" || input[key] === null) intent[key] = input[key];
@@ -142,6 +142,7 @@ function captureDraft(capture = {}) {
     draft.inputPath = draft.attachments.length ? "file" : "text";
     if (Array.isArray(draft.steps)) draft.steps = draft.steps.map(step => ({ ...step }));
     delete draft.taskTitle;
+    delete draft.linkedProjectId;
     return draft;
 }
 

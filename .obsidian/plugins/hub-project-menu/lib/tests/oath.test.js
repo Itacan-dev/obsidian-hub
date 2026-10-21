@@ -32,9 +32,14 @@ function fixture(data = {}, deviceId = "this-device") {
         projectWizard: wizard, register: fn => cleanups.push(fn), enqueueTaskMutation: async fn => fn(),
         dataStore: { deviceId, save: async data => { if (failSave) throw Error("Disk unavailable"); persisted = structuredClone(data); } },
         taskData: { readPages: () => { queries++; const tasks = frozen ?? readTasks(); return [{ file: { tasks: tasks.map(task => ({ ...task, identityConflict: tasks.filter(item => item.hubTaskId && item.hubTaskId === task.hubTaskId).length > 1 })) } }]; },
-            subscribe: (component, fn) => { subscribers.add(fn); component.register(() => subscribers.delete(fn)); } },
+            subscribe: (component, fn) => { subscribers.add(fn); const stop = () => subscribers.delete(fn); component.register(stop); return stop; } },
         taskEditor: { file: path => { const file = vault.getAbstractFileByPath(path); if (!file) throw Error("Missing file"); return file; }, metadata: id => taskMetadata(data.taskMetadata?.[id]) }
     };
+    // Inject the actual shared facade into this isolated legacy lifecycle host.
+    // Its original source, writer, persistence and index controls stay unchanged.
+    plugin.taskService = new (require("../services/task-service").TaskService)(new (require("../services/task-service-legacy").LegacyTaskAdapter)({ plugin,
+        dataview: () => ({ pages() {}, index: { initialized: ready } }) }));
+    cleanups.push(() => { void plugin.taskService.close(); });
     const full = { owned: false, full: false, entries: 0, exits: 0, available: true,
         isFull() { return this.full; }, restore(value) { this.owned = !!value && this.full; },
         onChange(fn) { this.change = fn; }, async enter() { if (this.full) return this.owned; this.entries++; if (!this.available) return false; this.full = this.owned = true; return true; },

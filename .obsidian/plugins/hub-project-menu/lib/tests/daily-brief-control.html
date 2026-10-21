@@ -13,8 +13,10 @@ const icons={'square-check':'<rect x="3" y="3" width="18" height="18" rx="2"/><p
 icons.shield='<path d="M12 22s8-4 8-11V5l-8-3-8 3v6c0 7 8 11 8 11"/>';icons.newspaper='<path d="M4 22h16a2 2 0 0 0 2-2V2H6v18a2 2 0 0 1-4 0V8h4 M10 6h8 M10 10h8 M10 14h3 M16 14h2 M10 18h3 M16 18h2"/>';
 const native={Modal,Component,setIcon:(el,name)=>{el.dataset.icon=name;el.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">'+(icons[name]||'')+'</svg>'},MarkdownRenderer:{render:async(app,text,el)=>{el.textContent=text}}};
 const names=["ui/window-title",'ui/daily-brief-control','ui/tooltips','services/daily-brief','services/daily-brief-trigger','domain/dates','domain/focus','domain/tasks','domain/task-planning','domain/report-context','domain/daily-brief','domain/brief-recommendations','ui/render-readiness','ui/markdown','ui/disclosure','ui/dashboard-ui','ui/daily-report','ui/daily-brief'],sources={},cache={};
-for(const name of names)sources[name]=await(await fetch('../'+name+'.js')).text();
-function load(name){if(name==='obsidian')return native;if(cache[name])return cache[name].exports;const m=cache[name]={exports:{}};new Function('module','require',sources[name])(m,n=>{if(n==='obsidian')return native;const path=(name.slice(0,name.lastIndexOf('/'))+'/'+n).split('/'),out=[];for(const p of path){if(p==='..')out.pop();else if(p!=='.')out.push(p)}return load(out.join('/'))});return m.exports}
+names.push('services/task-service-host');
+async function prepare(name){if(name==='obsidian'||sources[name])return;const response=await fetch('../'+name+'.js');if(!response.ok)throw Error('Missing module '+name);const text=await response.text();sources[name]=text;for(const match of text.matchAll(/require\(\s*["']([^"']+)["']\s*\)/g)){const request=match[1];if(!request.startsWith('.'))continue;const parts=(name.slice(0,name.lastIndexOf('/'))+'/'+request).split('/'),out=[];for(const part of parts){if(part==='..')out.pop();else if(part!=='.')out.push(part)}await prepare(out.join('/'))}}
+await Promise.all(names.map(prepare));
+function load(name){if(name==='obsidian')return native;if(cache[name])return cache[name].exports;const m=cache[name]={exports:{}};new Function('module','require','process',sources[name])(m,n=>{if(n==='obsidian')return native;const path=(name.slice(0,name.lastIndexOf('/'))+'/'+n).split('/'),out=[];for(const p of path){if(p==='..')out.pop();else if(p!=='.')out.push(p)}return load(out.join('/'))},{env:{}});return m.exports}
 const assert=(v,m)=>{if(!v)throw Error(m)},settle=async()=>{for(let i=0;i<20;i++)await Promise.resolve()};
 try {
  const {DailyBriefService}=load('services/daily-brief'),{mountDailyBriefControl}=load('ui/daily-brief-control');
@@ -36,8 +38,12 @@ try {
   taskData:{currentPath:path=>path,readPages:()=>[{file:{tasks:[task]}}]},dataStore:{save:async()=>{writes++}},taskEditor:{metadata:()=>({})},
   registerDomEvent(el,type,fn){el.addEventListener(type,fn);cleanups.push(()=>el.removeEventListener(type,fn))},addStatusBarItem:()=>bar.createDiv({cls:'status-bar-item'}),
   workspaceModes:{openHome:async()=>{navigation.view='changed'},openProjectNote:async()=>{navigation.lastFile='changed'}}};
+ task.steps.forEach((step,i)=>Object.assign(step,{path:task.path,line:i+1,parent:task.line}));
+ plugin.app.vault.read=async()=>'- [ ] Assignment 5 <!-- hub-task:parent -->\n    - [x] 1a <!-- hub-task:s1 -->\n    - [ ] 2b <!-- hub-task:s2 -->\n';
+ plugin.taskData.subscribe=()=>()=>{};plugin.register=fn=>cleanups.push(fn);plugin.app.plugins={getPlugin:()=>({api:{pages(){}}})};
+ plugin.taskService=load('services/task-service-host').createLegacyTaskService(plugin);
  const old=mountOathControl(plugin,oath),oathButton=old.item.querySelector('button'),baseHeight=bar.getBoundingClientRect().height,baseRight=status.getBoundingClientRect().right;
- const service=new DailyBriefService(plugin,{now:()=>now,provider:{getRecommendation:context=>{providerCalls++;return new(load('domain/brief-recommendations').RulesRecommendationProvider)().getRecommendation(context)}}});service.started=true;service.refreshAvailability();
+ const service=new DailyBriefService(plugin,{now:()=>now,provider:{getRecommendation:context=>{providerCalls++;return new(load('domain/brief-recommendations').RulesRecommendationProvider)().getRecommendation(context)}}});service.started=true;await service.refreshAvailability();
  const control=mountDailyBriefControl(plugin,service,old.item),button=control.button;
  assert(button.previousElementSibling===oathButton,'Daily brief immediately follows The Oath in the shared footer');
  assert(button.querySelector('[data-icon=newspaper]'),'Exact Lucide Newspaper');
@@ -61,16 +67,16 @@ try {
  }
  assert(providerCalls===1&&writes===2,'Manual reopening neither regenerates nor changes auto-show state');
  assert(JSON.stringify(wizard.data.dailyBriefSnapshot)===stored,'UI/history browsing cannot mutate storage');
- oath.active=true;service.refreshAvailability();assert(button.getAttribute('aria-disabled')==='true'&&button.getAttribute('aria-label').includes('Oath'),'Oath unavailable tooltip');button.click();await settle();assert(!service.modal,'No Oath loophole');
- oath.active=false;service.refreshAvailability();
+ oath.active=true;await service.refreshAvailability();assert(button.getAttribute('aria-disabled')==='true'&&button.getAttribute('aria-label').includes('Oath'),'Oath unavailable tooltip');button.click();await settle();assert(!service.modal,'No Oath loophole');
+ oath.active=false;await service.refreshAvailability();
  const label=oathButton.querySelector('span:last-child');label.textContent='The Oath ? 120 minutes ? 20 / 100';
  bar.style.width='380px';assert(bar.scrollWidth<=bar.clientWidth+1,'Narrow footer has no overflow');assert(bar.getBoundingClientRect().height===baseHeight,'Narrow footer retains height');
  bar.style.width='';label.textContent='The Oath';
  now=new Date(2026,8,27,6);service.trigger.background();await service.trigger.activate();await settle();assert(providerCalls===2,'New Itacan day creates a new artifact');service.modal.close();
- now=new Date(2026,8,28,6);reports=[];history.length=0;wizard.data.reportFocusByDate={};service.refreshAvailability();
+ now=new Date(2026,8,28,6);reports=[];history.length=0;wizard.data.reportFocusByDate={};await service.refreshAvailability();
  assert(button.getAttribute('aria-disabled')==='true'&&button.getAttribute('aria-label').includes('No meaningful work'),'No-history state uses a disabled control and tooltip');button.click();await settle();assert(!service.modal,'No empty modal');
  // Leave a normal shell in the screenshot after checking disposal with a second control.
- now=new Date(2026,8,27,10);service.refreshAvailability();document.body.className='hub-home-mode';view.textContent='Home';
+ now=new Date(2026,8,27,10);await service.refreshAvailability();document.body.className='hub-home-mode';view.textContent='Home';
  const extra=mountDailyBriefControl(plugin,service,old.item);extra.destroy();assert(old.item.querySelectorAll('.hub-daily-brief-button').length===1,'No duplicate controls after disposal');
  result.textContent='PASS: shared global footer placement/geometry, Newspaper, keyboard/focus, narrow width, same artifact across Home/Full/Note, no navigation writes, auto/manual separation, Earlier days, Oath, no history and next-day refresh.';
 }catch(e){result.textContent='FAIL: '+e.stack}

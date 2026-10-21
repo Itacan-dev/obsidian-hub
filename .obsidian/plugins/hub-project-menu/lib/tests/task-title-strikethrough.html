@@ -1,0 +1,66 @@
+<!doctype html><meta charset="utf-8"><title>Actual completed title raster</title>
+<!-- Deliberately do not load dashboard CSS: the modal is mounted outside those views. -->
+<link rel="stylesheet" href="../../styles.css">
+<style>#fixture,#result{display:none}.modal-close-button{background:transparent!important;border:0!important;box-shadow:none!important}</style>
+<body class="theme-dark"><main id="fixture"></main><pre id="result">RUNNING</pre><script type="module">
+let checks=0;
+const check=(v,m)=>{checks++;if(!v)throw Error(m)},frame=()=>new Promise(r=>requestAnimationFrame(r)),settle=async()=>{for(let i=0;i<4;i++)await frame()},
+key=value=>new Promise(resolve=>{window.hubTestKeyDone=resolve;window.hubTestKeyRequest=value}),
+pointer=e=>new Promise(resolve=>{const b=e.getBoundingClientRect();window.hubTestPointerDone=resolve;window.hubTestPointerRequest={x:b.x+b.width/2,y:b.y+b.height/2,action:'click'}}),
+baseline=new URLSearchParams(location.search).get('home-source')==='baseline',layout=devicePixelRatio>1?'small-150':'desktop',prefix='title-strike-'+(baseline?'before':'after')+'-'+layout,
+shot=name=>new Promise(resolve=>{window.hubTestScreenshotDone=resolve;window.hubTestScreenshotRequest=prefix+'-'+name}),
+box=e=>{const b=e.getBoundingClientRect();return{x:b.x,y:b.y,w:b.width,h:b.height,bottom:b.bottom}},near=(a,b)=>Math.abs(a-b)<.8;
+const traces=[];window.hubTaskOpeningFrames=traces;
+async function bitmap(base64){const b=await createImageBitmap(new Blob([Uint8Array.from(atob(base64),c=>c.charCodeAt(0))],{type:'image/png'})),c=document.createElement('canvas');c.width=b.width;c.height=b.height;const ctx=c.getContext('2d');ctx.drawImage(b,0,0);b.close();return ctx;}
+// Compare the same completed state with ONLY its decoration suppressed. Muting
+// the blinking caret during this pair prevents a false positive from the caret.
+async function raster(f,name,expected){
+ const title=f.card.textEl,input=f.input,caret=document.createElement('style');caret.textContent='.hub-task-card-edit-input{caret-color:transparent!important}';document.head.append(caret);
+ if(input.isConnected)input.setSelectionRange(input.value.length,input.value.length);
+ await settle();await Promise.all(document.getAnimations().map(a=>a.finished.catch(()=>{})));
+ const bounds=box(title),actual=await shot(name),oldTitle=title.style.cssText,oldInput=input.style.cssText;
+ title.style.setProperty('text-decoration','none','important');input.style.setProperty('text-decoration','none','important');await settle();
+ const reference=await shot(name+'-no-line-reference');title.style.cssText=oldTitle;input.style.cssText=oldInput;caret.remove();await settle();
+ const a=await bitmap(actual),b=await bitmap(reference),scale=devicePixelRatio,x=Math.round(bounds.x*scale),y=Math.round(bounds.y*scale),w=Math.floor(bounds.w*scale),h=Math.floor(bounds.h*scale),p=a.getImageData(x,y,w,h).data,q=b.getImageData(x,y,w,h).data,rows=[];let total=0;
+ for(let yy=0;yy<h;yy++){let count=0;for(let xx=0;xx<w;xx++){const i=(yy*w+xx)*4;if(Math.max(...[0,1,2].map(k=>Math.abs(p[i+k]-q[i+k])))>6)count++;}rows.push(count);total+=count;}
+ const lineRows=rows.map((n,i)=>n>=12*scale?i:-1).filter(i=>i>=0),bands=lineRows.filter((n,i)=>!i||n>lineRows[i-1]+1).length;
+ const record={name,expected,bounds,total,maxRow:Math.max(...rows),bands,lineRows,computed:getComputedStyle(input.isConnected?input:title).textDecorationLine,completed:f.state.completed,native:input.isConnected&&input.tagName==='TEXTAREA'};traces.push(record);
+ if(baseline){check(total===0,name+' reproduces missing painted title decoration without dashboard CSS');}
+ else if(expected){check(total>=12*scale&&bands>=1,name+' visible raster stroke '+JSON.stringify(record));if(bounds.h>parseFloat(getComputedStyle(title).lineHeight)*1.8)check(bands>=2,name+' each wrapped line has a stroke');}
+ else check(total===0,name+' unchecked title has no painted stroke '+JSON.stringify(record));
+ return record;
+}
+try{
+ if(baseline){const link=document.querySelector('link');await new Promise((resolve,reject)=>{link.onload=resolve;link.onerror=reject;link.href='../../../../../System/Backups/task-title-strikethrough-20261015/source/styles.css';});}
+ const source=await(await fetch('task-opening.html')).text(),setup=source.slice(source.indexOf(' const source=await'),source.indexOf(' const originalRead=')),AsyncFunction=Object.getPrototypeOf(async function(){}).constructor,env=await new AsyncFunction('check',setup+';return env;')(check),{service,openTaskCreator,openTaskEditor,plugin,p,contents}=env;
+ const modal=openTaskCreator(service,{root:p.root});await modal.ready;const f=modal.taskFields;
+ check(document.activeElement===f.input&&f.input.tagName==='TEXTAREA','Actual native Add title autofocus');
+ for(const c of 'Visible completed title')await key(c);check(f.state.text==='Visible completed title','Immediate trusted typing');await raster(f,'add-unchecked-editing',false);
+ await pointer(f.completion);await settle();check(f.state.completed&&f.completion.checked&&f.card.row.classList.contains('is-completed'),'First checkbox click reaches pending draft');await raster(f,'add-checked-blurred',true);
+ await pointer(f.card.textEl);await settle();check(document.activeElement===f.input&&f.input.isConnected,'Same editable textarea reattached');await shot('add-checked-editing-caret');await raster(f,'add-checked-editing',true);
+ if(baseline){
+  // Diagnose whether Chromium itself can paint decoration on this native control.
+  f.card.textEl.style.textDecoration='line-through';f.input.style.textDecoration='line-through';await shot('explicit-native-decoration-probe');traces.push({name:'explicit-native-probe',parent:getComputedStyle(f.card.textEl).textDecorationLine,input:getComputedStyle(f.input).textDecorationLine});
+  modal.close();document.querySelector('#result').textContent='PASS: '+checks+' baseline checks; missing actual title stroke reproduced without dashboard CSS';
+ }else{
+  await key('x');check(f.state.text.endsWith('x')&&f.state.completed,'Native typing preserves completion');await raster(f,'add-checked-extended',true);
+  f.input.setSelectionRange(3,10);const selected=[f.input.selectionStart,f.input.selectionEnd];f.refresh();check(f.input.selectionStart===selected[0]&&f.input.selectionEnd===selected[1]&&document.activeElement===f.input,'Refresh preserves native selection/focus');await shot('add-checked-native-selection');
+  f.input.dispatchEvent(new CompositionEvent('compositionstart',{bubbles:true,data:'字'}));f.input.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',isComposing:true,bubbles:true,cancelable:true}));check(modal.modalEl.isConnected&&f.state.completed,'IME Enter does not submit');f.input.dispatchEvent(new CompositionEvent('compositionend',{bubbles:true,data:'字'}));
+  const value=f.input.value;await pointer(f.completion);check(!f.state.completed&&f.state.completedAt===null,'Uncheck clears completion timestamp');await raster(f,'add-unchecked-after-toggle',false);check(f.input.value===value,'Uncheck preserves exact text');await pointer(f.completion);check(f.state.completed&&f.state.completedAt,'Recheck restores draft timestamp');await raster(f,'add-rechecked',true);
+  // Keep all metadata and Steps outside the decoration target.
+  f.state.fromDate='2090-10-20';f.state.dueDate='2090-10-22';f.state.phaseId='build';f.state.necessity='must';f.state.description='Unstruck description';f.refresh();
+  for(const e of [f.card.source,f.presentation.dates,f.presentation.phase,f.checklist.toggle,...f.element.querySelectorAll('.hub-task-config-action')].filter(Boolean))check(!getComputedStyle(e).textDecorationLine.includes('line-through'),'Only title decoration: '+e.className);
+  const before=JSON.stringify([...contents]);modal.close();check(JSON.stringify([...contents])===before,'Parent Cancel discards Add draft');
+  const made=await service.create(p.root,'Stored completed title',{completed:true,description:'Preserved metadata',steps:[{text:'Unfinished Step',completed:false}]});
+  const target={path:made.path,line:made.line??1,text:'Stored completed title'};let edit=openTaskEditor(service,target);await edit.ready;let ef=edit.taskFields;check(ef.state.completed&&ef.completion.checked,'Completed Edit loads state');await raster(ef,'edit-initial-completed',true);
+  await pointer(ef.completion);await raster(ef,'edit-unchecked',false);await pointer(ef.completion);await raster(ef,'edit-rechecked',true);
+  await pointer(ef.card.textEl);const initialBox=box(ef.card.row);ef.input.setSelectionRange(ef.input.value.length,ef.input.value.length);for(const c of ' extended')await key(c);await raster(ef,'edit-completed-editing',true);
+  check(ef.input.value==='Stored completed title extended'&&ef.state.text===ef.input.value,'Editable exact stored title without Markdown delimiters');check(near(box(ef.card.row).w,initialBox.w),'Editing keeps card width');
+  edit.contentEl.querySelector('.hub-task-dialog-actions .mod-cta').click();await settle();check(!edit.modalEl.isConnected,'Save completed Edit');const stored=await service.read({...target,text:'Stored completed title extended'});check(stored.completed&&stored.hubTaskId&&stored.description==='Preserved metadata'&&!stored.steps[0].completed,'Save retains completion, identity, metadata and Step independence');
+  edit=openTaskEditor(service,{...target,text:stored.text});await edit.ready;ef=edit.taskFields;await raster(ef,'edit-reopened-completed',true);
+  await pointer(ef.card.textEl);ef.input.value='A completed title that wraps naturally across multiple lines while retaining native editing and selection. '.repeat(3);ef.input.dispatchEvent(new Event('input',{bubbles:true}));await settle();check(box(ef.input).h>parseFloat(getComputedStyle(ef.input).lineHeight)*2,'Native long title wraps');await raster(ef,'edit-long-wrapped-completed',true);check(ef.input.scrollHeight<=ef.input.clientHeight+1,'Wrapped native title fits its measured height');edit.close();
+  const incomplete=await service.create(p.root,'Stored incomplete title',{});edit=openTaskEditor(service,{path:incomplete.path,line:incomplete.line??1,text:'Stored incomplete title'});await edit.ready;ef=edit.taskFields;await raster(ef,'edit-initial-incomplete',false);await pointer(ef.completion);await raster(ef,'edit-incomplete-now-checked',true);edit.close();
+  document.querySelector('#result').textContent='PASS: '+checks+' actual editable-title checks; raster strokes, Add/Edit toggles, typing/selection/IME/wrapping, Save/reopen and metadata isolation '+layout;
+ }
+}catch(e){document.querySelector('#result').textContent='FAIL '+e.stack}
+</script>

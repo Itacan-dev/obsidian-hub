@@ -25,10 +25,6 @@ function stepsSummary(host, task, edit) {
     const progress = el.createEl("progress", { attr: { max: String(task.steps.length), value: String(completed), "aria-hidden": "true" } });
     return progress;
 }
-function projectBadge(host, task, context) {
-    const label = context.projectLabel(task);
-    if (context.resource && label) host.createSpan({ cls: "hub-task-project-link", text: label, attr: { title: label } });
-}
 function date(host, task, key = "dueDate", now = new Date()) {
     if (!task[key]) return;
     const time = key === "fromDate" ? task.fromTime : task.dueTime;
@@ -44,20 +40,21 @@ function source(host, task, context) {
         catch (error) { new Notice(error.message || "Could not open task location."); }
     }, "hub-button-plain hub-full-location");
     el.title = label; el.setAttribute("aria-label", "Open location: " + label);
+    if (task.nativeReference) { el.disabled = true; el.title = "Native source navigation is unavailable."; }
 }
 function bindTask(row, title, checkbox, task, context, options = {}) {
-    context.ui.bind(row, title, task, () => context.currentPath(task.path), { dates: false, steps: false, ...options });
+    context.ui.bind(row, title, task, () => task.nativeReference ? "" : context.currentPath(task.path), { dates: false, steps: false, ...options });
     row.classList.toggle("is-completed", !!task.completed);
-    const key = task.hubTaskId ?? task.path + ":" + task.line;
-    checkbox.checked = !!task.completed; checkbox.disabled = context.pending.has(key);
+    const key = task.nativeReference ? JSON.stringify([task.nativeReference.authorityId, task.nativeReference.owner, task.nativeReference.taskId]) : task.hubTaskId ?? task.path + ":" + task.line;
+    checkbox.checked = !!task.completed; checkbox.disabled = !!task.nativeReadOnly || !!context.unavailable || context.pending.has(key);
     checkbox.addEventListener("click", event => event.stopPropagation());
     checkbox.addEventListener("change", async () => {
-        if (context.pending.has(key)) return;
+        if (task.nativeReadOnly || context.unavailable || context.pending.has(key)) { checkbox.checked = !!task.completed; return; }
         const completed = checkbox.checked;
         context.pending.add(key); checkbox.disabled = true;
-        try { context.apply(await context.toggle({ ...task, path: context.currentPath(task.path), completed })); }
+        try { context.apply(await context.toggle(task.nativeReference ? { ...task, completed } : { ...task, path: context.currentPath(task.path), completed })); }
         catch (error) { checkbox.checked = !!task.completed; new Notice(error.message || "Could not update task."); }
-        finally { context.pending.delete(key); checkbox.disabled = false; context.render(); }
+        finally { context.pending.delete(key); checkbox.disabled = !!task.nativeReadOnly || !!context.unavailable; context.render(); }
     });
 }
 function taskCard(host, task, context, compact = false) {
@@ -70,7 +67,6 @@ function taskCard(host, task, context, compact = false) {
     if (!compact) {
         const metadata = info.createDiv({ cls: "hub-full-card-context" });
         source(metadata, task, context);
-        projectBadge(metadata, task, context);
         const phase = context.phaseLabel?.(task);
         if (phase) metadata.createSpan({ cls: "hub-task-phase", text: phase, attr: { title: "Phase: " + phase } });
         const schedule = info.createDiv({ cls: "hub-full-card-date" }); date(schedule, task, "dueDate", context.now);
@@ -90,6 +86,5 @@ function compactRow(host, task, context) {
     const location = row.createDiv(); source(location, task, context);
     const due = row.createDiv(); date(due, task, "dueDate", context.now);
     const steps = row.createDiv(); stepsSummary(steps, task, context.edit);
-    const project = row.createDiv(); projectBadge(project, task, context);
 }
-module.exports = { button, iconButton, empty, stepsSummary, projectBadge, date, source, bindTask, taskCard, compactRow };
+module.exports = { button, iconButton, empty, stepsSummary, date, source, bindTask, taskCard, compactRow };

@@ -24,9 +24,7 @@ function ownerOf(path, workspaces) {
 }
 function inScope(entry, scope, workspaces) {
     if (!scope) return !!ownerOf(entry.path, workspaces);
-    if (validLocation(entry.path, scope)) return true;
-    return entry.kind === "tasks" && scope.contextKind !== "resource" && entry.task.linkedProjectId === scope.projectId &&
-        workspaces.some(workspace => workspace.contextKind === "resource" && validLocation(entry.path, workspace));
+    return validLocation(entry.path, scope);
 }
 function contextLabel(path, owner) {
     const relative = path.slice(owner.root.length).replace(/^\//, "").replace(/\.md$/i, "");

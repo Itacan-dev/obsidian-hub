@@ -63,7 +63,7 @@ function taskProgressMutation(previousChecks, previousHistory, edit, context, ti
             taskTransition = { kind: "task", hubTaskId: saved?.hubTaskId ?? edit.hubTaskId,
                 line: saved?.line ?? edit.line, lookupLine: edit.line,
                 oldText: edit.oldText, text: saved?.text ?? edit.oldText, completed: edit.completed };
-        } else if (target && edit.operation !== "add") {
+        } else if (target && edit.operation !== "add" && !edit.progressTransitions?.some(event => event.kind === "task")) {
             // Editing or deleting is housekeeping: only update/detach the binding.
             checks = checks.filter(check => check !== target);
             if (saved) checks.unshift({ ...target, path: edit.path, line: saved.line,

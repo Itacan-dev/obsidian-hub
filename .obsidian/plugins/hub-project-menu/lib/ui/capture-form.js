@@ -4,7 +4,7 @@ const { projectItemPath } = require("../domain/files");
 const { openCaptureWorkspacePicker, openCaptureLocationPicker } = require("./capture-pickers");
 const { mountWorkspaceThumbnail } = require("./workspace-thumbnail");
 const { createCapturePickerTrigger } = require("./capture-picker-trigger");
-const { mountTaskFields, mountTaskRelationshipFields } = require("./task-form");
+const { mountTaskForm } = require("./task-form");
 const { openNotePositionPicker } = require("./note-position-picker");
 const { noteLocation, noteLocationSummary, resolveNoteLocation } = require("../domain/note-insertion");
 
@@ -103,12 +103,15 @@ function mountCaptureForm({ host, service, draft = {}, onChange = () => {}, fixe
         picker = null;
         if (!disposed) [...element.querySelectorAll("button")].find(button => button.getAttribute("aria-label") === label)?.focus({ preventScroll: true });
     };
-    function workspaceField(parent) {
+    function workspaceControl() {
         const current = workspace();
         const category = current?.contextKind === "project" ? service.plugin.projectWizard.getCategories?.().find(item => item.id === current.categoryId || item.name === current.categoryId) : null;
-        pickerTrigger(parent, "Save to", current?.name ?? "Choose project or resource…",
-            current ? (current.contextKind === "resource" ? "Resource" : category?.name ? "Project · " + category.name : "Project") : null,
-            current?.contextKind === "resource" ? current.icon ?? "library" : "folder", () => {
+        return { title: current?.name ?? "Choose project or resource…",
+            subtitle: current ? (current.contextKind === "resource" ? "Resource" : category?.name ? "Project · " + category.name : "Project") : null,
+            icon: current?.contextKind === "resource" ? current.icon ?? "library" : "folder",
+            renderIcon: current ? button => mountWorkspaceThumbnail(button, service.plugin, current) : null,
+            onOpen: () => {
+                if (picker || disposed) return;
                 picker = openCaptureWorkspacePicker(service, {
                     selectedId: state.workspaceId,
                     onSelect: selected => {
@@ -118,26 +121,33 @@ function mountCaptureForm({ host, service, draft = {}, onChange = () => {}, fixe
                     },
                     restoreFocus: () => restorePickerFocus("Save to")
                 });
-            }, false, current);
+            } };
     }
-    function locationField(parent, task) {
-        const label = task ? "Task location" : "Destination folder", current = workspace();
+    function workspaceField(parent) {
+        createCapturePickerTrigger(fieldHost(parent, "Save to"), { ...workspaceControl(), label: "Save to" });
+    }
+    function locationControl(task) {
+        const label = task ? "Location" : "Destination folder", current = workspace();
         const items = task ? locations() : folders(), path = state[task ? "location" : "folder"];
         const selected = items.find(item => item.path === path);
-        pickerTrigger(parent, task ? "Location" : "Folder", selected?.label ?? selected?.name ?? (task ? "Choose a note or folder…" : "Choose a folder…"),
-            selected && task ? selected.folder ? "Folder · Tasks note" : "Markdown note · " + selected.path.split("/").pop() : null,
-            selected && task && !selected.folder ? "notebook-text" : "folder", () => {
+        return { label, title: selected?.label ?? selected?.name ?? (task ? "Choose a note or folder…" : "Choose a folder…"),
+            subtitle: selected && task ? selected.folder ? "Folder · Tasks note" : "Markdown note · " + selected.path.split("/").pop() : null,
+            icon: selected && task && !selected.folder ? "notebook-text" : "folder", disabled: !current,
+            onOpen: () => {
+                if (picker || disposed) return;
                 picker = openCaptureLocationPicker(service, {
                     workspace: current, task, selectedPath: path, getItems: task ? locations : folders,
                     onSelect: selected => { if (!disposed) { state[task ? "location" : "folder"] = selected.path; render(); notify(); } },
                     restoreFocus: () => restorePickerFocus(label)
                 });
-            }, !current).setAttribute("aria-label", label);
+            } };
+    }
+    function locationField(parent, task) {
+        createCapturePickerTrigger(fieldHost(parent, task ? "Location" : "Folder"), locationControl(task));
     }
     function renderTask() {
-        locationField(group(), true);
-        taskFields = mountTaskFields({ app: service.app, host: element, state, onChange: notify });
-        mountTaskRelationshipFields({ host: element, state, service: taskEditor,
+        taskFields = mountTaskForm({ app: service.app, host: element, state, service: taskEditor,
+            destination: { workspace: workspaceControl(), location: locationControl(true) },
             location: () => state.location || workspace()?.root, onChange: notify });
     }
     function existingNoteField(parent) {
@@ -180,14 +190,16 @@ function mountCaptureForm({ host, service, draft = {}, onChange = () => {}, fixe
             options: [["new", "New note", "notebook-plus"], ["existing", "Add text to existing note", "notebook-pen"]],
             onSelect: action => { state.noteAction = action; render(); notify();
                 element.querySelector(".hub-capture-note-actions button[aria-pressed=true]")?.focus(); } });
-        workspaceField(placement);
         if (state.type === "task") renderTask();
-        else if (state.type === "note" && state.noteAction === "existing") { existingNoteField(placement); checkNoteLocation(); }
         else {
-            locationField(placement, false);
-            if (state.type === "note") {
-                const title = field(placement, "Title", "text", "title", true); title.classList.add("hub-task-title-input");
-                title.setAttribute("aria-label", "Note title");
+            workspaceField(placement);
+            if (state.type === "note" && state.noteAction === "existing") { existingNoteField(placement); checkNoteLocation(); }
+            else {
+                locationField(placement, false);
+                if (state.type === "note") {
+                    const title = field(placement, "Title", "text", "title", true); title.classList.add("hub-task-title-input");
+                    title.setAttribute("aria-label", "Note title");
+                }
             }
         }
     }
@@ -225,6 +237,7 @@ function mountCaptureForm({ host, service, draft = {}, onChange = () => {}, fixe
             const layoutChanged = (!lockedType && patch.type !== undefined && patch.type !== state.type) ||
                 (patch.workspaceId !== undefined && patch.workspaceId !== state.workspaceId) ||
                 (patch.noteAction !== undefined && patch.noteAction !== state.noteAction) || patch.noteLocation !== undefined ||
+                (patch.location !== undefined && patch.location !== state.location) || patch.phaseId !== undefined ||
                 (patch.inputPath !== undefined && patch.inputPath !== state.inputPath);
             if (patch.workspaceId !== undefined && patch.workspaceId !== state.workspaceId) {
                 state.folder = ""; state.location = ""; state.noteLocation = null; state.phaseId = "";

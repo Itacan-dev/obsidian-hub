@@ -14,7 +14,8 @@ const icons={setHubIcon(el,name){el.dataset.icon=name;el.innerHTML='<svg width="
 async function load(name,require=()=>{}){const m={exports:{}};new Function('module','require',await(await fetch('../'+name+'.js')).text())(m,require);return m.exports}
 try{
  const dates=await load('domain/dates'),focus=await load('ui/focus-restoration'),datetime=await load('ui/date-time',name=>name==='obsidian'?{Modal}:name==='./icons'?icons:dates);
- const task=await load('ui/task-form',name=>name==='./focus-restoration'?focus:name==='./icons'?icons:name==='./date-time'?datetime:{bindCompletionSound(){},playStepCompletionSound(){}});
+ const taskModel=await load('domain/task-form',()=>({})),picker=await load('ui/capture-picker-trigger',()=>icons);
+ const task=await load('ui/task-form',name=>name==='../domain/task-form'?taskModel:name==='./capture-picker-trigger'?picker:name==='./focus-restoration'?focus:name==='./icons'?icons:name==='./date-time'?datetime:{bindCompletionSound(){},playStepCompletionSound(){}});
  const title=await load('ui/window-title',()=>({setIcon(){}}));
  const planning=await load('ui/planning-editor',name=>name==='obsidian'?{Modal,FuzzySuggestModal:class{}}:name==='./focus-restoration'?focus:name==='./window-title'?title:dates);
  const host=document.getElementById('host');
@@ -23,13 +24,21 @@ try{
  for(const family of ['Task','Quick Add','Inbox']){
   host.className='hub-button-scope hub-task-form'+(family==='Task'?'':' hub-capture-form');host.replaceChildren();
   const state={text:'Task',steps:[],fromDate:'2026-10-10',dueDate:'2026-10-11'},changes=[];
-  const fields=task.mountTaskFields({app:{},host,state,onChange:patch=>changes.push(patch)});
-  const relationship=task.mountTaskRelationshipFields({host,state,service:{context:()=>({contextKind:'project',projectId:'p'}),phases:()=>[{id:'phase',name:'Phase'}]},location:()=> 'Projects/P/Tasks.md'});
-  const phase=host.querySelector('[aria-label="Project phase (optional)"]'),label=phase.previousElementSibling;
+  let owner={contextKind:'project',projectId:'p'},path='Projects/P/Tasks.md';
+  const fields=task.mountTaskForm({app:{},host,state,text:{},destination:{workspace:family==='Task'?null:{title:'Project P',onOpen(){}},location:{title:'Tasks',onOpen(){}}},onChange:patch=>changes.push(patch),service:{context:()=>owner,phases:()=>owner.projectId==='p'?[{id:'phase',name:'Phase'}]:[],projects:()=>[{projectId:'p',name:'Project P'}]},location:()=>path});
+  const relationship=fields.phase;
+  assert([...fields.element.children].map(field=>field.dataset.taskField).join('|')===taskModel.TASK_FORM_ORDER.join('|'),family+' canonical field order');
+  assert([...host.querySelectorAll('.hub-task-section')].filter(section=>!section.hidden&&section.dataset.taskField!=='text').every(section=>getComputedStyle(section).borderTopWidth==='0px'&&getComputedStyle(section).borderBottomWidth==='0px'),family+' ordinary fields have no separators');
+  assert(getComputedStyle(fields.element).rowGap==='24px'&&getComputedStyle(fields.element.firstElementChild).borderBottomWidth==='0px',family+' shared spacing without primary text separator');
+  const phase=host.querySelector('[aria-label="Project phase"]'),label=phase.closest('section').querySelector('h3');
   const reference=label.parentElement.createSpan({cls:'hub-capture-label',text:'Reference label'});
-  assert(label.classList.contains('hub-capture-label')&&!label.classList.contains('hub-task-help'),family+' Project phase uses shared label class');assert(labelStyle(label)===labelStyle(reference),family+' label typography, color and gap match shared labels: '+labelStyle(label)+' / '+labelStyle(reference));reference.remove();
-  assert(phase.value===''&&label.textContent.endsWith('(optional)'),family+' optional Phase unchanged');
+  assert(label.tagName==='H3'&&label.textContent==='Project phase',family+' Project phase has one field title');assert(labelStyle(label)===labelStyle(reference),family+' label typography, color and gap match shared labels: '+labelStyle(label)+' / '+labelStyle(reference));reference.remove();
+  assert(phase.value===''&&phase.options[0].text==='No phase'&&!host.textContent.includes('(optional)'),family+' No phase default without optional subtitles');
   phase.value='phase';phase.dispatchEvent(new Event('change'));assert(state.phaseId==='phase',family+' Phase selection unchanged');
+  path='Projects/P/Other.md';relationship.refresh();assert(state.phaseId==='phase'&&phase.value==='phase',family+' moving within the same Project keeps its phase');
+  owner={contextKind:'project',projectId:'q'};relationship.refresh();assert(!state.phaseId&&!phase.value&&phase.options.length===1,family+' changing Project clears incompatible phase membership');
+  owner={contextKind:'resource',projectId:'r'};relationship.refresh();assert(!host.querySelector('[aria-label="Project"]')&&phase.closest('section').hidden,family+' Resources expose neither Project association nor phases');
+  owner={contextKind:'project',projectId:'p'};relationship.refresh();state.phaseId='deleted-phase';relationship.refresh();assert(phase.value==='deleted-phase'&&phase.selectedOptions[0].text==='Unavailable selection',family+' existing unavailable references remain visible for validation');state.phaseId='';relationship.refresh();
   const add=host.querySelector('.hub-task-add-step'),s=getComputedStyle(add);assert(s.justifyContent==='center'&&s.height==='44px'&&s.columnGap==='10px',family+' shared centered Add step preserves height/gap');
   const r=add.getBoundingClientRect(),first=add.firstElementChild.getBoundingClientRect(),last=add.lastElementChild.getBoundingClientRect();assert(Math.abs((first.left+last.right)/2-(r.left+r.right)/2)<1,family+' icon/text group visibly centered');
   add.focus();await key('Enter');assert(state.steps.length===1&&document.activeElement.getAttribute('aria-label')==='Step text',family+' keyboard Add step retains creation/focus');

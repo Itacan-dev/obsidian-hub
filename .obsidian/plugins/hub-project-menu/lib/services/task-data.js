@@ -8,23 +8,33 @@ const markdown = file => file?.extension?.toLowerCase() === "md";
 // Dataview updates page.file.path on rename, but list-item links (and thus
 // task.path) can retain the old path until the next content import. The page
 // is authoritative. Never mutate objects owned by Dataview's index.
-function tasksForPage(page) {
+function tasksForPage(page, onTaskError = null) {
     const path = page.file.path;
     const copies = new Map();
     const relocate = task => {
         if (copies.has(task)) return copies.get(task);
-        const copy = { ...task, path };
-        copies.set(task, copy);
-        for (const key of ["link", "section", "header"]) {
-            if (task[key]?.withPath) copy[key] = task[key].withPath(path);
+        try {
+            if (onTaskError && (!task || typeof task !== "object" || typeof task.text !== "string")) throw Error("Malformed indexed task text.");
+            const copy = { ...task, path };
+            copies.set(task, copy);
+            for (const key of ["link", "section", "header"]) {
+                if (task[key]?.withPath) copy[key] = task[key].withPath(path);
+            }
+            for (const key of ["children", "subtasks"]) {
+                if (task[key]) copy[key] = Array.from(task[key], relocate).filter(Boolean);
+            }
+            return copy;
+        } catch (error) {
+            if (!onTaskError) throw error;
+            copies.set(task, null); onTaskError(task, error); return null;
         }
-        for (const key of ["children", "subtasks"]) {
-            if (task[key]) copy[key] = Array.from(task[key], relocate);
-        }
-        return copy;
     };
-    const tasks = Array.from(page.file.tasks ?? [], relocate);
-    const byLine = new Map(Array.from(page.file.lists ?? tasks, item => [item.line, item]));
+    const tasks = Array.from(page.file.tasks ?? [], relocate).filter(Boolean);
+    const lists = onTaskError ? Array.from(page.file.lists ?? tasks, item => {
+        try { return item && { line: item.line, parent: item.parent }; }
+        catch (error) { onTaskError(item, error); return null; }
+    }).filter(Boolean) : page.file.lists ?? tasks;
+    const byLine = new Map(Array.from(lists, item => [item.line, item]));
     const taskLines = new Set(tasks.map(task => task.line));
     const hasTaskParent = task => {
         let parent = task.parent;
@@ -37,8 +47,12 @@ function tasksForPage(page) {
         return false;
     };
     // Children can include ordinary list items between a parent and a Step.
-    const descendants = task => Array.from(task.children ?? task.subtasks ?? []).flatMap(child =>
-        [...(child.task === false ? [] : [child]), ...descendants(child)]);
+    const descendants = (task, ancestors = null) => {
+        if (onTaskError && ancestors?.has(task)) { onTaskError(task, Error("Cyclic indexed task children.")); return []; }
+        const next = onTaskError ? new Set([...(ancestors ?? []), task]) : null;
+        return Array.from(task.children ?? task.subtasks ?? []).flatMap(child =>
+            [...(child.task === false ? [] : [child]), ...descendants(child, next)]);
+    };
     const childLines = new Set(tasks.flatMap(task => descendants(task).map(child => child.line)));
     return tasks.filter(task => !hasTaskParent(task) && !childLines.has(task.line)).map(task => ({
         ...task, text: taskDisplayText(task.text), hubTaskId: taskIdentity(task.text),
@@ -69,12 +83,12 @@ class HubTaskDataService {
         return file?.path ?? path;
     }
 
-    readPages(dv, root) {
+    readPages(dv, root, onTaskError = null) {
         const folder = root == null ? null : this.currentPath(root);
         // Count identities across the vault, even in a scoped Workspace. A
         // pasted copy must never silently share another task's metadata.
         const pages = dv.pages("").array().filter(page => markdown(this.app.vault.getAbstractFileByPath(page.file.path)))
-            .map(page => ({ ...page, file: { ...page.file, tasks: tasksForPage(page) } }));
+            .map(page => ({ ...page, file: { ...page.file, tasks: tasksForPage(page, onTaskError) } }));
         const counts = new Map();
         for (const page of pages) for (const parent of page.file.tasks) {
             for (const task of [parent, ...parent.steps]) {
@@ -89,18 +103,21 @@ class HubTaskDataService {
             ...page,
             file: { ...page.file, tasks: page.file.tasks.map(task => {
                 const identityConflict = !!task.hubTaskId && counts.get(task.hubTaskId) > 1;
-                return { ...task, ...taskMetadata(identityConflict ? {} : this.metadata(task.hubTaskId)), identityConflict };
+                try { return { ...task, ...taskMetadata(identityConflict ? {} : this.metadata(task.hubTaskId)), identityConflict }; }
+                catch (error) {
+                    if (!onTaskError) throw error;
+                    onTaskError(task, error, { retained: true });
+                    return { ...task, ...taskMetadata(), identityConflict, metadataUnavailable: true };
+                }
             }) }
         }));
     }
 
-    readWorkspace(dv, workspace, resources = []) {
+    readWorkspace(dv, workspace) {
         const { validLocation } = require("../domain/task-views");
         const root = this.currentPath(workspace.root);
         return this.readPages(dv).flatMap(page => page.file.tasks).filter(task =>
-            validLocation(task.path, { ...workspace, root }) ||
-            (workspace.contextKind !== "resource" && task.linkedProjectId === workspace.projectId &&
-                resources.some(resource => validLocation(task.path, resource))));
+            validLocation(task.path, { ...workspace, root }));
     }
 
     subscribe(component, refresh, roots = () => null) {

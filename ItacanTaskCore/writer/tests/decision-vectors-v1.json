@@ -1,0 +1,43 @@
+{
+  "format": "itacan-native-writer-decisions",
+  "version": 1,
+  "phase": "N3-A",
+  "selected": [
+    "ready-only admission and replay",
+    "same physical owner relocation",
+    "stable evidence in existing receipt coordination"
+  ],
+  "boundaries": {
+    "authorities": "one explicit disposable private-v4 root and owned lease",
+    "families": [
+      "task",
+      "step",
+      "recurrence"
+    ],
+    "excluded": [
+      "history.record",
+      "history.prepareImport",
+      "history.importBundle",
+      "compound editor saves",
+      "clear completed",
+      "production routing",
+      "migration",
+      "N3-B",
+      "N3-C"
+    ]
+  },
+  "observedCases": [
+    "forged/foreign/captured tickets and permits rejected",
+    "retained and reconstructed repository/storage facades cannot bypass gate",
+    "changed stable request conflicts",
+    "acknowledgement loss retains original operation",
+    "known recovery scope fenced; unprovable scope closed",
+    "recurrence recompletion reuses original successor"
+  ],
+  "remainingLimits": [
+    "no arbitrary durable Oath enrollment order",
+    "no unsaved latch recovery",
+    "no cross-authority atomicity",
+    "no hostile-writer or complete-directory rollback protection"
+  ]
+}

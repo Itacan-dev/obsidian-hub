@@ -1,0 +1,22 @@
+{
+  "format": "itacan-oath-adapter-vectors",
+  "version": 1,
+  "decisionRevision": "N1-F2-D01-D02-r1",
+  "privacy": "local-private",
+  "scope": "closed-synthetic",
+  "cases": [
+    {"id":"F2-ORDER-01","evidenceClass":"source-backed-limit","scenario":"preparation then completion during independent save","expected":"unknown"},
+    {"id":"F2-ORDER-02","evidenceClass":"synthetic-policy","scenario":"save acknowledgement then open cut then completion","expected":"eligible-closed-synthetic"},
+    {"id":"F2-ORDER-03","evidenceClass":"synthetic-policy","scenario":"save acknowledgement lost or process reconstructed","expected":"unknown"},
+    {"id":"F2-BINDING-01","evidenceClass":"synthetic-policy","scenario":"reopened event retained without current binding","expected":"ineligible-open"},
+    {"id":"F2-BINDING-02","evidenceClass":"synthetic-policy","scenario":"new current E2 after reopening","expected":"evaluate-E2"},
+    {"id":"F2-IMPORT-01","evidenceClass":"synthetic-policy","scenario":"historical imported completed state","expected":"display-checked-no-fresh-work"},
+    {"id":"F2-RECURRENCE-01","evidenceClass":"synthetic-policy","scenario":"A generates B","expected":"pin-A"},
+    {"id":"F2-READ-01","evidenceClass":"synthetic-policy","scenario":"superseded response returns after newer response","expected":"discard"},
+    {"id":"F2-READ-02","evidenceClass":"synthetic-policy","scenario":"incoherent capture three times","expected":"recovering"},
+    {"id":"F2-PRIVACY-01","evidenceClass":"synthetic-policy","scenario":"Resource mounted in shared Project","expected":"physical-private-owner"},
+    {"id":"F2-LATCH-01","evidenceClass":"source-backed-limit","scenario":"failed latch save then reopen and reconstruction","expected":"unsaved-latch-not-recovered"},
+    {"id":"F2-OUTCOME-01","evidenceClass":"source-backed-limit","scenario":"actual terminal state persisted then repeated end","expected":"one-session-outcome"},
+    {"id":"F2-HOST-01","evidenceClass":"source-backed-limit","scenario":"production committed reader requires legacy source DTO","expected":"test-only-native-seam"}
+  ]
+}

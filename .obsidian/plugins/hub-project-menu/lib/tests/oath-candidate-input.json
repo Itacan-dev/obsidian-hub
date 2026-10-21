@@ -1,0 +1,977 @@
+{
+  "owners": [
+    {
+      "projectId": "private",
+      "name": "Private",
+      "root": "Projects/Private",
+      "path": "Projects/Private/Private.md",
+      "contextKind": "project",
+      "status": "active",
+      "id": "private"
+    },
+    {
+      "projectId": "itacan",
+      "name": "Itacan",
+      "root": "Projects/Itacan",
+      "path": "Projects/Itacan/Itacan.md",
+      "contextKind": "project",
+      "status": "active",
+      "resourceFolderIds": [
+        "mounted-folder"
+      ],
+      "id": "itacan"
+    },
+    {
+      "projectId": "hub",
+      "name": "Obsidian Hub",
+      "root": "Projects/Obsidian Hub",
+      "path": "Projects/Obsidian Hub/Obsidian Hub.md",
+      "contextKind": "project",
+      "status": "active",
+      "id": "hub"
+    },
+    {
+      "projectId": "resource:study",
+      "resourceType": "study",
+      "name": "Knowledge",
+      "root": "Resources/Knowledge",
+      "path": "Resources/Knowledge/Knowledge.md",
+      "contextKind": "resource",
+      "id": "study"
+    },
+    {
+      "projectId": "future-project",
+      "name": "Future",
+      "status": "future",
+      "root": "Projects/Future",
+      "path": "Projects/Future/Future.md",
+      "contextKind": "project",
+      "id": "future-project"
+    },
+    {
+      "projectId": "shelved",
+      "name": "Shelved",
+      "status": "shelved",
+      "root": "Projects/Shelved",
+      "path": "Projects/Shelved/Shelved.md",
+      "contextKind": "project",
+      "id": "shelved"
+    },
+    {
+      "projectId": "deleted",
+      "name": "Deleted",
+      "status": "active",
+      "root": "Projects/Deleted",
+      "path": "Projects/Deleted/Deleted.md",
+      "contextKind": "project",
+      "id": "deleted"
+    },
+    {
+      "projectId": "resource:literature",
+      "resourceType": "literature",
+      "name": "Research",
+      "root": "Resources/Research",
+      "path": "Resources/Research/Research.md",
+      "contextKind": "resource",
+      "id": "literature"
+    },
+    {
+      "projectId": "resource:references",
+      "resourceType": "references",
+      "name": "Explorations",
+      "root": "Resources/Explorations",
+      "path": "Resources/Explorations/Explorations.md",
+      "contextKind": "resource",
+      "id": "references"
+    },
+    {
+      "projectId": "resource:inspiration",
+      "resourceType": "inspiration",
+      "name": "Inspiration",
+      "root": "Resources/Inspiration",
+      "path": "Resources/Inspiration/Inspiration.md",
+      "contextKind": "resource",
+      "id": "inspiration"
+    }
+  ],
+  "files": [
+    [
+      "Projects/Private/Private.md",
+      ""
+    ],
+    [
+      "Projects/Itacan/Itacan.md",
+      ""
+    ],
+    [
+      "Projects/Obsidian Hub/Obsidian Hub.md",
+      ""
+    ],
+    [
+      "Resources/Knowledge/Knowledge.md",
+      ""
+    ],
+    [
+      "Projects/Future/Future.md",
+      ""
+    ],
+    [
+      "Projects/Shelved/Shelved.md",
+      ""
+    ],
+    [
+      "Resources/Research/Research.md",
+      ""
+    ],
+    [
+      "Resources/Explorations/Explorations.md",
+      ""
+    ],
+    [
+      "Resources/Inspiration/Inspiration.md",
+      ""
+    ],
+    [
+      "Projects/Private/Tasks.md",
+      "- [ ] Parent **markdown** <!-- hub-task:parent -->\n    continuation evidence\n    - [x] First <!-- hub-task:first -->\n        - [ ] Nested <!-- hub-task:nested -->\n- [ ] ID-less\n- [ ] Same title\n- [ ] Same title\n- [x] Completed <!-- hub-task:complete -->\n- [ ] Future <!-- hub-task:future -->\n- [ ] Malformed metadata <!-- hub-task:malformed -->\n- [ ] Copied parent <!-- hub-task:copied -->\n- [ ] Copied Step parent <!-- hub-task:steps-parent -->\n    - [ ] Copied Step <!-- hub-task:step-copy -->\n- [ ] Parent collides with Step <!-- hub-task:parent-step -->\n"
+    ],
+    [
+      "Projects/Itacan/Tasks.md",
+      "- [ ] Itacan task <!-- hub-task:itacan-task -->\n"
+    ],
+    [
+      "Projects/Obsidian Hub/Tasks.md",
+      "- [ ] Hub task <!-- hub-task:hub-task -->\n"
+    ],
+    [
+      "Resources/Knowledge/Mounted/Tasks.md",
+      "- [ ] Resource presentation conflict <!-- hub-task:resource-task -->\n"
+    ],
+    [
+      "Resources/Research/Tasks.md",
+      "- [ ] Research task <!-- hub-task:literature-task -->\n"
+    ],
+    [
+      "Resources/Explorations/Tasks.md",
+      "- [ ] Explorations task <!-- hub-task:references-task -->\n"
+    ],
+    [
+      "Resources/Inspiration/Tasks.md",
+      "- [ ] Inspiration task <!-- hub-task:inspiration-task -->\n"
+    ],
+    [
+      "Outside/Conflicts.md",
+      "- [ ] Copy <!-- hub-task:copied -->\n- [ ] Outside parent <!-- hub-task:outside -->\n    - [ ] Copied step <!-- hub-task:step-copy -->\n    - [ ] Parent ID on Step <!-- hub-task:parent-step -->\n"
+    ],
+    [
+      "Projects/Private/Nested/Tasks.md",
+      "- [ ] Nested parent <!-- hub-task:deep -->\n"
+    ],
+    [
+      "Projects/Future/Tasks.md",
+      "- [ ] Inactive workspace task <!-- hub-task:inactive -->\n"
+    ]
+  ],
+  "pages": [
+    [
+      "Projects/Private/Private.md",
+      {
+        "file": {
+          "path": "Projects/Private/Private.md",
+          "tasks": [],
+          "lists": []
+        }
+      }
+    ],
+    [
+      "Projects/Itacan/Itacan.md",
+      {
+        "file": {
+          "path": "Projects/Itacan/Itacan.md",
+          "tasks": [],
+          "lists": []
+        }
+      }
+    ],
+    [
+      "Projects/Obsidian Hub/Obsidian Hub.md",
+      {
+        "file": {
+          "path": "Projects/Obsidian Hub/Obsidian Hub.md",
+          "tasks": [],
+          "lists": []
+        }
+      }
+    ],
+    [
+      "Resources/Knowledge/Knowledge.md",
+      {
+        "file": {
+          "path": "Resources/Knowledge/Knowledge.md",
+          "tasks": [],
+          "lists": []
+        }
+      }
+    ],
+    [
+      "Projects/Future/Future.md",
+      {
+        "file": {
+          "path": "Projects/Future/Future.md",
+          "tasks": [],
+          "lists": []
+        }
+      }
+    ],
+    [
+      "Projects/Shelved/Shelved.md",
+      {
+        "file": {
+          "path": "Projects/Shelved/Shelved.md",
+          "tasks": [],
+          "lists": []
+        }
+      }
+    ],
+    [
+      "Resources/Research/Research.md",
+      {
+        "file": {
+          "path": "Resources/Research/Research.md",
+          "tasks": [],
+          "lists": []
+        }
+      }
+    ],
+    [
+      "Resources/Explorations/Explorations.md",
+      {
+        "file": {
+          "path": "Resources/Explorations/Explorations.md",
+          "tasks": [],
+          "lists": []
+        }
+      }
+    ],
+    [
+      "Resources/Inspiration/Inspiration.md",
+      {
+        "file": {
+          "path": "Resources/Inspiration/Inspiration.md",
+          "tasks": [],
+          "lists": []
+        }
+      }
+    ],
+    [
+      "Projects/Private/Tasks.md",
+      {
+        "file": {
+          "path": "Projects/Private/Tasks.md",
+          "tasks": [
+            {
+              "path": "Projects/Private/Tasks.md",
+              "line": 0,
+              "parent": null,
+              "text": "Parent **markdown** <!-- hub-task:parent -->",
+              "task": true,
+              "children": [
+                {
+                  "path": "Projects/Private/Tasks.md",
+                  "line": 2,
+                  "parent": 0,
+                  "text": "First <!-- hub-task:first -->",
+                  "task": true,
+                  "children": [
+                    {
+                      "path": "Projects/Private/Tasks.md",
+                      "line": 3,
+                      "parent": 2,
+                      "text": "Nested <!-- hub-task:nested -->",
+                      "task": true,
+                      "children": [],
+                      "completed": false
+                    }
+                  ],
+                  "completed": true
+                }
+              ],
+              "completed": false
+            },
+            {
+              "path": "Projects/Private/Tasks.md",
+              "line": 2,
+              "parent": 0,
+              "text": "First <!-- hub-task:first -->",
+              "task": true,
+              "children": [
+                {
+                  "path": "Projects/Private/Tasks.md",
+                  "line": 3,
+                  "parent": 2,
+                  "text": "Nested <!-- hub-task:nested -->",
+                  "task": true,
+                  "children": [],
+                  "completed": false
+                }
+              ],
+              "completed": true
+            },
+            {
+              "path": "Projects/Private/Tasks.md",
+              "line": 3,
+              "parent": 2,
+              "text": "Nested <!-- hub-task:nested -->",
+              "task": true,
+              "children": [],
+              "completed": false
+            },
+            {
+              "path": "Projects/Private/Tasks.md",
+              "line": 4,
+              "parent": null,
+              "text": "ID-less",
+              "task": true,
+              "children": [],
+              "completed": false
+            },
+            {
+              "path": "Projects/Private/Tasks.md",
+              "line": 5,
+              "parent": null,
+              "text": "Same title",
+              "task": true,
+              "children": [],
+              "completed": false
+            },
+            {
+              "path": "Projects/Private/Tasks.md",
+              "line": 6,
+              "parent": null,
+              "text": "Same title",
+              "task": true,
+              "children": [],
+              "completed": false
+            },
+            {
+              "path": "Projects/Private/Tasks.md",
+              "line": 7,
+              "parent": null,
+              "text": "Completed <!-- hub-task:complete -->",
+              "task": true,
+              "children": [],
+              "completed": true
+            },
+            {
+              "path": "Projects/Private/Tasks.md",
+              "line": 8,
+              "parent": null,
+              "text": "Future <!-- hub-task:future -->",
+              "task": true,
+              "children": [],
+              "completed": false
+            },
+            {
+              "path": "Projects/Private/Tasks.md",
+              "line": 9,
+              "parent": null,
+              "text": "Malformed metadata <!-- hub-task:malformed -->",
+              "task": true,
+              "children": [],
+              "completed": false
+            },
+            {
+              "path": "Projects/Private/Tasks.md",
+              "line": 10,
+              "parent": null,
+              "text": "Copied parent <!-- hub-task:copied -->",
+              "task": true,
+              "children": [],
+              "completed": false
+            },
+            {
+              "path": "Projects/Private/Tasks.md",
+              "line": 11,
+              "parent": null,
+              "text": "Copied Step parent <!-- hub-task:steps-parent -->",
+              "task": true,
+              "children": [
+                {
+                  "path": "Projects/Private/Tasks.md",
+                  "line": 12,
+                  "parent": 11,
+                  "text": "Copied Step <!-- hub-task:step-copy -->",
+                  "task": true,
+                  "children": [],
+                  "completed": false
+                }
+              ],
+              "completed": false
+            },
+            {
+              "path": "Projects/Private/Tasks.md",
+              "line": 12,
+              "parent": 11,
+              "text": "Copied Step <!-- hub-task:step-copy -->",
+              "task": true,
+              "children": [],
+              "completed": false
+            },
+            {
+              "path": "Projects/Private/Tasks.md",
+              "line": 13,
+              "parent": null,
+              "text": "Parent collides with Step <!-- hub-task:parent-step -->",
+              "task": true,
+              "children": [],
+              "completed": false
+            }
+          ],
+          "lists": [
+            {
+              "path": "Projects/Private/Tasks.md",
+              "line": 0,
+              "parent": null,
+              "text": "Parent **markdown** <!-- hub-task:parent -->",
+              "task": true,
+              "children": [
+                {
+                  "path": "Projects/Private/Tasks.md",
+                  "line": 2,
+                  "parent": 0,
+                  "text": "First <!-- hub-task:first -->",
+                  "task": true,
+                  "children": [
+                    {
+                      "path": "Projects/Private/Tasks.md",
+                      "line": 3,
+                      "parent": 2,
+                      "text": "Nested <!-- hub-task:nested -->",
+                      "task": true,
+                      "children": [],
+                      "completed": false
+                    }
+                  ],
+                  "completed": true
+                }
+              ],
+              "completed": false
+            },
+            {
+              "path": "Projects/Private/Tasks.md",
+              "line": 2,
+              "parent": 0,
+              "text": "First <!-- hub-task:first -->",
+              "task": true,
+              "children": [
+                {
+                  "path": "Projects/Private/Tasks.md",
+                  "line": 3,
+                  "parent": 2,
+                  "text": "Nested <!-- hub-task:nested -->",
+                  "task": true,
+                  "children": [],
+                  "completed": false
+                }
+              ],
+              "completed": true
+            },
+            {
+              "path": "Projects/Private/Tasks.md",
+              "line": 3,
+              "parent": 2,
+              "text": "Nested <!-- hub-task:nested -->",
+              "task": true,
+              "children": [],
+              "completed": false
+            },
+            {
+              "path": "Projects/Private/Tasks.md",
+              "line": 4,
+              "parent": null,
+              "text": "ID-less",
+              "task": true,
+              "children": [],
+              "completed": false
+            },
+            {
+              "path": "Projects/Private/Tasks.md",
+              "line": 5,
+              "parent": null,
+              "text": "Same title",
+              "task": true,
+              "children": [],
+              "completed": false
+            },
+            {
+              "path": "Projects/Private/Tasks.md",
+              "line": 6,
+              "parent": null,
+              "text": "Same title",
+              "task": true,
+              "children": [],
+              "completed": false
+            },
+            {
+              "path": "Projects/Private/Tasks.md",
+              "line": 7,
+              "parent": null,
+              "text": "Completed <!-- hub-task:complete -->",
+              "task": true,
+              "children": [],
+              "completed": true
+            },
+            {
+              "path": "Projects/Private/Tasks.md",
+              "line": 8,
+              "parent": null,
+              "text": "Future <!-- hub-task:future -->",
+              "task": true,
+              "children": [],
+              "completed": false
+            },
+            {
+              "path": "Projects/Private/Tasks.md",
+              "line": 9,
+              "parent": null,
+              "text": "Malformed metadata <!-- hub-task:malformed -->",
+              "task": true,
+              "children": [],
+              "completed": false
+            },
+            {
+              "path": "Projects/Private/Tasks.md",
+              "line": 10,
+              "parent": null,
+              "text": "Copied parent <!-- hub-task:copied -->",
+              "task": true,
+              "children": [],
+              "completed": false
+            },
+            {
+              "path": "Projects/Private/Tasks.md",
+              "line": 11,
+              "parent": null,
+              "text": "Copied Step parent <!-- hub-task:steps-parent -->",
+              "task": true,
+              "children": [
+                {
+                  "path": "Projects/Private/Tasks.md",
+                  "line": 12,
+                  "parent": 11,
+                  "text": "Copied Step <!-- hub-task:step-copy -->",
+                  "task": true,
+                  "children": [],
+                  "completed": false
+                }
+              ],
+              "completed": false
+            },
+            {
+              "path": "Projects/Private/Tasks.md",
+              "line": 12,
+              "parent": 11,
+              "text": "Copied Step <!-- hub-task:step-copy -->",
+              "task": true,
+              "children": [],
+              "completed": false
+            },
+            {
+              "path": "Projects/Private/Tasks.md",
+              "line": 13,
+              "parent": null,
+              "text": "Parent collides with Step <!-- hub-task:parent-step -->",
+              "task": true,
+              "children": [],
+              "completed": false
+            }
+          ]
+        }
+      }
+    ],
+    [
+      "Projects/Itacan/Tasks.md",
+      {
+        "file": {
+          "path": "Projects/Itacan/Tasks.md",
+          "tasks": [
+            {
+              "path": "Projects/Itacan/Tasks.md",
+              "line": 0,
+              "parent": null,
+              "text": "Itacan task <!-- hub-task:itacan-task -->",
+              "task": true,
+              "children": [],
+              "completed": false
+            }
+          ],
+          "lists": [
+            {
+              "path": "Projects/Itacan/Tasks.md",
+              "line": 0,
+              "parent": null,
+              "text": "Itacan task <!-- hub-task:itacan-task -->",
+              "task": true,
+              "children": [],
+              "completed": false
+            }
+          ]
+        }
+      }
+    ],
+    [
+      "Projects/Obsidian Hub/Tasks.md",
+      {
+        "file": {
+          "path": "Projects/Obsidian Hub/Tasks.md",
+          "tasks": [
+            {
+              "path": "Projects/Obsidian Hub/Tasks.md",
+              "line": 0,
+              "parent": null,
+              "text": "Hub task <!-- hub-task:hub-task -->",
+              "task": true,
+              "children": [],
+              "completed": false
+            }
+          ],
+          "lists": [
+            {
+              "path": "Projects/Obsidian Hub/Tasks.md",
+              "line": 0,
+              "parent": null,
+              "text": "Hub task <!-- hub-task:hub-task -->",
+              "task": true,
+              "children": [],
+              "completed": false
+            }
+          ]
+        }
+      }
+    ],
+    [
+      "Resources/Knowledge/Mounted/Tasks.md",
+      {
+        "file": {
+          "path": "Resources/Knowledge/Mounted/Tasks.md",
+          "tasks": [
+            {
+              "path": "Resources/Knowledge/Mounted/Tasks.md",
+              "line": 0,
+              "parent": null,
+              "text": "Resource presentation conflict <!-- hub-task:resource-task -->",
+              "task": true,
+              "children": [],
+              "completed": false
+            }
+          ],
+          "lists": [
+            {
+              "path": "Resources/Knowledge/Mounted/Tasks.md",
+              "line": 0,
+              "parent": null,
+              "text": "Resource presentation conflict <!-- hub-task:resource-task -->",
+              "task": true,
+              "children": [],
+              "completed": false
+            }
+          ]
+        },
+        "project": {
+          "path": "Projects/Itacan/Itacan.md"
+        }
+      }
+    ],
+    [
+      "Resources/Research/Tasks.md",
+      {
+        "file": {
+          "path": "Resources/Research/Tasks.md",
+          "tasks": [
+            {
+              "path": "Resources/Research/Tasks.md",
+              "line": 0,
+              "parent": null,
+              "text": "Research task <!-- hub-task:literature-task -->",
+              "task": true,
+              "children": [],
+              "completed": false
+            }
+          ],
+          "lists": [
+            {
+              "path": "Resources/Research/Tasks.md",
+              "line": 0,
+              "parent": null,
+              "text": "Research task <!-- hub-task:literature-task -->",
+              "task": true,
+              "children": [],
+              "completed": false
+            }
+          ]
+        }
+      }
+    ],
+    [
+      "Resources/Explorations/Tasks.md",
+      {
+        "file": {
+          "path": "Resources/Explorations/Tasks.md",
+          "tasks": [
+            {
+              "path": "Resources/Explorations/Tasks.md",
+              "line": 0,
+              "parent": null,
+              "text": "Explorations task <!-- hub-task:references-task -->",
+              "task": true,
+              "children": [],
+              "completed": false
+            }
+          ],
+          "lists": [
+            {
+              "path": "Resources/Explorations/Tasks.md",
+              "line": 0,
+              "parent": null,
+              "text": "Explorations task <!-- hub-task:references-task -->",
+              "task": true,
+              "children": [],
+              "completed": false
+            }
+          ]
+        }
+      }
+    ],
+    [
+      "Resources/Inspiration/Tasks.md",
+      {
+        "file": {
+          "path": "Resources/Inspiration/Tasks.md",
+          "tasks": [
+            {
+              "path": "Resources/Inspiration/Tasks.md",
+              "line": 0,
+              "parent": null,
+              "text": "Inspiration task <!-- hub-task:inspiration-task -->",
+              "task": true,
+              "children": [],
+              "completed": false
+            }
+          ],
+          "lists": [
+            {
+              "path": "Resources/Inspiration/Tasks.md",
+              "line": 0,
+              "parent": null,
+              "text": "Inspiration task <!-- hub-task:inspiration-task -->",
+              "task": true,
+              "children": [],
+              "completed": false
+            }
+          ]
+        }
+      }
+    ],
+    [
+      "Outside/Conflicts.md",
+      {
+        "file": {
+          "path": "Outside/Conflicts.md",
+          "tasks": [
+            {
+              "path": "Outside/Conflicts.md",
+              "line": 0,
+              "parent": null,
+              "text": "Copy <!-- hub-task:copied -->",
+              "task": true,
+              "children": [],
+              "completed": false
+            },
+            {
+              "path": "Outside/Conflicts.md",
+              "line": 1,
+              "parent": null,
+              "text": "Outside parent <!-- hub-task:outside -->",
+              "task": true,
+              "children": [
+                {
+                  "path": "Outside/Conflicts.md",
+                  "line": 2,
+                  "parent": 1,
+                  "text": "Copied step <!-- hub-task:step-copy -->",
+                  "task": true,
+                  "children": [],
+                  "completed": false
+                },
+                {
+                  "path": "Outside/Conflicts.md",
+                  "line": 3,
+                  "parent": 1,
+                  "text": "Parent ID on Step <!-- hub-task:parent-step -->",
+                  "task": true,
+                  "children": [],
+                  "completed": false
+                }
+              ],
+              "completed": false
+            },
+            {
+              "path": "Outside/Conflicts.md",
+              "line": 2,
+              "parent": 1,
+              "text": "Copied step <!-- hub-task:step-copy -->",
+              "task": true,
+              "children": [],
+              "completed": false
+            },
+            {
+              "path": "Outside/Conflicts.md",
+              "line": 3,
+              "parent": 1,
+              "text": "Parent ID on Step <!-- hub-task:parent-step -->",
+              "task": true,
+              "children": [],
+              "completed": false
+            }
+          ],
+          "lists": [
+            {
+              "path": "Outside/Conflicts.md",
+              "line": 0,
+              "parent": null,
+              "text": "Copy <!-- hub-task:copied -->",
+              "task": true,
+              "children": [],
+              "completed": false
+            },
+            {
+              "path": "Outside/Conflicts.md",
+              "line": 1,
+              "parent": null,
+              "text": "Outside parent <!-- hub-task:outside -->",
+              "task": true,
+              "children": [
+                {
+                  "path": "Outside/Conflicts.md",
+                  "line": 2,
+                  "parent": 1,
+                  "text": "Copied step <!-- hub-task:step-copy -->",
+                  "task": true,
+                  "children": [],
+                  "completed": false
+                },
+                {
+                  "path": "Outside/Conflicts.md",
+                  "line": 3,
+                  "parent": 1,
+                  "text": "Parent ID on Step <!-- hub-task:parent-step -->",
+                  "task": true,
+                  "children": [],
+                  "completed": false
+                }
+              ],
+              "completed": false
+            },
+            {
+              "path": "Outside/Conflicts.md",
+              "line": 2,
+              "parent": 1,
+              "text": "Copied step <!-- hub-task:step-copy -->",
+              "task": true,
+              "children": [],
+              "completed": false
+            },
+            {
+              "path": "Outside/Conflicts.md",
+              "line": 3,
+              "parent": 1,
+              "text": "Parent ID on Step <!-- hub-task:parent-step -->",
+              "task": true,
+              "children": [],
+              "completed": false
+            }
+          ]
+        }
+      }
+    ],
+    [
+      "Projects/Private/Nested/Tasks.md",
+      {
+        "file": {
+          "path": "Projects/Private/Nested/Tasks.md",
+          "tasks": [
+            {
+              "path": "Projects/Private/Nested/Tasks.md",
+              "line": 0,
+              "parent": null,
+              "text": "Nested parent <!-- hub-task:deep -->",
+              "task": true,
+              "children": [],
+              "completed": false
+            }
+          ],
+          "lists": [
+            {
+              "path": "Projects/Private/Nested/Tasks.md",
+              "line": 0,
+              "parent": null,
+              "text": "Nested parent <!-- hub-task:deep -->",
+              "task": true,
+              "children": [],
+              "completed": false
+            }
+          ]
+        }
+      }
+    ],
+    [
+      "Projects/Future/Tasks.md",
+      {
+        "file": {
+          "path": "Projects/Future/Tasks.md",
+          "tasks": [
+            {
+              "path": "Projects/Future/Tasks.md",
+              "line": 0,
+              "parent": null,
+              "text": "Inactive workspace task <!-- hub-task:inactive -->",
+              "task": true,
+              "children": [],
+              "completed": false
+            }
+          ],
+          "lists": [
+            {
+              "path": "Projects/Future/Tasks.md",
+              "line": 0,
+              "parent": null,
+              "text": "Inactive workspace task <!-- hub-task:inactive -->",
+              "task": true,
+              "children": [],
+              "completed": false
+            }
+          ]
+        }
+      }
+    ]
+  ],
+  "metadata": {
+    "parent": {
+      "necessity": "must",
+      "dueDate": "2026-10-25",
+      "dueTime": "00:00",
+      "description": "Recorded **metadata**"
+    },
+    "future": {
+      "fromDate": "2026-11-01",
+      "fromTime": "00:00",
+      "dueDate": "2026-11-02"
+    },
+    "malformed": {
+      "necessity": "unexpected",
+      "fromDate": "not-a-date",
+      "dueDate": "2026-02-30"
+    }
+  },
+  "now": 1793012400000
+}

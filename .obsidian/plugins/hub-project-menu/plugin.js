@@ -11018,6 +11018,11 @@ class HubWorkspaceModeService {
 
 
 module.exports = class HubProjectMenu extends Plugin {
+    // Ephemeral authorization admits synthetic Temp vaults only.
+    static authorizeNativeTaskRehearsal(plugin, configuration) {
+        return require("./lib/services/native-task-host").authorizeNativeTaskRehearsal(plugin, configuration);
+    }
+
 
     getHubLocalStorage() {
 
@@ -12654,7 +12659,8 @@ module.exports = class HubProjectMenu extends Plugin {
         window.hubOpenStatistics = () => {
             if (this.statisticsModal) return;
             this.statisticsModal = new StatisticsModal(this.app, this, {
-                onClose: () => { this.statisticsModal = null; }
+                onClose: () => { this.statisticsModal = null; },
+                completionFeed: this.nativeTaskHost?.completionFeed
             });
             this.statisticsModal.open();
         };
@@ -12737,17 +12743,17 @@ module.exports = class HubProjectMenu extends Plugin {
         window.hubCreateTaskRow = require("./lib/ui/tasks").createTaskRow;
         window.hubTaskGroups = taskGroups;
         window.hubTaskOwner = path => this.projectWizard.getContextForPath(path);
-        window.hubCreateTaskUi = (component, body, onEdit) => createTaskUi({
-            app: this.app, component, body, onEdit, oath: this.oath, phaseLabel: task => this.planning?.phaseFor(task)?.name, mutate: request => this.mutateTask(request),
-            editTask: (task, saved) => openTaskEditor(this.taskEditor, task, saved),
-            createTask: options => openTaskCreator(this.taskEditor, options)
+        window.hubCreateTaskUi = (component, body, onEdit, actions = {}) => createTaskUi({
+            app: this.app, component, body, onEdit, oath: this.oath, phaseLabel: task => this.planning?.phaseFor(task)?.name, mutate: actions.mutate ?? (request => this.mutateTask(request)),
+            editTask: actions.editTask ?? ((task, saved) => openTaskEditor(this.taskEditor, task, saved)),
+            createTask: options => this.openTaskCreator(options)
         });
         window.hubCreateMarkdown = component => createHubMarkdown({ app: this.app, component });
         this.taskData = new HubTaskDataService(this.app, { metadata: id => this.taskEditor.metadata(id) });
         window.hubTaskData = this.taskData;
         this.planning = new (require("./lib/services/project-planning").ProjectPlanningService)(this);
         window.hubMountFullViewLayout = (root, component) => require("./lib/ui/full-view-layout").mountFullViewLayout({ root, component, app: this.app });
-        window.hubMountTaskWorkspace = options => require("./lib/ui/task-workspace").mountTaskWorkspace({ plugin: this, ...options });
+        this.taskService = require("./lib/services/task-service-host").createLegacyTaskService(this);
         this.contextSearch = new (require("./lib/services/context-search").ContextSearchService)(this);
         try { this.athena = require("./lib/athena/runtime.cjs").installAthena(this, {
             openSettings: () => require("./lib/ui/settings").getSettingsOwner(this).open("athena")
@@ -12758,6 +12764,21 @@ module.exports = class HubProjectMenu extends Plugin {
         window.hubApplySearchFolder = root => this.contextSearch.applyFolder(root);
         this.dailyBrief = new DailyBriefService(this);
         this.inbox = new HubInboxService(this);
+        this.nativeTaskHost = require("./lib/services/native-task-host").createNativeTaskHost(this);
+        if (this.nativeTaskHost) {
+            this.nativeTaskHost.guardUnsupported();
+            await this.nativeTaskHost.ready;
+            this.addCommand({ id: "native-task-recovery", name: "Native task recovery",
+                callback: () => { this.nativeTaskRecoveryModal?.close(); this.nativeTaskRecoveryModal = require("./lib/ui/native-task-recovery").openNativeTaskRecovery(this); } });
+        }
+        window.hubMountTaskWorkspace = options => require("./lib/ui/task-workspace").mountTaskWorkspace({ plugin: this, ...options, nativeTasks: this.nativeTaskHost?.nativeTasks });
+        window.hubCreateTaskPanelRead = options => require("./lib/services/task-panel-read").createTaskPanelRead({
+            plugin: this, ...options, nativeTasks: this.nativeTaskHost?.nativeTasks, editTask: (task, saved) => openTaskEditor(this.taskEditor, task, saved)
+        });
+        window.hubCreateHomeTaskRead = options => require("./lib/services/home-task-read").createHomeTaskRead({
+            plugin: this, ...options, nativeTasks: this.nativeTaskHost?.nativeTasks, editTask: (task, saved) => openTaskEditor(this.taskEditor, task, saved)
+        });
+        window.hubCreateTaskHistoryRead = options => require("./lib/services/task-history-read").createTaskHistoryRead({ plugin: this, ...options, completionFeed: this.nativeTaskHost?.completionFeed });
         this.spotifyConnect = new (require("./lib/services/spotify-connect").SpotifyConnectBackend)(this);
         await this.spotifyConnect.restore();
         this.musicLibrary = new (require("./lib/services/music-library").MusicLibrary)(this);
@@ -12777,8 +12798,8 @@ module.exports = class HubProjectMenu extends Plugin {
         this.addCommand({ id: "inbox", name: "Inbox", callback: () => this.captureControls?.openInbox() });
         if (ITACAN_DEVELOPMENT) this.addCommand({ id: "daily-brief", name: "Daily brief (development)", callback: () => this.dailyBrief.openManual() });
         this.addCommand({ id: "the-oath", name: "The Oath", callback: () => this.oathControl?.open() });
-        this.addCommand({ id: "insert-markdown-task", name: "Insert task at cursor", editorCallback: insertTaskAtCursor });
-        this.addCommand({ id: "add-hub-task", name: "Add task", callback: () => openTaskCreator(this.taskEditor) });
+        this.addCommand({ id: "insert-markdown-task", name: "Insert task at cursor", editorCallback: (editor, view) => { this.nativeTaskHost?.rejectLegacy(view?.file?.path ?? this.app.workspace.getActiveFile()?.path); return insertTaskAtCursor(editor, view); } });
+        this.addCommand({ id: "add-hub-task", name: "Add task", callback: () => this.openTaskCreator() });
 
         window.hubClearCompletedTasks = (
             tasks,
@@ -12896,6 +12917,9 @@ module.exports = class HubProjectMenu extends Plugin {
         );
     }
     onunload() {
+        this.nativeTaskRecoveryModal?.close();
+        this.nativeTaskStopping = this.nativeTaskHost?.close();
+        this.nativeTaskStopping?.catch(error => console.error("Native task shutdown failed", error));
         this.athena?.destroy();
         this.atlas?.destroy();
         disposeCompletionAudio();
@@ -12964,6 +12988,9 @@ module.exports = class HubProjectMenu extends Plugin {
         delete window.hubToggleTask;
         delete window.hubApplyTaskEdit;
         delete window.hubCreateTaskUi;
+        delete window.hubCreateTaskPanelRead;
+        delete window.hubCreateHomeTaskRead;
+        delete window.hubCreateTaskHistoryRead;
         delete window.hubTaskGroups;
         delete window.hubTaskOwner;
         delete window.hubCreateMarkdown;
@@ -14085,6 +14112,13 @@ module.exports = class HubProjectMenu extends Plugin {
                     }
             }
         ).open();
+    }
+
+    openTaskCreator(options = {}) {
+        if (!this.nativeTaskHost) return openTaskCreator(this.taskEditor, options);
+        const owner = options.location ? this.taskEditor.context(options.location) : this.taskEditor.currentContext();
+        if (this.nativeTaskHost?.matches({ type: owner?.contextKind === "resource" ? "resource" : "project", id: owner?.projectId })) return this.nativeTaskHost.create(options);
+        return openTaskCreator(this.taskEditor, options);
     }
 
     async toggleTask(path, lineNumber, taskText, completed, hubTaskId) {

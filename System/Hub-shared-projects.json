@@ -52,7 +52,7 @@
   "projectPlanning": {
     "4b597e3b-b588-4a29-969b-70db3a684112": {
       "version": 1,
-      "revision": 74,
+      "revision": 76,
       "phases": [
         {
           "id": "bf24b7f3-d3bc-4834-be4a-0bf12191da64",
@@ -389,6 +389,7 @@
       "dueDate": "2027-03-31"
     },
     "d9e34e87-2b7a-4441-86d3-20c20a751620": {
+      "phaseId": "bf24b7f3-d3bc-4834-be4a-0bf12191da64",
       "necessity": "must",
       "fromDate": null,
       "dueDate": "2026-09-30"

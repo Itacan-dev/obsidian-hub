@@ -130,6 +130,18 @@ class Menu {
 }
 const notices = [], results = [];
 const assert = (condition, message) => { if (!condition) throw Error(message); results.push(message); };
+async function assertSharedTaskForm(host) {
+    await new Promise(resolve=>setTimeout(resolve,160));
+    const form = host.querySelector(".hub-task-fields");
+    assert([...form.children].map(field => field.dataset.taskField).join("|") === "destination|necessity|dates|steps|phase", "Capture task fields use the canonical shared order");
+    const phase = form.querySelector('[aria-label="Project phase"]');
+    assert(phase.options[0].text === "No phase" && phase.closest("section").querySelector("h3").textContent === "Project phase" && !form.textContent.includes("(optional)"), "Project phase has one shared label and No phase default");
+    const choice = form.querySelector('.hub-task-necessity-choice[aria-pressed=true]');
+    if (choice) {
+        const style = getComputedStyle(choice);
+        assert(rgba(style.color).join() === rgba("white").join() && rgba(style.backgroundColor).join() === rgba("#8b5cf6").join(), "Selected necessity matches the existing purple selection convention");
+    }
+}
 const neutralColor = color => { const rgb = color.match(/\d+(?:\.\d+)?/g)?.map(Number); return rgb && Math.max(...rgb.slice(0, 3)) - Math.min(...rgb.slice(0, 3)) < 16; };
 const settle = async () => { for (let i = 0; i < 40; i++) await Promise.resolve(); await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))); };
 async function itemMenu(inbox, id, label) {
@@ -336,6 +348,12 @@ window.onload = async () => {
         };
         plugin.taskEditor = new HubTaskEditor(plugin);
         const service = plugin.inbox = new HubInboxService(plugin);
+        if (new URLSearchParams(location.search).get("preview") === "initial-filter") {
+            await verifyInboxInitialFilter({ plugin, load });
+            service.destroy(); cleanup.unload();
+            document.getElementById("result").textContent = "PASS: " + results.length + " Inbox initial filter checks\n" + results.join("\n");
+            return;
+        }
         const controlHost = document.querySelector(".status-bar").createDiv({ cls: "hub-oath-control" });
         const shellButton = (label, icon) => {
             const element = controlHost.createEl("button", { cls: "hub-oath-button", attr: { type: "button", "aria-label": label } });
@@ -406,7 +424,7 @@ window.onload = async () => {
                 assert(document.activeElement === trigger, "Native sort selection returns keyboard focus to the trigger");
                 return;
             }
-            if (["Save to", "Destination folder", "Task location"].includes(label)) {
+            if (["Save to", "Destination folder", "Location"].includes(label)) {
                 const trigger = host.querySelector(`button[aria-label="${label}"]`);
                 assert(trigger && !host.querySelector(`select[aria-label="${label}"]`), "Native picker trigger replaces generic select: " + label);
                 trigger.focus(); trigger.click(); await settle();
@@ -458,7 +476,7 @@ window.onload = async () => {
         const chooseWorkspace = async (modal, owner, type, destination = owner.contextKind === "resource" ? owner.root : owner.root + (owner === longProject ? "/Meta" : "/Design")) => {
             if (type !== "File") await click(modal.contentEl, type);
             await select(modal.contentEl, "Save to", owner.projectId);
-            await select(modal.contentEl, type === "Task" ? "Task location" : "Destination folder", destination);
+            await select(modal.contentEl, type === "Task" ? "Location" : "Destination folder", destination);
         };
         const assertViewport = modal => {
             const rect = modal.modalEl.getBoundingClientRect();
@@ -467,7 +485,7 @@ window.onload = async () => {
         };
 
         let quick = await openQuick();
-        assert(quick.contentEl.querySelector(".hub-capture-header p").textContent === "Write down a thought, or add a file.", "Compact Quick Add uses the requested thought/file subtitle");
+        assert(quick.contentEl.querySelector(".hub-capture-header p").textContent === "Write down a thought, or add a file", "Compact Quick Add uses the existing thought/file subtitle");
         assert(quick.label.hidden && quick.input.placeholder === "Start typing..." && !quick.contentEl.querySelector(".hub-capture-or"), "Compact Quick Add has no heading or or separator above its inputs");
         assert(quick.attach.textContent.trim() === "Add a file" && quick.attach.querySelector('[data-icon="paperclip"]'), "Neutral file action uses the requested label and paperclip");
         const inputRect = quick.input.getBoundingClientRect(), attachRect = quick.attach.getBoundingClientRect();
@@ -634,14 +652,16 @@ window.onload = async () => {
         assert(!quick.contentEl.querySelector('button[aria-label="Save to"] [data-icon="folder"]'), "Selected Project has no generic workspace icon");
         verifyTaskDateTime(quick.contentEl, quick.form);
         await click(quick.contentEl, "Must do"); setField(quick.contentEl, "Due date", "2026-10-10");
-        assert(getComputedStyle(quick.contentEl.querySelector('.hub-capture-type.is-active')).backgroundColor === "rgb(139, 92, 246)" && getComputedStyle(quick.contentEl.querySelector('.hub-task-necessity-choice[aria-pressed=true]')).backgroundColor === "rgb(139, 92, 246)", "Type and Necessity keep their intentional purple selected states");
+        await new Promise(resolve=>setTimeout(resolve,160));
+        assert(getComputedStyle(quick.contentEl.querySelector('.hub-capture-type.is-active')).backgroundColor === "rgb(139, 92, 246)" && getComputedStyle(quick.contentEl.querySelector('.hub-task-necessity-choice[aria-pressed=true]')).backgroundColor === "rgb(139, 92, 246)", "Type and Necessity share the existing purple selected fill");
         assert(quick.contentEl.querySelectorAll('.hub-date-time-trigger').length === 2 && !quick.contentEl.querySelector('.hub-date-time-precision') && !quick.contentEl.textContent.includes("Include time"), "Start and Due date each use the shared picker with no external time toggle");
         assert([...quick.contentEl.querySelectorAll('.hub-capture-form .hub-task-section,.hub-capture-form-group')].every(section => getComputedStyle(section).borderTopWidth === "0px"), "Task internal fields use spacing without divider lines");
         assert(getComputedStyle(quick.expanded).borderTopWidth === "1px" && getComputedStyle(quick.contentEl.querySelector('.hub-capture-header')).borderBottomWidth === "1px" && getComputedStyle(quick.contentEl.querySelector('.hub-capture-actions')).borderTopWidth === "1px", "Quick Add keeps the content and footer separators");
         assert(!quick.contentEl.textContent.includes("Break the task into smaller actions"), "Steps keeps its label and Add control without helper copy");
         const dateLabel = quick.contentEl.querySelector('.hub-date-time-field > label'), saveLabel = quick.contentEl.querySelector('.hub-capture-field-title');
         assert(getComputedStyle(dateLabel).fontWeight === getComputedStyle(saveLabel).fontWeight && getComputedStyle(dateLabel).fontSize === getComputedStyle(saveLabel).fontSize, "Date labels share the semibold field-label typography");
-        await select(quick.contentEl, "Project phase (optional)", "phase1");
+        await select(quick.contentEl, "Project phase", "phase1");
+        await assertSharedTaskForm(quick.contentEl);
         await click(quick.contentEl, "Add step"); setField(quick.contentEl, "Step text", "Read source material");
         await click(quick.contentEl, "Add to Itacan");
         const tasks = contents.get(project.root + "/Design/Tasks.md");
@@ -660,7 +680,7 @@ window.onload = async () => {
         assert(load("ui/workspace-thumbnail").workspaceImagePath(plugin, service.destinations().find(item => item.id === longProject.projectId)) === "Assets/ProjectCards/wip.jpg" && quick.contentEl.querySelector('button[aria-label="Save to"] img').getAttribute("src") === vault.getResourcePath(objects.get("Assets/ProjectCards/wip.jpg")), "Project without a user/category image displays the built-in placeholder image");
         await click(quick.contentEl, "Cancel");
         quick = await openQuick(); input(quick.input, "Resource task"); await click(quick.contentEl, "More options"); await chooseWorkspace(quick, resource, "Task");
-        assert(quick.contentEl.querySelector('[aria-label="Project phase (optional)"]').closest("section").hidden, "Resource task hides Project-only phase controls");
+        assert(quick.contentEl.querySelector('[aria-label="Project phase"]').closest("section").hidden, "Resource task hides Project-only phase controls");
         assert(quick.contentEl.querySelector('button[aria-label="Save to"] img.hub-capture-workspace-thumbnail') && !quick.contentEl.querySelector('button[aria-label="Save to"] [data-icon="library"]'), "Selected Resource always displays its actual square image");
         setField(quick.contentEl, "Due date", "2026-10-11T00:00");
         await click(quick.contentEl, "Add to Itacan");
@@ -713,10 +733,10 @@ window.onload = async () => {
         await service.delete(rootCapture.id); await click(quick.contentEl, "Cancel");
 
         quick = await openQuick(); input(quick.input, "Task picker root validation"); await click(quick.contentEl, "More options"); await click(quick.contentEl, "Task"); await select(quick.contentEl, "Save to", project.projectId);
-        quick.contentEl.querySelector("button[aria-label='Task location']").click(); await settle(); picker = window.lastModal;
+        quick.contentEl.querySelector("button[aria-label='Location']").click(); await settle(); picker = window.lastModal;
         assert(!picker.contentEl.querySelector(`[data-capture-path="${project.root}"]`) && !picker.contentEl.querySelector(`[data-capture-path="${activeFile.path}"]`), "Feature task picker excludes Project-root folder and root note locations");
         assert(picker.contentEl.querySelector(`[data-capture-path="${project.root}/Design/Tasks.md"]`) && picker.contentEl.querySelector(`[data-capture-path="${project.root}/Design"]`), "Task picker distinguishes available workspace Markdown notes and folders");
-        assert(picker.contentEl.querySelector(`[data-capture-path="${project.root}/Design/Tasks.md"]`).textContent.includes("Markdown note") && picker.contentEl.querySelector(`[data-capture-path="${project.root}/Design"]`).textContent.includes("Folder"), "Task location rows identify notes and folders with clear native captions");
+        assert(picker.contentEl.querySelector(`[data-capture-path="${project.root}/Design/Tasks.md"]`).textContent.includes("Markdown note") && picker.contentEl.querySelector(`[data-capture-path="${project.root}/Design"]`).textContent.includes("Folder"), "Location rows identify notes and folders with clear native captions");
         picker.close(); quick.form.update({ location: activeFile.path }); quick.sync(); assert(isBlocked(quick.add), "Programmatic root-note task selection cannot enable Add task"); await click(quick.contentEl, "Cancel");
 
         quick = await openQuick(); await quick.addAttachments([new File(["retry bytes"], "direct-retry.pdf", { type: "application/pdf" })]); await settle();
@@ -733,6 +753,7 @@ window.onload = async () => {
         const recoveryId = quick.captureId, recoveryPath = quick.draft.attachments[0].path; await click(quick.contentEl, "Cancel");
         assert(service.get(recoveryId) && objects.has(recoveryPath), "Cancelling a failed direct save preserves its Inbox recovery Capture and staged binary");
 
+        await verifyInboxInitialFilter({ plugin, load });
         // Inbox interactions follow after neutral selection is mounted.
         await verifyPartialCaptures({ service, plugin, memory, project, resource, openQuick, openInbox, load, capture, stage, select, click, setField, count, assertViewport, getPersisted: () => restoredData, setFailSave: () => { failSave = true; } });
         await verifyPersistentInboxEdits({ service, plugin, project, resource, openInbox, load, stage, select, click, setField, getPersisted: () => restoredData });
@@ -746,6 +767,55 @@ window.onload = async () => {
         document.getElementById("result").textContent = "PASS: " + results.length + " Quick Add and Inbox browser checks\n" + results.join("\n");
     } catch (error) { document.getElementById("result").textContent = "FAIL: " + error.stack; }
 };
+
+async function verifyInboxInitialFilter({ plugin, load }) {
+    const { HubInboxService } = load("services/inbox"), { InboxModal } = load("ui/inbox");
+    const data = { inbox: { version: 1, captures: [] } };
+    const service = new HubInboxService({ ...plugin, projectWizard: { ...plugin.projectWizard, data } });
+    try {
+        for (const count of [0, 1, 120]) {
+            data.inbox.captures = Array.from({ length: count }, (_, index) => ({
+                id: "initial-filter-" + index, text: "Item " + index, createdAt: index + 1,
+                attachments: index % 2 ? [{ name: "File.pdf", path: "missing.pdf" }] : []
+            }));
+            for (let opening = 0; opening < 2; opening++) {
+                const inbox = new InboxModal(plugin.app, service), refresh = inbox.refresh;
+                let initial = true;
+                inbox.refresh = function (...args) {
+                    if (initial) {
+                        initial = false;
+                        const all = this.filterButtons[0].button;
+                        assert(all.classList.contains("is-selected") && all.getAttribute("aria-pressed") === "true" && all.textContent === `All (${count})`,
+                            `All is initialized before first refresh (${count} items, opening ${opening + 1})`);
+                        assert(rgba(getComputedStyle(all).backgroundColor).join() === rgba("#8b5cf6").join(), "Initial style calculation already resolves to purple");
+                    }
+                    return refresh.apply(this, args);
+                };
+                inbox.open();
+                const all = inbox.filterButtons[0].button;
+                for (let frame = 0; frame < 3; frame++) {
+                    await new Promise(resolve => requestAnimationFrame(resolve));
+                    assert(rgba(getComputedStyle(all).backgroundColor).join() === rgba("#8b5cf6").join() && all.getAnimations().length === 0,
+                        "All stays fully selected without an initial animation on frame " + frame);
+                }
+                assert(inbox.rows.size === count && inbox.filterButtons[1].button.textContent === `Texts (${Math.ceil(count / 2)})` &&
+                    inbox.filterButtons[2].button.textContent === `Files (${Math.floor(count / 2)})`, "Initial All list and mixed-item filter counts are preserved");
+                await inbox.changeFilter("text");
+                const text = inbox.filterButtons[1].button;
+                getComputedStyle(text).backgroundColor;
+                const animations = text.getAnimations();
+                assert(text.getAttribute("aria-pressed") === "true" && animations.some(animation => animation.transitionProperty === "background-color"),
+                    "User filter changes retain the color transition");
+                await Promise.all(animations.map(animation => animation.finished));
+                assert(rgba(getComputedStyle(text).backgroundColor).join() === rgba("#8b5cf6").join() && !all.classList.contains("is-selected"), "User-selected Texts finishes purple and clears All");
+                assert(inbox.rows.size === Math.ceil(count / 2), "Texts still filters the item list");
+                await inbox.changeFilter("files");
+                assert(inbox.rows.size === Math.floor(count / 2) && inbox.filterButtons[2].button.getAttribute("aria-pressed") === "true", "Files still filters the item list and updates selection");
+                inbox.close();
+            }
+        }
+    } finally { service.destroy(); }
+}
 
 function verifyTaskDateTime(host, form) {
     const before = form.value(), trigger = host.querySelector('button.hub-date-time-trigger[aria-label="Start date"]');
@@ -944,7 +1014,7 @@ async function verifyPartialCaptures({ service, plugin, memory, project, resourc
     await select(quick.contentEl, "Save to", project.projectId); await click(quick.contentEl, "Must do");
     setField(quick.contentEl, "Start date", "2026-10-12T00:00"); setField(quick.contentEl, "Start date", "2026-10-12T09:30");
     setField(quick.contentEl, "Due date", "2026-10-14T00:00"); setField(quick.contentEl, "Due date", "2026-10-14T15:45");
-    await select(quick.contentEl, "Project phase (optional)", "phase1"); await click(quick.contentEl, "Add step"); setField(quick.contentEl, "Step text", "Preserved partial Step");
+    await select(quick.contentEl, "Project phase", "phase1"); await click(quick.contentEl, "Add step"); setField(quick.contentEl, "Step text", "Preserved partial Step");
     assert(isBlocked(quick.add) && !quick.send.disabled, "A partial Task with missing location can only be sent to Inbox");
     await click(quick.contentEl, "Send to Inbox"); const task = find("Partial Task continuation");
     assert(task?.intent?.type === "task" && task.intent.workspaceId === project.projectId && !task.intent.location, "Sending a partial Task preserves its type/workspace and missing location");
@@ -964,7 +1034,7 @@ async function verifyPartialCaptures({ service, plugin, memory, project, resourc
     assert(routedNote.intent.folder === resource.root + "/Quantum Gravity" && routedNote.intent.title === "", "A partial Note preserves its selected folder and intentionally cleared title");
 
     quick = await openQuick(); enter(quick.input, "Preserve both Task lines\nUntil deliberately edited"); await click(quick.contentEl, "More options"); await click(quick.contentEl, "Task");
-    await select(quick.contentEl, "Save to", project.projectId); await select(quick.contentEl, "Task location", project.root + "/Design");
+    await select(quick.contentEl, "Save to", project.projectId); await select(quick.contentEl, "Location", project.root + "/Design");
     assert(isBlocked(quick.add) && !quick.send.disabled, "Multiline Task text remains incomplete under the canonical single-line Task rule");
     await click(quick.contentEl, "Send to Inbox"); const multilineTask = find("Preserve both Task lines\nUntil deliberately edited");
 
@@ -1001,8 +1071,8 @@ async function verifyPartialCaptures({ service, plugin, memory, project, resourc
 
     const inbox = await openInbox();
     const choose = async id => { inbox.list.querySelector(`[data-capture-id="${id}"]`).click(); await settle(); };
-    await choose(task.id); await select(inbox.detail, "Task location", project.root + "/Design");
-    assert(!isBlocked(inbox.save) && inbox.save.textContent.trim() === "Add to Itacan", "Completing the missing Task location enables Add to Itacan immediately");
+    await choose(task.id); await select(inbox.detail, "Location", project.root + "/Design");
+    assert(!isBlocked(inbox.save) && inbox.save.textContent.trim() === "Add to Itacan", "Completing the missing Location enables Add to Itacan immediately");
     const beforeTask = count(); setFailSave(); await click(inbox.detail, "Add to Itacan");
     assert(service.get(task.id) && count() === beforeTask && inbox.form.value().fromTime === "09:30" && inbox.error.textContent.includes("Simulated persistence failure"), "Failed partial Task persistence keeps the Capture and optional form values intact");
     await click(inbox.detail, "Add to Itacan");
@@ -1042,7 +1112,8 @@ async function verifyPersistentInboxEdits({ service, plugin, project, resource, 
     await select(inbox.detail, "Save to", project.projectId); await click(inbox.detail, "Should do");
     setField(inbox.detail, "Start date", "2026-10-18T00:00"); setField(inbox.detail, "Start date", "2026-10-18T10:30");
     await click(inbox.detail, "Add step"); setField(inbox.detail, "Step text", "An edited saved Step");
-    await select(inbox.detail, "Project phase (optional)", "phase1");
+    await select(inbox.detail, "Project phase", "phase1");
+    await assertSharedTaskForm(inbox.detail);
     await choose(note.id); await click(inbox.detail, "Note");
     enter(inbox.detail.querySelector("textarea"), "Edited persistent Note content\nSecond line");
     setField(inbox.detail, "Note title", "Persistent title");
@@ -1142,7 +1213,7 @@ async function verifyInboxOrganisation({ plugin, project, resource, load, stage,
     assert(checkCompletion(first.id).ratio === 0, "Necessity, date, time and Steps never add organisation progress");
     await select(inbox.detail, "Save to", project.projectId);
     assert(checkCompletion(first.id).ratio === 1 / 2, "Choosing the required workspace updates the indicator");
-    await select(inbox.detail, "Task location", project.root + "/Design");
+    await select(inbox.detail, "Location", project.root + "/Design");
     assert(checkCompletion(first.id).ready && progressValue(row(first.id).progress) === progressMax(row(first.id).progress) && row(first.id).progress.getAttribute("aria-label") === "All required details complete", "Complete required details show Ready and a full bar");
     const refs = await stage("organisation-file.pdf", "application/pdf");
     const file = await service.capture({ attachments: refs, workspaceId: project.projectId });
@@ -1267,7 +1338,7 @@ async function verifyQuickAddGuidance({ service, project, resource, openQuick, s
     await select(quick.contentEl, 'Save to', project.projectId);
     await click(quick.contentEl, 'Add to Itacan');
     assert(quick.body.querySelectorAll('.hub-attention').length === 1 && quick.body.querySelector('.hub-attention')?.dataset.captureField === 'Location', 'Fixing Workspace advances only the next missing required Location');
-    await select(quick.contentEl, 'Task location', project.root + '/Design');
+    await select(quick.contentEl, 'Location', project.root + '/Design');
     quick.input.value = 'Invalid\nTask content'; quick.input.dispatchEvent(new Event('input', { bubbles: true }));
     await click(quick.contentEl, 'Add to Itacan');
     assert(quick.body.querySelector('.hub-attention') === quick.textPath && service.count === before, 'Invalid Task content guides the highest visible Content group using canonical validation');
@@ -1424,7 +1495,7 @@ async function verifyInteractionPolish({ service, project, resource, openInbox, 
     assert(menu.items.filter(item => !item.separator).map(item => item.icon).join("|") === "panel-right-open|send|repeat-2|trash-2" && inbox.selectedId === note.id, "Item menu uses fitting Lucide icons and targets the clicked row without changing the editor");
     menu.items[0].element.click(); await settle();
     assert(inbox.selectedId === task.id && document.activeElement === inbox.detail, "Open selects the contextual item and reveals its details");
-    assert(inbox.detail.querySelector('.hub-attention')?.dataset.captureField === "Location" && !inbox.detail.querySelector('.hub-task-section.hub-attention'), "Empty optional Task dates, Necessity and Steps never receive required attention");
+    assert(inbox.detail.querySelector('.hub-attention')?.dataset.captureField === "Location" && !inbox.detail.querySelector('.hub-task-section.hub-attention:is([data-task-field=necessity],[data-task-field=dates],[data-task-field=steps])'), "Empty optional Task dates, Necessity and Steps never receive required attention");
     assert(!inbox.detail.querySelector('.hub-capture-types'), "Typed specifications omit permanent Task/Note buttons");
     await itemMenu(inbox, task.id, "Change type");
     assert(window.lastMenu.items[0].checked && !window.lastMenu.items[1].checked, "Change type checks the current Task");
@@ -1499,7 +1570,7 @@ async function verifyInteractionPolish({ service, project, resource, openInbox, 
             if (label && control) assert(Math.abs(control.getBoundingClientRect().top - label.getBoundingClientRect().bottom - 8) < 1, "Label/control rhythm is eight pixels for " + (group.dataset.captureField || label.textContent));
         }
         const contentField = [...detailBody.children].find(child => child.getClientRects().length && !child.closest('[hidden]'));
-        const firstFormLabel = detailBody.querySelector('.hub-capture-form .hub-capture-field-title');
+        const firstFormLabel = detailBody.querySelector('.hub-capture-form .hub-capture-field-title,.hub-task-destination-fields > section > h3');
         assert(Math.abs(firstFormLabel.getBoundingClientRect().top - contentField.getBoundingClientRect().bottom - 24) < 1, "Content or File metadata to first field uses one twenty-four pixel gap");
         const listScroll = inbox.list.scrollTop, footerTop = footer.getBoundingClientRect().top;
         detailBody.scrollTop = detailBody.scrollHeight;
@@ -1676,7 +1747,7 @@ async function verifyInbox({ service, plugin, memory, project, resource, openQui
     await choose(plain.id); await choose(classifiedNote.id);
     assert(inbox.detail.querySelector('[aria-label="Note title"]').value === "Persistent note title", "Selecting another Capture preserves the Note title");
     await choose(plain.id); checkMode("task");
-    await select(inbox.detail, "Save to", project.projectId); await select(inbox.detail, "Task location", project.root + "/Design");
+    await select(inbox.detail, "Save to", project.projectId); await select(inbox.detail, "Location", project.root + "/Design");
     setField(inbox.detail, "Task", "Resolve this text as a task");
     await inbox.flushEdits(); const prior = count(); setFailSave(); await click(inbox.detail, "Add to Itacan");
     assert(count() === prior && service.get(plain.id)?.text === plain.text && inbox.error.textContent.includes("Simulated persistence failure"), "Failed task persistence retains the Capture and shows native inline feedback");
@@ -1686,7 +1757,7 @@ async function verifyInbox({ service, plugin, memory, project, resource, openQui
     assert(inbox.selectedId && inbox.selectedId !== plain.id && (inbox.detail.querySelector(".hub-inbox-preview") || inbox.form), "Resolution selects a sensible next Capture and resumes its appropriate state");
     const atlasTask = await service.capture({ text: "Follow the Atlas source", attachments: [], source: { origin: "Atlas", url: "https://example.org/source", title: "Atlas source", workspaceId: project.projectId } });
     await choose(atlasTask.id); await click(inbox.detail, "Task");
-    await select(inbox.detail, "Save to", project.projectId); await select(inbox.detail, "Task location", project.root + "/Design"); await click(inbox.detail, "Add to Itacan");
+    await select(inbox.detail, "Save to", project.projectId); await select(inbox.detail, "Location", project.root + "/Design"); await click(inbox.detail, "Add to Itacan");
     assert(!service.get(atlasTask.id) && Object.values(plugin.projectWizard.data.taskMetadata).some(item => item.captureSource?.url === "https://example.org/source"), "Source-only Make task resolves its Capture while preserving origin metadata in canonical task data");
 
     const editable = await capture("Initial note content"); await choose(editable.id); await click(inbox.detail, "Note");
@@ -1697,7 +1768,7 @@ async function verifyInbox({ service, plugin, memory, project, resource, openQui
     await choose(mixed.id); await click(inbox.detail, "Make task");
     checkMode("task");
     assert(inbox.detail.querySelector("textarea"), "Multiline capture content remains available in task processing without losing details");
-    await select(inbox.detail, "Save to", project.projectId); await select(inbox.detail, "Task location", project.root + "/Design");
+    await select(inbox.detail, "Save to", project.projectId); await select(inbox.detail, "Location", project.root + "/Design");
     setField(inbox.detail, "Task", "Read the paper"); await click(inbox.detail, "Add to Itacan");
     assert(service.get(mixed.id)?.attachments.length === 1 && service.get(mixed.id).text.includes("Preserve these source notes"), "Task creation retains unsupported attachments and multiline source content in Inbox");
     assert(![...inbox.detail.querySelectorAll("button")].some(item => item.textContent.trim() === "Make task"), "Retained Capture cannot create a duplicate task");
@@ -1846,9 +1917,9 @@ async function verifyInbox({ service, plugin, memory, project, resource, openQui
         const reviewTask = await capture("Compare detector sensitivity across the two readout methods"); await choose(reviewTask.id);
         await click(inbox.detail, "Task");
         await select(inbox.detail, "Save to", project.projectId);
-        if (preview !== "incomplete-task") await select(inbox.detail, "Task location", project.root + "/Design");
+        if (preview !== "incomplete-task") await select(inbox.detail, "Location", project.root + "/Design");
         if (preview === "destination") inbox.detail.querySelector("button[aria-label='Save to']").click();
-        else if (preview === "folder") inbox.detail.querySelector("button[aria-label='Task location']").click();
+        else if (preview === "folder") inbox.detail.querySelector("button[aria-label='Location']").click();
         else if (preview === "delete-confirmation") await click(inbox.detail, "Delete");
         else if (preview === "type-confirmation") await changeType(inbox, reviewTask.id, "Note");
         else if (preview === "context-menu") await itemMenu(inbox, reviewTask.id);

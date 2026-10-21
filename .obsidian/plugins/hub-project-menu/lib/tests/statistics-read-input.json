@@ -1,0 +1,3528 @@
+{
+  "owners": [
+    {
+      "projectId": "private",
+      "name": "Renamed private",
+      "status": "active",
+      "contextKind": "project",
+      "root": "Projects/private",
+      "path": "Projects/private/private.md"
+    },
+    {
+      "projectId": "itacan",
+      "name": "Itacan",
+      "status": "active",
+      "contextKind": "project",
+      "root": "Projects/itacan",
+      "path": "Projects/itacan/itacan.md"
+    },
+    {
+      "projectId": "hub",
+      "name": "Obsidian Hub",
+      "status": "active",
+      "contextKind": "project",
+      "root": "Projects/hub",
+      "path": "Projects/hub/hub.md"
+    },
+    {
+      "projectId": "future",
+      "name": "Same name",
+      "status": "future",
+      "contextKind": "project",
+      "root": "Projects/future",
+      "path": "Projects/future/future.md"
+    },
+    {
+      "projectId": "shelved",
+      "name": "Same name",
+      "status": "shelved",
+      "contextKind": "project",
+      "root": "Projects/shelved",
+      "path": "Projects/shelved/shelved.md"
+    },
+    {
+      "projectId": "resource:study",
+      "resourceType": "study",
+      "name": "study",
+      "contextKind": "resource",
+      "root": "Resources/study",
+      "path": "Resources/study/study.md"
+    },
+    {
+      "projectId": "resource:literature",
+      "resourceType": "literature",
+      "name": "literature",
+      "contextKind": "resource",
+      "root": "Resources/literature",
+      "path": "Resources/literature/literature.md"
+    },
+    {
+      "projectId": "resource:references",
+      "resourceType": "references",
+      "name": "references",
+      "contextKind": "resource",
+      "root": "Resources/references",
+      "path": "Resources/references/references.md"
+    },
+    {
+      "projectId": "resource:inspiration",
+      "resourceType": "inspiration",
+      "name": "inspiration",
+      "contextKind": "resource",
+      "root": "Resources/inspiration",
+      "path": "Resources/inspiration/inspiration.md"
+    }
+  ],
+  "records": [
+    {
+      "id": "e0",
+      "kind": "step",
+      "text": "Historical 0",
+      "path": "Projects/private/Missing.md",
+      "timestamp": 1793012399000,
+      "projectId": "private",
+      "projectName": "Old Renamed private",
+      "contextKind": "project",
+      "resourceType": null,
+      "hubTaskId": "same-task-0",
+      "parentTaskId": "parent"
+    },
+    {
+      "id": "e1",
+      "kind": "task",
+      "text": "Historical 1",
+      "path": "Projects/itacan/Missing.md",
+      "timestamp": 1792925999000,
+      "projectId": "itacan",
+      "projectName": "Old Itacan",
+      "contextKind": "project",
+      "resourceType": null,
+      "hubTaskId": "same-task-1",
+      "parentTaskId": null
+    },
+    {
+      "id": "e2",
+      "kind": "task",
+      "text": "Historical 2",
+      "path": "Projects/hub/Missing.md",
+      "timestamp": 1792839599000,
+      "projectId": "hub",
+      "projectName": "Old Obsidian Hub",
+      "contextKind": "project",
+      "resourceType": null,
+      "hubTaskId": "same-task-2",
+      "parentTaskId": null
+    },
+    {
+      "id": "e3",
+      "kind": "step",
+      "text": "Historical 3",
+      "path": "Projects/future/Missing.md",
+      "timestamp": 1792753199000,
+      "projectId": "future",
+      "projectName": "Old Same name",
+      "contextKind": "project",
+      "resourceType": null,
+      "hubTaskId": "same-task-0",
+      "parentTaskId": "parent"
+    },
+    {
+      "id": "e4",
+      "kind": "task",
+      "text": "Historical 4",
+      "path": "Projects/shelved/Missing.md",
+      "timestamp": 1792666799000,
+      "projectId": "shelved",
+      "projectName": "Old Same name",
+      "contextKind": "project",
+      "resourceType": null,
+      "hubTaskId": "same-task-1",
+      "parentTaskId": null
+    },
+    {
+      "id": "e5",
+      "kind": "task",
+      "text": "Historical 5",
+      "path": "Resources/study/Missing.md",
+      "timestamp": 1792580399000,
+      "projectId": "resource:study",
+      "projectName": "Old study",
+      "contextKind": "resource",
+      "resourceType": "study",
+      "hubTaskId": "same-task-2",
+      "parentTaskId": null
+    },
+    {
+      "id": "e6",
+      "kind": "step",
+      "text": "Historical 6",
+      "path": "Resources/literature/Missing.md",
+      "timestamp": 1792493999000,
+      "projectId": "resource:literature",
+      "projectName": "Old literature",
+      "contextKind": "resource",
+      "resourceType": "literature",
+      "hubTaskId": "same-task-0",
+      "parentTaskId": "parent"
+    },
+    {
+      "id": "e7",
+      "kind": "task",
+      "text": "Historical 7",
+      "path": "Resources/references/Missing.md",
+      "timestamp": 1792407599000,
+      "projectId": "resource:references",
+      "projectName": "Old references",
+      "contextKind": "resource",
+      "resourceType": "references",
+      "hubTaskId": "same-task-1",
+      "parentTaskId": null
+    },
+    {
+      "id": "e8",
+      "kind": "task",
+      "text": "Historical 8",
+      "path": "Resources/inspiration/Missing.md",
+      "timestamp": 1792321199000,
+      "projectId": "resource:inspiration",
+      "projectName": "Old inspiration",
+      "contextKind": "resource",
+      "resourceType": "inspiration",
+      "hubTaskId": "same-task-2",
+      "parentTaskId": null
+    },
+    {
+      "id": "e9",
+      "kind": "step",
+      "text": "Historical 9",
+      "path": "Projects/private/Missing.md",
+      "timestamp": 1792234799000,
+      "projectId": "private",
+      "projectName": "Old Renamed private",
+      "contextKind": "project",
+      "resourceType": null,
+      "hubTaskId": "same-task-0",
+      "parentTaskId": "parent"
+    },
+    {
+      "id": "e10",
+      "kind": "task",
+      "text": "Historical 10",
+      "path": "Projects/itacan/Missing.md",
+      "timestamp": 1792148399000,
+      "projectId": "itacan",
+      "projectName": "Old Itacan",
+      "contextKind": "project",
+      "resourceType": null,
+      "hubTaskId": "same-task-1",
+      "parentTaskId": null
+    },
+    {
+      "id": "e11",
+      "kind": "task",
+      "text": "Historical 11",
+      "path": "Projects/hub/Missing.md",
+      "timestamp": 1792061999000,
+      "projectId": "hub",
+      "projectName": "Old Obsidian Hub",
+      "contextKind": "project",
+      "resourceType": null,
+      "hubTaskId": "same-task-2",
+      "parentTaskId": null
+    },
+    {
+      "id": "e12",
+      "kind": "step",
+      "text": "Historical 12",
+      "path": "Projects/future/Missing.md",
+      "timestamp": 1791975599000,
+      "projectId": "future",
+      "projectName": "Old Same name",
+      "contextKind": "project",
+      "resourceType": null,
+      "hubTaskId": "same-task-0",
+      "parentTaskId": "parent"
+    },
+    {
+      "id": "e13",
+      "kind": "task",
+      "text": "Historical 13",
+      "path": "Projects/shelved/Missing.md",
+      "timestamp": 1791889199000,
+      "projectId": "shelved",
+      "projectName": "Old Same name",
+      "contextKind": "project",
+      "resourceType": null,
+      "hubTaskId": "same-task-1",
+      "parentTaskId": null
+    },
+    {
+      "id": "e14",
+      "kind": "task",
+      "text": "Historical 14",
+      "path": "Resources/study/Missing.md",
+      "timestamp": 1791802799000,
+      "projectId": "resource:study",
+      "projectName": "Old study",
+      "contextKind": "resource",
+      "resourceType": "study",
+      "hubTaskId": "same-task-2",
+      "parentTaskId": null
+    },
+    {
+      "id": "e15",
+      "kind": "step",
+      "text": "Historical 15",
+      "path": "Resources/literature/Missing.md",
+      "timestamp": 1791716399000,
+      "projectId": "resource:literature",
+      "projectName": "Old literature",
+      "contextKind": "resource",
+      "resourceType": "literature",
+      "hubTaskId": "same-task-0",
+      "parentTaskId": "parent"
+    },
+    {
+      "id": "e16",
+      "kind": "task",
+      "text": "Historical 16",
+      "path": "Resources/references/Missing.md",
+      "timestamp": 1791629999000,
+      "projectId": "resource:references",
+      "projectName": "Old references",
+      "contextKind": "resource",
+      "resourceType": "references",
+      "hubTaskId": "same-task-1",
+      "parentTaskId": null
+    },
+    {
+      "id": "e17",
+      "kind": "task",
+      "text": "Historical 17",
+      "path": "Resources/inspiration/Missing.md",
+      "timestamp": 1791543599000,
+      "projectId": "resource:inspiration",
+      "projectName": "Old inspiration",
+      "contextKind": "resource",
+      "resourceType": "inspiration",
+      "hubTaskId": "same-task-2",
+      "parentTaskId": null
+    },
+    {
+      "id": "e18",
+      "kind": "step",
+      "text": "Historical 18",
+      "path": "Projects/private/Missing.md",
+      "timestamp": 1791457199000,
+      "projectId": "private",
+      "projectName": "Old Renamed private",
+      "contextKind": "project",
+      "resourceType": null,
+      "hubTaskId": "same-task-0",
+      "parentTaskId": "parent"
+    },
+    {
+      "id": "e19",
+      "kind": "task",
+      "text": "Historical 19",
+      "path": "Projects/itacan/Missing.md",
+      "timestamp": 1791370799000,
+      "projectId": "itacan",
+      "projectName": "Old Itacan",
+      "contextKind": "project",
+      "resourceType": null,
+      "hubTaskId": "same-task-1",
+      "parentTaskId": null
+    },
+    {
+      "id": "e20",
+      "kind": "task",
+      "text": "Historical 20",
+      "path": "Projects/hub/Missing.md",
+      "timestamp": 1791284399000,
+      "projectId": "hub",
+      "projectName": "Old Obsidian Hub",
+      "contextKind": "project",
+      "resourceType": null,
+      "hubTaskId": "same-task-2",
+      "parentTaskId": null
+    },
+    {
+      "id": "e21",
+      "kind": "step",
+      "text": "Historical 21",
+      "path": "Projects/future/Missing.md",
+      "timestamp": 1791197999000,
+      "projectId": "future",
+      "projectName": "Old Same name",
+      "contextKind": "project",
+      "resourceType": null,
+      "hubTaskId": "same-task-0",
+      "parentTaskId": "parent"
+    },
+    {
+      "id": "e22",
+      "kind": "task",
+      "text": "Historical 22",
+      "path": "Projects/shelved/Missing.md",
+      "timestamp": 1791111599000,
+      "projectId": "shelved",
+      "projectName": "Old Same name",
+      "contextKind": "project",
+      "resourceType": null,
+      "hubTaskId": "same-task-1",
+      "parentTaskId": null
+    },
+    {
+      "id": "e23",
+      "kind": "task",
+      "text": "Historical 23",
+      "path": "Resources/study/Missing.md",
+      "timestamp": 1791025199000,
+      "projectId": "resource:study",
+      "projectName": "Old study",
+      "contextKind": "resource",
+      "resourceType": "study",
+      "hubTaskId": "same-task-2",
+      "parentTaskId": null
+    },
+    {
+      "id": "e24",
+      "kind": "step",
+      "text": "Historical 24",
+      "path": "Resources/literature/Missing.md",
+      "timestamp": 1790938799000,
+      "projectId": "resource:literature",
+      "projectName": "Old literature",
+      "contextKind": "resource",
+      "resourceType": "literature",
+      "hubTaskId": "same-task-0",
+      "parentTaskId": "parent"
+    },
+    {
+      "id": "e25",
+      "kind": "task",
+      "text": "Historical 25",
+      "path": "Resources/references/Missing.md",
+      "timestamp": 1790852399000,
+      "projectId": "resource:references",
+      "projectName": "Old references",
+      "contextKind": "resource",
+      "resourceType": "references",
+      "hubTaskId": "same-task-1",
+      "parentTaskId": null
+    },
+    {
+      "id": "e26",
+      "kind": "task",
+      "text": "Historical 26",
+      "path": "Resources/inspiration/Missing.md",
+      "timestamp": 1790765999000,
+      "projectId": "resource:inspiration",
+      "projectName": "Old inspiration",
+      "contextKind": "resource",
+      "resourceType": "inspiration",
+      "hubTaskId": "same-task-2",
+      "parentTaskId": null
+    },
+    {
+      "id": "e27",
+      "kind": "step",
+      "text": "Historical 27",
+      "path": "Projects/private/Missing.md",
+      "timestamp": 1790679599000,
+      "projectId": "private",
+      "projectName": "Old Renamed private",
+      "contextKind": "project",
+      "resourceType": null,
+      "hubTaskId": "same-task-0",
+      "parentTaskId": "parent"
+    },
+    {
+      "id": "e28",
+      "kind": "task",
+      "text": "Historical 28",
+      "path": "Projects/itacan/Missing.md",
+      "timestamp": 1790593199000,
+      "projectId": "itacan",
+      "projectName": "Old Itacan",
+      "contextKind": "project",
+      "resourceType": null,
+      "hubTaskId": "same-task-1",
+      "parentTaskId": null
+    },
+    {
+      "id": "e29",
+      "kind": "task",
+      "text": "Historical 29",
+      "path": "Projects/hub/Missing.md",
+      "timestamp": 1790506799000,
+      "projectId": "hub",
+      "projectName": "Old Obsidian Hub",
+      "contextKind": "project",
+      "resourceType": null,
+      "hubTaskId": "same-task-2",
+      "parentTaskId": null
+    },
+    {
+      "id": "e30",
+      "kind": "step",
+      "text": "Historical 30",
+      "path": "Projects/future/Missing.md",
+      "timestamp": 1790420399000,
+      "projectId": "future",
+      "projectName": "Old Same name",
+      "contextKind": "project",
+      "resourceType": null,
+      "hubTaskId": "same-task-0",
+      "parentTaskId": "parent"
+    },
+    {
+      "id": "e31",
+      "kind": "task",
+      "text": "Historical 31",
+      "path": "Projects/shelved/Missing.md",
+      "timestamp": 1790333999000,
+      "projectId": "shelved",
+      "projectName": "Old Same name",
+      "contextKind": "project",
+      "resourceType": null,
+      "hubTaskId": "same-task-1",
+      "parentTaskId": null
+    },
+    {
+      "id": "e32",
+      "kind": "task",
+      "text": "Historical 32",
+      "path": "Resources/study/Missing.md",
+      "timestamp": 1790247599000,
+      "projectId": "resource:study",
+      "projectName": "Old study",
+      "contextKind": "resource",
+      "resourceType": "study",
+      "hubTaskId": "same-task-2",
+      "parentTaskId": null
+    },
+    {
+      "id": "e33",
+      "kind": "step",
+      "text": "Historical 33",
+      "path": "Resources/literature/Missing.md",
+      "timestamp": 1790161199000,
+      "projectId": "resource:literature",
+      "projectName": "Old literature",
+      "contextKind": "resource",
+      "resourceType": "literature",
+      "hubTaskId": "same-task-0",
+      "parentTaskId": "parent"
+    },
+    {
+      "id": "e34",
+      "kind": "task",
+      "text": "Historical 34",
+      "path": "Resources/references/Missing.md",
+      "timestamp": 1790074799000,
+      "projectId": "resource:references",
+      "projectName": "Old references",
+      "contextKind": "resource",
+      "resourceType": "references",
+      "hubTaskId": "same-task-1",
+      "parentTaskId": null
+    },
+    {
+      "id": "e35",
+      "kind": "task",
+      "text": "Historical 35",
+      "path": "Resources/inspiration/Missing.md",
+      "timestamp": 1789988399000,
+      "projectId": "resource:inspiration",
+      "projectName": "Old inspiration",
+      "contextKind": "resource",
+      "resourceType": "inspiration",
+      "hubTaskId": "same-task-2",
+      "parentTaskId": null
+    },
+    {
+      "id": "e36",
+      "kind": "step",
+      "text": "Historical 36",
+      "path": "Projects/private/Missing.md",
+      "timestamp": 1789901999000,
+      "projectId": "private",
+      "projectName": "Old Renamed private",
+      "contextKind": "project",
+      "resourceType": null,
+      "hubTaskId": "same-task-0",
+      "parentTaskId": "parent"
+    },
+    {
+      "id": "e37",
+      "kind": "task",
+      "text": "Historical 37",
+      "path": "Projects/itacan/Missing.md",
+      "timestamp": 1789815599000,
+      "projectId": "itacan",
+      "projectName": "Old Itacan",
+      "contextKind": "project",
+      "resourceType": null,
+      "hubTaskId": "same-task-1",
+      "parentTaskId": null
+    },
+    {
+      "id": "e38",
+      "kind": "task",
+      "text": "Historical 38",
+      "path": "Projects/hub/Missing.md",
+      "timestamp": 1789729199000,
+      "projectId": "hub",
+      "projectName": "Old Obsidian Hub",
+      "contextKind": "project",
+      "resourceType": null,
+      "hubTaskId": "same-task-2",
+      "parentTaskId": null
+    },
+    {
+      "id": "e39",
+      "kind": "step",
+      "text": "Historical 39",
+      "path": "Projects/future/Missing.md",
+      "timestamp": 1789642799000,
+      "projectId": "future",
+      "projectName": "Old Same name",
+      "contextKind": "project",
+      "resourceType": null,
+      "hubTaskId": "same-task-0",
+      "parentTaskId": "parent"
+    },
+    {
+      "id": "e40",
+      "kind": "task",
+      "text": "Historical 40",
+      "path": "Projects/shelved/Missing.md",
+      "timestamp": 1789556399000,
+      "projectId": "shelved",
+      "projectName": "Old Same name",
+      "contextKind": "project",
+      "resourceType": null,
+      "hubTaskId": "same-task-1",
+      "parentTaskId": null
+    },
+    {
+      "id": "e41",
+      "kind": "task",
+      "text": "Historical 41",
+      "path": "Resources/study/Missing.md",
+      "timestamp": 1789469999000,
+      "projectId": "resource:study",
+      "projectName": "Old study",
+      "contextKind": "resource",
+      "resourceType": "study",
+      "hubTaskId": "same-task-2",
+      "parentTaskId": null
+    },
+    {
+      "id": "e42",
+      "kind": "step",
+      "text": "Historical 42",
+      "path": "Resources/literature/Missing.md",
+      "timestamp": 1789383599000,
+      "projectId": "resource:literature",
+      "projectName": "Old literature",
+      "contextKind": "resource",
+      "resourceType": "literature",
+      "hubTaskId": "same-task-0",
+      "parentTaskId": "parent"
+    },
+    {
+      "id": "e43",
+      "kind": "task",
+      "text": "Historical 43",
+      "path": "Resources/references/Missing.md",
+      "timestamp": 1789297199000,
+      "projectId": "resource:references",
+      "projectName": "Old references",
+      "contextKind": "resource",
+      "resourceType": "references",
+      "hubTaskId": "same-task-1",
+      "parentTaskId": null
+    },
+    {
+      "id": "e44",
+      "kind": "task",
+      "text": "Historical 44",
+      "path": "Resources/inspiration/Missing.md",
+      "timestamp": 1789210799000,
+      "projectId": "resource:inspiration",
+      "projectName": "Old inspiration",
+      "contextKind": "resource",
+      "resourceType": "inspiration",
+      "hubTaskId": "same-task-2",
+      "parentTaskId": null
+    },
+    {
+      "id": "e45",
+      "kind": "step",
+      "text": "Historical 45",
+      "path": "Projects/private/Missing.md",
+      "timestamp": 1789124399000,
+      "projectId": "private",
+      "projectName": "Old Renamed private",
+      "contextKind": "project",
+      "resourceType": null,
+      "hubTaskId": "same-task-0",
+      "parentTaskId": "parent"
+    },
+    {
+      "id": "e46",
+      "kind": "task",
+      "text": "Historical 46",
+      "path": "Projects/itacan/Missing.md",
+      "timestamp": 1789037999000,
+      "projectId": "itacan",
+      "projectName": "Old Itacan",
+      "contextKind": "project",
+      "resourceType": null,
+      "hubTaskId": "same-task-1",
+      "parentTaskId": null
+    },
+    {
+      "id": "e47",
+      "kind": "task",
+      "text": "Historical 47",
+      "path": "Projects/hub/Missing.md",
+      "timestamp": 1788951599000,
+      "projectId": "hub",
+      "projectName": "Old Obsidian Hub",
+      "contextKind": "project",
+      "resourceType": null,
+      "hubTaskId": "same-task-2",
+      "parentTaskId": null
+    },
+    {
+      "id": "e48",
+      "kind": "step",
+      "text": "Historical 48",
+      "path": "Projects/future/Missing.md",
+      "timestamp": 1788865199000,
+      "projectId": "future",
+      "projectName": "Old Same name",
+      "contextKind": "project",
+      "resourceType": null,
+      "hubTaskId": "same-task-0",
+      "parentTaskId": "parent"
+    },
+    {
+      "id": "e49",
+      "kind": "task",
+      "text": "Historical 49",
+      "path": "Projects/shelved/Missing.md",
+      "timestamp": 1788778799000,
+      "projectId": "shelved",
+      "projectName": "Old Same name",
+      "contextKind": "project",
+      "resourceType": null,
+      "hubTaskId": "same-task-1",
+      "parentTaskId": null
+    },
+    {
+      "id": "e50",
+      "kind": "task",
+      "text": "Historical 50",
+      "path": "Resources/study/Missing.md",
+      "timestamp": 1788692399000,
+      "projectId": "resource:study",
+      "projectName": "Old study",
+      "contextKind": "resource",
+      "resourceType": "study",
+      "hubTaskId": "same-task-2",
+      "parentTaskId": null
+    },
+    {
+      "id": "e51",
+      "kind": "step",
+      "text": "Historical 51",
+      "path": "Resources/literature/Missing.md",
+      "timestamp": 1788605999000,
+      "projectId": "resource:literature",
+      "projectName": "Old literature",
+      "contextKind": "resource",
+      "resourceType": "literature",
+      "hubTaskId": "same-task-0",
+      "parentTaskId": "parent"
+    },
+    {
+      "id": "e52",
+      "kind": "task",
+      "text": "Historical 52",
+      "path": "Resources/references/Missing.md",
+      "timestamp": 1788519599000,
+      "projectId": "resource:references",
+      "projectName": "Old references",
+      "contextKind": "resource",
+      "resourceType": "references",
+      "hubTaskId": "same-task-1",
+      "parentTaskId": null
+    },
+    {
+      "id": "e53",
+      "kind": "task",
+      "text": "Historical 53",
+      "path": "Resources/inspiration/Missing.md",
+      "timestamp": 1788433199000,
+      "projectId": "resource:inspiration",
+      "projectName": "Old inspiration",
+      "contextKind": "resource",
+      "resourceType": "inspiration",
+      "hubTaskId": "same-task-2",
+      "parentTaskId": null
+    },
+    {
+      "id": "e54",
+      "kind": "step",
+      "text": "Historical 54",
+      "path": "Projects/private/Missing.md",
+      "timestamp": 1788346799000,
+      "projectId": "private",
+      "projectName": "Old Renamed private",
+      "contextKind": "project",
+      "resourceType": null,
+      "hubTaskId": "same-task-0",
+      "parentTaskId": "parent"
+    },
+    {
+      "id": "e55",
+      "kind": "task",
+      "text": "Historical 55",
+      "path": "Projects/itacan/Missing.md",
+      "timestamp": 1788260399000,
+      "projectId": "itacan",
+      "projectName": "Old Itacan",
+      "contextKind": "project",
+      "resourceType": null,
+      "hubTaskId": "same-task-1",
+      "parentTaskId": null
+    },
+    {
+      "id": "e56",
+      "kind": "task",
+      "text": "Historical 56",
+      "path": "Projects/hub/Missing.md",
+      "timestamp": 1788173999000,
+      "projectId": "hub",
+      "projectName": "Old Obsidian Hub",
+      "contextKind": "project",
+      "resourceType": null,
+      "hubTaskId": "same-task-2",
+      "parentTaskId": null
+    },
+    {
+      "id": "e57",
+      "kind": "step",
+      "text": "Historical 57",
+      "path": "Projects/future/Missing.md",
+      "timestamp": 1788087599000,
+      "projectId": "future",
+      "projectName": "Old Same name",
+      "contextKind": "project",
+      "resourceType": null,
+      "hubTaskId": "same-task-0",
+      "parentTaskId": "parent"
+    },
+    {
+      "id": "e58",
+      "kind": "task",
+      "text": "Historical 58",
+      "path": "Projects/shelved/Missing.md",
+      "timestamp": 1788001199000,
+      "projectId": "shelved",
+      "projectName": "Old Same name",
+      "contextKind": "project",
+      "resourceType": null,
+      "hubTaskId": "same-task-1",
+      "parentTaskId": null
+    },
+    {
+      "id": "e59",
+      "kind": "task",
+      "text": "Historical 59",
+      "path": "Resources/study/Missing.md",
+      "timestamp": 1787914799000,
+      "projectId": "resource:study",
+      "projectName": "Old study",
+      "contextKind": "resource",
+      "resourceType": "study",
+      "hubTaskId": "same-task-2",
+      "parentTaskId": null
+    },
+    {
+      "id": "e60",
+      "kind": "step",
+      "text": "Historical 60",
+      "path": "Resources/literature/Missing.md",
+      "timestamp": 1787828399000,
+      "projectId": "resource:literature",
+      "projectName": "Old literature",
+      "contextKind": "resource",
+      "resourceType": "literature",
+      "hubTaskId": "same-task-0",
+      "parentTaskId": "parent"
+    },
+    {
+      "id": "e61",
+      "kind": "task",
+      "text": "Historical 61",
+      "path": "Resources/references/Missing.md",
+      "timestamp": 1787741999000,
+      "projectId": "resource:references",
+      "projectName": "Old references",
+      "contextKind": "resource",
+      "resourceType": "references",
+      "hubTaskId": "same-task-1",
+      "parentTaskId": null
+    },
+    {
+      "id": "e62",
+      "kind": "task",
+      "text": "Historical 62",
+      "path": "Resources/inspiration/Missing.md",
+      "timestamp": 1787655599000,
+      "projectId": "resource:inspiration",
+      "projectName": "Old inspiration",
+      "contextKind": "resource",
+      "resourceType": "inspiration",
+      "hubTaskId": "same-task-2",
+      "parentTaskId": null
+    },
+    {
+      "id": "e63",
+      "kind": "step",
+      "text": "Historical 63",
+      "path": "Projects/private/Missing.md",
+      "timestamp": 1787569199000,
+      "projectId": "private",
+      "projectName": "Old Renamed private",
+      "contextKind": "project",
+      "resourceType": null,
+      "hubTaskId": "same-task-0",
+      "parentTaskId": "parent"
+    },
+    {
+      "id": "e64",
+      "kind": "task",
+      "text": "Historical 64",
+      "path": "Projects/itacan/Missing.md",
+      "timestamp": 1787482799000,
+      "projectId": "itacan",
+      "projectName": "Old Itacan",
+      "contextKind": "project",
+      "resourceType": null,
+      "hubTaskId": "same-task-1",
+      "parentTaskId": null
+    },
+    {
+      "id": "e65",
+      "kind": "task",
+      "text": "Historical 65",
+      "path": "Projects/hub/Missing.md",
+      "timestamp": 1787396399000,
+      "projectId": "hub",
+      "projectName": "Old Obsidian Hub",
+      "contextKind": "project",
+      "resourceType": null,
+      "hubTaskId": "same-task-2",
+      "parentTaskId": null
+    },
+    {
+      "id": "e66",
+      "kind": "step",
+      "text": "Historical 66",
+      "path": "Projects/future/Missing.md",
+      "timestamp": 1787309999000,
+      "projectId": "future",
+      "projectName": "Old Same name",
+      "contextKind": "project",
+      "resourceType": null,
+      "hubTaskId": "same-task-0",
+      "parentTaskId": "parent"
+    },
+    {
+      "id": "e67",
+      "kind": "task",
+      "text": "Historical 67",
+      "path": "Projects/shelved/Missing.md",
+      "timestamp": 1787223599000,
+      "projectId": "shelved",
+      "projectName": "Old Same name",
+      "contextKind": "project",
+      "resourceType": null,
+      "hubTaskId": "same-task-1",
+      "parentTaskId": null
+    },
+    {
+      "id": "e68",
+      "kind": "task",
+      "text": "Historical 68",
+      "path": "Resources/study/Missing.md",
+      "timestamp": 1787137199000,
+      "projectId": "resource:study",
+      "projectName": "Old study",
+      "contextKind": "resource",
+      "resourceType": "study",
+      "hubTaskId": "same-task-2",
+      "parentTaskId": null
+    },
+    {
+      "id": "e69",
+      "kind": "step",
+      "text": "Historical 69",
+      "path": "Resources/literature/Missing.md",
+      "timestamp": 1787050799000,
+      "projectId": "resource:literature",
+      "projectName": "Old literature",
+      "contextKind": "resource",
+      "resourceType": "literature",
+      "hubTaskId": "same-task-0",
+      "parentTaskId": "parent"
+    },
+    {
+      "id": "e70",
+      "kind": "task",
+      "text": "Historical 70",
+      "path": "Resources/references/Missing.md",
+      "timestamp": 1786964399000,
+      "projectId": "resource:references",
+      "projectName": "Old references",
+      "contextKind": "resource",
+      "resourceType": "references",
+      "hubTaskId": "same-task-1",
+      "parentTaskId": null
+    },
+    {
+      "id": "e71",
+      "kind": "task",
+      "text": "Historical 71",
+      "path": "Resources/inspiration/Missing.md",
+      "timestamp": 1786877999000,
+      "projectId": "resource:inspiration",
+      "projectName": "Old inspiration",
+      "contextKind": "resource",
+      "resourceType": "inspiration",
+      "hubTaskId": "same-task-2",
+      "parentTaskId": null
+    },
+    {
+      "id": "e72",
+      "kind": "step",
+      "text": "Historical 72",
+      "path": "Projects/private/Missing.md",
+      "timestamp": 1786791599000,
+      "projectId": "private",
+      "projectName": "Old Renamed private",
+      "contextKind": "project",
+      "resourceType": null,
+      "hubTaskId": "same-task-0",
+      "parentTaskId": "parent"
+    },
+    {
+      "id": "e73",
+      "kind": "task",
+      "text": "Historical 73",
+      "path": "Projects/itacan/Missing.md",
+      "timestamp": 1786705199000,
+      "projectId": "itacan",
+      "projectName": "Old Itacan",
+      "contextKind": "project",
+      "resourceType": null,
+      "hubTaskId": "same-task-1",
+      "parentTaskId": null
+    },
+    {
+      "id": "e74",
+      "kind": "task",
+      "text": "Historical 74",
+      "path": "Projects/hub/Missing.md",
+      "timestamp": 1786618799000,
+      "projectId": "hub",
+      "projectName": "Old Obsidian Hub",
+      "contextKind": "project",
+      "resourceType": null,
+      "hubTaskId": "same-task-2",
+      "parentTaskId": null
+    },
+    {
+      "id": "e75",
+      "kind": "step",
+      "text": "Historical 75",
+      "path": "Projects/future/Missing.md",
+      "timestamp": 1786532399000,
+      "projectId": "future",
+      "projectName": "Old Same name",
+      "contextKind": "project",
+      "resourceType": null,
+      "hubTaskId": "same-task-0",
+      "parentTaskId": "parent"
+    },
+    {
+      "id": "e76",
+      "kind": "task",
+      "text": "Historical 76",
+      "path": "Projects/shelved/Missing.md",
+      "timestamp": 1786445999000,
+      "projectId": "shelved",
+      "projectName": "Old Same name",
+      "contextKind": "project",
+      "resourceType": null,
+      "hubTaskId": "same-task-1",
+      "parentTaskId": null
+    },
+    {
+      "id": "e77",
+      "kind": "task",
+      "text": "Historical 77",
+      "path": "Resources/study/Missing.md",
+      "timestamp": 1786359599000,
+      "projectId": "resource:study",
+      "projectName": "Old study",
+      "contextKind": "resource",
+      "resourceType": "study",
+      "hubTaskId": "same-task-2",
+      "parentTaskId": null
+    },
+    {
+      "id": "e78",
+      "kind": "step",
+      "text": "Historical 78",
+      "path": "Resources/literature/Missing.md",
+      "timestamp": 1786273199000,
+      "projectId": "resource:literature",
+      "projectName": "Old literature",
+      "contextKind": "resource",
+      "resourceType": "literature",
+      "hubTaskId": "same-task-0",
+      "parentTaskId": "parent"
+    },
+    {
+      "id": "e79",
+      "kind": "task",
+      "text": "Historical 79",
+      "path": "Resources/references/Missing.md",
+      "timestamp": 1786186799000,
+      "projectId": "resource:references",
+      "projectName": "Old references",
+      "contextKind": "resource",
+      "resourceType": "references",
+      "hubTaskId": "same-task-1",
+      "parentTaskId": null
+    },
+    {
+      "id": "e80",
+      "kind": "task",
+      "text": "Historical 80",
+      "path": "Resources/inspiration/Missing.md",
+      "timestamp": 1786100399000,
+      "projectId": "resource:inspiration",
+      "projectName": "Old inspiration",
+      "contextKind": "resource",
+      "resourceType": "inspiration",
+      "hubTaskId": "same-task-2",
+      "parentTaskId": null
+    },
+    {
+      "id": "e81",
+      "kind": "step",
+      "text": "Historical 81",
+      "path": "Projects/private/Missing.md",
+      "timestamp": 1786013999000,
+      "projectId": "private",
+      "projectName": "Old Renamed private",
+      "contextKind": "project",
+      "resourceType": null,
+      "hubTaskId": "same-task-0",
+      "parentTaskId": "parent"
+    },
+    {
+      "id": "e82",
+      "kind": "task",
+      "text": "Historical 82",
+      "path": "Projects/itacan/Missing.md",
+      "timestamp": 1785927599000,
+      "projectId": "itacan",
+      "projectName": "Old Itacan",
+      "contextKind": "project",
+      "resourceType": null,
+      "hubTaskId": "same-task-1",
+      "parentTaskId": null
+    },
+    {
+      "id": "e83",
+      "kind": "task",
+      "text": "Historical 83",
+      "path": "Projects/hub/Missing.md",
+      "timestamp": 1785841199000,
+      "projectId": "hub",
+      "projectName": "Old Obsidian Hub",
+      "contextKind": "project",
+      "resourceType": null,
+      "hubTaskId": "same-task-2",
+      "parentTaskId": null
+    },
+    {
+      "id": "e84",
+      "kind": "step",
+      "text": "Historical 84",
+      "path": "Projects/future/Missing.md",
+      "timestamp": 1785754799000,
+      "projectId": "future",
+      "projectName": "Old Same name",
+      "contextKind": "project",
+      "resourceType": null,
+      "hubTaskId": "same-task-0",
+      "parentTaskId": "parent"
+    },
+    {
+      "id": "e85",
+      "kind": "task",
+      "text": "Historical 85",
+      "path": "Projects/shelved/Missing.md",
+      "timestamp": 1785668399000,
+      "projectId": "shelved",
+      "projectName": "Old Same name",
+      "contextKind": "project",
+      "resourceType": null,
+      "hubTaskId": "same-task-1",
+      "parentTaskId": null
+    },
+    {
+      "id": "e86",
+      "kind": "task",
+      "text": "Historical 86",
+      "path": "Resources/study/Missing.md",
+      "timestamp": 1785581999000,
+      "projectId": "resource:study",
+      "projectName": "Old study",
+      "contextKind": "resource",
+      "resourceType": "study",
+      "hubTaskId": "same-task-2",
+      "parentTaskId": null
+    },
+    {
+      "id": "e87",
+      "kind": "step",
+      "text": "Historical 87",
+      "path": "Resources/literature/Missing.md",
+      "timestamp": 1785495599000,
+      "projectId": "resource:literature",
+      "projectName": "Old literature",
+      "contextKind": "resource",
+      "resourceType": "literature",
+      "hubTaskId": "same-task-0",
+      "parentTaskId": "parent"
+    },
+    {
+      "id": "e88",
+      "kind": "task",
+      "text": "Historical 88",
+      "path": "Resources/references/Missing.md",
+      "timestamp": 1785409199000,
+      "projectId": "resource:references",
+      "projectName": "Old references",
+      "contextKind": "resource",
+      "resourceType": "references",
+      "hubTaskId": "same-task-1",
+      "parentTaskId": null
+    },
+    {
+      "id": "e89",
+      "kind": "task",
+      "text": "Historical 89",
+      "path": "Resources/inspiration/Missing.md",
+      "timestamp": 1785322799000,
+      "projectId": "resource:inspiration",
+      "projectName": "Old inspiration",
+      "contextKind": "resource",
+      "resourceType": "inspiration",
+      "hubTaskId": "same-task-2",
+      "parentTaskId": null
+    },
+    {
+      "id": "e90",
+      "kind": "step",
+      "text": "Historical 90",
+      "path": "Projects/private/Missing.md",
+      "timestamp": 1785236399000,
+      "projectId": "private",
+      "projectName": "Old Renamed private",
+      "contextKind": "project",
+      "resourceType": null,
+      "hubTaskId": "same-task-0",
+      "parentTaskId": "parent"
+    },
+    {
+      "id": "e91",
+      "kind": "task",
+      "text": "Historical 91",
+      "path": "Projects/itacan/Missing.md",
+      "timestamp": 1785149999000,
+      "projectId": "itacan",
+      "projectName": "Old Itacan",
+      "contextKind": "project",
+      "resourceType": null,
+      "hubTaskId": "same-task-1",
+      "parentTaskId": null
+    },
+    {
+      "id": "e92",
+      "kind": "task",
+      "text": "Historical 92",
+      "path": "Projects/hub/Missing.md",
+      "timestamp": 1785063599000,
+      "projectId": "hub",
+      "projectName": "Old Obsidian Hub",
+      "contextKind": "project",
+      "resourceType": null,
+      "hubTaskId": "same-task-2",
+      "parentTaskId": null
+    },
+    {
+      "id": "e93",
+      "kind": "step",
+      "text": "Historical 93",
+      "path": "Projects/future/Missing.md",
+      "timestamp": 1784977199000,
+      "projectId": "future",
+      "projectName": "Old Same name",
+      "contextKind": "project",
+      "resourceType": null,
+      "hubTaskId": "same-task-0",
+      "parentTaskId": "parent"
+    },
+    {
+      "id": "e94",
+      "kind": "task",
+      "text": "Historical 94",
+      "path": "Projects/shelved/Missing.md",
+      "timestamp": 1784890799000,
+      "projectId": "shelved",
+      "projectName": "Old Same name",
+      "contextKind": "project",
+      "resourceType": null,
+      "hubTaskId": "same-task-1",
+      "parentTaskId": null
+    },
+    {
+      "id": "e95",
+      "kind": "task",
+      "text": "Historical 95",
+      "path": "Resources/study/Missing.md",
+      "timestamp": 1784804399000,
+      "projectId": "resource:study",
+      "projectName": "Old study",
+      "contextKind": "resource",
+      "resourceType": "study",
+      "hubTaskId": "same-task-2",
+      "parentTaskId": null
+    },
+    {
+      "id": "e96",
+      "kind": "step",
+      "text": "Historical 96",
+      "path": "Resources/literature/Missing.md",
+      "timestamp": 1784717999000,
+      "projectId": "resource:literature",
+      "projectName": "Old literature",
+      "contextKind": "resource",
+      "resourceType": "literature",
+      "hubTaskId": "same-task-0",
+      "parentTaskId": "parent"
+    },
+    {
+      "id": "e97",
+      "kind": "task",
+      "text": "Historical 97",
+      "path": "Resources/references/Missing.md",
+      "timestamp": 1784631599000,
+      "projectId": "resource:references",
+      "projectName": "Old references",
+      "contextKind": "resource",
+      "resourceType": "references",
+      "hubTaskId": "same-task-1",
+      "parentTaskId": null
+    },
+    {
+      "id": "e98",
+      "kind": "task",
+      "text": "Historical 98",
+      "path": "Resources/inspiration/Missing.md",
+      "timestamp": 1784545199000,
+      "projectId": "resource:inspiration",
+      "projectName": "Old inspiration",
+      "contextKind": "resource",
+      "resourceType": "inspiration",
+      "hubTaskId": "same-task-2",
+      "parentTaskId": null
+    },
+    {
+      "id": "e99",
+      "kind": "step",
+      "text": "Historical 99",
+      "path": "Projects/private/Missing.md",
+      "timestamp": 1784458799000,
+      "projectId": "private",
+      "projectName": "Old Renamed private",
+      "contextKind": "project",
+      "resourceType": null,
+      "hubTaskId": "same-task-0",
+      "parentTaskId": "parent"
+    },
+    {
+      "text": "Legacy",
+      "path": "Resources/study/Missing.md",
+      "timestamp": null,
+      "id": "duplicate"
+    },
+    {
+      "text": "Legacy",
+      "path": "Resources/study/Missing.md",
+      "timestamp": 1793012399000,
+      "id": "duplicate"
+    },
+    {
+      "text": "Legacy",
+      "path": "Resources/study/Missing.md",
+      "timestamp": 1793012399000
+    },
+    {
+      "text": "Legacy",
+      "path": "Resources/study/Missing.md",
+      "timestamp": 1793012399000
+    },
+    {
+      "text": "Legacy",
+      "path": "Resources/study/Missing.md",
+      "timestamp": 1793012399000,
+      "id": ""
+    },
+    {
+      "text": "Legacy",
+      "path": "Resources/study/Missing.md",
+      "timestamp": 1793012399000,
+      "id": ""
+    },
+    {
+      "text": "Legacy",
+      "path": "Resources/study/Missing.md",
+      "timestamp": 1793012399000,
+      "id": null
+    },
+    {
+      "text": "Legacy",
+      "path": "Resources/study/Missing.md",
+      "timestamp": 1793012399000,
+      "id": null
+    },
+    {
+      "text": "Legacy",
+      "path": "Resources/study/Missing.md",
+      "timestamp": 1793012399000,
+      "id": 0
+    },
+    {
+      "text": "Legacy",
+      "path": "Resources/study/Missing.md",
+      "timestamp": 1793012399000,
+      "id": 0
+    },
+    {
+      "text": "Legacy",
+      "path": "Resources/study/Missing.md",
+      "timestamp": 1793012399000,
+      "id": 17
+    },
+    {
+      "text": "Legacy",
+      "path": "Resources/study/Missing.md",
+      "timestamp": 1793012399000,
+      "id": 17
+    },
+    {
+      "text": "Legacy",
+      "path": "Resources/study/Missing.md",
+      "timestamp": 1793012399000,
+      "id": "17"
+    },
+    {
+      "text": "Legacy",
+      "path": "Resources/study/Missing.md",
+      "timestamp": 1793012399000,
+      "id": "deleted",
+      "projectId": "deleted",
+      "project": "Legacy deleted name"
+    },
+    {
+      "text": "Legacy",
+      "path": "Resources/study/Missing.md",
+      "timestamp": 1793012399000,
+      "id": "name-only",
+      "project": "Renamed private"
+    },
+    {
+      "text": "Legacy",
+      "path": "Resources/study/Missing.md",
+      "timestamp": 1793012399000,
+      "id": "same-name-only",
+      "project": "Same name"
+    },
+    {
+      "text": "Legacy",
+      "path": "Resources/study/Missing.md",
+      "timestamp": 1793012399000,
+      "id": "conflict",
+      "projectId": "private",
+      "project": "Wrong name",
+      "projectName": "Wrong modern name",
+      "contextKind": "project"
+    },
+    {
+      "text": "Legacy",
+      "path": "Resources/study/Missing.md",
+      "timestamp": 1793012399000,
+      "id": "modern-wins",
+      "projectId": "deleted-modern",
+      "projectName": "Modern name",
+      "project": "Legacy name"
+    },
+    {
+      "text": "Legacy",
+      "path": "Resources/study/Missing.md",
+      "timestamp": 1793012399000,
+      "id": "null-modern",
+      "projectId": "deleted-null",
+      "projectName": null,
+      "project": "Null fallback"
+    },
+    {
+      "text": "Legacy",
+      "path": "Resources/study/Missing.md",
+      "timestamp": 1793012399000,
+      "id": "empty-modern",
+      "projectId": "deleted-empty",
+      "projectName": "",
+      "project": "Do not replace empty"
+    },
+    {
+      "text": "Legacy",
+      "path": "Resources/study/Missing.md",
+      "timestamp": 1793012399000,
+      "id": "presentation",
+      "projectId": "itacan",
+      "targetKind": "project",
+      "contextKind": "resource"
+    },
+    {
+      "text": "Legacy",
+      "path": "Resources/study/Missing.md",
+      "timestamp": 1793012399000,
+      "id": "unknown-kind",
+      "kind": "Step"
+    },
+    {
+      "text": "Legacy",
+      "path": "Resources/study/Missing.md",
+      "timestamp": 1793012399000,
+      "id": "null-kind",
+      "kind": null
+    },
+    {
+      "text": "Legacy",
+      "path": "Resources/study/Missing.md",
+      "timestamp": 1793012399000,
+      "id": "archived",
+      "archivedAt": 1793012399999,
+      "hubTaskId": null
+    },
+    {
+      "text": "Legacy",
+      "path": "Resources/study/Missing.md",
+      "timestamp": "1793012399000",
+      "id": "string-time"
+    },
+    {
+      "text": "Legacy",
+      "path": "Resources/study/Missing.md",
+      "timestamp": "2026-10-25",
+      "id": "date-only"
+    },
+    {
+      "text": "Legacy",
+      "path": "Resources/study/Missing.md",
+      "timestamp": "2026-10-25T01:30:00+02:00",
+      "id": "zone-string"
+    },
+    {
+      "text": "Legacy",
+      "path": "Resources/study/Missing.md",
+      "id": "missing-time"
+    },
+    {
+      "text": "Legacy",
+      "path": "Resources/study/Missing.md",
+      "timestamp": 1793012400001,
+      "id": "future-time"
+    },
+    {
+      "id": "no-title-or-path",
+      "timestamp": 1793012399999,
+      "projectId": "private"
+    },
+    {
+      "text": "Legacy",
+      "path": "Resources/study/Missing.md",
+      "timestamp": 1774745999000,
+      "id": "boundary-0"
+    },
+    {
+      "text": "Legacy",
+      "path": "Resources/study/Missing.md",
+      "timestamp": 1774746000000,
+      "id": "boundary-1"
+    },
+    {
+      "text": "Legacy",
+      "path": "Resources/study/Missing.md",
+      "timestamp": 1792888200000,
+      "id": "boundary-2"
+    },
+    {
+      "text": "Legacy",
+      "path": "Resources/study/Missing.md",
+      "timestamp": 1792891800000,
+      "id": "boundary-3"
+    },
+    {
+      "text": "Legacy",
+      "path": "Resources/study/Missing.md",
+      "timestamp": 1767222000000,
+      "id": "boundary-4"
+    },
+    {
+      "text": "Legacy",
+      "path": "Resources/study/Missing.md",
+      "timestamp": 1709247599000,
+      "id": "boundary-5"
+    }
+  ],
+  "files": [
+    {
+      "path": "Projects/private/Note.md",
+      "stat": {
+        "ctime": 1790420400000
+      }
+    },
+    {
+      "path": "Projects/private/private.md",
+      "stat": {
+        "ctime": 1792926000000
+      }
+    },
+    {
+      "path": "Projects/private/Meta/Hidden.md",
+      "stat": {
+        "ctime": 1792926000000
+      }
+    },
+    {
+      "path": "Projects/itacan/Note.md",
+      "stat": {
+        "ctime": 1790420400000
+      }
+    },
+    {
+      "path": "Projects/itacan/itacan.md",
+      "stat": {
+        "ctime": 1792926000000
+      }
+    },
+    {
+      "path": "Projects/itacan/Meta/Hidden.md",
+      "stat": {
+        "ctime": 1792926000000
+      }
+    },
+    {
+      "path": "Projects/hub/Note.md",
+      "stat": {
+        "ctime": 1790420400000
+      }
+    },
+    {
+      "path": "Projects/hub/hub.md",
+      "stat": {
+        "ctime": 1792926000000
+      }
+    },
+    {
+      "path": "Projects/hub/Meta/Hidden.md",
+      "stat": {
+        "ctime": 1792926000000
+      }
+    },
+    {
+      "path": "Projects/future/Note.md",
+      "stat": {
+        "ctime": 1790420400000
+      }
+    },
+    {
+      "path": "Projects/future/future.md",
+      "stat": {
+        "ctime": 1792926000000
+      }
+    },
+    {
+      "path": "Projects/future/Meta/Hidden.md",
+      "stat": {
+        "ctime": 1792926000000
+      }
+    },
+    {
+      "path": "Projects/shelved/Note.md",
+      "stat": {
+        "ctime": 1790420400000
+      }
+    },
+    {
+      "path": "Projects/shelved/shelved.md",
+      "stat": {
+        "ctime": 1792926000000
+      }
+    },
+    {
+      "path": "Projects/shelved/Meta/Hidden.md",
+      "stat": {
+        "ctime": 1792926000000
+      }
+    },
+    {
+      "path": "Resources/study/Note.md",
+      "stat": {
+        "ctime": 1790420400000
+      }
+    },
+    {
+      "path": "Resources/study/study.md",
+      "stat": {
+        "ctime": 1792926000000
+      }
+    },
+    {
+      "path": "Resources/study/Meta/Hidden.md",
+      "stat": {
+        "ctime": 1792926000000
+      }
+    },
+    {
+      "path": "Resources/literature/Note.md",
+      "stat": {
+        "ctime": 1790420400000
+      }
+    },
+    {
+      "path": "Resources/literature/literature.md",
+      "stat": {
+        "ctime": 1792926000000
+      }
+    },
+    {
+      "path": "Resources/literature/Meta/Hidden.md",
+      "stat": {
+        "ctime": 1792926000000
+      }
+    },
+    {
+      "path": "Resources/references/Note.md",
+      "stat": {
+        "ctime": 1790420400000
+      }
+    },
+    {
+      "path": "Resources/references/references.md",
+      "stat": {
+        "ctime": 1792926000000
+      }
+    },
+    {
+      "path": "Resources/references/Meta/Hidden.md",
+      "stat": {
+        "ctime": 1792926000000
+      }
+    },
+    {
+      "path": "Resources/inspiration/Note.md",
+      "stat": {
+        "ctime": 1790420400000
+      }
+    },
+    {
+      "path": "Resources/inspiration/inspiration.md",
+      "stat": {
+        "ctime": 1792926000000
+      }
+    },
+    {
+      "path": "Resources/inspiration/Meta/Hidden.md",
+      "stat": {
+        "ctime": 1792926000000
+      }
+    }
+  ],
+  "reports": [
+    {
+      "projectId": "private",
+      "date": "2026-10-25",
+      "score": 0
+    },
+    {
+      "projectId": "itacan",
+      "date": "2026-10-25",
+      "score": 1
+    },
+    {
+      "projectId": "hub",
+      "date": "2026-10-25",
+      "score": 2
+    },
+    {
+      "projectId": "future",
+      "date": "2026-10-25",
+      "score": 3
+    },
+    {
+      "projectId": "shelved",
+      "date": "2026-10-25",
+      "score": 4
+    },
+    {
+      "projectId": "resource:study",
+      "date": "2026-10-25",
+      "score": 0
+    },
+    {
+      "projectId": "resource:literature",
+      "date": "2026-10-25",
+      "score": 1
+    },
+    {
+      "projectId": "resource:references",
+      "date": "2026-10-25",
+      "score": 2
+    },
+    {
+      "projectId": "resource:inspiration",
+      "date": "2026-10-25",
+      "score": 3
+    },
+    {
+      "projectId": "report-only",
+      "projectName": "Report only",
+      "date": "2025-12-31",
+      "score": 4
+    },
+    {
+      "date": "2026-10-25",
+      "score": 2
+    }
+  ],
+  "data": {
+    "completedTaskHistory": [
+      {
+        "id": "e0",
+        "kind": "step",
+        "text": "Historical 0",
+        "path": "Projects/private/Missing.md",
+        "timestamp": 1793012399000,
+        "projectId": "private",
+        "projectName": "Old Renamed private",
+        "contextKind": "project",
+        "resourceType": null,
+        "hubTaskId": "same-task-0",
+        "parentTaskId": "parent"
+      },
+      {
+        "id": "e1",
+        "kind": "task",
+        "text": "Historical 1",
+        "path": "Projects/itacan/Missing.md",
+        "timestamp": 1792925999000,
+        "projectId": "itacan",
+        "projectName": "Old Itacan",
+        "contextKind": "project",
+        "resourceType": null,
+        "hubTaskId": "same-task-1",
+        "parentTaskId": null
+      },
+      {
+        "id": "e2",
+        "kind": "task",
+        "text": "Historical 2",
+        "path": "Projects/hub/Missing.md",
+        "timestamp": 1792839599000,
+        "projectId": "hub",
+        "projectName": "Old Obsidian Hub",
+        "contextKind": "project",
+        "resourceType": null,
+        "hubTaskId": "same-task-2",
+        "parentTaskId": null
+      },
+      {
+        "id": "e3",
+        "kind": "step",
+        "text": "Historical 3",
+        "path": "Projects/future/Missing.md",
+        "timestamp": 1792753199000,
+        "projectId": "future",
+        "projectName": "Old Same name",
+        "contextKind": "project",
+        "resourceType": null,
+        "hubTaskId": "same-task-0",
+        "parentTaskId": "parent"
+      },
+      {
+        "id": "e4",
+        "kind": "task",
+        "text": "Historical 4",
+        "path": "Projects/shelved/Missing.md",
+        "timestamp": 1792666799000,
+        "projectId": "shelved",
+        "projectName": "Old Same name",
+        "contextKind": "project",
+        "resourceType": null,
+        "hubTaskId": "same-task-1",
+        "parentTaskId": null
+      },
+      {
+        "id": "e5",
+        "kind": "task",
+        "text": "Historical 5",
+        "path": "Resources/study/Missing.md",
+        "timestamp": 1792580399000,
+        "projectId": "resource:study",
+        "projectName": "Old study",
+        "contextKind": "resource",
+        "resourceType": "study",
+        "hubTaskId": "same-task-2",
+        "parentTaskId": null
+      },
+      {
+        "id": "e6",
+        "kind": "step",
+        "text": "Historical 6",
+        "path": "Resources/literature/Missing.md",
+        "timestamp": 1792493999000,
+        "projectId": "resource:literature",
+        "projectName": "Old literature",
+        "contextKind": "resource",
+        "resourceType": "literature",
+        "hubTaskId": "same-task-0",
+        "parentTaskId": "parent"
+      },
+      {
+        "id": "e7",
+        "kind": "task",
+        "text": "Historical 7",
+        "path": "Resources/references/Missing.md",
+        "timestamp": 1792407599000,
+        "projectId": "resource:references",
+        "projectName": "Old references",
+        "contextKind": "resource",
+        "resourceType": "references",
+        "hubTaskId": "same-task-1",
+        "parentTaskId": null
+      },
+      {
+        "id": "e8",
+        "kind": "task",
+        "text": "Historical 8",
+        "path": "Resources/inspiration/Missing.md",
+        "timestamp": 1792321199000,
+        "projectId": "resource:inspiration",
+        "projectName": "Old inspiration",
+        "contextKind": "resource",
+        "resourceType": "inspiration",
+        "hubTaskId": "same-task-2",
+        "parentTaskId": null
+      },
+      {
+        "id": "e9",
+        "kind": "step",
+        "text": "Historical 9",
+        "path": "Projects/private/Missing.md",
+        "timestamp": 1792234799000,
+        "projectId": "private",
+        "projectName": "Old Renamed private",
+        "contextKind": "project",
+        "resourceType": null,
+        "hubTaskId": "same-task-0",
+        "parentTaskId": "parent"
+      },
+      {
+        "id": "e10",
+        "kind": "task",
+        "text": "Historical 10",
+        "path": "Projects/itacan/Missing.md",
+        "timestamp": 1792148399000,
+        "projectId": "itacan",
+        "projectName": "Old Itacan",
+        "contextKind": "project",
+        "resourceType": null,
+        "hubTaskId": "same-task-1",
+        "parentTaskId": null
+      },
+      {
+        "id": "e11",
+        "kind": "task",
+        "text": "Historical 11",
+        "path": "Projects/hub/Missing.md",
+        "timestamp": 1792061999000,
+        "projectId": "hub",
+        "projectName": "Old Obsidian Hub",
+        "contextKind": "project",
+        "resourceType": null,
+        "hubTaskId": "same-task-2",
+        "parentTaskId": null
+      },
+      {
+        "id": "e12",
+        "kind": "step",
+        "text": "Historical 12",
+        "path": "Projects/future/Missing.md",
+        "timestamp": 1791975599000,
+        "projectId": "future",
+        "projectName": "Old Same name",
+        "contextKind": "project",
+        "resourceType": null,
+        "hubTaskId": "same-task-0",
+        "parentTaskId": "parent"
+      },
+      {
+        "id": "e13",
+        "kind": "task",
+        "text": "Historical 13",
+        "path": "Projects/shelved/Missing.md",
+        "timestamp": 1791889199000,
+        "projectId": "shelved",
+        "projectName": "Old Same name",
+        "contextKind": "project",
+        "resourceType": null,
+        "hubTaskId": "same-task-1",
+        "parentTaskId": null
+      },
+      {
+        "id": "e14",
+        "kind": "task",
+        "text": "Historical 14",
+        "path": "Resources/study/Missing.md",
+        "timestamp": 1791802799000,
+        "projectId": "resource:study",
+        "projectName": "Old study",
+        "contextKind": "resource",
+        "resourceType": "study",
+        "hubTaskId": "same-task-2",
+        "parentTaskId": null
+      },
+      {
+        "id": "e15",
+        "kind": "step",
+        "text": "Historical 15",
+        "path": "Resources/literature/Missing.md",
+        "timestamp": 1791716399000,
+        "projectId": "resource:literature",
+        "projectName": "Old literature",
+        "contextKind": "resource",
+        "resourceType": "literature",
+        "hubTaskId": "same-task-0",
+        "parentTaskId": "parent"
+      },
+      {
+        "id": "e16",
+        "kind": "task",
+        "text": "Historical 16",
+        "path": "Resources/references/Missing.md",
+        "timestamp": 1791629999000,
+        "projectId": "resource:references",
+        "projectName": "Old references",
+        "contextKind": "resource",
+        "resourceType": "references",
+        "hubTaskId": "same-task-1",
+        "parentTaskId": null
+      },
+      {
+        "id": "e17",
+        "kind": "task",
+        "text": "Historical 17",
+        "path": "Resources/inspiration/Missing.md",
+        "timestamp": 1791543599000,
+        "projectId": "resource:inspiration",
+        "projectName": "Old inspiration",
+        "contextKind": "resource",
+        "resourceType": "inspiration",
+        "hubTaskId": "same-task-2",
+        "parentTaskId": null
+      },
+      {
+        "id": "e18",
+        "kind": "step",
+        "text": "Historical 18",
+        "path": "Projects/private/Missing.md",
+        "timestamp": 1791457199000,
+        "projectId": "private",
+        "projectName": "Old Renamed private",
+        "contextKind": "project",
+        "resourceType": null,
+        "hubTaskId": "same-task-0",
+        "parentTaskId": "parent"
+      },
+      {
+        "id": "e19",
+        "kind": "task",
+        "text": "Historical 19",
+        "path": "Projects/itacan/Missing.md",
+        "timestamp": 1791370799000,
+        "projectId": "itacan",
+        "projectName": "Old Itacan",
+        "contextKind": "project",
+        "resourceType": null,
+        "hubTaskId": "same-task-1",
+        "parentTaskId": null
+      },
+      {
+        "id": "e20",
+        "kind": "task",
+        "text": "Historical 20",
+        "path": "Projects/hub/Missing.md",
+        "timestamp": 1791284399000,
+        "projectId": "hub",
+        "projectName": "Old Obsidian Hub",
+        "contextKind": "project",
+        "resourceType": null,
+        "hubTaskId": "same-task-2",
+        "parentTaskId": null
+      },
+      {
+        "id": "e21",
+        "kind": "step",
+        "text": "Historical 21",
+        "path": "Projects/future/Missing.md",
+        "timestamp": 1791197999000,
+        "projectId": "future",
+        "projectName": "Old Same name",
+        "contextKind": "project",
+        "resourceType": null,
+        "hubTaskId": "same-task-0",
+        "parentTaskId": "parent"
+      },
+      {
+        "id": "e22",
+        "kind": "task",
+        "text": "Historical 22",
+        "path": "Projects/shelved/Missing.md",
+        "timestamp": 1791111599000,
+        "projectId": "shelved",
+        "projectName": "Old Same name",
+        "contextKind": "project",
+        "resourceType": null,
+        "hubTaskId": "same-task-1",
+        "parentTaskId": null
+      },
+      {
+        "id": "e23",
+        "kind": "task",
+        "text": "Historical 23",
+        "path": "Resources/study/Missing.md",
+        "timestamp": 1791025199000,
+        "projectId": "resource:study",
+        "projectName": "Old study",
+        "contextKind": "resource",
+        "resourceType": "study",
+        "hubTaskId": "same-task-2",
+        "parentTaskId": null
+      },
+      {
+        "id": "e24",
+        "kind": "step",
+        "text": "Historical 24",
+        "path": "Resources/literature/Missing.md",
+        "timestamp": 1790938799000,
+        "projectId": "resource:literature",
+        "projectName": "Old literature",
+        "contextKind": "resource",
+        "resourceType": "literature",
+        "hubTaskId": "same-task-0",
+        "parentTaskId": "parent"
+      },
+      {
+        "id": "e25",
+        "kind": "task",
+        "text": "Historical 25",
+        "path": "Resources/references/Missing.md",
+        "timestamp": 1790852399000,
+        "projectId": "resource:references",
+        "projectName": "Old references",
+        "contextKind": "resource",
+        "resourceType": "references",
+        "hubTaskId": "same-task-1",
+        "parentTaskId": null
+      },
+      {
+        "id": "e26",
+        "kind": "task",
+        "text": "Historical 26",
+        "path": "Resources/inspiration/Missing.md",
+        "timestamp": 1790765999000,
+        "projectId": "resource:inspiration",
+        "projectName": "Old inspiration",
+        "contextKind": "resource",
+        "resourceType": "inspiration",
+        "hubTaskId": "same-task-2",
+        "parentTaskId": null
+      },
+      {
+        "id": "e27",
+        "kind": "step",
+        "text": "Historical 27",
+        "path": "Projects/private/Missing.md",
+        "timestamp": 1790679599000,
+        "projectId": "private",
+        "projectName": "Old Renamed private",
+        "contextKind": "project",
+        "resourceType": null,
+        "hubTaskId": "same-task-0",
+        "parentTaskId": "parent"
+      },
+      {
+        "id": "e28",
+        "kind": "task",
+        "text": "Historical 28",
+        "path": "Projects/itacan/Missing.md",
+        "timestamp": 1790593199000,
+        "projectId": "itacan",
+        "projectName": "Old Itacan",
+        "contextKind": "project",
+        "resourceType": null,
+        "hubTaskId": "same-task-1",
+        "parentTaskId": null
+      },
+      {
+        "id": "e29",
+        "kind": "task",
+        "text": "Historical 29",
+        "path": "Projects/hub/Missing.md",
+        "timestamp": 1790506799000,
+        "projectId": "hub",
+        "projectName": "Old Obsidian Hub",
+        "contextKind": "project",
+        "resourceType": null,
+        "hubTaskId": "same-task-2",
+        "parentTaskId": null
+      },
+      {
+        "id": "e30",
+        "kind": "step",
+        "text": "Historical 30",
+        "path": "Projects/future/Missing.md",
+        "timestamp": 1790420399000,
+        "projectId": "future",
+        "projectName": "Old Same name",
+        "contextKind": "project",
+        "resourceType": null,
+        "hubTaskId": "same-task-0",
+        "parentTaskId": "parent"
+      },
+      {
+        "id": "e31",
+        "kind": "task",
+        "text": "Historical 31",
+        "path": "Projects/shelved/Missing.md",
+        "timestamp": 1790333999000,
+        "projectId": "shelved",
+        "projectName": "Old Same name",
+        "contextKind": "project",
+        "resourceType": null,
+        "hubTaskId": "same-task-1",
+        "parentTaskId": null
+      },
+      {
+        "id": "e32",
+        "kind": "task",
+        "text": "Historical 32",
+        "path": "Resources/study/Missing.md",
+        "timestamp": 1790247599000,
+        "projectId": "resource:study",
+        "projectName": "Old study",
+        "contextKind": "resource",
+        "resourceType": "study",
+        "hubTaskId": "same-task-2",
+        "parentTaskId": null
+      },
+      {
+        "id": "e33",
+        "kind": "step",
+        "text": "Historical 33",
+        "path": "Resources/literature/Missing.md",
+        "timestamp": 1790161199000,
+        "projectId": "resource:literature",
+        "projectName": "Old literature",
+        "contextKind": "resource",
+        "resourceType": "literature",
+        "hubTaskId": "same-task-0",
+        "parentTaskId": "parent"
+      },
+      {
+        "id": "e34",
+        "kind": "task",
+        "text": "Historical 34",
+        "path": "Resources/references/Missing.md",
+        "timestamp": 1790074799000,
+        "projectId": "resource:references",
+        "projectName": "Old references",
+        "contextKind": "resource",
+        "resourceType": "references",
+        "hubTaskId": "same-task-1",
+        "parentTaskId": null
+      },
+      {
+        "id": "e35",
+        "kind": "task",
+        "text": "Historical 35",
+        "path": "Resources/inspiration/Missing.md",
+        "timestamp": 1789988399000,
+        "projectId": "resource:inspiration",
+        "projectName": "Old inspiration",
+        "contextKind": "resource",
+        "resourceType": "inspiration",
+        "hubTaskId": "same-task-2",
+        "parentTaskId": null
+      },
+      {
+        "id": "e36",
+        "kind": "step",
+        "text": "Historical 36",
+        "path": "Projects/private/Missing.md",
+        "timestamp": 1789901999000,
+        "projectId": "private",
+        "projectName": "Old Renamed private",
+        "contextKind": "project",
+        "resourceType": null,
+        "hubTaskId": "same-task-0",
+        "parentTaskId": "parent"
+      },
+      {
+        "id": "e37",
+        "kind": "task",
+        "text": "Historical 37",
+        "path": "Projects/itacan/Missing.md",
+        "timestamp": 1789815599000,
+        "projectId": "itacan",
+        "projectName": "Old Itacan",
+        "contextKind": "project",
+        "resourceType": null,
+        "hubTaskId": "same-task-1",
+        "parentTaskId": null
+      },
+      {
+        "id": "e38",
+        "kind": "task",
+        "text": "Historical 38",
+        "path": "Projects/hub/Missing.md",
+        "timestamp": 1789729199000,
+        "projectId": "hub",
+        "projectName": "Old Obsidian Hub",
+        "contextKind": "project",
+        "resourceType": null,
+        "hubTaskId": "same-task-2",
+        "parentTaskId": null
+      },
+      {
+        "id": "e39",
+        "kind": "step",
+        "text": "Historical 39",
+        "path": "Projects/future/Missing.md",
+        "timestamp": 1789642799000,
+        "projectId": "future",
+        "projectName": "Old Same name",
+        "contextKind": "project",
+        "resourceType": null,
+        "hubTaskId": "same-task-0",
+        "parentTaskId": "parent"
+      },
+      {
+        "id": "e40",
+        "kind": "task",
+        "text": "Historical 40",
+        "path": "Projects/shelved/Missing.md",
+        "timestamp": 1789556399000,
+        "projectId": "shelved",
+        "projectName": "Old Same name",
+        "contextKind": "project",
+        "resourceType": null,
+        "hubTaskId": "same-task-1",
+        "parentTaskId": null
+      },
+      {
+        "id": "e41",
+        "kind": "task",
+        "text": "Historical 41",
+        "path": "Resources/study/Missing.md",
+        "timestamp": 1789469999000,
+        "projectId": "resource:study",
+        "projectName": "Old study",
+        "contextKind": "resource",
+        "resourceType": "study",
+        "hubTaskId": "same-task-2",
+        "parentTaskId": null
+      },
+      {
+        "id": "e42",
+        "kind": "step",
+        "text": "Historical 42",
+        "path": "Resources/literature/Missing.md",
+        "timestamp": 1789383599000,
+        "projectId": "resource:literature",
+        "projectName": "Old literature",
+        "contextKind": "resource",
+        "resourceType": "literature",
+        "hubTaskId": "same-task-0",
+        "parentTaskId": "parent"
+      },
+      {
+        "id": "e43",
+        "kind": "task",
+        "text": "Historical 43",
+        "path": "Resources/references/Missing.md",
+        "timestamp": 1789297199000,
+        "projectId": "resource:references",
+        "projectName": "Old references",
+        "contextKind": "resource",
+        "resourceType": "references",
+        "hubTaskId": "same-task-1",
+        "parentTaskId": null
+      },
+      {
+        "id": "e44",
+        "kind": "task",
+        "text": "Historical 44",
+        "path": "Resources/inspiration/Missing.md",
+        "timestamp": 1789210799000,
+        "projectId": "resource:inspiration",
+        "projectName": "Old inspiration",
+        "contextKind": "resource",
+        "resourceType": "inspiration",
+        "hubTaskId": "same-task-2",
+        "parentTaskId": null
+      },
+      {
+        "id": "e45",
+        "kind": "step",
+        "text": "Historical 45",
+        "path": "Projects/private/Missing.md",
+        "timestamp": 1789124399000,
+        "projectId": "private",
+        "projectName": "Old Renamed private",
+        "contextKind": "project",
+        "resourceType": null,
+        "hubTaskId": "same-task-0",
+        "parentTaskId": "parent"
+      },
+      {
+        "id": "e46",
+        "kind": "task",
+        "text": "Historical 46",
+        "path": "Projects/itacan/Missing.md",
+        "timestamp": 1789037999000,
+        "projectId": "itacan",
+        "projectName": "Old Itacan",
+        "contextKind": "project",
+        "resourceType": null,
+        "hubTaskId": "same-task-1",
+        "parentTaskId": null
+      },
+      {
+        "id": "e47",
+        "kind": "task",
+        "text": "Historical 47",
+        "path": "Projects/hub/Missing.md",
+        "timestamp": 1788951599000,
+        "projectId": "hub",
+        "projectName": "Old Obsidian Hub",
+        "contextKind": "project",
+        "resourceType": null,
+        "hubTaskId": "same-task-2",
+        "parentTaskId": null
+      },
+      {
+        "id": "e48",
+        "kind": "step",
+        "text": "Historical 48",
+        "path": "Projects/future/Missing.md",
+        "timestamp": 1788865199000,
+        "projectId": "future",
+        "projectName": "Old Same name",
+        "contextKind": "project",
+        "resourceType": null,
+        "hubTaskId": "same-task-0",
+        "parentTaskId": "parent"
+      },
+      {
+        "id": "e49",
+        "kind": "task",
+        "text": "Historical 49",
+        "path": "Projects/shelved/Missing.md",
+        "timestamp": 1788778799000,
+        "projectId": "shelved",
+        "projectName": "Old Same name",
+        "contextKind": "project",
+        "resourceType": null,
+        "hubTaskId": "same-task-1",
+        "parentTaskId": null
+      },
+      {
+        "id": "e50",
+        "kind": "task",
+        "text": "Historical 50",
+        "path": "Resources/study/Missing.md",
+        "timestamp": 1788692399000,
+        "projectId": "resource:study",
+        "projectName": "Old study",
+        "contextKind": "resource",
+        "resourceType": "study",
+        "hubTaskId": "same-task-2",
+        "parentTaskId": null
+      },
+      {
+        "id": "e51",
+        "kind": "step",
+        "text": "Historical 51",
+        "path": "Resources/literature/Missing.md",
+        "timestamp": 1788605999000,
+        "projectId": "resource:literature",
+        "projectName": "Old literature",
+        "contextKind": "resource",
+        "resourceType": "literature",
+        "hubTaskId": "same-task-0",
+        "parentTaskId": "parent"
+      },
+      {
+        "id": "e52",
+        "kind": "task",
+        "text": "Historical 52",
+        "path": "Resources/references/Missing.md",
+        "timestamp": 1788519599000,
+        "projectId": "resource:references",
+        "projectName": "Old references",
+        "contextKind": "resource",
+        "resourceType": "references",
+        "hubTaskId": "same-task-1",
+        "parentTaskId": null
+      },
+      {
+        "id": "e53",
+        "kind": "task",
+        "text": "Historical 53",
+        "path": "Resources/inspiration/Missing.md",
+        "timestamp": 1788433199000,
+        "projectId": "resource:inspiration",
+        "projectName": "Old inspiration",
+        "contextKind": "resource",
+        "resourceType": "inspiration",
+        "hubTaskId": "same-task-2",
+        "parentTaskId": null
+      },
+      {
+        "id": "e54",
+        "kind": "step",
+        "text": "Historical 54",
+        "path": "Projects/private/Missing.md",
+        "timestamp": 1788346799000,
+        "projectId": "private",
+        "projectName": "Old Renamed private",
+        "contextKind": "project",
+        "resourceType": null,
+        "hubTaskId": "same-task-0",
+        "parentTaskId": "parent"
+      },
+      {
+        "id": "e55",
+        "kind": "task",
+        "text": "Historical 55",
+        "path": "Projects/itacan/Missing.md",
+        "timestamp": 1788260399000,
+        "projectId": "itacan",
+        "projectName": "Old Itacan",
+        "contextKind": "project",
+        "resourceType": null,
+        "hubTaskId": "same-task-1",
+        "parentTaskId": null
+      },
+      {
+        "id": "e56",
+        "kind": "task",
+        "text": "Historical 56",
+        "path": "Projects/hub/Missing.md",
+        "timestamp": 1788173999000,
+        "projectId": "hub",
+        "projectName": "Old Obsidian Hub",
+        "contextKind": "project",
+        "resourceType": null,
+        "hubTaskId": "same-task-2",
+        "parentTaskId": null
+      },
+      {
+        "id": "e57",
+        "kind": "step",
+        "text": "Historical 57",
+        "path": "Projects/future/Missing.md",
+        "timestamp": 1788087599000,
+        "projectId": "future",
+        "projectName": "Old Same name",
+        "contextKind": "project",
+        "resourceType": null,
+        "hubTaskId": "same-task-0",
+        "parentTaskId": "parent"
+      },
+      {
+        "id": "e58",
+        "kind": "task",
+        "text": "Historical 58",
+        "path": "Projects/shelved/Missing.md",
+        "timestamp": 1788001199000,
+        "projectId": "shelved",
+        "projectName": "Old Same name",
+        "contextKind": "project",
+        "resourceType": null,
+        "hubTaskId": "same-task-1",
+        "parentTaskId": null
+      },
+      {
+        "id": "e59",
+        "kind": "task",
+        "text": "Historical 59",
+        "path": "Resources/study/Missing.md",
+        "timestamp": 1787914799000,
+        "projectId": "resource:study",
+        "projectName": "Old study",
+        "contextKind": "resource",
+        "resourceType": "study",
+        "hubTaskId": "same-task-2",
+        "parentTaskId": null
+      },
+      {
+        "id": "e60",
+        "kind": "step",
+        "text": "Historical 60",
+        "path": "Resources/literature/Missing.md",
+        "timestamp": 1787828399000,
+        "projectId": "resource:literature",
+        "projectName": "Old literature",
+        "contextKind": "resource",
+        "resourceType": "literature",
+        "hubTaskId": "same-task-0",
+        "parentTaskId": "parent"
+      },
+      {
+        "id": "e61",
+        "kind": "task",
+        "text": "Historical 61",
+        "path": "Resources/references/Missing.md",
+        "timestamp": 1787741999000,
+        "projectId": "resource:references",
+        "projectName": "Old references",
+        "contextKind": "resource",
+        "resourceType": "references",
+        "hubTaskId": "same-task-1",
+        "parentTaskId": null
+      },
+      {
+        "id": "e62",
+        "kind": "task",
+        "text": "Historical 62",
+        "path": "Resources/inspiration/Missing.md",
+        "timestamp": 1787655599000,
+        "projectId": "resource:inspiration",
+        "projectName": "Old inspiration",
+        "contextKind": "resource",
+        "resourceType": "inspiration",
+        "hubTaskId": "same-task-2",
+        "parentTaskId": null
+      },
+      {
+        "id": "e63",
+        "kind": "step",
+        "text": "Historical 63",
+        "path": "Projects/private/Missing.md",
+        "timestamp": 1787569199000,
+        "projectId": "private",
+        "projectName": "Old Renamed private",
+        "contextKind": "project",
+        "resourceType": null,
+        "hubTaskId": "same-task-0",
+        "parentTaskId": "parent"
+      },
+      {
+        "id": "e64",
+        "kind": "task",
+        "text": "Historical 64",
+        "path": "Projects/itacan/Missing.md",
+        "timestamp": 1787482799000,
+        "projectId": "itacan",
+        "projectName": "Old Itacan",
+        "contextKind": "project",
+        "resourceType": null,
+        "hubTaskId": "same-task-1",
+        "parentTaskId": null
+      },
+      {
+        "id": "e65",
+        "kind": "task",
+        "text": "Historical 65",
+        "path": "Projects/hub/Missing.md",
+        "timestamp": 1787396399000,
+        "projectId": "hub",
+        "projectName": "Old Obsidian Hub",
+        "contextKind": "project",
+        "resourceType": null,
+        "hubTaskId": "same-task-2",
+        "parentTaskId": null
+      },
+      {
+        "id": "e66",
+        "kind": "step",
+        "text": "Historical 66",
+        "path": "Projects/future/Missing.md",
+        "timestamp": 1787309999000,
+        "projectId": "future",
+        "projectName": "Old Same name",
+        "contextKind": "project",
+        "resourceType": null,
+        "hubTaskId": "same-task-0",
+        "parentTaskId": "parent"
+      },
+      {
+        "id": "e67",
+        "kind": "task",
+        "text": "Historical 67",
+        "path": "Projects/shelved/Missing.md",
+        "timestamp": 1787223599000,
+        "projectId": "shelved",
+        "projectName": "Old Same name",
+        "contextKind": "project",
+        "resourceType": null,
+        "hubTaskId": "same-task-1",
+        "parentTaskId": null
+      },
+      {
+        "id": "e68",
+        "kind": "task",
+        "text": "Historical 68",
+        "path": "Resources/study/Missing.md",
+        "timestamp": 1787137199000,
+        "projectId": "resource:study",
+        "projectName": "Old study",
+        "contextKind": "resource",
+        "resourceType": "study",
+        "hubTaskId": "same-task-2",
+        "parentTaskId": null
+      },
+      {
+        "id": "e69",
+        "kind": "step",
+        "text": "Historical 69",
+        "path": "Resources/literature/Missing.md",
+        "timestamp": 1787050799000,
+        "projectId": "resource:literature",
+        "projectName": "Old literature",
+        "contextKind": "resource",
+        "resourceType": "literature",
+        "hubTaskId": "same-task-0",
+        "parentTaskId": "parent"
+      },
+      {
+        "id": "e70",
+        "kind": "task",
+        "text": "Historical 70",
+        "path": "Resources/references/Missing.md",
+        "timestamp": 1786964399000,
+        "projectId": "resource:references",
+        "projectName": "Old references",
+        "contextKind": "resource",
+        "resourceType": "references",
+        "hubTaskId": "same-task-1",
+        "parentTaskId": null
+      },
+      {
+        "id": "e71",
+        "kind": "task",
+        "text": "Historical 71",
+        "path": "Resources/inspiration/Missing.md",
+        "timestamp": 1786877999000,
+        "projectId": "resource:inspiration",
+        "projectName": "Old inspiration",
+        "contextKind": "resource",
+        "resourceType": "inspiration",
+        "hubTaskId": "same-task-2",
+        "parentTaskId": null
+      },
+      {
+        "id": "e72",
+        "kind": "step",
+        "text": "Historical 72",
+        "path": "Projects/private/Missing.md",
+        "timestamp": 1786791599000,
+        "projectId": "private",
+        "projectName": "Old Renamed private",
+        "contextKind": "project",
+        "resourceType": null,
+        "hubTaskId": "same-task-0",
+        "parentTaskId": "parent"
+      },
+      {
+        "id": "e73",
+        "kind": "task",
+        "text": "Historical 73",
+        "path": "Projects/itacan/Missing.md",
+        "timestamp": 1786705199000,
+        "projectId": "itacan",
+        "projectName": "Old Itacan",
+        "contextKind": "project",
+        "resourceType": null,
+        "hubTaskId": "same-task-1",
+        "parentTaskId": null
+      },
+      {
+        "id": "e74",
+        "kind": "task",
+        "text": "Historical 74",
+        "path": "Projects/hub/Missing.md",
+        "timestamp": 1786618799000,
+        "projectId": "hub",
+        "projectName": "Old Obsidian Hub",
+        "contextKind": "project",
+        "resourceType": null,
+        "hubTaskId": "same-task-2",
+        "parentTaskId": null
+      },
+      {
+        "id": "e75",
+        "kind": "step",
+        "text": "Historical 75",
+        "path": "Projects/future/Missing.md",
+        "timestamp": 1786532399000,
+        "projectId": "future",
+        "projectName": "Old Same name",
+        "contextKind": "project",
+        "resourceType": null,
+        "hubTaskId": "same-task-0",
+        "parentTaskId": "parent"
+      },
+      {
+        "id": "e76",
+        "kind": "task",
+        "text": "Historical 76",
+        "path": "Projects/shelved/Missing.md",
+        "timestamp": 1786445999000,
+        "projectId": "shelved",
+        "projectName": "Old Same name",
+        "contextKind": "project",
+        "resourceType": null,
+        "hubTaskId": "same-task-1",
+        "parentTaskId": null
+      },
+      {
+        "id": "e77",
+        "kind": "task",
+        "text": "Historical 77",
+        "path": "Resources/study/Missing.md",
+        "timestamp": 1786359599000,
+        "projectId": "resource:study",
+        "projectName": "Old study",
+        "contextKind": "resource",
+        "resourceType": "study",
+        "hubTaskId": "same-task-2",
+        "parentTaskId": null
+      },
+      {
+        "id": "e78",
+        "kind": "step",
+        "text": "Historical 78",
+        "path": "Resources/literature/Missing.md",
+        "timestamp": 1786273199000,
+        "projectId": "resource:literature",
+        "projectName": "Old literature",
+        "contextKind": "resource",
+        "resourceType": "literature",
+        "hubTaskId": "same-task-0",
+        "parentTaskId": "parent"
+      },
+      {
+        "id": "e79",
+        "kind": "task",
+        "text": "Historical 79",
+        "path": "Resources/references/Missing.md",
+        "timestamp": 1786186799000,
+        "projectId": "resource:references",
+        "projectName": "Old references",
+        "contextKind": "resource",
+        "resourceType": "references",
+        "hubTaskId": "same-task-1",
+        "parentTaskId": null
+      },
+      {
+        "id": "e80",
+        "kind": "task",
+        "text": "Historical 80",
+        "path": "Resources/inspiration/Missing.md",
+        "timestamp": 1786100399000,
+        "projectId": "resource:inspiration",
+        "projectName": "Old inspiration",
+        "contextKind": "resource",
+        "resourceType": "inspiration",
+        "hubTaskId": "same-task-2",
+        "parentTaskId": null
+      },
+      {
+        "id": "e81",
+        "kind": "step",
+        "text": "Historical 81",
+        "path": "Projects/private/Missing.md",
+        "timestamp": 1786013999000,
+        "projectId": "private",
+        "projectName": "Old Renamed private",
+        "contextKind": "project",
+        "resourceType": null,
+        "hubTaskId": "same-task-0",
+        "parentTaskId": "parent"
+      },
+      {
+        "id": "e82",
+        "kind": "task",
+        "text": "Historical 82",
+        "path": "Projects/itacan/Missing.md",
+        "timestamp": 1785927599000,
+        "projectId": "itacan",
+        "projectName": "Old Itacan",
+        "contextKind": "project",
+        "resourceType": null,
+        "hubTaskId": "same-task-1",
+        "parentTaskId": null
+      },
+      {
+        "id": "e83",
+        "kind": "task",
+        "text": "Historical 83",
+        "path": "Projects/hub/Missing.md",
+        "timestamp": 1785841199000,
+        "projectId": "hub",
+        "projectName": "Old Obsidian Hub",
+        "contextKind": "project",
+        "resourceType": null,
+        "hubTaskId": "same-task-2",
+        "parentTaskId": null
+      },
+      {
+        "id": "e84",
+        "kind": "step",
+        "text": "Historical 84",
+        "path": "Projects/future/Missing.md",
+        "timestamp": 1785754799000,
+        "projectId": "future",
+        "projectName": "Old Same name",
+        "contextKind": "project",
+        "resourceType": null,
+        "hubTaskId": "same-task-0",
+        "parentTaskId": "parent"
+      },
+      {
+        "id": "e85",
+        "kind": "task",
+        "text": "Historical 85",
+        "path": "Projects/shelved/Missing.md",
+        "timestamp": 1785668399000,
+        "projectId": "shelved",
+        "projectName": "Old Same name",
+        "contextKind": "project",
+        "resourceType": null,
+        "hubTaskId": "same-task-1",
+        "parentTaskId": null
+      },
+      {
+        "id": "e86",
+        "kind": "task",
+        "text": "Historical 86",
+        "path": "Resources/study/Missing.md",
+        "timestamp": 1785581999000,
+        "projectId": "resource:study",
+        "projectName": "Old study",
+        "contextKind": "resource",
+        "resourceType": "study",
+        "hubTaskId": "same-task-2",
+        "parentTaskId": null
+      },
+      {
+        "id": "e87",
+        "kind": "step",
+        "text": "Historical 87",
+        "path": "Resources/literature/Missing.md",
+        "timestamp": 1785495599000,
+        "projectId": "resource:literature",
+        "projectName": "Old literature",
+        "contextKind": "resource",
+        "resourceType": "literature",
+        "hubTaskId": "same-task-0",
+        "parentTaskId": "parent"
+      },
+      {
+        "id": "e88",
+        "kind": "task",
+        "text": "Historical 88",
+        "path": "Resources/references/Missing.md",
+        "timestamp": 1785409199000,
+        "projectId": "resource:references",
+        "projectName": "Old references",
+        "contextKind": "resource",
+        "resourceType": "references",
+        "hubTaskId": "same-task-1",
+        "parentTaskId": null
+      },
+      {
+        "id": "e89",
+        "kind": "task",
+        "text": "Historical 89",
+        "path": "Resources/inspiration/Missing.md",
+        "timestamp": 1785322799000,
+        "projectId": "resource:inspiration",
+        "projectName": "Old inspiration",
+        "contextKind": "resource",
+        "resourceType": "inspiration",
+        "hubTaskId": "same-task-2",
+        "parentTaskId": null
+      },
+      {
+        "id": "e90",
+        "kind": "step",
+        "text": "Historical 90",
+        "path": "Projects/private/Missing.md",
+        "timestamp": 1785236399000,
+        "projectId": "private",
+        "projectName": "Old Renamed private",
+        "contextKind": "project",
+        "resourceType": null,
+        "hubTaskId": "same-task-0",
+        "parentTaskId": "parent"
+      },
+      {
+        "id": "e91",
+        "kind": "task",
+        "text": "Historical 91",
+        "path": "Projects/itacan/Missing.md",
+        "timestamp": 1785149999000,
+        "projectId": "itacan",
+        "projectName": "Old Itacan",
+        "contextKind": "project",
+        "resourceType": null,
+        "hubTaskId": "same-task-1",
+        "parentTaskId": null
+      },
+      {
+        "id": "e92",
+        "kind": "task",
+        "text": "Historical 92",
+        "path": "Projects/hub/Missing.md",
+        "timestamp": 1785063599000,
+        "projectId": "hub",
+        "projectName": "Old Obsidian Hub",
+        "contextKind": "project",
+        "resourceType": null,
+        "hubTaskId": "same-task-2",
+        "parentTaskId": null
+      },
+      {
+        "id": "e93",
+        "kind": "step",
+        "text": "Historical 93",
+        "path": "Projects/future/Missing.md",
+        "timestamp": 1784977199000,
+        "projectId": "future",
+        "projectName": "Old Same name",
+        "contextKind": "project",
+        "resourceType": null,
+        "hubTaskId": "same-task-0",
+        "parentTaskId": "parent"
+      },
+      {
+        "id": "e94",
+        "kind": "task",
+        "text": "Historical 94",
+        "path": "Projects/shelved/Missing.md",
+        "timestamp": 1784890799000,
+        "projectId": "shelved",
+        "projectName": "Old Same name",
+        "contextKind": "project",
+        "resourceType": null,
+        "hubTaskId": "same-task-1",
+        "parentTaskId": null
+      },
+      {
+        "id": "e95",
+        "kind": "task",
+        "text": "Historical 95",
+        "path": "Resources/study/Missing.md",
+        "timestamp": 1784804399000,
+        "projectId": "resource:study",
+        "projectName": "Old study",
+        "contextKind": "resource",
+        "resourceType": "study",
+        "hubTaskId": "same-task-2",
+        "parentTaskId": null
+      },
+      {
+        "id": "e96",
+        "kind": "step",
+        "text": "Historical 96",
+        "path": "Resources/literature/Missing.md",
+        "timestamp": 1784717999000,
+        "projectId": "resource:literature",
+        "projectName": "Old literature",
+        "contextKind": "resource",
+        "resourceType": "literature",
+        "hubTaskId": "same-task-0",
+        "parentTaskId": "parent"
+      },
+      {
+        "id": "e97",
+        "kind": "task",
+        "text": "Historical 97",
+        "path": "Resources/references/Missing.md",
+        "timestamp": 1784631599000,
+        "projectId": "resource:references",
+        "projectName": "Old references",
+        "contextKind": "resource",
+        "resourceType": "references",
+        "hubTaskId": "same-task-1",
+        "parentTaskId": null
+      },
+      {
+        "id": "e98",
+        "kind": "task",
+        "text": "Historical 98",
+        "path": "Resources/inspiration/Missing.md",
+        "timestamp": 1784545199000,
+        "projectId": "resource:inspiration",
+        "projectName": "Old inspiration",
+        "contextKind": "resource",
+        "resourceType": "inspiration",
+        "hubTaskId": "same-task-2",
+        "parentTaskId": null
+      },
+      {
+        "id": "e99",
+        "kind": "step",
+        "text": "Historical 99",
+        "path": "Projects/private/Missing.md",
+        "timestamp": 1784458799000,
+        "projectId": "private",
+        "projectName": "Old Renamed private",
+        "contextKind": "project",
+        "resourceType": null,
+        "hubTaskId": "same-task-0",
+        "parentTaskId": "parent"
+      },
+      {
+        "text": "Legacy",
+        "path": "Resources/study/Missing.md",
+        "timestamp": null,
+        "id": "duplicate"
+      },
+      {
+        "text": "Legacy",
+        "path": "Resources/study/Missing.md",
+        "timestamp": 1793012399000,
+        "id": "duplicate"
+      },
+      {
+        "text": "Legacy",
+        "path": "Resources/study/Missing.md",
+        "timestamp": 1793012399000
+      },
+      {
+        "text": "Legacy",
+        "path": "Resources/study/Missing.md",
+        "timestamp": 1793012399000
+      },
+      {
+        "text": "Legacy",
+        "path": "Resources/study/Missing.md",
+        "timestamp": 1793012399000,
+        "id": ""
+      },
+      {
+        "text": "Legacy",
+        "path": "Resources/study/Missing.md",
+        "timestamp": 1793012399000,
+        "id": ""
+      },
+      {
+        "text": "Legacy",
+        "path": "Resources/study/Missing.md",
+        "timestamp": 1793012399000,
+        "id": null
+      },
+      {
+        "text": "Legacy",
+        "path": "Resources/study/Missing.md",
+        "timestamp": 1793012399000,
+        "id": null
+      },
+      {
+        "text": "Legacy",
+        "path": "Resources/study/Missing.md",
+        "timestamp": 1793012399000,
+        "id": 0
+      },
+      {
+        "text": "Legacy",
+        "path": "Resources/study/Missing.md",
+        "timestamp": 1793012399000,
+        "id": 0
+      },
+      {
+        "text": "Legacy",
+        "path": "Resources/study/Missing.md",
+        "timestamp": 1793012399000,
+        "id": 17
+      },
+      {
+        "text": "Legacy",
+        "path": "Resources/study/Missing.md",
+        "timestamp": 1793012399000,
+        "id": 17
+      },
+      {
+        "text": "Legacy",
+        "path": "Resources/study/Missing.md",
+        "timestamp": 1793012399000,
+        "id": "17"
+      },
+      {
+        "text": "Legacy",
+        "path": "Resources/study/Missing.md",
+        "timestamp": 1793012399000,
+        "id": "deleted",
+        "projectId": "deleted",
+        "project": "Legacy deleted name"
+      },
+      {
+        "text": "Legacy",
+        "path": "Resources/study/Missing.md",
+        "timestamp": 1793012399000,
+        "id": "name-only",
+        "project": "Renamed private"
+      },
+      {
+        "text": "Legacy",
+        "path": "Resources/study/Missing.md",
+        "timestamp": 1793012399000,
+        "id": "same-name-only",
+        "project": "Same name"
+      },
+      {
+        "text": "Legacy",
+        "path": "Resources/study/Missing.md",
+        "timestamp": 1793012399000,
+        "id": "conflict",
+        "projectId": "private",
+        "project": "Wrong name",
+        "projectName": "Wrong modern name",
+        "contextKind": "project"
+      },
+      {
+        "text": "Legacy",
+        "path": "Resources/study/Missing.md",
+        "timestamp": 1793012399000,
+        "id": "modern-wins",
+        "projectId": "deleted-modern",
+        "projectName": "Modern name",
+        "project": "Legacy name"
+      },
+      {
+        "text": "Legacy",
+        "path": "Resources/study/Missing.md",
+        "timestamp": 1793012399000,
+        "id": "null-modern",
+        "projectId": "deleted-null",
+        "projectName": null,
+        "project": "Null fallback"
+      },
+      {
+        "text": "Legacy",
+        "path": "Resources/study/Missing.md",
+        "timestamp": 1793012399000,
+        "id": "empty-modern",
+        "projectId": "deleted-empty",
+        "projectName": "",
+        "project": "Do not replace empty"
+      },
+      {
+        "text": "Legacy",
+        "path": "Resources/study/Missing.md",
+        "timestamp": 1793012399000,
+        "id": "presentation",
+        "projectId": "itacan",
+        "targetKind": "project",
+        "contextKind": "resource"
+      },
+      {
+        "text": "Legacy",
+        "path": "Resources/study/Missing.md",
+        "timestamp": 1793012399000,
+        "id": "unknown-kind",
+        "kind": "Step"
+      },
+      {
+        "text": "Legacy",
+        "path": "Resources/study/Missing.md",
+        "timestamp": 1793012399000,
+        "id": "null-kind",
+        "kind": null
+      },
+      {
+        "text": "Legacy",
+        "path": "Resources/study/Missing.md",
+        "timestamp": 1793012399000,
+        "id": "archived",
+        "archivedAt": 1793012399999,
+        "hubTaskId": null
+      },
+      {
+        "text": "Legacy",
+        "path": "Resources/study/Missing.md",
+        "timestamp": "1793012399000",
+        "id": "string-time"
+      },
+      {
+        "text": "Legacy",
+        "path": "Resources/study/Missing.md",
+        "timestamp": "2026-10-25",
+        "id": "date-only"
+      },
+      {
+        "text": "Legacy",
+        "path": "Resources/study/Missing.md",
+        "timestamp": "2026-10-25T01:30:00+02:00",
+        "id": "zone-string"
+      },
+      {
+        "text": "Legacy",
+        "path": "Resources/study/Missing.md",
+        "id": "missing-time"
+      },
+      {
+        "text": "Legacy",
+        "path": "Resources/study/Missing.md",
+        "timestamp": 1793012400001,
+        "id": "future-time"
+      },
+      {
+        "id": "no-title-or-path",
+        "timestamp": 1793012399999,
+        "projectId": "private"
+      },
+      {
+        "text": "Legacy",
+        "path": "Resources/study/Missing.md",
+        "timestamp": 1774745999000,
+        "id": "boundary-0"
+      },
+      {
+        "text": "Legacy",
+        "path": "Resources/study/Missing.md",
+        "timestamp": 1774746000000,
+        "id": "boundary-1"
+      },
+      {
+        "text": "Legacy",
+        "path": "Resources/study/Missing.md",
+        "timestamp": 1792888200000,
+        "id": "boundary-2"
+      },
+      {
+        "text": "Legacy",
+        "path": "Resources/study/Missing.md",
+        "timestamp": 1792891800000,
+        "id": "boundary-3"
+      },
+      {
+        "text": "Legacy",
+        "path": "Resources/study/Missing.md",
+        "timestamp": 1767222000000,
+        "id": "boundary-4"
+      },
+      {
+        "text": "Legacy",
+        "path": "Resources/study/Missing.md",
+        "timestamp": 1709247599000,
+        "id": "boundary-5"
+      }
+    ],
+    "oathsByDevice": {
+      "a": {
+        "history": [
+          {
+            "id": "synced",
+            "state": "fulfilled",
+            "startedAt": 1792839600000,
+            "completedAt": 1792926000000,
+            "workspace": {
+              "id": "private",
+              "type": "project",
+              "name": "Old private"
+            }
+          }
+        ]
+      },
+      "b": {
+        "history": [
+          {
+            "id": "synced",
+            "state": "fulfilled",
+            "startedAt": 1792839600000,
+            "completedAt": 1792926000000,
+            "workspace": {
+              "id": "private",
+              "type": "project",
+              "name": "Old private"
+            }
+          },
+          {
+            "id": "broken",
+            "state": "broken",
+            "startedAt": 1792926000000,
+            "completedAt": 1793012399000,
+            "workspace": {
+              "id": "study",
+              "type": "resource"
+            }
+          }
+        ]
+      }
+    }
+  },
+  "activity": [
+    {
+      "action": "created",
+      "path": "Projects/private/Note.md",
+      "projectId": "private",
+      "timestamp": 1792926000000
+    },
+    {
+      "action": "edited",
+      "path": "Projects/private/Note.md",
+      "projectId": "private",
+      "timestamp": 1793012399000
+    },
+    {
+      "action": "created",
+      "path": "Projects/itacan/Note.md",
+      "projectId": "itacan",
+      "timestamp": 1792839600000
+    },
+    {
+      "action": "edited",
+      "path": "Projects/itacan/Note.md",
+      "projectId": "itacan",
+      "timestamp": 1793012399000
+    },
+    {
+      "action": "created",
+      "path": "Projects/hub/Note.md",
+      "projectId": "hub",
+      "timestamp": 1792753200000
+    },
+    {
+      "action": "edited",
+      "path": "Projects/hub/Note.md",
+      "projectId": "hub",
+      "timestamp": 1793012399000
+    },
+    {
+      "action": "created",
+      "path": "Projects/future/Note.md",
+      "projectId": "future",
+      "timestamp": 1792666800000
+    },
+    {
+      "action": "edited",
+      "path": "Projects/future/Note.md",
+      "projectId": "future",
+      "timestamp": 1793012399000
+    },
+    {
+      "action": "created",
+      "path": "Projects/shelved/Note.md",
+      "projectId": "shelved",
+      "timestamp": 1792580400000
+    },
+    {
+      "action": "edited",
+      "path": "Projects/shelved/Note.md",
+      "projectId": "shelved",
+      "timestamp": 1793012399000
+    },
+    {
+      "action": "created",
+      "path": "Resources/study/Note.md",
+      "projectId": "resource:study",
+      "timestamp": 1792494000000
+    },
+    {
+      "action": "edited",
+      "path": "Resources/study/Note.md",
+      "projectId": "resource:study",
+      "timestamp": 1793012399000
+    },
+    {
+      "action": "created",
+      "path": "Resources/literature/Note.md",
+      "projectId": "resource:literature",
+      "timestamp": 1792407600000
+    },
+    {
+      "action": "edited",
+      "path": "Resources/literature/Note.md",
+      "projectId": "resource:literature",
+      "timestamp": 1793012399000
+    },
+    {
+      "action": "created",
+      "path": "Resources/references/Note.md",
+      "projectId": "resource:references",
+      "timestamp": 1792321200000
+    },
+    {
+      "action": "edited",
+      "path": "Resources/references/Note.md",
+      "projectId": "resource:references",
+      "timestamp": 1793012399000
+    },
+    {
+      "action": "created",
+      "path": "Resources/inspiration/Note.md",
+      "projectId": "resource:inspiration",
+      "timestamp": 1792234800000
+    },
+    {
+      "action": "edited",
+      "path": "Resources/inspiration/Note.md",
+      "projectId": "resource:inspiration",
+      "timestamp": 1793012399000
+    }
+  ],
+  "now": 1793012400000
+}

@@ -1,0 +1,130 @@
+<!doctype html><meta charset="utf-8"><title>Task opening frames</title>
+<link rel="stylesheet" href="../../styles.css">
+<link rel="stylesheet" href="../../../../../System/Dashboards/Project/view.css">
+<link rel="stylesheet" href="../../../../../System/Dashboards/Home/view.css">
+<style>#fixture,#result{display:none}</style>
+<body class="theme-dark"><main id="fixture"></main><pre id="result">RUNNING</pre>
+<script type="module">
+let checks=0;
+const check=(value,message)=>{checks++;if(!value)throw Error(message)};
+const frame=()=>new Promise(resolve=>requestAnimationFrame(resolve));
+const screenshot=name=>new Promise(resolve=>{window.hubTestScreenshotDone=resolve;window.hubTestScreenshotRequest='task-opening-'+name});
+const viewport=(width,height)=>new Promise(resolve=>{window.hubTestViewportDone=resolve;window.hubTestViewportRequest={width,height}});
+const traces=[];
+window.hubTaskOpeningFrames=traces;
+try {
+ // Reuse the established isolated service/vault/native-CSS fixture setup.
+ const source=await(await fetch('task-live-card.html')).text();
+ const setup=source.slice(source.indexOf(' Object.assign(document.body.style'),source.indexOf(' const baselineSource='));
+ const AsyncFunction=Object.getPrototypeOf(async function(){}).constructor;
+ const env=await new AsyncFunction('check',setup+';return {load,obsidian,service,openTaskCreator,openTaskEditor,plugin,p,q,r,s,contents,objects,vault,setContext:value=>context=value,setActive:value=>active=value};')(check);
+ const {obsidian,service,openTaskCreator,openTaskEditor,plugin,p,q,r,s,contents}=env;
+ // Obsidian 1.14.4 constructs a detached container; open appends it and invokes
+ // onOpen synchronously, without awaiting a returned promise. Model that order.
+ const OriginalModal=obsidian.Modal;
+ obsidian.Modal=class extends OriginalModal {
+  constructor(app){super(app);this.containerEl.remove();this.isOpen=false;this.hasInitialInputFocus=true;this.containerEl.classList.add('mod-dim');
+   this.closeButton.tabIndex=-1; // Native close chrome is a non-tabbable icon div.
+   this.bgEl=this.containerEl.createDiv({cls:'modal-bg'});this.containerEl.prepend(this.bgEl);
+   this.headerEl=document.createElement('div');this.headerEl.className='modal-header';this.titleEl.before(this.headerEl);this.headerEl.append(this.titleEl);
+  }
+  open(){if(this.isOpen)return;this.isOpen=true;this.previousFocus=document.activeElement;document.body.append(this.containerEl);super.open();
+   // Native 1.14.4 BE/RE/FE always chooses the first eligible shown control,
+   // even if onOpen already focused a different child. Never preserve prior
+   // focus here: that approximation hid the live Add checkbox-focus override.
+   if(this.hasInitialInputFocus){
+    const selector=['a[href]','button','input','select','textarea','[contenteditable]:not([contenteditable="false"])','[tabindex]'].map(value=>value+':not([disabled]):not([tabindex="-1"])').join(',');
+    [...this.modalEl.querySelectorAll(selector)].find(element=>element.getClientRects().length)?.focus({preventScroll:true});
+   }
+  }
+  close(){if(this._closed)return;super.close();this.isOpen=false;}
+ };
+ const originalRead=service.read.bind(service);
+ const task={path:p.root+'/Tasks.md',line:3,text:'Assignment 4 ^native',completed:false,hubTaskId:'existing'};
+ const box=element=>{if(!element)return null;const b=element.getBoundingClientRect();return {x:b.x,y:b.y,w:b.width,h:b.height};};
+ const sample=modal=>{
+  const visible=modal.modalEl.isConnected&&getComputedStyle(modal.containerEl).visibility!=='hidden';
+  return {visible,modal:box(modal.modalEl),header:box(modal.contentEl.querySelector('.hub-capture-header')),card:box(modal.taskFields?.card.row),
+   surface:box(modal.taskFields?.card.row.parentElement),title:box(modal.taskFields?.input),footer:box(modal.contentEl.querySelector('.hub-task-dialog-actions')),
+   loading:/Loading task/.test(modal.contentEl.textContent),layout:modal.contentEl.classList.contains('hub-modal-layout'),
+   value:modal.taskFields?.input.value,source:modal.taskFields?.card.source.firstChild?.textContent,focus:document.activeElement===modal.taskFields?.input,
+   actions:[...modal.contentEl.querySelectorAll('.hub-task-config-action')].filter(el=>!el.hidden).map(el=>el.textContent),
+   actionsDisabled:[...modal.contentEl.querySelectorAll('.hub-task-config-action')].filter(el=>!el.hidden).map(el=>el.disabled),
+   feedback:[...modal.contentEl.querySelectorAll('.hub-attention')].length,placeholder:modal.taskFields?.input.placeholder,
+   necessity:modal.taskFields?.presentation.indicator?.getAttribute('aria-label'),dates:modal.taskFields?.presentation.dates?.textContent,
+   phase:modal.taskFields?.presentation.phase?.textContent,description:!!modal.taskFields?.presentation.descriptionIndicator&&!modal.taskFields.presentation.descriptionIndicator.hidden,
+   steps:modal.taskFields?.checklist.toggle.textContent,completed:modal.taskFields?.completion.checked,focusEntry:document.activeElement===trigger,containers:document.querySelectorAll('.modal-container').length};
+ };
+ const trigger=document.body.createEl('button',{text:'Open task',attr:{type:'button'}});
+ const problems=[];
+ async function opening(name,{creation=null,delay=0,minimal=false,stalePhase=false,completed=false}={}) {
+  let releaseRead;
+  service.read=async entry=>{if(delay)await new Promise(resolve=>releaseRead=resolve);const result=await originalRead(entry);
+   if(minimal)return {...result,text:'Minimal task',steps:[],necessity:null,phaseId:null,description:'',dueDate:'',dueTime:''};
+   return {...result,completed,phaseId:stalePhase?'deleted-phase':result.phaseId,text:'Go through the theorem proofs of Proper Maps and compare the continuity arguments, topology exercises and multiline lecture notes. '.repeat(4)};
+  };
+  trigger.focus();let modal;
+  const trace={name,frames:[],width:innerWidth,height:innerHeight,dpr:devicePixelRatio};traces.push(trace);
+  trigger.onclick=()=>{modal=creation?openTaskCreator(service,creation):openTaskEditor(service,task);};
+  // Register before opening to observe the first pre-paint callback, not just
+  // an eventual settled frame after ResizeObserver's deferred title resize.
+  let next=frame();trigger.click();trace.synchronous=sample(modal);let captured=false;
+  for(let index=0;index<12;index++){
+   await next;const measured=sample(modal);trace.frames.push(measured);next=frame();
+   if(measured.visible&&!captured){captured=true;await screenshot(name+'-first-visible');}
+   if(index===delay-1)releaseRead?.();
+  }
+  const visible=trace.frames.filter(entry=>entry.visible),first=visible[0],last=visible.at(-1);
+  if(!first)problems.push(name+': never visible');
+  else {
+   check(!first.loading&&first.layout&&first.card&&first.footer,name+' first frame has complete regions');
+   check(first.header.y>=first.modal.y&&first.header.y<first.card.y&&first.footer.y>first.card.y,name+' first header/body/footer order');
+   check(first.modal.w<=560.5&&first.modal.x>=0&&first.modal.x+first.modal.w<=innerWidth+1,name+' first-frame horizontal bounds');
+   check(first.modal.y>=0&&first.modal.y+first.modal.h<=innerHeight+1,name+' first-frame vertical bounds');
+   check(creation?first.placeholder==='What needs doing?'&&first.value==='':first.value.length>0,name+' correct initial title/placeholder');
+   check(first.actionsDisabled.every(disabled=>disabled===!!creation),name+' correct first-frame specification readiness');
+   const expectedRoot=creation?.root??(creation?r.root:p.root);
+   check(first.source===expectedRoot.split('/').at(-1),name+' correct initial destination');
+   check(first.actions.join('|')==='Add start date|'+(creation||minimal?'Add due date':'Change due date')+(creation||minimal?'|Set importance|':'|Change importance|')+(creation||minimal?'Add description':'Edit description')+(expectedRoot===p.root?(creation||minimal||stalePhase?'|Assign to Phase':'|Change Phase assignment'):''),name+' correct initial action labels/order');
+   if(!creation&&!minimal)check(first.necessity==='Must do'&&first.dates.includes('23:59')&&(stalePhase?!first.phase:first.phase==='Problem sets')&&first.description&&first.steps.includes('1/3')&&first.completed===completed,name+' all existing metadata/checklist present on first frame');
+   for(const entry of visible){check(!entry.loading&&entry.layout&&entry.card&&entry.footer,name+' no incomplete visible frame');
+    for(const part of ['modal','header','card','surface','title','footer'])for(const property of ['x','y','w','h']){
+     const stable=entry[part]&&last[part]&&Math.abs(entry[part][property]-last[part][property])<=1;
+     checks++;if(!stable)problems.push(name+': '+part+'.'+property+' '+entry[part]?.[property]+' -> '+last[part]?.[property]);
+    }
+   }
+   if(visible.some(entry=>entry.feedback))problems.push(name+': initial update feedback');
+   if(first.card&&first.focus!==!!creation)problems.push(name+': incorrect initial title focus');
+  }
+  if(delay)check(trace.frames.slice(0,delay).every(entry=>!entry.visible&&entry.containers===0&&entry.focusEntry),name+' pending read has no modal/backdrop/focus transfer');
+  await screenshot(name);modal.close();await frame();check(document.activeElement===trigger,name+' restores entry focus');
+  return trace;
+ }
+ env.setContext(null);env.setActive(p.root+'/Tasks.md');
+ await opening('home-add-cold',{creation:{}});
+ await opening('home-add-warm',{creation:{}});
+ await opening('project-add',{creation:{root:p.root}});
+ await opening('resource-add',{creation:{root:s.root}});
+ await opening('minimal-edit-delayed',{delay:4,minimal:true});
+ await opening('full-edit-delayed',{delay:4});
+ await opening('full-edit-warm');
+ await opening('completed-edit',{completed:true});
+ await opening('stale-phase-edit',{stalePhase:true});
+ for(let i=0;i<3;i++)await opening('repeat-edit-'+i,{minimal:true});
+ // A read failure never mounts an empty modal, and a subsequent retry can open.
+ const notices=[];const OriginalNotice=obsidian.Notice;obsidian.Notice=class{constructor(message){notices.push(message)}};
+ service.read=async()=>{throw Error('Opening read failed')};trigger.focus();
+ const failed=openTaskEditor(service,task);check(await failed.ready===null,'Failed initial read resolves readiness explicitly');
+ check(notices.at(-1)==='Opening read failed'&&!failed.containerEl.isConnected&&!document.querySelector('.modal-container')&&document.activeElement===trigger,'Read failure reports Notice without stranded chrome or focus transfer');
+ await opening('retry-after-read-failure',{minimal:true});
+ let release;service.read=()=>new Promise(resolve=>release=resolve);trigger.focus();
+ const cancelled=openTaskEditor(service,task);cancelled.close();release(await originalRead(task));
+ check(await cancelled.ready===null&&!cancelled.containerEl.isConnected&&!document.querySelector('.modal-container')&&document.activeElement===trigger,'Close before read resolves never opens a late modal');
+ service.read=async()=>{throw Error('Late read failure')};const cancelledFailure=openTaskEditor(service,task);cancelledFailure.close();await cancelledFailure.ready;
+ check(notices.length===1,'Closing a pending editor suppresses a late failure Notice');obsidian.Notice=OriginalNotice;
+ window.hubTaskOpeningProblems=[...new Set(problems)];
+ check(!problems.length,'Opening shifts: '+[...new Set(problems)].join('; '));
+ document.querySelector('#result').textContent='PASS: '+checks+' opening checks; first visible frames and 12-frame stability for Home/Project/Resource Add, minimal/full Edit, delayed reads, repeated cold/warm openings. Frame trace: window.hubTaskOpeningFrames';
+ document.body.dataset.test='passed';
+}catch(error){document.querySelector('#result').textContent='FAIL '+error.stack;document.body.dataset.test='failed';}
+</script>

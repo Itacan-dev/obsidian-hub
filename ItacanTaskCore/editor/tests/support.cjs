@@ -1,0 +1,7 @@
+"use strict";
+const A = require("../../atomic-task/tests/runtime-support.cjs"), R = require("../../src/snapshot-read"), E = require("../../host/editor-read");
+const request = (f, task, patch = {}) => ({ version: 1, authorityId: f.repo.info().storeId, owners: [task.owner], selection: "editor", targets: [{ taskId: task.id, owner: task.owner, partitionId: task.partitionId }], ...patch });
+const tree = () => { const ids = Array.from({ length: 4 }, A.id); return ids.map((id, i) => ({ id, parentStepId: i ? ids[i - 1] : null, order: 0, title: "Same title", body: "Body " + i + "\nΩ", initial: { completed: i === 2, completedAt: i === 2 ? null : null } })); };
+async function fixture(t, options) { const f = await A.fixture(t, options); f.task = (await f.repo.execute(A.rich(f, { continuation: "Exact\r\ncontinuation", steps: tree() }))).task; f.read = (patch) => f.repo.readSnapshot(request(f, f.task, patch)); return f; }
+async function hosted(t, extra) { const f = await A.writerFixture(t, extra); const out = await f.submit(await f.request(A.rich(f, { continuation: "Private current body", steps: tree() }))); A.assert.equal(out.status, "committed", JSON.stringify(out)); f.task = f.repo.getTask(out.tasks[0].id); f.port = E.createNativeEditorReadPort(f.host, { writerPolicy: f.policy }); f.read = patch => f.port.read({ version: 1, authorityId: f.authorityId, owner: f.task.owner, partitionId: f.task.partitionId, taskId: f.task.id, ...patch }); return f; }
+module.exports = { ...A, R, E, request, tree, fixture, hosted };

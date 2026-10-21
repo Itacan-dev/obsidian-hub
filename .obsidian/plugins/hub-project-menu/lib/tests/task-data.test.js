@@ -1,4 +1,5 @@
 "use strict";
+async function run() {
 
 const assert = require("assert");
 const fs = require("fs");
@@ -94,75 +95,99 @@ const dashboardRoot = path.resolve(__dirname, "../../../../../System/Dashboards"
 const home = fs.readFileSync(path.join(dashboardRoot, "Home/view.js"), "utf8");
 const project = fs.readFileSync(path.join(dashboardRoot, "Project/view.js"), "utf8");
 const homeOwners = home.slice(home.indexOf("function projectFromReference("), home.indexOf("function isActiveProject("));
-const homeLoader = home.slice(home.indexOf("function loadTaskData()"), home.indexOf("function loadSecondaryData()"));
+const homeLoader = home.slice(home.indexOf("async function loadTaskData"), home.indexOf("async function loadSecondaryData"));
 const projects = [aRoot, bRoot].map((file, i) => ({
     path: file.path + "/Hub.md", sourcePath: file.path + "/Hub.md", root: file.path,
     sourceRoot: file.path, name: i ? "B" : "A", status: "active", projectId: String(i)
 }));
 const resourceTypes = [{ path: rRoot.path + "/Hub.md", root: rRoot.path, id: "study", label: "Knowledge" }];
 const window = { hubTaskData: service };
-const homeTasks = new Function("window", "dv", "projects", "resourceTypes", `
-    let projectTasks, resourceTasks;
-    ${homeOwners}\n${homeLoader}
-    return () => { loadTaskData(); return { projectTasks, resourceTasks }; };
-`)(window, dv, projects, resourceTypes);
 const projectLoader = project.slice(project.indexOf("function readProjectTasks()"), project.indexOf("function renderTaskRows()"));
-const contextTasks = root => new Function("window", "dv", "projectRoot", `${projectLoader}; return readProjectTasks();`)(window, dv, root);
+const { TaskService } = require("../services/task-service");
+const { LegacyTaskAdapter } = require("../services/task-service-legacy");
+const { createTaskPanelRead } = require("../services/task-panel-read");
+const owners = [...projects.map(owner => ({ ...owner, contextKind: "project" })),
+    ...resourceTypes.map(owner => ({ ...owner, contextKind: "resource", resourceType: owner.id, projectId: "resource:" + owner.id }))];
+const plugin = { app: service.app, taskData: service, taskEditor: {}, register() {}, projectWizard: {
+    getProjectById: id => owners.find(owner => owner.contextKind === "project" && owner.projectId === id),
+    getResourceById: id => owners.find(owner => owner.resourceType === id),
+    getContextForPath: path => owners.find(owner => path.startsWith(service.currentPath(owner.root) + "/"))
+} };
+plugin.taskService = new TaskService(new LegacyTaskAdapter({ plugin, dataview: dv }));
+const homeComponent = new Component();
+const homeTasks = new Function("window", "projects", "resourceTypes", "plugin", "component", "createHomeTaskRead", `
+    let projectTasks=[], resourceTasks=[], homeTaskDisposed=false, homeTaskGeneration=0, homeTaskStatus=null;
+    const root={isConnected:true},upcomingBody={},upcoming={createDiv(){throw Error("Unexpected Home error")}},deferHomeTaskInteraction=()=>false;
+    ${homeOwners}
+    const homeTaskRead=createHomeTaskRead({plugin,component,changed(){},editTask(){},resolveOwner(task){
+        const page={file:{path:task.path},project:task.homeProjectReference};return resourceForPage(page)??projectForPage(page);
+    }});
+    ${homeLoader}
+    return async () => { await loadTaskData(false); return { projectTasks, resourceTasks }; };
+`)(window, projects, resourceTypes, plugin, homeComponent, require("../services/home-task-read").createHomeTaskRead);
+const contextTasks = async root => {
+    const owner = owners.find(owner => owner.root === root);
+    const reader = createTaskPanelRead({ plugin, component: new Component(), changed() {}, editTask() {},
+        workspace: { type: owner.contextKind === "resource" ? "resource" : "project", id: owner.resourceType ?? owner.projectId } });
+    try { const result = await new Function("taskPanelRead", `${projectLoader}; return readProjectTasks();`)(reader); return result.tasks; }
+    finally { reader.close(); }
+};
 
 renameFolder(taskFolder, "Resources/Knowledge/Moved"); flush();
 assert.deepEqual(refreshes, [2, 2, 2, 1, 1, 0], "Both previous and new contexts invalidated for a move");
-let loaded = homeTasks();
+let loaded = await homeTasks();
 assert.equal(loaded.projectTasks.length, 3, "Moved tasks removed from previous project on Home");
 assert.equal(loaded.resourceTasks.length, 6, "Moved tasks belong to Resource on Home");
-assert.equal(contextTasks("Projects/A").length, 0);
-assert.equal(contextTasks("Resources/Knowledge").length, 6);
+assert.equal((await contextTasks("Projects/A")).length, 0);
+assert.equal((await contextTasks("Resources/Knowledge")).length, 6);
 assert.ok(loaded.resourceTasks.every(item => item.task.path.startsWith(item.owner.root + "/")));
 
 // Created/edited content becomes authoritative only when the index is ready.
 const added = create("Projects/A/New.md", ["Added"]);
 vault.emit("create", added.file); flush();
-assert.equal(contextTasks("Projects/A").length, 0);
+assert.equal((await contextTasks("Projects/A")).length, 0);
 index(added); flush();
-assert.equal(contextTasks("Projects/A").length, 1);
+assert.equal((await contextTasks("Projects/A")).length, 1);
 const beforeModify = [...refreshes];
 vault.emit("modify", added.file); metadataCache.emit("changed", added.file); flush();
 assert.deepEqual(refreshes, beforeModify, "Do not refresh against the old index after a raw modify");
 added.page.file.tasks[0].completed = true;
 added.page.file.tasks[0].text = "Edited";
 index(added); flush();
-assert.equal(contextTasks("Projects/A")[0].completed, true);
-assert.equal(homeTasks().projectTasks.find(item => item.task.path === added.file.path).task.text, "Edited");
+assert.equal((await contextTasks("Projects/A"))[0].completed, true);
+assert.equal((await homeTasks()).projectTasks.find(item => item.task.path === added.file.path).task.text, "Edited");
 
 rename(added.file, "Projects/A/Renamed.md"); flush();
-assert.equal(contextTasks("Projects/A")[0].path, "Projects/A/Renamed.md");
+assert.equal((await contextTasks("Projects/A"))[0].path, "Projects/A/Renamed.md");
 renameFolder(aRoot, "Projects/Renamed A"); flush();
 assert.equal(service.currentPath("Projects/A"), "Projects/Renamed A");
-assert.equal(contextTasks("Projects/A")[0].path, "Projects/Renamed A/Renamed.md", "Existing context follows its root rename");
-assert.equal(homeTasks().projectTasks.find(item => item.owner.projectId === "0").owner.root, aRoot.path);
+assert.equal((await contextTasks("Projects/A"))[0].path, "Projects/Renamed A/Renamed.md", "Existing context follows its root rename");
+assert.equal((await homeTasks()).projectTasks.find(item => item.owner.projectId === "0").owner.root, aRoot.path);
 renameFolder(aRoot, "Projects/Renamed Again"); flush();
-assert.equal(contextTasks("Projects/A")[0].path, "Projects/Renamed Again/Renamed.md", "Chained renames");
+assert.equal((await contextTasks("Projects/A"))[0].path, "Projects/Renamed Again/Renamed.md", "Chained renames");
 
 // Delete filters stale indexed records immediately; later index events are safe.
 files.delete(added.file.path); vault.emit("delete", added.file); flush();
-assert.equal(contextTasks("Projects/A").length, 0);
-assert.equal(homeTasks().projectTasks.length, 3);
+assert.equal((await contextTasks("Projects/A")).length, 0);
+assert.equal((await homeTasks()).projectTasks.length, 3);
 pages.delete(added.file.path); metadataCache.emit("dataview:metadata-change", "delete", added.file); flush();
 renameFolder(rRoot, "Resources/Renamed Knowledge"); flush();
-assert.equal(contextTasks("Resources/Knowledge").length, 6);
+assert.equal((await contextTasks("Resources/Knowledge")).length, 6);
 const beforeRootDelete = [...refreshes];
 for (const file of [...files.values()].filter(file => file.path.startsWith(rRoot.path + "/"))) {
     files.delete(file.path); vault.emit("delete", file);
 }
 files.delete(rRoot.path); vault.emit("delete", rRoot); flush();
 assert.equal(refreshes[3], beforeRootDelete[3] + 1, "Renamed context still receives its root deletion");
-assert.equal(homeTasks().resourceTasks.length, 0, "Folder deletion removes all contained tasks");
-assert.equal(contextTasks("Resources/Knowledge").length, 0);
+assert.equal((await homeTasks()).resourceTasks.length, 0, "Folder deletion removes all contained tasks");
+assert.equal((await contextTasks("Resources/Knowledge")).length, 0);
 
 const beforeReady = [...refreshes]; metadataCache.emit("dataview:index-ready"); flush();
 assert.deepEqual(refreshes, beforeReady.map(n => n + 1), "Late initial index refreshes all mounted task views");
 const beforeUnrelated = [...refreshes]; vault.emit("modify", { path: "Images/Test.png", extension: "png" }); flush();
 assert.deepEqual(refreshes, beforeUnrelated);
 
+homeComponent.unload();
 components[1].unload();
 const count = refreshes[1]; metadataCache.emit("dataview:index-ready"); flush();
 assert.equal(refreshes[1], count, "Destroyed view never refreshes");
@@ -174,7 +199,10 @@ service.subscribe(new Component(), () => {}, () => null);
 metadataCache.emit("dataview:index-ready"); service.destroy();
 assert.equal(frames.size + vault.listeners.size + metadataCache.listeners.size, 0, "Plugin unload also cleans everything");
 
-const notification = home.slice(home.indexOf("window.hubTaskData?.subscribe"), home.indexOf("setTimeout(", home.indexOf("window.hubTaskData?.subscribe")));
-assert.ok(notification.includes("renderTaskContext()") && !notification.includes("renderActiveContext()"), "Home events update only tasks/summary, not progress or cards");
+const notification = home.slice(home.indexOf("async function loadTaskData"), home.indexOf("async function loadSecondaryData"));
+assert.ok(notification.includes("renderTaskContext()") && !notification.includes("renderActiveContext()") && !home.includes("hubTaskData?.subscribe"), "Home events update only tasks/summary, not progress or cards");
 assert.ok(!project.slice(project.indexOf('"hub-project-files-changed"'), project.indexOf("// ---------- CURRENT TASKS")).includes("renderCurrentTasks()"), "No competing raw-event task refresh");
 console.log("Task-data tests passed: Home/Project/Resource loaders, note/full subscriptions, folder and file moves/renames, ownership, stale task links, indexed create/modify, deletion, coalescing and disposal.");
+await plugin.taskService.close();
+}
+run().catch(error => { console.error(error); process.exitCode = 1; });

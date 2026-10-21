@@ -72,6 +72,7 @@ try{
   history.push(Object.freeze({...history[1],path:root+'/Missing.md',timestamp:0}));
   const saved=JSON.stringify({reports,history});window.hubGetCompletedTaskHistory=()=>history;
   const env={recentBody:body,activityBody:body,progressReports:reports,projectReports:reports,completedTaskHistory:history,
+   projectTaskHistory:history,historyReadStatus:null,completedHistoryRead:{reveal:record=>app.vault.getAbstractFileByPath(record.path)},
    historyPager:paging.exports.createHistoryPager(body,owner),historyKind:historyData.exports.historyKind,makeActionableRow,
    historyDate:when=>dates.historyDateLabel(when,new Date(2026,8,8)),formatTime:dates.formatTime,formatDate:dates.formatDate,formatDateTime:dates.formatDateTime,
    progressScope:resource?'resources':'projects',resourceTypes:[{id:'study',resourceType:'study',label:'Knowledge',path}],projects:[{projectId:id,path,name:'P'}],

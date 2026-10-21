@@ -1,0 +1,70 @@
+<!doctype html><meta charset="utf-8"><title>Search facade integration</title>
+<link rel="stylesheet" href="../../styles.css">
+<style>body{margin:24px;background:#202020;color:#ddd;font:14px system-ui;--background-primary:#202020;--background-secondary:#292929;--background-modifier-border:#555;--text-normal:#ddd;--text-muted:#aaa;--interactive-accent:#8b7cf8}#fixture{max-width:850px;min-height:600px}#result{white-space:pre-wrap}</style>
+<main id="fixture"></main><pre id="result">RUNNING</pre>
+<script type="module">
+let checks=0;
+const check=(condition,message)=>{checks++;if(!condition)throw Error(message)};
+const deferred=()=>{let resolve,reject;const promise=new Promise((a,b)=>{resolve=a;reject=b});return{promise,resolve,reject}};
+const waitFor=predicate=>new Promise(resolve=>{if(predicate())return resolve();const observer=new MutationObserver(()=>{if(predicate()){observer.disconnect();resolve()}});observer.observe(document,{subtree:true,childList:true,characterData:true,attributes:true})});
+for(const [name,tag] of [['createDiv','div'],['createSpan','span']])HTMLElement.prototype[name]=function(options){return this.createEl(tag,options)};
+HTMLElement.prototype.createEl=function(tag,options={}){const el=document.createElement(tag);el.className=options.cls||'';if(options.text!=null)el.textContent=options.text;if(options.type)el.type=options.type;for(const [key,value]of Object.entries(options.attr||{}))el.setAttribute(key,value);this.append(el);return el};
+class Component{constructor(){this.cleanup=[]}register(fn){this.cleanup.push(fn)}unload(){this.cleanup.splice(0).reverse().forEach(fn=>fn())}}
+try{
+ const base=new URL('../',location.href),sources=new Map(),modules=new Map();
+ const external={obsidian:{getIcon:()=>null,setIcon:el=>{el.textContent='⌕'},addIcon(){},Notice:class{}},crypto:{randomUUID:()=>{throw Error('Search cannot allocate IDs')}}};
+ const resolve=(from,name)=>name.startsWith('.')?new URL(/\.(?:js|cjs|json)$/.test(name)?name:name+'.js',from).href:name;
+ async function prepare(url){if(sources.has(url))return;const response=await fetch(url);if(!response.ok)throw Error('Fixture module unavailable: '+url);const text=await response.text();sources.set(url,text);for(const match of text.matchAll(/require\(\s*["']([^"']+)["']\s*\)/g)){const dependency=resolve(url,match[1]);if(!(dependency in external))await prepare(dependency)}}
+ function load(url){if(url in external)return external[url];if(modules.has(url))return modules.get(url).exports;const module={exports:{}};modules.set(url,module);new Function('module','exports','require',sources.get(url))(module,module.exports,name=>load(resolve(url,name)));return module.exports}
+ const uiURL=new URL('ui/context-search.js',base).href,fixtureURL=new URL('tests/context-search-fixture.cjs',base).href,serviceURL=new URL('services/context-search.js',base).href;
+ await prepare(uiURL);await prepare(fixtureURL);await prepare(serviceURL);
+ const {mountContextSearch}=load(uiURL),{createSearchFixture}=load(fixtureURL),{ContextSearchService}=load(serviceURL);
+ const f=createSearchFixture(),initial=f.state(),service=new ContextSearchService(f.plugin,{onTaskDiagnostics:items=>f.diagnostics.push(...items)});
+ const host=document.getElementById('fixture');
+ function mount(svc,scope=null){const component=new Component(),root=host.createDiv(),toolbar=root.createDiv();const view=mountContextSearch({service:svc,component,dv:f.dv,root,toolbar,scope});view.input.focus();return{...view,component,root,popup:root.querySelector('.hub-context-results'),status:root.querySelector('.hub-context-status')}}
+ const type=(view,text)=>{view.input.value=text;view.input.dispatchEvent(new Event('input',{bubbles:true}))};
+ const key=(view,key)=>view.input.dispatchEvent(new KeyboardEvent('keydown',{key,bubbles:true,cancelable:true}));
+ const settled=view=>view.popup.getAttribute('aria-busy')==='false'&&!view.popup.hidden;
+ let view=mount(service,f.projects[0]);type(view,'zephyr');await waitFor(()=>settled(view)&&view.root.textContent.includes('continuation zephyr'));
+ check(document.activeElement===view.input,'Search input retains native focus');
+ check(view.root.querySelector('.hub-context-result-title').textContent==='Read experiment\ncontinuation zephyr evidence','Actual continuation text renders unchanged');
+ check(view.input.placeholder==='Search this project…','Existing scope placeholder retained');
+ key(view,'ArrowDown');check(!!view.input.getAttribute('aria-activedescendant'),'Arrow keys highlight an option');
+ const opened=deferred(),open=f.plugin.workspaceModes.openProjectNote;f.plugin.workspaceModes.openProjectNote=async(...args)=>{const result=await open(...args);opened.resolve(args);return result};
+ key(view,'Enter');const args=await opened.promise;check(args[0]==='Projects/App/Meta/Tasks.md'&&args[1]==='replace','Enter uses validated facade reveal and existing navigation');
+ check(view.popup.hidden,'Activation closes the popup');
+ type(view,'roadmap');await waitFor(()=>settled(view)&&view.root.querySelector('.hub-context-result-date'));
+ check(view.root.querySelector('.hub-context-result-date').textContent.includes('Completed'),'Completion/date presentation uses normalized fields');
+ key(view,'Escape');check(view.popup.hidden&&view.input.getAttribute('aria-expanded')==='false','Escape closes and resets ARIA state');
+ check(f.state()===initial&&f.counts.writes===0,'Initial Search reads and reveal leave synthetic task data unchanged');
+ f.addTask('Projects/App/Meta/Copy.md','Ambiguous evidence','copied');f.addTask('Projects/Itacan/Meta/Copy.md','Ambiguous evidence','copied');const withCopies=f.state();f.plugin.taskData.invalidateAll();f.flush();
+ type(view,'Ambiguous evidence');await waitFor(()=>settled(view)&&view.root.querySelector('[aria-disabled="true"]'));
+ const count=f.calls.length;view.root.querySelector('[aria-disabled="true"]').click();await waitFor(()=>view.status.textContent.includes('ambiguous source'));
+ check(f.calls.length===count,'Disabled ambiguous result cannot navigate');check(!view.status.textContent.includes('hub-task'),'Feedback contains no technical identity markers');
+ check(f.counts.writes===0&&f.state()===withCopies,'Searching ambiguous rows leaves the explicit fixture additions unchanged');
+ view.component.unload();view.root.remove();
+
+ // Deterministic UI races. Promise completion order, not sleep durations,
+ // controls which result arrives last. The existing 100 ms input debounce stays.
+ const requests=[],subscribers=new Set();let started=deferred();
+ const fake={subscribe(component,callback){subscribers.add(callback);component.register(()=>subscribers.delete(callback))},
+  search(query,scope,dv,options){const request={query,scope:scope?.projectId,...deferred(),options};requests.push(request);started.resolve(request);return request.promise},open:()=>true};
+ const group=title=>[{kind:'files',items:[{kind:'files',title,path:'Projects/App/'+title+'.md',context:'App',score:0}]}];
+ const scope={...f.projects[0]};view=mount(fake,scope);type(view,'A');const a=await started.promise;started=deferred();type(view,'B');const b=await started.promise;
+ b.options.onNames(group('B'));b.resolve(group('B'));await b.promise;check(view.root.querySelector('.hub-context-result-title')?.textContent==='B','Query B displays first');
+ a.options.onNames(group('A'));a.resolve(group('A'));await a.promise;check(view.root.querySelector('.hub-context-result-title')?.textContent==='B','Late query A cannot overwrite B');
+ started=deferred();type(view,'Old scope');const old=await started.promise;scope.projectId='other';old.options.onNames(group('Old scope'));old.resolve(group('Old scope'));await old.promise;
+ check(!view.root.textContent.includes('Old scope'),'A changed workspace cannot publish old-scope results');
+ started=deferred();type(view,'Closed');const closing=await started.promise;view.component.unload();const closedHTML=view.root.innerHTML;closing.options.onNames(group('Closed'));closing.resolve(group('Closed'));await closing.promise;
+ check(view.root.innerHTML===closedHTML&&view.popup.hidden,'Disposed Search ignores outstanding callbacks');check(subscribers.size===0,'Disposed component releases its Search subscription');view.root.remove();
+ view=mount(fake);started=deferred();type(view,'Escaped');const escaped=await started.promise;key(view,'Escape');escaped.resolve(group('Escaped'));await escaped.promise;check(view.popup.hidden,'Escape cancels outstanding rendering');
+ started=deferred();const beforeRapid=requests.length;for(const text of ['r','ra','rap','rapid'])type(view,text);const rapid=await started.promise;check(requests.length===beforeRapid+1&&rapid.query==='rapid','Rapid input coalesces through existing debounce');
+ rapid.resolve(group('rapid'));await rapid.promise;
+ started=deferred();type(view,'Error');const error=await started.promise;error.reject(Error('Private technical stack'));await waitFor(()=>view.root.textContent.includes('Search is temporarily unavailable.'));
+ check(!view.status.textContent.includes('Private'),'Query failure uses friendly existing error presentation');view.component.unload();view.root.remove();
+ view=mount(service);type(view,'roadmap');await waitFor(()=>settled(view)&&view.root.querySelector('.hub-context-result-date'));
+ check(f.counts.writes===0,'All browser Search operations remained read-only');
+ document.getElementById('result').textContent='PASS: '+checks+' Search UI checks; actual facade/legacy projection, continuation/date display, keyboard reveal, ambiguous feedback, A/B races, scope changes, close/Escape, debounce and disposal.';
+ window.addEventListener('pagehide',()=>{view.component.unload();void f.close()},{once:true});
+}catch(error){document.getElementById('result').textContent='FAIL: '+error.stack}
+</script>
