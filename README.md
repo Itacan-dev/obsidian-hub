@@ -70,6 +70,16 @@ during playback. Disabling Music or a provider retains the configured library.
 See [Music implementation and verification](System/Hub-music.md) for provider
 capabilities, runtime limits and the isolated Obsidian checks.
 
+Athena is an optional local research assistant in **Settings → Athena** and the
+**Open Athena** command. Enable local retrieval and add exclusions first.
+**Search vault** works without inference; the recording mock supports deterministic
+conversations. Ollama uses downloaded local models through `127.0.0.1`, with
+explicit local-only setup acknowledgement. Athena reads eligible Markdown, text,
+code, notebooks and searchable PDFs; it cannot edit notes or execute code.
+History stays in device-local application data outside the vault. The sidebar
+and PDF worker passed isolated Obsidian checks; live Ollama inference remains
+an unverified development candidate. See [architecture, setup and release gates](System/Hub-athena-architecture-and-roadmap.md).
+
 ## Development
 
 - `.obsidian/plugins/hub-project-menu/plugin.js` and `lib/` are the plugin source.
@@ -102,6 +112,12 @@ when it is not installed at the runner's default Windows Chrome location.
 The pinned Electron test installation below can also run the HTML fixtures with
 `node .obsidian/plugins/hub-project-menu/lib/atlas/tests/native/browser-launch.cjs`.
 It renders offscreen in isolated profiles and needs no Chrome installation.
+
+Athena has an isolated TypeScript/esbuild toolchain under `lib/athena/` with its
+own lockfile. When its sources change, run `build-athena.js` before `build.js`;
+the Hub build rejects stale Athena artifacts. The shipped runtime and PDF worker
+need no npm installation. [Athena's report](System/Hub-athena-architecture-and-roadmap.md#7-build-and-validation)
+lists its type checks, synthetic tests, benchmark and isolated runtime fixtures.
 
 AtlasCore is unchanged framework-independent TypeScript in `AtlasCore/packages/core`.
 After changing Core or the curated preset copy, rebuild their CommonJS artifacts

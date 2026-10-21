@@ -1,0 +1,57 @@
+import assert from "node:assert/strict";
+import * as fs from "node:fs/promises";
+import * as path from "node:path";
+import { restoreState } from "../src/conversation-store";
+import { AthenaController } from "../src/controller";
+import { EligibilityPolicy } from "../src/knowledge/eligibility";
+import { KnowledgeService } from "../src/knowledge/documents";
+import { MockProvider } from "../src/providers/mock";
+import { SidebarPresenter } from "../src/ui/sidebar";
+import { mountSettings } from "../src/ui/settings";
+import { createPdfReader } from "../src/host/pdf-reader";
+import { MemoryHost, syntheticPdf } from "./fixtures";
+const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+export async function run(rootDirectory: string): Promise<string> {
+  const style = document.createElement("style"); style.textContent = await fs.readFile(path.join(rootDirectory, "../../styles.css"), "utf8"); document.head.append(style);
+  document.documentElement.style.cssText = "--size-4-2:8px;--size-4-3:12px;--font-ui-small:13px;--font-ui-smaller:11px;--text-normal:#ddd;--text-muted:#aaa;--text-error:#faa;--background-modifier-border:#444;--radius-s:4px;--font-semibold:600;";
+  document.body.style.cssText = "margin:20px;background:#202025;color:#ddd;font:13px Arial";
+  const style2 = document.createElement("style"); style2.textContent = "button,input,select,textarea{background:#303038;color:#ddd;border:1px solid #555;border-radius:4px;padding:5px} .mod-cta{background:#7154bd} button:disabled{opacity:.5}"; document.head.append(style2);
+  const root = document.createElement("div"); root.style.cssText = "width:320px;height:820px;border:1px solid #444;padding:12px;box-sizing:border-box"; document.body.append(root);
+  const state = restoreState(null); state.settings.enabled = true; state.settings.provider = "mock";
+  const policy = new EligibilityPolicy(), host = new MemoryHost(policy); host.files.set("Notes/Lab.md", "# Copper\nCopper calibration wavelength is 520 nanometers.\n<img src='https://blocked.invalid/leak'><script>globalThis.athenaInjected=true</script>\n```dataviewjs\napp.vault.delete(secret)\n```");
+  const pdf = createPdfReader(() => fs.readFile(path.join(rootDirectory, "assets/pdf-worker.js"), "utf8"));
+  host.files.set("Research/Paper.pdf", syntheticPdf());
+  host.files.set("Research/Scanned.pdf", syntheticPdf(""));
+  const knowledge = new KnowledgeService(host, policy, state.identities, pdf), mock = new MockProvider();
+  const controller = new AthenaController(state, knowledge, { save: async () => {} }, () => mock);
+  const options = { projects: () => [], openSource: () => {}, openSettings: () => {} };
+  for (let index = 0; index < 50; index++) { const presenter = new SidebarPresenter(root, controller, options); assert.equal((controller as any).listeners.size, 1); presenter.dispose(); assert.equal((controller as any).listeners.size, 0); }
+  const presenter = new SidebarPresenter(root, controller, options); await controller.connect();
+  const input = root.querySelector("textarea")!; input.value = "Keep this draft"; input.focus(); input.setSelectionRange(2, 7);
+  await controller.send(presenter.conversationId, "What is the copper calibration wavelength?", { kind: "vault" }, false); await wait(100);
+  assert.equal(root.querySelector("textarea"), input); assert.equal(input.value, "Keep this draft"); assert.equal(input.selectionStart, 2); assert.equal(document.activeElement, input);
+  assert.equal(root.querySelectorAll("img,script,iframe").length, 0); assert.equal((globalThis as any).athenaInjected, undefined);
+  assert.equal(controller.state.conversations[0].turns[0].state, "complete");
+  const documentRecord = knowledge.documents.get("Research/Paper.pdf"); assert(documentRecord, JSON.stringify([...knowledge.statuses.values()]));
+  assert(documentRecord.segments[0].text.includes("520")); assert.equal(documentRecord.segments[0].location.page, 1);
+  assert.equal(knowledge.statuses.get("Research/Scanned.pdf")?.status, "scanned");
+  for (const width of [260, 320, 420]) { root.style.width = `${width}px`; await wait(25); assert(root.scrollWidth <= root.clientWidth + 2, `sidebar overflow at ${width}`); }
+  root.style.width = "320px";
+  const answer = root.querySelector(".hub-athena-answer"); controller.notify(); await wait(70); assert.equal(root.querySelector(".hub-athena-answer"), answer);
+  await assert.rejects(pdf(new TextEncoder().encode("malformed PDF"), new AbortController().signal), /Malformed|unsupported/);
+  const abort = new AbortController(); abort.abort(); await assert.rejects(pdf(syntheticPdf(), abort.signal));
+  const recorded = mock.requests.length; input.value = "copper";
+  [...root.querySelectorAll("button")].find(button => button.textContent === "Search vault")!.click(); await wait(150);
+  const results = root.querySelector<HTMLElement>(".hub-athena-search-results")!; assert(!results.hidden); assert.equal(mock.requests.length, recorded);
+  host.restricted.add("Notes/Lab.md"); controller.contextChanged(); await wait(80); assert(results.hidden); assert(!results.textContent?.includes("calibration")); assert(root.querySelector(".hub-athena-answer")?.textContent?.includes("hidden"));
+  host.restricted.clear(); controller.contextChanged(); await wait(80);
+  const indexing = knowledge.refresh(); knowledge.cancelRefresh(); await assert.rejects(indexing);
+  await knowledge.refresh(); assert(knowledge.coverage.complete);
+  const settingsRoot = document.createElement("div"); settingsRoot.hidden = true; document.body.append(settingsRoot); state.settings.localOnlyConfirmed = true;
+  const unmount = mountSettings(settingsRoot, controller, () => {}), port = settingsRoot.querySelector<HTMLInputElement>('input[type="number"]')!, checkboxes = settingsRoot.querySelectorAll<HTMLInputElement>('input[type="checkbox"]');
+  assert(checkboxes[1].checked); port.value = "11435"; port.dispatchEvent(new Event("input", { bubbles: true })); assert(!checkboxes[1].checked); unmount(); settingsRoot.remove(); assert.equal((controller as any).listeners.size, 1);
+  input.value = "Keep this draft";
+  await controller.persist(); (globalThis as any).athenaBrowserPresenter = presenter;
+  (globalThis as any).athenaBrowserController = controller;
+  return "PASS Athena: PDF/scanned statuses, page references, inert rendering, 50 lifecycle cycles, draft/focus retention, offline search, permission changes, endpoint consent and narrow layouts.";
+}

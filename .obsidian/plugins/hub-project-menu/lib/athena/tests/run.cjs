@@ -1,0 +1,10 @@
+"use strict";
+const fs = require("fs"), path = require("path"), { spawnSync } = require("child_process");
+const root = path.resolve(__dirname, "..");
+const esbuild = require(path.join(root, "node_modules/esbuild"));
+const directory = path.join(root, ".cache/tests"); fs.mkdirSync(directory, { recursive: true });
+const tests = fs.readdirSync(__dirname).filter(name => name.endsWith(".test.ts"));
+for (const name of tests) esbuild.buildSync({ absWorkingDir: root, tsconfig: path.join(root, "tsconfig.json"), entryPoints: [path.join(__dirname, name)], outfile: path.join(directory, name.replace(/\.ts$/, ".cjs")), bundle: true, platform: "node", format: "cjs", target: "es2022", external: ["obsidian"] });
+esbuild.buildSync({ absWorkingDir: root, tsconfig: path.join(root, "tsconfig.json"), entryPoints: [path.join(__dirname, "browser.ts")], outfile: path.join(root, ".cache/browser.cjs"), bundle: true, platform: "node", format: "cjs", target: "es2022", external: ["obsidian"] });
+const result = spawnSync(process.execPath, ["--test", ...tests.map(name => path.join(directory, name.replace(/\.ts$/, ".cjs")))], { stdio: "inherit", windowsHide: true });
+process.exitCode = result.status ?? 1;

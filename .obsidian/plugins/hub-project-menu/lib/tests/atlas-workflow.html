@@ -1,0 +1,145 @@
+<!doctype html><meta charset="utf-8"><title>Atlas workflow checks</title>
+<link rel="stylesheet" href="../../styles.css">
+<style>html,body{margin:0;height:100%;font:14px Arial;background:#222;color:#ddd;--background-primary:#222;--background-secondary:#282828;--text-normal:#ddd;--text-muted:#aaa;--background-modifier-border:#444}.modal-container{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:#0008}.modal{position:relative;padding:24px;background:#222;border-radius:12px;box-sizing:border-box}.modal-close-button{position:absolute;right:6px;top:4px}#result{position:fixed;top:0;right:0;z-index:999;pointer-events:none;background:#222;font:10px Arial}</style>
+<main id="home" class="hub-atlas-home"></main><div id="footer"></div><pre id="result">RUNNING</pre>
+<script type="module">
+HTMLElement.prototype.createEl=function(tag,o={}){const e=document.createElement(tag);e.className=o.cls||'';if(o.text!==undefined)e.textContent=o.text;for(const[k,v]of Object.entries(o.attr||{}))e.setAttribute(k,v);this.append(e);return e};
+HTMLElement.prototype.createDiv=function(o){return this.createEl('div',o)};HTMLElement.prototype.createSpan=function(o){return this.createEl('span',o)};HTMLElement.prototype.empty=function(){this.replaceChildren()};
+class Modal{constructor(app){this.app=app;this.containerEl=document.createElement('div');this.containerEl.className='modal-container';this.modalEl=this.containerEl.createDiv({cls:'modal'});this.contentEl=this.modalEl.createDiv({cls:'modal-content'});this.modalEl.createEl('button',{cls:'modal-close-button',text:'Close Settings'}).onclick=()=>this.close()}open(){document.body.append(this.containerEl);this.onOpen()}close(){this.onClose();this.containerEl.remove()}}
+const native={Modal,setIcon:(node)=>{node.innerHTML='<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/></svg>'}};
+const sources=new Map(),cache=new Map(),resolve=(name,request)=>{const p=name.split('/').slice(0,-1);for(const v of request.split('/')){if(v==='..')p.pop();else if(v!=='.')p.push(v)}return p.join('/').replace(/\.js$/,'')};
+async function collect(name){if(sources.has(name))return;sources.set(name,null);const r=await fetch('../'+name+'.js');if(!r.ok)throw Error('Missing '+name);const s=await r.text();sources.set(name,s);await Promise.all([...s.matchAll(/require\(\s*['"](\.\.?\/[^'"]+)['"]\s*\)/g)].map(m=>collect(resolve(name,m[1]))))}
+function load(name){if(name==='obsidian')return native;if(cache.has(name))return cache.get(name).exports;const m={exports:{}};cache.set(name,m);new Function('module','exports','require',sources.get(name))(m,m.exports,r=>r==='obsidian'?native:load(resolve(name,r)));return m.exports}
+const assert=(v,m)=>{if(!v)throw Error(m)},tick=()=>new Promise(r=>setTimeout(r,20)),button=(p,text)=>[...p.querySelectorAll('button')].find(n=>n.textContent===text);
+async function click(p,text){const b=button(p,text);assert(b&&!b.disabled,'Action '+text);b.click();await tick()}
+const set=(p,name,value,event='input')=>{const n=p.querySelector('[aria-label="'+name+'"]');assert(n,'Field '+name);if(n.type==='checkbox')n.checked=value;else n.value=value;n.dispatchEvent(new Event(event));return n};
+try{
+ await Promise.all(['ui/settings','atlas/obsidian/home-ui','atlas/core/index','atlas/obsidian/application'].map(collect));
+ const Core=load('atlas/core/index'),Application=load('atlas/obsidian/application'),{getAtlasSession}=load('atlas/obsidian/session'),{mountSettingsControl,getSettingsOwner}=load('ui/settings'),{mountAtlasHome}=load('atlas/obsidian/home-ui');
+ const cfg={accessTiming:{waitMs:10000,confirmationWindowMs:60000,grantDurationMs:60000},vaultTiming:{waitMs:30000,confirmationWindowMs:60000},journeyLimits:{lifetimeMs:300000,maxHops:12}};
+ let snapshot={policy:{whitelist:['github.com','trusted.test'],blacklist:['www.github.com']},policyRevision:0,configuration:cfg,configurationRevision:0,accessState:Core.createAccessState(),vaultState:Core.createVaultState(),journeyState:Core.createJourneyState()};
+ let application=Application.initialApplication(snapshot.policy),status='READY',fault=null,hold=null;const listeners=new Set(),commands=[];let subscriptions=0,disposals=0;
+ const view=()=>structuredClone({status,enabled:true,snapshot,application,contexts:[],storageVersion:'fixture',starter:{policy:snapshot.policy},destinations:application.destinations.map(d=>({...d,decision:Core.evaluate({hostname:d.hostname},snapshot.policy),hosts:[d.hostname,...d.aliases,...d.destinations].map(hostname=>({hostname,decision:Core.evaluate({hostname},snapshot.policy)}))})),temporaryDestinations:[]});
+ const publish=()=>listeners.forEach(fn=>fn());
+ const plugin={app:{},registerDomEvent:(el,event,fn)=>el.addEventListener(event,fn)};
+ const bridge={view,subscribe:fn=>{subscriptions++;listeners.add(fn);return()=>{assert(listeners.delete(fn),'One disposal per subscription');disposals++}},
+  open:route=>{const session=getAtlasSession(bridge);if(!session.navigate(route))return false;const opened=getSettingsOwner(plugin).open('atlas');if(opened)session.navigate(session.route);return opened},
+  async command(command){commands.push(command);if(hold){const pending=hold;hold=null;await pending}if(command.kind==='RECOVER'){status='READY';publish();return {status:'READY'}}
+   if(fault){status='RECONCILING';fault=null;publish();return {type:'BLOCKED',reason:'COMMIT_UNKNOWN'}}
+   try{
+    if(command.kind==='SAVE_DISPLAY_DETAILS'){if(command.basePolicyRevision!==snapshot.policyRevision||command.baseApplicationRevision!==application.revision)return {type:'REJECTED',reason:'STALE_DRAFT'};
+     application={...application,revision:application.revision+1,destinations:application.destinations.map(d=>d.id===command.destinationId?{...d,label:command.label,category:command.category,pinned:command.pinned}:d)};publish();return {type:'COMMITTED',operation:'PRESENTATION'}}
+    let staged=null,operation=command;
+    if(command.kind==='PROPOSE_DESTINATION'){const change=Application.buildDestinationChange(snapshot,application,command);staged=change.destinations;operation={kind:'PROPOSE_POLICY',candidatePolicy:change.policy};if(change.presentationOnly){application={...application,revision:application.revision+1,destinations:staged};publish();return {type:'COMMITTED',operation:'PRESENTATION'}}}
+    const planned=Core.planAtlasOperation(operation,{snapshot,configuration:snapshot.configuration,now:Date.now()});if(!planned.candidateSnapshot)return planned.result;
+    application=Application.transitionApplication(application,snapshot,planned.candidateSnapshot,staged);snapshot=structuredClone(planned.candidateSnapshot);publish();return {type:'COMMITTED',operation:operation.kind};
+   }catch(e){return {type:'REJECTED',reason:e.message}}
+  }};
+ plugin.atlas=bridge;
+ const footer=document.getElementById('footer'),control=mountSettingsControl(plugin,footer),session=getAtlasSession(bridge),home=document.getElementById('home');
+ const disposeHome=mountAtlasHome(home,bridge,()=>{}),pane=()=>document.querySelector('.hub-settings-panel');
+ const settingsLink=button(home,'Sites & Access');settingsLink.focus();await click(home,'Sites & Access');
+ assert(document.querySelectorAll('.hub-settings-dialog').length===1&&!document.querySelector('.hub-atlas-dialog'),'Home uses canonical Hub owner');
+ await click(pane(),'Add a destination');let draft=pane().querySelector('.hub-atlas-draft');
+ set(draft,'Name','Session draft');set(draft,'Primary hostname','session.test');set(draft,'Category','Research');
+ const id=session.draft.id,field=draft.querySelector('[aria-label="Name"]');
+ await click(pane(),'Vault');assert(button(pane(),'Resume destination draft'),'Draft resume remains discoverable away from Sites');await click(pane(),'Sites & Access');assert(pane().querySelector('[aria-label="Name"]')===field&&field.value==='Session draft','Section changes retain the existing input');
+ bridge.open({section:'vault'});assert(pane().querySelector('[data-atlas-page=vault]').hidden===false,'Specific section route');assert(document.querySelectorAll('.hub-settings-dialog').length===1,'No duplicate');
+ bridge.open({section:'sites'});assert(field.isConnected,'Same category does not remount');
+ await click(pane(),'Add a destination');assert(pane().querySelector('[aria-label="Name"]').value==='Session draft','Dirty draft not replaced');
+ await click(pane(),'Continue current edit');
+ await click(document.querySelector('.modal'),'Close Settings');assert(document.activeElement===settingsLink,'Close restores origin focus: '+document.activeElement.outerHTML+' original connected='+settingsLink.isConnected);assert(session.draft.dirty,'Session retains dirty data');
+ bridge.open();assert(pane().querySelector('[aria-label="Name"]').value==='Session draft'&&session.draft.id===id,'Close/reopen restores fields and stable identity');
+ const appearance=[...document.querySelectorAll('.hub-settings-category')].find(n=>n.textContent==='Appearance');appearance.click();await tick();assert(listeners.size===1,'Only Home subscription remains off Atlas');
+ const atlas=[...document.querySelectorAll('.hub-settings-category')].find(n=>n.textContent==='Atlas');atlas.click();await tick();
+ assert(pane().querySelector('[aria-label="Name"]').value==='Session draft','Hub category changes preserve draft');assert(listeners.size===2,'One Home and one Atlas subscription');
+ await click(pane(),'Add a destination');await click(pane(),'Discard and start requested edit');assert(session.draft.id!==id&&pane().querySelector('[aria-label="Name"]').value==='','Explicit replacement creates new draft');
+ draft=pane().querySelector('.hub-atlas-draft');await click(draft,'Review change in Vault');assert(draft.querySelector('[aria-label="Name"]').getAttribute('aria-invalid')==='true'&&session.draft,'Field validation keeps input');
+ set(draft,'Name','Submitted');set(draft,'Primary hostname','submitted.test');await click(draft,'Review change in Vault');
+ assert(!session.draft&&snapshot.vaultState.pendingProposal&&snapshot.policy.whitelist.includes('submitted.test')===false,'Verified proposal clears only local draft, never applies policy');
+ assert(pane().querySelector('.hub-atlas-message').textContent.includes('submitted for Vault review'),'Proposed feedback distinct from active save');
+ await click(pane(),'Sites & Access');await click(pane(),'Add a destination');draft=pane().querySelector('.hub-atlas-draft');set(draft,'Name','Kept during occupancy');set(draft,'Primary hostname','queued.test');
+ assert(button(draft,'Review change in Vault').disabled&&draft.textContent.includes('proposal is already in Vault'),'Occupancy is explained before another submission');
+ await click(draft,'Review existing proposal');assert(pane().querySelector('[data-atlas-page=vault]').hidden===false,'Occupancy route');
+ await click(pane(),'Cancel proposal');assert(!snapshot.vaultState.pendingProposal&&session.draft&&pane().querySelector('.hub-atlas-message').textContent.includes('cancelled'),'Cancel feedback and unrelated local draft survive');
+ await click(pane(),'Sites & Access');draft=pane().querySelector('.hub-atlas-draft');fault='unknown';await click(draft,'Review change in Vault');
+ assert(session.draft&&session.draft.submission.status==='unresolved','Uncertain outcome keeps local copy');
+ assert(draft.textContent.includes('unresolved')&&button(draft,'Review change in Vault').disabled,'No blind retry');
+ await click(draft,'Review saved state');await click(pane(),'Recover saved state');assert(session.draft&&commands.filter(c=>c.kind==='PROPOSE_DESTINATION').length===2,'Recovery does not resubmit');
+ assert(pane().querySelector('.hub-atlas-message').textContent.includes('reconciled'),'Honest recovery feedback');publish();assert(home.querySelector('[data-atlas-pending-key=local-submission]'),'Local uncertain outcome remains discoverable even after Core is ready');
+ await click(pane(),'Sites & Access');await click(pane().querySelector('.hub-atlas-draft'),'Discard draft');assert(!session.draft,'Explicit discard');
+
+ // A concurrent commit while Settings is closed must not silently update the
+ // retained draft's bases. Explicit review is still required after remount.
+ bridge.open({section:'sites'});let row=[...pane().querySelectorAll('.hub-atlas-site-row')].find(r=>r.textContent.includes('GitHub'));await click(row,'Edit');
+ draft=pane().querySelector('.hub-atlas-draft');set(draft,'Name','Retained concurrent edit');const retainedId=session.draft.id,policyBefore=JSON.stringify(snapshot.policy);
+ getSettingsOwner(plugin).close();application={...application,revision:application.revision+1,destinations:application.destinations.map(d=>d.id===retainedId?{...d,label:'Another window'}:d)};publish();
+ bridge.open({section:'sites'});draft=pane().querySelector('.hub-atlas-draft');assert(draft.querySelector('[aria-label="Name"]').value==='Retained concurrent edit','Remount preserves conflict input');
+ await click(draft,'Save display details');assert(draft.textContent.includes('Your input is preserved'),'Genuine conflict is preserved');
+ getSettingsOwner(plugin).close();bridge.open({section:'sites'});draft=pane().querySelector('.hub-atlas-draft');assert(button(draft,'Review current changes'),'Conflict review survives remount');
+ await click(draft,'Review current changes');assert(draft.textContent.includes('Another window'),'Review shows latest committed values');await click(draft,'Use reviewed revisions');await click(draft,'Save display details');
+ assert(!session.draft&&JSON.stringify(snapshot.policy)===policyBefore,'Reviewed display save clears draft without reclassifying aliases');
+ assert(pane().querySelector('.hub-atlas-message').textContent.includes('Display details saved'),'Display-only feedback');
+
+ // Closing and remounting while a native acknowledgement is still in flight
+ // must keep one submission and clear the currently mounted copy only on success.
+ bridge.open({section:'sites'});row=[...pane().querySelectorAll('.hub-atlas-site-row')].find(r=>r.textContent.includes('Retained concurrent edit'));await click(row,'Edit');
+ draft=pane().querySelector('.hub-atlas-draft');set(draft,'Name','Verified after remount');
+ let release;hold=new Promise(resolve=>{release=resolve});button(draft,'Save display details').click();await tick();assert(session.draft.submission.status==='submitting','Submission tracked independently of DOM');
+ getSettingsOwner(plugin).close();bridge.open({section:'sites'});assert(pane().querySelector('[aria-label="Name"]').value==='Verified after remount','Busy remount retains exact input');
+ assert(pane().querySelector('[aria-label="Name"]').disabled,'Busy inputs cannot create an unreviewed second edit');
+ await click(pane(),'Add a destination');await click(pane(),'Discard and start requested edit');assert(pane().textContent.includes('Wait for the current save outcome'),'Busy draft cannot be replaced');
+ release();await tick();assert(!session.draft&&!pane().querySelector('.hub-atlas-draft'),'Verified completion clears the matching remounted copy');assert(!pane().querySelector('.hub-atlas-replace-draft'),'No stale replacement notice remains');
+ // Timing values also belong to the session, including an explicit revision review.
+ await click(pane(),'Timings / Behaviour');let timing=pane().querySelector('.hub-atlas-timing-form input');timing.value='12.345';timing.dispatchEvent(new Event('input'));
+ getSettingsOwner(plugin).close();bridge.open({section:'timings'});assert(pane().querySelector('.hub-atlas-timing-form input').value==='12.345','Timing draft resumes');
+ snapshot={...snapshot,configurationRevision:snapshot.configurationRevision+1,configuration:{...cfg,accessTiming:{...cfg.accessTiming,waitMs:14000}}};publish();
+ await click(pane(),'Review timing change in Vault');assert(pane().textContent.includes('Committed timing values changed'),'Timing conflict explained');
+ await click(pane(),'Use reviewed timing revisions');await click(pane(),'Review timing change in Vault');
+ assert(snapshot.vaultState.pendingProposal.candidateConfiguration.accessTiming.waitMs===12345&&snapshot.configuration.accessTiming.waitMs===14000,'Timing proposal freezes exact values; active terms unchanged');
+ await click(pane(),'Cancel proposal');
+ // A Core-created request is displayed consistently in Home and Settings.
+ // Routing never creates a context, grant or confirmation.
+ const nativeNow=Date.now;let displayNow=nativeNow()+1000;Date.now=()=>displayNow;
+ const requestPlan=Core.planAtlasOperation({kind:'START_ACCESS',target:{hostname:'pending-ui.test'}},{snapshot,configuration:snapshot.configuration,now:displayNow});
+ assert(requestPlan.candidateSnapshot,'Request fixture uses Core');snapshot=structuredClone(requestPlan.candidateSnapshot);publish();let request=snapshot.accessState.pendingRequests.at(-1);
+ let pendingRow=home.querySelector('[data-atlas-pending-key="access:'+request.id+'"]');assert(pendingRow.textContent.includes('Waiting'),'Home shows waiting request');
+ const beforeRoute=commands.length;await click(pendingRow,'Review access request');assert(commands.length===beforeRoute,'Following pending item does not authorize');
+ let requestCard=pane().querySelector('[data-atlas-request-id="'+request.id+'"]');assert(requestCard&&document.activeElement===requestCard,'Direct request route focuses the matching operation');
+ assert(requestCard.textContent.includes('Note tab')&&!button(requestCard,'Confirm and open homepage'),'Missing original context is truthful');
+ displayNow=request.readyAt;publish();pendingRow=home.querySelector('[data-atlas-pending-key="access:'+request.id+'"]');assert(pendingRow.textContent.includes('Ready for explicit confirmation'),'Home shows ready request');
+ assert(pane().querySelector('[data-atlas-request-id="'+request.id+'"]').textContent.includes('Ready for explicit confirmation'),'Settings agrees with Home');
+ displayNow=request.confirmBy;publish();assert(home.querySelector('[data-atlas-pending-key="access:'+request.id+'"]').textContent.includes('Expired'),'Request expiry visible');
+ assert(snapshot.accessState.grants.length===0,'Phase changes and navigation do not grant access');
+ // Vault readiness is equally passive and pending links focus the same owner.
+ const proposed=Core.planAtlasOperation({kind:'PROPOSE_POLICY',candidatePolicy:{...snapshot.policy,whitelist:[...snapshot.policy.whitelist,'pending-vault.test']}},{snapshot,configuration:snapshot.configuration,now:displayNow});
+ snapshot=structuredClone(proposed.candidateSnapshot);publish();let vp=snapshot.vaultState.pendingProposal;
+ pendingRow=home.querySelector('[data-atlas-pending-key="vault:'+vp.id+'"]');assert(pendingRow.textContent.includes('Waiting'),'Home shows waiting Vault proposal');
+ const confirmations=commands.filter(c=>c.kind==='CONFIRM_POLICY').length;await click(pendingRow,'Review in Vault');
+ assert(pane().querySelector('[data-atlas-page=vault]').hidden===false&&document.querySelectorAll('.hub-settings-dialog').length===1,'Pending Vault route uses the one owner');
+ assert(commands.filter(c=>c.kind==='CONFIRM_POLICY').length===confirmations,'Vault routing never confirms');
+ displayNow=vp.readyAt;publish();await tick();assert(home.querySelector('[data-atlas-pending-key="vault:'+vp.id+'"]').textContent.includes('Ready for explicit confirmation'),'Vault ready presentation');
+ displayNow=vp.confirmBy;publish();await tick();assert(home.querySelector('[data-atlas-pending-key="vault:'+vp.id+'"]').textContent.includes('Expired'),'Vault expired presentation');
+ assert(button(pane(),'Confirm change').disabled,'Expired Vault cannot confirm from stale display');
+ application={...application,recovery:{id:'recovery-copy',sourceProposalId:vp.id,operation:'PROPOSE_POLICY',basePolicyRevision:snapshot.policyRevision,baseConfigurationRevision:snapshot.configurationRevision,baseApplicationRevision:application.revision,policy:vp.candidatePolicy,configuration:snapshot.configuration,destinations:null}};publish();
+ pendingRow=home.querySelector('[data-atlas-pending-key="recovery:recovery-copy"]');assert(pendingRow.textContent.includes('not changed active policy'),'Recovery copy is separate');
+ await click(pendingRow,'Review in Vault');assert(document.activeElement?.dataset.atlasRecoveryId==='recovery-copy','Recovery route focuses its copy');
+ status='RECONCILING';publish();assert(home.querySelector('[data-atlas-pending-key=authority]').textContent.includes('reconciled'),'Unresolved state is explicit');
+ assert(!home.querySelector('.hub-atlas-pending').textContent.includes('Ready for explicit confirmation'),'Unresolved state cannot claim readiness');
+ await click(home.querySelector('[data-atlas-pending-key=authority]'),'Review recovery');assert(!pane().querySelector('[data-atlas-page=diagnostics]').hidden,'Unresolved route opens recovery');
+ status='READY';application={...application,recovery:null};Date.now=nativeNow;publish();
+ for(let i=0;i<3;i++){getSettingsOwner(plugin).close();bridge.open({section:i%2?'temporary':'vault'});assert(document.querySelectorAll('.hub-settings-dialog').length===1,'Repeated opening stays single-owned')}
+ getSettingsOwner(plugin).close();disposeHome();control.destroy();assert(listeners.size===0&&subscriptions===disposals,'All listeners disposed exactly once');
+
+ const freshListeners=new Set();let setupCommands=0;
+ const freshBridge={view:()=>({status:'UNINITIALIZED',enabled:true,snapshot:null,contexts:[],starter:{serviceCount:1,hostCount:1,groups:[],policy:{whitelist:['initial.test'],blacklist:[]}},initialConfiguration:cfg}),
+  subscribe:fn=>{freshListeners.add(fn);return()=>freshListeners.delete(fn)},command:async()=>{setupCommands++;return {type:'REJECTED',reason:'FIXTURE'}}};
+ const freshPlugin={app:{},atlas:freshBridge},freshOwner=getSettingsOwner(freshPlugin);freshOwner.open('atlas');
+ let setupPane=document.querySelector('.hub-atlas-onboarding');setupPane.querySelector('input[type=number]').value='55.125';setupPane.querySelector('textarea').value='my-initial.test';setupPane.querySelector('details').open=true;
+ freshOwner.close();freshOwner.open('atlas');setupPane=document.querySelector('.hub-atlas-onboarding');
+ assert(setupPane.querySelector('input[type=number]').value==='55.125'&&setupPane.querySelector('textarea').value==='my-initial.test','Unsubmitted setup values survive close/reopen');
+ assert(setupPane.querySelector('details').open&&setupCommands===0,'Setup restoration does not initialize authority');
+ freshOwner.close();getAtlasSession(freshBridge).dispose();assert(freshListeners.size===0,'Fresh setup subscriptions disposed');
+ document.getElementById('result').textContent='PASS: one Settings owner, direct routes, focus restoration, dirty draft replacement, section/category/close preservation, validation, verified submit, occupancy, uncertainty, concurrent edits, timing preservation, pending phase routes/recovery and listener disposal.';
+}catch(error){document.getElementById('result').textContent='FAIL: '+error.stack}
+</script>

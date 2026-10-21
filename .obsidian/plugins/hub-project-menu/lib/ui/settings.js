@@ -35,33 +35,56 @@ class SettingsModal extends Modal {
         this.select(SETTINGS_PAGES.some(page => page.id === this.initialPage) ? this.initialPage : "appearance");
     }
     select(id) {
+        if (this.selected === id) return;
         const page = SETTINGS_PAGES.find(page => page.id === id);
         if (!page) return;
         this.buttons.forEach((button, index) => {
             const selected = SETTINGS_PAGES[index].id === id;
             button.setAttribute("aria-selected", String(selected)); button.tabIndex = selected ? 0 : -1;
         });
+        this.selected = id;
         this.panel.setAttribute("aria-labelledby", `${this.prefix}-${id}`);
         this.disposePage?.(); this.panel.empty(); this.disposePage = renderSettingsPage(this.panel, page, this.plugin); this.panel.scrollTop = 0;
     }
     onClose() { this.disposePage?.(); this.contentEl.empty(); this.closed?.(); }
 }
 
+// The footer control and Atlas entry points share this one owner per plugin.
+// A lazy owner also works before the footer is mounted; it never creates a
+// second Atlas-specific dialog.
+const owners = new WeakMap();
+function getSettingsOwner(plugin) {
+    if (owners.has(plugin)) return owners.get(plugin);
+    let modal = null, fallback = null, origin = null;
+    const owner = {
+        open(page = "appearance") {
+            if (modal) { modal.select(typeof page === "string" ? page : "appearance"); modal.panel?.focus({ preventScroll: true }); return true; }
+            const document = fallback?.ownerDocument ?? globalThis.document;
+            if (document?.querySelector(".modal-container")) return false;
+            origin = document?.activeElement;
+            modal = new SettingsModal(plugin.app, () => {
+                modal = null;
+                const previous = origin?.isConnected && origin !== document.body ? origin : fallback?.isConnected ? fallback :
+                    plugin.app.workspace?.activeLeaf?.view?.contentEl;
+                previous?.focus?.({ preventScroll: true }); origin = null;
+            }, plugin, typeof page === "string" ? page : "appearance");
+            modal.open(); return true;
+        },
+        isOpen: () => !!modal,
+        close() { modal?.close(); },
+        attach(button) { fallback = button; },
+        detach(button) { if (fallback === button) fallback = null; }
+    };
+    owners.set(plugin, owner); return owner;
+}
 function mountSettingsControl(plugin, host) {
     const button = host.createEl("button", { cls: "hub-oath-button hub-settings-button",
         attr: { type: "button", "aria-label": "Settings", "aria-haspopup": "dialog" } });
     setIcon(button.createSpan({ cls: "hub-oath-icon", attr: { "aria-hidden": "true" } }), "settings");
     button.createSpan({ text: "Settings" }); setHubTooltip(button, "Settings", "top");
-    let modal = null, destroyed = false;
-    const open = (page = "appearance") => {
-        if (destroyed) return;
-        if (modal) { if (typeof page === "string") modal.select(page); modal.panel?.focus(); return; }
-        // Keep existing modal/Oath interactions in charge while another window is open.
-        if (button.ownerDocument.querySelector(".modal-container")) return;
-        modal = new SettingsModal(plugin.app, () => { modal = null; if (!destroyed && button.isConnected) button.focus(); }, plugin, typeof page === "string" ? page : "appearance");
-        modal.open();
-    };
+    const owner = getSettingsOwner(plugin); owner.attach(button); let destroyed = false;
+    const open = (page = "appearance") => !destroyed && owner.open(typeof page === "string" ? page : "appearance");
     plugin.registerDomEvent(button, "click", open);
-    return { button, open, isOpen: () => !!modal, destroy() { destroyed = true; modal?.close(); button.remove(); } };
+    return { button, open, isOpen: owner.isOpen, destroy() { destroyed = true; owner.close(); owner.detach(button); button.remove(); } };
 }
-module.exports = { SettingsModal, mountSettingsControl };
+module.exports = { SettingsModal, mountSettingsControl, getSettingsOwner };

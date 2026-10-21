@@ -2241,6 +2241,7 @@ module.exports = { createManagedService, readBundle, refreshIntervalMs, digest }
 
 // Application metadata only. Core continues to own every host classification.
 const Core = __hubRequire("lib/atlas/core/index.js");
+const { sameConfiguration } = __hubRequire("lib/atlas/core/configuration.js");
 const { normalizePolicy } = __hubRequire("lib/atlas/core/policy.js");
 const { curatedWhitelist, serviceHostnames } = __hubRequire("lib/atlas/presets/curated-whitelist.js");
 const exact = (value, keys) => value && typeof value === "object" && !Array.isArray(value) &&
@@ -2280,8 +2281,17 @@ function destinationsFromPolicy(policy) {
     return result;
 }
 function initialApplication(policy) {
-    return { schemaVersion: 1, revision: 0, destinations: destinationsFromPolicy(policy), pending: null };
+    return { schemaVersion: 2, revision: 0, destinations: destinationsFromPolicy(policy), pending: null, recovery: null };
 }
+// IDs identify records, not mutable hostnames. Never reuse an occupied ID,
+// including a curated seed ID retained by a user-edited primary hostname.
+function unusedId(seed, destinations) {
+    const occupied = new Set(destinations.map(d => d.id));
+    let id = seed, suffix = 2;
+    while (occupied.has(id)) id = seed + ":" + suffix++;
+    return id;
+}
+const classification = (policy, hostname) => policy.blacklist.includes(hostname) ? "BLACKLIST" : policy.whitelist.includes(hostname) ? "WHITELIST" : "GREYLIST";
 // Explicit curated import merges reviewed hosts into the existing service.
 // User labels, categories, pins, custom services and manual Blacklist survive.
 function mergeCuratedDestinations(application, policy) {
@@ -2289,23 +2299,39 @@ function mergeCuratedDestinations(application, policy) {
     for (const curated of destinationsFromPolicy(policy)) {
         const old = destinations.find(d => d.hostname === curated.hostname);
         if (!old) {
-            if (!destinations.some(d => serviceHostnames(d).includes(curated.hostname))) destinations.push(curated);
+            if (!destinations.some(d => serviceHostnames(d).includes(curated.hostname))) destinations.push({ ...curated, id: unusedId(curated.id, destinations) });
             continue;
         }
         old.aliases = [...new Set([...old.aliases, ...curated.aliases])].filter(h => !old.destinations.includes(h));
         old.destinations = [...new Set([...old.destinations, ...curated.destinations])].filter(h => !old.aliases.includes(h));
     }
+    if (!validateDestinations(destinations)) throw new Error("CURATED_METADATA_CONFLICT");
     return destinations;
 }
+function validateRecovery(value) {
+    return exact(value, ["id", "sourceProposalId", "operation", "basePolicyRevision", "baseConfigurationRevision", "baseApplicationRevision", "policy", "configuration", "destinations"]) &&
+        text(value.id, 256) && Number.isSafeInteger(value.sourceProposalId) && value.sourceProposalId > 0 &&
+        ["PROPOSE_POLICY", "PROPOSE_SETTINGS"].includes(value.operation) &&
+        ["basePolicyRevision", "baseConfigurationRevision", "baseApplicationRevision"].every(key => Number.isSafeInteger(value[key]) && value[key] >= 0) &&
+        normalizePolicy(value.policy) && Core.readConfiguration(value.configuration) &&
+        (value.destinations === null || validateDestinations(value.destinations));
+}
+function replacementMatches(pending, recovery, destinations) {
+    return !!pending && !!recovery && pending.id !== recovery.sourceProposalId &&
+        (recovery.destinations === null || JSON.stringify(destinations) === JSON.stringify(recovery.destinations)) &&
+        (recovery.operation === "PROPOSE_SETTINGS" ? sameConfiguration(pending.candidateConfiguration, recovery.configuration) : samePolicy(pending.candidatePolicy, recovery.policy));
+}
 function validateApplication(value, snapshot) {
-    if (!exact(value, ["schemaVersion", "revision", "destinations", "pending"]) || value.schemaVersion !== 1 ||
+    const legacy = value?.schemaVersion === 1;
+    if (!exact(value, legacy ? ["schemaVersion", "revision", "destinations", "pending"] : ["schemaVersion", "revision", "destinations", "pending", "recovery"]) ||
+        ![1, 2].includes(value.schemaVersion) || !legacy && value.recovery !== null && !validateRecovery(value.recovery) ||
         !Number.isSafeInteger(value.revision) || value.revision < 0 || !validateDestinations(value.destinations)) return null;
     if (value.pending !== null) {
         const p = value.pending, proposal = snapshot.vaultState.pendingProposal;
         if (!exact(p, ["proposalId", "policy", "destinations"]) || !proposal || p.proposalId !== proposal.id ||
             !normalizePolicy(p.policy) || !samePolicy(p.policy, proposal.candidatePolicy) || !validateDestinations(p.destinations)) return null;
     }
-    return structuredClone(value);
+    return { ...structuredClone(value), schemaVersion: 2, recovery: legacy ? null : structuredClone(value.recovery) };
 }
 function transitionApplication(application, before, after, staged) {
     const value = structuredClone(application), pending = after.vaultState.pendingProposal;
@@ -2319,6 +2345,8 @@ function transitionApplication(application, before, after, staged) {
         }
         value.pending = null;
     }
+    if (!pending && after.vaultState.lastApplied?.proposalId === before.vaultState.pendingProposal?.id &&
+        replacementMatches(before.vaultState.pendingProposal, value.recovery, application.pending?.destinations)) value.recovery = null;
     // Advanced/import changes have no presentation draft. Reflect their exact
     // committed host removals and additions instead of resurrecting the preset.
     if (!samePolicy(before.policy, after.policy) && !application.pending) {
@@ -2326,7 +2354,10 @@ function transitionApplication(application, before, after, staged) {
         value.destinations = value.destinations.filter(d => explicit.has(d.hostname)).map(d => ({ ...d,
             aliases: d.aliases.filter(h => explicit.has(h)), destinations: d.destinations.filter(h => explicit.has(h)) }));
         const covered = new Set(value.destinations.flatMap(serviceHostnames));
-        value.destinations.push(...destinationsFromPolicy(after.policy).filter(d => !covered.has(d.hostname)));
+        for (const item of destinationsFromPolicy(after.policy)) if (!covered.has(item.hostname)) {
+            value.destinations.push({ ...item, id: unusedId(item.id, value.destinations) });
+            serviceHostnames(item).forEach(h => covered.add(h));
+        }
         value.revision++;
     }
     return value;
@@ -2334,18 +2365,31 @@ function transitionApplication(application, before, after, staged) {
 function buildDestinationChange(snapshot, application, input) {
     if (input.basePolicyRevision !== snapshot.policyRevision || input.baseApplicationRevision !== application.revision) throw new Error("STALE_DRAFT");
     const destination = input.destination === null ? null : validateDestination(input.destination);
-    if (input.destination !== null && !destination || !["WHITELIST", "BLACKLIST", "GREYLIST"].includes(input.access)) throw new Error("INVALID_DESTINATION");
+    if (input.destination !== null && !destination) throw new Error("INVALID_DESTINATION");
     const previous = application.destinations.find(d => d.id === input.previousId);
     if (input.previousId !== null && !previous) throw new Error("STALE_DESTINATION");
+    if (previous && destination && previous.id !== destination.id) throw new Error("DESTINATION_ID_CHANGED");
     if (destination && application.destinations.some(d => d.id !== input.previousId && (d.id === destination.id || d.hostname === destination.hostname))) throw new Error("DUPLICATE_DESTINATION");
+    if (!Object.hasOwn(input, "hostAccess") && !["WHITELIST", "BLACKLIST", "GREYLIST"].includes(input.access)) throw new Error("INVALID_HOST_ACCESS");
+    const proposed = destination ? serviceHostnames(destination) : [];
+    // Legacy access is an explicit all-host operation. Editors send a complete
+    // classification per exact hostname, independent of interaction history.
+    const hostAccess = Object.hasOwn(input, "hostAccess") ? input.hostAccess : proposed.map(hostname => ({ hostname, access: input.access }));
+    if (!Array.isArray(hostAccess) || hostAccess.length !== proposed.length ||
+        hostAccess.some(h => !exact(h, ["hostname", "access"]) || !proposed.includes(h.hostname) || !["WHITELIST", "BLACKLIST", "GREYLIST"].includes(h.access)) ||
+        new Set(hostAccess.map(h => h.hostname)).size !== proposed.length) throw new Error("INVALID_HOST_ACCESS");
     const destinations = application.destinations.filter(d => d.id !== input.previousId);
-    const shared = new Set(destinations.flatMap(serviceHostnames)), removed = new Set(previous ? serviceHostnames(previous).filter(h => !shared.has(h)) : []);
+    const shared = new Set(destinations.flatMap(serviceHostnames));
+    const removed = new Set(previous ? serviceHostnames(previous).filter(h => !shared.has(h) && !proposed.includes(h)) : []);
     const policy = { whitelist: snapshot.policy.whitelist.filter(h => !removed.has(h)), blacklist: snapshot.policy.blacklist.filter(h => !removed.has(h)) };
-    if (destination) {
-        destinations.push(destination);
-        const proposed = new Set(serviceHostnames(destination));
-        policy.whitelist = policy.whitelist.filter(h => !proposed.has(h)); policy.blacklist = policy.blacklist.filter(h => !proposed.has(h));
-        if (input.access !== "GREYLIST") policy[input.access === "WHITELIST" ? "whitelist" : "blacklist"].push(...proposed);
+    if (destination) destinations.push(destination);
+    for (const intent of hostAccess) {
+        // Preserve exact membership too: an untouched blacklisted host can also
+        // have a Whitelist entry. Display edits cannot remove that entry.
+        if (classification(snapshot.policy, intent.hostname) === intent.access) continue;
+        policy.whitelist = policy.whitelist.filter(h => h !== intent.hostname);
+        policy.blacklist = policy.blacklist.filter(h => h !== intent.hostname);
+        if (intent.access !== "GREYLIST") policy[intent.access === "WHITELIST" ? "whitelist" : "blacklist"].push(intent.hostname);
     }
     policy.whitelist = [...new Set(policy.whitelist)]; policy.blacklist = [...new Set(policy.blacklist)];
     if (!normalizePolicy(policy) || !validateDestinations(destinations)) throw new Error("INVALID_DESTINATION");
@@ -2353,7 +2397,7 @@ function buildDestinationChange(snapshot, application, input) {
 }
 
 module.exports = { validateDestination, validateDestinations, validateApplication, initialApplication, mergeCuratedDestinations,
-    transitionApplication, buildDestinationChange, samePolicy };
+    transitionApplication, buildDestinationChange, samePolicy, classification, replacementMatches };
 
 },
 "lib/atlas/obsidian/clock.js": function (module, exports, __hubRequire) {
@@ -2379,6 +2423,7 @@ module.exports = { createClock };
 const path = require("path");
 const { AtlasFileRepository } = __hubRequire("lib/atlas/obsidian/persistence.js");
 const { createClock } = __hubRequire("lib/atlas/obsidian/clock.js");
+const { createViewJSON } = __hubRequire("lib/atlas/obsidian/presentation.js");
 const { createAtlasRuntime, DEVELOPMENT_CONFIGURATION } = __hubRequire("lib/atlas/obsidian/runtime.js");
 const { createWebviewerEnforcement } = __hubRequire("lib/atlas/obsidian/webviewer.js");
 const { createManagedService, readBundle } = __hubRequire("lib/atlas/managed/service.js");
@@ -2419,10 +2464,10 @@ function getAtlasHost({ directory, partition }) {
     timer.unref?.();
     const refreshTimer = setInterval(() => { void managed.refresh(); }, 3_600_000); refreshTimer.unref?.();
     const api = Object.freeze({
-        apiVersion: 3,
+        apiVersion: 4,
         // Remote object proxies make every nested property read synchronous IPC.
         // Strings cross once; UI descriptions/results are ordinary local data.
-        viewJSON: () => JSON.stringify(api.view()),
+        viewJSON: createViewJSON(() => api.view()),
         commandJSON: async encoded => {
             let input;
             try { if (typeof encoded !== "string" || encoded.length > 1_000_000) throw new Error(); input = JSON.parse(encoded); }
@@ -2603,10 +2648,10 @@ class AtlasFileRepository {
             if (this.lastBytes !== null && text !== this.lastBytes) {
                 this.issue = "EXTERNAL_WRITE"; return { type: "UNAVAILABLE" };
             }
-            if (value.schemaVersion === 1 || !Object.hasOwn(value, "application")) {
+            if (value.schemaVersion === 1 || !Object.hasOwn(value, "application") || value.application.schemaVersion === 1) {
                 const converted = value.schemaVersion === 1 ? migrateAtlasSnapshotV1(value.snapshot, this.configuration) : validateAtlasSnapshot(value.snapshot);
                 if (!converted.ok) return { type: "READY", envelope: null };
-                const next = { schemaVersion: 2, snapshot: converted.snapshot, application: initialApplication(converted.snapshot.policy) };
+                const next = { schemaVersion: 2, snapshot: converted.snapshot, application: value.application ? validateApplication(value.application, converted.snapshot) : initialApplication(converted.snapshot.policy) };
                 this.lastBytes = text;
                 const receipt = await this.replace(value.storageVersion, `migration:${randomUUID()}`, next);
                 if (receipt.type !== "COMMITTED") return { type: "UNAVAILABLE" };
@@ -2731,13 +2776,89 @@ class AtlasFileRepository {
 module.exports = { AtlasFileRepository };
 
 },
+"lib/atlas/obsidian/presentation.js": function (module, exports, __hubRequire) {
+"use strict";
+const Core = __hubRequire("lib/atlas/core/index.js");
+const { serviceHostnames, compileCuratedWhitelist, curatedWhitelist } = __hubRequire("lib/atlas/presets/curated-whitelist.js");
+function freeze(value) {
+    if (value && typeof value === "object" && !Object.isFrozen(value)) { for (const child of Object.values(value)) freeze(child); Object.freeze(value); }
+    return value;
+}
+const starter = freeze({ groups: curatedWhitelist.map(g => ({ label: g.label, count: g.services.length })),
+    serviceCount: curatedWhitelist.reduce((count, g) => count + g.services.length, 0),
+    hostCount: compileCuratedWhitelist().whitelist.length, policy: compileCuratedWhitelist() });
+const phase = (record, now) => now < record.readyAt ? "WAITING" : now < record.confirmBy ? "READY" : "EXPIRED";
+// A display projection of controller-validated data. No result from this module
+// enters controller.handle, native release, leases or a policy transition.
+function createPresentation() {
+    let previous = null, previousManaged, cached;
+    return (state, application, enabled, now, managed, hasManaged) => {
+        const snapshot = state.snapshot, access = snapshot?.accessState;
+        const validTime = Number.isSafeInteger(now) && now >= 0 && (!snapshot ||
+            [access, snapshot.vaultState, snapshot.journeyState].every(s => now >= s.lastObservedAt));
+        const key = JSON.stringify([state.status, enabled, application, snapshot?.policy, snapshot?.policyRevision,
+            snapshot?.configuration, snapshot?.configurationRevision, access?.grants, access?.pendingRequests,
+            access?.grants.map(g => now < g.expiresAt), access?.pendingRequests.map(r => phase(r, now)), validTime, hasManaged]);
+        if (key === previous && managed === previousManaged) return cached;
+        const white = new Set(snapshot?.policy.whitelist), black = new Set(snapshot?.policy.blacklist), grants = new Map(), requests = new Map(), decisions = new Map();
+        for (const grant of access?.grants ?? []) for (const host of grant.scopeHostnames ?? [grant.hostname]) grants.set(host, grant);
+        for (const request of access?.pendingRequests ?? []) for (const host of request.scopeHostnames ?? [request.hostname]) requests.set(host, request);
+        const describe = hostname => {
+            if (decisions.has(hostname)) return decisions.get(hostname);
+            const target = { hostname }; let decision;
+            if (state.status !== "READY" || !enabled) decision = { outcome: "DENY", reason: "ATLAS_UNAVAILABLE" };
+            else if (!validTime || hasManaged && !Core.isManagedBlacklist(managed)) decision = { outcome: "DENY", reason: "REJECTED" };
+            else if (black.has(hostname)) decision = { outcome: "DENY", reason: "BLACKLISTED", target };
+            else if (white.has(hostname)) decision = { outcome: "ALLOW", reason: "WHITELISTED", target };
+            else if (hasManaged && Core.managedBlacklistContains(managed, hostname)) decision = { outcome: "DENY", reason: "MANAGED_BLACKLISTED", target };
+            else {
+                const grant = grants.get(hostname), request = requests.get(hostname), record = grant ?? request;
+                if (record && record.policyRevision !== snapshot.policyRevision) decision = { outcome: "GREYLIST", reason: "POLICY_CHANGED", target };
+                else if (grant) decision = now < grant.expiresAt ? { outcome: "ALLOW", reason: "ACTIVE_GRANT", target, requestId: grant.requestId, expiresAt: grant.expiresAt }
+                    : { outcome: "GREYLIST", reason: "GRANT_EXPIRED", target };
+                else if (request && now < request.confirmBy) decision = { outcome: now < request.readyAt ? "WAIT" : "REQUIRE_CONFIRMATION",
+                    reason: now < request.readyAt ? "COOLDOWN" : "CONFIRMATION_REQUIRED", target, requestId: request.id, readyAt: request.readyAt, confirmBy: request.confirmBy };
+                else decision = { outcome: "GREYLIST", reason: request ? "REQUEST_EXPIRED" : "UNLISTED", target };
+            }
+            decisions.set(hostname, decision); return decision;
+        };
+        cached = freeze({ destinations: (application?.destinations ?? []).map(d => ({ ...d,
+            hosts: serviceHostnames(d).map(hostname => ({ hostname, decision: describe(hostname) })), decision: describe(d.hostname) })),
+            temporaryDestinations: (access?.grants ?? []).map(g => ({ ...g, decision: describe(g.hostname) })) });
+        previous = key; previousManaged = managed; return cached;
+    };
+}
+// Ignore only persistence checkpoint bookkeeping. Policy, configuration,
+// recovery, grants, requests, Journey/context changes and phase boundaries notify.
+function presentationKey(view, now) {
+    const s = view.snapshot;
+    return JSON.stringify([view.status, view.reason, view.enabled, view.pendingCommitId, view.repositoryIssue, view.application,
+        s?.policy, s?.policyRevision, s?.configuration, s?.configurationRevision, s?.accessState.pendingRequests, s?.accessState.grants,
+        s?.vaultState.pendingProposal, s?.vaultState.pendingProposal && phase(s.vaultState.pendingProposal, now), s?.journeyState.journeys,
+        view.destinations, view.temporaryDestinations, view.contexts.map(c => [c.id, c.nativeId, c.generation, c.closed, c.phase, c.origin,
+            c.response?.type, c.response?.reason, c.response?.decision, c.journey])]);
+}
+function createViewJSON(read, encode = JSON.stringify) {
+    let key, destinations, temporary, encoded;
+    return () => {
+        const view = read(), next = JSON.stringify([view.status, view.reason, view.enabled, view.storageVersion, view.pendingCommitId,
+            view.repositoryIssue, view.contexts, view.managed]);
+        if (next !== key || destinations !== view.destinations || temporary !== view.temporaryDestinations) {
+            encoded = encode(view); key = next; destinations = view.destinations; temporary = view.temporaryDestinations;
+        }
+        return encoded;
+    };
+}
+module.exports = { createPresentation, presentationKey, createViewJSON, starter, freeze };
+
+},
 "lib/atlas/obsidian/runtime.js": function (module, exports, __hubRequire) {
 "use strict";
 
 const { randomUUID } = require("crypto");
 const Core = __hubRequire("lib/atlas/core/index.js");
 const { compileCuratedWhitelist, curatedWhitelist, serviceHostnames } = __hubRequire("lib/atlas/presets/curated-whitelist.js");
-const { initialApplication, buildDestinationChange, validateDestinations, mergeCuratedDestinations } = __hubRequire("lib/atlas/obsidian/application.js");
+const { initialApplication, buildDestinationChange, validateDestinations, mergeCuratedDestinations, replacementMatches, samePolicy } = __hubRequire("lib/atlas/obsidian/application.js");
 
 // These are the copied D19 development values, disclosed during first setup.
 // Once initialized, only snapshot.configuration governs operations.
@@ -2754,6 +2875,7 @@ function homeOrigin(url) {
     if (!webTarget(url)) return null;
     try { return new URL(url).origin + "/"; } catch (_) { return null; }
 }
+const { createPresentation, presentationKey, starter, freeze } = __hubRequire("lib/atlas/obsidian/presentation.js");
 const blocked = reason => ({ type: "BLOCKED", reason });
 /** @param {import('../core/index').AtlasControllerResponse} response
  * @returns {response is Extract<import('../core/index').AtlasControllerResponse, {type: 'ASSESSMENT'}>} */
@@ -2764,10 +2886,14 @@ function createAtlasRuntime({ repository, clock, configuration = DEVELOPMENT_CON
     const controller = Core.createAtlasController({ repository, clock, configuration,
         ownerId: randomUUID(), ...(managedBlacklist === undefined ? {} : { managedBlacklist }) });
     const contexts = new Map(), subscribers = new Set();
-    let queue = Promise.resolve(), enabled = true;
+    let queue = Promise.resolve(), enabled = true, batchDepth = 0, pendingPublication = false, lastPublication = null;
+    const describe = createPresentation(); let applicationVersion, cachedApplication;
+    const presentationTime = () => { try { return clock.now(); } catch (_) { return NaN; } };
     const enqueue = work => {
-        const task = queue.then(work).catch(() => { failAll("ADAPTER_FAILURE"); return blocked("ADAPTER_FAILURE"); });
-        queue = task.then(() => undefined); return task;
+        const task = queue.then(async () => { batchDepth++; try { return await work(); }
+            catch (_) { failAll("ADAPTER_FAILURE"); return blocked("ADAPTER_FAILURE"); }
+            finally { batchDepth--; if (pendingPublication) { pendingPublication = false; publish(); } } });
+        queue = task.then(() => undefined, () => undefined); return task;
     };
     const snapshot = () => controller.getView().snapshot;
     const journey = context => snapshot()?.journeyState.journeys.find(j => j.contextId === context.id && j.phase !== "ENDED");
@@ -2775,6 +2901,11 @@ function createAtlasRuntime({ repository, clock, configuration = DEVELOPMENT_CON
         ...(continuation ? { continuation } : {}) });
     const valid = (context, generation) => enabled && contexts.get(context.id) === context && context.generation === generation && !context.closed;
     function publish() {
+        if (batchDepth) { pendingPublication = true; return; }
+        if (!subscribers.size) { lastPublication = null; return; }
+        const key = presentationKey(view(), presentationTime());
+        if (key === lastPublication) return;
+        lastPublication = key;
         for (const callback of subscribers) { try { callback(); } catch (_) { subscribers.delete(callback); } }
     }
     function failContext(context, response, origin = context.origin) {
@@ -2968,24 +3099,13 @@ function createAtlasRuntime({ repository, clock, configuration = DEVELOPMENT_CON
     }
     function view() {
         const state = controller.getView();
-        const application = repository.application?.(state.storageVersion) ?? (state.snapshot ? initialApplication(state.snapshot.policy) : null);
-        // Descriptions from the pure Core planner carry no executable ALLOW.
-        // Native requests still require the controller and verified persistence.
-        const describe = hostname => {
-            if (state.status !== "READY" || !enabled) return { outcome: "DENY", reason: "ATLAS_UNAVAILABLE" };
-            const managed = managedBlacklist?.();
-            const plan = Core.planAtlasOperation({ kind: "CHECK_NAVIGATION", target: { hostname }, context: { contextId: "atlas-home-description", journeyId: null } }, {
-                snapshot: state.snapshot, now: clock.now(), configuration: state.snapshot.configuration,
-                ...(managedBlacklist ? { managedBlacklist: managed } : {}) });
-            return plan.result.type === "ASSESSMENT" ? plan.result.decision : { outcome: "DENY", reason: plan.result.type };
-        };
-        const destinations = (application?.destinations ?? []).map(destination => ({ ...destination,
-            hosts: serviceHostnames(destination).map(hostname => ({ hostname, decision: describe(hostname) })), decision: describe(destination.hostname) }));
-        return { ...state, enabled, application, destinations,
-            temporaryDestinations: (state.snapshot?.accessState.grants ?? []).map(grant => ({ ...grant, decision: describe(grant.hostname) })),
-            starter: { groups: curatedWhitelist.map(g => ({ label: g.label, count: g.services.length })),
-                serviceCount: curatedWhitelist.reduce((count, g) => count + g.services.length, 0), hostCount: compileCuratedWhitelist().whitelist.length,
-                policy: compileCuratedWhitelist() },
+        if (applicationVersion !== state.storageVersion || cachedApplication === undefined) {
+            cachedApplication = freeze(repository.application?.(state.storageVersion) ?? (state.snapshot ? initialApplication(state.snapshot.policy) : null));
+            applicationVersion = state.storageVersion;
+        }
+        let managed; try { managed = managedBlacklist?.(); } catch (_) { managed = null; }
+        const display = describe(state, cachedApplication, enabled, presentationTime(), managed, managedBlacklist !== undefined);
+        return { ...state, enabled, application: cachedApplication, ...display, starter,
             initialConfiguration: state.snapshot ? null : configuration, repositoryIssue: repository.issue ?? null,
             contexts: [...contexts.values()].map(context => ({ id: context.id, nativeId: context.nativeId,
                 generation: context.generation, closed: context.closed, phase: context.phase,
@@ -3011,7 +3131,8 @@ function createAtlasRuntime({ repository, clock, configuration = DEVELOPMENT_CON
             if (controller.getView().status !== "READY") return blocked("NOT_READY");
             const candidatePolicy = { whitelist: [...new Set([...snapshot().policy.whitelist,
                 ...compileCuratedWhitelist().whitelist])], blacklist: [...snapshot().policy.blacklist] };
-            repository.stageApplication(mergeCuratedDestinations(repository.application(), candidatePolicy));
+            try { repository.stageApplication(mergeCuratedDestinations(repository.application(), candidatePolicy)); }
+            catch (_) { repository.clearApplicationStage(); return { type: "REJECTED", reason: "CURATED_METADATA_CONFLICT" }; }
             try { return await command({ kind: "PROPOSE_POLICY", candidatePolicy }); }
             finally { repository.clearApplicationStage(); }
         }
@@ -3024,18 +3145,38 @@ function createAtlasRuntime({ repository, clock, configuration = DEVELOPMENT_CON
             if (clock.now() < pending.confirmBy) return { type: "REJECTED", reason: "PROPOSAL_NOT_EXPIRED" };
             // Core owns cancellation, new IDs, the full wait and confirmation.
             // Never replay a confirmation or apply any of these candidate values.
-            const destinations = repository.application().pending?.destinations;
-            const cancelled = await command({ kind: "CANCEL_POLICY", proposalId: pending.id });
-            if (cancelled.type !== "COMMITTED") return cancelled;
-            if (destinations) repository.stageApplication(destinations);
-            try { return await command(pending.candidateConfiguration &&
-                JSON.stringify(pending.candidateConfiguration) !== JSON.stringify(snapshot().configuration)
-                ? { kind: "PROPOSE_SETTINGS", candidateConfiguration: pending.candidateConfiguration }
-                : { kind: "PROPOSE_POLICY", candidatePolicy: pending.candidatePolicy }); }
-            finally { repository.clearApplicationStage(); }
+            let application = repository.application(), recovery = application.recovery;
+            if (recovery && recovery.sourceProposalId !== pending.id && !replacementMatches(pending, recovery, application.pending?.destinations))
+                return { type: "REJECTED", reason: "RECOVERY_DRAFT_PENDING" };
+            if (!recovery || recovery.sourceProposalId !== pending.id) {
+                recovery = { id: randomUUID(), sourceProposalId: pending.id,
+                    operation: pending.candidateConfiguration && JSON.stringify(pending.candidateConfiguration) !== JSON.stringify(snapshot().configuration) ? "PROPOSE_SETTINGS" : "PROPOSE_POLICY",
+                    basePolicyRevision: snapshot().policyRevision, baseConfigurationRevision: snapshot().configurationRevision,
+                    baseApplicationRevision: application.revision, policy: structuredClone(pending.candidatePolicy),
+                    configuration: structuredClone(pending.candidateConfiguration ?? snapshot().configuration),
+                    destinations: application.pending?.destinations ?? null };
+                // The only recoverable copy must be durable BEFORE cancellation.
+                // This metadata transaction cannot publish policy or shorten waits.
+                const saved = await savePresentation({ ...application, recovery }, "RECOVERY_SAVE_UNRESOLVED");
+                if (saved.type !== "COMMITTED") return saved;
+            }
+            return restoreRecovery(recovery, recovery);
+        }
+        if (kind === "RESTORE_RECOVERY" && Object.keys(input).length === 5 &&
+            ["recoveryId", "basePolicyRevision", "baseConfigurationRevision", "baseApplicationRevision"].every(key => Object.hasOwn(input, key))) {
+            if (controller.getView().status !== "READY") return blocked("NOT_READY");
+            const recovery = repository.application().recovery;
+            if (!recovery || recovery.id !== input.recoveryId) return { type: "REJECTED", reason: "STALE_RECOVERY" };
+            return restoreRecovery(recovery, input);
+        }
+        if (kind === "DISCARD_RECOVERY" && Object.keys(input).length === 2 && Object.hasOwn(input, "recoveryId")) {
+            if (controller.getView().status !== "READY") return blocked("NOT_READY");
+            const application = repository.application();
+            if (!application.recovery || application.recovery.id !== input.recoveryId) return { type: "REJECTED", reason: "STALE_RECOVERY" };
+            return savePresentation({ ...application, recovery: null }, "RECOVERY_SAVE_UNRESOLVED");
         }
         if (kind === "PROPOSE_DESTINATION" && Object.keys(input).length === 6 &&
-            ["destination", "access", "previousId", "basePolicyRevision", "baseApplicationRevision"].every(key => Object.hasOwn(input, key))) {
+            ["destination", Object.hasOwn(input, "hostAccess") ? "hostAccess" : "access", "previousId", "basePolicyRevision", "baseApplicationRevision"].every(key => Object.hasOwn(input, key))) {
             if (controller.getView().status !== "READY") return blocked("NOT_READY");
             try {
                 const application = repository.application(), change = buildDestinationChange(snapshot(), application, input);
@@ -3094,13 +3235,49 @@ function createAtlasRuntime({ repository, clock, configuration = DEVELOPMENT_CON
         }
         await recheck(context); publish(); return response;
     }
-    async function savePresentation(application) {
+    async function restoreRecovery(recovery, bases) {
+        const application = repository.application(), current = snapshot();
+        if (bases.basePolicyRevision !== current.policyRevision || bases.baseConfigurationRevision !== current.configurationRevision ||
+            bases.baseApplicationRevision !== application.revision) return { type: "REJECTED", reason: "STALE_DRAFT" };
+        const pending = current.vaultState.pendingProposal;
+        if (replacementMatches(pending, recovery, application.pending?.destinations)) return { type: "REJECTED", reason: "REPLACEMENT_ALREADY_SAVED" };
+        if (pending) {
+            if (pending.id !== recovery.sourceProposalId) return { type: "REJECTED", reason: "PROPOSAL_PENDING" };
+            if (clock.now() < pending.confirmBy) return { type: "REJECTED", reason: "PROPOSAL_NOT_EXPIRED" };
+            const cancelled = await command({ kind: "CANCEL_POLICY", proposalId: pending.id });
+            if (cancelled.type !== "COMMITTED") return cancelled;
+        }
+        const latest = repository.application();
+        const unchanged = recovery.operation === "PROPOSE_SETTINGS"
+            ? JSON.stringify(snapshot().configuration) === JSON.stringify(recovery.configuration) : samePolicy(snapshot().policy, recovery.policy);
+        if (unchanged) {
+            // Another explicitly confirmed operation may already have installed
+            // these security values. Only reviewed display data remains to save;
+            // do not invent a no-op protected proposal or drop the saved work.
+            return savePresentation({ ...latest, recovery: null, ...(recovery.destinations === null ? {} :
+                { destinations: recovery.destinations, revision: latest.revision + 1 }) }, "RECOVERY_SAVE_UNRESOLVED");
+        }
+        if (recovery.destinations) repository.stageApplication(recovery.destinations);
+        let result;
+        try { result = await command(recovery.operation === "PROPOSE_SETTINGS"
+            ? { kind: "PROPOSE_SETTINGS", candidateConfiguration: recovery.configuration }
+            : { kind: "PROPOSE_POLICY", candidatePolicy: recovery.policy }); }
+        finally { repository.clearApplicationStage(); }
+        // An ambiguous write stops here. Reconciliation only reads it; neither
+        // proposal creation nor confirmation is ever retried automatically.
+        if (result.type !== "COMMITTED") return result;
+        const verified = repository.application();
+        if (!replacementMatches(snapshot().vaultState.pendingProposal, recovery, verified.pending?.destinations)) return blocked("RECOVERY_SAVE_UNRESOLVED");
+        const cleaned = await savePresentation({ ...verified, recovery: null }, "RECOVERY_SAVE_UNRESOLVED");
+        return cleaned.type === "COMMITTED" ? result : cleaned;
+    }
+    async function savePresentation(application, reason = "PRESENTATION_SAVE_FAILED") {
         const prior = controller.getView();
         const receipt = await repository.replace(prior.storageVersion, `presentation:${randomUUID()}`,
             { schemaVersion: 2, snapshot: prior.snapshot, application });
-        if (receipt.type !== "COMMITTED") { failAll("PRESENTATION_SAVE_FAILED"); await core({ kind: "OBSERVE_TIME" }); publish(); return blocked("PRESENTATION_SAVE_FAILED"); }
+        if (receipt.type !== "COMMITTED") { failAll(reason); await core({ kind: "OBSERVE_TIME" }); publish(); return blocked(reason); }
         await core({ kind: "OBSERVE_TIME" }); publish();
-        return controller.getView().status === "READY" ? { type: "COMMITTED", operation: "PRESENTATION" } : blocked("PRESENTATION_SAVE_FAILED");
+        return controller.getView().status === "READY" ? { type: "COMMITTED", operation: "PRESENTATION" } : blocked(reason);
     }
     return Object.freeze({ controller, attach, navigate, arrive,
         updateManaged: work => enqueue(async () => { const result = await work(); if (result && controller.getView().status === "READY") await observe(); else publish(); return result; }),
@@ -3109,7 +3286,7 @@ function createAtlasRuntime({ repository, clock, configuration = DEVELOPMENT_CON
             return enqueue(() => command(copy));
         }, observe: () => enqueue(observe), close, retireDocument, view, now: () => clock.now(),
         block: (context, reason) => failContext(context, blocked(reason)),
-        subscribe(callback) { subscribers.add(callback); return () => subscribers.delete(callback); },
+        subscribe(callback) { if (!subscribers.size) lastPublication = presentationKey(view(), presentationTime()); subscribers.add(callback); return () => subscribers.delete(callback); },
         suspend() { enabled = false; failAll("INTEGRATION_SUSPENDED"); },
         forget(nativeId) {
             for (const [id, context] of contexts) if (context.nativeId === nativeId && context.closed) contexts.delete(id);

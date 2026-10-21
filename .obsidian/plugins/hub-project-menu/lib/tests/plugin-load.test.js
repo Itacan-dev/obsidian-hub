@@ -1,6 +1,7 @@
 "use strict";
 
 const assert = require("assert");
+const { test } = require("node:test");
 const fs = require("fs");
 const Module = require("module");
 const path = require("path");
@@ -72,10 +73,49 @@ Module._load = function (request) {
 };
 
 try {
-    delete require.cache[require.resolve(mainPath)];
-    const HubPlugin = require(mainPath);
+    for (const [label, pluginPath] of [["source", sourcePath], ["bundle", mainPath]]) {
+        delete require.cache[require.resolve(pluginPath)];
+        const HubPlugin = require(pluginPath);
+        assert.strictEqual(typeof HubPlugin, "function");
 
-    assert.strictEqual(typeof HubPlugin, "function");
+        for (const outcome of ["resolve", "reject"]) {
+            test(label + ": native, Athena and Atlas cleanup while native shutdown is pending (" + outcome + ")", async t => {
+                const previousWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
+                Object.defineProperty(globalThis, "window", { configurable: true, writable: true, value: {} });
+                t.after(() => { if (previousWindow) Object.defineProperty(globalThis, "window", previousWindow); else delete globalThis.window; });
+                const calls = [], errors = [], failure = new Error("Injected native shutdown failure");
+                t.mock.method(console, "error", (...args) => errors.push(args));
+                let resolveShutdown, rejectShutdown;
+                const stopping = new Promise((resolve, reject) => { resolveShutdown = resolve; rejectShutdown = reject; });
+                t.after(() => resolveShutdown());
+                const plugin = Object.assign(Object.create(HubPlugin.prototype), {
+                    nativeTaskRecoveryModal: { close() { calls.push("recovery.close"); } },
+                    nativeTaskHost: { close() { calls.push("native.close"); return stopping; } },
+                    athena: { destroy() { calls.push("athena.destroy"); } },
+                    atlas: { destroy() { calls.push("atlas.destroy"); } }
+                });
+                plugin.onunload();
+                assert.deepStrictEqual(calls, ["recovery.close", "native.close", "athena.destroy", "atlas.destroy"]);
+                assert.strictEqual(plugin.nativeTaskStopping, stopping);
+                assert.deepStrictEqual(errors, []);
+                if (outcome === "reject") rejectShutdown(failure); else resolveShutdown();
+                await Promise.allSettled([stopping]);
+                await new Promise(resolve => setImmediate(resolve));
+                assert.deepStrictEqual(errors, outcome === "reject" ? [["Native task shutdown failed", failure]] : []);
+            });
+        }
+        test(label + ": shutdown tolerates absent native-task and Athena services", async t => {
+            const previousWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
+            Object.defineProperty(globalThis, "window", { configurable: true, writable: true, value: {} });
+            t.after(() => { if (previousWindow) Object.defineProperty(globalThis, "window", previousWindow); else delete globalThis.window; });
+            let atlasDisposals = 0;
+            const plugin = Object.assign(Object.create(HubPlugin.prototype), { atlas: { destroy() { atlasDisposals++; } } });
+            plugin.onunload();
+            await new Promise(resolve => setImmediate(resolve));
+            assert.strictEqual(atlasDisposals, 1);
+            assert.strictEqual(plugin.nativeTaskStopping, undefined);
+        });
+    }
 } finally {
     Module._load = originalLoad;
 }

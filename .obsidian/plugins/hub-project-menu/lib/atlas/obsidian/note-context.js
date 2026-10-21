@@ -2,10 +2,10 @@
 
 // Hub mode state, live leaf ownership and native view types are the gate.
 // Body classes, selected text and remembered workspace history are never used.
-function canOpenAtlas(plugin, leaf, expectedMode = plugin.workspaceModes?.mode) {
+function eligibleNoteLeaf(plugin, leaf, expectedMode = plugin.workspaceModes?.mode, insideSettings = false) {
     const modes = plugin.workspaceModes, mode = modes?.mode, active = plugin.app.workspace.activeLeaf;
     if (!mode || mode !== expectedMode || modes.destroyed || modes.internalDepth > 0 || modes.state.currentMode !== "note" ||
-        plugin.settingsControl?.isOpen?.() || plugin.atlas?.isSettingsOpen?.()) return false;
+        !insideSettings && (plugin.settingsControl?.isOpen?.() || plugin.atlas?.isSettingsOpen?.())) return false;
     // Obsidian's Settings modal pushes its own live keymap scope. Native menus
     // may push another scope above it, so also inspect the previous scopes.
     const settingsScope = plugin.app.setting?.scope;
@@ -16,16 +16,22 @@ function canOpenAtlas(plugin, leaf, expectedMode = plugin.workspaceModes?.mode) 
     const type = item => item.getViewState?.()?.type ?? item.view?.getViewType?.();
     const permitted = item => {
         const path = modes.leafPath(item);
-        if (path === "Home.md" || !["markdown", "hub-prepared-note-rail", "webviewer"].includes(type(item))) return false;
-        return item === mode.projectLeaf || type(item) === "webviewer" || modes.contextContainsFile(mode.project, path);
+        if (item?.view?.containerEl?.isConnected === false || path === "Home.md") return false;
+        const kind = type(item);
+        if (item === mode.projectLeaf) return kind === "hub-prepared-note-rail" || kind === "markdown";
+        if (kind === "empty") return !path;
+        if (kind === "webviewer") return true;
+        return ["markdown", "pdf"].includes(kind) && modes.contextContainsFile(mode.project, path);
     };
     return permitted(leaf) && permitted(active) &&
         (leaf === mode.projectLeaf || modes.contentLeaves().includes(leaf)) &&
         (active === mode.projectLeaf || modes.contentLeaves().includes(active));
 }
+const canOpenAtlas = (plugin, leaf, expectedMode = plugin.workspaceModes?.mode) => eligibleNoteLeaf(plugin, leaf, expectedMode);
+const canUseAtlasContext = (plugin, leaf, expectedMode = plugin.workspaceModes?.mode) => eligibleNoteLeaf(plugin, leaf, expectedMode, true);
 function registerNoteAtlasAction(plugin, openHome, createMenu) {
     const workspace = plugin.app.workspace;
-    const documents = new Map();
+    const documents = new Map(); let destroyed = false;
     const markedTabs = new Set();
     const sync = () => {
         const mode = plugin.workspaceModes?.mode, wanted = new Set();
@@ -37,7 +43,7 @@ function registerNoteAtlasAction(plugin, openHome, createMenu) {
         for (const tabs of wanted) { tabs.classList.add("hub-atlas-note-tabs"); markedTabs.add(tabs); }
     };
     const open = async (leaf, expectedMode = plugin.workspaceModes?.mode) => {
-        if (!canOpenAtlas(plugin, leaf, expectedMode)) return false;
+        if (destroyed || !canOpenAtlas(plugin, leaf, expectedMode)) return false;
         return openHome(leaf, expectedMode);
     };
     plugin.registerEvent(workspace.on("leaf-menu", (menu, leaf) => {
@@ -47,7 +53,7 @@ function registerNoteAtlasAction(plugin, openHome, createMenu) {
             .onClick(() => open(leaf, mode)));
     }));
     const watchDocument = document => {
-        if (!document?.addEventListener || documents.has(document)) return;
+        if (destroyed || !document?.addEventListener || documents.has(document)) return;
         const contextmenu = event => {
             const strip = event.target.closest?.(".workspace-tab-header-container");
             // Actual tabs use native leaf-menu. Leave buttons, sidebars and
@@ -66,10 +72,10 @@ function registerNoteAtlasAction(plugin, openHome, createMenu) {
         document.addEventListener("contextmenu", contextmenu);
         documents.set(document, contextmenu);
     };
-    const destroy = () => { for (const [document, listener] of documents) document.removeEventListener("contextmenu", listener); documents.clear();
+    const destroy = () => { destroyed = true; for (const [document, listener] of documents) document.removeEventListener("contextmenu", listener); documents.clear();
         for (const tabs of markedTabs) tabs.classList.remove("hub-atlas-note-tabs"); markedTabs.clear(); };
     watchDocument(globalThis.document);
     sync();
     return { open, watchDocument, sync, destroy };
 }
-module.exports = { canOpenAtlas, registerNoteAtlasAction };
+module.exports = { canOpenAtlas, canUseAtlasContext, registerNoteAtlasAction };

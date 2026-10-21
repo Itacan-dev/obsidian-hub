@@ -1,0 +1,39 @@
+{
+  "version": 1,
+  "sources": {
+    "build-athena.js": "31a665da9a57cba9103df504370897aadd77a3016e7d90bc648aa9ff92a5b02c",
+    "lib/athena/package.json": "6ce9229c475392512892308b433217e7add8e20dade9f2a4d0a6c6758c84ec95",
+    "lib/athena/package-lock.json": "fc113c44557b3401ef6a17fea6705944a16788a86d6ce7340f069ade2326fcb9",
+    "lib/athena/tsconfig.json": "2aff909cf3c44e02edfa54d994053c2f522319edd2202fcd47d5a3a35cf0d243",
+    "lib/athena/src/contracts.ts": "fd155929ba54ceb063776c1cd3efa79c8e6e38c464082baa3c6c6385d498f1f0",
+    "lib/athena/src/controller.ts": "67fb1837cc3fcc5240efeb1b15b1c0e8e7ce6463c59e76450d1892d1a5115802",
+    "lib/athena/src/conversation-store.ts": "f1a14af5192c61c674020c936aed12d8bb63a81a0d279a0ef195bced7ac93a15",
+    "lib/athena/src/host/device-store.ts": "043c172b6f78c4d8743690d405810b4b180d3d19ed69b384cc4bb7fa93f03dcb",
+    "lib/athena/src/host/obsidian-host.ts": "7f0a67e88be2707f532c374f4c8ba5be6b6b187d9e4b1ffd5a23d06111863525",
+    "lib/athena/src/host/path-guard.ts": "ce351e402009596386de2050e58fdb906eb0bf62353d47a1f601433936243737",
+    "lib/athena/src/host/pdf-reader.ts": "e47ffb5b1c416b482aef8cf1c8a6e709adab517ab9c0552d836aaf7748f76b38",
+    "lib/athena/src/host/source-opener.ts": "1b82f6ada16093278f617def1d853586f90e5f427812789f7ba44196de91159e",
+    "lib/athena/src/integration.ts": "2e4a0468ab2c156e1736fc5954b4c1facecc1d3125a7c0dd1f6194a72c6f0107",
+    "lib/athena/src/knowledge/chunking.ts": "868d116dceef81cc96b97863585bf734e39091ea29e4ce3af7f483bcf8d007c0",
+    "lib/athena/src/knowledge/context.ts": "a6898600fe23898150ee80d9d3d480555cfadfeddb1536d1f89a8569095bcaf0",
+    "lib/athena/src/knowledge/documents.ts": "8897d0858bd69eafc55bd8f5f16c4e69157dff8f980fba008fcc712c7a26d3e0",
+    "lib/athena/src/knowledge/eligibility.ts": "e9e94709bb2aaf9c6247fdb27fb05bfdd2d1932d750f0ba40ee9b8add529d609",
+    "lib/athena/src/knowledge/extractors.ts": "c5709bce1397fe73307e254c486ab9a6cf6a8df5ecddcddbbe54c3616e7806bf",
+    "lib/athena/src/knowledge/index.ts": "5d4ba181a8a482457d8d1f0b922291adf5cebb9d3134f7e54f8458e26c2dc9ea",
+    "lib/athena/src/knowledge/pdf-worker.ts": "4c02fc9d5131ca943ee6561247f7c3df5a5172edcb11cba256b750722b75e2a6",
+    "lib/athena/src/pdf-types.d.ts": "1259a3fdb6612789950e9db1bc71fb9a93e888f36c1634c8ad9d319f1dd9a738",
+    "lib/athena/src/providers/mock.ts": "397b0da64fc51fb04dadfa8468dbf5c06ea5122c7c10dcf804bc10d87200bef8",
+    "lib/athena/src/providers/ollama.ts": "f1c585a2a7c0210836dd12753c288e52d43d3b30b67937a2491bca2d95d9b05b",
+    "lib/athena/src/ui/safe-markdown.ts": "35d8e6ac76b8f072f7766c18328a922b8aeb53261fe126c3938aad7512f8fef8",
+    "lib/athena/src/ui/settings.ts": "ed3bf963fbe339c500814efeeda4739f71409c0ac9b71767b38958d1d1d8dd88",
+    "lib/athena/src/ui/sidebar.ts": "abc8cbb6c22f558f3dff7aed5cbbf037748c03cdd9e59457fe0189699fd0c68d",
+    "lib/athena/src/ui/sources.ts": "12cddf0ef7508c1cfe90d0b3f409c73daab83afb63f0804cacfd69412a63a464"
+  },
+  "artifacts": {
+    "lib/athena/runtime.cjs": "082a67e33a05716bbdb187d14f8c3a0de10219da56182225c8260e6e3a74da82",
+    "lib/athena/assets/pdf-worker.js": "a0f2b6306c3c6c892cf8fd073981ba5d34a36c37ed965dc422107d2ee01821d4",
+    "lib/athena/licenses/minisearch.txt": "70d37354d6395629fb99edb28cb37a5d356ffa24a48cd02a5def5b83a300a899",
+    "lib/athena/licenses/pdfjs.txt": "0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594",
+    "lib/athena/THIRD_PARTY_NOTICES.md": "5123874043eb65de9c7dcc928b5baa8a6933635e8701f18aaadb72da6b765293"
+  }
+}

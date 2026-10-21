@@ -3,6 +3,7 @@
 const path = require("path");
 const { AtlasFileRepository } = require("./persistence");
 const { createClock } = require("./clock");
+const { createViewJSON } = require("./presentation");
 const { createAtlasRuntime, DEVELOPMENT_CONFIGURATION } = require("./runtime");
 const { createWebviewerEnforcement } = require("./webviewer");
 const { createManagedService, readBundle } = require("../managed/service");
@@ -43,10 +44,10 @@ function getAtlasHost({ directory, partition }) {
     timer.unref?.();
     const refreshTimer = setInterval(() => { void managed.refresh(); }, 3_600_000); refreshTimer.unref?.();
     const api = Object.freeze({
-        apiVersion: 3,
+        apiVersion: 4,
         // Remote object proxies make every nested property read synchronous IPC.
         // Strings cross once; UI descriptions/results are ordinary local data.
-        viewJSON: () => JSON.stringify(api.view()),
+        viewJSON: createViewJSON(() => api.view()),
         commandJSON: async encoded => {
             let input;
             try { if (typeof encoded !== "string" || encoded.length > 1_000_000) throw new Error(); input = JSON.parse(encoded); }

@@ -1,3 +1,32 @@
+/* Athena owns only its native sidebar surface; dashboard geometry is unchanged. */
+.hub-athena-view { padding: var(--size-4-3); }
+.hub-athena { display: flex; flex-direction: column; gap: var(--size-4-3); height: 100%; min-height: 0; min-width: 0; container-type: inline-size; font-size: var(--hub-font-body); color: var(--text-normal); }
+.hub-athena-top, .hub-athena-context, .hub-athena-composer, .hub-athena-settings { display: flex; flex-direction: column; gap: var(--size-4-2); min-width: 0; }
+.hub-athena-toolbar { display: flex; gap: var(--size-4-2); align-items: center; flex-wrap: wrap; min-width: 0; }
+.hub-athena-toolbar > select { flex: 1 1 120px; min-width: 0; max-width: 100%; }
+.hub-athena-toolbar > strong { flex: 1; }
+.hub-athena-label { display: flex; flex-direction: column; gap: 4px; font-size: var(--hub-font-compact); }
+.hub-athena-label:has(> input[type=checkbox]) { flex-direction: row; align-items: start; }
+.hub-athena-label input[type=checkbox] { flex: 0 0 auto; margin-top: 3px; }
+.hub-athena input:not([type=checkbox]), .hub-athena textarea, .hub-athena select, .hub-athena-settings textarea, .hub-athena-settings input:not([type=checkbox]), .hub-athena-settings select { width: 100%; min-width: 0; box-sizing: border-box; }
+.hub-athena textarea, .hub-athena-settings textarea { resize: vertical; min-height: 68px; max-height: 220px; }
+.hub-athena-transcript { flex: 1 1 auto; min-height: 60px; overflow: auto; overflow-wrap: anywhere; scrollbar-gutter: stable; }
+.hub-athena-turn { padding: var(--size-4-3) 0; border-bottom: 1px solid var(--background-modifier-border); }
+.hub-athena-role { font-weight: var(--font-semibold); margin-bottom: 4px; }
+.hub-athena-question { margin-bottom: var(--size-4-3); white-space: pre-wrap; }
+.hub-athena-answer { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.55; user-select: text; }
+.hub-athena-muted { color: var(--text-muted); font-size: var(--hub-font-secondary); overflow-wrap: anywhere; }
+.hub-athena-error { color: var(--text-error); overflow-wrap: anywhere; }
+.hub-athena-error:empty { display: none; }
+.hub-athena-source { margin: var(--size-4-2) 0; padding: var(--size-4-2); border: 1px solid var(--background-modifier-border); border-radius: var(--radius-s); }
+.hub-athena-source summary { cursor: pointer; overflow-wrap: anywhere; }
+.hub-athena-excerpt { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 280px; overflow: auto; font-size: var(--hub-font-compact); user-select: text; }
+.hub-athena-search-results { flex: 0 1 45%; min-height: 0; overflow: auto; border-top: 1px solid var(--background-modifier-border); }
+.hub-athena-composer { flex: 0 0 auto; border-top: 1px solid var(--background-modifier-border); padding-top: var(--size-4-2); }
+.hub-athena [hidden], .hub-athena-settings [hidden] { display: none !important; }
+.hub-athena-source-modal { max-width: min(760px, 92vw); }
+.hub-athena-settings { max-width: 680px; }
+
 /* Progress header rhythm shared by Home and Project/Resource workspaces. */
 :is(.home-recent, .project-progress) {
     --hub-progress-header-line-height: 16px;
@@ -25,7 +54,7 @@
  * Hub semantic type scale, scoped to Hub surfaces and portaled drag cards.
  * Native modal headings, menus and tooltips keep Obsidian's theme sizing.
  */
-:where(.hub-button-scope, .daily-project-list, .daily-project-empty, .home-project-card, .hub-atlas-home, .hub-atlas-overview) {
+:where(.hub-button-scope, .daily-project-list, .daily-project-empty, .home-project-card, .hub-atlas-home, .hub-atlas-overview, .hub-atlas-panel, .hub-atlas-navigation-status) {
     --hub-font-meta: 0.66rem;       /* 10.56px */
     --hub-font-secondary: 0.72rem;  /* 11.52px */
     --hub-font-compact: 0.78rem;    /* 12.48px */
@@ -3789,73 +3818,73 @@ body.hub-project-note-mode
 .workspace-tabs.hub-atlas-note-tabs :is(.workspace-tab-header-container, .workspace-tab-header-container-inner, .workspace-tab-header-spacer) { -webkit-app-region: no-drag !important; }
 .modal.hub-atlas-dialog { width: min(1080px, calc(100vw - 32px)); max-width: 1080px; height: min(780px, calc(100dvh - 48px)); max-height: calc(100dvh - 48px); display: flex; flex-direction: column; }
 .hub-atlas-dialog .modal-content.hub-atlas-overview { flex: 1; margin: 0; min-height: 0; }
-.hub-atlas-home, .hub-atlas-overview { --atlas-paper: #f8f5ed; --atlas-ink: #2c332d; --atlas-muted: #707566; --atlas-line: #ded8cc; --atlas-olive: #596344; background: var(--atlas-paper); color: var(--atlas-ink); color-scheme: light; font-size: var(--hub-font-body); line-height: 1.6; }
+.hub-atlas-home, .hub-atlas-overview, .hub-atlas-panel { --atlas-paper: #f8f5ed; --atlas-ink: #2c332d; --atlas-muted: #555f50; --atlas-line: #838a79; --atlas-olive: #596344; --atlas-control: #fcfaf5; --atlas-hover: #ece8db; --atlas-primary: #596344; --atlas-primary-hover: #495238; --atlas-primary-ink: #fffdf7; --atlas-error: #a22e2c; --atlas-warning: #70521f; --atlas-success: #315b3b; --atlas-scheme: light; background: var(--atlas-paper); color: var(--atlas-ink); color-scheme: var(--atlas-scheme); font-size: var(--hub-font-body); line-height: 1.6; }
 .hub-atlas-home { height: 100%; overflow: auto; box-sizing: border-box; padding: 44px clamp(20px, 5vw, 90px); }
 .hub-atlas-home[hidden], .hub-atlas-settings-section[hidden], .hub-atlas-settings-shell[hidden], .hub-atlas-navigation-status[hidden] { display: none !important; }
 .hub-atlas-overview [hidden] { display: none !important; }
 .hub-atlas-internal-home > webview, .hub-atlas-internal-home > :not(.hub-atlas-home):not(.hub-atlas-panel):not(.hub-atlas-navigation-status) { display: none !important; }
-.hub-atlas-overview { border-radius: 10px; padding: 26px; box-sizing: border-box; display: flex; flex-direction: column; height: 100%; min-height: 0; overflow: hidden; }
-.hub-settings-panel.hub-atlas-overview { overflow: hidden; }
+.hub-atlas-overview { border-radius: 10px; padding: 26px; box-sizing: border-box; display: flex; flex-direction: column; height: 100%; min-height: 0; overflow: auto; container: atlas-settings / inline-size; }
+.hub-settings-panel.hub-atlas-overview { overflow: auto; }
 .hub-atlas-settings-header { flex: none; }
 .hub-atlas-settings-header h2 { margin: 0 0 8px; }
 .hub-atlas-settings-header .hub-atlas-eyebrow { margin: 0 0 8px; }
 .hub-atlas-overview > :is(.hub-atlas-state, .hub-atlas-message) { flex: none; margin: 0 0 12px; }
 .hub-atlas-onboarding:empty { display: none; }
 .hub-atlas-onboarding { min-height: 0; overflow: auto; }
-:is(.hub-atlas-home, .hub-atlas-overview) :is(h1, h2, h3, h4) { font-family: Georgia, serif; color: var(--atlas-ink); font-weight: 400; line-height: 1.3; }
+:is(.hub-atlas-home, .hub-atlas-overview, .hub-atlas-panel) :is(h1, h2, h3, h4) { font-family: Georgia, serif; color: var(--atlas-ink); font-weight: 400; line-height: 1.3; }
 .hub-atlas-home h1 { font-size: var(--hub-font-title); margin: 10px 0; }
-:is(.hub-atlas-home, .hub-atlas-overview) h2 { font-size: var(--hub-font-title); }
-:is(.hub-atlas-home, .hub-atlas-overview) h3 { font-size: var(--hub-font-heading); }
-:is(.hub-atlas-home, .hub-atlas-overview) h4 { font-size: var(--hub-font-subheading); margin: 0; }
-:is(.hub-atlas-home, .hub-atlas-overview) small { font-size: var(--hub-font-secondary); color: var(--atlas-muted); }
+:is(.hub-atlas-home, .hub-atlas-overview, .hub-atlas-panel) h2 { font-size: var(--hub-font-title); }
+:is(.hub-atlas-home, .hub-atlas-overview, .hub-atlas-panel) h3 { font-size: var(--hub-font-heading); }
+:is(.hub-atlas-home, .hub-atlas-overview, .hub-atlas-panel) h4 { font-size: var(--hub-font-subheading); margin: 0; }
+:is(.hub-atlas-home, .hub-atlas-overview, .hub-atlas-panel) small { font-size: var(--hub-font-secondary); color: var(--atlas-muted); }
 .hub-atlas-home-header { text-align: center; padding-bottom: 24px; }
 .hub-atlas-home-header p, .hub-atlas-muted { color: var(--atlas-muted); }
 .hub-atlas-eyebrow { text-transform: uppercase; letter-spacing: 0.16em; font-size: var(--hub-font-meta); color: var(--atlas-olive); }
 .hub-atlas-home-toolbar { display: flex; gap: 12px; max-width: 840px; margin: 0 auto 24px; }
 .hub-atlas-home-toolbar input { flex: 1; min-width: 0; }
-:is(.hub-atlas-home, .hub-atlas-overview) :is(input, textarea, select) { border: 1px solid var(--atlas-line); background: #fcfaf5; color: var(--atlas-ink); box-shadow: none; border-radius: 6px; padding: 9px 12px; }
+:is(.hub-atlas-home, .hub-atlas-overview, .hub-atlas-panel) :is(input, textarea, select) { border: 1px solid var(--atlas-line); background: var(--atlas-control); color: var(--atlas-ink); box-shadow: none; border-radius: 6px; padding: 9px 12px; }
 .hub-atlas-overview input { max-width: none; width: 100%; box-sizing: border-box; }
-:is(.hub-atlas-home, .hub-atlas-overview) button { border: 1px solid var(--atlas-line); background: transparent; color: var(--atlas-olive); border-radius: 6px; padding: 8px 13px; box-shadow: none; height: auto; cursor: pointer; font-size: var(--hub-font-body); }
-:is(.hub-atlas-home, .hub-atlas-overview) button:hover { background: #ece8db; }
-:is(.hub-atlas-home, .hub-atlas-overview) :is(button, input, select, textarea):focus-visible { outline: 2px solid var(--atlas-olive); outline-offset: 3px; }
-:is(.hub-atlas-home, .hub-atlas-overview) button:disabled { opacity: 0.5; cursor: default; }
+:is(.hub-atlas-home, .hub-atlas-overview, .hub-atlas-panel) button { border: 1px solid var(--atlas-line); background: transparent; color: var(--atlas-olive); border-radius: 6px; padding: 8px 13px; box-shadow: none; height: auto; cursor: pointer; font-size: var(--hub-font-body); }
+:is(.hub-atlas-home, .hub-atlas-overview, .hub-atlas-panel) button:hover { background: var(--atlas-hover); }
+:is(.hub-atlas-home, .hub-atlas-overview, .hub-atlas-panel) :is(button, input, select, textarea):focus-visible { outline: 2px solid var(--atlas-olive); outline-offset: 3px; }
+:is(.hub-atlas-home, .hub-atlas-overview, .hub-atlas-panel) button:disabled { opacity: 0.5; cursor: default; }
 /* Native theme selectors include type attributes and interaction states.
    Match their specificity inside Atlas, including hover AND focused hover. */
-:is(.hub-atlas-home, .hub-atlas-overview) :is(input[type], input, textarea, select),
-:is(.hub-atlas-home, .hub-atlas-overview) :is(input[type], input, textarea, select):is(:hover, :focus, :focus-visible, :active, :disabled) {
-    color-scheme: light; background-color: #fcfaf5; color: var(--atlas-ink); border-color: var(--atlas-line); caret-color: var(--atlas-ink); box-shadow: none;
+:is(.hub-atlas-home, .hub-atlas-overview, .hub-atlas-panel) :is(input[type], input, textarea, select),
+:is(.hub-atlas-home, .hub-atlas-overview, .hub-atlas-panel) :is(input[type], input, textarea, select):is(:hover, :focus, :focus-visible, :active, :disabled) {
+    color-scheme: var(--atlas-scheme); background-color: var(--atlas-control); color: var(--atlas-ink); border-color: var(--atlas-line); caret-color: var(--atlas-ink); box-shadow: none;
 }
-:is(.hub-atlas-home, .hub-atlas-overview) :is(input[type], input, textarea, select):is(:focus, :focus-visible) { border-color: var(--atlas-olive); outline: 2px solid var(--atlas-olive); outline-offset: 2px; }
-:is(.hub-atlas-home, .hub-atlas-overview) :is(input, textarea)::placeholder { color: var(--atlas-muted); opacity: 1; }
-:is(.hub-atlas-home, .hub-atlas-overview) ::selection { color: var(--atlas-ink); background: #dddcc1; }
-:is(.hub-atlas-home, .hub-atlas-overview) :is(input[type], textarea, select):disabled { opacity: 0.65; cursor: default; }
-:is(.hub-atlas-home, .hub-atlas-overview) input[type=checkbox] { appearance: auto; accent-color: var(--atlas-olive); padding: 0; flex: none; }
-:is(.hub-atlas-home, .hub-atlas-overview) button:is(:hover, :focus, :focus-visible, :active) { color: var(--atlas-olive); background-color: #ece8db; border-color: var(--atlas-line); box-shadow: none; }
-:is(.hub-atlas-home, .hub-atlas-overview) button:focus-visible { outline: 2px solid var(--atlas-olive); outline-offset: 2px; }
-:is(.hub-atlas-home, .hub-atlas-overview) button:disabled { color: var(--atlas-muted); background-color: #f2eee4; }
-:is(.hub-atlas-home, .hub-atlas-overview) button.hub-atlas-primary { background: var(--atlas-olive); color: #fffdf7; border-color: var(--atlas-olive); }
-:is(.hub-atlas-home, .hub-atlas-overview) button.hub-atlas-primary:is(:hover, :focus, :active) { background: #495238; color: #fffdf7; }
-:is(.hub-atlas-home, .hub-atlas-overview) button.hub-atlas-primary:disabled { background: #e8e6d9; border-color: var(--atlas-line); color: var(--atlas-muted); }
+:is(.hub-atlas-home, .hub-atlas-overview, .hub-atlas-panel) :is(input[type], input, textarea, select):is(:focus, :focus-visible) { border-color: var(--atlas-olive); outline: 2px solid var(--atlas-olive); outline-offset: 2px; }
+:is(.hub-atlas-home, .hub-atlas-overview, .hub-atlas-panel) :is(input, textarea)::placeholder { color: var(--atlas-muted); opacity: 1; }
+:is(.hub-atlas-home, .hub-atlas-overview, .hub-atlas-panel) ::selection { color: var(--atlas-ink); background: var(--atlas-hover); }
+:is(.hub-atlas-home, .hub-atlas-overview, .hub-atlas-panel) :is(input[type], textarea, select):disabled { opacity: 0.65; cursor: default; }
+:is(.hub-atlas-home, .hub-atlas-overview, .hub-atlas-panel) input[type=checkbox] { appearance: auto; accent-color: var(--atlas-olive); padding: 0; flex: none; }
+:is(.hub-atlas-home, .hub-atlas-overview, .hub-atlas-panel) button:is(:hover, :focus, :focus-visible, :active) { color: var(--atlas-olive); background-color: var(--atlas-hover); border-color: var(--atlas-line); box-shadow: none; }
+:is(.hub-atlas-home, .hub-atlas-overview, .hub-atlas-panel) button:focus-visible { outline: 2px solid var(--atlas-olive); outline-offset: 2px; }
+:is(.hub-atlas-home, .hub-atlas-overview, .hub-atlas-panel) button:disabled { color: var(--atlas-muted); background-color: var(--atlas-hover); }
+:is(.hub-atlas-home, .hub-atlas-overview, .hub-atlas-panel) button.hub-atlas-primary { background: var(--atlas-primary); color: var(--atlas-primary-ink); border-color: var(--atlas-olive); }
+:is(.hub-atlas-home, .hub-atlas-overview, .hub-atlas-panel) button.hub-atlas-primary:is(:hover, :focus, :active) { background: var(--atlas-primary-hover); color: var(--atlas-primary-ink); }
+:is(.hub-atlas-home, .hub-atlas-overview, .hub-atlas-panel) button.hub-atlas-primary:disabled { background: var(--atlas-hover); border-color: var(--atlas-line); color: var(--atlas-muted); }
 .hub-atlas-overview textarea { box-sizing: border-box; resize: vertical; max-height: 180px; }
 .hub-atlas-home section { border-top: 1px solid var(--atlas-line); padding: 18px 0; }
 .hub-atlas-home section h2 { font-size: var(--hub-font-heading); margin: 0 0 16px; }
 .hub-atlas-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .hub-atlas-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(205px, 1fr)); gap: 12px; }
 .hub-atlas-card { border: 1px solid var(--atlas-line); border-radius: 7px; padding: 12px 16px; min-width: 0; }
-.hub-atlas-card .hub-atlas-destination-link { border: 0; display: block; text-align: left; font-family: Georgia, serif; font-size: var(--hub-font-subheading); padding: 0; width: 100%; color: var(--atlas-ink); }
+.hub-atlas-card .hub-atlas-destination-link { border: 0; display: block; text-align: left; font-family: inherit; font-size: var(--hub-font-subheading); padding: 0; width: 100%; color: var(--atlas-ink); }
 .hub-atlas-card small { display: block; overflow-wrap: anywhere; margin-top: 5px; }
 .hub-atlas-card details { margin-top: 8px; font-size: var(--hub-font-secondary); }
 .hub-atlas-card details button { font-size: var(--hub-font-secondary); display: block; }
-.hub-atlas-settings-shell { display: grid; grid-template-columns: 180px minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); gap: 28px; flex: 1; min-height: 0; overflow: hidden; }
+.hub-atlas-settings-shell { display: grid; grid-template-columns: 180px minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); gap: 28px; flex: 1 0 180px; min-height: 0; overflow: hidden; }
 .hub-atlas-settings-shell > nav { display: flex; flex-direction: column; gap: 3px; border-right: 1px solid var(--atlas-line); padding-right: 14px; overflow: auto; }
 .hub-atlas-settings-shell > nav button { text-align: left; border: 0; margin: 0; font-size: var(--hub-font-compact); }
-.hub-atlas-settings-shell > nav button[aria-current=page] { color: var(--atlas-ink); background: #e9e6d8; }
+.hub-atlas-settings-shell > nav button[aria-current=page] { color: var(--atlas-ink); background: var(--atlas-hover); }
 .hub-atlas-settings-section { min-width: 0; min-height: 0; overflow: auto; overscroll-behavior: contain; scrollbar-gutter: stable; padding: 0 6px 8px 2px; }
 .hub-atlas-settings-section h3 { margin-top: 0; }
 .hub-atlas-site-row { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; padding: 14px; border: 1px solid var(--atlas-line); border-radius: 7px; margin: 8px 0; }
 .hub-atlas-site-row > div { flex: 1; min-width: 160px; }
 .hub-atlas-site-row p { margin: 4px 0; overflow-wrap: anywhere; font-size: var(--hub-font-secondary); }
-.hub-atlas-badge, .hub-atlas-category-chip { background: #e9ebdf; color: var(--atlas-olive); border-radius: 5px; padding: 4px 8px; font-size: var(--hub-font-secondary); }
+.hub-atlas-badge, .hub-atlas-category-chip { background: var(--atlas-hover); color: var(--atlas-olive); border-radius: 5px; padding: 4px 8px; font-size: var(--hub-font-secondary); }
 .hub-atlas-category-chip { display: inline-block; margin: 3px 6px 3px 0; }
 .hub-atlas-draft, .hub-atlas-onboarding:not(:empty) { border: 1px solid var(--atlas-line); border-radius: 8px; padding: 22px; margin: 20px 0; }
 .hub-atlas-form-grid, .hub-atlas-timing-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
@@ -3863,18 +3892,98 @@ body.hub-project-note-mode
 .hub-atlas-form-grid select { width: 100%; margin-top: 4px; }
 .hub-atlas-overview .hub-atlas-check { display: flex; align-items: center; gap: 8px; }
 .hub-atlas-overview .hub-atlas-check input { width: auto; display: inline-block; }
-.hub-atlas-exact-hosts { padding: 12px; background: #eceddf; border-radius: 6px; overflow-wrap: anywhere; }
+.hub-atlas-exact-hosts { padding: 12px; background: var(--atlas-hover); border-radius: 6px; overflow-wrap: anywhere; }
 .hub-atlas-source { overflow-wrap: anywhere; color: var(--atlas-muted); font-size: var(--hub-font-secondary); }
 .hub-atlas-state:empty, .hub-atlas-message:empty { display: none; }
 .hub-atlas-message { color: var(--atlas-olive); }
-.hub-atlas-vault { display: flex; flex-direction: column; overflow: hidden; }
-.hub-atlas-vault > :is(h3, p, .hub-atlas-vault-status, footer) { flex: none; }
+/* One scroll region contains terms AND actions. Fixed chrome cannot strand
+   controls below a clipped ancestor; keyboard focus scrolls the actions into view. */
+.hub-atlas-vault { display: block; overflow: auto; }
 .hub-atlas-vault p { margin: 8px 0; }
-.hub-atlas-vault-status { border: 1px solid var(--atlas-line); background: #efedde; border-radius: 7px; padding: 12px 16px; margin: 8px 0; }
-.hub-atlas-vault-details { flex: 1; min-height: 0; overflow: auto; overflow-wrap: anywhere; scrollbar-gutter: stable; }
+.hub-atlas-vault-status { border: 1px solid var(--atlas-line); background: var(--atlas-hover); border-radius: 7px; padding: 12px 16px; margin: 8px 0; }
+.hub-atlas-vault-details { overflow: visible; overflow-wrap: anywhere; }
 .hub-atlas-vault-actions { border-top: 1px solid var(--atlas-line); padding-top: 10px; margin-top: 8px; display: flex; flex-wrap: wrap; gap: 8px; }
 .hub-atlas-vault-actions button { margin: 0; }
+.hub-atlas-host-access { display: grid; gap: 8px; margin: 12px 0; }
+.hub-atlas-host-access label { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; overflow-wrap: anywhere; }
+.hub-atlas-draft-conflict:not(:empty), .hub-atlas-recovery-draft { border: 1px solid var(--atlas-line); border-radius: 7px; padding: 12px; margin: 12px 0; overflow-wrap: anywhere; }
+.hub-atlas-draft-conflict button { margin: 4px; }
+@container atlas-settings (max-width: 700px) {
+    .hub-atlas-settings-shell { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); gap: 12px; }
+    .hub-atlas-settings-shell > nav { border-right: 0; border-bottom: 1px solid var(--atlas-line); flex-direction: row; flex-wrap: nowrap; padding: 0 0 8px; }
+    .hub-atlas-settings-shell > nav button { white-space: nowrap; flex: none; }
+    .hub-atlas-form-grid, .hub-atlas-timing-form { grid-template-columns: minmax(0, 1fr); }
+}
 .hub-atlas-site-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .hub-atlas-site-actions button { margin: 0; }
 .hub-atlas-temporary-row { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; }
 @media (max-width: 720px) { .hub-atlas-settings-shell { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); gap: 12px; } .hub-atlas-settings-shell > nav { border-right: 0; border-bottom: 1px solid var(--atlas-line); flex-direction: row; flex-wrap: wrap; padding: 0 0 10px; } .hub-atlas-form-grid, .hub-atlas-timing-form { grid-template-columns: 1fr; } .hub-atlas-home-toolbar { flex-wrap: wrap; } .hub-atlas-overview { padding: 16px; } }
+
+/* Atlas uses the Hub category rail; its own sections are compact horizontal tabs. */
+.hub-settings-panel.hub-atlas-overview { padding: 20px 16px; }
+.hub-settings-panel.hub-atlas-overview .hub-atlas-settings-shell { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); gap: 12px; }
+.hub-settings-panel.hub-atlas-overview .hub-atlas-settings-shell > nav { flex-direction: row; flex-wrap: nowrap; border-right: 0; border-bottom: 1px solid var(--atlas-line); padding: 0 0 8px; }
+.hub-settings-panel.hub-atlas-overview .hub-atlas-settings-shell > nav button { flex: none; white-space: nowrap; }
+.hub-atlas-settings-shell > nav button[data-pending-count]:not([data-pending-count=""])::after { content: attr(data-pending-count); border-radius: 12px; background: var(--atlas-hover); margin-left: 6px; padding: 1px 6px; }
+.hub-atlas-pending[hidden], .hub-atlas-pending-link[hidden] { display: none !important; }
+.hub-atlas-pending-row { display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; padding: 10px 0; }
+.hub-atlas-pending-row > div { flex: 1; min-width: 160px; }
+.hub-atlas-pending-row p { margin: 3px 0; font-size: var(--hub-font-secondary); }
+.hub-atlas-pending-link { font: inherit; color: inherit; border: 1px solid var(--background-modifier-border); background: transparent; border-radius: 5px; margin-left: 8px; padding: 2px 6px; height: auto; cursor: pointer; }
+.hub-atlas-replace-draft, .hub-atlas-proposal-occupancy:not(:empty), .hub-atlas-operation-feedback:not(:empty), .hub-atlas-draft-feedback:not(:empty) { border: 1px solid var(--atlas-line, var(--background-modifier-border)); border-radius: 7px; padding: 12px; margin: 10px 0; overflow-wrap: anywhere; }
+.hub-atlas-request { padding: 12px 0; border-bottom: 1px solid var(--atlas-line); }
+.hub-atlas-message button, .hub-atlas-replace-draft button { margin: 4px; }
+.hub-atlas-overview [aria-invalid=true] { outline: 2px solid #a85138; outline-offset: 2px; }
+
+.hub-atlas-edit-session { flex: none; border: 1px solid var(--atlas-line); border-radius: 6px; padding: 6px 10px; margin: 0 0 10px; font-size: var(--hub-font-secondary); }
+.hub-atlas-edit-session button { margin: 2px 6px; padding: 4px 8px; }
+
+/* Atlas uses Hub's type scale, native interface face and shared control rhythm.
+   The paper/accent branding has explicit light and dark appearance tokens. */
+.theme-dark :is(.hub-atlas-home, .hub-atlas-overview, .hub-atlas-panel) {
+    --atlas-paper: #1f2521; --atlas-control: #283029; --atlas-ink: #e7ebe4; --atlas-muted: #b8c1b4; --atlas-line: #87947d;
+    --atlas-olive: #c0d2a6; --atlas-hover: #354032; --atlas-primary: #b7cc9e; --atlas-primary-hover: #d1dfbf; --atlas-primary-ink: #1b2517;
+    --atlas-error: #ffb4ab; --atlas-warning: #efd18a; --atlas-success: #b1d7b7; --atlas-scheme: dark;
+}
+:is(.hub-atlas-home, .hub-atlas-overview, .hub-atlas-panel) { font-family: var(--font-interface, system-ui); }
+:is(.hub-atlas-home, .hub-atlas-overview, .hub-atlas-panel) :is(h2, h3, h4) { font-family: inherit; font-weight: 600; }
+.hub-atlas-home h1 { font-family: Georgia, serif; }
+:is(.hub-atlas-home, .hub-atlas-overview, .hub-atlas-panel) :is(button, input, select) { min-height: 34px; }
+:is(.hub-atlas-home, .hub-atlas-overview, .hub-atlas-panel) :is(small, summary, .hub-atlas-source, .hub-atlas-pending-row p, .hub-atlas-site-row p, .hub-atlas-edit-session, .hub-atlas-card details, .hub-atlas-card details button) { font-size: var(--hub-font-body); }
+:is(.hub-atlas-home, .hub-atlas-overview, .hub-atlas-panel) summary { cursor: pointer; padding: 6px 0; overflow-wrap: anywhere; }
+:is(.hub-atlas-home, .hub-atlas-overview, .hub-atlas-panel) summary:focus-visible { outline: 2px solid var(--atlas-olive); outline-offset: 2px; }
+:is(.hub-atlas-home, .hub-atlas-overview, .hub-atlas-panel) :is(p, label, strong, h3, h4, button) { overflow-wrap: anywhere; }
+.hub-atlas-panel { border: 1px solid var(--atlas-line); border-radius: 8px; box-sizing: border-box; max-width: min(640px, 100%); }
+.hub-atlas-context-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.hub-atlas-context-actions button { margin: 0; }
+.hub-atlas-panel [hidden], .hub-atlas-home [hidden] { display: none !important; }
+.hub-atlas-settings-shell > nav { scrollbar-gutter: stable; }
+.hub-atlas-settings-shell > nav button { font-size: var(--hub-font-body); }
+.hub-atlas-settings-section:focus-visible { outline: 2px solid var(--atlas-olive); outline-offset: -2px; }
+.hub-atlas-site-row > div, .hub-atlas-pending-row > div { min-width: min(160px, 100%); }
+.hub-atlas-badge { border: 1px solid currentColor; background: transparent; font-size: var(--hub-font-body); }
+:is(.hub-atlas-home, .hub-atlas-overview, .hub-atlas-panel) :is([data-tone=error], [data-state=BLACKLISTED], [data-state=MANAGED_BLACKLISTED]) { color: var(--atlas-error); border-color: var(--atlas-error); }
+:is(.hub-atlas-home, .hub-atlas-overview, .hub-atlas-panel) :is([data-tone=warning], [data-tone=unresolved], [data-state=WAITING], [data-state=COOLDOWN], [data-state=EXPIRED], [data-state=STALE], [data-state=UNRESOLVED]) { color: var(--atlas-warning); border-color: var(--atlas-warning); }
+:is(.hub-atlas-home, .hub-atlas-overview, .hub-atlas-panel) :is([data-tone=success], [data-state=READY], [data-state=CONFIRMATION_REQUIRED], [data-state=WHITELISTED], [data-state=ACTIVE_GRANT]) { color: var(--atlas-success); border-color: var(--atlas-success); }
+:is(.hub-atlas-home, .hub-atlas-overview, .hub-atlas-panel) [data-tone=unresolved] { border-style: dashed; }
+.hub-atlas-pending-row { border-left: 3px solid var(--atlas-line); padding-left: 12px; margin: 8px 0; }
+.hub-atlas-vault-details { font-size: var(--hub-font-body); }
+.hub-atlas-overview [aria-invalid=true] { outline-color: var(--atlas-error); }
+.hub-atlas-announcement { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
+.hub-atlas-navigation-status { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; font-size: var(--hub-font-body); }
+.hub-atlas-navigation-status > span { min-width: 0; overflow-wrap: anywhere; }
+.hub-atlas-pending-link { margin: 0; min-height: 30px; white-space: normal; }
+.hub-atlas-home { container: atlas-home / inline-size; padding: 28px clamp(16px, 4%, 64px); }
+.hub-atlas-grid { grid-template-columns: repeat(auto-fill, minmax(min(100%, 205px), 1fr)); }
+@container atlas-home (max-width: 600px) {
+    .hub-atlas-home-toolbar { flex-wrap: wrap; }
+    .hub-atlas-home-toolbar input { flex-basis: 100%; }
+    .hub-atlas-section-heading { flex-wrap: wrap; align-items: baseline; }
+}
+@container atlas-settings (max-width: 520px) {
+    .hub-atlas-form-grid, .hub-atlas-timing-form { grid-template-columns: minmax(0, 1fr); }
+    .hub-atlas-draft, .hub-atlas-onboarding:not(:empty) { padding: 14px; }
+    .hub-atlas-site-row > div { flex-basis: 100%; min-width: 0; }
+    .hub-atlas-host-access label { display: grid; grid-template-columns: minmax(0, 1fr); }
+    .hub-atlas-pending-row > div { flex-basis: 100%; min-width: 0; }
+}

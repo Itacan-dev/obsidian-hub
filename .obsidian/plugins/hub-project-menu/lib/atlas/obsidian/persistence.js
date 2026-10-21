@@ -143,10 +143,10 @@ class AtlasFileRepository {
             if (this.lastBytes !== null && text !== this.lastBytes) {
                 this.issue = "EXTERNAL_WRITE"; return { type: "UNAVAILABLE" };
             }
-            if (value.schemaVersion === 1 || !Object.hasOwn(value, "application")) {
+            if (value.schemaVersion === 1 || !Object.hasOwn(value, "application") || value.application.schemaVersion === 1) {
                 const converted = value.schemaVersion === 1 ? migrateAtlasSnapshotV1(value.snapshot, this.configuration) : validateAtlasSnapshot(value.snapshot);
                 if (!converted.ok) return { type: "READY", envelope: null };
-                const next = { schemaVersion: 2, snapshot: converted.snapshot, application: initialApplication(converted.snapshot.policy) };
+                const next = { schemaVersion: 2, snapshot: converted.snapshot, application: value.application ? validateApplication(value.application, converted.snapshot) : initialApplication(converted.snapshot.policy) };
                 this.lastBytes = text;
                 const receipt = await this.replace(value.storageVersion, `migration:${randomUUID()}`, next);
                 if (receipt.type !== "COMMITTED") return { type: "UNAVAILABLE" };

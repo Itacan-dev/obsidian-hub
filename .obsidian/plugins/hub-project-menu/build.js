@@ -14,6 +14,16 @@ const outputDirectory = outputFlag < 0 ? pluginRoot : path.resolve(process.argv[
 fs.mkdirSync(outputDirectory, { recursive: true });
 const outputPath = path.join(outputDirectory, "main.js");
 const modules = new Map();
+// Athena ships a compiled closure: ordinary Hub rebuilds need no npm install.
+const athenaManifestPath = path.join(pluginRoot, "lib/athena/build-manifest.json");
+const athenaManifest = JSON.parse(fs.readFileSync(athenaManifestPath, "utf8"));
+const athenaHash = file => require("crypto").createHash("sha256").update(fs.readFileSync(file, "utf8").replace(/\r\n/g, "\n")).digest("hex");
+const athenaSources = directory => fs.readdirSync(directory, { withFileTypes: true }).flatMap(entry => entry.isDirectory() ? athenaSources(path.join(directory, entry.name)) : [path.relative(pluginRoot, path.join(directory, entry.name)).split(path.sep).join("/")]).sort();
+const athenaExpected = ["build-athena.js", "lib/athena/package.json", "lib/athena/package-lock.json", "lib/athena/tsconfig.json", ...athenaSources(path.join(pluginRoot, "lib/athena/src"))].sort();
+if (athenaManifest.version !== 1 || JSON.stringify(Object.keys(athenaManifest.sources).sort()) !== JSON.stringify(athenaExpected) ||
+    Object.entries({ ...athenaManifest.sources, ...athenaManifest.artifacts }).some(([file, hash]) => athenaHash(path.join(pluginRoot, file)) !== hash)) {
+    throw Error("Athena artifacts are stale. Run node .obsidian/plugins/hub-project-menu/build-athena.js first.");
+}
 // Refuse a stale or hand-edited Core artifact. Rebuilding Hub UI still needs
 // only Node; modifying Core first requires its normal TypeScript compiler.
 const atlasCore = path.join(pluginRoot, "lib/atlas/core"), coreSource = path.resolve(pluginRoot, "../../../AtlasCore/packages/core");
@@ -168,6 +178,10 @@ console.log(
 buildBundle(entryPath, outputPath);
 buildBundle(path.join(pluginRoot, "lib/atlas/obsidian/native.js"),
     path.join(outputDirectory, "atlas-native.cjs"));
+for (const relative of Object.keys(athenaManifest.artifacts).filter(file => file !== "lib/athena/runtime.cjs")) {
+    const target = path.join(outputDirectory, relative);
+    if (outputDirectory !== pluginRoot) { fs.mkdirSync(path.dirname(target), { recursive: true }); fs.copyFileSync(path.join(pluginRoot, relative), target); }
+}
 
 // Obsidian's main-process bridge loads these modules by path, outside main.js.
 // Ship an explicit production-only closure, including the sandbox preload/assets.

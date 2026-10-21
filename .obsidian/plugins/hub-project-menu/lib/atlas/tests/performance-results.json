@@ -1,0 +1,269 @@
+{
+  "date": "2026-10-16",
+  "sourceBaseline": "Milestone 2 working tree archived before production edits",
+  "method": "7 warm samples after 2 warmups; synthetic temporary authority stores; work durations exclude simulated waits",
+  "before": {
+    "node": "v24.19.0",
+    "platform": "win32",
+    "samples": 7,
+    "descriptions": [
+      {
+        "destinations": 32,
+        "coldMs": 11.617,
+        "meanMs": 8.076,
+        "serializationMeanMs": 0.057,
+        "eventLoopTurnMs": 7.785,
+        "bytes": 20978,
+        "plannerCallsPerView": 64,
+        "validationsPerView": 65,
+        "transportMeanMs": 7.927,
+        "repeatedTransportEncodings": 7
+      },
+      {
+        "destinations": 64,
+        "coldMs": 29.03,
+        "meanMs": 28.703,
+        "serializationMeanMs": 0.064,
+        "eventLoopTurnMs": 28.207,
+        "bytes": 39762,
+        "plannerCallsPerView": 128,
+        "validationsPerView": 129,
+        "transportMeanMs": 28.66,
+        "repeatedTransportEncodings": 7
+      },
+      {
+        "destinations": 128,
+        "coldMs": 110.977,
+        "meanMs": 110.304,
+        "serializationMeanMs": 0.142,
+        "eventLoopTurnMs": 108.608,
+        "bytes": 77610,
+        "plannerCallsPerView": 256,
+        "validationsPerView": 257,
+        "transportMeanMs": 108.834,
+        "repeatedTransportEncodings": 7
+      },
+      {
+        "destinations": 256,
+        "coldMs": 433.022,
+        "meanMs": 432.705,
+        "serializationMeanMs": 0.338,
+        "eventLoopTurnMs": 430.222,
+        "bytes": 154026,
+        "plannerCallsPerView": 512,
+        "validationsPerView": 513,
+        "transportMeanMs": 429.377,
+        "repeatedTransportEncodings": 7
+      }
+    ],
+    "observation": [
+      {
+        "name": "idle",
+        "tabs": 0,
+        "ticks": 3,
+        "elapsedMs": 46.139,
+        "publications": 3,
+        "transportMs": 23.034,
+        "reads": 54,
+        "writes": 6,
+        "fsyncs": 6,
+        "renames": 3
+      },
+      {
+        "name": "one-tab",
+        "tabs": 1,
+        "ticks": 3,
+        "elapsedMs": 51.538,
+        "publications": 3,
+        "transportMs": 24.04,
+        "reads": 69,
+        "writes": 6,
+        "fsyncs": 6,
+        "renames": 3
+      },
+      {
+        "name": "four-tabs",
+        "tabs": 4,
+        "ticks": 3,
+        "elapsedMs": 68.851,
+        "publications": 3,
+        "transportMs": 26.499,
+        "reads": 114,
+        "writes": 6,
+        "fsyncs": 6,
+        "renames": 3
+      },
+      {
+        "name": "vault-countdown",
+        "tabs": 0,
+        "ticks": 3,
+        "elapsedMs": 51.671,
+        "publications": 3,
+        "transportMs": 28.107,
+        "reads": 54,
+        "writes": 6,
+        "fsyncs": 6,
+        "renames": 3
+      },
+      {
+        "name": "access-countdown",
+        "tabs": 1,
+        "ticks": 3,
+        "elapsedMs": 51.009,
+        "publications": 3,
+        "transportMs": 24.195,
+        "reads": 69,
+        "writes": 6,
+        "fsyncs": 6,
+        "renames": 3
+      }
+    ]
+  },
+  "after": {
+    "node": "v24.19.0",
+    "platform": "win32",
+    "samples": 7,
+    "descriptions": [
+      {
+        "destinations": 32,
+        "coldMs": 0.736,
+        "meanMs": 0.015,
+        "serializationMeanMs": 0.033,
+        "eventLoopTurnMs": 0.089,
+        "bytes": 20978,
+        "plannerCallsPerView": 0,
+        "validationsPerView": 0,
+        "transportMeanMs": 0.032,
+        "repeatedTransportEncodings": 0
+      },
+      {
+        "destinations": 64,
+        "coldMs": 0.536,
+        "meanMs": 0.022,
+        "serializationMeanMs": 0.055,
+        "eventLoopTurnMs": 0.042,
+        "bytes": 39762,
+        "plannerCallsPerView": 0,
+        "validationsPerView": 0,
+        "transportMeanMs": 0.017,
+        "repeatedTransportEncodings": 0
+      },
+      {
+        "destinations": 128,
+        "coldMs": 0.994,
+        "meanMs": 0.027,
+        "serializationMeanMs": 0.096,
+        "eventLoopTurnMs": 0.059,
+        "bytes": 77610,
+        "plannerCallsPerView": 0,
+        "validationsPerView": 0,
+        "transportMeanMs": 0.028,
+        "repeatedTransportEncodings": 0
+      },
+      {
+        "destinations": 256,
+        "coldMs": 1.792,
+        "meanMs": 0.1,
+        "serializationMeanMs": 0.316,
+        "eventLoopTurnMs": 0.353,
+        "bytes": 154026,
+        "plannerCallsPerView": 0,
+        "validationsPerView": 0,
+        "transportMeanMs": 0.066,
+        "repeatedTransportEncodings": 0
+      }
+    ],
+    "observation": [
+      {
+        "name": "idle",
+        "tabs": 0,
+        "ticks": 3,
+        "elapsedMs": 23.767,
+        "publications": 0,
+        "transportMs": 0,
+        "reads": 54,
+        "writes": 6,
+        "fsyncs": 6,
+        "renames": 3
+      },
+      {
+        "name": "one-tab",
+        "tabs": 1,
+        "ticks": 3,
+        "elapsedMs": 28.683,
+        "publications": 0,
+        "transportMs": 0,
+        "reads": 69,
+        "writes": 6,
+        "fsyncs": 6,
+        "renames": 3
+      },
+      {
+        "name": "four-tabs",
+        "tabs": 4,
+        "ticks": 3,
+        "elapsedMs": 43.351,
+        "publications": 0,
+        "transportMs": 0,
+        "reads": 114,
+        "writes": 6,
+        "fsyncs": 6,
+        "renames": 3
+      },
+      {
+        "name": "vault-countdown",
+        "tabs": 0,
+        "ticks": 3,
+        "elapsedMs": 23.823,
+        "publications": 2,
+        "transportMs": 0.098,
+        "reads": 54,
+        "writes": 6,
+        "fsyncs": 6,
+        "renames": 3
+      },
+      {
+        "name": "access-countdown",
+        "tabs": 1,
+        "ticks": 3,
+        "elapsedMs": 27.458,
+        "publications": 2,
+        "transportMs": 0.095,
+        "reads": 69,
+        "writes": 6,
+        "fsyncs": 6,
+        "renames": 3
+      }
+    ]
+  },
+  "rendering": {
+    "before": {
+      "tenSettingsMountsMs": 64.1,
+      "fiveManagedUpdatesMs": 149.8,
+      "managedMutationRecords": 115,
+      "lookupPreserved": false,
+      "unrelatedHomeCardPreserved": false
+    },
+    "after": {
+      "tenSettingsMountsMs": 110.3,
+      "fiveManagedUpdatesMs": 147.1,
+      "managedMutationRecords": 11,
+      "lookupPreserved": true,
+      "unrelatedHomeCardPreserved": true
+    }
+  },
+  "contrast": [
+    {
+      "appearance": "light",
+      "text": 12.438449081595543,
+      "muted": 6.140574327270728,
+      "boundary": 3.4257959972522527
+    },
+    {
+      "appearance": "dark",
+      "text": 11.262875226783196,
+      "muted": 8.421100363590629,
+      "boundary": 4.247363086302105
+    }
+  ]
+}
