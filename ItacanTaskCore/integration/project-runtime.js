@@ -8,7 +8,7 @@ const { TaskService } = require(pluginRoot + "services/task-service");
 const same = P.same, consumers = require("./home-schedule");
 function view(t, authorityId) {
     return { id: t.id, nativeReference: { authorityId, owner: V.clone(t.owner), taskId: t.id, taskRevision: t.revision }, owner: V.clone(t.owner),
-        text: t.title, description: t.description, completed: t.completed, necessity: t.importance,
+        location: V.clone(t.location), text: t.title, description: t.description, completed: t.completed, necessity: t.importance,
         fromDate: t.start?.date ?? null, fromTime: t.start?.time ?? null, dueDate: t.due?.date ?? null, dueTime: t.due?.time ?? null,
         steps: t.steps.map(s => ({ id: s.id, taskId: t.id, text: s.title, completed: s.completed, parentStepId: s.parentStepId })),
         nativeReadOnly: !!t.phase || t.steps.some(s => s.parentStepId !== null) || t.consumerFacts?.recurrenceMember === true };
@@ -16,15 +16,15 @@ function view(t, authorityId) {
 async function openProjectRuntime(config, options) {
     check(options.consumerUiV1 === undefined || options.consumerUiV1 === true, "Explicit consumer rehearsal option required.");
     config = freeze(V.clone(config)); options = { ...options, writerPolicy: freeze(V.clone(options.writerPolicy)) };
-    check(options.owner?.type === "project" && options.writerPolicy.owners.length === 1 && same(options.owner, options.writerPolicy.owners[0].owner), "One private Project required.");
+    check(["project", "resource"].includes(options.owner?.type) && options.writerPolicy.owners.length === 1 && same(options.owner, options.writerPolicy.owners[0].owner), "One private Project required.");
     const owner = freeze(V.clone(options.owner)), session = createNativeWriterSession(config, { registry: options.registry, identity: options.identity,
         writerPolicy: options.writerPolicy, repositoryOptions: options.repositoryOptions, requestRetention: { version: 1, rehearsalId: options.rehearsalId } });
-    let closed = false, lastOutcome = null, refreshedOperation = null;
+    let closed = false, lastOutcome = null, refreshedOperation = null, resourceLocations = [];
     const authority = { backend: "native", authorityId: config.authorityId, applicationContextId: config.applicationContextId };
     try {
         const r = await options.registry.read(); const o = r.owners.find(o => same(o.owner, owner)); check(o && !o.shared && o.available && o.partitionId === options.writerPolicy.owners[0].partitionId, "Private owner evidence required.");
-        if (options.creating) await session.host.create({ version: 2, authorityId: config.authorityId, partitions: [{ id: o.partitionId, owner, kind: "private-project" }], reason: "Explicit isolated real-host rehearsal", syntheticOnly: true, taskMutationVersion: 1 });
-        else await session.host.open({ version: 1, expectedAuthorityId: config.authorityId, syntheticOnly: true });
+        if (options.creating) await session.host.create({ version: 2, authorityId: config.authorityId, partitions: [{ id: o.partitionId, owner, kind: owner.type === "resource" ? "resource" : "private-project" }], reason: "Explicit owner-scoped authority creation", ...(config.scope === "device-private-project" ? { verifiedCutover: true } : { syntheticOnly: true }), taskMutationVersion: 1 });
+        else await session.host.open({ version: 1, expectedAuthorityId: config.authorityId, ...(config.scope === "device-private-project" ? { verifiedCutover: true } : { syntheticOnly: true }) });
     } catch (error) { await session.dispose().catch(() => {}); throw error; }
     const taskService = new TaskService(createNativeReadAdapter(session.host)), editorPort = createNativeEditorReadPort(session.host, { writerPolicy: options.writerPolicy });
     const grant = () => session.authorize({ version: 1, owners: options.writerPolicy.owners, commands: options.writerPolicy.commands });
@@ -36,6 +36,7 @@ async function openProjectRuntime(config, options) {
         check(registry.digest === stamp.ownerContextPin && h.hostEpoch === stamp.hostEpoch && h.readiness.state === "ready", "Consumer context changed.");
         const entry = registry.owners.find(o => same(o.owner, owner));
         check(entry && entry.available && entry.dashboard && !entry.shared && entry.partitionId === options.writerPolicy.owners[0].partitionId, "Native owner unavailable.");
+        resourceLocations = entry.locations;
         return { owner, root: entry.root, dashboard: entry.dashboard, status: entry.status };
     }
     async function list() { const r = await capture(); const context = options.consumerUiV1 ? await consumerContext(r.stamp) : undefined;
@@ -56,11 +57,11 @@ async function openProjectRuntime(config, options) {
             let retained = null;
             try { retained = await session.requests.get(cap, intent.operationId); } catch (error) { if (error.code !== "ENOENT") throw error; }
             if (!retained) {
-                if (intent.action.kind === "rich-create") { const d = intent.action.draft; check(d.continuation === "" && d.metadata.phase === null && d.metadata.location === null && d.steps.every(s => s.body === "" && s.parentStepId === null), "Creation exceeds compact form."); }
+                if (intent.action.kind === "rich-create") { const d = intent.action.draft; check(d.continuation === "" && d.metadata.phase === null && (owner.type === "resource" || d.metadata.location === null) && d.steps.every(s => s.body === "" && s.parentStepId === null), "Creation exceeds compact form."); }
                 else {
                     const e = await editor(intent.action.target.taskId);
                     if (intent.action.kind === "full-save") { const d = intent.action.draft, originals = new Map(e.draft.steps.map(s => [s.id, s]));
-                        check(d.continuation === e.draft.continuation && same(d.metadata.location, e.draft.metadata.location) && same(d.metadata.phase, e.draft.metadata.phase) && d.steps.every(s => s.parentStepId === null && s.body === (originals.get(s.id)?.body ?? "") && (!originals.has(s.id) || s.order === originals.get(s.id).order)), "Hidden native content must survive."); }
+                        check(d.continuation === e.draft.continuation && (owner.type === "resource" || same(d.metadata.location, e.draft.metadata.location)) && same(d.metadata.phase, e.draft.metadata.phase) && d.steps.every(s => s.parentStepId === null && s.body === (originals.get(s.id)?.body ?? "") && (!originals.has(s.id) || s.order === originals.get(s.id).order)), "Hidden native content must survive."); }
                 }
             }
             await session.requests.prepare(cap, intent);
@@ -100,22 +101,29 @@ async function openProjectRuntime(config, options) {
         try { const r = await list(); return freeze({ backend: "native", owner, authorityId: config.authorityId, outcome: out, availability: "current", tasks: r.tasks }); }
         catch (_) { return freeze({ backend: "native", owner, authorityId: config.authorityId, outcome: out, availability: "unavailable", tasks: [] }); }
     }
-    function formService(app, sourceLabel = "Project") {
+    function formService(app, sourceLabel = owner.type === "resource" ? "Resource" : "Project") {
         let original = null, attempt = null;
         async function issue(values, build) {
-            const fingerprint = B.fingerprint(values);
+            const fingerprint = V.canonical([B.fingerprint(values), owner.type === "resource" ? values.nativeLocation ?? null : null]);
             check(!attempt || attempt.fingerprint === fingerprint, "Keep the original request until reviewed.");
             if (!attempt) attempt = { fingerprint, intent: await build() };
             return editResult(await mutate(attempt.intent));
         }
-        return { app, formContext: () => ({ destination: { authorityId: config.authorityId, owner }, sourcePath: null, sourceLabel }), context: () => null, phases: () => [],
-            async read(task) { original = await editor(task.id ?? task.nativeReference?.taskId); return B.toForm(original); },
-            async create(destination, text, values) { check(destination.authorityId === config.authorityId && same(destination.owner, owner), "Destination changed."); return issue(values, async () => { const i = B.create(await creationContext(), values); i.action.draft.id = randomUUID(); return i; }); },
-            async save(snapshot, values) { check(original, "Editor snapshot missing."); return issue(values, () => values.operation === "delete" ? B.remove(original) : B.save(original, values)); }
+        const location = values => {
+            if (owner.type !== "resource") return null;
+            const id = values.nativeLocation ?? "";
+            if (!id) return null;
+            const ref = resourceLocations.find(l => l.id === id); check(ref, "Resource location changed or is unavailable."); return V.clone(ref);
+        };
+        return { app, formContext: snapshot => ({ destination: { authorityId: config.authorityId, owner }, sourcePath: null, sourceLabel,
+            ...(owner.type === "resource" ? { resourceLocations: resourceLocations.map(l => ({ ...V.clone(l), label: options.locationLabel?.(l) ?? l.id })), nativeLocation: snapshot?.nativeLocation ?? "" } : {}) }), context: () => null, phases: () => [],
+            async read(task) { original = await editor(task.id ?? task.nativeReference?.taskId); return { ...B.toForm(original), ...(owner.type === "resource" ? { nativeLocation: original.draft.metadata.location?.id ?? "" } : {}) }; },
+            async create(destination, text, values) { check(destination.authorityId === config.authorityId && same(destination.owner, owner), "Destination changed."); return issue(values, async () => { const i = B.create(await creationContext(), values); i.action.draft.id = randomUUID(); i.action.draft.metadata.location = location(values); return i; }); },
+            async save(snapshot, values) { check(original, "Editor snapshot missing."); return issue(values, () => { if (values.operation === "delete") return B.remove(original); const i = B.save(original, values); if (owner.type === "resource") i.action.draft.metadata.location = location(values); return i; }); }
         };
     }
     function createPanelRead({ plugin, component, workspace, changed = () => {} }) {
-        check(workspace.type === "project" && same(workspace, owner), "Project panel owner differs.");
+        check(same(workspace, owner), "Project panel owner differs.");
         let disposed = false, generation = 0, last = null, availability = "current";
         const stop = session.host.subscribe(() => { generation++; if (!disposed) changed(); });
         const close = () => { if (disposed) return; disposed = true; generation++; stop(); }; component.register(close);
@@ -139,9 +147,10 @@ async function openProjectRuntime(config, options) {
         return controller;
     }
     const historyFeeds = new Set();
+    const historyEvidence = options.historyUiV1 ? require("../host/history-read").createHistoryReadPort(session.host, { authorityId: config.authorityId, owners: [owner] }) : null;
     function completionFeed({ legacy, app, navigate }) {
         alive(); check(options.historyUiV1 === true, "Explicit History rehearsal option required.");
-        const port = require("../host/history-read").createHistoryReadPort(session.host, { authorityId: config.authorityId, owners: [owner] });
+        const port = historyEvidence;
         const feed = require("./completion-feed").createCompletionFeed({ native: port, legacy, navigate: navigate ?? (async ref => {
             check(app && same(ref.owner, owner), "Native History navigation scope differs.");
             const r = await list(), task = r.tasks.find(t => t.id === ref.taskId); check(task && !task.nativeReadOnly, "Native History navigation unavailable.");
@@ -151,13 +160,13 @@ async function openProjectRuntime(config, options) {
         historyFeeds.add({ feed, port }); return feed;
     }
     const nativeTasks = Object.freeze({ owner, createPanelRead, ...(options.consumerUiV1 ? { consumerUiV1: true, mergeHome: consumers.mergeHome, taskKey: consumers.taskKey } : {}) });
-    return Object.freeze({ nativeTasks, owner, list, editor, creationContext, mutate, formService, completionFeed, recovery,
-        info: () => freeze({ authority, owner, scope: "inactive-disposable", lastOutcome, history: options.historyUiV1 ? "rehearsal" : "unavailable", statistics: options.historyUiV1 ? "rehearsal" : "unavailable", home: options.consumerUiV1 ? "rehearsal" : "unavailable", schedule: options.consumerUiV1 ? "rehearsal" : "unavailable" }),
+    return Object.freeze({ nativeTasks, owner, list, editor, creationContext, mutate, formService, completionFeed, historyEvidence, recovery,
+        info: () => freeze({ authority, owner, scope: config.scope, lastOutcome, history: options.historyUiV1 ? "rehearsal" : "unavailable", statistics: options.historyUiV1 ? "rehearsal" : "unavailable", home: options.consumerUiV1 ? "rehearsal" : "unavailable", schedule: options.consumerUiV1 ? "rehearsal" : "unavailable" }),
         retained: () => withGrant(cap => session.requests.list(cap)),
         getRetained: id => withGrant(cap => session.requests.get(cap, id)),
         reconcile: id => withGrant(cap => session.requests.reconcile(cap, id)),
         async replay(id) { const r = await withGrant(cap => session.requests.get(cap, id)); return mutate(r.intent); },
-        async close() { if (closed) return; closed = true; for (const { feed, port } of historyFeeds) { feed.dispose(); port.dispose(); } historyFeeds.clear(); await taskService.close(); await session.dispose(); }
+        async close() { if (closed) return; closed = true; for (const { feed } of historyFeeds) feed.dispose(); historyFeeds.clear(); historyEvidence?.dispose(); await taskService.close(); await session.dispose(); }
     });
 }
 module.exports = { openProjectRuntime };

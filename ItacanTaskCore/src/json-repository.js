@@ -405,13 +405,16 @@ async function openRepository(options, creating) {
     // Even an injected port must be paired with an explicit directory.
     const defaultPort = new NodeDirectory(options.directory), port = options.storagePort ?? defaultPort;
     if (creating && options.taskMutationVersion === 1) {
-        // This inactive capability can only start in an existing physical Temp
-        // child. Check before acquiring a lease or allocating any identities;
-        // the ordinary private creation checks emptiness again under its lock.
+        // Closed Temp fixtures remain supported. Outside Temp, require the
+        // exact physical port enrolled by validated device-private admission;
+        // no caller-supplied boolean or lookalike port can authorize creation.
+        // Both paths check before lease/identity allocation and again under lock.
         const fs = require("node:fs/promises"), path = require("node:path"), os = require("node:os");
         const entry = await fs.lstat(options.directory), root = await fs.realpath(options.directory), temporary = await fs.realpath(os.tmpdir()), relative = path.relative(temporary, root);
-        if (!entry.isDirectory() || entry.isSymbolicLink() || !relative || relative === ".." || relative.startsWith(".." + path.sep) || path.isAbsolute(relative) || root.startsWith("\\\\")) fail("ATOMIC_TASK_DISPOSABLE_REQUIRED", "Atomic creation requires an existing physical disposable Temp child.");
-        if ((await fs.readdir(root)).length) fail("ALREADY_EXISTS", "Atomic creation requires a verified empty disposable directory.");
+        const temporaryChild = !!relative && relative !== ".." && !relative.startsWith(".." + path.sep) && !path.isAbsolute(relative);
+        if (!entry.isDirectory() || entry.isSymbolicLink() || root.startsWith("\\\\")) fail("ATOMIC_TASK_DISPOSABLE_REQUIRED", "Atomic creation requires an ordinary admitted directory.");
+        if (!temporaryChild && !await require("../host/authority").assertPrivateAtomicCreation(port, options)) fail("ATOMIC_TASK_DISPOSABLE_REQUIRED", "Atomic creation requires Temp isolation or validated device-private admission.");
+        if ((await fs.readdir(root)).length) fail("ALREADY_EXISTS", "Atomic creation requires a verified empty directory.");
     }
     const settings = { ...options, idFactory: options.idFactory ?? randomUUID };
     check(typeof settings.idFactory === "function", "UUID factory must be a function.");

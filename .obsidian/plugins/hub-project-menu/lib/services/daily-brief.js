@@ -115,6 +115,7 @@ class DailyBriefService {
         this.plugin.registerDomEvent(window, "blur", () => this.trigger.background());
         this.plugin.registerDomEvent(document, "visibilitychange", foreground);
         this.reader();
+        this.stopNative = this.plugin.nativeTaskHost?.completionFeed.subscribe(() => { if (!this.disposed) { void this.refreshAvailability(); void this.trigger.resume(); } });
         this.stopOath = this.plugin.oath.onChange(() => {
             this.readSession?.invalidate(); this.availabilityGeneration++;
             if (this.oathBlocked()) this.modal?.close();
@@ -149,10 +150,20 @@ class DailyBriefService {
         const tasks = query.rows.filter(row => row.view?.legacy)
             .map(row => ({ ...legacyReadTask(row.view), identityConflict: row.state !== "validated" || row.view.validation !== "source-checked",
                 workspaceId: row.view.owner?.type === "resource" ? `resource:${row.view.owner.id}` : row.view.owner?.id }));
+        let evidenceWizard = wizard;
+        if (this.plugin.nativeTaskHost) {
+            const host = this.plugin.nativeTaskHost, completion = await host.completionFeed.read();
+            evidenceWizard = { ...wizard, completedTaskHistory: completion.records, taskProgressEvidence: undefined, getProgressReports: wizard.getProgressReports.bind(wizard) };
+            for (const owner of host.nativeTasks.owners ?? [host.nativeTasks.owner]) {
+                const runtime = host.runtime(owner), current = await runtime.list();
+                tasks.push(...current.tasks.map(task => ({ ...task, workspaceId: owner.type === "resource" ? "resource:" + owner.id : owner.id })));
+            }
+        }
         const workingConfigurations = workspaces.map(workspace => this.plugin.workspaceModes?.navigationHistory?.configurationAt(
             workspace.workspaceId, dailyBriefStart(now).getTime())).filter(Boolean);
-        return buildDailyBriefContext(wizard, { now, workspaces, tasks, workingConfigurations,
+        return buildDailyBriefContext(evidenceWizard, { now, workspaces, tasks, workingConfigurations,
             resolvePath: path => this.resolvePath(path),
+            canOpenNative: owner => this.eligible(this.workspace(owner.type === "resource" ? "resource:" + owner.id : owner.id)) && !oath.active,
             canOpen: path => this.eligible(wizard.getContextForPath(path)) && oath.canOpen(path, false),
             resolveLink: (link, source) => this.resolvePath(this.app.metadataCache.getFirstLinkpathDest(link, source ?? "Home.md")?.path),
             oathState: { active: oath.active, workspaceId: workspaceId(oath.workspace), state: oath.current?.state ?? null } });
@@ -219,6 +230,13 @@ class DailyBriefService {
         if (!this.eligible(workspace)) return null;
         if (target.kind === "workspace") return this.plugin.oath.canOpen(workspace, false)
             ? { ...target, path: workspace.path, workspace } : null;
+        if (target.kind === "native-task") {
+            try { const host = this.plugin.nativeTaskHost; if (!host?.matches(target.owner)) return null;
+                const r = host.runtime(target.owner); if (r.info().authority.authorityId !== target.authorityId) return null;
+                const task = (await r.list()).tasks.find(t => t.id === target.taskId);
+                return task && !task.completed && !task.nativeReadOnly && (!target.stepId || task.steps.some(s => s.id === target.stepId && !s.completed)) && !this.plugin.oath.active ? { ...target, task, runtime: r } : null;
+            } catch (_) { return null; }
+        }
         let path = this.resolvePath(target.path);
         if (target.taskId || target.taskText) {
             if (!this.plugin.oath.ready()) return null;
@@ -282,7 +300,7 @@ class DailyBriefService {
         this.modal?.close();
         let result;
         try {
-            result = target.kind === "home" ? await modes.openHome() : target.kind === "workspace"
+            result = target.kind === "native-task" ? (require("../ui/task-editor").openTaskEditor(target.runtime.formService(this.app), target.task), true) : target.kind === "home" ? await modes.openHome() : target.kind === "workspace"
                 ? await modes.openProjectFull(target.workspace ?? this.workspace(target.workspaceId))
                 : await modes.openProjectNote(target.path);
         } catch (error) {
@@ -296,6 +314,6 @@ class DailyBriefService {
         if (target.kind === "home") document.querySelector(".home-dashboard .home-upcoming")?.scrollIntoView({ block: "center" });
         return true;
     }
-    destroy() { this.disposed = true; this.availabilityGeneration++; this.readSession?.close(); this.trigger.destroy(); this.stopOath?.(); this.modal?.close(); this.listeners.clear(); }
+    destroy() { this.disposed = true; this.availabilityGeneration++; this.readSession?.close(); this.trigger.destroy(); this.stopOath?.(); this.stopNative?.(); this.modal?.close(); this.listeners.clear(); }
 }
 module.exports = { DailyBriefService };

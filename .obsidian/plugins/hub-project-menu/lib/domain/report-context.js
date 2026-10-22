@@ -14,14 +14,17 @@ function workspaceId(record) {
 }
 
 function captureReportContext(service, date, id) {
+    const evidence = service.taskProgressEvidence?.();
     const select = records => (records ?? []).filter(record =>
         workspaceId(record) === id && onDay(record, date));
     return {
         version: 1,
-        tasks: select(service.completedTaskHistory).map(task => ({
+        ...(evidence ? { tasksAvailability: evidence.availability } : {}),
+        tasks: select(evidence ? evidence.records : service.completedTaskHistory).map(task => ({
             id: task.id ?? null, text: task.text, timestamp: task.timestamp,
             ...(task.kind ? { kind: task.kind } : {}),
             ...(task.hubTaskId ? { hubTaskId: task.hubTaskId } : {}),
+            ...(task.nativeHistory ? { nativeHistory: task.nativeHistory } : {}),
             ...(task.kind === "step" ? { parentTaskId: task.parentTaskId, parentText: task.parentText } : {}),
             ...(task.path ? { path: task.path } : {})
         })).sort((a, b) => a.timestamp - b.timestamp),

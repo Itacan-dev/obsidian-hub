@@ -1118,7 +1118,7 @@ class ProjectAdvancementModal
                 this.evidenceRows.set(id, evidence);
             }
         };
-        if (this.getReportContexts) document.addEventListener("hub-completed-tasks-changed", this.refreshEvidence);
+        if (this.getReportContexts) { document.addEventListener("hub-completed-tasks-changed", this.refreshEvidence); document.addEventListener("hub-task-progress-evidence-changed", this.refreshEvidence); }
 
 
         this.contentEl.addClass(
@@ -1699,7 +1699,7 @@ class ProjectAdvancementModal
         this.focusEditor?.destroy();
         this.evidenceComponents?.forEach(component => component.unload());
         this.evidenceComponents?.clear();
-        if (this.refreshEvidence) document.removeEventListener("hub-completed-tasks-changed", this.refreshEvidence);
+        if (this.refreshEvidence) document.removeEventListener("hub-completed-tasks-changed", this.refreshEvidence); document.removeEventListener("hub-task-progress-evidence-changed", this.refreshEvidence);
 
         this.ratingTooltips?.dispose();
         this.ratingEffects?.destroy();
@@ -12764,10 +12764,14 @@ module.exports = class HubProjectMenu extends Plugin {
         window.hubApplySearchFolder = root => this.contextSearch.applyFolder(root);
         this.dailyBrief = new DailyBriefService(this);
         this.inbox = new HubInboxService(this);
+        await require("./lib/services/native-task-host").authorizeNativeTaskActivation(this);
         this.nativeTaskHost = require("./lib/services/native-task-host").createNativeTaskHost(this);
         if (this.nativeTaskHost) {
+            require("./lib/services/native-task-report-evidence").attachNativeReportEvidence(this, this.nativeTaskHost);
             this.nativeTaskHost.guardUnsupported();
-            await this.nativeTaskHost.ready;
+            // Initial native admission waits for layout/metadata readiness.
+            // Obsidian must finish plugin onload before that event can arrive.
+            if (this.app.workspace.layoutReady) await this.nativeTaskHost.ready;
             this.addCommand({ id: "native-task-recovery", name: "Native task recovery",
                 callback: () => { this.nativeTaskRecoveryModal?.close(); this.nativeTaskRecoveryModal = require("./lib/ui/native-task-recovery").openNativeTaskRecovery(this); } });
         }
@@ -14117,7 +14121,7 @@ module.exports = class HubProjectMenu extends Plugin {
     openTaskCreator(options = {}) {
         if (!this.nativeTaskHost) return openTaskCreator(this.taskEditor, options);
         const owner = options.location ? this.taskEditor.context(options.location) : this.taskEditor.currentContext();
-        if (this.nativeTaskHost?.matches({ type: owner?.contextKind === "resource" ? "resource" : "project", id: owner?.projectId })) return this.nativeTaskHost.create(options);
+        if (this.nativeTaskHost?.matches(require("./lib/services/task-service-legacy-values").workspaceRef(owner))) return this.nativeTaskHost.create(options);
         return openTaskCreator(this.taskEditor, options);
     }
 

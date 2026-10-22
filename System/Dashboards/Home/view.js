@@ -857,7 +857,7 @@ for (const event of ["pointerdown", "click", "keydown", "focusin"]) {
 }
 const homeTaskRead = window.hubCreateHomeTaskRead?.({
     component: dv.component,
-    resolveNativeOwner: owner => projects.find(project => project.projectId === owner.id),
+    resolveNativeOwner: owner => owner.type === "resource" ? resourceTypes.find(resource => (resource.resourceType ?? resource.id) === owner.id) : projects.find(project => project.projectId === owner.id),
     resolveOwner: task => {
         const page = { file: { path: task.path }, project: task.homeProjectReference };
         return resourceForPage(page) ?? projectForPage(page);

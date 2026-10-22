@@ -8,8 +8,8 @@ function taskKey(task) {
 }
 function homeOwner(context, resolve) {
     const owner = resolve(context.owner);
-    check(owner && owner.contextKind !== "resource" && owner.projectId === context.owner.id &&
-        owner.root === context.root && owner.path === context.dashboard && owner.status === context.status && !owner.deleted,
+    check(owner && (context.owner.type === "resource" ? owner.contextKind === "resource" && owner.resourceType === context.owner.id : owner.contextKind !== "resource" && owner.projectId === context.owner.id) &&
+        owner.root === context.root && owner.path === context.dashboard && (owner.status ?? "active") === context.status && !owner.deleted,
         "Native Home owner context is unavailable.");
     return owner;
 }

@@ -15,9 +15,13 @@ function openNativeTaskRecovery(plugin) {
             const ticket = ++this.generation; this.body.replaceChildren();
             this.body.createEl("p", { text: "Checking retained requests…" });
             try {
-                const runtime = host.runtime(), requests = await runtime.retained();
+                const owners = host.ownerHosts ? host.ownerHosts() : [host];
+                const collections = await Promise.all(owners.map(async h => { try { const runtime = h.runtime(); return { owner: h.owner, runtime, requests: await runtime.retained() }; } catch (_) { return { owner: h.owner, runtime: null, requests: [] }; } }));
                 if (ticket !== this.generation) return;
                 this.body.replaceChildren();
+                for (const { owner, runtime, requests } of collections) {
+                this.body.createEl("p", { text: owner.type + ": " + owner.id });
+                if (!runtime) { this.body.createEl("p", { text: "Native authority unavailable. Evidence preserved.", attr: { role: "alert" } }); continue; }
                 if (!requests.length) this.body.createEl("p", { text: "No retained requests." });
                 for (const request of requests) {
                     const id = request.operationId;
@@ -40,6 +44,7 @@ function openNativeTaskRecovery(plugin) {
                         const original = review; review = null;
                         void run(async () => { await runtime.recovery.replay(original); const result = await runtime.recovery.reconcile(id); if (ticket === this.generation) show(result.inspection); });
                     };
+                }
                 }
             } catch (_) {
                 if (ticket !== this.generation) return;

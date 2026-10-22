@@ -81,3 +81,104 @@ test("shutdown during initialization drains host construction and prevents late 
     const f = await fixture(t); await authorizeNativeTaskRehearsal(f.plugin, f.configuration); const host = createNativeTaskHost(f.plugin); const closing = host.close(); await closing;
     assert.equal(host.status().state, "closed"); assert.throws(() => host.runtime()); assert(!(await fs.readdir(f.configuration.config.directory)).includes("WRITER.lock"));
 });
+
+test("first-start layout readiness keeps guards immediate and promotes existing consumers once", async t => {
+    const f = await fixture(t), callbacks = [];
+    f.plugin.app.workspace = { layoutReady: false, onLayoutReady: fn => callbacks.push(fn) };
+    await authorizeNativeTaskRehearsal(f.plugin, f.configuration); const host = createNativeTaskHost(f.plugin);
+    let panels = 0, history = 0;
+    const panel = host.nativeTasks.createPanelRead({ plugin: f.plugin, component: { register() {} }, workspace: f.configuration.owner, changed: () => panels++ });
+    const stop = host.completionFeed.subscribe(() => history++);
+    assert.equal(host.status().state, "opening"); assert.throws(() => f.plugin.mutateTask({ path: f.configuration.dashboard }));
+    assert.equal((await panel.read()).availability, "unavailable"); assert.deepEqual(await fs.readdir(f.configuration.config.directory), []);
+    f.plugin.app.workspace.layoutReady = true; callbacks[0](); callbacks[0](); await host.ready;
+    assert.equal(host.status().state, "ready"); assert.equal((await panel.read()).availability, "current"); assert(panels > 0 && history > 0);
+    assert.equal((await fs.readdir(f.configuration.config.directory)).filter(n => n.startsWith("gen-")).length, 1);
+    stop(); panel.close(); await host.close();
+});
+
+test("readiness arriving during callback registration is not lost", async t => {
+    const f = await fixture(t); f.plugin.app.workspace = { layoutReady: false, onLayoutReady(fn) { this.layoutReady = true; fn(); fn(); } };
+    const host = await f.start(); assert.equal(host.status().state, "ready"); await host.close();
+});
+
+test("a synchronous subscription refresh cannot reenter lazy panel construction", async t => {
+    const f = await fixture(t), host = await f.start(); let changes = 0, nested;
+    const panel = host.nativeTasks.createPanelRead({ plugin: f.plugin, component: { register() {} }, workspace: f.configuration.owner,
+        changed() { changes++; if (changes === 1) nested = panel.read(); } });
+    assert.equal((await panel.read()).availability, "current"); await nested; assert.equal(changes, 1); panel.close(); await host.close();
+});
+
+test("unload cancels pending layout initialization without acquiring a writer", async t => {
+    const f = await fixture(t); let layout;
+    f.plugin.app.workspace = { layoutReady: false, onLayoutReady: fn => { layout = fn; } };
+    await authorizeNativeTaskRehearsal(f.plugin, f.configuration); const host = createNativeTaskHost(f.plugin);
+    await host.close(); layout(); assert.equal(host.status().state, "closed"); assert.deepEqual(await fs.readdir(f.configuration.config.directory), []);
+});
+
+test("metadata event readiness rechecks after registration and removes its subscriptions", async t => {
+    const f = await fixture(t), file = { path: f.configuration.dashboard }, listeners = new Map(); let indexed = false;
+    f.plugin.app.workspace = { layoutReady: true, onLayoutReady() { throw Error("already ready"); } };
+    f.plugin.app.vault.getAbstractFileByPath = () => file;
+    f.plugin.app.metadataCache = { getFileCache: () => indexed ? {} : null, on(name, fn) { listeners.set(name, fn); if (name === "resolved") { indexed = true; fn(); } return name; }, offref: ref => listeners.delete(ref) };
+    const host = await f.start(); assert.equal(host.status().state, "ready"); assert.equal(listeners.size, 0); await host.close();
+});
+
+test("unload cancels pending metadata readiness and ignores later events", async t => {
+    const f = await fixture(t), listeners = new Map(), file = { path: f.configuration.dashboard };
+    f.plugin.app.vault.getAbstractFileByPath = () => file;
+    f.plugin.app.metadataCache = { getFileCache: () => null, on(name, fn) { listeners.set(name, fn); return name; }, offref: ref => listeners.delete(ref) };
+    await authorizeNativeTaskRehearsal(f.plugin, f.configuration); const host = createNativeTaskHost(f.plugin); await Promise.resolve();
+    assert.equal(listeners.size, 2); await host.close(); assert.equal(listeners.size, 0); assert.deepEqual(await fs.readdir(f.configuration.config.directory), []);
+});
+
+test("genuine owner failure after readiness stays unavailable with no legacy fallback", async t => {
+    const f = await fixture(t); let layout;
+    f.plugin.app.workspace = { layoutReady: false, onLayoutReady: fn => { layout = fn; } };
+    await authorizeNativeTaskRehearsal(f.plugin, f.configuration); const host = createNativeTaskHost(f.plugin);
+    f.change(p => p.status = "archived"); f.plugin.app.workspace.layoutReady = true; layout(); await host.ready;
+    assert.equal(host.status().state, "unavailable"); assert.throws(() => f.plugin.mutateTask({ path: f.configuration.dashboard })); await host.close();
+});
+
+test("Obsidian quit Tasks drains once across repeated requests and releases its lock", async t => {
+    const f = await fixture(t), listeners = new Map(), promises = [];
+    f.plugin.app.workspace = { layoutReady: true, onLayoutReady() {}, on(name, fn) { listeners.set(name, fn); return name; }, offref: ref => listeners.delete(ref) };
+    const host = await f.start(); assert((await fs.readdir(f.configuration.config.directory)).includes("WRITER.lock"));
+    const quit = listeners.get("quit"), tasks = { add(fn) { promises.push(fn()); } };
+    quit(tasks); quit(tasks); assert.throws(() => host.runtime()); await Promise.all(promises);
+    assert.equal(host.status().state, "closed"); assert.equal(listeners.size, 0); assert(!(await fs.readdir(f.configuration.config.directory)).includes("WRITER.lock")); await host.close();
+});
+
+test("quit during pending initialization cancels admission and drains without a lease", async t => {
+    const f = await fixture(t), listeners = new Map(), promises = []; let layout;
+    f.plugin.app.workspace = { layoutReady: false, onLayoutReady: fn => { layout = fn; }, on(name, fn) { listeners.set(name, fn); return name; }, offref: ref => listeners.delete(ref) };
+    await authorizeNativeTaskRehearsal(f.plugin, f.configuration); const host = createNativeTaskHost(f.plugin);
+    listeners.get("quit")({ add(fn) { promises.push(fn()); } }); await Promise.all(promises); layout();
+    assert.equal(host.status().state, "closed"); assert.equal(listeners.size, 0); assert.deepEqual(await fs.readdir(f.configuration.config.directory), []);
+});
+
+test("quit Tasks waits for an accepted published write before releasing the lease", { timeout: 10000 }, async t => {
+    const f = await fixture(t), listeners = new Map(), promises = []; let release, reached, armed = false;
+    const held = new Promise(resolve => { release = resolve; }), published = new Promise(resolve => { reached = resolve; });
+    f.plugin.app.workspace = { layoutReady: true, onLayoutReady() {}, on(name, fn) { listeners.set(name, fn); return name; }, offref: ref => listeners.delete(ref) };
+    const load = Module._load;
+    Module._load = function (name) {
+        const actual = load.apply(this, arguments);
+        if (!name.endsWith("ItacanTaskCore/integration/project-runtime")) return actual;
+        return { ...actual, openProjectRuntime: (config, options) => actual.openProjectRuntime(config, { ...options, repositoryOptions: { fault: async stage => {
+            if (armed && stage === "beforeAcknowledgement") { reached(); await held; }
+        } } }) };
+    };
+    let host;
+    try { host = await f.start(); } finally { Module._load = load; }
+    try {
+        const runtime = host.runtime(), form = runtime.formService({}), values = { text: "Accepted before quit", completed: false, steps: [] };
+        armed = true; const operation = form.create(form.formContext().destination, values.text, values); await published;
+        listeners.get("quit")({ add(fn) { promises.push(fn()); } }); let drained = false; Promise.all(promises).then(() => { drained = true; });
+        await Promise.resolve(); assert(!drained); assert((await fs.readdir(f.configuration.config.directory)).includes("WRITER.lock"));
+        release(); const outcome = await operation; await Promise.all(promises);
+        assert.equal(outcome.outcome.status, "committed"); assert.equal(host.status().state, "closed"); assert(!(await fs.readdir(f.configuration.config.directory)).includes("WRITER.lock"));
+        const repo = await require("../../src/json-repository").openJsonRepository({ directory: f.configuration.config.directory, storageFormat: "private-v4", expectedAuthorityId: f.configuration.config.authorityId });
+        try { const snapshot = await repo.readSnapshot({ version: 1, authorityId: f.configuration.config.authorityId, owners: [f.configuration.owner], selection: "tasks" }); assert.equal(snapshot.tasks.length, 1); assert.equal(snapshot.tasks[0].title, values.text); } finally { await repo.close(); }
+    } finally { release(); await host.close(); }
+});

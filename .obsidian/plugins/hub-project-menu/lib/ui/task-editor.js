@@ -36,6 +36,14 @@ function openTaskEditor(service, task, onEdit = () => {}, creation = null) {
                 onChange: clearError,
                 text: { placeholder: creation ? "What needs doing?" : "" },
                 location, presentationContext: formContext });
+            if (formContext?.resourceLocations) {
+                const label = form.createEl("label", { text: "Location (optional)" });
+                const select = label.createEl("select", { attr: { "aria-label": "Resource task location" } });
+                select.createEl("option", { value: "", text: "Resource" });
+                for (const location of formContext.resourceLocations) select.createEl("option", { value: location.id, text: location.label ?? location.id });
+                select.value = state.nativeLocation ?? formContext.nativeLocation ?? "";
+                select.onchange = () => { state.nativeLocation = select.value; clearError(); };
+            }
             const { input, phase } = this.taskFields;
             errorEl = form.createDiv({ cls: "hub-task-error", attr: { role: "alert" } });
             const actions = form.createDiv({ cls: "hub-task-dialog-actions" });

@@ -17,7 +17,7 @@ function createPendingRequests(port, config, settings, inspect) {
     function record(intent) {
         const compiled = require("../application/intents").compile(intent), i = compiled.intent;
         check(compiled.request && ["rich-create", "full-save", "set-completion", "set-step-completion", "delete-tree"].includes(i.action.kind), "Action is outside Project rehearsal.");
-        check(i.authority.backend === "native" && i.authority.authorityId === config.authorityId && i.authority.applicationContextId === config.applicationContextId && i.owner.type === "project" && i.guard.partitions.length === 1, "Retention scope differs.");
+        check(i.authority.backend === "native" && i.authority.authorityId === config.authorityId && i.authority.applicationContextId === config.applicationContextId && ["project", "resource"].includes(i.owner.type) && i.guard.partitions.length === 1, "Retention scope differs.");
         if (i.action.kind === "rich-create") { V.uuid(i.action.draft.id); for (const step of i.action.draft.steps) V.uuid(step.id); }
         return sealed({ format: "itacan-native-ui-request", version: 1, authorityId: config.authorityId, applicationContextId: config.applicationContextId,
             rehearsalId: settings.rehearsalId, owner: V.clone(i.owner), partitionId: i.guard.partitions[0].id, operationId: i.operationId,
@@ -58,6 +58,7 @@ function createPendingRequests(port, config, settings, inspect) {
     }
     function replayCode(r, o) {
         if (!o?.ready || !o.stamp) return "AUTHORITY_UNAVAILABLE";
+        if (r.writerRequest.scope.ownerContextPin !== o.stamp.ownerContextPin || r.writerRequest.scope.identityPin !== o.stamp.identityPin) return "ORIGINAL_GUARDS_STALE";
         if (o.operation.state === "committed") return "EXACT_COMMITTED_REPLAY";
         if (o.operation.state !== "missing") return "OPERATION_CONFLICT";
         // Enabled roots fence every write/replay after known fallback. Missing

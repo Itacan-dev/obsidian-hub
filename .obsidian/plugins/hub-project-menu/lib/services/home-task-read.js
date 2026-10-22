@@ -124,14 +124,26 @@ function createHomeTaskRead({ plugin, component, changed, resolveOwner, editTask
     if (!nativeTasks?.consumerUiV1) return legacy;
     if (typeof resolveNativeOwner !== "function") throw new TaskServiceError("UNAVAILABLE", "Native Home owner resolver required.");
     let nativeGeneration = 0, available = false, accepted = [], nativeRows = [], nativeContext = null, composing = 0;
-    const native = nativeTasks.createPanelRead({ plugin, component, workspace: nativeTasks.owner,
-        changed() { nativeGeneration++; available = false; if (!closed && !composing) changed(); } });
+    const owners = nativeTasks.owners ?? [nativeTasks.owner];
+    const panels = owners.map(owner => ({ owner, panel: nativeTasks.createPanelRead({ plugin, component, workspace: owner,
+        changed() { nativeGeneration++; available = false; if (!closed && !composing) changed(); } }) }));
+    const panelFor = task => { const entry = panels.find(p => sameWorkspace(p.owner, task.nativeReference?.owner)); if (!entry) throw new TaskServiceError("UNAVAILABLE", "Native task owner unavailable."); return entry.panel; };
+    const native = {
+        close: () => panels.forEach(p => p.panel.close()),
+        async read() { const all = await Promise.all(panels.map(p => p.panel.read())); if (all.some(r => !r)) return null;
+            return { availability: all.every(r => r.availability === "current") ? "current" : "unavailable", tasks: all.flatMap(r => r.tasks), context: all.map(r => r.context) }; },
+        accept: tasks => panels.forEach(p => p.panel.accept(tasks.filter(t => sameWorkspace(t.nativeReference?.owner, p.owner)))),
+        reconcile: (tasks, edit) => { const entry = panels.find(p => sameWorkspace(p.owner, edit.owner)); if (!entry) throw new TaskServiceError("UNAVAILABLE", "Native edit owner unavailable.");
+            const updated = entry.panel.reconcile(tasks.filter(t => sameWorkspace(t.nativeReference?.owner, edit.owner)), edit); return [...tasks.filter(t => !sameWorkspace(t.nativeReference?.owner, edit.owner)), ...updated]; },
+        actions: { mutate: task => panelFor(task).actions.mutate(task), editTask: (task, saved) => panelFor(task).actions.editTask(task, saved) },
+        toggle: (task, completed) => panelFor(task).toggle(task, completed)
+    };
     const isNative = task => !!task.nativeReference;
     const requireNative = task => {
         alive(); if (!available || task.nativeReadOnly) throw new TaskServiceError("UNAVAILABLE", "This native task is unavailable.");
         return task;
     };
-    const merge = items => nativeTasks.mergeHome(items, nativeRows, nativeTasks.owner, nativeContext, resolveNativeOwner);
+    const merge = items => owners.reduce((rows, owner, i) => nativeTasks.mergeHome(rows, nativeRows.filter(t => sameWorkspace(t.nativeReference?.owner, owner)), owner, nativeContext[i], resolveNativeOwner), items);
     const unavailable = () => ({ items: accepted.map(item => isNative(item.task) ? { ...item, task: { ...item.task, nativeReadOnly: true } } : item),
         changed: true, availability: "unavailable", countComplete: false, diagnostics: [{ code: "NATIVE_HOME_UNAVAILABLE" }] });
     return {

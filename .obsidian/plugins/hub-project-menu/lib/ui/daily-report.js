@@ -38,9 +38,10 @@ function focusSection(parent, heading, items, empty, markdown) {
     for (const text of items) reportText(section, text, markdown);
 }
 
-function renderTaskProgress(parent, items, markdown, { heading = "Task progress", showTimes = true, hideEmptyHeading = false, component } = {}) {
+function renderTaskProgress(parent, items, markdown, { heading = "Task progress", showTimes = true, hideEmptyHeading = false, component, availability = "current" } = {}) {
     const tasks = parent.createDiv({ cls: "hub-report-section" });
     if (items.length || !hideEmptyHeading) tasks.createEl("h3", { text: heading });
+    if (availability !== "current") { tasks.createDiv({ cls: "hub-report-empty", text: "Task progress unavailable. Completion evidence could not be confirmed." }); return tasks; }
     if (!items.length) tasks.createDiv({ cls: "hub-report-empty", text: "No task progress recorded for this day." });
     // Visible, bounded context uses the modal's native scrollbars; no active task controls.
     const list = tasks.createDiv({ cls: "hub-report-task-list", attr: { role: "list", "aria-label": heading } });
@@ -72,7 +73,7 @@ function renderTaskProgress(parent, items, markdown, { heading = "Task progress"
 
 function renderReportEvidence(parent, context, markdown, component) {
     const evidence = parent.createDiv({ cls: "hub-report-evidence" });
-    renderTaskProgress(evidence, context.tasks, markdown, { hideEmptyHeading: true, component });
+    renderTaskProgress(evidence, context.tasks, markdown, { hideEmptyHeading: true, component, availability: context.tasksAvailability ?? "current" });
 
     if (!context.activity.length) {
         evidence.createDiv({ cls: "hub-report-empty hub-report-no-activity", text: "No activity recorded for this day." });

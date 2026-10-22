@@ -71,8 +71,8 @@ function mountTaskWorkspace({ plugin, component, dv, root, toolbar, filesGrid, f
     component.register(() => content.removeEventListener("focusin", revealFocusedControl));
     let tasks = [], locations = [], workspaces = [], dirty = true, disposed = false, readGeneration = 0;
     let nativeAvailable = false, nativeRefreshTimer = null, nativeReading = false;
-    const native = nativeTasks?.consumerUiV1 && nativeTasks.owner.type === "project" && nativeTasks.owner.id === workspace.projectId
-        ? nativeTasks.createPanelRead({ plugin, component, workspace: nativeTasks.owner, changed: () => { nativeAvailable = false; if (nativeReading) return; clearTimeout(nativeRefreshTimer); nativeRefreshTimer = setTimeout(() => { if (!disposed) void refresh(); }, 50); } }) : null;
+    const native = nativeTasks?.consumerUiV1 && (nativeTasks.matches ? nativeTasks.matches({ type: "project", id: workspace.projectId }) : nativeTasks.owner.type === "project" && nativeTasks.owner.id === workspace.projectId)
+        ? nativeTasks.createPanelRead({ plugin, component, workspace: { type: "project", id: workspace.projectId }, changed: () => { nativeAvailable = false; if (nativeReading) return; clearTimeout(nativeRefreshTimer); nativeRefreshTimer = setTimeout(() => { if (!disposed) void refresh(); }, 50); } }) : null;
     nativeAvailable = !native;
     const reads = native ? null : new TaskReadSession(plugin.taskService, () => { void refresh(); });
     component.register(() => { readGeneration++; reads?.close(); native?.close(); clearTimeout(nativeRefreshTimer); });

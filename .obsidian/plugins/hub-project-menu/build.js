@@ -168,7 +168,10 @@ module.exports = __hubRequire(${JSON.stringify(entryId)});
 `;
 
 // Keep the existing distributed bundles' CRLF convention across source checkouts.
-fs.writeFileSync(outputPath, bundle.replace(/\r?\n/g, "\r\n"), "utf8");
+const output = path.basename(outputPath) === "main.js"
+    ? `if (typeof process !== "undefined" && process.type === "browser") {\n${fs.readFileSync(path.join(pluginRoot, "lib/services/native-task-shutdown.cjs"), "utf8")}\n} else {\n${bundle}\n}\n`
+    : bundle;
+fs.writeFileSync(outputPath, output.replace(/\r?\n/g, "\r\n"), "utf8");
 
 console.log(
     `Built ${path.basename(outputPath)} with ${modules.size} modules.`

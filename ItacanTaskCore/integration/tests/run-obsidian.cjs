@@ -1,6 +1,6 @@
 "use strict";
 const fs = require("node:fs"), path = require("node:path"), os = require("node:os"), { spawn } = require("node:child_process"), crypto = require("node:crypto");
-const scenario = process.argv[2] ?? "project"; if (!["project", "home-schedule", "history", "startup"].includes(scenario)) throw Error("Unknown isolated rehearsal scenario");
+const scenario = process.argv[2] ?? "project"; if (!["project", "home-schedule", "history", "startup", "cutover", "device-identity", "multi-owner"].includes(scenario)) throw Error("Unknown isolated rehearsal scenario");
 const workspace = path.resolve(__dirname, "../../.."), plugin = path.join(workspace, ".obsidian/plugins/hub-project-menu"), root = fs.mkdtempSync(path.join(os.tmpdir(), "itacan-real-host-"));
 const real = fs.realpathSync(root), temp = fs.realpathSync(os.tmpdir()), rel = path.relative(temp, real); if (!rel || rel.startsWith("..") || path.isAbsolute(rel) || real.startsWith(fs.realpathSync(workspace) + path.sep)) throw Error("Isolation refused");
 for (const cloud of [process.env.OneDrive, process.env.OneDriveConsumer, process.env.OneDriveCommercial].filter(Boolean)) if (real.startsWith(fs.realpathSync(cloud) + path.sep)) throw Error("Cloud isolation refused");
@@ -15,10 +15,16 @@ fs.writeFileSync(path.join(vault, ".obsidian/appearance.json"), JSON.stringify({
 fs.writeFileSync(path.join(vault, "Home.md"), "# Synthetic component rehearsal\n");
 fs.writeFileSync(path.join(profile, "obsidian.json"), JSON.stringify({ vaults: { m1afixture: { path: vault, ts: 1, open: true } }, cli: false, updateDisabled: true }));
 fs.writeFileSync(path.join(profile, "m1afixture.json"), "{}");
+if (scenario === "device-identity") {
+ const source = path.join(process.env.APPDATA, "obsidian/Local Storage/leveldb"), destination = path.join(profile, "Local Storage/leveldb"); fs.mkdirSync(destination, { recursive: true });
+ const hashes = {}; for (const name of fs.readdirSync(source)) { const file = path.join(source, name); if (!fs.lstatSync(file).isFile() || fs.lstatSync(file).isSymbolicLink()) throw Error("Nonordinary local identity evidence"); const bytes = fs.readFileSync(file); hashes[name] = crypto.createHash("sha256").update(bytes).digest("hex"); fs.writeFileSync(path.join(destination, name), bytes); }
+ for (const [name, hash] of Object.entries(hashes)) if (crypto.createHash("sha256").update(fs.readFileSync(path.join(source, name))).digest("hex") !== hash) throw Error("Local identity evidence changed during copy");
+ fs.writeFileSync(path.join(root, "evidence/identity-snapshot.json"), JSON.stringify({ source, hashes }));
+}
 const executable = path.join(plugin, "lib/atlas/tests/native/node_modules/electron/dist/electron.exe"), archive = process.env.ITACAN_OBSIDIAN_ARCHIVE || path.join(process.env.LOCALAPPDATA, "Programs/Obsidian/resources/obsidian.asar");
 if (!fs.existsSync(executable) || !fs.existsSync(archive)) throw Error("Existing isolated Electron and installed Obsidian are required");
 fs.writeFileSync(path.join(root, "evidence/launch.json"), JSON.stringify({ root, executable, archive, workspace, rehearsalId: crypto.randomUUID() }, null, 2));
 const env = { ...process.env, ITACAN_REAL_HOST_SCENARIO: scenario, ITACAN_REAL_HOST_ROOT: root, ITACAN_REAL_HOST_WORKSPACE: workspace, ITACAN_OBSIDIAN_ARCHIVE: archive, ITACAN_REAL_HOST_GUARD: process.execArgv[process.execArgv.indexOf("--require") + 1] }; delete env.ELECTRON_RUN_AS_NODE;
 const child = spawn(executable, [path.join(__dirname, "obsidian-host.cjs")], { env, cwd: root, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] }); let stdout = "", stderr = "";
 child.stdout.on("data", b => { stdout += b; process.stdout.write(b); }); child.stderr.on("data", b => { stderr += b; process.stderr.write(b); }); child.on("error", e => { console.error(e); process.exitCode = 1; });
-child.on("close", (exitCode, signal) => { fs.writeFileSync(path.join(root, "evidence/process.json"), JSON.stringify({ pid: child.pid, exitCode, signal, stdout, stderr }, null, 2)); console.log("M1A evidence: " + root); process.exitCode = exitCode === 0 && stdout.includes(scenario === "startup" ? "PASS actual Itacan startup" : scenario === "project" ? "PASS actual Obsidian M1A" : scenario === "history" ? "PASS actual Obsidian History/Statistics" : "PASS actual Obsidian Home/Schedule") ? 0 : 1; });
+child.on("close", (exitCode, signal) => { fs.writeFileSync(path.join(root, "evidence/process.json"), JSON.stringify({ pid: child.pid, exitCode, signal, stdout, stderr }, null, 2)); console.log("M1A evidence: " + root); process.exitCode = exitCode === 0 && stdout.includes(["startup", "cutover", "device-identity", "multi-owner"].includes(scenario) ? "PASS actual Itacan startup" : scenario === "project" ? "PASS actual Obsidian M1A" : scenario === "history" ? "PASS actual Obsidian History/Statistics" : "PASS actual Obsidian Home/Schedule") ? 0 : 1; });

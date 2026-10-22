@@ -8,23 +8,29 @@ const same = (a, b) => V.canonical(a) === V.canonical(b);
 function unavailable(code = "HISTORY_UNAVAILABLE") { const e = Error("Completion evidence is unavailable."); e.code = code; return e; }
 function nativeReference(native, e) { return { authorityId: native.authorityId, eventId: e.eventId, taskId: e.taskId, stepId: e.stepId, owner: V.clone(e.ownerAtEvent), origin: e.origin, navigation: V.clone(e.navigation) }; }
 function account(raw, native) {
-    V.jsonValue(raw); check(Array.isArray(raw) && native?.version === 1, "Complete observations required.");
-    const h = native.history, byDigest = new Map(), suppressed = new Set(), representedRows = new Map();
+    V.jsonValue(raw); check(Array.isArray(raw) && (Array.isArray(native) ? native.every(n => n?.version === 1) : native?.version === 1), "Complete observations required.");
+    const observations = Array.isArray(native) ? native : [native];
+    check(observations.length && new Set(observations.map(n => n.authorityId)).size === observations.length, "Distinct native authorities required.");
+    const byDigest = new Map(), suppressed = new Set(), representedRows = new Map();
     raw.forEach((row, i) => { const d = I.hash(row); if (!byDigest.has(d)) byDigest.set(d, []); byDigest.get(d).push(i); });
-    const eventMap = new Map();
-    for (const e of h.events) { check(!eventMap.has(e.eventId) && e.receipt.repositoryRevision <= native.stamp.head.repositoryRevision, "Duplicate/uncommitted event."); eventMap.set(e.eventId, e); }
+    const eventMap = new Map(), origins = new Map();
+    for (const observation of observations) {
+    const h = observation.history;
+    for (const e of h.events) { check(!eventMap.has(e.eventId) && e.receipt.repositoryRevision <= observation.stamp.head.repositoryRevision, "Duplicate/uncommitted event."); eventMap.set(e.eventId, e); origins.set(e.eventId, observation); }
     if (h.overlap) {
         const expected = new Map(), keys = new Set();
         for (const r of h.overlap.rows) { check(!keys.has(r.key), "Duplicate capture row."); keys.add(r.key); expected.set(r.digest, (expected.get(r.digest) ?? 0) + 1); }
         for (const [digest, count] of expected) check(byDigest.get(digest)?.length === count, "Import overlap changed or absent.");
         for (const r of h.overlap.rows) {
             const i = byDigest.get(r.digest)[r.occurrence]; check(i !== undefined, "Import occurrence missing.");
+            check(!representedRows.has(i) && !suppressed.has(i), "Ambiguous imported origins.");
             if (r.suppressed) suppressed.add(i);
             if (r.eventId) { const e = eventMap.get(r.eventId); check(e?.origin === "represented-import", "Import representation missing."); representedRows.set(i, e); }
         }
         check(h.overlap.representedEventIds.every(id => eventMap.get(id)?.origin === "represented-import"), "Represented import is unverified.");
     }
-    const live = h.events.filter(e => e.origin !== "represented-import" && e.counted).sort((a, b) => b.receipt.repositoryRevision - a.receipt.repositoryRevision || b.receipt.index - a.receipt.index);
+    }
+    const live = [...eventMap.values()].filter(e => e.origin !== "represented-import" && e.counted).sort((a, b) => b.receipt.repositoryRevision - a.receipt.repositoryRevision || b.receipt.index - a.receipt.index);
     for (const e of live) check(!raw.some(row => row && typeof row === "object" && row.id === e.eventId), "Native/legacy event identity collision.");
     const legacy = [], references = [];
     raw.forEach((r, i) => { if (suppressed.has(i) || !r) return; legacy.push({ ...r }); references.push(representedRows.get(i) ?? null); });
@@ -32,13 +38,13 @@ function account(raw, native) {
     const completions = statisticsCompletions(query), records = historyRecords(query);
     // Join only exact detached recorded values, with an occurrence counter. IDs alone are insufficient.
     const queues = new Map(); query.rows.forEach((r, i) => { if (r.fact) { const d = I.hash(r.fact.recorded); if (!queues.has(d)) queues.set(d, []); queues.get(d).push(references[i]); } });
-    for (const record of records) { const { historyReadKey, ...body } = record, ref = queues.get(I.hash(body)).shift(); if (ref) record.nativeHistory = nativeReference(native, ref); }
+    for (const record of records) { const { historyReadKey, ...body } = record, ref = queues.get(I.hash(body)).shift(); if (ref) record.nativeHistory = nativeReference(origins.get(ref.eventId), ref); }
     const fresh = live.map(e => ({ id: e.eventId, kind: e.kind, text: e.title, ...(e.kind === "step" ? { parentText: e.parentTitle } : {}), timestamp: e.timestamp,
         projectId: e.ownerAtEvent === null ? null : e.ownerAtEvent.type === "resource" ? "resource:" + e.ownerAtEvent.id : e.ownerAtEvent.id,
         contextKind: e.ownerAtEvent?.type ?? "project", resourceType: e.ownerAtEvent?.type === "resource" ? e.ownerAtEvent.id : null,
         ...(e.attribution ? { projectName: e.attribution.label, projectStatus: e.attribution.status } : {}) }));
-    return freeze({ version: 1, privacy: "local-private", stamp: native.stamp,
-        records: [...fresh.map((r, i) => ({ ...r, historyReadKey: V.canonical(["native-history", native.authorityId, r.id]), nativeHistory: nativeReference(native, live[i]) })), ...records],
+    return freeze({ version: 1, privacy: "local-private", stamp: observations[0].stamp, ...(observations.length > 1 ? { observations: observations.map(n => ({ authorityId: n.authorityId, stamp: n.stamp })) } : {}),
+        records: [...fresh.map((r, i) => ({ ...r, historyReadKey: V.canonical(["native-history", origins.get(r.id).authorityId, r.id]), nativeHistory: nativeReference(origins.get(r.id), live[i]) })), ...records],
         completions: [...fresh, ...completions], diagnostics: query.diagnostics });
 }
 function createCompletionFeed({ native, legacy, navigate }) {

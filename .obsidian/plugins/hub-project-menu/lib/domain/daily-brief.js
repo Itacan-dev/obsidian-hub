@@ -65,11 +65,13 @@ function mergeProgress(records) {
     return [...result.values()].sort(byTime);
 }
 function matchesProgress(task, event) {
+    if (task.nativeReference) return event.nativeHistory?.authorityId === task.nativeReference.authorityId && event.nativeHistory?.taskId === task.nativeReference.taskId;
     const id = event.kind === "step" ? event.parentTaskId : event.hubTaskId;
     return id ? task.hubTaskId === id : task.path === event.path &&
         titleKey(task.text) === titleKey(event.kind === "step" ? event.parentText : event.text);
 }
 function fileTarget(task, step) {
+    if (task.nativeReference) return { kind: "native-task", workspaceId: task.workspaceId, authorityId: task.nativeReference.authorityId, owner: task.nativeReference.owner, taskId: task.id, stepId: step?.id ?? null };
     return { kind: "file", workspaceId: task.workspaceId, path: task.path, taskText: task.text, taskLine: task.line,
         ...(step ? { stepText: step.text } : {}),
         ...(task.hubTaskId ? { taskId: task.hubTaskId } : {}), ...(step?.hubTaskId ? { stepId: step.hubTaskId } : {}) };
@@ -79,7 +81,7 @@ function fileTarget(task, step) {
 // Availability is resolved here so providers never need vault or navigation APIs.
 function buildDailyBriefContext(service, {
     now = new Date(), workspaces = [], tasks = [], workingConfigurations = [], oathState = null,
-    resolvePath = () => null, resolveLink = () => null, canOpen = () => true
+    resolvePath = () => null, resolveLink = () => null, canOpen = () => true, canOpenNative = () => false
 } = {}) {
     const briefDate = dailyBriefDay(now), live = new Map(workspaces.map(workspace => [workspace.workspaceId, workspace]));
     const boundary = dailyBriefStart(now), cutoff = boundary.getTime();
@@ -88,7 +90,7 @@ function buildDailyBriefContext(service, {
     // A recorded completion after 06:00 must not erase the unfinished continuation
     // when the first brief is opened late. Untimestamped edits cannot be reconstructed.
     const completedAtBoundary = (item, parent = null) => {
-        const records = history.filter(event => parent ? event.kind === "step" && (item.hubTaskId
+        const records = history.filter(event => parent?.nativeReference ? matchesProgress(parent, event) && event.nativeHistory?.stepId === item.id : item.nativeReference ? matchesProgress(item, event) && event.kind !== "step" : parent ? event.kind === "step" && (item.hubTaskId
             ? event.hubTaskId === item.hubTaskId : matchesProgress(parent, event) && titleKey(event.text) === titleKey(item.text))
             : event.kind !== "step" && matchesProgress(item, event));
         return records.some(event => Number(event.timestamp) >= cutoff && Number(event.timestamp) <= now.getTime())
@@ -99,8 +101,7 @@ function buildDailyBriefContext(service, {
             steps: (original.steps ?? []).map(step => ({ ...step, completed: completedAtBoundary(step, original) })) };
         const workspace = live.get(task.workspaceId), path = resolvePath(task.path);
         return { ...task, path: path ?? task.path, steps: (task.steps ?? []).map(step => ({ ...step })),
-            available: !!workspace?.available && !!path && !task.completed && !task.identityConflict &&
-                !taskIsFuture(task, boundary) && canOpen(path),
+            available: !!workspace?.available && !task.completed && !task.identityConflict && !task.nativeReadOnly && !taskIsFuture(task, boundary) && (task.nativeReference ? canOpenNative(task.nativeReference.owner) : !!path && canOpen(path)),
             future: taskIsFuture(task, boundary) };
     });
     const reports = [...service.getProgressReports(), ...service.getProgressReports({ kind: "resource" })];

@@ -1,6 +1,5 @@
 "use strict";
-// Dormant startup integration. There is deliberately no persisted setting or
-// end-user activation switch: this gate admits synthetic OS Temp vaults only.
+// Legacy by default; real admission requires the external verified owner cutover.
 const approvals = new WeakMap();
 const path = require("node:path"), fs = require("node:fs/promises"), os = require("node:os");
 const copy = value => JSON.parse(JSON.stringify(value));
@@ -12,11 +11,18 @@ async function ordinary(directory) {
 }
 async function authorizeNativeTaskRehearsal(plugin, input) {
     if (plugin.nativeTaskHost || approvals.has(plugin)) throw Error("Native host already configured.");
+    if (Array.isArray(input)) {
+        if (!input.length) throw Error("Explicit synthetic owners required.");
+        const checked = [];
+        for (const value of input) { const token = { ...plugin }; await authorizeNativeTaskRehearsal(token, value); checked.push(approvals.get(token)); approvals.delete(token); }
+        if (new Set(checked.map(o => JSON.stringify(o.owner))).size !== checked.length || new Set(checked.map(o => o.config.authorityId)).size !== checked.length || new Set(checked.map(o => o.config.directory)).size !== checked.length) throw Error("Distinct native owners and authorities required.");
+        approvals.set(plugin, checked); return;
+    }
     const options = copy(input), vault = await ordinary(plugin.app.vault.adapter.getBasePath()), temp = await fs.realpath(os.tmpdir());
     const root = await ordinary(options.root), native = await ordinary(options.config.directory);
     if (options.version !== 1 || options.syntheticOnly !== true || !within(temp, root) || !within(root, vault) || !within(root, native) || native === vault || within(vault, native) || within(native, vault)) throw Error("Synthetic Temp vault and separate native root required.");
     for (const cloud of [process.env.OneDrive, process.env.OneDriveConsumer, process.env.OneDriveCommercial].filter(Boolean)) if (within(path.resolve(cloud), root) || path.resolve(cloud) === root) throw Error("Cloud storage is not admitted.");
-    if (options.owner?.type !== "project" || options.config.scope !== "inactive-disposable" || typeof options.projectRoot !== "string" || !options.projectRoot || typeof options.dashboard !== "string") throw Error("Explicit private synthetic Project required.");
+    if (!["project", "resource"].includes(options.owner?.type) || options.config.scope !== "inactive-disposable" || typeof options.projectRoot !== "string" || !options.projectRoot || typeof options.dashboard !== "string") throw Error("Explicit private synthetic Project required.");
     // No existing task source can become a second writable authority. This is
     // not a cutover permit and cannot retire or convert Markdown checkboxes.
     for (const file of plugin.app.vault.getMarkdownFiles()) if (file.path === options.projectRoot || file.path.startsWith(options.projectRoot + "/")) {
@@ -25,23 +31,51 @@ async function authorizeNativeTaskRehearsal(plugin, input) {
     const vaultStat = await fs.stat(vault, { bigint: true });
     approvals.set(plugin, { ...options, vaultPin: { real: vault, dev: String(vaultStat.dev), ino: String(vaultStat.ino) } });
 }
-function createNativeTaskHost(plugin) {
-    const options = approvals.get(plugin); approvals.delete(plugin);
+async function authorizeNativeTaskActivation(plugin) {
+    if (approvals.has(plugin)) return; // Synthetic approval cannot select permanent scope.
+    const options = await require("./native-task-activation").loadActivations(plugin);
+    if (options?.length) approvals.set(plugin, options);
+}
+function createOwnerHost(plugin, options, coordinated = false) {
     if (!options) return null; // No native imports, storage access or host in Legacy mode.
     const { openProjectRuntime } = require("../../../../../ItacanTaskCore/integration/project-runtime");
     const { registryDigest } = require("../../../../../ItacanTaskCore/host/registry");
     const { policy, hash } = require("../../../../../ItacanTaskCore/writer/policy");
     const consumers = require("../../../../../ItacanTaskCore/integration/home-schedule");
-    const { owner, config } = options, stops = [], registryListeners = new Set(), historyListeners = new Set();
+    const { owner } = options, stops = [], registryListeners = new Set(), historyListeners = new Set(), stateListeners = new Set(), feedListeners = new Map();
+    let config = options.config, cancelReadiness = null;
+    const locationLabels = new Map();
     let runtime = null, feed = null, stopped = false, closing = null, state = "opening", ready;
-    const matches = ref => ref?.type === "project" && ref.id === owner.id;
-    const project = () => plugin.projectWizard.getProjectById(owner.id);
+    const matches = ref => ref?.type === owner.type && ref.id === owner.id;
+    const workspaceRef = require("./task-service-legacy-values").workspaceRef;
+    const workspaceId = owner.type === "resource" ? "resource:" + owner.id : owner.id;
+    const project = () => (owner.type === "resource" ? plugin.projectWizard.getResourceById(owner.id) : plugin.projectWizard.getProjectById(owner.id));
     const ownsPath = value => typeof value === "string" && (value === options.projectRoot || value.startsWith(options.projectRoot + "/"));
     const unavailable = () => { throw Error("Native task operation is unavailable. Markdown fallback is disabled."); };
+    const changedState = () => { for (const fn of [...stateListeners]) { try { Promise.resolve(fn()).catch(() => {}); } catch (_) {} } };
+    function waitFor(register) {
+        return new Promise(resolve => {
+            let done = false, stop = () => {};
+            const finish = () => { if (done) return; done = true; stop(); cancelReadiness = null; resolve(); };
+            cancelReadiness = finish; stop = register(finish) ?? (() => {});
+            if (done) stop(); else if (stopped) finish();
+        });
+    }
+    async function waitForMetadata() {
+        const workspace = plugin.app.workspace;
+        if (workspace?.onLayoutReady && !workspace.layoutReady) await waitFor(done => { workspace.onLayoutReady(done); });
+        if (stopped) return;
+        const cache = plugin.app.metadataCache, file = plugin.app.vault.getAbstractFileByPath?.(options.dashboard);
+        if (file && cache?.getFileCache && !cache.getFileCache(file)) await waitFor(done => {
+            const refs = [cache.on("changed", changed => { if (changed.path === file.path) done(); }), cache.on("resolved", done)];
+            if (cache.getFileCache(file)) done();
+            return () => refs.forEach(ref => cache.offref(ref));
+        });
+    }
     const rejectLegacy = value => {
         const ref = value?.nativeReference?.owner ?? value?.owner ?? value;
         const context = typeof value === "string" ? plugin.projectWizard.getContextForPath(value) : null;
-        if (matches(ref) || context?.contextKind !== "resource" && context?.projectId === owner.id || value?.contextKind !== "resource" && value?.projectId === owner.id || ownsPath(typeof value === "string" ? value : value?.path)) unavailable();
+        if (matches(ref) || matches(workspaceRef(context)) || matches(workspaceRef(value)) || ownsPath(typeof value === "string" ? value : value?.path)) unavailable();
     };
     function wrap(object, name, before) {
         const original = object[name]; if (typeof original !== "function") throw Error("Missing task boundary: " + name);
@@ -53,11 +87,11 @@ function createNativeTaskHost(plugin) {
     wrap(plugin.taskEditor, "save", (snapshot, values) => { rejectLegacy(snapshot.file?.path ?? snapshot.path); rejectLegacy(values.location); });
     wrap(plugin, "mutateTask", request => rejectLegacy(request));
     wrap(plugin, "performClearCompletedTasks", requests => { for (const r of requests ?? []) rejectLegacy(r); });
-    wrap(plugin.planning, "project", id => { if (id === owner.id) unavailable(); });
+    wrap(plugin.planning, "project", id => { if (owner.type === "project" && id === owner.id) unavailable(); });
     const originalRead = plugin.taskData.readPages;
     const readPages = function (...args) { return originalRead.apply(this, args).filter(page => {
         const context = plugin.projectWizard.getContextForPath(page.file?.path);
-        return !ownsPath(page.file?.path) && (context?.contextKind === "resource" || context?.projectId !== owner.id);
+        return !ownsPath(page.file?.path) && !matches(workspaceRef(context));
     }); };
     plugin.taskData.readPages = readPages;
     stops.push(() => { if (plugin.taskData.readPages === readPages) plugin.taskData.readPages = originalRead; });
@@ -66,11 +100,11 @@ function createNativeTaskHost(plugin) {
         wrap(plugin.inbox, "makeTask", (values, captureId) => {
             const capture = captureId ? plugin.inbox.required(captureId) : null;
             const candidates = [values, capture?.intent, capture?.operation];
-            for (const c of candidates) if (c && (c.workspaceId === owner.id || ownsPath(c.location))) unavailable();
+            for (const c of candidates) if (c && (c.workspaceId === workspaceId || matches(c.workspace) || ownsPath(c.location))) unavailable();
         });
-        wrap(plugin.inbox, "taskDestination", values => { if (values.workspaceId === owner.id || ownsPath(values.location)) unavailable(); });
+        wrap(plugin.inbox, "taskDestination", values => { if (values.workspaceId === workspaceId || matches(values.workspace) || ownsPath(values.location)) unavailable(); });
         const locations = plugin.inbox.taskLocations;
-        const taskLocations = function (id) { return id === owner.id ? [] : locations.call(this, id); };
+        const taskLocations = function (id) { return id === workspaceId ? [] : locations.call(this, id); };
         plugin.inbox.taskLocations = taskLocations;
         stops.push(() => { if (plugin.inbox.taskLocations === taskLocations) plugin.inbox.taskLocations = locations; });
         wrap(plugin.oath, "take", draft => { if (matches(draft.workspace)) unavailable(); });
@@ -79,7 +113,7 @@ function createNativeTaskHost(plugin) {
         plugin.oath.resolveWorkspace = resolveWorkspace;
         stops.push(() => { if (plugin.oath.resolveWorkspace === resolveWorkspace) plugin.oath.resolveWorkspace = resolve; });
         const workspaces = plugin.oath.workspaces;
-        const oathWorkspaces = function (...args) { return workspaces.apply(this, args).filter(p => p.contextKind === "resource" || p.projectId !== owner.id); };
+        const oathWorkspaces = function (...args) { return workspaces.apply(this, args).filter(p => !matches(workspaceRef(p))); };
         plugin.oath.workspaces = oathWorkspaces;
         stops.push(() => { if (plugin.oath.workspaces === oathWorkspaces) plugin.oath.workspaces = workspaces; });
     };
@@ -89,13 +123,15 @@ function createNativeTaskHost(plugin) {
     }
     const registry = {
         async read() {
+            await options.assertActivation?.();
             const vault = await ordinary(plugin.app.vault.adapter.getBasePath()), stat = await fs.stat(vault, { bigint: true });
             if (vault !== options.vaultPin.real || String(stat.dev) !== options.vaultPin.dev || String(stat.ino) !== options.vaultPin.ino) throw Error("Native application context changed.");
             const p = project(), shared = !!p?.shared || require("./shared-projects").SHARED_PROJECT_ROOTS.includes(p?.root);
-            const candidates = plugin.projectWizard.getProjectRecords().filter(p => p.projectId === owner.id), physical = plugin.projectWizard.getContextForPath(options.dashboard);
-            const available = candidates.length === 1 && physical?.contextKind !== "resource" && physical?.projectId === owner.id && !!p && p.contextKind !== "resource" && p.root === options.projectRoot && p.path === options.dashboard && p.status === "active" && !shared;
+            const candidates = owner.type === "resource" ? plugin.projectWizard.getResourceTypes().filter(p => p.resourceType === owner.id) : plugin.projectWizard.getProjectRecords().filter(p => p.projectId === owner.id), physical = plugin.projectWizard.getContextForPath(options.dashboard);
+            const available = candidates.length === 1 && matches(workspaceRef(physical)) && matches(workspaceRef(p)) && p.root === options.projectRoot && p.path === options.dashboard && (owner.type === "resource" || ["active", "future", "shelved"].includes(p.status)) && !shared;
+            const locations = owner.type === "resource" ? plugin.app.vault.getAllLoadedFiles().filter(file => ownsPath(file.path) && (file.children || file.extension === "md")).map(file => { const type = file.children ? "folder" : "note", id = "resource-location:" + hash([owner, type, file.path]); locationLabels.set(id, file.path); return { type, id }; }).sort((a, b) => a.type.localeCompare(b.type) || a.id.localeCompare(b.id)) : [];
             const body = { version: 1, registryId: config.registryId, applicationContextId: config.applicationContextId, revision: JSON.stringify([p?.projectId ?? null, p?.root ?? null, p?.path ?? null, p?.status ?? null, !!p?.shared]),
-                owners: [{ owner, partitionId: options.partitionId, root: options.projectRoot, dashboard: options.dashboard, status: p?.status ?? "active", available, shared, shareApproval: null, locations: [], mounts: [] }] };
+                owners: [{ owner, partitionId: options.partitionId, root: options.projectRoot, dashboard: options.dashboard, status: p?.status ?? "active", available, shared, shareApproval: null, locations, mounts: [] }] };
             return { ...body, digest: registryDigest(body) };
         }, subscribe(fn) { registryListeners.add(fn); return () => registryListeners.delete(fn); }
     };
@@ -111,29 +147,73 @@ function createNativeTaskHost(plugin) {
         return { close: stop, actions: { mutate: unavailable, editTask: unavailable }, read: async () => ({ tasks: [], changed: true, availability: "unavailable", diagnostics: [{ code: "NATIVE_PROJECT_UNAVAILABLE" }] }), accept: stop, reconcile: unavailable, toggle: unavailable, clear: unavailable, reveal: unavailable, create: unavailable };
     };
     const nativeTasks = Object.freeze({ owner, consumerUiV1: true, mergeHome: consumers.mergeHome, taskKey: consumers.taskKey,
-        createPanelRead(args) { return state === "ready" ? runtime.nativeTasks.createPanelRead(args) : failedPanel(args); } });
+        createPanelRead(args) {
+            let inner = null, closed = false;
+            // The core subscription emits immediately. Defer its UI callback
+            // until the delegate is assigned, so a refresh cannot reenter its
+            // construction and create duplicate subscriptions.
+            let queued = false;
+            const refresh = () => { if (queued || closed) return; queued = true; queueMicrotask(() => { queued = false; if (!closed && !stopped) args.changed?.(); }); };
+            const current = () => { if (closed || stopped || state !== "ready") return null; return inner ??= runtime.nativeTasks.createPanelRead({ ...args, changed: refresh }); };
+            const changed = () => args.changed?.(); stateListeners.add(changed);
+            const close = () => { if (closed) return; closed = true; stateListeners.delete(changed); inner?.close(); };
+            args.component.register(close);
+            const call = (name, ...values) => { const panel = current(); if (!panel) return unavailable(); return panel[name](...values); };
+            return { close, read: () => current()?.read() ?? failedPanel({ component: { register() {} } }).read(),
+                accept: tasks => current()?.accept(tasks), reconcile: (...a) => call("reconcile", ...a), toggle: (...a) => call("toggle", ...a),
+                clear: (...a) => call("clear", ...a), reveal: (...a) => call("reveal", ...a), create: (...a) => call("create", ...a),
+                actions: { mutate: (...a) => { const p = current(); return p ? p.actions.mutate(...a) : unavailable(); }, editTask: (...a) => { const p = current(); return p ? p.actions.editTask(...a) : unavailable(); } } };
+        } });
     const completionFeed = { async read(...args) { if (stopped || !feed) return unavailable(); return feed.read(...args); },
-        subscribe(fn) { if (feed && !stopped) return feed.subscribe(fn); return () => {}; },
+        subscribe(fn) { if (stopped) return () => {}; const token = {}; feedListeners.set(token, { fn, stop: feed?.subscribe(fn) }); return () => { feedListeners.get(token)?.stop?.(); feedListeners.delete(token); }; },
         async reveal(...args) { if (stopped || !feed) return unavailable(); return feed.reveal(...args); } };
+    let released = false;
+    const release = () => { if (released) return; released = true; for (const stop of stops.reverse()) stop(); for (const l of feedListeners.values()) l.stop?.(); feedListeners.clear(); registryListeners.clear(); historyListeners.clear(); stateListeners.clear(); };
     const host = {
-        nativeTasks, completionFeed, matches, rejectLegacy, guardUnsupported,
+        nativeTasks, completionFeed, matches, rejectLegacy, guardUnsupported, release,
+        owner, historyEvidence: { read: () => host.runtime().historyEvidence.read(), subscribe(fn) { let stop = null; const bind = () => { if (!stop && state === "ready") stop = runtime.historyEvidence.subscribe(fn); fn({ reason: "registry" }); }; stateListeners.add(bind); if (state === "ready") stop = runtime.historyEvidence.subscribe(fn); return () => { stateListeners.delete(bind); stop?.(); }; } },
         status: () => ({ mode: "native-project", state, owner: copy(owner) }),
         runtime: () => { if (stopped || state !== "ready") return unavailable(); return runtime; },
         create(options = {}) { const r = host.runtime(); return require("../ui/task-editor").openTaskCreator(r.formService(plugin.app), options); },
         async close() {
-            if (closing) return closing; stopped = true; state = "closing";
-            closing = (async () => { await ready; await runtime?.close(); for (const stop of stops.reverse()) stop(); registryListeners.clear(); historyListeners.clear(); state = "closed"; })();
+            if (closing) return closing; stopped = true; state = "closing"; cancelReadiness?.(); changedState();
+            closing = (async () => { await ready; await runtime?.close(); if (!coordinated) release(); state = "closed"; })();
             return closing;
         }
     };
     ready = (async () => {
         try {
+            await waitForMetadata(); if (stopped) return;
+            if (options.blocked || config.scope === "device-private-project") {
+                const admitted = (await require("./native-task-activation").loadActivations(plugin, owner)).find(p => matches(p.owner));
+                if (!admitted || admitted.blocked || !matches(admitted.owner) || admitted.projectRoot !== options.projectRoot || admitted.dashboard !== options.dashboard ||
+                    !options.blocked && JSON.stringify(admitted.config) !== JSON.stringify(config)) throw Error("Cutover requires explicit recovery review.");
+                Object.assign(options, admitted, { blocked: false }); config = options.config;
+            }
+            if (stopped) return;
+            if (options.blocked) throw Error("Cutover requires explicit recovery review.");
             runtime = await openProjectRuntime(config, { owner, registry, writerPolicy: policy({ version: 1, owners: [{ owner, partitionId: options.partitionId }], commands: ["task.createRich", "task.save", "task.complete", "step.complete", "task.delete"], inventory: { version: 1, revision: "synthetic-empty", ids: [] }, phases: { version: 1, revision: "no-phases", values: [] } }),
-                rehearsalId: options.rehearsalId, creating: options.creating === true, consumerUiV1: true, historyUiV1: true });
-            if (!stopped) { feed = runtime.completionFeed({ legacy, app: plugin.app }); await runtime.list(); await feed.read(); state = "ready"; }
-        } catch (_) { state = stopped ? "closing" : "unavailable"; await runtime?.close().catch(() => {}); }
+                locationLabel: ref => locationLabels.get(ref.id) ?? ref.id, rehearsalId: options.rehearsalId, creating: options.creating === true, consumerUiV1: true, historyUiV1: true });
+            if (!stopped) { feed = runtime.completionFeed({ legacy, app: plugin.app }); await runtime.list(); await feed.read();
+                if (!stopped) { for (const l of feedListeners.values()) l.stop = feed.subscribe(l.fn); state = "ready"; changedState(); for (const l of feedListeners.values()) { try { Promise.resolve(l.fn()).catch(() => {}); } catch (_) {} } }
+            }
+        } catch (_) { state = stopped ? "closing" : "unavailable"; await runtime?.close().catch(() => {}); changedState(); }
     })();
-    host.ready = ready; plugin.register(() => { void host.close().catch(error => console.error("Native task shutdown failed", error)); });
+    // The shared helper registers one owning-window drain and Obsidian Tasks
+    // callback; multi-owner composition installs it only once for all hosts.
+    host.ready = ready;
+    if (!coordinated) {
+        plugin.register(() => { void host.close().catch(error => console.error("Native task shutdown failed", error)); });
+        try { stops.push(require("./native-task-host-multi").registerNativeQuit(plugin, host)); }
+        catch (error) { void host.close().catch(e => console.error("Native task shutdown failed", e)); throw error; }
+    }
     return host;
 }
-module.exports = { authorizeNativeTaskRehearsal, createNativeTaskHost };
+function createNativeTaskHost(plugin) {
+    const configured = approvals.get(plugin); approvals.delete(plugin);
+    if (!configured || Array.isArray(configured) && !configured.length) return null;
+    const options = Array.isArray(configured) ? configured : [configured];
+    if (options.length === 1) return createOwnerHost(plugin, options[0]);
+    return require("./native-task-host-multi").composeNativeHosts(plugin, options.map(o => createOwnerHost(plugin, o, true)));
+}
+module.exports = { authorizeNativeTaskRehearsal, authorizeNativeTaskActivation, createNativeTaskHost };

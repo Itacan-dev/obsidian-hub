@@ -33,7 +33,7 @@ function displayTask(view) {
 }
 
 function createTaskPanelRead({ plugin, component, workspace, changed, editTask, nativeTasks }) {
-    if (nativeTasks && workspace.type === "project" && sameWorkspace(workspace, nativeTasks.owner)) {
+    if (nativeTasks && (nativeTasks.matches ? nativeTasks.matches(workspace) : sameWorkspace(workspace, nativeTasks.owner))) {
         return nativeTasks.createPanelRead({ plugin, component, workspace, changed });
     }
     let closed = false, generation = 0, last = null, indexedQuery = null, indexedTasks = [], indexedSignature = null;

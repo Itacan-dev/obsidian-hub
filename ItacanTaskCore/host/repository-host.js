@@ -20,6 +20,7 @@ function constructHost(input, options, makeWriter) {
     let phase = "configured", repo = null, opening = null, closing = null, disposed = false, epoch = 0, generation = 0, readNumber = 0, monitorHealthy = false;
     let stops = [], listeners = new Set(), lastContext = null, retained = null;
     check(!options.requestRetention || !!makeWriter, "Retention requires a writer host.");
+    check(config.scope !== "device-private-project" || !makeWriter || !!options.requestRetention, "Permanent writer requires retained requests.");
     if (options.requestRetention) {
         V.jsonValue(options.requestRetention); V.fields(options.requestRetention, ["version", "rehearsalId"], ["version", "rehearsalId"]);
         check(options.requestRetention.version === 1, "Unsupported retention version."); V.uuid(options.requestRetention.rehearsalId);
@@ -30,7 +31,7 @@ function constructHost(input, options, makeWriter) {
     function notify(reason, discontinuity = false) { if (discontinuity && reason !== "closing") participant?.invalidate(); if (discontinuity) epoch++; generation++; const change = freeze({ version: 1, kind: "snapshot-invalidated", durability: "ephemeral", hostEpoch: epoch, generation, reason }); for (const listener of [...listeners]) { try { Promise.resolve(listener(change)).catch(() => {}); } catch (_) {} } }
     function unavailable(code, state = "unavailable") { last = { ...last, readiness: { state, reason: code }, permissions: { taskReads: "unavailable", completionProof: "unavailable", mutations: "unsupported", history: "unsupported" } }; notify("unavailable", true); }
     function failure(code, state = "unavailable") { return freeze({ version: 1, state, code, retry: ["LOCK_LOST", "ROOT_IDENTITY_CHANGED", "REPOSITORY_CONFLICT", "RECOVERY_REQUIRED"].includes(code) ? "explicit-reopen" : state === "unsupported" ? "review" : "refresh" }); }
-    async function observe(signal) { const registry = G.validateRegistry(await options.registry.read(signal), config), identity = options.identity ? await options.identity.read(signal) : null; return { registry, ownerContextPin: registry.digest, identity: identity === null ? null : V.clone(identity), identityPin: G.identityPin(identity) }; }
+    async function observe(signal) { const registry = G.validateRegistry(await options.registry.read(signal), config); if (config.scope === "device-private-project") check(registry.owners.length === 1 && same(registry.owners[0].owner, require("./private-authority").bindingOwner(config.binding)) && registry.owners[0].partitionId === "private" && !registry.owners[0].shared, "Permanent owner scope differs."); const identity = options.identity ? await options.identity.read(signal) : null; return { registry, ownerContextPin: registry.digest, identity: identity === null ? null : V.clone(identity), identityPin: G.identityPin(identity) }; }
     function stopOwned() { for (const stop of stops.splice(0)) { try { stop(); } catch (_) {} } monitorHealthy = false; }
     function startOwned() {
         function own(stop) { check(typeof stop === "function", "Provider unsubscribe required."); stops.push(stop); }
@@ -100,12 +101,13 @@ function constructHost(input, options, makeWriter) {
     async function start(creating, args) {
         if (disposed || phase === "disposed") throw safeError("HOST_DISPOSED");
         if (phase === "closing") throw safeError("HOST_CLOSING");
-        try { const keys = creating ? ["version", "authorityId", "partitions", "reason", "syntheticOnly", ...(args.version === 2 ? ["taskMutationVersion"] : [])] : ["version", "expectedAuthorityId", "syntheticOnly"]; V.fields(args, keys, keys); check((args.version === 1 || creating && args.version === 2 && args.taskMutationVersion === 1) && args.syntheticOnly === true && (creating ? args.authorityId : args.expectedAuthorityId) === config.authorityId, "Explicit authority required."); if (creating) V.text(args.reason); } catch (_) { throw safeError("HOST_CONTRACT"); }
+        try { const authorization = config.scope === "device-private-project" ? "verifiedCutover" : "syntheticOnly"; const keys = creating ? ["version", "authorityId", "partitions", "reason", authorization, ...(args.version === 2 ? ["taskMutationVersion"] : [])] : ["version", "expectedAuthorityId", authorization]; V.fields(args, keys, keys); check((args.version === 1 || creating && args.version === 2 && args.taskMutationVersion === 1) && args[authorization] === true && (creating ? args.authorityId : args.expectedAuthorityId) === config.authorityId, "Explicit authority required."); if (creating) V.text(args.reason); } catch (_) { throw safeError("HOST_CONTRACT"); }
         if (opening) { if (creating) throw safeError("HOST_OPENING"); return opening; }
         if (phase === "open") { if (creating) throw safeError("ALREADY_EXISTS"); return host.refresh(); }
         const detached = V.clone(args); phase = "opening"; last.readiness = { state: "not-ready", reason: "HOST_OPENING" }; notify("reopened", true);
         opening = (async () => {
             try {
+                if (config.scope === "device-private-project") { await observe(); if (creating) check(detached.version === 2 && detached.taskMutationVersion === 1 && detached.partitions.length === 1 && detached.partitions[0].id === "private" && detached.partitions[0].kind === require("./private-authority").bindingKind(config.binding) && same(detached.partitions[0].owner, require("./private-authority").bindingOwner(config.binding)), "Permanent partition scope differs."); }
                 const port = await A.admit(config, creating), settings = { ...(options.repositoryOptions ?? {}), directory: config.directory, storageFormat: "private-v4", storagePort: port, taskMutationVersion: creating && detached.version === 2 ? 1 : undefined, commandAdmission: participant?.gate, ...(participant ? { externalReservations: participant.inventory, resolvers: participant.resolvers } : {}) };
                 if (makeWriter && !options.requestRetention && (await port.list()).some(n => n.startsWith("REQUEST-"))) throw safeError("REQUEST_RETENTION_REQUIRED");
                 // Port/root/profile cannot be overridden by repository options.
@@ -114,9 +116,21 @@ function constructHost(input, options, makeWriter) {
                 if (makeWriter && !options.requestRetention && (await port.list()).some(n => n.startsWith("REQUEST-"))) throw safeError("REQUEST_RETENTION_REQUIRED");
                 if (options.requestRetention) {
                     retained = require("./pending-requests").createPendingRequests(port, config, options.requestRetention, async record => {
+                        // A Resource's location inventory may legitimately change
+                        // between sessions. Its immutable command/guards remain
+                        // unchanged; only receipt inspection may use the current
+                        // validated physical Resource binding. Inactive/unbound
+                        // contexts retain the original strict pin contract.
+                        let ownerContextPin = record?.writerRequest.scope.ownerContextPin;
+                        const binding = config.binding;
+                        if (record && config.scope === "device-private-project" && binding?.version === 2 && binding.owner.type === "resource") {
+                            const current = await observe(), entry = current.registry.owners.find(o => same(o.owner, binding.owner));
+                            check(same(record.owner, binding.owner) && record.partitionId === "private" && entry?.available && !entry.shared && entry.partitionId === "private" && entry.root === binding.ownerRoot && entry.dashboard === binding.dashboard, "Bound Resource receipt context differs.");
+                            ownerContextPin = current.ownerContextPin;
+                        }
                         const result = record ? await host.readOperation({ version: 3, authorityId: config.authorityId, selection: "operation", owners: [record.owner],
                             operationId: record.operationId, commandDigest: record.commandDigest,
-                            ownerContextPin: record.writerRequest.scope.ownerContextPin, identityPin: record.writerRequest.scope.identityPin }) : (await capture({ selection: "status" }, undefined, true)).value;
+                            ownerContextPin, identityPin: record.writerRequest.scope.identityPin }) : (await capture({ selection: "status" }, undefined, true)).value;
                         return { operation: result?.status === "ok" && record ? result.snapshot.operation : { state: "unavailable", code: result?.code ?? "AUTHORITY_UNAVAILABLE", operationId: record?.operationId ?? null, receipt: null, taskIds: [], eventIds: [] },
                             stamp: result?.status === "ok" ? result.stamp : null, partitions: result?.status === "ok" ? result.snapshot.partitions : [],
                             ready: result?.status === "ok" && result.snapshot.readiness.state === "ready" && result.snapshot.recovery.state === "intact",

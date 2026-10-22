@@ -22,20 +22,26 @@ const load = Module._load; Module._load = function(name) { return name === "elec
 const archive = process.env.ITACAN_OBSIDIAN_ARCHIVE, events = new EventEmitter(); events.on("check-start", () => events.emit("check-end"));
 const boot = require(path.join(archive, "main.js")), delay = ms => new Promise(r => setTimeout(r, ms));
 electron.ipcMain.handle("m1a-capture",async(event,stage)=>{if(!["add","edit","list"].includes(stage))throw Error("Unknown capture");const image=await event.sender.capturePage({}, {stayHidden:true,stayAwake:true});fs.writeFileSync(path.join(root,"evidence/"+stage+".png"),image.toPNG());});
-let failed = false; const timeout = setTimeout(() => { console.error("M1A timeout"); electron.app.exit(1); }, 120000);
+let failed = false; const timeout = setTimeout(() => { console.error("M1A timeout"); electron.app.exit(1); }, process.env.ITACAN_REAL_HOST_SCENARIO === "cutover" ? 300000 : 120000);
 electron.app.whenReady().then(async () => { try {
  electron.session.defaultSession.webRequest.onBeforeRequest({ urls: ["http://*/*", "https://*/*"] }, (_details, done) => done({ cancel: true }));
  let w, ready = false;
  for (let n = 0; n < 400; n++) { w = windows.find(w => !w.isDestroyed()); if (w) { const s = await w.webContents.executeJavaScript("JSON.stringify({app:!!window.app,plugins:!!window.app?.plugins,boot:!!window.__m1aBootstrap})").catch(() => "{}"); const state = JSON.parse(s); if (state.boot) { ready = true; break; } if (state.plugins && n === 30) await w.webContents.executeJavaScript("(async()=>{localStorage.setItem('enable-plugin-'+app.appId,'true');await app.plugins.loadManifests();await app.plugins.enablePlugin('itacan-m1a-fixture')})()"); } await delay(100); }
  if (!ready) throw Error("Fixture bootstrap did not load");
- if (["home-schedule", "history", "startup"].includes(process.env.ITACAN_REAL_HOST_SCENARIO)) w.webContents.setBackgroundThrottling(false);
+ if (["home-schedule", "history", "startup", "cutover", "device-identity", "multi-owner"].includes(process.env.ITACAN_REAL_HOST_SCENARIO)) w.webContents.setBackgroundThrottling(false);
  w.webContents.setAudioMuted(true); w.setSize(1200, 900);
  const scenario = process.env.ITACAN_REAL_HOST_SCENARIO ?? "project";
- if (!["project", "home-schedule", "history", "startup"].includes(scenario)) throw Error("Unknown rehearsal scenario");
- const fixture = path.join(__dirname, scenario === "startup" ? "startup-obsidian.cjs" : scenario === "project" ? "obsidian-fixture.cjs" : scenario === "history" ? "history-obsidian.cjs" : "home-schedule-obsidian.cjs");
+ if (!["project", "home-schedule", "history", "startup", "cutover", "device-identity", "multi-owner"].includes(scenario)) throw Error("Unknown rehearsal scenario");
+ const fixture = path.join(__dirname, scenario === "multi-owner" ? "multi-owner-obsidian.cjs" : scenario === "device-identity" ? "cutover-identity.cjs" : ["startup", "cutover"].includes(scenario) ? "startup-obsidian.cjs" : scenario === "project" ? "obsidian-fixture.cjs" : scenario === "history" ? "history-obsidian.cjs" : "home-schedule-obsidian.cjs");
  const report = await w.webContents.executeJavaScript(`require(${JSON.stringify(fixture)})({app:window.app,api:window.__m1aBootstrap.constructor.api},${JSON.stringify(root)})`);
  if (w.isVisible()) throw Error("Owned test window unexpectedly visible");
  const capture = await w.webContents.capturePage({}, { stayHidden: true, stayAwake: true }); fs.writeFileSync(path.join(root, "evidence/final.png"), capture.toPNG());
- fs.writeFileSync(path.join(root, "evidence/report.json"), JSON.stringify({ ...report, hidden: true, electron: process.versions.electron }, null, 2)); console.log(scenario === "startup" ? "PASS actual Itacan startup" : scenario === "project" ? "PASS actual Obsidian M1A" : scenario === "history" ? "PASS actual Obsidian History/Statistics" : "PASS actual Obsidian Home/Schedule", report.checks.length, "checks");
- } catch (e) { failed = true; console.error(e.stack); } finally { clearTimeout(timeout); electron.app.exit(failed ? 1 : 0); } });
+ fs.writeFileSync(path.join(root, "evidence/report.json"), JSON.stringify({ ...report, hidden: true, electron: process.versions.electron }, null, 2)); console.log(["startup", "cutover", "device-identity", "multi-owner"].includes(scenario) ? "PASS actual Itacan startup" : scenario === "project" ? "PASS actual Obsidian M1A" : scenario === "history" ? "PASS actual Obsidian History/Statistics" : "PASS actual Obsidian Home/Schedule", report.checks.length, "checks");
+ } catch (e) { failed = true; console.error(e.stack); } finally { clearTimeout(timeout); if (!failed && process.env.ITACAN_REAL_HOST_SCENARIO === "multi-owner") electron.app.quit(); else electron.app.exit(failed ? 1 : 0); } });
+if (process.env.ITACAN_REAL_HOST_SCENARIO === "multi-owner") {
+ const trace = (stage, value = null) => fs.appendFileSync(path.join(root,"evidence/quit-trace.jsonl"),JSON.stringify({stage,value,time:Date.now()})+"\n");
+ electron.app.on("before-quit",()=>trace("before-quit"));
+ electron.app.on("browser-window-created",(_e,w)=>{w.on("close",e=>trace("window-close",{prevented:e.defaultPrevented}));w.webContents.on("will-prevent-unload",()=>trace("will-prevent-unload"));w.webContents.on("console-message",(_e,level,message)=>{if(level>=2)trace("renderer-error",message)});});
+ electron.app.on("will-quit",()=>{const file=path.join(root,"evidence/native-directories.json");if(fs.existsSync(file)){const dirs=JSON.parse(fs.readFileSync(file)),remaining=dirs.filter(d=>fs.existsSync(path.join(d,"WRITER.lock")));trace("will-quit",{remaining});fs.writeFileSync(path.join(root,"evidence/quit-result.json"),JSON.stringify({remaining,processGracefulQuit:true}));if(remaining.length)electron.app.exit(1)}});
+}
 boot(archive, events);

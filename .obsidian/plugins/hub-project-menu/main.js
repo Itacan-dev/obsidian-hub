@@ -1,3 +1,39 @@
+if (typeof process !== "undefined" && process.type === "browser") {
+"use strict";
+// Runs in Electron's main process. Renderer-proxied event callbacks are async
+// and cannot synchronously prevent a BrowserWindow close.
+function createNativeQuitGate(window, app, requestDrain) {
+    let pending = false, stopped = false, quitting = false;
+    const beforeQuit = () => { quitting = true; };
+    const stop = () => { if (stopped) return; stopped = true; window.removeListener("close", close); app.removeListener("before-quit", beforeQuit); };
+    const close = event => {
+        if (stopped) return;
+        event.preventDefault();
+        if (pending) return;
+        pending = true;
+        // A completion callback grants one continuation of this close only.
+        // No persistent permission, forced exit or lock operation exists here.
+        let answered = false;
+        requestDrain(success => {
+            if (answered || stopped) return;
+            answered = true;
+            if (success !== true) return; // Quit is cancelled, evidence retained.
+            stop();
+            if (!window.isDestroyed()) { if (quitting) app.quit(); else window.close(); }
+        });
+    };
+    app.on("before-quit", beforeQuit);
+    window.on("close", close);
+    return stop;
+}
+function installNativeQuit(windowId, requestDrain) {
+    const electron = require("electron"), window = electron.BrowserWindow.fromId(windowId);
+    if (!window || window.isDestroyed() || typeof requestDrain !== "function") throw Error("Native owning window required.");
+    return createNativeQuitGate(window, electron.app, requestDrain);
+}
+module.exports = { installNativeQuit, createNativeQuitGate };
+
+} else {
 "use strict";
 
 /*
@@ -583,27 +619,34 @@ const codec = __hubRequire("../../../ItacanTaskCore/src/private-storage-codec.js
 const { check, fail } = __hubRequire("../../../ItacanTaskCore/src/errors.js");
 const { freeze } = __hubRequire("../../../ItacanTaskCore/src/snapshot-read.js");
 const admissions = new Map();
+// Only admit() can enroll a physical port. Public properties/flags cannot forge it.
+const privateCreations = new WeakMap();
 const within = (parent, child) => { const r = path.relative(parent, child); return r !== "" && r !== ".." && !r.startsWith(".." + path.sep) && !path.isAbsolute(r); };
 function validateConfig(input) {
-    V.jsonValue(input); V.fields(input, ["version", "scope", "storageFormat", "authorityId", "directory", "applicationContextId", "registryId"], ["version", "scope", "storageFormat", "authorityId", "directory", "applicationContextId", "registryId"]);
-    check(input.version === 1 && input.scope === "inactive-disposable" && input.storageFormat === "private-v4", "Explicit inactive private host required.");
+    const fields = ["version", "scope", "storageFormat", "authorityId", "directory", "applicationContextId", "registryId", ...(input?.scope === "device-private-project" ? ["binding"] : [])];
+    V.jsonValue(input); V.fields(input, fields, fields);
+    check(input.version === 1 && ["inactive-disposable", "device-private-project"].includes(input.scope) && input.storageFormat === "private-v4", "Explicit private host required.");
     V.uuid(input.authorityId); V.text(input.applicationContextId); V.text(input.registryId);
     check(typeof input.directory === "string" && path.isAbsolute(input.directory) && !input.directory.startsWith("\\\\"), "Explicit local absolute root required.");
     return V.clone(input);
 }
-async function pinRoot(directory) {
+async function rootIdentity(directory) {
     const stat = await fs.lstat(directory, { bigint: true });
     check(stat.isDirectory() && !stat.isSymbolicLink(), "Existing ordinary root required.");
     check(stat.ino !== 0n, "Stable filesystem identity required.");
-    const real = await fs.realpath(directory), temporary = await fs.realpath(os.tmpdir());
-    check(within(temporary, real) && !within(process.cwd(), real) && real !== path.resolve(process.cwd()), "Only isolated OS Temp children are admitted.");
+    return { real: await fs.realpath(directory), dev: String(stat.dev), ino: String(stat.ino) };
+}
+async function pinRoot(directory, config = null) {
+    const pin = await rootIdentity(directory), real = pin.real, temporary = await fs.realpath(os.tmpdir());
+    if (config?.scope === "device-private-project") await __hubRequire("../../../ItacanTaskCore/host/private-authority.js").validateBinding(config.binding, directory);
+    else check(within(temporary, real) && !within(process.cwd(), real) && real !== path.resolve(process.cwd()), "Only isolated OS Temp children are admitted.");
     for (const value of [process.env.OneDrive, process.env.OneDriveConsumer, process.env.OneDriveCommercial].filter(Boolean)) check(!within(path.resolve(value), real) && path.resolve(value) !== real, "Cloud root is not admitted.");
-    return { real, dev: String(stat.dev), ino: String(stat.ino) };
+    return pin;
 }
 async function admit(config, creating = false) {
-    const pin = await pinRoot(config.directory), previous = admissions.get(config.authorityId);
+    const pin = await pinRoot(config.directory, config), previous = admissions.get(config.authorityId);
     if (previous && (previous.dev !== pin.dev || previous.ino !== pin.ino)) fail("STORAGE_AUTHORITY_MISMATCH", "Authority already names another physical root.");
-    const port = new PinnedDirectory(config.directory, pin);
+    const port = new PinnedDirectory(config.directory, pin, config);
     if (creating) check((await port.list()).length === 0, "Creation requires a verified empty directory.");
     else {
         // Header preflight only. Full generation/ancestry validation remains under the core lease.
@@ -614,11 +657,30 @@ async function admit(config, creating = false) {
         }
         check(names.some(n => ["CURRENT.json", "RECOVERY.json"].includes(n)), "Existing repository evidence required.");
     }
+    if (creating && config.scope === "device-private-project") privateCreations.set(port, { config: V.clone(config), pin: { ...pin } });
     admissions.set(config.authorityId, pin); return port;
 }
+async function assertPrivateAtomicCreation(port, options) {
+    const admitted = privateCreations.get(port); if (!admitted) return false;
+    const { config, pin } = admitted;
+    check(options.storageFormat === "private-v4" && options.taskMutationVersion === 1 && options.storeId === config.authorityId && (options.expectedAuthorityId === undefined || options.expectedAuthorityId === config.authorityId), "Atomic authority differs from admission.");
+    check(path.resolve(options.directory) === path.resolve(config.directory) && path.resolve(port.directory) === path.resolve(config.directory), "Atomic directory differs from admission.");
+    const partitions = options.partitions;
+    check(Array.isArray(partitions) && partitions.length === 1 && partitions[0].id === "private" && partitions[0].kind === __hubRequire("../../../ItacanTaskCore/host/private-authority.js").bindingKind(config.binding) && V.canonical(partitions[0].owner) === V.canonical(__hubRequire("../../../ItacanTaskCore/host/private-authority.js").bindingOwner(config.binding)), "Atomic owner differs from admission.");
+    const now = await pinRoot(config.directory, config);
+    check(now.real === pin.real && now.dev === pin.dev && now.ino === pin.ino, "Atomic root identity changed.");
+    return true;
+}
 class PinnedDirectory extends NodeDirectory {
-    constructor(directory, pin) { super(directory); this.pin = pin; }
-    async assertRoot() { const next = await pinRoot(this.directory); if (next.dev !== this.pin.dev || next.ino !== this.pin.ino || next.real !== this.pin.real) fail("ROOT_IDENTITY_CHANGED", "Admitted root identity changed."); }
+    constructor(directory, pin, config = null) { super(directory); this.pin = pin; this.admissionConfig = config; }
+    async assertRoot() {
+        // The permanent location is validated at admission. Every consumer cut,
+        // writer admission and publication also revalidates activation/context.
+        // Individual IO retains the physical root checks, without rereading the
+        // application registry for every generation-file access.
+        const next = this.admissionConfig?.scope === "device-private-project" ? await rootIdentity(this.directory) : await pinRoot(this.directory);
+        if (next.dev !== this.pin.dev || next.ino !== this.pin.ino || next.real !== this.pin.real) fail("ROOT_IDENTITY_CHANGED", "Admitted root identity changed.");
+    }
 }
 for (const name of ["list", "read", "writeNew", "publish", "replace", "remove", "syncDirectory", "acquire", "assertWriter", "release"]) {
     PinnedDirectory.prototype[name] = async function (...args) { await this.assertRoot(); const result = await NodeDirectory.prototype[name].apply(this, args); await this.assertRoot(); return result; };
@@ -641,7 +703,7 @@ async function inspectNativeRepository(input) {
     if ((await port.list()).includes("WRITER.lock")) fail("LOCK_HELD", "Inspection raced an open.");
     return freeze({ version: 1, authority: "diagnostic", writable: false, authoritative: false, sourceFormat: "private-v4", authorityId: input.expectedAuthorityId, codes, validatedHeader: true });
 }
-module.exports = { validateConfig, admit, inspectNativeRepository, PinnedDirectory, pinRoot };
+module.exports = { validateConfig, admit, inspectNativeRepository, PinnedDirectory, pinRoot, assertPrivateAtomicCreation };
 
 },
 "../../../ItacanTaskCore/host/completion-proof.js": function (module, exports, __hubRequire) {
@@ -865,7 +927,7 @@ function createPendingRequests(port, config, settings, inspect) {
     function record(intent) {
         const compiled = __hubRequire("../../../ItacanTaskCore/application/intents.js").compile(intent), i = compiled.intent;
         check(compiled.request && ["rich-create", "full-save", "set-completion", "set-step-completion", "delete-tree"].includes(i.action.kind), "Action is outside Project rehearsal.");
-        check(i.authority.backend === "native" && i.authority.authorityId === config.authorityId && i.authority.applicationContextId === config.applicationContextId && i.owner.type === "project" && i.guard.partitions.length === 1, "Retention scope differs.");
+        check(i.authority.backend === "native" && i.authority.authorityId === config.authorityId && i.authority.applicationContextId === config.applicationContextId && ["project", "resource"].includes(i.owner.type) && i.guard.partitions.length === 1, "Retention scope differs.");
         if (i.action.kind === "rich-create") { V.uuid(i.action.draft.id); for (const step of i.action.draft.steps) V.uuid(step.id); }
         return sealed({ format: "itacan-native-ui-request", version: 1, authorityId: config.authorityId, applicationContextId: config.applicationContextId,
             rehearsalId: settings.rehearsalId, owner: V.clone(i.owner), partitionId: i.guard.partitions[0].id, operationId: i.operationId,
@@ -906,6 +968,7 @@ function createPendingRequests(port, config, settings, inspect) {
     }
     function replayCode(r, o) {
         if (!o?.ready || !o.stamp) return "AUTHORITY_UNAVAILABLE";
+        if (r.writerRequest.scope.ownerContextPin !== o.stamp.ownerContextPin || r.writerRequest.scope.identityPin !== o.stamp.identityPin) return "ORIGINAL_GUARDS_STALE";
         if (o.operation.state === "committed") return "EXACT_COMMITTED_REPLAY";
         if (o.operation.state !== "missing") return "OPERATION_CONFLICT";
         // Enabled roots fence every write/replay after known fallback. Missing
@@ -988,6 +1051,72 @@ function createPendingRequests(port, config, settings, inspect) {
 module.exports = { createPendingRequests, markerName };
 
 },
+"../../../ItacanTaskCore/host/private-authority.js": function (module, exports, __hubRequire) {
+"use strict";
+// Admission only. Does not create directories, acquire a lease, or alter storage.
+const fs = require("node:fs/promises"), path = require("node:path"), crypto = require("node:crypto");
+const V = __hubRequire("../../../ItacanTaskCore/src/value.js"), { check } = __hubRequire("../../../ItacanTaskCore/src/errors.js");
+const PROJECT = "70927a62-591c-4df9-81a1-27585c903563";
+const digest = v => crypto.createHash("sha256").update(v).digest("hex");
+const inside = (a, b) => { const r = path.relative(a, b); return !!r && r !== ".." && !r.startsWith(".." + path.sep) && !path.isAbsolute(r); };
+async function ordinaryPath(target) {
+    const absolute = path.resolve(target); let p = absolute;
+    while (true) {
+        try { const s = await fs.lstat(p); check(!s.isSymbolicLink(), "Links are not admitted."); }
+        catch (e) { if (e.code !== "ENOENT") throw e; }
+        const parent = path.dirname(p); if (parent === p) break; p = parent;
+    }
+    let ancestor = absolute; while (true) { try { await fs.lstat(ancestor); break; } catch (e) { if (e.code !== "ENOENT") throw e; ancestor = path.dirname(ancestor); } }
+    return path.resolve(await fs.realpath(ancestor), path.relative(ancestor, absolute));
+}
+async function registration(vaultRoot) {
+    const vault = await fs.realpath(vaultRoot), data = JSON.parse(await fs.readFile(path.join(process.env.APPDATA, "obsidian/obsidian.json"), "utf8"));
+    const ids = []; for (const [id, v] of Object.entries(data.vaults ?? {})) if (typeof v.path === "string") {
+        try { if (path.relative(await fs.realpath(v.path), vault) === "") ids.push(id); } catch (e) { if (e.code !== "ENOENT") throw e; }
+    }
+    check(ids.length === 1 && /^[a-f0-9]{16}$/.test(ids[0]), "Exactly one registered vault identity required."); return ids[0];
+}
+function bindingOwner(b) { return b.version === 1 ? { type: "project", id: b.projectId } : b.owner; }
+function bindingKind(b) { return bindingOwner(b).type === "resource" ? "resource" : "private-project"; }
+function repositoryPath(b) { return path.join(b.localDataRoot, "Itacan/NativeTasks/v1", ...[b.vaultId, b.deviceId, b.version === 1 ? b.projectId : V.canonical(b.owner)].map(v => digest(v).slice(0, 24)), "repository"); }
+async function validateBinding(b, directory) {
+    const fields = ["version", "vaultRoot", "vaultId", "deviceId", "localDataRoot", ...(b.version === 1 ? ["projectId"] : ["owner", "ownerRoot", "dashboard"])];
+    V.fields(b, fields, fields);
+    check(b.version === 1 && b.projectId === PROJECT || b.version === 2, "Unsupported private authority binding."); V.text(b.deviceId);
+    if (b.version === 2) {
+        __hubRequire("../../../ItacanTaskCore/src/domain.js").workspace(b.owner);
+        const { projectHeader } = __hubRequire("lib/services/native-cutover-preparation.js");
+        // Physical identity is checked against the registered vault, never a display label.
+        if (b.owner.type === "project") {
+            check(/^Projects\/[^/]+$/.test(b.ownerRoot) && b.dashboard.startsWith(b.ownerRoot + "/") && b.dashboard.split("/").length === 3, "Registered Project root required.");
+            const matches = [], projectRoot = path.join(b.vaultRoot, "Projects");
+            for (const dir of await fs.readdir(projectRoot, { withFileTypes: true })) if (dir.isDirectory() && !dir.isSymbolicLink()) {
+                for (const file of await fs.readdir(path.join(projectRoot, dir.name), { withFileTypes: true })) if (file.isFile() && !file.isSymbolicLink() && file.name.endsWith(".md")) {
+                    const name = "Projects/" + dir.name + "/" + file.name, p = projectHeader(await fs.readFile(path.join(b.vaultRoot, name), "utf8"), name);
+                    if (p && !p.ambiguous && p.projectId === b.owner.id) matches.push(p);
+                }
+            }
+            check(matches.length === 1 && !matches[0].shared && ["active", "future", "shelved"].includes(matches[0].status) && matches[0].root === b.ownerRoot && matches[0].path === b.dashboard, "Private Project identity mismatch.");
+        } else {
+            const resource = __hubRequire("lib/config.js").RESOURCE_TYPES.find(r => r.id === b.owner.id);
+            check(resource && resource.root === b.ownerRoot && resource.hubPath === b.dashboard, "Resource identity mismatch.");
+            const dashboard = path.join(b.vaultRoot, b.dashboard);
+            check(await ordinaryPath(dashboard) === await fs.realpath(dashboard) && (await fs.stat(dashboard)).isFile(), "Resource dashboard unavailable.");
+        }
+    }
+    const local = await fs.realpath(process.env.LOCALAPPDATA), vault = await fs.realpath(b.vaultRoot), real = await ordinaryPath(directory);
+    check(await registration(vault) === b.vaultId && path.relative(local, await fs.realpath(b.localDataRoot)) === "", "Vault/device-private location mismatch.");
+    check(path.relative(await ordinaryPath(repositoryPath(b)), real) === "" && inside(local, real) && !inside(vault, real) && !inside(real, vault) && real !== vault && !directory.startsWith("\\\\"), "Private authority path mismatch.");
+    for (const cloud of [process.env.OneDrive, process.env.OneDriveConsumer, process.env.OneDriveCommercial].filter(Boolean)) { const c = await ordinaryPath(cloud); check(c !== real && !inside(c, real), "Cloud authority rejected."); }
+    for (let p = real; ; p = path.dirname(p)) {
+        try { await fs.lstat(path.join(p, ".git")); check(false, "Git authority rejected."); } catch (e) { if (e.code !== "ENOENT") throw e; }
+        if (p === path.dirname(p)) break;
+    }
+    return real;
+}
+module.exports = { PROJECT, digest, inside, ordinaryPath, registration, repositoryPath, bindingOwner, bindingKind, validateBinding };
+
+},
 "../../../ItacanTaskCore/host/registry.js": function (module, exports, __hubRequire) {
 "use strict";
 const V = __hubRequire("../../../ItacanTaskCore/src/value.js"), D = __hubRequire("../../../ItacanTaskCore/src/domain.js"), I = __hubRequire("../../../ItacanTaskCore/identity/domain.js");
@@ -1057,6 +1186,7 @@ function constructHost(input, options, makeWriter) {
     let phase = "configured", repo = null, opening = null, closing = null, disposed = false, epoch = 0, generation = 0, readNumber = 0, monitorHealthy = false;
     let stops = [], listeners = new Set(), lastContext = null, retained = null;
     check(!options.requestRetention || !!makeWriter, "Retention requires a writer host.");
+    check(config.scope !== "device-private-project" || !makeWriter || !!options.requestRetention, "Permanent writer requires retained requests.");
     if (options.requestRetention) {
         V.jsonValue(options.requestRetention); V.fields(options.requestRetention, ["version", "rehearsalId"], ["version", "rehearsalId"]);
         check(options.requestRetention.version === 1, "Unsupported retention version."); V.uuid(options.requestRetention.rehearsalId);
@@ -1067,7 +1197,7 @@ function constructHost(input, options, makeWriter) {
     function notify(reason, discontinuity = false) { if (discontinuity && reason !== "closing") participant?.invalidate(); if (discontinuity) epoch++; generation++; const change = freeze({ version: 1, kind: "snapshot-invalidated", durability: "ephemeral", hostEpoch: epoch, generation, reason }); for (const listener of [...listeners]) { try { Promise.resolve(listener(change)).catch(() => {}); } catch (_) {} } }
     function unavailable(code, state = "unavailable") { last = { ...last, readiness: { state, reason: code }, permissions: { taskReads: "unavailable", completionProof: "unavailable", mutations: "unsupported", history: "unsupported" } }; notify("unavailable", true); }
     function failure(code, state = "unavailable") { return freeze({ version: 1, state, code, retry: ["LOCK_LOST", "ROOT_IDENTITY_CHANGED", "REPOSITORY_CONFLICT", "RECOVERY_REQUIRED"].includes(code) ? "explicit-reopen" : state === "unsupported" ? "review" : "refresh" }); }
-    async function observe(signal) { const registry = G.validateRegistry(await options.registry.read(signal), config), identity = options.identity ? await options.identity.read(signal) : null; return { registry, ownerContextPin: registry.digest, identity: identity === null ? null : V.clone(identity), identityPin: G.identityPin(identity) }; }
+    async function observe(signal) { const registry = G.validateRegistry(await options.registry.read(signal), config); if (config.scope === "device-private-project") check(registry.owners.length === 1 && same(registry.owners[0].owner, __hubRequire("../../../ItacanTaskCore/host/private-authority.js").bindingOwner(config.binding)) && registry.owners[0].partitionId === "private" && !registry.owners[0].shared, "Permanent owner scope differs."); const identity = options.identity ? await options.identity.read(signal) : null; return { registry, ownerContextPin: registry.digest, identity: identity === null ? null : V.clone(identity), identityPin: G.identityPin(identity) }; }
     function stopOwned() { for (const stop of stops.splice(0)) { try { stop(); } catch (_) {} } monitorHealthy = false; }
     function startOwned() {
         function own(stop) { check(typeof stop === "function", "Provider unsubscribe required."); stops.push(stop); }
@@ -1137,12 +1267,13 @@ function constructHost(input, options, makeWriter) {
     async function start(creating, args) {
         if (disposed || phase === "disposed") throw safeError("HOST_DISPOSED");
         if (phase === "closing") throw safeError("HOST_CLOSING");
-        try { const keys = creating ? ["version", "authorityId", "partitions", "reason", "syntheticOnly", ...(args.version === 2 ? ["taskMutationVersion"] : [])] : ["version", "expectedAuthorityId", "syntheticOnly"]; V.fields(args, keys, keys); check((args.version === 1 || creating && args.version === 2 && args.taskMutationVersion === 1) && args.syntheticOnly === true && (creating ? args.authorityId : args.expectedAuthorityId) === config.authorityId, "Explicit authority required."); if (creating) V.text(args.reason); } catch (_) { throw safeError("HOST_CONTRACT"); }
+        try { const authorization = config.scope === "device-private-project" ? "verifiedCutover" : "syntheticOnly"; const keys = creating ? ["version", "authorityId", "partitions", "reason", authorization, ...(args.version === 2 ? ["taskMutationVersion"] : [])] : ["version", "expectedAuthorityId", authorization]; V.fields(args, keys, keys); check((args.version === 1 || creating && args.version === 2 && args.taskMutationVersion === 1) && args[authorization] === true && (creating ? args.authorityId : args.expectedAuthorityId) === config.authorityId, "Explicit authority required."); if (creating) V.text(args.reason); } catch (_) { throw safeError("HOST_CONTRACT"); }
         if (opening) { if (creating) throw safeError("HOST_OPENING"); return opening; }
         if (phase === "open") { if (creating) throw safeError("ALREADY_EXISTS"); return host.refresh(); }
         const detached = V.clone(args); phase = "opening"; last.readiness = { state: "not-ready", reason: "HOST_OPENING" }; notify("reopened", true);
         opening = (async () => {
             try {
+                if (config.scope === "device-private-project") { await observe(); if (creating) check(detached.version === 2 && detached.taskMutationVersion === 1 && detached.partitions.length === 1 && detached.partitions[0].id === "private" && detached.partitions[0].kind === __hubRequire("../../../ItacanTaskCore/host/private-authority.js").bindingKind(config.binding) && same(detached.partitions[0].owner, __hubRequire("../../../ItacanTaskCore/host/private-authority.js").bindingOwner(config.binding)), "Permanent partition scope differs."); }
                 const port = await A.admit(config, creating), settings = { ...(options.repositoryOptions ?? {}), directory: config.directory, storageFormat: "private-v4", storagePort: port, taskMutationVersion: creating && detached.version === 2 ? 1 : undefined, commandAdmission: participant?.gate, ...(participant ? { externalReservations: participant.inventory, resolvers: participant.resolvers } : {}) };
                 if (makeWriter && !options.requestRetention && (await port.list()).some(n => n.startsWith("REQUEST-"))) throw safeError("REQUEST_RETENTION_REQUIRED");
                 // Port/root/profile cannot be overridden by repository options.
@@ -1151,9 +1282,21 @@ function constructHost(input, options, makeWriter) {
                 if (makeWriter && !options.requestRetention && (await port.list()).some(n => n.startsWith("REQUEST-"))) throw safeError("REQUEST_RETENTION_REQUIRED");
                 if (options.requestRetention) {
                     retained = __hubRequire("../../../ItacanTaskCore/host/pending-requests.js").createPendingRequests(port, config, options.requestRetention, async record => {
+                        // A Resource's location inventory may legitimately change
+                        // between sessions. Its immutable command/guards remain
+                        // unchanged; only receipt inspection may use the current
+                        // validated physical Resource binding. Inactive/unbound
+                        // contexts retain the original strict pin contract.
+                        let ownerContextPin = record?.writerRequest.scope.ownerContextPin;
+                        const binding = config.binding;
+                        if (record && config.scope === "device-private-project" && binding?.version === 2 && binding.owner.type === "resource") {
+                            const current = await observe(), entry = current.registry.owners.find(o => same(o.owner, binding.owner));
+                            check(same(record.owner, binding.owner) && record.partitionId === "private" && entry?.available && !entry.shared && entry.partitionId === "private" && entry.root === binding.ownerRoot && entry.dashboard === binding.dashboard, "Bound Resource receipt context differs.");
+                            ownerContextPin = current.ownerContextPin;
+                        }
                         const result = record ? await host.readOperation({ version: 3, authorityId: config.authorityId, selection: "operation", owners: [record.owner],
                             operationId: record.operationId, commandDigest: record.commandDigest,
-                            ownerContextPin: record.writerRequest.scope.ownerContextPin, identityPin: record.writerRequest.scope.identityPin }) : (await capture({ selection: "status" }, undefined, true)).value;
+                            ownerContextPin, identityPin: record.writerRequest.scope.identityPin }) : (await capture({ selection: "status" }, undefined, true)).value;
                         return { operation: result?.status === "ok" && record ? result.snapshot.operation : { state: "unavailable", code: result?.code ?? "AUTHORITY_UNAVAILABLE", operationId: record?.operationId ?? null, receipt: null, taskIds: [], eventIds: [] },
                             stamp: result?.status === "ok" ? result.stamp : null, partitions: result?.status === "ok" ? result.snapshot.partitions : [],
                             ready: result?.status === "ok" && result.snapshot.readiness.state === "ready" && result.snapshot.recovery.state === "intact",
@@ -1438,23 +1581,29 @@ const same = (a, b) => V.canonical(a) === V.canonical(b);
 function unavailable(code = "HISTORY_UNAVAILABLE") { const e = Error("Completion evidence is unavailable."); e.code = code; return e; }
 function nativeReference(native, e) { return { authorityId: native.authorityId, eventId: e.eventId, taskId: e.taskId, stepId: e.stepId, owner: V.clone(e.ownerAtEvent), origin: e.origin, navigation: V.clone(e.navigation) }; }
 function account(raw, native) {
-    V.jsonValue(raw); check(Array.isArray(raw) && native?.version === 1, "Complete observations required.");
-    const h = native.history, byDigest = new Map(), suppressed = new Set(), representedRows = new Map();
+    V.jsonValue(raw); check(Array.isArray(raw) && (Array.isArray(native) ? native.every(n => n?.version === 1) : native?.version === 1), "Complete observations required.");
+    const observations = Array.isArray(native) ? native : [native];
+    check(observations.length && new Set(observations.map(n => n.authorityId)).size === observations.length, "Distinct native authorities required.");
+    const byDigest = new Map(), suppressed = new Set(), representedRows = new Map();
     raw.forEach((row, i) => { const d = I.hash(row); if (!byDigest.has(d)) byDigest.set(d, []); byDigest.get(d).push(i); });
-    const eventMap = new Map();
-    for (const e of h.events) { check(!eventMap.has(e.eventId) && e.receipt.repositoryRevision <= native.stamp.head.repositoryRevision, "Duplicate/uncommitted event."); eventMap.set(e.eventId, e); }
+    const eventMap = new Map(), origins = new Map();
+    for (const observation of observations) {
+    const h = observation.history;
+    for (const e of h.events) { check(!eventMap.has(e.eventId) && e.receipt.repositoryRevision <= observation.stamp.head.repositoryRevision, "Duplicate/uncommitted event."); eventMap.set(e.eventId, e); origins.set(e.eventId, observation); }
     if (h.overlap) {
         const expected = new Map(), keys = new Set();
         for (const r of h.overlap.rows) { check(!keys.has(r.key), "Duplicate capture row."); keys.add(r.key); expected.set(r.digest, (expected.get(r.digest) ?? 0) + 1); }
         for (const [digest, count] of expected) check(byDigest.get(digest)?.length === count, "Import overlap changed or absent.");
         for (const r of h.overlap.rows) {
             const i = byDigest.get(r.digest)[r.occurrence]; check(i !== undefined, "Import occurrence missing.");
+            check(!representedRows.has(i) && !suppressed.has(i), "Ambiguous imported origins.");
             if (r.suppressed) suppressed.add(i);
             if (r.eventId) { const e = eventMap.get(r.eventId); check(e?.origin === "represented-import", "Import representation missing."); representedRows.set(i, e); }
         }
         check(h.overlap.representedEventIds.every(id => eventMap.get(id)?.origin === "represented-import"), "Represented import is unverified.");
     }
-    const live = h.events.filter(e => e.origin !== "represented-import" && e.counted).sort((a, b) => b.receipt.repositoryRevision - a.receipt.repositoryRevision || b.receipt.index - a.receipt.index);
+    }
+    const live = [...eventMap.values()].filter(e => e.origin !== "represented-import" && e.counted).sort((a, b) => b.receipt.repositoryRevision - a.receipt.repositoryRevision || b.receipt.index - a.receipt.index);
     for (const e of live) check(!raw.some(row => row && typeof row === "object" && row.id === e.eventId), "Native/legacy event identity collision.");
     const legacy = [], references = [];
     raw.forEach((r, i) => { if (suppressed.has(i) || !r) return; legacy.push({ ...r }); references.push(representedRows.get(i) ?? null); });
@@ -1462,13 +1611,13 @@ function account(raw, native) {
     const completions = statisticsCompletions(query), records = historyRecords(query);
     // Join only exact detached recorded values, with an occurrence counter. IDs alone are insufficient.
     const queues = new Map(); query.rows.forEach((r, i) => { if (r.fact) { const d = I.hash(r.fact.recorded); if (!queues.has(d)) queues.set(d, []); queues.get(d).push(references[i]); } });
-    for (const record of records) { const { historyReadKey, ...body } = record, ref = queues.get(I.hash(body)).shift(); if (ref) record.nativeHistory = nativeReference(native, ref); }
+    for (const record of records) { const { historyReadKey, ...body } = record, ref = queues.get(I.hash(body)).shift(); if (ref) record.nativeHistory = nativeReference(origins.get(ref.eventId), ref); }
     const fresh = live.map(e => ({ id: e.eventId, kind: e.kind, text: e.title, ...(e.kind === "step" ? { parentText: e.parentTitle } : {}), timestamp: e.timestamp,
         projectId: e.ownerAtEvent === null ? null : e.ownerAtEvent.type === "resource" ? "resource:" + e.ownerAtEvent.id : e.ownerAtEvent.id,
         contextKind: e.ownerAtEvent?.type ?? "project", resourceType: e.ownerAtEvent?.type === "resource" ? e.ownerAtEvent.id : null,
         ...(e.attribution ? { projectName: e.attribution.label, projectStatus: e.attribution.status } : {}) }));
-    return freeze({ version: 1, privacy: "local-private", stamp: native.stamp,
-        records: [...fresh.map((r, i) => ({ ...r, historyReadKey: V.canonical(["native-history", native.authorityId, r.id]), nativeHistory: nativeReference(native, live[i]) })), ...records],
+    return freeze({ version: 1, privacy: "local-private", stamp: observations[0].stamp, ...(observations.length > 1 ? { observations: observations.map(n => ({ authorityId: n.authorityId, stamp: n.stamp })) } : {}),
+        records: [...fresh.map((r, i) => ({ ...r, historyReadKey: V.canonical(["native-history", origins.get(r.id).authorityId, r.id]), nativeHistory: nativeReference(origins.get(r.id), live[i]) })), ...records],
         completions: [...fresh, ...completions], diagnostics: query.diagnostics });
 }
 function createCompletionFeed({ native, legacy, navigate }) {
@@ -1521,8 +1670,8 @@ function taskKey(task) {
 }
 function homeOwner(context, resolve) {
     const owner = resolve(context.owner);
-    check(owner && owner.contextKind !== "resource" && owner.projectId === context.owner.id &&
-        owner.root === context.root && owner.path === context.dashboard && owner.status === context.status && !owner.deleted,
+    check(owner && (context.owner.type === "resource" ? owner.contextKind === "resource" && owner.resourceType === context.owner.id : owner.contextKind !== "resource" && owner.projectId === context.owner.id) &&
+        owner.root === context.root && owner.path === context.dashboard && (owner.status ?? "active") === context.status && !owner.deleted,
         "Native Home owner context is unavailable.");
     return owner;
 }
@@ -1557,7 +1706,7 @@ const { TaskService } = __hubRequire("lib/services/task-service.js");
 const same = P.same, consumers = __hubRequire("../../../ItacanTaskCore/integration/home-schedule.js");
 function view(t, authorityId) {
     return { id: t.id, nativeReference: { authorityId, owner: V.clone(t.owner), taskId: t.id, taskRevision: t.revision }, owner: V.clone(t.owner),
-        text: t.title, description: t.description, completed: t.completed, necessity: t.importance,
+        location: V.clone(t.location), text: t.title, description: t.description, completed: t.completed, necessity: t.importance,
         fromDate: t.start?.date ?? null, fromTime: t.start?.time ?? null, dueDate: t.due?.date ?? null, dueTime: t.due?.time ?? null,
         steps: t.steps.map(s => ({ id: s.id, taskId: t.id, text: s.title, completed: s.completed, parentStepId: s.parentStepId })),
         nativeReadOnly: !!t.phase || t.steps.some(s => s.parentStepId !== null) || t.consumerFacts?.recurrenceMember === true };
@@ -1565,15 +1714,15 @@ function view(t, authorityId) {
 async function openProjectRuntime(config, options) {
     check(options.consumerUiV1 === undefined || options.consumerUiV1 === true, "Explicit consumer rehearsal option required.");
     config = freeze(V.clone(config)); options = { ...options, writerPolicy: freeze(V.clone(options.writerPolicy)) };
-    check(options.owner?.type === "project" && options.writerPolicy.owners.length === 1 && same(options.owner, options.writerPolicy.owners[0].owner), "One private Project required.");
+    check(["project", "resource"].includes(options.owner?.type) && options.writerPolicy.owners.length === 1 && same(options.owner, options.writerPolicy.owners[0].owner), "One private Project required.");
     const owner = freeze(V.clone(options.owner)), session = createNativeWriterSession(config, { registry: options.registry, identity: options.identity,
         writerPolicy: options.writerPolicy, repositoryOptions: options.repositoryOptions, requestRetention: { version: 1, rehearsalId: options.rehearsalId } });
-    let closed = false, lastOutcome = null, refreshedOperation = null;
+    let closed = false, lastOutcome = null, refreshedOperation = null, resourceLocations = [];
     const authority = { backend: "native", authorityId: config.authorityId, applicationContextId: config.applicationContextId };
     try {
         const r = await options.registry.read(); const o = r.owners.find(o => same(o.owner, owner)); check(o && !o.shared && o.available && o.partitionId === options.writerPolicy.owners[0].partitionId, "Private owner evidence required.");
-        if (options.creating) await session.host.create({ version: 2, authorityId: config.authorityId, partitions: [{ id: o.partitionId, owner, kind: "private-project" }], reason: "Explicit isolated real-host rehearsal", syntheticOnly: true, taskMutationVersion: 1 });
-        else await session.host.open({ version: 1, expectedAuthorityId: config.authorityId, syntheticOnly: true });
+        if (options.creating) await session.host.create({ version: 2, authorityId: config.authorityId, partitions: [{ id: o.partitionId, owner, kind: owner.type === "resource" ? "resource" : "private-project" }], reason: "Explicit owner-scoped authority creation", ...(config.scope === "device-private-project" ? { verifiedCutover: true } : { syntheticOnly: true }), taskMutationVersion: 1 });
+        else await session.host.open({ version: 1, expectedAuthorityId: config.authorityId, ...(config.scope === "device-private-project" ? { verifiedCutover: true } : { syntheticOnly: true }) });
     } catch (error) { await session.dispose().catch(() => {}); throw error; }
     const taskService = new TaskService(createNativeReadAdapter(session.host)), editorPort = createNativeEditorReadPort(session.host, { writerPolicy: options.writerPolicy });
     const grant = () => session.authorize({ version: 1, owners: options.writerPolicy.owners, commands: options.writerPolicy.commands });
@@ -1585,6 +1734,7 @@ async function openProjectRuntime(config, options) {
         check(registry.digest === stamp.ownerContextPin && h.hostEpoch === stamp.hostEpoch && h.readiness.state === "ready", "Consumer context changed.");
         const entry = registry.owners.find(o => same(o.owner, owner));
         check(entry && entry.available && entry.dashboard && !entry.shared && entry.partitionId === options.writerPolicy.owners[0].partitionId, "Native owner unavailable.");
+        resourceLocations = entry.locations;
         return { owner, root: entry.root, dashboard: entry.dashboard, status: entry.status };
     }
     async function list() { const r = await capture(); const context = options.consumerUiV1 ? await consumerContext(r.stamp) : undefined;
@@ -1605,11 +1755,11 @@ async function openProjectRuntime(config, options) {
             let retained = null;
             try { retained = await session.requests.get(cap, intent.operationId); } catch (error) { if (error.code !== "ENOENT") throw error; }
             if (!retained) {
-                if (intent.action.kind === "rich-create") { const d = intent.action.draft; check(d.continuation === "" && d.metadata.phase === null && d.metadata.location === null && d.steps.every(s => s.body === "" && s.parentStepId === null), "Creation exceeds compact form."); }
+                if (intent.action.kind === "rich-create") { const d = intent.action.draft; check(d.continuation === "" && d.metadata.phase === null && (owner.type === "resource" || d.metadata.location === null) && d.steps.every(s => s.body === "" && s.parentStepId === null), "Creation exceeds compact form."); }
                 else {
                     const e = await editor(intent.action.target.taskId);
                     if (intent.action.kind === "full-save") { const d = intent.action.draft, originals = new Map(e.draft.steps.map(s => [s.id, s]));
-                        check(d.continuation === e.draft.continuation && same(d.metadata.location, e.draft.metadata.location) && same(d.metadata.phase, e.draft.metadata.phase) && d.steps.every(s => s.parentStepId === null && s.body === (originals.get(s.id)?.body ?? "") && (!originals.has(s.id) || s.order === originals.get(s.id).order)), "Hidden native content must survive."); }
+                        check(d.continuation === e.draft.continuation && (owner.type === "resource" || same(d.metadata.location, e.draft.metadata.location)) && same(d.metadata.phase, e.draft.metadata.phase) && d.steps.every(s => s.parentStepId === null && s.body === (originals.get(s.id)?.body ?? "") && (!originals.has(s.id) || s.order === originals.get(s.id).order)), "Hidden native content must survive."); }
                 }
             }
             await session.requests.prepare(cap, intent);
@@ -1649,22 +1799,29 @@ async function openProjectRuntime(config, options) {
         try { const r = await list(); return freeze({ backend: "native", owner, authorityId: config.authorityId, outcome: out, availability: "current", tasks: r.tasks }); }
         catch (_) { return freeze({ backend: "native", owner, authorityId: config.authorityId, outcome: out, availability: "unavailable", tasks: [] }); }
     }
-    function formService(app, sourceLabel = "Project") {
+    function formService(app, sourceLabel = owner.type === "resource" ? "Resource" : "Project") {
         let original = null, attempt = null;
         async function issue(values, build) {
-            const fingerprint = B.fingerprint(values);
+            const fingerprint = V.canonical([B.fingerprint(values), owner.type === "resource" ? values.nativeLocation ?? null : null]);
             check(!attempt || attempt.fingerprint === fingerprint, "Keep the original request until reviewed.");
             if (!attempt) attempt = { fingerprint, intent: await build() };
             return editResult(await mutate(attempt.intent));
         }
-        return { app, formContext: () => ({ destination: { authorityId: config.authorityId, owner }, sourcePath: null, sourceLabel }), context: () => null, phases: () => [],
-            async read(task) { original = await editor(task.id ?? task.nativeReference?.taskId); return B.toForm(original); },
-            async create(destination, text, values) { check(destination.authorityId === config.authorityId && same(destination.owner, owner), "Destination changed."); return issue(values, async () => { const i = B.create(await creationContext(), values); i.action.draft.id = randomUUID(); return i; }); },
-            async save(snapshot, values) { check(original, "Editor snapshot missing."); return issue(values, () => values.operation === "delete" ? B.remove(original) : B.save(original, values)); }
+        const location = values => {
+            if (owner.type !== "resource") return null;
+            const id = values.nativeLocation ?? "";
+            if (!id) return null;
+            const ref = resourceLocations.find(l => l.id === id); check(ref, "Resource location changed or is unavailable."); return V.clone(ref);
+        };
+        return { app, formContext: snapshot => ({ destination: { authorityId: config.authorityId, owner }, sourcePath: null, sourceLabel,
+            ...(owner.type === "resource" ? { resourceLocations: resourceLocations.map(l => ({ ...V.clone(l), label: options.locationLabel?.(l) ?? l.id })), nativeLocation: snapshot?.nativeLocation ?? "" } : {}) }), context: () => null, phases: () => [],
+            async read(task) { original = await editor(task.id ?? task.nativeReference?.taskId); return { ...B.toForm(original), ...(owner.type === "resource" ? { nativeLocation: original.draft.metadata.location?.id ?? "" } : {}) }; },
+            async create(destination, text, values) { check(destination.authorityId === config.authorityId && same(destination.owner, owner), "Destination changed."); return issue(values, async () => { const i = B.create(await creationContext(), values); i.action.draft.id = randomUUID(); i.action.draft.metadata.location = location(values); return i; }); },
+            async save(snapshot, values) { check(original, "Editor snapshot missing."); return issue(values, () => { if (values.operation === "delete") return B.remove(original); const i = B.save(original, values); if (owner.type === "resource") i.action.draft.metadata.location = location(values); return i; }); }
         };
     }
     function createPanelRead({ plugin, component, workspace, changed = () => {} }) {
-        check(workspace.type === "project" && same(workspace, owner), "Project panel owner differs.");
+        check(same(workspace, owner), "Project panel owner differs.");
         let disposed = false, generation = 0, last = null, availability = "current";
         const stop = session.host.subscribe(() => { generation++; if (!disposed) changed(); });
         const close = () => { if (disposed) return; disposed = true; generation++; stop(); }; component.register(close);
@@ -1688,9 +1845,10 @@ async function openProjectRuntime(config, options) {
         return controller;
     }
     const historyFeeds = new Set();
+    const historyEvidence = options.historyUiV1 ? __hubRequire("../../../ItacanTaskCore/host/history-read.js").createHistoryReadPort(session.host, { authorityId: config.authorityId, owners: [owner] }) : null;
     function completionFeed({ legacy, app, navigate }) {
         alive(); check(options.historyUiV1 === true, "Explicit History rehearsal option required.");
-        const port = __hubRequire("../../../ItacanTaskCore/host/history-read.js").createHistoryReadPort(session.host, { authorityId: config.authorityId, owners: [owner] });
+        const port = historyEvidence;
         const feed = __hubRequire("../../../ItacanTaskCore/integration/completion-feed.js").createCompletionFeed({ native: port, legacy, navigate: navigate ?? (async ref => {
             check(app && same(ref.owner, owner), "Native History navigation scope differs.");
             const r = await list(), task = r.tasks.find(t => t.id === ref.taskId); check(task && !task.nativeReadOnly, "Native History navigation unavailable.");
@@ -1700,13 +1858,13 @@ async function openProjectRuntime(config, options) {
         historyFeeds.add({ feed, port }); return feed;
     }
     const nativeTasks = Object.freeze({ owner, createPanelRead, ...(options.consumerUiV1 ? { consumerUiV1: true, mergeHome: consumers.mergeHome, taskKey: consumers.taskKey } : {}) });
-    return Object.freeze({ nativeTasks, owner, list, editor, creationContext, mutate, formService, completionFeed, recovery,
-        info: () => freeze({ authority, owner, scope: "inactive-disposable", lastOutcome, history: options.historyUiV1 ? "rehearsal" : "unavailable", statistics: options.historyUiV1 ? "rehearsal" : "unavailable", home: options.consumerUiV1 ? "rehearsal" : "unavailable", schedule: options.consumerUiV1 ? "rehearsal" : "unavailable" }),
+    return Object.freeze({ nativeTasks, owner, list, editor, creationContext, mutate, formService, completionFeed, historyEvidence, recovery,
+        info: () => freeze({ authority, owner, scope: config.scope, lastOutcome, history: options.historyUiV1 ? "rehearsal" : "unavailable", statistics: options.historyUiV1 ? "rehearsal" : "unavailable", home: options.consumerUiV1 ? "rehearsal" : "unavailable", schedule: options.consumerUiV1 ? "rehearsal" : "unavailable" }),
         retained: () => withGrant(cap => session.requests.list(cap)),
         getRetained: id => withGrant(cap => session.requests.get(cap, id)),
         reconcile: id => withGrant(cap => session.requests.reconcile(cap, id)),
         async replay(id) { const r = await withGrant(cap => session.requests.get(cap, id)); return mutate(r.intent); },
-        async close() { if (closed) return; closed = true; for (const { feed, port } of historyFeeds) { feed.dispose(); port.dispose(); } historyFeeds.clear(); await taskService.close(); await session.dispose(); }
+        async close() { if (closed) return; closed = true; for (const { feed } of historyFeeds) feed.dispose(); historyFeeds.clear(); historyEvidence?.dispose(); await taskService.close(); await session.dispose(); }
     });
 }
 module.exports = { openProjectRuntime };
@@ -3521,13 +3679,16 @@ async function openRepository(options, creating) {
     // Even an injected port must be paired with an explicit directory.
     const defaultPort = new NodeDirectory(options.directory), port = options.storagePort ?? defaultPort;
     if (creating && options.taskMutationVersion === 1) {
-        // This inactive capability can only start in an existing physical Temp
-        // child. Check before acquiring a lease or allocating any identities;
-        // the ordinary private creation checks emptiness again under its lock.
+        // Closed Temp fixtures remain supported. Outside Temp, require the
+        // exact physical port enrolled by validated device-private admission;
+        // no caller-supplied boolean or lookalike port can authorize creation.
+        // Both paths check before lease/identity allocation and again under lock.
         const fs = require("node:fs/promises"), path = require("node:path"), os = require("node:os");
         const entry = await fs.lstat(options.directory), root = await fs.realpath(options.directory), temporary = await fs.realpath(os.tmpdir()), relative = path.relative(temporary, root);
-        if (!entry.isDirectory() || entry.isSymbolicLink() || !relative || relative === ".." || relative.startsWith(".." + path.sep) || path.isAbsolute(relative) || root.startsWith("\\\\")) fail("ATOMIC_TASK_DISPOSABLE_REQUIRED", "Atomic creation requires an existing physical disposable Temp child.");
-        if ((await fs.readdir(root)).length) fail("ALREADY_EXISTS", "Atomic creation requires a verified empty disposable directory.");
+        const temporaryChild = !!relative && relative !== ".." && !relative.startsWith(".." + path.sep) && !path.isAbsolute(relative);
+        if (!entry.isDirectory() || entry.isSymbolicLink() || root.startsWith("\\\\")) fail("ATOMIC_TASK_DISPOSABLE_REQUIRED", "Atomic creation requires an ordinary admitted directory.");
+        if (!temporaryChild && !await __hubRequire("../../../ItacanTaskCore/host/authority.js").assertPrivateAtomicCreation(port, options)) fail("ATOMIC_TASK_DISPOSABLE_REQUIRED", "Atomic creation requires Temp isolation or validated device-private admission.");
+        if ((await fs.readdir(root)).length) fail("ALREADY_EXISTS", "Atomic creation requires a verified empty directory.");
     }
     const settings = { ...options, idFactory: options.idFactory ?? randomUUID };
     check(typeof settings.idFactory === "function", "UUID factory must be a function.");
@@ -11264,11 +11425,13 @@ function mergeProgress(records) {
     return [...result.values()].sort(byTime);
 }
 function matchesProgress(task, event) {
+    if (task.nativeReference) return event.nativeHistory?.authorityId === task.nativeReference.authorityId && event.nativeHistory?.taskId === task.nativeReference.taskId;
     const id = event.kind === "step" ? event.parentTaskId : event.hubTaskId;
     return id ? task.hubTaskId === id : task.path === event.path &&
         titleKey(task.text) === titleKey(event.kind === "step" ? event.parentText : event.text);
 }
 function fileTarget(task, step) {
+    if (task.nativeReference) return { kind: "native-task", workspaceId: task.workspaceId, authorityId: task.nativeReference.authorityId, owner: task.nativeReference.owner, taskId: task.id, stepId: step?.id ?? null };
     return { kind: "file", workspaceId: task.workspaceId, path: task.path, taskText: task.text, taskLine: task.line,
         ...(step ? { stepText: step.text } : {}),
         ...(task.hubTaskId ? { taskId: task.hubTaskId } : {}), ...(step?.hubTaskId ? { stepId: step.hubTaskId } : {}) };
@@ -11278,7 +11441,7 @@ function fileTarget(task, step) {
 // Availability is resolved here so providers never need vault or navigation APIs.
 function buildDailyBriefContext(service, {
     now = new Date(), workspaces = [], tasks = [], workingConfigurations = [], oathState = null,
-    resolvePath = () => null, resolveLink = () => null, canOpen = () => true
+    resolvePath = () => null, resolveLink = () => null, canOpen = () => true, canOpenNative = () => false
 } = {}) {
     const briefDate = dailyBriefDay(now), live = new Map(workspaces.map(workspace => [workspace.workspaceId, workspace]));
     const boundary = dailyBriefStart(now), cutoff = boundary.getTime();
@@ -11287,7 +11450,7 @@ function buildDailyBriefContext(service, {
     // A recorded completion after 06:00 must not erase the unfinished continuation
     // when the first brief is opened late. Untimestamped edits cannot be reconstructed.
     const completedAtBoundary = (item, parent = null) => {
-        const records = history.filter(event => parent ? event.kind === "step" && (item.hubTaskId
+        const records = history.filter(event => parent?.nativeReference ? matchesProgress(parent, event) && event.nativeHistory?.stepId === item.id : item.nativeReference ? matchesProgress(item, event) && event.kind !== "step" : parent ? event.kind === "step" && (item.hubTaskId
             ? event.hubTaskId === item.hubTaskId : matchesProgress(parent, event) && titleKey(event.text) === titleKey(item.text))
             : event.kind !== "step" && matchesProgress(item, event));
         return records.some(event => Number(event.timestamp) >= cutoff && Number(event.timestamp) <= now.getTime())
@@ -11298,8 +11461,7 @@ function buildDailyBriefContext(service, {
             steps: (original.steps ?? []).map(step => ({ ...step, completed: completedAtBoundary(step, original) })) };
         const workspace = live.get(task.workspaceId), path = resolvePath(task.path);
         return { ...task, path: path ?? task.path, steps: (task.steps ?? []).map(step => ({ ...step })),
-            available: !!workspace?.available && !!path && !task.completed && !task.identityConflict &&
-                !taskIsFuture(task, boundary) && canOpen(path),
+            available: !!workspace?.available && !task.completed && !task.identityConflict && !task.nativeReadOnly && !taskIsFuture(task, boundary) && (task.nativeReference ? canOpenNative(task.nativeReference.owner) : !!path && canOpen(path)),
             future: taskIsFuture(task, boundary) };
     });
     const reports = [...service.getProgressReports(), ...service.getProgressReports({ kind: "resource" })];
@@ -12653,14 +12815,17 @@ function workspaceId(record) {
 }
 
 function captureReportContext(service, date, id) {
+    const evidence = service.taskProgressEvidence?.();
     const select = records => (records ?? []).filter(record =>
         workspaceId(record) === id && onDay(record, date));
     return {
         version: 1,
-        tasks: select(service.completedTaskHistory).map(task => ({
+        ...(evidence ? { tasksAvailability: evidence.availability } : {}),
+        tasks: select(evidence ? evidence.records : service.completedTaskHistory).map(task => ({
             id: task.id ?? null, text: task.text, timestamp: task.timestamp,
             ...(task.kind ? { kind: task.kind } : {}),
             ...(task.hubTaskId ? { hubTaskId: task.hubTaskId } : {}),
+            ...(task.nativeHistory ? { nativeHistory: task.nativeHistory } : {}),
             ...(task.kind === "step" ? { parentTaskId: task.parentTaskId, parentText: task.parentText } : {}),
             ...(task.path ? { path: task.path } : {})
         })).sort((a, b) => a.timestamp - b.timestamp),
@@ -15198,6 +15363,7 @@ class DailyBriefService {
         this.plugin.registerDomEvent(window, "blur", () => this.trigger.background());
         this.plugin.registerDomEvent(document, "visibilitychange", foreground);
         this.reader();
+        this.stopNative = this.plugin.nativeTaskHost?.completionFeed.subscribe(() => { if (!this.disposed) { void this.refreshAvailability(); void this.trigger.resume(); } });
         this.stopOath = this.plugin.oath.onChange(() => {
             this.readSession?.invalidate(); this.availabilityGeneration++;
             if (this.oathBlocked()) this.modal?.close();
@@ -15232,10 +15398,20 @@ class DailyBriefService {
         const tasks = query.rows.filter(row => row.view?.legacy)
             .map(row => ({ ...legacyReadTask(row.view), identityConflict: row.state !== "validated" || row.view.validation !== "source-checked",
                 workspaceId: row.view.owner?.type === "resource" ? `resource:${row.view.owner.id}` : row.view.owner?.id }));
+        let evidenceWizard = wizard;
+        if (this.plugin.nativeTaskHost) {
+            const host = this.plugin.nativeTaskHost, completion = await host.completionFeed.read();
+            evidenceWizard = { ...wizard, completedTaskHistory: completion.records, taskProgressEvidence: undefined, getProgressReports: wizard.getProgressReports.bind(wizard) };
+            for (const owner of host.nativeTasks.owners ?? [host.nativeTasks.owner]) {
+                const runtime = host.runtime(owner), current = await runtime.list();
+                tasks.push(...current.tasks.map(task => ({ ...task, workspaceId: owner.type === "resource" ? "resource:" + owner.id : owner.id })));
+            }
+        }
         const workingConfigurations = workspaces.map(workspace => this.plugin.workspaceModes?.navigationHistory?.configurationAt(
             workspace.workspaceId, dailyBriefStart(now).getTime())).filter(Boolean);
-        return buildDailyBriefContext(wizard, { now, workspaces, tasks, workingConfigurations,
+        return buildDailyBriefContext(evidenceWizard, { now, workspaces, tasks, workingConfigurations,
             resolvePath: path => this.resolvePath(path),
+            canOpenNative: owner => this.eligible(this.workspace(owner.type === "resource" ? "resource:" + owner.id : owner.id)) && !oath.active,
             canOpen: path => this.eligible(wizard.getContextForPath(path)) && oath.canOpen(path, false),
             resolveLink: (link, source) => this.resolvePath(this.app.metadataCache.getFirstLinkpathDest(link, source ?? "Home.md")?.path),
             oathState: { active: oath.active, workspaceId: workspaceId(oath.workspace), state: oath.current?.state ?? null } });
@@ -15302,6 +15478,13 @@ class DailyBriefService {
         if (!this.eligible(workspace)) return null;
         if (target.kind === "workspace") return this.plugin.oath.canOpen(workspace, false)
             ? { ...target, path: workspace.path, workspace } : null;
+        if (target.kind === "native-task") {
+            try { const host = this.plugin.nativeTaskHost; if (!host?.matches(target.owner)) return null;
+                const r = host.runtime(target.owner); if (r.info().authority.authorityId !== target.authorityId) return null;
+                const task = (await r.list()).tasks.find(t => t.id === target.taskId);
+                return task && !task.completed && !task.nativeReadOnly && (!target.stepId || task.steps.some(s => s.id === target.stepId && !s.completed)) && !this.plugin.oath.active ? { ...target, task, runtime: r } : null;
+            } catch (_) { return null; }
+        }
         let path = this.resolvePath(target.path);
         if (target.taskId || target.taskText) {
             if (!this.plugin.oath.ready()) return null;
@@ -15365,7 +15548,7 @@ class DailyBriefService {
         this.modal?.close();
         let result;
         try {
-            result = target.kind === "home" ? await modes.openHome() : target.kind === "workspace"
+            result = target.kind === "native-task" ? (__hubRequire("lib/ui/task-editor.js").openTaskEditor(target.runtime.formService(this.app), target.task), true) : target.kind === "home" ? await modes.openHome() : target.kind === "workspace"
                 ? await modes.openProjectFull(target.workspace ?? this.workspace(target.workspaceId))
                 : await modes.openProjectNote(target.path);
         } catch (error) {
@@ -15379,7 +15562,7 @@ class DailyBriefService {
         if (target.kind === "home") document.querySelector(".home-dashboard .home-upcoming")?.scrollIntoView({ block: "center" });
         return true;
     }
-    destroy() { this.disposed = true; this.availabilityGeneration++; this.readSession?.close(); this.trigger.destroy(); this.stopOath?.(); this.modal?.close(); this.listeners.clear(); }
+    destroy() { this.disposed = true; this.availabilityGeneration++; this.readSession?.close(); this.trigger.destroy(); this.stopOath?.(); this.stopNative?.(); this.modal?.close(); this.listeners.clear(); }
 }
 module.exports = { DailyBriefService };
 
@@ -16059,14 +16242,26 @@ function createHomeTaskRead({ plugin, component, changed, resolveOwner, editTask
     if (!nativeTasks?.consumerUiV1) return legacy;
     if (typeof resolveNativeOwner !== "function") throw new TaskServiceError("UNAVAILABLE", "Native Home owner resolver required.");
     let nativeGeneration = 0, available = false, accepted = [], nativeRows = [], nativeContext = null, composing = 0;
-    const native = nativeTasks.createPanelRead({ plugin, component, workspace: nativeTasks.owner,
-        changed() { nativeGeneration++; available = false; if (!closed && !composing) changed(); } });
+    const owners = nativeTasks.owners ?? [nativeTasks.owner];
+    const panels = owners.map(owner => ({ owner, panel: nativeTasks.createPanelRead({ plugin, component, workspace: owner,
+        changed() { nativeGeneration++; available = false; if (!closed && !composing) changed(); } }) }));
+    const panelFor = task => { const entry = panels.find(p => sameWorkspace(p.owner, task.nativeReference?.owner)); if (!entry) throw new TaskServiceError("UNAVAILABLE", "Native task owner unavailable."); return entry.panel; };
+    const native = {
+        close: () => panels.forEach(p => p.panel.close()),
+        async read() { const all = await Promise.all(panels.map(p => p.panel.read())); if (all.some(r => !r)) return null;
+            return { availability: all.every(r => r.availability === "current") ? "current" : "unavailable", tasks: all.flatMap(r => r.tasks), context: all.map(r => r.context) }; },
+        accept: tasks => panels.forEach(p => p.panel.accept(tasks.filter(t => sameWorkspace(t.nativeReference?.owner, p.owner)))),
+        reconcile: (tasks, edit) => { const entry = panels.find(p => sameWorkspace(p.owner, edit.owner)); if (!entry) throw new TaskServiceError("UNAVAILABLE", "Native edit owner unavailable.");
+            const updated = entry.panel.reconcile(tasks.filter(t => sameWorkspace(t.nativeReference?.owner, edit.owner)), edit); return [...tasks.filter(t => !sameWorkspace(t.nativeReference?.owner, edit.owner)), ...updated]; },
+        actions: { mutate: task => panelFor(task).actions.mutate(task), editTask: (task, saved) => panelFor(task).actions.editTask(task, saved) },
+        toggle: (task, completed) => panelFor(task).toggle(task, completed)
+    };
     const isNative = task => !!task.nativeReference;
     const requireNative = task => {
         alive(); if (!available || task.nativeReadOnly) throw new TaskServiceError("UNAVAILABLE", "This native task is unavailable.");
         return task;
     };
-    const merge = items => nativeTasks.mergeHome(items, nativeRows, nativeTasks.owner, nativeContext, resolveNativeOwner);
+    const merge = items => owners.reduce((rows, owner, i) => nativeTasks.mergeHome(rows, nativeRows.filter(t => sameWorkspace(t.nativeReference?.owner, owner)), owner, nativeContext[i], resolveNativeOwner), items);
     const unavailable = () => ({ items: accepted.map(item => isNative(item.task) ? { ...item, task: { ...item.task, nativeReadOnly: true } } : item),
         changed: true, availability: "unavailable", countComplete: false, diagnostics: [{ code: "NATIVE_HOME_UNAVAILABLE" }] });
     return {
@@ -17226,10 +17421,441 @@ class MusicLibrary {
 module.exports = { MusicLibrary };
 
 },
+"lib/services/native-cutover-preparation.js": function (module, exports, __hubRequire) {
+"use strict";
+// Offline preparation only. No repository constructor, source writer or activation port.
+const fs = require("node:fs/promises"), path = require("node:path"), crypto = require("node:crypto");
+const { taskLineDetails, taskIdentity } = __hubRequire("lib/domain/tasks.js");
+const { readTaskSnapshot, taskMetadata } = __hubRequire("lib/domain/task-planning.js");
+const { findProjectForPath, findResourceForPath } = __hubRequire("lib/domain/contexts.js");
+const { RESOURCE_TYPES } = __hubRequire("lib/config.js");
+const { SHARED_PROJECT_ROOTS } = __hubRequire("lib/services/shared-projects.js");
+const hash = bytes => crypto.createHash("sha256").update(bytes).digest("hex");
+const inside = (root, child) => { const r = path.relative(root, child); return !!r && r !== ".." && !r.startsWith(".." + path.sep) && !path.isAbsolute(r); };
+const equal = (a, b) => path.relative(a, b) === "";
+const check = (ok, code) => { if (!ok) { const e = Error(code); e.code = code; throw e; } };
+const ref = p => ({ type: p.contextKind === "resource" ? "resource" : "project", id: p.projectId ?? p.id });
+const same = (a, b) => a?.type === b?.type && a?.id === b?.id;
+function relative(value) { check(typeof value === "string" && value && !/[\\:\0]/.test(value) && !value.startsWith("/") && value.split("/").every(p => p && p !== "." && p !== ".."), "INVALID_RELATIVE_PATH"); return value; }
+async function exists(file) { try { return await fs.lstat(file); } catch (e) { if (e.code === "ENOENT") return null; throw e; } }
+async function pin(file) { const s = await fs.stat(file, { bigint: true }); return { dev: String(s.dev), ino: String(s.ino), size: String(s.size), mtimeNs: String(s.mtimeNs), ctimeNs: String(s.ctimeNs) }; }
+const stampEqual = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+async function futurePath(directory) {
+    let ancestor = path.resolve(directory);
+    while (!(await exists(ancestor))) { const next = path.dirname(ancestor); check(next !== ancestor, "PATH_ANCESTOR_UNAVAILABLE"); ancestor = next; }
+    return path.resolve(await fs.realpath(ancestor), path.relative(ancestor, path.resolve(directory)));
+}
+async function safeFile(root, name) {
+    const file = path.join(root, relative(name));
+    for (let p = file; !equal(p, root); p = path.dirname(p)) { const s = await fs.lstat(p); check(!s.isSymbolicLink(), "SOURCE_LINK_UNAVAILABLE"); }
+    check(inside(root, await fs.realpath(file)), "SOURCE_ESCAPE"); return file;
+}
+async function walk(root) {
+    const files = [], unresolved = [];
+    async function visit(dir, prefix) {
+        for (const e of (await fs.readdir(dir, { withFileTypes: true })).sort((a, b) => a.name.localeCompare(b.name))) {
+            const name = prefix ? prefix + "/" + e.name : e.name;
+            if ([".git", ".obsidian", ".codex", ".agents", ".aws", "node_modules"].includes(e.name) || name === "System/Backups") continue;
+            if (e.isSymbolicLink()) { unresolved.push({ path: name, code: "SOURCE_LINK_UNAVAILABLE" }); continue; }
+            if (e.isDirectory()) await visit(path.join(dir, e.name), name);
+            else if (e.isFile() && e.name.toLowerCase().endsWith(".md")) files.push(name);
+        }
+    }
+    await visit(root, ""); return { files, unresolved };
+}
+// Strict identity scalars only, not a second YAML implementation. Unsupported
+// identity syntax is unavailable rather than guessed. Unrelated YAML is ignored.
+function projectHeader(text, name) {
+    const source = text.replace(/^\uFEFF/, ""), lines = source.split(/\r?\n/);
+    if (lines[0] !== "---") return null;
+    const end = lines.findIndex((line, i) => i > 0 && /^(---|\.\.\.)\s*$/.test(line));
+    if (end < 0) return { path: name, ambiguous: true };
+    const header = lines.slice(1, end), values = {}, problems = [];
+    for (const key of ["type", "projectId", "status"]) {
+        const hits = header.filter(l => new RegExp("^" + key + "\\s*:").test(l));
+        if (hits.length !== 1) { problems.push(key); continue; }
+        const raw = hits[0].slice(hits[0].indexOf(":") + 1).trim();
+        if (/^[A-Za-z_][A-Za-z0-9_.:-]*$/.test(raw) && !/^(true|false|null|yes|no|on|off)$/i.test(raw) || /^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(raw)) values[key] = raw;
+        else if (/^"(?:[^"\\]|\\.)*"$/.test(raw)) { try { values[key] = JSON.parse(raw); } catch (_) { problems.push(key); } }
+        else if (/^'(?:[^']|'')*'$/.test(raw)) values[key] = raw.slice(1, -1).replace(/''/g, "'");
+        else problems.push(key);
+    }
+    if (values.type !== "project" && !header.some(l => /^type\s*:.*project/.test(l) || /^projectId\s*:/.test(l))) return null;
+    if (header.some(l => /^<<\s*:/.test(l)) || values.type !== "project" || typeof values.projectId !== "string" || !values.projectId.trim() || !["active", "future", "shelved", "archived"].includes(values.status)) problems.push("identity");
+    if (problems.length) return { path: name, root: path.posix.dirname(name), ambiguous: true };
+    return { projectId: values.projectId, root: path.posix.dirname(name), path: name, name: path.posix.basename(name, ".md"), contextKind: "project", status: values.status, shared: SHARED_PROJECT_ROOTS.includes(path.posix.dirname(name)) };
+}
+function analyzeSource(bytes, name, metadata = {}) {
+    let text;
+    try { text = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes); } catch (_) { return { tasks: [], steps: 0, edits: [], issues: ["NON_UTF8_SOURCE"], safe: false, raw: null, candidate: true }; }
+    const rows = [], lines = []; let offset = 0;
+    for (const m of text.matchAll(/[^\r\n]*(?:\r\n|\n|\r|$)/g)) { if (!m[0]) continue; rows.push({ start: offset, raw: m[0] }); lines.push(m[0].replace(/[\r\n]+$/, "")); offset += m[0].length; }
+    const issues = [], active = [], literals = []; let fence = null, frontmatter = lines[0]?.replace(/^\uFEFF/, "") === "---", math = false, comment = false;
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i], trimmed = line.trim();
+        if (frontmatter) { if (i && /^(---|\.\.\.)\s*$/.test(line)) frontmatter = false; continue; }
+        const token = trimmed.match(/^(`{3,}|~{3,})(.*)$/);
+        if (token) { if (!fence) fence = { char: token[1][0], length: token[1].length }; else if (fence.char === token[1][0] && token[1].length >= fence.length && !token[2].trim()) fence = null; continue; }
+        if (fence) { if (taskLineDetails(line)) literals.push(i); continue; }
+        if (trimmed === "$$" || /^\\\[\s*$/.test(trimmed) || /^\\\]\s*$/.test(trimmed)) { math = !math; continue; }
+        if (math || comment) { if (taskLineDetails(line)) issues.push("CHECKBOX_IN_AMBIGUOUS_CONTEXT"); if (comment && line.includes("-->")) comment = false; continue; }
+        if (/^<\/?[A-Za-z][A-Za-z0-9-]*(?:[ \t>])/.test(trimmed)) issues.push("HTML_CONTEXT_UNPROVEN");
+        if (line.includes("<!--") && !line.slice(line.indexOf("<!--") + 4).includes("-->")) { comment = true; issues.push("MULTILINE_COMMENT"); }
+        const details = taskLineDetails(line);
+        if (details) { active.push(i); if (!/^[ xX]$/.test(details.marker)) issues.push("UNSUPPORTED_CHECKBOX_STATUS"); if (!details.text.trim()) issues.push("EMPTY_TASK_TITLE"); if (/^(?:(?:[-*+]|\d+[.)])\s+)*\[[^\]]\](?:\s|$)/.test(details.text)) issues.push("CHECKBOX_LIKE_TITLE"); }
+        else if (/^\s*(?:>\s*)*(?:[-*+]|\d+[.)])\s+\[[^\]]\](?:\s|$)/.test(line)) issues.push("UNSUPPORTED_TASK_SYNTAX");
+    }
+    if (fence || frontmatter || math || comment) issues.push("UNCLOSED_CONTEXT");
+    const tasks = [], covered = new Set(), ids = new Set(), edits = [], ancestry = [];
+    for (const line of active) {
+        const details = taskLineDetails(lines[line]), id = taskIdentity(details.text);
+        const level = (lines[line].match(/^[ \t]*/)[0]).replace(/\t/g, "    ").length;
+        while (ancestry.length && ancestry.at(-1) >= level) ancestry.pop();
+        if (!ancestry.length && level >= 4 || ancestry.length && level - ancestry.at(-1) > 4) issues.push("INDENTED_CODE_OR_TASK");
+        ancestry.push(level);
+        if (id && ids.has(id)) issues.push("DUPLICATE_LEGACY_ID"); if (id) ids.add(id);
+        if (!covered.has(line)) {
+            try {
+                const task = readTaskSnapshot(text, { path: name, line, text: details.text });
+                for (const step of task.steps) { if (!active.includes(step.line)) issues.push("PARSER_CONTEXT_DISAGREEMENT"); covered.add(step.line); }
+                const raw = text.slice(rows[line].start, rows[task.end]?.start ?? text.length);
+                tasks.push({ line: line + 1, legacyId: task.hubTaskId, text: task.text, completed: task.completed, status: task.status, steps: task.steps.map(s => ({ line: s.line + 1, text: s.text, completed: s.completed, status: s.status })), metadata: taskMetadata(metadata[task.hubTaskId] ?? {}), raw });
+            } catch (_) { issues.push("TASK_BOUNDARY_UNAVAILABLE"); }
+        }
+        const token = lines[line].match(/^([ \t]*(?:[-*+]|\d+[.)])[ \t]+)(\[[ xX]\][ \t]?)/);
+        if (token) { const start = Buffer.byteLength(text.slice(0, rows[line].start) + token[1]); edits.push({ line: line + 1, start, end: start + Buffer.byteLength(token[2]), before: token[2] }); }
+    }
+    if (active.length !== tasks.length + tasks.reduce((n, t) => n + t.steps.length, 0)) issues.push("UNACCOUNTED_CHECKBOX");
+    // Duplicate IDs are archival warnings; marker conversion uses exact source
+    // bytes/line offsets, never those IDs or title matching.
+    return { tasks, literalCheckboxes: literals.length, identities: active.map(i => taskIdentity(lines[i])).filter(Boolean), steps: tasks.reduce((n, t) => n + t.steps.length, 0), edits, issues: [...new Set(issues)], safe: issues.every(x => x === "DUPLICATE_LEGACY_ID"), candidate: !!active.length || !!literals.length || /^\s*(?:>\s*)*(?:[-*+]|\d+[.)])\s+\[[^\]]\](?:\s|$)/m.test(text), raw: text };
+}
+async function applicationObservation(root) {
+    const file = path.join(root, ".obsidian/plugins/hub-project-menu/data.json"), stat = await exists(file);
+    if (!stat) return { metadata: {}, historyDigest: hash("absent"), metadataDigest: hash("{}"), present: false };
+    await safeFile(root, ".obsidian/plugins/hub-project-menu/data.json");
+    const data = JSON.parse(await fs.readFile(file, "utf8"));
+    return { metadata: data.taskMetadata ?? {}, historyDigest: hash(JSON.stringify(data.completedTaskHistory ?? [])), metadataDigest: hash(JSON.stringify(data.taskMetadata ?? {})), present: true };
+}
+async function inspectVault(vaultRoot) {
+    const root = await fs.realpath(vaultRoot); check(!(await fs.lstat(vaultRoot)).isSymbolicLink(), "VAULT_LINK_UNAVAILABLE");
+    const listing = await walk(root), app = await applicationObservation(root), captures = [], projects = [], registryFiles = [];
+    for (const name of listing.files) {
+        const file = await safeFile(root, name), stamp = await pin(file), bytes = await fs.readFile(file), header = projectHeader(bytes.toString("utf8"), name);
+        if (header) { projects.push(header); registryFiles.push({ path: name, hash: hash(bytes), stamp }); }
+        captures.push({ path: name, bytes, stamp });
+    }
+    const ambiguous = projects.filter(p => p.ambiguous), good = projects.filter(p => !p.ambiguous);
+    const duplicates = new Set(good.filter(p => good.filter(q => q.projectId === p.projectId).length !== 1).map(p => p.projectId));
+    const idCounts = new Map(); for (const c of captures) for (const id of analyzeSource(c.bytes, c.path).identities ?? []) idCounts.set(id, (idCounts.get(id) ?? 0) + 1);
+    const attributedMetadata = Object.fromEntries(Object.entries(app.metadata).filter(([id]) => idCounts.get(id) === 1));
+    const archivedMetadata = Object.fromEntries(Object.entries(app.metadata).filter(([id]) => idCounts.has(id)));
+    const sources = captures.flatMap(c => {
+        const parsed = analyzeSource(c.bytes, c.path, attributedMetadata); if (!parsed.candidate) return [];
+        if (parsed.identities?.some(id => idCounts.get(id) > 1) && !parsed.issues.includes("DUPLICATE_LEGACY_ID")) parsed.issues.push("DUPLICATE_LEGACY_ID");
+        for (const task of parsed.tasks) task.metadataConflict = idCounts.get(task.legacyId) > 1;
+        const resource = findResourceForPath(RESOURCE_TYPES, c.path), project = findProjectForPath(good, c.path);
+        const blocked = !resource && (ambiguous.some(p => c.path.startsWith(p.root + "/")) || duplicates.has(project?.projectId));
+        const owner = resource ? { type: "resource", id: resource.id } : project && !blocked ? ref(project) : null;
+        return [{ ...c, hash: hash(c.bytes), owner, shared: !!project?.shared, parsed, issues: [...parsed.issues, ...(!owner ? ["PHYSICAL_OWNER_UNAVAILABLE"] : [])] }];
+    });
+    const candidates = good.filter(p => !p.shared).map(p => { const owned = sources.filter(s => same(s.owner, ref(p))); return { ...p, eligible: ["active", "future", "shelved"].includes(p.status) && !duplicates.has(p.projectId), files: owned.length, tasks: owned.reduce((n, s) => n + s.parsed.tasks.length, 0), steps: owned.reduce((n, s) => n + s.parsed.steps, 0), reviewFiles: owned.filter(s => !s.parsed.safe).length }; });
+    return { root, app, archivedMetadata, sources, projects, candidates, registryFiles, unresolved: [...listing.unresolved, ...ambiguous.map(p => ({ path: p.path, code: "PROJECT_IDENTITY_UNAVAILABLE" }))] };
+}
+async function validatePrivateLocation(directory, { vaultRoot, localDataRoot, cloudRoots = [], kind = "archive" }) {
+    check(["archive", "authority"].includes(kind), "LOCATION_KIND_UNSUPPORTED");
+    check(path.isAbsolute(directory) && path.isAbsolute(localDataRoot) && !directory.startsWith("\\\\"), "LOCAL_ABSOLUTE_PATH_REQUIRED");
+    const target = await futurePath(directory), local = await fs.realpath(localDataRoot), vault = await fs.realpath(vaultRoot);
+    check(inside(local, target) && !inside(vault, target) && !equal(vault, target) && !inside(target, vault), "PRIVATE_LOCATION_REQUIRED");
+    for (const cloud of [...cloudRoots, process.env.OneDrive, process.env.OneDriveConsumer, process.env.OneDriveCommercial].filter(Boolean)) { const canonical = await futurePath(cloud); check(!equal(canonical, target) && !inside(canonical, target), "CLOUD_LOCATION_REJECTED"); }
+    check(!target.split(path.sep).some(p => /^(OneDrive(?: - .*)?|Dropbox|Google Drive|iCloudDrive)$/i.test(p)), "CLOUD_LOCATION_REJECTED");
+    for (let p = path.resolve(directory);; p = path.dirname(p)) {
+        const s = await exists(p); if (s) check(s.isDirectory() && !s.isSymbolicLink(), "ORDINARY_DIRECTORY_REQUIRED");
+        check(!(await exists(path.join(p, ".git"))), "GIT_LOCATION_REJECTED");
+        if (equal(p, path.dirname(p))) break;
+    }
+    if (kind === "authority" && await exists(target)) {
+        const names = await fs.readdir(target); check(!names.some(n => /^(WRITER\.lock|CURRENT\.json|RECOVERY\.json|REQUEST-)/.test(n)), "EXISTING_AUTHORITY_REQUIRES_SEPARATE_REVIEW"); check(!names.length, "AUTHORITY_PATH_NOT_EMPTY");
+    }
+    return { directory: target, privateLocationObserved: true, writerOwnership: "not-acquired", observationOnly: true };
+}
+async function prepareAuthority({ vaultRoot, localDataRoot, vaultId, projectId, deviceId }) {
+    for (const value of [vaultId, projectId, deviceId]) check(typeof value === "string" && value.trim(), "STABLE_IDENTITY_REQUIRED");
+    const directory = path.join(localDataRoot, "Itacan/NativeTasks/v1", hash(vaultId).slice(0, 24), hash(deviceId).slice(0, 24), hash(projectId).slice(0, 24), "repository");
+    const location = await validatePrivateLocation(directory, { vaultRoot, localDataRoot, kind: "authority" });
+    return { version: 1, purpose: "device-private-authority-preparation", executable: false, enabled: false, admitted: false, vaultId, localDataRoot: await fs.realpath(localDataRoot), owner: { type: "project", id: projectId }, deviceId, ...location };
+}
+async function writeNew(file, bytes) { const h = await fs.open(file, "wx", 0o600); try { await h.writeFile(bytes); await h.sync(); } finally { await h.close(); } }
+async function captureArchive({ vaultRoot, localDataRoot, archivesRoot, vaultId }) {
+    check(typeof vaultId === "string" && vaultId.trim(), "STABLE_VAULT_ID_REQUIRED");
+    await validatePrivateLocation(archivesRoot, { vaultRoot, localDataRoot });
+    const inventory = await inspectVault(vaultRoot);
+    await fs.mkdir(archivesRoot, { recursive: true, mode: 0o700 }); await validatePrivateLocation(archivesRoot, { vaultRoot, localDataRoot });
+    const archive = path.join(archivesRoot, "capture-" + new Date().toISOString().replace(/[:.]/g, "-") + "-" + crypto.randomUUID());
+    await fs.mkdir(archive, { mode: 0o700 }); await fs.mkdir(path.join(archive, "originals"), { mode: 0o700 });
+    const sources = [], text = ["ITACAN — READ-ONLY LEGACY TASK ARCHIVE", "Consultation and manual recreation only. No conversion, retirement or native activation.", "Vault identity: " + vaultId, ""];
+    for (const s of inventory.sources) {
+        const backup = "originals/" + hash(s.path) + ".md"; await writeNew(path.join(archive, backup), s.bytes);
+        const backupHash = hash(await fs.readFile(path.join(archive, backup))); check(backupHash === s.hash, "BACKUP_VERIFICATION_FAILED");
+        let unchanged = false;
+        try { const file = await safeFile(inventory.root, s.path), after = await fs.readFile(file); unchanged = hash(after) === s.hash && stampEqual(s.stamp, await pin(file)); } catch (_) { /* Preserve captured bytes and mark the changed/missing source. */ }
+        const safe = s.parsed.safe && !!s.owner && unchanged;
+        sources.push({ path: s.path, owner: s.owner, shared: s.shared, backup, sourceHash: s.hash, backupHash, stamp: s.stamp, sourceUnchangedDuringCapture: unchanged, tasks: s.parsed.tasks.length, steps: s.parsed.steps, taskCountReliable: !s.parsed.issues.some(x => ["NON_UTF8_SOURCE", "TASK_BOUNDARY_UNAVAILABLE", "UNACCOUNTED_CHECKBOX"].includes(x)), retirementSafe: safe, issues: [...s.issues, ...(!unchanged ? ["SOURCE_CHANGED_DURING_CAPTURE"] : [])] });
+        text.push("=".repeat(72), "Source: " + s.path, "Physical owner: " + (s.owner ? s.owner.type + ":" + s.owner.id : "Unresolved — review required"), "Backup: " + backup, "");
+        for (const t of s.parsed.tasks) {
+            const m = t.metadata; text.push("[" + t.status + "] " + t.text, "Line " + t.line + "; Necessity: " + (m.necessity ?? "unassigned"), "Start: " + (m.fromDate ?? "absent") + (m.fromTime ? " " + m.fromTime : "") + "; Due: " + (m.dueDate ?? "absent") + (m.dueTime ? " " + m.dueTime : ""));
+            if (t.metadataConflict) text.push("Metadata attribution unavailable: copied legacy ID. Consult TASK-METADATA.json as unproven reference only.");
+            if (m.description) text.push("Description: " + m.description);
+            for (const step of t.steps) text.push("  [" + step.status + "] " + step.text + " (line " + step.line + ")");
+            text.push("Original task block (verbatim):", t.raw, "");
+        }
+        if (!s.parsed.safe || !s.parsed.tasks.length || s.parsed.literalCheckboxes) text.push("Unsupported/literal source preserved for review:", s.parsed.raw ?? "Non-UTF-8 bytes: consult verified original backup.", "");
+    }
+    const registryFiles = [];
+    for (const source of sources) {
+        try {
+            const file = await safeFile(inventory.root, source.path);
+            if (hash(await fs.readFile(file)) !== source.sourceHash || !stampEqual(await pin(file), source.stamp)) source.sourceUnchangedDuringCapture = false;
+        } catch (_) { source.sourceUnchangedDuringCapture = false; }
+        if (!source.sourceUnchangedDuringCapture) { source.retirementSafe = false; if (!source.issues.includes("SOURCE_CHANGED_DURING_CAPTURE")) source.issues.push("SOURCE_CHANGED_DURING_CAPTURE"); }
+    }
+    for (const item of inventory.registryFiles) { const file = await safeFile(inventory.root, item.path); registryFiles.push({ ...item, unchanged: hash(await fs.readFile(file)) === item.hash && stampEqual(await pin(file), item.stamp) }); }
+    const appAfter = await applicationObservation(inventory.root);
+    const readable = text.join("\n"), metadataReference = JSON.stringify(inventory.archivedMetadata, null, 2) + "\n";
+    const manifest = { version: 1, purpose: "read-only-task-archive", activationAuthorized: false, createdAt: new Date().toISOString(), vaultId, vaultRoot: inventory.root, readableHash: hash(readable), metadataReferenceHash: hash(metadataReference), sources, registryFiles, candidates: inventory.candidates, unresolved: inventory.unresolved, application: { historyDigest: inventory.app.historyDigest, metadataDigest: inventory.app.metadataDigest, unchanged: inventory.app.historyDigest === appAfter.historyDigest && inventory.app.metadataDigest === appAfter.metadataDigest } };
+    await writeNew(path.join(archive, "TASK-METADATA.json"), metadataReference);
+    await writeNew(path.join(archive, "TASKS.txt"), readable); await writeNew(path.join(archive, "MANIFEST.json"), JSON.stringify(manifest, null, 2) + "\n");
+    await writeNew(path.join(archive, "MANIFEST.sha256"), hash(await fs.readFile(path.join(archive, "MANIFEST.json"))) + "\n");
+    await verifyArchive(archive); return { archive, manifest };
+}
+async function verifyArchive(archive) {
+    check(!(await fs.lstat(archive)).isSymbolicLink(), "ARCHIVE_LINK_REJECTED"); const root = await fs.realpath(archive), raw = await fs.readFile(await safeFile(root, "MANIFEST.json"));
+    check(hash(raw) === (await fs.readFile(await safeFile(root, "MANIFEST.sha256"), "utf8")).trim(), "MANIFEST_HASH_MISMATCH");
+    const manifest = JSON.parse(raw); check(manifest.version === 1 && manifest.purpose === "read-only-task-archive" && manifest.activationAuthorized === false, "ARCHIVE_FORMAT_UNSUPPORTED");
+    const paths = new Set(); for (const s of manifest.sources) { relative(s.path); check(!paths.has(s.path), "DUPLICATE_SOURCE_PATH"); paths.add(s.path); check(/^originals\/[a-f0-9]{64}\.md$/.test(s.backup), "INVALID_BACKUP_PATH"); check(hash(await fs.readFile(await safeFile(root, s.backup))) === s.backupHash && s.backupHash === s.sourceHash, "BACKUP_VERIFICATION_FAILED"); }
+    check(hash(await fs.readFile(await safeFile(root, "TASKS.txt"))) === manifest.readableHash, "READABLE_ARCHIVE_HASH_MISMATCH");
+    check(hash(await fs.readFile(await safeFile(root, "TASK-METADATA.json"))) === manifest.metadataReferenceHash, "METADATA_REFERENCE_HASH_MISMATCH"); return manifest;
+}
+async function previewRetirement({ archive, owner }) {
+    check(["project", "resource"].includes(owner?.type) && typeof owner.id === "string", "ONE_EXPLICIT_PROJECT_OR_RESOURCE_REQUIRED");
+    const manifest = await verifyArchive(archive), candidate = owner.type === "resource" ? RESOURCE_TYPES.filter(r => r.id === owner.id).map(r => ({ root: r.root, path: r.hubPath, eligible: true, shared: false }))[0] : manifest.candidates.find(p => p.projectId === owner.id);
+    check(candidate?.eligible && !candidate.shared, "ELIGIBLE_PRIVATE_PROJECT_REQUIRED");
+    const fresh = await inspectVault(manifest.vaultRoot), current = fresh.sources.filter(s => same(s.owner, owner)), saved = manifest.sources.filter(s => same(s.owner, owner));
+    const problems = [];
+    if ([...manifest.unresolved, ...fresh.unresolved].some(item => item.path === candidate.root || item.path.startsWith(candidate.root + "/"))) problems.push("UNRESOLVED_OWNER_SOURCE");
+    if ((owner.type === "project" && !fresh.candidates.find(p => p.projectId === owner.id)?.eligible) || JSON.stringify(fresh.registryFiles.map(r => r.path).sort()) !== JSON.stringify(manifest.registryFiles.map(r => r.path).sort())) problems.push("OWNER_REGISTRY_CHANGED");
+    if (JSON.stringify(current.map(s => s.path).sort()) !== JSON.stringify(saved.map(s => s.path).sort())) problems.push("TASK_SOURCE_SET_CHANGED");
+    for (const r of manifest.registryFiles) { const file = await safeFile(manifest.vaultRoot, r.path); if (!r.unchanged || hash(await fs.readFile(file)) !== r.hash || !stampEqual(await pin(file), r.stamp)) problems.push("OWNER_REGISTRY_CHANGED"); }
+    if (fresh.app.historyDigest !== manifest.application.historyDigest) problems.push("LEGACY_HISTORY_CHANGED");
+    if (fresh.app.metadataDigest !== manifest.application.metadataDigest || !manifest.application.unchanged) problems.push("TASK_METADATA_CHANGED");
+    const files = [];
+    for (const s of saved) {
+        const now = current.find(c => c.path === s.path), issues = [...s.issues];
+        if (!now || now.hash !== s.sourceHash || !stampEqual(now.stamp, s.stamp)) issues.push("SOURCE_HASH_OR_WRITE_STAMP_CHANGED");
+        if (!s.retirementSafe || !now?.parsed.safe) issues.push("AMBIGUOUS_RETIREMENT");
+        if (issues.some(i => i !== "DUPLICATE_LEGACY_ID")) { files.push({ path: s.path, safe: false, issues }); continue; }
+        const chunks = []; let offset = 0;
+        for (const edit of now.parsed.edits) { check(now.bytes.subarray(edit.start, edit.end).equals(Buffer.from(edit.before)), "SPAN_PREREQUISITE_FAILED"); chunks.push(now.bytes.subarray(offset, edit.start)); offset = edit.end; }
+        chunks.push(now.bytes.subarray(offset)); const proposedBytes = Buffer.concat(chunks);
+        check(!analyzeSource(proposedBytes, s.path).tasks.length, "ACTIVE_CHECKBOX_REMAINS");
+        files.push({ path: s.path, safe: true, sourceHash: s.sourceHash, proposedHash: hash(proposedBytes), edits: now.parsed.edits, unrelatedBytesPreserved: true, proposedBytes });
+    }
+    return { version: 1, executable: false, owner, files, problems: [...new Set(problems)], previewSafe: !problems.length && files.every(f => f.safe), sourceWrites: 0 };
+}
+async function cutoverPreflight({ archive, owner, authority }) {
+    const manifest = await verifyArchive(archive), blockers = [];
+    if (!owner) blockers.push("PROJECT_NOT_SELECTED");
+    let preview = null; if (owner) { try { preview = await previewRetirement({ archive, owner }); if (!preview.previewSafe) blockers.push("RETIREMENT_PREVIEW_BLOCKED", ...preview.problems); } catch (e) { blockers.push(e.code ?? "PREVIEW_UNAVAILABLE"); } }
+    if (!authority || authority.enabled !== false || authority.admitted !== false || authority.purpose !== "device-private-authority-preparation" || authority.vaultId !== manifest.vaultId || !same(authority.owner, owner)) blockers.push("AUTHORITY_PREPARATION_REQUIRED");
+    else {
+        try {
+            const validated = await prepareAuthority({ vaultRoot: manifest.vaultRoot, localDataRoot: authority.localDataRoot, vaultId: manifest.vaultId, projectId: owner.id, deviceId: authority.deviceId });
+            check(equal(validated.directory, authority.directory), "AUTHORITY_PATH_CHANGED");
+        } catch (e) { blockers.push(e.code ?? "AUTHORITY_PATH_UNAVAILABLE"); }
+    }
+    // File checks cannot prove a future exclusive write window or rule out ABA
+    // writes by an uncooperative process. These are mandatory cutover gates.
+    return { version: 1, executable: false, preparationReady: !blockers.length, activationReady: false, blockers: [...new Set([...blockers, "EXCLUSIVE_SOURCE_WRITE_QUIESCENCE_REQUIRED", "PERMANENT_NATIVE_ADMISSION_NOT_APPROVED", "EXPLICIT_CUTOVER_AUTHORIZATION_REQUIRED"])], preview };
+}
+module.exports = { projectHeader, inspectVault, analyzeSource, validatePrivateLocation, prepareAuthority, captureArchive, verifyArchive, previewRetirement, cutoverPreflight };
+
+},
+"lib/services/native-task-activation.js": function (module, exports, __hubRequire) {
+"use strict";
+// Owner-specific startup admission. No setting, source writer or repository creation.
+const fs = require("node:fs/promises"), path = require("node:path");
+const A = __hubRequire("../../../ItacanTaskCore/host/private-authority.js");
+const V = __hubRequire("../../../ItacanTaskCore/src/value.js");
+const check = (ok, message) => { if (!ok) throw Error(message); };
+const checksum = value => A.digest(V.canonical(value));
+function seal(body) { return { ...body, checksum: checksum(body) }; }
+function verify(value) { V.jsonValue(value); const { checksum: actual, ...body } = value; check(actual === checksum(body), "Cutover evidence checksum mismatch."); return body; }
+function location(local, vaultId) { return path.join(local, "Itacan/NativeActivation/v1", A.digest(vaultId).slice(0, 24)); }
+async function readOrdinary(file) { check(!(await fs.lstat(file)).isSymbolicLink(), "Activation link rejected."); return JSON.parse(await fs.readFile(file, "utf8")); }
+async function readPlan(file) {
+    const p = verify(await readOrdinary(file));
+    const fields = ["version", "kind", "vaultId", "deviceId", "deviceEvidence", "owner", "projectRoot", "dashboard", "archive", "archiveHash", "sources", "registryFiles", "historyDigest", "metadataDigest", "options", "assets"];
+    V.fields(p, fields, fields);
+    check(p.version === 1 && p.kind === "itacan-owner-cutover" && p.owner.type === "project" && p.owner.id === A.PROJECT && p.options.owner.id === A.PROJECT && p.options.creating === false && p.options.config.scope === "device-private-project", "Unsupported cutover owner/format.");
+    check(p.projectRoot === "Projects/Pulsed Optomechanics" && p.dashboard === p.projectRoot + "/Pulsed Optomechanics.md" && p.options.projectRoot === p.projectRoot && p.options.dashboard === p.dashboard && p.options.partitionId === "private", "Cutover physical owner differs.");
+    check(p.sources.length === 1 && p.sources[0].path === p.projectRoot + "/Meta/Tasks.md" && p.options.config.binding.projectId === A.PROJECT && p.options.config.binding.deviceId === p.deviceId && p.options.config.binding.vaultId === p.vaultId, "Cutover bindings differ.");
+    return p;
+}
+async function assertActive(p, folder) {
+    const plan = await readPlan(path.join(folder, "CUTOVER-v1.json")); check(checksum(plan) === checksum(p), "Cutover plan changed.");
+    const active = verify(await readOrdinary(path.join(folder, "ACTIVATION-v1.json")));
+    V.fields(active, ["version", "kind", "state", "planDigest", "authorityId"], ["version", "kind", "state", "planDigest", "authorityId"]);
+    check(active.version === 1 && active.kind === "itacan-owner-activation" && active.state === "active" && active.planDigest === checksum(p) && active.authorityId === p.options.config.authorityId, "Cutover is incomplete.");
+    await A.validateBinding(p.options.config.binding, p.options.config.directory);
+    for (const s of p.sources) { const file = path.join(p.options.config.binding.vaultRoot, s.path); check(await A.ordinaryPath(file) === await fs.realpath(file) && A.digest(await fs.readFile(file)) === s.proposedHash, "Retired source changed; owner unavailable."); }
+}
+async function loadActivation(plugin) {
+    // Called by actual onload after the ordinary device identity is initialized.
+    const vault = await fs.realpath(plugin.app.vault.adapter.getBasePath()); let id, folder;
+    const p = plugin.projectWizard.getProjectById(A.PROJECT), stat = await fs.stat(vault, { bigint: true });
+    const reserved = { owner: { type: "project", id: A.PROJECT }, projectRoot: p?.root ?? "Projects/Pulsed Optomechanics", dashboard: p?.path ?? "Projects/Pulsed Optomechanics/Pulsed Optomechanics.md", partitionId: "private", config: {}, blocked: true, vaultPin: { real: vault, dev: String(stat.dev), ino: String(stat.ino) } };
+    try {
+        id = await A.registration(vault); folder = location(process.env.LOCALAPPDATA, id); await fs.lstat(folder);
+    } catch (_) {
+        // A changed registry ID must not hide an earlier cutover for this owner.
+        // No authority is opened while looking for its original private marker.
+        if (!p) return null;
+        try {
+            const names = await fs.readdir(path.join(process.env.LOCALAPPDATA, "Itacan/NativeActivation/v1"));
+            return names.length ? reserved : null;
+        } catch (e) { if (e.code === "ENOENT") return null; return reserved; }
+    }
+    try {
+        check(path.relative(await A.ordinaryPath(folder), await fs.realpath(folder)) === "", "Activation directory changed.");
+        try { await fs.lstat(path.join(folder, "CUTOVER-v1.json")); } catch (e) { if (e.code !== "ENOENT") throw e; const files = await fs.readdir(folder); if (!files.some(f => ["ACTIVATION-v1.json", "CONTINUATION-v1.json"].includes(f))) return null; throw e; }
+        const plan = await readPlan(path.join(folder, "CUTOVER-v1.json"));
+        check(plan.vaultId === id && plan.deviceId === plugin.dataStore.deviceId && path.relative(await fs.realpath(plan.options.config.binding.vaultRoot), vault) === "", "Activation vault/device mismatch.");
+        check(plan.projectRoot === p?.root && plan.dashboard === p?.path && !p?.shared && p?.status === "active", "Activation owner changed.");
+        await assertActive(plan, folder);
+        return { ...plan.options, vaultPin: reserved.vaultPin, assertActivation: () => assertActive(plan, folder) };
+    } catch (_) { return reserved; } // Evidence remains intact; never reactivate legacy writes.
+}
+function ownerKey(owner) {
+    __hubRequire("../../../ItacanTaskCore/src/domain.js").workspace(owner);
+    check(owner.type === "project" ? /^[a-f0-9-]{36}$/.test(owner.id) : ["study", "literature", "references", "inspiration"].includes(owner.id), "Unsupported activation identity.");
+    return owner.type + "-" + owner.id;
+}
+function ownerFolder(local, vaultId, owner) { return path.join(location(local, vaultId), "owners", ownerKey(owner)); }
+async function readOwnerPlan(file) {
+    const p = verify(await readOrdinary(file));
+    const fields = ["version", "kind", "vaultId", "deviceId", "owner", "projectRoot", "dashboard", "archive", "archiveHash", "sources", "historyDigest", "metadataDigest", "options", "deviceEvidence"];
+    V.fields(p, fields, fields);
+    const b = p.options?.config?.binding;
+    check(p.version === 2 && p.kind === "itacan-owner-cutover" && b?.version === 2 && p.options.config.scope === "device-private-project" && p.options.creating === false && p.options.partitionId === "private", "Unsupported owner cutover.");
+    ownerKey(p.owner);
+    check(V.canonical(p.owner) === V.canonical(p.options.owner) && V.canonical(p.owner) === V.canonical(b.owner) && b.vaultId === p.vaultId && b.deviceId === p.deviceId && b.ownerRoot === p.projectRoot && b.dashboard === p.dashboard && p.options.projectRoot === p.projectRoot && p.options.dashboard === p.dashboard, "Owner cutover bindings differ.");
+    check(Array.isArray(p.sources) && new Set(p.sources.map(s => s.path)).size === p.sources.length && p.sources.every(s => typeof s.path === "string" && s.path.startsWith(p.projectRoot + "/") && !s.path.split("/").some(x => !x || x === "." || x === "..") && !s.path.includes("\\") && /^[a-f0-9]{64}$/.test(s.proposedHash) && /^[a-f0-9]{64}$/.test(s.sourceHash)), "Invalid retired source scope.");
+    return p;
+}
+async function assertOwnerActive(p, folder) {
+    check(checksum(await readOwnerPlan(path.join(folder, "CUTOVER-v1.json"))) === checksum(p), "Owner cutover changed.");
+    const a = verify(await readOrdinary(path.join(folder, "ACTIVATION-v1.json")));
+    V.fields(a, ["version", "kind", "state", "planDigest", "authorityId"], ["version", "kind", "state", "planDigest", "authorityId"]);
+    check(a.version === 2 && a.kind === "itacan-owner-activation" && a.state === "active" && a.planDigest === checksum(p) && a.authorityId === p.options.config.authorityId, "Owner cutover incomplete.");
+    await A.validateBinding(p.options.config.binding, p.options.config.directory);
+    for (const source of p.sources) {
+        const file = path.join(p.options.config.binding.vaultRoot, source.path);
+        check(await A.ordinaryPath(file) === await fs.realpath(file) && A.digest(await fs.readFile(file)) === source.proposedHash, "Retired source changed.");
+    }
+}
+async function loadActivations(plugin, onlyOwner = null) {
+    const old = !onlyOwner || onlyOwner.type === "project" && onlyOwner.id === A.PROJECT ? await loadActivation(plugin) : null, result = old ? [old] : [];
+    const vault = await fs.realpath(plugin.app.vault.adapter.getBasePath()), stat = await fs.stat(vault, { bigint: true });
+    const vaultPin = { real: vault, dev: String(stat.dev), ino: String(stat.ino) };
+    let id; try { id = await A.registration(vault); } catch (_) { return result; } const base = path.join(location(process.env.LOCALAPPDATA, id), "owners");
+    let names; try { names = await fs.readdir(base); } catch (e) { if (e.code === "ENOENT") return result; throw e; }
+    for (const name of names.sort()) {
+        const match = /^(project|resource)-(.+)$/.exec(name); check(match, "Unknown owner activation evidence.");
+        const owner = { type: match[1], id: match[2] }; if (onlyOwner && (owner.type !== onlyOwner.type || owner.id !== onlyOwner.id)) continue; check(ownerKey(owner) === name, "Owner activation directory mismatch.");
+        const current = owner.type === "resource" ? plugin.projectWizard.getResourceById(owner.id) : plugin.projectWizard.getProjectById(owner.id);
+        const reserved = { owner, projectRoot: current?.root ?? null, dashboard: current?.path ?? null, partitionId: "private", config: {}, blocked: true, vaultPin };
+        const folder = path.join(base, name);
+        try {
+            check(await A.ordinaryPath(folder) === await fs.realpath(folder), "Activation directory changed.");
+            const p = await readOwnerPlan(path.join(folder, "CUTOVER-v1.json"));
+            check(V.canonical(p.owner) === V.canonical(owner) && p.vaultId === id && p.deviceId === plugin.dataStore.deviceId && path.relative(await fs.realpath(p.options.config.binding.vaultRoot), vault) === "", "Activation vault/device mismatch.");
+            Object.assign(reserved, { projectRoot: p.projectRoot, dashboard: p.dashboard });
+            check(current?.root === p.projectRoot && current?.path === p.dashboard && (owner.type === "resource" ? current.contextKind === "resource" && current.resourceType === owner.id : current.contextKind !== "resource" && !current.shared && ["active", "future", "shelved"].includes(current.status)), "Activation physical owner changed.");
+            await assertOwnerActive(p, folder);
+            result.push({ ...p.options, vaultPin, assertActivation: () => assertOwnerActive(p, folder) });
+        } catch (_) { result.push(reserved); }
+    }
+    return result;
+}
+module.exports = { seal, verify, checksum, location, readPlan, assertActive, loadActivation, ownerKey, ownerFolder, readOwnerPlan, assertOwnerActive, loadActivations };
+
+},
+"lib/services/native-task-host-multi.js": function (module, exports, __hubRequire) {
+"use strict";
+const copy = value => JSON.parse(JSON.stringify(value));
+const same = (a, b) => a?.type === b?.type && a?.id === b?.id;
+// Obsidian's renderer beforeunload Tasks hook is still used. The owning
+// Electron window must also hold its close event: ordinary app.quit can finish
+// before renderer asynchronous work, even after beforeunload was prevented.
+function registerNativeQuit(plugin, host, bridge) {
+    let stopWindow = () => {};
+    const drain = done => { Promise.resolve().then(() => host.close()).then(() => done(true), error => {
+        console.error("Native shutdown did not complete; quit cancelled", error);
+        try { new (require("obsidian").Notice)("Native task shutdown did not complete. Quit cancelled; review native recovery.", 10000); } catch (_) {}
+        done(false);
+    }); };
+    if (bridge === undefined) {
+        try {
+            const remote = require("@electron/remote"), path = require("node:path");
+            const installed = path.join(plugin.app.vault.adapter.getBasePath(), plugin.manifest.dir, "main.js");
+            bridge = remote.require(installed);
+            stopWindow = bridge.installNativeQuit(remote.getCurrentWindow().id, drain);
+        } catch (error) {
+            // Ordinary Node tests have no Electron window. A desktop runtime
+            // must never claim reliable ownership if its close gate is absent.
+            if (typeof process !== "undefined" && process.type === "renderer") throw error;
+        }
+    } else if (bridge) stopWindow = bridge.installNativeQuit(drain);
+    const workspace = plugin.app.workspace;
+    let stopTasks = () => {};
+    if (workspace?.on && workspace.offref) { const ref = workspace.on("quit", tasks => { tasks.add(() => host.close()); }); stopTasks = () => workspace.offref(ref); }
+    const stop = () => { stopTasks(); stopWindow(); };
+    stop.stopTasks = () => stopTasks();
+    plugin.register(stop);
+    return stop;
+}
+function composeNativeHosts(plugin, hosts) {
+    const select = owner => { const h = hosts.find(h => same(h.owner, owner)); if (!h) throw Error("Native owner unavailable."); return h; };
+    const legacy = { async read() { const records = copy(plugin.projectWizard.completedTaskHistory ?? plugin.projectWizard.data.completedTaskHistory ?? []); return { version: 1, revision: __hubRequire("../../../ItacanTaskCore/writer/policy.js").hash(records), records }; },
+        subscribe(fn) { document.addEventListener("hub-completed-tasks-changed", fn); return () => document.removeEventListener("hub-completed-tasks-changed", fn); } };
+    const evidence = { read: () => Promise.all(hosts.map(h => h.historyEvidence.read())), subscribe(fn) { const stops = hosts.map(h => h.historyEvidence.subscribe(fn)); return () => stops.forEach(stop => stop()); } };
+    const completionFeed = __hubRequire("../../../ItacanTaskCore/integration/completion-feed.js").createCompletionFeed({ native: evidence, legacy,
+        navigate: ref => select(ref.owner).completionFeed.reveal({ nativeHistory: ref }) });
+    const consumers = __hubRequire("../../../ItacanTaskCore/integration/home-schedule.js");
+    let closing = null, quitStop = () => {};
+    const host = Object.freeze({
+        ready: Promise.allSettled(hosts.map(h => h.ready)), completionFeed,
+        matches: owner => hosts.some(h => h.matches(owner)),
+        nativeTasks: Object.freeze({ consumerUiV1: true, owners: hosts.map(h => h.owner), matches: owner => hosts.some(h => h.matches(owner)), mergeHome: consumers.mergeHome, taskKey: consumers.taskKey,
+            createPanelRead: args => select(args.workspace).nativeTasks.createPanelRead(args) }),
+        status: () => ({ mode: "native-owners", owners: hosts.map(h => h.status()) }),
+        ownerHosts: () => hosts.slice(), runtime: owner => select(owner).runtime(),
+        rejectLegacy(value) { for (const h of hosts) h.rejectLegacy(value); },
+        guardUnsupported() { for (const h of hosts) h.guardUnsupported(); },
+        create(options = {}) { const context = options.location ? plugin.taskEditor.context(options.location) : plugin.taskEditor.currentContext(); const owner = options.owner ?? __hubRequire("lib/services/task-service-legacy-values.js").workspaceRef(context); return select(owner).create(options); },
+        close() { if (!closing) { completionFeed.dispose(); quitStop.stopTasks?.(); const drains = hosts.map(h => h.close()); closing = (async () => { const results = await Promise.allSettled(drains); for (const h of hosts.slice().reverse()) h.release(); const failures = results.filter(r => r.status === "rejected").map(r => r.reason); if (failures.length) throw new AggregateError(failures, "Native shutdown failed."); })(); } return closing; }
+    });
+    plugin.register(() => { void host.close().catch(e => console.error("Native owner shutdown failed", e)); });
+    try { quitStop = registerNativeQuit(plugin, host); }
+    catch (error) { void host.close().catch(e => console.error("Native owner shutdown failed", e)); throw error; }
+    return host;
+}
+module.exports = { composeNativeHosts, registerNativeQuit };
+
+},
 "lib/services/native-task-host.js": function (module, exports, __hubRequire) {
 "use strict";
-// Dormant startup integration. There is deliberately no persisted setting or
-// end-user activation switch: this gate admits synthetic OS Temp vaults only.
+// Legacy by default; real admission requires the external verified owner cutover.
 const approvals = new WeakMap();
 const path = require("node:path"), fs = require("node:fs/promises"), os = require("node:os");
 const copy = value => JSON.parse(JSON.stringify(value));
@@ -17241,11 +17867,18 @@ async function ordinary(directory) {
 }
 async function authorizeNativeTaskRehearsal(plugin, input) {
     if (plugin.nativeTaskHost || approvals.has(plugin)) throw Error("Native host already configured.");
+    if (Array.isArray(input)) {
+        if (!input.length) throw Error("Explicit synthetic owners required.");
+        const checked = [];
+        for (const value of input) { const token = { ...plugin }; await authorizeNativeTaskRehearsal(token, value); checked.push(approvals.get(token)); approvals.delete(token); }
+        if (new Set(checked.map(o => JSON.stringify(o.owner))).size !== checked.length || new Set(checked.map(o => o.config.authorityId)).size !== checked.length || new Set(checked.map(o => o.config.directory)).size !== checked.length) throw Error("Distinct native owners and authorities required.");
+        approvals.set(plugin, checked); return;
+    }
     const options = copy(input), vault = await ordinary(plugin.app.vault.adapter.getBasePath()), temp = await fs.realpath(os.tmpdir());
     const root = await ordinary(options.root), native = await ordinary(options.config.directory);
     if (options.version !== 1 || options.syntheticOnly !== true || !within(temp, root) || !within(root, vault) || !within(root, native) || native === vault || within(vault, native) || within(native, vault)) throw Error("Synthetic Temp vault and separate native root required.");
     for (const cloud of [process.env.OneDrive, process.env.OneDriveConsumer, process.env.OneDriveCommercial].filter(Boolean)) if (within(path.resolve(cloud), root) || path.resolve(cloud) === root) throw Error("Cloud storage is not admitted.");
-    if (options.owner?.type !== "project" || options.config.scope !== "inactive-disposable" || typeof options.projectRoot !== "string" || !options.projectRoot || typeof options.dashboard !== "string") throw Error("Explicit private synthetic Project required.");
+    if (!["project", "resource"].includes(options.owner?.type) || options.config.scope !== "inactive-disposable" || typeof options.projectRoot !== "string" || !options.projectRoot || typeof options.dashboard !== "string") throw Error("Explicit private synthetic Project required.");
     // No existing task source can become a second writable authority. This is
     // not a cutover permit and cannot retire or convert Markdown checkboxes.
     for (const file of plugin.app.vault.getMarkdownFiles()) if (file.path === options.projectRoot || file.path.startsWith(options.projectRoot + "/")) {
@@ -17254,23 +17887,51 @@ async function authorizeNativeTaskRehearsal(plugin, input) {
     const vaultStat = await fs.stat(vault, { bigint: true });
     approvals.set(plugin, { ...options, vaultPin: { real: vault, dev: String(vaultStat.dev), ino: String(vaultStat.ino) } });
 }
-function createNativeTaskHost(plugin) {
-    const options = approvals.get(plugin); approvals.delete(plugin);
+async function authorizeNativeTaskActivation(plugin) {
+    if (approvals.has(plugin)) return; // Synthetic approval cannot select permanent scope.
+    const options = await __hubRequire("lib/services/native-task-activation.js").loadActivations(plugin);
+    if (options?.length) approvals.set(plugin, options);
+}
+function createOwnerHost(plugin, options, coordinated = false) {
     if (!options) return null; // No native imports, storage access or host in Legacy mode.
     const { openProjectRuntime } = __hubRequire("../../../ItacanTaskCore/integration/project-runtime.js");
     const { registryDigest } = __hubRequire("../../../ItacanTaskCore/host/registry.js");
     const { policy, hash } = __hubRequire("../../../ItacanTaskCore/writer/policy.js");
     const consumers = __hubRequire("../../../ItacanTaskCore/integration/home-schedule.js");
-    const { owner, config } = options, stops = [], registryListeners = new Set(), historyListeners = new Set();
+    const { owner } = options, stops = [], registryListeners = new Set(), historyListeners = new Set(), stateListeners = new Set(), feedListeners = new Map();
+    let config = options.config, cancelReadiness = null;
+    const locationLabels = new Map();
     let runtime = null, feed = null, stopped = false, closing = null, state = "opening", ready;
-    const matches = ref => ref?.type === "project" && ref.id === owner.id;
-    const project = () => plugin.projectWizard.getProjectById(owner.id);
+    const matches = ref => ref?.type === owner.type && ref.id === owner.id;
+    const workspaceRef = __hubRequire("lib/services/task-service-legacy-values.js").workspaceRef;
+    const workspaceId = owner.type === "resource" ? "resource:" + owner.id : owner.id;
+    const project = () => (owner.type === "resource" ? plugin.projectWizard.getResourceById(owner.id) : plugin.projectWizard.getProjectById(owner.id));
     const ownsPath = value => typeof value === "string" && (value === options.projectRoot || value.startsWith(options.projectRoot + "/"));
     const unavailable = () => { throw Error("Native task operation is unavailable. Markdown fallback is disabled."); };
+    const changedState = () => { for (const fn of [...stateListeners]) { try { Promise.resolve(fn()).catch(() => {}); } catch (_) {} } };
+    function waitFor(register) {
+        return new Promise(resolve => {
+            let done = false, stop = () => {};
+            const finish = () => { if (done) return; done = true; stop(); cancelReadiness = null; resolve(); };
+            cancelReadiness = finish; stop = register(finish) ?? (() => {});
+            if (done) stop(); else if (stopped) finish();
+        });
+    }
+    async function waitForMetadata() {
+        const workspace = plugin.app.workspace;
+        if (workspace?.onLayoutReady && !workspace.layoutReady) await waitFor(done => { workspace.onLayoutReady(done); });
+        if (stopped) return;
+        const cache = plugin.app.metadataCache, file = plugin.app.vault.getAbstractFileByPath?.(options.dashboard);
+        if (file && cache?.getFileCache && !cache.getFileCache(file)) await waitFor(done => {
+            const refs = [cache.on("changed", changed => { if (changed.path === file.path) done(); }), cache.on("resolved", done)];
+            if (cache.getFileCache(file)) done();
+            return () => refs.forEach(ref => cache.offref(ref));
+        });
+    }
     const rejectLegacy = value => {
         const ref = value?.nativeReference?.owner ?? value?.owner ?? value;
         const context = typeof value === "string" ? plugin.projectWizard.getContextForPath(value) : null;
-        if (matches(ref) || context?.contextKind !== "resource" && context?.projectId === owner.id || value?.contextKind !== "resource" && value?.projectId === owner.id || ownsPath(typeof value === "string" ? value : value?.path)) unavailable();
+        if (matches(ref) || matches(workspaceRef(context)) || matches(workspaceRef(value)) || ownsPath(typeof value === "string" ? value : value?.path)) unavailable();
     };
     function wrap(object, name, before) {
         const original = object[name]; if (typeof original !== "function") throw Error("Missing task boundary: " + name);
@@ -17282,11 +17943,11 @@ function createNativeTaskHost(plugin) {
     wrap(plugin.taskEditor, "save", (snapshot, values) => { rejectLegacy(snapshot.file?.path ?? snapshot.path); rejectLegacy(values.location); });
     wrap(plugin, "mutateTask", request => rejectLegacy(request));
     wrap(plugin, "performClearCompletedTasks", requests => { for (const r of requests ?? []) rejectLegacy(r); });
-    wrap(plugin.planning, "project", id => { if (id === owner.id) unavailable(); });
+    wrap(plugin.planning, "project", id => { if (owner.type === "project" && id === owner.id) unavailable(); });
     const originalRead = plugin.taskData.readPages;
     const readPages = function (...args) { return originalRead.apply(this, args).filter(page => {
         const context = plugin.projectWizard.getContextForPath(page.file?.path);
-        return !ownsPath(page.file?.path) && (context?.contextKind === "resource" || context?.projectId !== owner.id);
+        return !ownsPath(page.file?.path) && !matches(workspaceRef(context));
     }); };
     plugin.taskData.readPages = readPages;
     stops.push(() => { if (plugin.taskData.readPages === readPages) plugin.taskData.readPages = originalRead; });
@@ -17295,11 +17956,11 @@ function createNativeTaskHost(plugin) {
         wrap(plugin.inbox, "makeTask", (values, captureId) => {
             const capture = captureId ? plugin.inbox.required(captureId) : null;
             const candidates = [values, capture?.intent, capture?.operation];
-            for (const c of candidates) if (c && (c.workspaceId === owner.id || ownsPath(c.location))) unavailable();
+            for (const c of candidates) if (c && (c.workspaceId === workspaceId || matches(c.workspace) || ownsPath(c.location))) unavailable();
         });
-        wrap(plugin.inbox, "taskDestination", values => { if (values.workspaceId === owner.id || ownsPath(values.location)) unavailable(); });
+        wrap(plugin.inbox, "taskDestination", values => { if (values.workspaceId === workspaceId || matches(values.workspace) || ownsPath(values.location)) unavailable(); });
         const locations = plugin.inbox.taskLocations;
-        const taskLocations = function (id) { return id === owner.id ? [] : locations.call(this, id); };
+        const taskLocations = function (id) { return id === workspaceId ? [] : locations.call(this, id); };
         plugin.inbox.taskLocations = taskLocations;
         stops.push(() => { if (plugin.inbox.taskLocations === taskLocations) plugin.inbox.taskLocations = locations; });
         wrap(plugin.oath, "take", draft => { if (matches(draft.workspace)) unavailable(); });
@@ -17308,7 +17969,7 @@ function createNativeTaskHost(plugin) {
         plugin.oath.resolveWorkspace = resolveWorkspace;
         stops.push(() => { if (plugin.oath.resolveWorkspace === resolveWorkspace) plugin.oath.resolveWorkspace = resolve; });
         const workspaces = plugin.oath.workspaces;
-        const oathWorkspaces = function (...args) { return workspaces.apply(this, args).filter(p => p.contextKind === "resource" || p.projectId !== owner.id); };
+        const oathWorkspaces = function (...args) { return workspaces.apply(this, args).filter(p => !matches(workspaceRef(p))); };
         plugin.oath.workspaces = oathWorkspaces;
         stops.push(() => { if (plugin.oath.workspaces === oathWorkspaces) plugin.oath.workspaces = workspaces; });
     };
@@ -17318,13 +17979,15 @@ function createNativeTaskHost(plugin) {
     }
     const registry = {
         async read() {
+            await options.assertActivation?.();
             const vault = await ordinary(plugin.app.vault.adapter.getBasePath()), stat = await fs.stat(vault, { bigint: true });
             if (vault !== options.vaultPin.real || String(stat.dev) !== options.vaultPin.dev || String(stat.ino) !== options.vaultPin.ino) throw Error("Native application context changed.");
             const p = project(), shared = !!p?.shared || __hubRequire("lib/services/shared-projects.js").SHARED_PROJECT_ROOTS.includes(p?.root);
-            const candidates = plugin.projectWizard.getProjectRecords().filter(p => p.projectId === owner.id), physical = plugin.projectWizard.getContextForPath(options.dashboard);
-            const available = candidates.length === 1 && physical?.contextKind !== "resource" && physical?.projectId === owner.id && !!p && p.contextKind !== "resource" && p.root === options.projectRoot && p.path === options.dashboard && p.status === "active" && !shared;
+            const candidates = owner.type === "resource" ? plugin.projectWizard.getResourceTypes().filter(p => p.resourceType === owner.id) : plugin.projectWizard.getProjectRecords().filter(p => p.projectId === owner.id), physical = plugin.projectWizard.getContextForPath(options.dashboard);
+            const available = candidates.length === 1 && matches(workspaceRef(physical)) && matches(workspaceRef(p)) && p.root === options.projectRoot && p.path === options.dashboard && (owner.type === "resource" || ["active", "future", "shelved"].includes(p.status)) && !shared;
+            const locations = owner.type === "resource" ? plugin.app.vault.getAllLoadedFiles().filter(file => ownsPath(file.path) && (file.children || file.extension === "md")).map(file => { const type = file.children ? "folder" : "note", id = "resource-location:" + hash([owner, type, file.path]); locationLabels.set(id, file.path); return { type, id }; }).sort((a, b) => a.type.localeCompare(b.type) || a.id.localeCompare(b.id)) : [];
             const body = { version: 1, registryId: config.registryId, applicationContextId: config.applicationContextId, revision: JSON.stringify([p?.projectId ?? null, p?.root ?? null, p?.path ?? null, p?.status ?? null, !!p?.shared]),
-                owners: [{ owner, partitionId: options.partitionId, root: options.projectRoot, dashboard: options.dashboard, status: p?.status ?? "active", available, shared, shareApproval: null, locations: [], mounts: [] }] };
+                owners: [{ owner, partitionId: options.partitionId, root: options.projectRoot, dashboard: options.dashboard, status: p?.status ?? "active", available, shared, shareApproval: null, locations, mounts: [] }] };
             return { ...body, digest: registryDigest(body) };
         }, subscribe(fn) { registryListeners.add(fn); return () => registryListeners.delete(fn); }
     };
@@ -17340,32 +18003,99 @@ function createNativeTaskHost(plugin) {
         return { close: stop, actions: { mutate: unavailable, editTask: unavailable }, read: async () => ({ tasks: [], changed: true, availability: "unavailable", diagnostics: [{ code: "NATIVE_PROJECT_UNAVAILABLE" }] }), accept: stop, reconcile: unavailable, toggle: unavailable, clear: unavailable, reveal: unavailable, create: unavailable };
     };
     const nativeTasks = Object.freeze({ owner, consumerUiV1: true, mergeHome: consumers.mergeHome, taskKey: consumers.taskKey,
-        createPanelRead(args) { return state === "ready" ? runtime.nativeTasks.createPanelRead(args) : failedPanel(args); } });
+        createPanelRead(args) {
+            let inner = null, closed = false;
+            // The core subscription emits immediately. Defer its UI callback
+            // until the delegate is assigned, so a refresh cannot reenter its
+            // construction and create duplicate subscriptions.
+            let queued = false;
+            const refresh = () => { if (queued || closed) return; queued = true; queueMicrotask(() => { queued = false; if (!closed && !stopped) args.changed?.(); }); };
+            const current = () => { if (closed || stopped || state !== "ready") return null; return inner ??= runtime.nativeTasks.createPanelRead({ ...args, changed: refresh }); };
+            const changed = () => args.changed?.(); stateListeners.add(changed);
+            const close = () => { if (closed) return; closed = true; stateListeners.delete(changed); inner?.close(); };
+            args.component.register(close);
+            const call = (name, ...values) => { const panel = current(); if (!panel) return unavailable(); return panel[name](...values); };
+            return { close, read: () => current()?.read() ?? failedPanel({ component: { register() {} } }).read(),
+                accept: tasks => current()?.accept(tasks), reconcile: (...a) => call("reconcile", ...a), toggle: (...a) => call("toggle", ...a),
+                clear: (...a) => call("clear", ...a), reveal: (...a) => call("reveal", ...a), create: (...a) => call("create", ...a),
+                actions: { mutate: (...a) => { const p = current(); return p ? p.actions.mutate(...a) : unavailable(); }, editTask: (...a) => { const p = current(); return p ? p.actions.editTask(...a) : unavailable(); } } };
+        } });
     const completionFeed = { async read(...args) { if (stopped || !feed) return unavailable(); return feed.read(...args); },
-        subscribe(fn) { if (feed && !stopped) return feed.subscribe(fn); return () => {}; },
+        subscribe(fn) { if (stopped) return () => {}; const token = {}; feedListeners.set(token, { fn, stop: feed?.subscribe(fn) }); return () => { feedListeners.get(token)?.stop?.(); feedListeners.delete(token); }; },
         async reveal(...args) { if (stopped || !feed) return unavailable(); return feed.reveal(...args); } };
+    let released = false;
+    const release = () => { if (released) return; released = true; for (const stop of stops.reverse()) stop(); for (const l of feedListeners.values()) l.stop?.(); feedListeners.clear(); registryListeners.clear(); historyListeners.clear(); stateListeners.clear(); };
     const host = {
-        nativeTasks, completionFeed, matches, rejectLegacy, guardUnsupported,
+        nativeTasks, completionFeed, matches, rejectLegacy, guardUnsupported, release,
+        owner, historyEvidence: { read: () => host.runtime().historyEvidence.read(), subscribe(fn) { let stop = null; const bind = () => { if (!stop && state === "ready") stop = runtime.historyEvidence.subscribe(fn); fn({ reason: "registry" }); }; stateListeners.add(bind); if (state === "ready") stop = runtime.historyEvidence.subscribe(fn); return () => { stateListeners.delete(bind); stop?.(); }; } },
         status: () => ({ mode: "native-project", state, owner: copy(owner) }),
         runtime: () => { if (stopped || state !== "ready") return unavailable(); return runtime; },
         create(options = {}) { const r = host.runtime(); return __hubRequire("lib/ui/task-editor.js").openTaskCreator(r.formService(plugin.app), options); },
         async close() {
-            if (closing) return closing; stopped = true; state = "closing";
-            closing = (async () => { await ready; await runtime?.close(); for (const stop of stops.reverse()) stop(); registryListeners.clear(); historyListeners.clear(); state = "closed"; })();
+            if (closing) return closing; stopped = true; state = "closing"; cancelReadiness?.(); changedState();
+            closing = (async () => { await ready; await runtime?.close(); if (!coordinated) release(); state = "closed"; })();
             return closing;
         }
     };
     ready = (async () => {
         try {
+            await waitForMetadata(); if (stopped) return;
+            if (options.blocked || config.scope === "device-private-project") {
+                const admitted = (await __hubRequire("lib/services/native-task-activation.js").loadActivations(plugin, owner)).find(p => matches(p.owner));
+                if (!admitted || admitted.blocked || !matches(admitted.owner) || admitted.projectRoot !== options.projectRoot || admitted.dashboard !== options.dashboard ||
+                    !options.blocked && JSON.stringify(admitted.config) !== JSON.stringify(config)) throw Error("Cutover requires explicit recovery review.");
+                Object.assign(options, admitted, { blocked: false }); config = options.config;
+            }
+            if (stopped) return;
+            if (options.blocked) throw Error("Cutover requires explicit recovery review.");
             runtime = await openProjectRuntime(config, { owner, registry, writerPolicy: policy({ version: 1, owners: [{ owner, partitionId: options.partitionId }], commands: ["task.createRich", "task.save", "task.complete", "step.complete", "task.delete"], inventory: { version: 1, revision: "synthetic-empty", ids: [] }, phases: { version: 1, revision: "no-phases", values: [] } }),
-                rehearsalId: options.rehearsalId, creating: options.creating === true, consumerUiV1: true, historyUiV1: true });
-            if (!stopped) { feed = runtime.completionFeed({ legacy, app: plugin.app }); await runtime.list(); await feed.read(); state = "ready"; }
-        } catch (_) { state = stopped ? "closing" : "unavailable"; await runtime?.close().catch(() => {}); }
+                locationLabel: ref => locationLabels.get(ref.id) ?? ref.id, rehearsalId: options.rehearsalId, creating: options.creating === true, consumerUiV1: true, historyUiV1: true });
+            if (!stopped) { feed = runtime.completionFeed({ legacy, app: plugin.app }); await runtime.list(); await feed.read();
+                if (!stopped) { for (const l of feedListeners.values()) l.stop = feed.subscribe(l.fn); state = "ready"; changedState(); for (const l of feedListeners.values()) { try { Promise.resolve(l.fn()).catch(() => {}); } catch (_) {} } }
+            }
+        } catch (_) { state = stopped ? "closing" : "unavailable"; await runtime?.close().catch(() => {}); changedState(); }
     })();
-    host.ready = ready; plugin.register(() => { void host.close().catch(error => console.error("Native task shutdown failed", error)); });
+    // The shared helper registers one owning-window drain and Obsidian Tasks
+    // callback; multi-owner composition installs it only once for all hosts.
+    host.ready = ready;
+    if (!coordinated) {
+        plugin.register(() => { void host.close().catch(error => console.error("Native task shutdown failed", error)); });
+        try { stops.push(__hubRequire("lib/services/native-task-host-multi.js").registerNativeQuit(plugin, host)); }
+        catch (error) { void host.close().catch(e => console.error("Native task shutdown failed", e)); throw error; }
+    }
     return host;
 }
-module.exports = { authorizeNativeTaskRehearsal, createNativeTaskHost };
+function createNativeTaskHost(plugin) {
+    const configured = approvals.get(plugin); approvals.delete(plugin);
+    if (!configured || Array.isArray(configured) && !configured.length) return null;
+    const options = Array.isArray(configured) ? configured : [configured];
+    if (options.length === 1) return createOwnerHost(plugin, options[0]);
+    return __hubRequire("lib/services/native-task-host-multi.js").composeNativeHosts(plugin, options.map(o => createOwnerHost(plugin, o, true)));
+}
+module.exports = { authorizeNativeTaskRehearsal, authorizeNativeTaskActivation, createNativeTaskHost };
+
+},
+"lib/services/native-task-report-evidence.js": function (module, exports, __hubRequire) {
+"use strict";
+// Ephemeral accepted completion input for synchronous report capture; never persisted as History.
+function attachNativeReportEvidence(plugin, host) {
+    let closed = false, generation = 0, value = null, running = null, pending = false;
+    const wizard = plugin.projectWizard;
+    const read = () => value ? { availability: "current", records: value.records } : { availability: "unavailable", records: [] };
+    wizard.taskProgressEvidence = read;
+    const notify = () => document.dispatchEvent(new Event("hub-task-progress-evidence-changed"));
+    const refresh = () => {
+        if (closed) return; generation++; value = null; pending = true;
+        if (!running) running = (async () => { while (pending && !closed) { pending = false; const ticket = generation;
+            try { const result = await host.completionFeed.read(); if (!closed && ticket === generation) value = result; } catch (_) { /* Unavailable is explicit, not an empty complete input. */ }
+            if (!closed) notify();
+        } })().finally(() => { running = null; if (pending && !closed) refresh(); });
+        return running;
+    };
+    const stop = host.completionFeed.subscribe(refresh); void refresh();
+    plugin.register(() => { closed = true; value = null; generation++; stop(); if (wizard.taskProgressEvidence === read) delete wizard.taskProgressEvidence; });
+}
+module.exports = { attachNativeReportEvidence };
 
 },
 "lib/services/navigation-history.js": function (module, exports, __hubRequire) {
@@ -20058,7 +20788,7 @@ function displayTask(view) {
 }
 
 function createTaskPanelRead({ plugin, component, workspace, changed, editTask, nativeTasks }) {
-    if (nativeTasks && workspace.type === "project" && sameWorkspace(workspace, nativeTasks.owner)) {
+    if (nativeTasks && (nativeTasks.matches ? nativeTasks.matches(workspace) : sameWorkspace(workspace, nativeTasks.owner))) {
         return nativeTasks.createPanelRead({ plugin, component, workspace, changed });
     }
     let closed = false, generation = 0, last = null, indexedQuery = null, indexedTasks = [], indexedSignature = null;
@@ -23178,9 +23908,10 @@ function focusSection(parent, heading, items, empty, markdown) {
     for (const text of items) reportText(section, text, markdown);
 }
 
-function renderTaskProgress(parent, items, markdown, { heading = "Task progress", showTimes = true, hideEmptyHeading = false, component } = {}) {
+function renderTaskProgress(parent, items, markdown, { heading = "Task progress", showTimes = true, hideEmptyHeading = false, component, availability = "current" } = {}) {
     const tasks = parent.createDiv({ cls: "hub-report-section" });
     if (items.length || !hideEmptyHeading) tasks.createEl("h3", { text: heading });
+    if (availability !== "current") { tasks.createDiv({ cls: "hub-report-empty", text: "Task progress unavailable. Completion evidence could not be confirmed." }); return tasks; }
     if (!items.length) tasks.createDiv({ cls: "hub-report-empty", text: "No task progress recorded for this day." });
     // Visible, bounded context uses the modal's native scrollbars; no active task controls.
     const list = tasks.createDiv({ cls: "hub-report-task-list", attr: { role: "list", "aria-label": heading } });
@@ -23212,7 +23943,7 @@ function renderTaskProgress(parent, items, markdown, { heading = "Task progress"
 
 function renderReportEvidence(parent, context, markdown, component) {
     const evidence = parent.createDiv({ cls: "hub-report-evidence" });
-    renderTaskProgress(evidence, context.tasks, markdown, { hideEmptyHeading: true, component });
+    renderTaskProgress(evidence, context.tasks, markdown, { hideEmptyHeading: true, component, availability: context.tasksAvailability ?? "current" });
 
     if (!context.activity.length) {
         evidence.createDiv({ cls: "hub-report-empty hub-report-no-activity", text: "No activity recorded for this day." });
@@ -25739,9 +26470,13 @@ function openNativeTaskRecovery(plugin) {
             const ticket = ++this.generation; this.body.replaceChildren();
             this.body.createEl("p", { text: "Checking retained requests…" });
             try {
-                const runtime = host.runtime(), requests = await runtime.retained();
+                const owners = host.ownerHosts ? host.ownerHosts() : [host];
+                const collections = await Promise.all(owners.map(async h => { try { const runtime = h.runtime(); return { owner: h.owner, runtime, requests: await runtime.retained() }; } catch (_) { return { owner: h.owner, runtime: null, requests: [] }; } }));
                 if (ticket !== this.generation) return;
                 this.body.replaceChildren();
+                for (const { owner, runtime, requests } of collections) {
+                this.body.createEl("p", { text: owner.type + ": " + owner.id });
+                if (!runtime) { this.body.createEl("p", { text: "Native authority unavailable. Evidence preserved.", attr: { role: "alert" } }); continue; }
                 if (!requests.length) this.body.createEl("p", { text: "No retained requests." });
                 for (const request of requests) {
                     const id = request.operationId;
@@ -25764,6 +26499,7 @@ function openNativeTaskRecovery(plugin) {
                         const original = review; review = null;
                         void run(async () => { await runtime.recovery.replay(original); const result = await runtime.recovery.reconcile(id); if (ticket === this.generation) show(result.inspection); });
                     };
+                }
                 }
             } catch (_) {
                 if (ticket !== this.generation) return;
@@ -29940,6 +30676,14 @@ function openTaskEditor(service, task, onEdit = () => {}, creation = null) {
                 onChange: clearError,
                 text: { placeholder: creation ? "What needs doing?" : "" },
                 location, presentationContext: formContext });
+            if (formContext?.resourceLocations) {
+                const label = form.createEl("label", { text: "Location (optional)" });
+                const select = label.createEl("select", { attr: { "aria-label": "Resource task location" } });
+                select.createEl("option", { value: "", text: "Resource" });
+                for (const location of formContext.resourceLocations) select.createEl("option", { value: location.id, text: location.label ?? location.id });
+                select.value = state.nativeLocation ?? formContext.nativeLocation ?? "";
+                select.onchange = () => { state.nativeLocation = select.value; clearError(); };
+            }
             const { input, phase } = this.taskFields;
             errorEl = form.createDiv({ cls: "hub-task-error", attr: { role: "alert" } });
             const actions = form.createDiv({ cls: "hub-task-dialog-actions" });
@@ -31023,8 +31767,8 @@ function mountTaskWorkspace({ plugin, component, dv, root, toolbar, filesGrid, f
     component.register(() => content.removeEventListener("focusin", revealFocusedControl));
     let tasks = [], locations = [], workspaces = [], dirty = true, disposed = false, readGeneration = 0;
     let nativeAvailable = false, nativeRefreshTimer = null, nativeReading = false;
-    const native = nativeTasks?.consumerUiV1 && nativeTasks.owner.type === "project" && nativeTasks.owner.id === workspace.projectId
-        ? nativeTasks.createPanelRead({ plugin, component, workspace: nativeTasks.owner, changed: () => { nativeAvailable = false; if (nativeReading) return; clearTimeout(nativeRefreshTimer); nativeRefreshTimer = setTimeout(() => { if (!disposed) void refresh(); }, 50); } }) : null;
+    const native = nativeTasks?.consumerUiV1 && (nativeTasks.matches ? nativeTasks.matches({ type: "project", id: workspace.projectId }) : nativeTasks.owner.type === "project" && nativeTasks.owner.id === workspace.projectId)
+        ? nativeTasks.createPanelRead({ plugin, component, workspace: { type: "project", id: workspace.projectId }, changed: () => { nativeAvailable = false; if (nativeReading) return; clearTimeout(nativeRefreshTimer); nativeRefreshTimer = setTimeout(() => { if (!disposed) void refresh(); }, 50); } }) : null;
     nativeAvailable = !native;
     const reads = native ? null : new TaskReadSession(plugin.taskService, () => { void refresh(); });
     component.register(() => { readGeneration++; reads?.close(); native?.close(); clearTimeout(nativeRefreshTimer); });
@@ -33580,7 +34324,7 @@ class ProjectAdvancementModal
                 this.evidenceRows.set(id, evidence);
             }
         };
-        if (this.getReportContexts) document.addEventListener("hub-completed-tasks-changed", this.refreshEvidence);
+        if (this.getReportContexts) { document.addEventListener("hub-completed-tasks-changed", this.refreshEvidence); document.addEventListener("hub-task-progress-evidence-changed", this.refreshEvidence); }
 
 
         this.contentEl.addClass(
@@ -34161,7 +34905,7 @@ class ProjectAdvancementModal
         this.focusEditor?.destroy();
         this.evidenceComponents?.forEach(component => component.unload());
         this.evidenceComponents?.clear();
-        if (this.refreshEvidence) document.removeEventListener("hub-completed-tasks-changed", this.refreshEvidence);
+        if (this.refreshEvidence) document.removeEventListener("hub-completed-tasks-changed", this.refreshEvidence); document.removeEventListener("hub-task-progress-evidence-changed", this.refreshEvidence);
 
         this.ratingTooltips?.dispose();
         this.ratingEffects?.destroy();
@@ -45226,10 +45970,14 @@ module.exports = class HubProjectMenu extends Plugin {
         window.hubApplySearchFolder = root => this.contextSearch.applyFolder(root);
         this.dailyBrief = new DailyBriefService(this);
         this.inbox = new HubInboxService(this);
+        await __hubRequire("lib/services/native-task-host.js").authorizeNativeTaskActivation(this);
         this.nativeTaskHost = __hubRequire("lib/services/native-task-host.js").createNativeTaskHost(this);
         if (this.nativeTaskHost) {
+            __hubRequire("lib/services/native-task-report-evidence.js").attachNativeReportEvidence(this, this.nativeTaskHost);
             this.nativeTaskHost.guardUnsupported();
-            await this.nativeTaskHost.ready;
+            // Initial native admission waits for layout/metadata readiness.
+            // Obsidian must finish plugin onload before that event can arrive.
+            if (this.app.workspace.layoutReady) await this.nativeTaskHost.ready;
             this.addCommand({ id: "native-task-recovery", name: "Native task recovery",
                 callback: () => { this.nativeTaskRecoveryModal?.close(); this.nativeTaskRecoveryModal = __hubRequire("lib/ui/native-task-recovery.js").openNativeTaskRecovery(this); } });
         }
@@ -46579,7 +47327,7 @@ module.exports = class HubProjectMenu extends Plugin {
     openTaskCreator(options = {}) {
         if (!this.nativeTaskHost) return openTaskCreator(this.taskEditor, options);
         const owner = options.location ? this.taskEditor.context(options.location) : this.taskEditor.currentContext();
-        if (this.nativeTaskHost?.matches({ type: owner?.contextKind === "resource" ? "resource" : "project", id: owner?.projectId })) return this.nativeTaskHost.create(options);
+        if (this.nativeTaskHost?.matches(__hubRequire("lib/services/task-service-legacy-values.js").workspaceRef(owner))) return this.nativeTaskHost.create(options);
         return openTaskCreator(this.taskEditor, options);
     }
 
@@ -50098,3 +50846,5 @@ function __hubRequire(id) {
 }
 
 module.exports = __hubRequire("plugin.js");
+
+}
