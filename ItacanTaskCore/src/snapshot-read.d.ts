@@ -26,7 +26,7 @@ export function projectSnapshot(state:unknown,request:SnapshotRequestV2,storage?
 export function projectSnapshot(state:unknown,request:import("./editor-read").EditorReadRequestV1,storage?:unknown):import("./editor-read").EditorSnapshotV1;
 
 export interface OperationReadRequestV3 {version:3;authorityId:string;owners:readonly [WorkspaceRef];selection:"operation";operationId:string;commandDigest:string}
-export interface OperationEvidenceV3 {state:"committed"|"missing"|"conflict"|"unavailable";code:string;operationId:string;receipt:null|{operationId:string;repositoryRevision:number;revisionId:string};taskIds:readonly string[];eventIds:readonly string[]}
+export interface OperationEvidenceV3 {state:"committed"|"missing"|"conflict"|"unavailable";code:string;operationId:string;receipt:null|{operationId:string;repositoryRevision:number;revisionId:string};taskIds:readonly string[];eventIds:readonly string[];origin?:import("./git-shared").GitHistoryProvenanceV1}
 export type OperationSnapshotV3=Omit<CoherentSnapshotV1,"version"> & {version:3;operation:OperationEvidenceV3};
 export function projectSnapshot(state:unknown,request:OperationReadRequestV3,storage?:unknown):OperationSnapshotV3;
 

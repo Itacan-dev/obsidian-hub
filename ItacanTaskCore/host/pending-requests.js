@@ -4,9 +4,9 @@ const V = require("../src/value"), P = require("../writer/policy"), A = require(
 const { check, fail } = require("../src/errors"), { freeze } = require("../src/snapshot-read");
 const markerName = "REQUEST-RETENTION-v1.json", prefix = "REQUEST-v1-";
 const fields = (v, keys) => V.fields(v, keys, keys);
-function createPendingRequests(port, config, settings, inspect) {
-    fields(settings, ["version", "rehearsalId"]); check(settings.version === 1, "Unsupported retention version."); V.uuid(settings.rehearsalId);
-    const markerBody = { format: "itacan-native-request-retention", version: 1, authorityId: config.authorityId, applicationContextId: config.applicationContextId, rehearsalId: settings.rehearsalId };
+function createPendingRequests(port, config, settings, inspect, inspectCommitted) {
+    fields(settings, ["version", "rehearsalId"]); check([1,2].includes(settings.version), "Unsupported retention version."); V.uuid(settings.rehearsalId);
+    const markerBody = { format: "itacan-native-request-retention", version: settings.version, authorityId: config.authorityId, applicationContextId: config.applicationContextId, rehearsalId: settings.rehearsalId };
     let stopped = false, ready = false, reviews = new WeakMap(), permits = new WeakMap(); const inflight = new Set(), preparing = new Map(), prior = new Set();
     const sealed = body => ({ ...body, checksum: P.hash(body) });
     const name = id => prefix + P.hash(id) + ".json";
@@ -15,6 +15,14 @@ function createPendingRequests(port, config, settings, inspect) {
         check(ready && !stopped, "Retention is closed."); const job = work().catch(error => { const code = ["OPERATION_CONFLICT", "OUTCOME_RECONCILIATION_REQUIRED", "WRITER_ADMISSION_REQUIRED", "LOCK_LOST", "ROOT_IDENTITY_CHANGED", "ENOENT", "VALIDATION", "RECOVERY_REVIEW_REQUIRED", "RECOVERY_REVIEW_STALE", "ORIGINAL_GUARDS_STALE", "EXACT_REPLAY_SAFETY_UNPROVEN"].includes(error?.code) ? error.code : "REQUEST_RETENTION_INVALID"; fail(code, "Retained request evidence is unavailable."); }); inflight.add(job); job.finally(() => inflight.delete(job)).catch(() => {}); return job;
     }
     function record(intent) {
+        if (intent?.kind === "git-receive") {
+            check(settings.version === 2, "Git receive requires explicit retention version 2.");
+            fields(intent,["version","kind","prepared"]); check(intent.version === 1,"Unsupported retained shared intent.");
+            const prepared=intent.prepared; fields(prepared,["version","request","packet"]);check(prepared.version===1,"Exact shared preparation required.");
+            const r=P.request(prepared.request,"shared"),packet=prepared.packet,G=require("../src/git-shared");
+            G.namespace(packet);check(r.command.type==="git.receive"&&r.scope.authorityId===config.authorityId&&packet.genesis.authorityId===config.authorityId&&r.scope.partitions.length===1&&r.scope.partitions[0].owner.type==="project"&&P.same(r.scope.partitions[0].owner,packet.genesis.partition.owner)&&r.scope.partitions[0].id===packet.genesis.partition.id&&r.command.payload.packetDigest===G.hash(packet)&&r.command.payload.head===packet.head,"Retained shared binding differs.");
+            return sealed({format:"itacan-native-shared-request",version:2,authorityId:config.authorityId,applicationContextId:config.applicationContextId,rehearsalId:settings.rehearsalId,owner:V.clone(r.scope.partitions[0].owner),partitionId:r.scope.partitions[0].id,operationId:r.command.operationId,intent:V.clone(intent),intentDigest:P.hash(intent),writerRequest:V.clone(r),writerRequestDigest:P.hash(r),commandDigest:P.hash(A.compile(r))});
+        }
         const compiled = require("../application/intents").compile(intent), i = compiled.intent;
         check(compiled.request && ["rich-create", "full-save", "set-completion", "set-step-completion", "delete-tree"].includes(i.action.kind), "Action is outside Project rehearsal.");
         check(i.authority.backend === "native" && i.authority.authorityId === config.authorityId && i.authority.applicationContextId === config.applicationContextId && ["project", "resource"].includes(i.owner.type) && i.guard.partitions.length === 1, "Retention scope differs.");
@@ -45,12 +53,13 @@ function createPendingRequests(port, config, settings, inspect) {
     async function observation(r) { await owned(); const value = await inspect(r); await owned(); return value; }
     async function reconcileRecord(r) { return (await observation(r)).operation; }
     async function requireResolved(records, currentId = null, state = null, recovery = false) {
+        const batch = !state && settings.version === 2 && inspectCommitted ? await inspectCommitted(records) : null;
         for (const r of records) {
             if (r.operationId === currentId && (!prior.has(r.operationId) || recovery)) continue;
             if (state) {
                 const receipt = state.receipts.find(x => x.operationId === r.operationId);
                 if (!receipt || P.hash(JSON.parse(receipt.payload)) !== r.commandDigest) fail("OUTCOME_RECONCILIATION_REQUIRED", "A retained request requires review.");
-            } else {
+            } else if (!batch?.has(r.operationId)) {
                 const out = await reconcileRecord(r);
                 if (out.state !== "committed") fail("OUTCOME_RECONCILIATION_REQUIRED", "A retained request requires review.");
             }
@@ -88,10 +97,13 @@ function createPendingRequests(port, config, settings, inspect) {
                 check(preparing.size === 0, "Another request preparation is in progress.");
                 const records = await all(), old = records.find(x => x.operationId === id);
                 if (old) { if (!P.same(old, r)) fail("OPERATION_CONFLICT", "Retained operation conflicts."); return old; }
-                await requireResolved(records); await write(name(id), r); return freeze(V.clone(r));
+                await requireResolved(records);
+                if(settings.version===2){const o=await observation(r);check(o.ready&&o.stamp&&r.writerRequest.command.expectedRepositoryRevision===o.stamp.head.repositoryRevision&&r.writerRequest.scope.ownerContextPin===o.stamp.ownerContextPin&&r.writerRequest.scope.identityPin===o.stamp.identityPin,"Preparation context changed before retention.");}
+                await write(name(id), r); return freeze(V.clone(r));
             });
             preparing.set(id, { digest: r.checksum, promise }); promise.finally(() => preparing.delete(id)).catch(() => {}); return promise;
         },
+        assertResolved() { return tracked(async () => { await requireResolved(await all()); }); },
         list() { return tracked(async () => freeze((await all()).map(r => ({ operationId: r.operationId, intentDigest: r.intentDigest, owner: r.owner, partitionId: r.partitionId })))); },
         get(id) { V.text(id); return tracked(() => getRaw(id)); },
         reconcile(id) { V.text(id); return tracked(async () => reconcileRecord(await getRaw(id))); },

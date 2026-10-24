@@ -1,0 +1,34 @@
+"use strict";
+const test=require('node:test'),S=require('./writer-support.cjs'),W=require('../../writer'),I=require('../inventory'),{assert,fs,path,crypto}=S;
+async function fixture(t){
+ const f=await S.fixture(t),directory=path.join(f.root,'inventory');await fs.mkdir(directory);
+ const reg=S.H.registry();reg.change(v=>{v.owners=[{owner:f.owner,partitionId:'shared',root:'Projects/Shared',dashboard:'Projects/Shared/Dashboard.md',shared:true,available:true,status:'active',locations:[],mounts:[],shareApproval:{version:1,projectId:f.owner.id,root:'Projects/Shared',reviewDigest:'a'.repeat(64)}}]},false);
+ const evidence={version:1,authorityId:f.authority,owner:f.owner,inventory:{version:1,revision:'observed-external-1',ids:[crypto.randomUUID()]},phases:{version:1,revision:'observed-phases-1',values:[{projectId:f.owner.id,phaseId:crypto.randomUUID()}]}};
+ const policy={version:1,owners:[{owner:f.owner,partitionId:'shared'}],commands:[...S.G.TYPES,'git.receive'],inventory:I.capture(f.authority,evidence.inventory,evidence.phases),phases:structuredClone(evidence.phases)};
+ const config={version:1,scope:'inactive-disposable',storageFormat:'private-v4',authorityId:f.authority,directory,applicationContextId:'synthetic-app',registryId:'synthetic-registry'};
+ let fault=null;const options={registry:reg,writerPolicy:policy,gitSharing:{version:1,replicaId:crypto.randomUUID()},inventoryEvidence:{read:async()=>structuredClone(evidence)},repositoryOptions:{idFactory:crypto.randomUUID,clock:()=>1792661003000,fault:async stage=>fault?.(stage)}};
+ let session=W.createNativeWriterSession(config,options),cap;const authorize=async()=>cap=await session.authorize({version:1,owners:policy.owners,commands:policy.commands});t.after(()=>session.dispose());
+ await session.host.create({version:3,authorityId:f.authority,partitions:[{id:'shared',kind:'git-project',owner:f.owner}],reason:'Verified reservation fixture',syntheticOnly:true,taskMutationVersion:1,gitSharedVersion:2,genesis:(await f.packet(0)).genesis});await authorize();
+ async function request(id=crypto.randomUUID()) {const info=session.host.info();return{version:1,reason:'Inventory-backed creation',scope:{authorityId:f.authority,ownerContextPin:reg.snapshot().digest,identityPin:null,inventoryPin:S.P.hash(policy.inventory),phasePin:S.P.hash(policy.phases),partitions:[{id:'shared',owner:f.owner,expectedRevision:info.head.repositoryRevision}]},command:{type:'task.createRich',operationId:crypto.randomUUID(),expectedRepositoryRevision:info.head.repositoryRevision,payload:{version:1,scope:{authorityId:f.authority,owner:f.owner,partitionId:'shared',expectedPartitionRevision:info.head.repositoryRevision,inventoryPin:S.P.hash(policy.inventory)},draft:{version:1,id,metadata:S.S.metadata(),continuation:'',steps:[],initial:{completed:false,completedAt:null}}}}};}
+ return{...f,directory,evidence,policy,config,options,request,get session(){return session},get cap(){return cap},setFault(fn){fault=fn},async reopen(){await session.close();session=W.createNativeWriterSession(config,options);await session.host.open({version:1,expectedAuthorityId:f.authority,syntheticOnly:true});await authorize()}};
+}
+test('nonempty authoritative reservations and Phase inventory survive real Git publication and reconstruction',async t=>{
+ const f=await fixture(t),original=structuredClone(f.evidence),r=await f.request(),out=await f.session.writer.task(f.cap,r);assert.equal(out.status,'committed',JSON.stringify(out));
+ const packet=await f.session.shared.export(f.cap);assert.equal(packet.frames.length,1);assert.equal(packet.frames[0].inventory.version,2);assert(!JSON.stringify(packet).includes(f.evidence.inventory.ids[0]));assert(!JSON.stringify(packet).includes(f.evidence.phases.values[0].phaseId));
+ await require('../../src/serialization').deserializeSharedPacketV3(JSON.stringify(packet));await f.reopen();assert.equal((await f.session.writer.task(f.cap,r)).replayed,true);assert.deepEqual(f.evidence,original);
+ const collision=await f.request(f.evidence.inventory.ids[0]);assert.notEqual((await f.session.writer.task(f.cap,collision)).status,'committed');
+});
+for(const change of ['reservation','phase','project','authority'])test('authoritative '+change+' changes reject commands and stale exact replay',async t=>{
+ const f=await fixture(t),r=await f.request();assert.equal((await f.session.writer.task(f.cap,r)).status,'committed');const raw=await fs.readFile(path.join(f.directory,'CURRENT.json'),'utf8');
+ if(change==='reservation')f.evidence.inventory.ids.push(crypto.randomUUID());if(change==='phase')f.evidence.phases.revision+='changed';if(change==='project')f.evidence.owner={type:'project',id:crypto.randomUUID()};if(change==='authority')f.evidence.authorityId=crypto.randomUUID();
+ assert.equal((await f.session.writer.task(f.cap,r)).code,'WRITER_EVIDENCE_CONFLICT');assert.equal((await f.session.writer.task(f.cap,await f.request())).code,'WRITER_EVIDENCE_CONFLICT');assert.equal(await fs.readFile(path.join(f.directory,'CURRENT.json'),'utf8'),raw);
+});
+test('reservation changes at final publication reject without changing the accepted head',async t=>{
+ const f=await fixture(t),r=await f.request(),raw=await fs.readFile(path.join(f.directory,'CURRENT.json'),'utf8');f.setFault(stage=>{if(stage==='beforeManifestReplace')f.evidence.inventory.ids.push(crypto.randomUUID())});
+ assert.equal((await f.session.writer.task(f.cap,r)).code,'WRITER_EVIDENCE_CONFLICT');assert.equal(await fs.readFile(path.join(f.directory,'CURRENT.json'),'utf8'),raw);
+});
+test('hashed inventory cannot be enabled with only a well-formed witness or on a private writer',async t=>{
+ const f=await fixture(t);assert.throws(()=>W.createNativeWriterSession(f.config,{...f.options,inventoryEvidence:undefined}));assert.throws(()=>W.createNativeWriterSession(f.config,{...f.options,gitSharing:undefined}));const wrong=structuredClone(f.policy);wrong.inventory.authorityId=crypto.randomUUID();assert.throws(()=>W.createNativeWriterSession(f.config,{...f.options,writerPolicy:wrong}));const foreign=structuredClone(f.policy);foreign.phases.values[0].projectId=crypto.randomUUID();foreign.inventory=I.capture(f.authority,f.evidence.inventory,foreign.phases);assert.throws(()=>W.createNativeWriterSession(f.config,{...f.options,writerPolicy:foreign}));
+});
+
+test('restart with newly captured reservations cannot replay an old inventory guard',async t=>{const f=await fixture(t),r=await f.request();assert.equal((await f.session.writer.task(f.cap,r)).status,'committed');await f.session.close();f.evidence.inventory.ids.push(crypto.randomUUID());f.policy.inventory=I.capture(f.authority,f.evidence.inventory,f.evidence.phases);await f.reopen();assert.equal((await f.session.writer.task(f.cap,r)).code,'WRITER_EVIDENCE_CONFLICT');assert.equal((await f.session.writer.task(f.cap,await f.request())).status,'committed');});

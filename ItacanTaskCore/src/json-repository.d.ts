@@ -12,7 +12,7 @@ export interface JsonOptions extends Omit<RepositoryOptions, "idFactory"> {
 }
 export type JsonCreateOptions = JsonOptions & { partitions: PartitionDefinition[] } & (
     { storageFormat?: "legacy"; storeId?: string; expectedAuthorityId?: never } |
-    { storageFormat: "private-v4"; storeId: string; expectedAuthorityId?: string; taskMutationVersion?: 1 }
+    { storageFormat: "private-v4"; storeId: string; expectedAuthorityId?: string; taskMutationVersion?: 1; gitSharedVersion?: 2; sharedGenesis?: import("./git-shared").GitGenesisV1 }
 );
 export type JsonOpenOptions = JsonOptions & (
     { storageFormat?: "legacy"; expectedAuthorityId?: never } |

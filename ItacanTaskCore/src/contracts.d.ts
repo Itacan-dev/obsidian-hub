@@ -50,6 +50,7 @@ export interface CommandBase {
 }
 type ExistingTask = { taskId: string; expectedRevision: number };
 export type Command = CommandBase & (
+    | import("./git-shared").GitReceiveCommandV2
     | AtomicTaskCommandV1
     | HistoryImportCommand
     | RecurrenceCommand
@@ -78,13 +79,16 @@ export interface CommandResult {
     recurrence?: RecurrenceSnapshot | RecurrenceSnapshotV2;
     historyImport?: HistoryImportResult;
     atomicTask?: AtomicTaskEffectsV1;
+    gitShared?: import("./git-shared").GitApplicationSummaryV1;
+    /** Only a returned replay, never a stored local receipt. */
+    originReplay?: import("./git-shared").GitOriginReplayV1;
 }
 export interface Receipt { operationId: string; payload: string; result: CommandResult; partitionIds: string[]; coordination: CommandBase["coordination"] | null }
 export interface RepositoryInfo {
     taskMutationVersion?: 1;
     schemaVersion: 1 | 2 | 3 | 4; storeId: string; revision: number; revisionId: string; parentRevisionId: string | null; partitions: Partition[];
     recovery: null | { recoveredRevision: number; recoveredRevisionId: string; failures: { file: string; reason: string }[]; source: string; requestedRevision: number | null };
-    storage?: { format: "private-v4"; wireVersion: 4; authorityId: string; minimumLogicalSchemaVersion: 1 | 2 | 3 | 4; fenced: boolean; taskMutationVersion?: 1 };
+    storage?: { format: "private-v4"; wireVersion: 4; authorityId: string; minimumLogicalSchemaVersion: 1 | 2 | 3 | 4; fenced: boolean; taskMutationVersion?: 1; gitSharedVersion?: 2 };
 }
 export interface TaskQuery {
     owner?: WorkspaceRef; completed?: boolean; location?: LocationRef | null; phase?: PhaseRef;
@@ -104,6 +108,8 @@ export interface RepositoryOptions {
     historyImportEvidence?: HistoryImportEvidenceProvider;
     /** Immutable captured inventory; changing cross-store planning is unsupported. */
     externalReservations?: ExternalReservations;
+    /** Required for explicit Git-capable roots; never enables an existing private root. */
+    sharedReplicaId?: string;
     idFactory: () => string; clock?: () => number; resolvers?: ReferenceResolvers;
     onSubscriberError?: (error: unknown) => void;
     /** Explicit fault injection for disposable tests only. */
@@ -126,14 +132,16 @@ export interface TaskRepository {
     getReceipt(operationId: string): Receipt | null;
     queryTasks(query?: TaskQuery): NativeTask[];
     queryHistory(query?: HistoryQuery): HistoryRecord[];
-    execute(command: Command, admissionTicket?: CommandAdmissionTicketV1): Promise<CommandResult>;
+    execute(command: Command, admissionTicket?: CommandAdmissionTicketV1, replicationEvidence?: import("./git-shared").GitReplicationEvidenceV1): Promise<CommandResult>;
     subscribe(listener: (change: Change) => void | Promise<void>): () => void;
     exportSharedPartition(partitionId: string): string;
+    /** Queued, validated Git-only export; v1 snapshot exports retain their old grammar. */
+    exportSharedPacket(): Promise<import("./git-shared").GitPacketV3>;
     close(): Promise<void>;
 }
 export class RepositoryError extends Error { constructor(code: string, message: string, details?: Record<string, unknown>); code: string; details: Record<string, unknown> }
 export class MemoryStorage { constructor() }
-export function createMemoryRepository(options: RepositoryOptions & { partitions: PartitionDefinition[]; storeId?: string; storage?: MemoryStorage; taskMutationVersion?: 1 }): Promise<TaskRepository>;
+export function createMemoryRepository(options: RepositoryOptions & { partitions: PartitionDefinition[]; storeId?: string; storage?: MemoryStorage; taskMutationVersion?: 1; gitSharedVersion?: 2 }): Promise<TaskRepository>;
 export function openMemoryRepository(options: RepositoryOptions & { storage: MemoryStorage }): Promise<TaskRepository>;
 export interface CompletionRef { taskId: string; stepId: string | null; eventId: string }
 export interface SharedPacket { format: "itacan-task-partition"; schemaVersion: 1; partition: Partition; tasks: Omit<NativeTask, "captureSource" | "migration">[]; completionRefs: CompletionRef[] }
@@ -153,3 +161,6 @@ export function dateEndpoint(endpoint: unknown): void;
 export interface TaskRepository {readSnapshot(request:import("./snapshot-read").OperationReadRequestV3):Promise<import("./snapshot-read").OperationSnapshotV3>}
 
 export interface TaskRepository {readSnapshot(request:import("./history-read").HistoryReadRequestV4):Promise<import("./history-read").HistorySnapshotV4>}
+
+export function deserializeSharedPacketV2(text:string):Promise<never>;
+export function deserializeSharedPacketV3(text:string,expectedGenesis?:import("./git-shared").GitGenesisV1):Promise<import("./git-shared").GitPacketV3>;

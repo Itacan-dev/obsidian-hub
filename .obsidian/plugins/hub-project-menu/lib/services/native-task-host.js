@@ -45,7 +45,7 @@ function createOwnerHost(plugin, options, coordinated = false) {
     const { owner } = options, stops = [], registryListeners = new Set(), historyListeners = new Set(), stateListeners = new Set(), feedListeners = new Map();
     let config = options.config, cancelReadiness = null;
     const locationLabels = new Map();
-    let runtime = null, feed = null, stopped = false, closing = null, state = "opening", ready;
+    let runtime = null, feed = null, synchronization = null, stopped = false, closing = null, state = "opening", ready;
     const matches = ref => ref?.type === owner.type && ref.id === owner.id;
     const workspaceRef = require("./task-service-legacy-values").workspaceRef;
     const workspaceId = owner.type === "resource" ? "resource:" + owner.id : owner.id;
@@ -128,10 +128,10 @@ function createOwnerHost(plugin, options, coordinated = false) {
             if (vault !== options.vaultPin.real || String(stat.dev) !== options.vaultPin.dev || String(stat.ino) !== options.vaultPin.ino) throw Error("Native application context changed.");
             const p = project(), shared = !!p?.shared || require("./shared-projects").SHARED_PROJECT_ROOTS.includes(p?.root);
             const candidates = owner.type === "resource" ? plugin.projectWizard.getResourceTypes().filter(p => p.resourceType === owner.id) : plugin.projectWizard.getProjectRecords().filter(p => p.projectId === owner.id), physical = plugin.projectWizard.getContextForPath(options.dashboard);
-            const available = candidates.length === 1 && matches(workspaceRef(physical)) && matches(workspaceRef(p)) && p.root === options.projectRoot && p.path === options.dashboard && (owner.type === "resource" || ["active", "future", "shelved"].includes(p.status)) && !shared;
+            const available = candidates.length === 1 && matches(workspaceRef(physical)) && matches(workspaceRef(p)) && p.root === options.projectRoot && p.path === options.dashboard && (owner.type === "resource" || ["active", "future", "shelved"].includes(p.status)) && shared === !!options.gitSharing;
             const locations = owner.type === "resource" ? plugin.app.vault.getAllLoadedFiles().filter(file => ownsPath(file.path) && (file.children || file.extension === "md")).map(file => { const type = file.children ? "folder" : "note", id = "resource-location:" + hash([owner, type, file.path]); locationLabels.set(id, file.path); return { type, id }; }).sort((a, b) => a.type.localeCompare(b.type) || a.id.localeCompare(b.id)) : [];
-            const body = { version: 1, registryId: config.registryId, applicationContextId: config.applicationContextId, revision: JSON.stringify([p?.projectId ?? null, p?.root ?? null, p?.path ?? null, p?.status ?? null, !!p?.shared]),
-                owners: [{ owner, partitionId: options.partitionId, root: options.projectRoot, dashboard: options.dashboard, status: p?.status ?? "active", available, shared, shareApproval: null, locations, mounts: [] }] };
+            const body = { version: 1, registryId: config.registryId, applicationContextId: config.applicationContextId, revision: JSON.stringify([p?.projectId ?? null, p?.root ?? null, p?.path ?? null, p?.status ?? null, shared]),
+                owners: [{ owner, partitionId: options.partitionId, root: options.projectRoot, dashboard: options.dashboard, status: p?.status ?? "active", available, shared, shareApproval: options.gitSharing ? {version:1,projectId:owner.id,root:options.projectRoot,reviewDigest:config.binding?.namespaceDigest ?? options.namespaceDigest} : null, locations, mounts: [] }] };
             return { ...body, digest: registryDigest(body) };
         }, subscribe(fn) { registryListeners.add(fn); return () => registryListeners.delete(fn); }
     };
@@ -172,19 +172,21 @@ function createOwnerHost(plugin, options, coordinated = false) {
     const host = {
         nativeTasks, completionFeed, matches, rejectLegacy, guardUnsupported, release,
         owner, historyEvidence: { read: () => host.runtime().historyEvidence.read(), subscribe(fn) { let stop = null; const bind = () => { if (!stop && state === "ready") stop = runtime.historyEvidence.subscribe(fn); fn({ reason: "registry" }); }; stateListeners.add(bind); if (state === "ready") stop = runtime.historyEvidence.subscribe(fn); return () => { stateListeners.delete(bind); stop?.(); }; } },
-        status: () => ({ mode: "native-project", state, owner: copy(owner) }),
+        status: () => ({ mode: "native-project", state, owner: copy(owner), ...(synchronization ? {sharing:synchronization.status()} : {}) }),
+        synchronization: () => synchronization,
         runtime: () => { if (stopped || state !== "ready") return unavailable(); return runtime; },
         create(options = {}) { const r = host.runtime(); return require("../ui/task-editor").openTaskCreator(r.formService(plugin.app), options); },
         async close() {
             if (closing) return closing; stopped = true; state = "closing"; cancelReadiness?.(); changedState();
-            closing = (async () => { await ready; await runtime?.close(); if (!coordinated) release(); state = "closed"; })();
+            closing = (async () => { await ready; await synchronization?.close(); await runtime?.close(); if (!coordinated) release(); state = "closed"; })();
             return closing;
         }
     };
     ready = (async () => {
         try {
             await waitForMetadata(); if (stopped) return;
-            if (options.blocked || config.scope === "device-private-project") {
+            if (options.joinExisting) await require("./native-git-transition").join(plugin, owner);
+            if (options.blocked || config.scope !== "inactive-disposable") {
                 const admitted = (await require("./native-task-activation").loadActivations(plugin, owner)).find(p => matches(p.owner));
                 if (!admitted || admitted.blocked || !matches(admitted.owner) || admitted.projectRoot !== options.projectRoot || admitted.dashboard !== options.dashboard ||
                     !options.blocked && JSON.stringify(admitted.config) !== JSON.stringify(config)) throw Error("Cutover requires explicit recovery review.");
@@ -192,12 +194,26 @@ function createOwnerHost(plugin, options, coordinated = false) {
             }
             if (stopped) return;
             if (options.blocked) throw Error("Cutover requires explicit recovery review.");
-            runtime = await openProjectRuntime(config, { owner, registry, writerPolicy: policy({ version: 1, owners: [{ owner, partitionId: options.partitionId }], commands: ["task.createRich", "task.save", "task.complete", "step.complete", "task.delete"], inventory: { version: 1, revision: "synthetic-empty", ids: [] }, phases: { version: 1, revision: "no-phases", values: [] } }),
+            let inventory={version:1,revision:"synthetic-empty",ids:[]},phases={version:1,revision:"no-phases",values:[]},inventoryEvidence;
+            if(options.gitSharing){inventoryEvidence=require("./native-git-inventory").createInventoryEvidence(plugin,owner,config.authorityId);const observed=await inventoryEvidence.read();phases=observed.phases;inventory=require("../../../../../ItacanTaskCore/shared/inventory").capture(config.authorityId,observed.inventory,phases);}
+            runtime = await openProjectRuntime(config, { owner, registry, writerPolicy: policy({version:1,owners:[{owner,partitionId:options.partitionId}],commands:["task.createRich","task.save","task.complete","step.complete","task.delete",...(options.gitSharing?["git.receive"]:[])],inventory,phases}),
+                inventoryEvidence,gitSharing:options.gitSharing,sharedGenesis:options.sharedGenesis,
                 locationLabel: ref => locationLabels.get(ref.id) ?? ref.id, rehearsalId: options.rehearsalId, creating: options.creating === true, consumerUiV1: true, historyUiV1: true });
+            if(options.gitSharing){
+                const project=await require("../../../../../ItacanTaskCore/shared/project-binding").admitProject({vaultRoot:options.vaultPin.real,projectId:owner.id,projectRoot:options.projectRoot,dashboard:options.dashboard});
+                const transport=await require("../../../../../ItacanTaskCore/shared/git-transport").createGitPacketTransport({version:1,root:project.gitRoot,authorityId:config.authorityId,projectId:owner.id});
+                synchronization=require("../../../../../ItacanTaskCore/shared/runtime-sync").createRuntimeSync({runtime,transport,assertBinding:async()=>{await options.assertActivation?.();const current=await require("../../../../../ItacanTaskCore/shared/project-binding").admitProject({vaultRoot:options.vaultPin.real,projectId:owner.id,projectRoot:options.projectRoot,dashboard:options.dashboard});if(current.namespaceDigest!==project.namespaceDigest)throw Error("Shared namespace changed.");},changed:changedState});
+                let syncing=null,dirty=false;const requestSync=()=>{if(stopped)return;dirty=true;if(syncing)return;syncing=(async()=>{while(dirty&&!stopped){dirty=false;await synchronization.sync().catch(()=>{});}})().finally(()=>{syncing=null;if(dirty&&!stopped)requestSync();});};
+                stops.push(runtime.sharing.subscribe(change=>{if(change.reason==="repository")requestSync();}));
+                // Startup publishes committed-but-unexported receipts and scans
+                // incoming files. A failed scan stays visible for explicit retry.
+                await synchronization.sync().catch(()=>{});
+                const watch=require("node:fs").watch(path.join(project.gitRoot,".itacan-native/v3",config.authorityId,"heads"),(_event,name)=>{if(!name||String(name).endsWith(".json"))requestSync();});watch.on("error",()=>{});stops.push(()=>watch.close());
+            }
             if (!stopped) { feed = runtime.completionFeed({ legacy, app: plugin.app }); await runtime.list(); await feed.read();
                 if (!stopped) { for (const l of feedListeners.values()) l.stop = feed.subscribe(l.fn); state = "ready"; changedState(); for (const l of feedListeners.values()) { try { Promise.resolve(l.fn()).catch(() => {}); } catch (_) {} } }
             }
-        } catch (_) { state = stopped ? "closing" : "unavailable"; await runtime?.close().catch(() => {}); changedState(); }
+        } catch (error) { console.error("Native task owner unavailable", owner.id, error.code ?? "INITIALIZATION_FAILED", String(error.message).slice(0, 160)); state = stopped ? "closing" : "unavailable"; await synchronization?.close().catch(() => {}); await runtime?.close().catch(() => {}); changedState(); }
     })();
     // The shared helper registers one owning-window drain and Obsidian Tasks
     // callback; multi-owner composition installs it only once for all hosts.

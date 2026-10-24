@@ -1,0 +1,8 @@
+"use strict";
+const fs=require('node:fs/promises'),path=require('node:path'),os=require('node:os'),W=require('../../writer');
+(async()=>{const c=JSON.parse(await fs.readFile(process.argv[2],'utf8'));let armed=false;
+ const session=W.createNativeWriterSession(c.config,{registry:{read:async()=>c.registry,subscribe:()=>()=>{}},writerPolicy:c.policy,gitSharing:c.gitSharing,requestRetention:c.requestRetention,repositoryOptions:{idFactory:require('node:crypto').randomUUID,clock:()=>1792661003000,async fault(stage){if(armed&&stage===c.stage){await fs.writeFile(c.signalFile,JSON.stringify({stage,pid:process.pid,host:os.hostname(),lock:await fs.readFile(path.join(c.config.directory,'WRITER.lock'),'utf8')}));await new Promise(()=>{setInterval(()=>{},1000)})}}}});
+ await session.host.open({version:1,expectedAuthorityId:c.config.authorityId,syntheticOnly:true});const cap=await session.authorize({version:1,owners:c.policy.owners,commands:c.policy.commands});armed=true;
+ if(c.stage==='duringProof'){const commands=require('../../src/commands'),apply=commands.applyCommand;commands.applyCommand=async(state,command,context)=>{if(command.operationId===c.proofOperationId){await fs.writeFile(c.signalFile,JSON.stringify({stage:c.stage,pid:process.pid,host:os.hostname(),lock:await fs.readFile(path.join(c.config.directory,'WRITER.lock'),'utf8')}));await new Promise(()=>{setInterval(()=>{},1000)})}return apply(state,command,context);};}
+ const out=c.requestRetention ? await session.requests.replay(cap,await session.requests.inspect(cap,c.prepared.request.command.operationId)) : await session.shared.receive(cap,c.prepared);await session.dispose();throw Error('Child missed interruption: '+JSON.stringify(out));
+})().catch(e=>{console.error(e.stack);process.exitCode=1});

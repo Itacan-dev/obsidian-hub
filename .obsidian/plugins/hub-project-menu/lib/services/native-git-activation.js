@@ -1,0 +1,14 @@
+"use strict";
+// Versioned shared-owner cutover admission. No configuration or repository writes.
+const fs=require('node:fs/promises'),path=require('node:path'),V=require('../../../../../ItacanTaskCore/src/value'),B=require('../../../../../ItacanTaskCore/shared/project-binding'),A=require('../../../../../ItacanTaskCore/host/git-authority'),{check}=require('../../../../../ItacanTaskCore/src/errors');
+function validatePlan(p){
+ const fields=['version','kind','vaultId','deviceId','owner','projectRoot','dashboard','archive','archiveHash','sources','historyDigest','metadataDigest','options','deviceEvidence'];V.fields(p,fields,fields);
+ const o=p.options,b=o?.config?.binding;check(p.version===3&&p.kind==='itacan-owner-cutover'&&p.owner.type==='project'&&o?.config?.scope==='device-private-git-project'&&o.creating===false&&o.gitSharing?.version===1,'Unsupported shared cutover.');V.uuid(p.owner.id);V.uuid(o.gitSharing.replicaId);V.uuid(o.rehearsalId);
+ check(V.canonical(o.owner)===V.canonical(p.owner)&&b.projectId===p.owner.id&&b.vaultId===p.vaultId&&b.deviceId===p.deviceId&&b.projectRoot===p.projectRoot&&b.dashboard===p.dashboard&&o.projectRoot===p.projectRoot&&o.dashboard===p.dashboard&&o.config.authorityId===B.authorityId(p.owner.id),'Shared cutover identity differs.');
+ check(Array.isArray(p.sources)&&new Set(p.sources.map(s=>s.path)).size===p.sources.length&&p.sources.every(s=>typeof s.path==='string'&&s.path.startsWith(p.projectRoot+'/')&&!s.path.includes('\\')&&!s.path.split('/').some(x=>!x||x==='.'||x==='..')&&/^[a-f0-9]{64}$/.test(s.sourceHash)&&/^[a-f0-9]{64}$/.test(s.proposedHash)),'Invalid shared retirement sources.');return p;
+}
+async function assertActive(p,folder){const X=require('./native-task-activation'),raw=X.verify(await X.readOrdinary(path.join(folder,'CUTOVER-v1.json')));check(X.checksum(validatePlan(raw))===X.checksum(p),'Shared cutover evidence changed.');const active=X.verify(await X.readOrdinary(path.join(folder,'ACTIVATION-v1.json')));V.fields(active,['version','kind','state','planDigest','authorityId'],['version','kind','state','planDigest','authorityId']);check(active.version===3&&active.kind==='itacan-owner-activation'&&active.state==='active'&&active.planDigest===X.checksum(p)&&active.authorityId===p.options.config.authorityId,'Shared activation incomplete.');
+ const project=await A.validateBinding(p.options.config.binding,p.options.config.directory);check(p.options.partitionId===project.binding.genesis.partition.id,'Shared partition differs.');
+ for(const source of p.sources){const file=path.join(p.options.config.binding.vaultRoot,source.path);check(await require('../../../../../ItacanTaskCore/host/private-authority').ordinaryPath(file)===await fs.realpath(file)&&X.checksumBytes(await fs.readFile(file))===source.proposedHash,'Shared retired source changed.');}return project;
+}
+module.exports={validatePlan,assertActive};

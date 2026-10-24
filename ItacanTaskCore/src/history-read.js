@@ -9,6 +9,7 @@ function validateRequest(r) {
     r.owners.forEach(require("./domain").workspace); return V.clone(r);
 }
 function publication(state, e) {
+    if (state.gitShared) return require("./git-shared").eventPublication(state, e);
     const r = state.receipts.find(r => r.operationId === e.operationId), c = r && JSON.parse(r.payload);
     check(r && r.result.change.eventIds.filter(id => id === e.id).length === 1 && r.partitionIds.includes(e.partitionId), "History creation receipt mismatch.");
     let origin;
@@ -37,8 +38,10 @@ function projectHistory(state, request, storage) {
     const selected = owner => request.owners.some(o => same(o, owner));
     const base = require("./snapshot-read").projectSnapshot(state, { version: 1, authorityId: request.authorityId, owners: request.owners, selection: "targets", targets: [] }, storage);
     check(base.partitions.length === request.owners.length, "History owner partition missing.");
-    const events = state.history.filter(e => selected(state.partitions.find(p => p.id === e.partitionId).owner)).map(e => {
-        const p = publication(state, e), task = state.tasks.find(t => t.id === e.taskId), imported = state.historyImport;
+    const selectedEvents = state.history.filter(e => selected(state.partitions.find(p => p.id === e.partitionId).owner));
+    const sharedPublications = state.gitShared ? require("./git-shared").eventPublications(state, selectedEvents) : null;
+    const events = selectedEvents.map(e => {
+        const p = sharedPublications ? sharedPublications.get(e.id) : publication(state, e), task = state.tasks.find(t => t.id === e.taskId), imported = state.historyImport;
         const attribution = imported?.projection.publications.find(p => p.eventId === e.id)?.ownerSnapshot ?? (p.origin === "represented-import" ? imported.plan.ownerSnapshots.find(o => same(o.owner, e.ownerAtEvent)) : null) ?? null;
         const navigation = !task ? "unbound" : task.deletedAt !== null ? "deleted" : !same(task.owner, e.ownerAtEvent) || task.partitionId !== e.partitionId ? "owner-mismatch" : e.stepId !== null && !task.steps.some(s => s.id === e.stepId) ? "retired-step" : task.phase !== null || task.steps.some(s => s.parentStepId !== null) || require("./atomic-task").recurrenceGuard(state, task).kind !== "none" ? "unsupported" : "available";
         return { eventId: e.id, taskId: e.taskId, stepId: e.stepId, partitionId: e.partitionId, kind: e.kind, timestamp: e.timestamp, title: e.snapshot.title, parentTitle: e.snapshot.parentTitle,

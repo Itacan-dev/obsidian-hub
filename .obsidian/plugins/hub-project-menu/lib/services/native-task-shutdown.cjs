@@ -4,7 +4,10 @@
 function createNativeQuitGate(window, app, requestDrain) {
     let pending = false, stopped = false, quitting = false;
     const beforeQuit = () => { quitting = true; };
-    const stop = () => { if (stopped) return; stopped = true; window.removeListener("close", close); app.removeListener("before-quit", beforeQuit); };
+    const detach = () => { if (stopped) return; stopped = true; window.removeListener("close", close); app.removeListener("before-quit", beforeQuit); };
+    // Disposal may race a pending close. Its accepted drain callback alone
+    // resumes that close; removing the gate early could lose its continuation.
+    const stop = () => { if (!pending) detach(); };
     const close = event => {
         if (stopped) return;
         event.preventDefault();
@@ -17,7 +20,7 @@ function createNativeQuitGate(window, app, requestDrain) {
             if (answered || stopped) return;
             answered = true;
             if (success !== true) return; // Quit is cancelled, evidence retained.
-            stop();
+            detach();
             if (!window.isDestroyed()) { if (quitting) app.quit(); else window.close(); }
         });
     };

@@ -69,17 +69,20 @@ function operationSnapshot(state, request, storage) {
     check(state.storeId === request.authorityId, "Operation authority mismatch.");
     const partitions = state.partitions.filter(p => same(p.owner, request.owners[0]));
     check(partitions.length === 1, "Operation owner unavailable.");
-    const receipt = state.receipts.find(r => r.operationId === request.operationId);
+    const localReceipt = state.receipts.find(r => r.operationId === request.operationId);
+    const origin = !localReceipt && state.gitShared ? require("./git-shared").receiptEvidence(state, request.operationId) : null;
+    const receipt = localReceipt ?? origin?.receipt;
     const fenced = !!storage.fenced;
     let operation = { state: "missing", code: "RECEIPT_UNAVAILABLE", operationId: request.operationId, receipt: null, taskIds: [], eventIds: [] };
     if (fenced) operation = { ...operation, state: "unavailable", code: "RECOVERY_FENCED" };
     else if (receipt) {
         const command = JSON.parse(receipt.payload), scopes = command.coordination?.evidence?.partitions;
-        const scoped = Array.isArray(scopes) && scopes.length === 1 && scopes[0].id === partitions[0].id && same(scopes[0].owner, request.owners[0]);
+        const scoped = Array.isArray(scopes) && scopes.length === 1 && scopes[0].id === partitions[0].id && same(scopes[0].owner, request.owners[0]) || !!origin && receipt.partitionIds.length === 1 && receipt.partitionIds[0] === partitions[0].id;
         operation = !scoped || sha256(receipt.payload) !== request.commandDigest
             ? { ...operation, state: "conflict", code: "OPERATION_CONFLICT" }
             : { state: "committed", code: "RECEIPT_CONFIRMED", operationId: request.operationId,
-                receipt: { operationId: receipt.operationId, repositoryRevision: receipt.result.repositoryRevision, revisionId: receipt.result.revisionId },
+                receipt: { operationId: (origin?.application ?? receipt).operationId, repositoryRevision: (origin?.application ?? receipt).result.repositoryRevision, revisionId: (origin?.application ?? receipt).result.revisionId },
+                ...(origin ? { origin: { version: 1, originId: origin.origin.id, operationId: receipt.operationId, repositoryRevision: receipt.result.repositoryRevision, revisionId: receipt.result.revisionId, receiptDigest: require("./git-shared").hash(receipt) } } : {}),
                 taskIds: receipt.result.tasks.map(t => t.id), eventIds: V.clone(receipt.result.change.eventIds) };
     }
     return freeze({ version: 3, privacy: "local-private", authorityId: state.storeId,

@@ -49,7 +49,7 @@ function recoverable(error) {
     if (error.code && !["ENOENT", "INTEGRITY", "VALIDATION"].includes(error.code)) throw io(error, "Cannot read repository evidence.");
 }
 class JsonGenerationStorage {
-    #admission; #taskMutationVersion; #atomicRecoveryKnown;
+    #admission; #taskMutationVersion; #atomicRecoveryKnown; #gitSharedVersion; #gitVerification;
     constructor(port, options) {
         this.#admission = Admission.repositoryGate(this, Admission.storageGate(port, options.commandAdmission));
         this.port = port; this.options = options; this.retention = options.retention ?? 4;
@@ -61,13 +61,14 @@ class JsonGenerationStorage {
         check(options.storageFormat === undefined || ["legacy", "private-v4"].includes(options.storageFormat), "Explicit supported storage format required.");
         this.authorityId = options.expectedAuthorityId ?? options.storeId;
         check(options.taskMutationVersion === undefined || this.private && options.taskMutationVersion === 1, "Atomic task capability requires explicit private creation.");
-        this.#taskMutationVersion = options.taskMutationVersion; this.#atomicRecoveryKnown = false;
+        this.#gitSharedVersion = options.gitSharedVersion; this.#taskMutationVersion = options.taskMutationVersion; this.#atomicRecoveryKnown = false;
     }
+    gitSharedCapability() { return this.#gitSharedVersion === 2; }
     atomicTaskCapability() { return this.#taskMutationVersion === 1; }
     atomicTaskRecoveryKnown() { if (this.atomicTaskCapability() && (this.recurrenceFence || this.recovery)) this.#atomicRecoveryKnown = true; return this.atomicTaskCapability() && this.#atomicRecoveryKnown; }
-    storageInfo() { return this.private ? { format: "private-v4", wireVersion: 4, authorityId: this.authorityId, minimumLogicalSchemaVersion: this.highestSchema, fenced: !!this.recurrenceFence, ...(this.atomicTaskCapability() ? { taskMutationVersion: 1 } : {}) } : null; }
-    adoptBarrier(b) { this.highestSchema = Math.max(this.highestSchema, b.minimumLogicalSchemaVersion); if (b.version === 2) this.#taskMutationVersion = 1; this.importRecoveryScope = require("./history-import").mergeScope(this.importRecoveryScope, b.importRecoveryScope); }
-    barrierFor(state = null) { return privateCodec.makeBarrier(this.authorityId, Math.max(this.highestSchema, state?.schemaVersion ?? 1), require("./history-import").mergeScope(this.importRecoveryScope, state ? require("./history-import").scopeOf(state) : null), this.#taskMutationVersion); }
+    storageInfo() { return this.private ? { format: "private-v4", wireVersion: 4, authorityId: this.authorityId, minimumLogicalSchemaVersion: this.highestSchema, fenced: !!this.recurrenceFence, ...(this.atomicTaskCapability() ? { taskMutationVersion: 1 } : {}), ...(this.gitSharedCapability() ? { gitSharedVersion: 2 } : {}) } : null; }
+    adoptBarrier(b) { this.highestSchema = Math.max(this.highestSchema, b.minimumLogicalSchemaVersion); if (b.version >= 2) this.#taskMutationVersion = 1; if (b.version === 3) this.#gitSharedVersion = 2; this.importRecoveryScope = require("./history-import").mergeScope(this.importRecoveryScope, b.importRecoveryScope); }
+    barrierFor(state = null) { return privateCodec.makeBarrier(this.authorityId, Math.max(this.highestSchema, state?.schemaVersion ?? 1), require("./history-import").mergeScope(this.importRecoveryScope, state ? require("./history-import").scopeOf(state) : null), this.#taskMutationVersion, this.#gitSharedVersion); }
     parseStoredManifest(raw) {
         if (this.private) {
             let w; try { w = JSON.parse(raw); } catch (_) { fail("INTEGRITY", "Invalid private pointer JSON."); }
@@ -93,10 +94,10 @@ class JsonGenerationStorage {
                 const raw = await this.readOptional(name); if (raw === null) continue;
                 let parsed; try { parsed = JSON.parse(raw); } catch (_) { continue; }
                 const b = parsed.payload?.ancestry?.barrier;
-                if (b?.version === 2 || b?.requiredCapabilities?.includes("atomic-task-mutations-v1")) { const verified = privateCodec.decodePrivateManifest(raw, this.authorityId); this.adoptBarrier(verified.barrier); headers.push(verified.barrier); }
+                if (b?.version >= 2 || b?.requiredCapabilities?.includes("atomic-task-mutations-v1")) { const verified = privateCodec.decodePrivateManifest(raw, this.authorityId); this.adoptBarrier(verified.barrier); headers.push(verified.barrier); }
                 else if (this.atomicTaskCapability() && parsed.payload?.ancestry?.format === "itacan-private-lineage") headers.push(privateCodec.decodePrivateManifest(raw, this.authorityId).barrier);
             }
-            if (this.atomicTaskCapability() && headers.length && !headers.some(b => b.version === 2)) fail("UNSUPPORTED_SCHEMA", "An existing root cannot acquire atomic task capability through publication.");
+            if (this.atomicTaskCapability() && headers.length && !headers.some(b => b.version >= 2)) fail("UNSUPPORTED_SCHEMA", "An existing root cannot acquire atomic task capability through publication.");
             if (this.manifest) await this.readRecurrenceFence(this.manifest.storeId);
             if (this.atomicTaskCapability() && (this.recurrenceFence || this.recovery)) this.#atomicRecoveryKnown = true;
             if (!allowRecoveredRead && this.atomicTaskCapability() && this.#atomicRecoveryKnown) fail("ATOMIC_TASK_RECOVERY_FENCED", "Every mutation and mutation replay is blocked after known atomic-root recovery.");
@@ -121,12 +122,20 @@ class JsonGenerationStorage {
     async verify(ref, storeId, remember = false) {
         const raw = await this.port.read(ref.file);
         if (digest(raw) !== ref.sha256) fail("INTEGRITY", "Generation checksum mismatch.", { file: ref.file });
+        // Reuse proof only for identical, previously fully validated Git bytes.
+        // Physical reads/checksums, descriptor identity, lease, pointer and fence
+        // checks remain live. No caller can populate this private cache; every
+        // returned state is detached and private/Resource roots never use it.
+        const prior=this.#gitVerification;
+        if(this.private&&prior&&prior.authorityId===this.authorityId&&prior.storeId===storeId&&prior.descriptor===canonical(ref)&&prior.raw===raw){if(remember)this.adoptBarrier(prior.barrier);return clone(prior.state);}
         let state;
-        if (this.private) { const v = privateCodec.decodePrivateGeneration(raw, this.authorityId); if (this.atomicTaskCapability() && v.barrier.version !== 2) fail("UNSUPPORTED_SCHEMA", "Atomic authority cannot select a pre-capability generation."); state = v.state; if (remember) this.adoptBarrier(v.barrier); }
+        if (this.private) { const v = privateCodec.decodePrivateGeneration(raw, this.authorityId); if (this.atomicTaskCapability() && v.barrier.version < 2) fail("UNSUPPORTED_SCHEMA", "Atomic authority cannot select a pre-capability generation."); if (this.gitSharedCapability() && v.barrier.version !== 3) fail("UNSUPPORTED_SCHEMA", "Git authority cannot select a pre-provenance generation."); state = v.state; if (remember) this.adoptBarrier(v.barrier); }
         else { try { state = JSON.parse(raw); } catch (_) { fail("INTEGRITY", "Generation is not valid JSON."); } }
         validateState(state);
+        if (state.gitShared) await require("./git-shared").validateState(state);
         if (!this.private && state.schemaVersion === 4) fail("STORAGE_PROFILE_REQUIRED", "Flat schema-4 generations cannot grant legacy writer authority.");
         check(state.storeId === storeId && state.revision === ref.revision && state.revisionId === ref.revisionId && state.parentRevisionId === ref.parentRevisionId, "Generation identity differs from manifest.");
+        if(this.private&&state.gitShared&&raw.length<=16*1024*1024)this.#gitVerification={authorityId:this.authorityId,storeId,descriptor:canonical(ref),raw,state:clone(state),barrier:this.barrierFor(state)};
         return state;
     }
     async select(manifest, failures) {
@@ -397,11 +406,14 @@ class JsonGenerationStorage {
             } catch (error) { this.warnings.push(`Retained old generation ${ref.file}: ${error.code ?? "IO_ERROR"}`); }
         }
     }
-    async close() { await this.port.release(); }
+    async close() { this.#gitVerification=null; await this.port.release(); }
 }
 async function openRepository(options, creating) {
     check(options && typeof options === "object", "Repository options are required.");
     check(options.taskMutationVersion === undefined || creating && options.storageFormat === "private-v4" && options.taskMutationVersion === 1, "Atomic capability is a private creation-only option; opening never upgrades.");
+    check(options.gitSharedVersion === undefined || creating && options.gitSharedVersion === 2 && options.taskMutationVersion === 1 && options.storageFormat === "private-v4", "Git capability is explicit creation-only.");
+    check(options.sharedGenesis === undefined || creating && options.gitSharedVersion === 2, "Shared genesis is Git creation-only.");
+    if (options.gitSharedVersion === 2) { uuid(options.sharedReplicaId); check(options.externalReservations, "Shared inventory required."); }
     // Even an injected port must be paired with an explicit directory.
     const defaultPort = new NodeDirectory(options.directory), port = options.storagePort ?? defaultPort;
     if (creating && options.taskMutationVersion === 1) {
@@ -443,7 +455,7 @@ async function openRepository(options, creating) {
             const names = await port.list();
             if (names.some(name => name !== "WRITER.lock")) fail("ALREADY_EXISTS", "Creation requires an explicitly supplied empty directory. Existing evidence is never overwritten.");
             if (settings.storageFormat === "private-v4" && (await defaultPort.list()).some(name => name !== "WRITER.lock")) fail("ALREADY_EXISTS", "Private creation requires a verified empty physical directory.");
-            state = initialState(settings.partitions, settings.storeId ?? settings.idFactory(), settings.idFactory);
+            state = initialState(settings.partitions, settings.storeId ?? settings.idFactory(), settings.idFactory, settings.gitSharedVersion, settings.sharedGenesis);
             await storage.commit(state, null);
         } else state = await storage.recover(await storage.readOptional("CURRENT.json"));
         await storage.rememberReadEvidence();

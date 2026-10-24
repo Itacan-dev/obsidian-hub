@@ -17,14 +17,16 @@ async function openProjectRuntime(config, options) {
     check(options.consumerUiV1 === undefined || options.consumerUiV1 === true, "Explicit consumer rehearsal option required.");
     config = freeze(V.clone(config)); options = { ...options, writerPolicy: freeze(V.clone(options.writerPolicy)) };
     check(["project", "resource"].includes(options.owner?.type) && options.writerPolicy.owners.length === 1 && same(options.owner, options.writerPolicy.owners[0].owner), "One private Project required.");
+    const shared = !!options.gitSharing;
     const owner = freeze(V.clone(options.owner)), session = createNativeWriterSession(config, { registry: options.registry, identity: options.identity,
-        writerPolicy: options.writerPolicy, repositoryOptions: options.repositoryOptions, requestRetention: { version: 1, rehearsalId: options.rehearsalId } });
+        writerPolicy: options.writerPolicy, inventoryEvidence: options.inventoryEvidence, gitSharing: options.gitSharing, repositoryOptions: options.repositoryOptions, requestRetention: { version: shared ? 2 : 1, rehearsalId: options.rehearsalId } });
     let closed = false, lastOutcome = null, refreshedOperation = null, resourceLocations = [];
     const authority = { backend: "native", authorityId: config.authorityId, applicationContextId: config.applicationContextId };
     try {
-        const r = await options.registry.read(); const o = r.owners.find(o => same(o.owner, owner)); check(o && !o.shared && o.available && o.partitionId === options.writerPolicy.owners[0].partitionId, "Private owner evidence required.");
-        if (options.creating) await session.host.create({ version: 2, authorityId: config.authorityId, partitions: [{ id: o.partitionId, owner, kind: owner.type === "resource" ? "resource" : "private-project" }], reason: "Explicit owner-scoped authority creation", ...(config.scope === "device-private-project" ? { verifiedCutover: true } : { syntheticOnly: true }), taskMutationVersion: 1 });
-        else await session.host.open({ version: 1, expectedAuthorityId: config.authorityId, ...(config.scope === "device-private-project" ? { verifiedCutover: true } : { syntheticOnly: true }) });
+        const r = await options.registry.read(); const o = r.owners.find(o => same(o.owner, owner)); check(o && o.shared === shared && o.available && o.partitionId === options.writerPolicy.owners[0].partitionId, "Physical owner evidence required.");
+        const authorization = config.scope === "inactive-disposable" ? { syntheticOnly: true } : { verifiedCutover: true };
+        if (options.creating) await session.host.create({ version: shared ? 3 : 2, authorityId: config.authorityId, partitions: [{ id: o.partitionId, owner, kind: shared ? "git-project" : owner.type === "resource" ? "resource" : "private-project" }], reason: "Explicit owner-scoped authority creation", ...authorization, taskMutationVersion: 1, ...(shared ? {gitSharedVersion:2,genesis:options.sharedGenesis}: {}) });
+        else await session.host.open({ version: 1, expectedAuthorityId: config.authorityId, ...authorization });
     } catch (error) { await session.dispose().catch(() => {}); throw error; }
     const taskService = new TaskService(createNativeReadAdapter(session.host)), editorPort = createNativeEditorReadPort(session.host, { writerPolicy: options.writerPolicy });
     const grant = () => session.authorize({ version: 1, owners: options.writerPolicy.owners, commands: options.writerPolicy.commands });
@@ -35,7 +37,7 @@ async function openProjectRuntime(config, options) {
         const registry = require("../host/registry").validateRegistry(await options.registry.read(), config), h = session.host.info();
         check(registry.digest === stamp.ownerContextPin && h.hostEpoch === stamp.hostEpoch && h.readiness.state === "ready", "Consumer context changed.");
         const entry = registry.owners.find(o => same(o.owner, owner));
-        check(entry && entry.available && entry.dashboard && !entry.shared && entry.partitionId === options.writerPolicy.owners[0].partitionId, "Native owner unavailable.");
+        check(entry && entry.available && entry.dashboard && entry.shared === shared && entry.partitionId === options.writerPolicy.owners[0].partitionId, "Native owner unavailable.");
         resourceLocations = entry.locations;
         return { owner, root: entry.root, dashboard: entry.dashboard, status: entry.status };
     }
@@ -92,6 +94,7 @@ async function openProjectRuntime(config, options) {
             return withGrant(async cap => {
                 const retained = await session.requests.get(cap, original.operationId);
                 const exact = (capability, request, cancellation) => { check(capability === cap && P.same(request, retained.writerRequest), "Recovery must use the exact original request."); return session.requests.replay(cap, original, cancellation); };
+                if (retained.intent.kind === "git-receive") return session.requests.replay(cap, original, signal);
                 return dispatch(cap, retained.intent, Object.freeze({ task: exact, step: exact, recurrence: exact }), signal);
             });
         }
@@ -161,7 +164,9 @@ async function openProjectRuntime(config, options) {
     }
     const nativeTasks = Object.freeze({ owner, createPanelRead, ...(options.consumerUiV1 ? { consumerUiV1: true, mergeHome: consumers.mergeHome, taskKey: consumers.taskKey } : {}) });
     return Object.freeze({ nativeTasks, owner, list, editor, creationContext, mutate, formService, completionFeed, historyEvidence, recovery,
+        ...(shared ? {sharing:Object.freeze({subscribe:fn=>session.host.subscribe(fn),export:()=>withGrant(c=>session.shared.export(c)),status:()=>withGrant(c=>session.shared.status(c)),prepare:(packet,operationId)=>withGrant(c=>session.shared.prepare(c,packet,operationId)),receive:prepared=>withGrant(c=>session.shared.receive(c,prepared))})}:{}),
         info: () => freeze({ authority, owner, scope: config.scope, lastOutcome, history: options.historyUiV1 ? "rehearsal" : "unavailable", statistics: options.historyUiV1 ? "rehearsal" : "unavailable", home: options.consumerUiV1 ? "rehearsal" : "unavailable", schedule: options.consumerUiV1 ? "rehearsal" : "unavailable" }),
+        assertRetainedResolved: () => withGrant(cap => session.requests.assertResolved(cap)),
         retained: () => withGrant(cap => session.requests.list(cap)),
         getRetained: id => withGrant(cap => session.requests.get(cap, id)),
         reconcile: id => withGrant(cap => session.requests.reconcile(cap, id)),

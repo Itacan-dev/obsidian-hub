@@ -20,18 +20,22 @@ function constructHost(input, options, makeWriter) {
     let phase = "configured", repo = null, opening = null, closing = null, disposed = false, epoch = 0, generation = 0, readNumber = 0, monitorHealthy = false;
     let stops = [], listeners = new Set(), lastContext = null, retained = null;
     check(!options.requestRetention || !!makeWriter, "Retention requires a writer host.");
-    check(config.scope !== "device-private-project" || !makeWriter || !!options.requestRetention, "Permanent writer requires retained requests.");
+    check(config.scope === "inactive-disposable" || !makeWriter || !!options.requestRetention, "Permanent writer requires retained requests.");
+    check(config.scope!=="device-private-git-project"||!!options.gitSharing&&!!makeWriter&&options.requestRetention?.version===2&&options.writerPolicy.inventory.version===2,"Permanent Git writer requires retained requests and authoritative inventory.");
+    if (options.gitSharing) {
+        V.fields(options.gitSharing, ["version", "replicaId"], ["version", "replicaId"]); check(options.gitSharing.version === 1 && ["inactive-disposable","device-private-git-project"].includes(config.scope), "Explicit Git protocol admission required."); V.uuid(options.gitSharing.replicaId);
+    }
     if (options.requestRetention) {
         V.jsonValue(options.requestRetention); V.fields(options.requestRetention, ["version", "rehearsalId"], ["version", "rehearsalId"]);
-        check(options.requestRetention.version === 1, "Unsupported retention version."); V.uuid(options.requestRetention.rehearsalId);
+        check(options.requestRetention.version === 1 || options.requestRetention.version === 2 && !!options.gitSharing, "Unsupported retention version."); V.uuid(options.requestRetention.rehearsalId);
     }
     let last = { version: 1, privacy: "local-private", phase, authorityId: config.authorityId, storeId: null, applicationContextId: config.applicationContextId, storageFormat: "private-v4", wireVersion: 4, logicalSchemaVersion: null, namespaces: null, head: null, hostEpoch: epoch, generation, ownerContextPin: null, identityPin: null, readiness: { state: "not-ready", reason: "HOST_CONFIGURED" }, permissions: { taskReads: "unavailable", completionProof: "unavailable", mutations: "unsupported", history: "unsupported" } };
-    const participant = makeWriter ? makeWriter(config, options, { info: () => info(), observe, execute: (command, ticket) => repo.execute(command, ticket), refresh: () => host.refresh(), retention: () => retained }) : null;
+    const participant = makeWriter ? makeWriter(config, options, { info: () => info(), observe, execute: (command, ticket, evidence) => repo.execute(command, ticket, evidence), exportSharedPacket: () => repo.exportSharedPacket(), refresh: () => host.refresh(), retention: () => retained }) : null;
     function info() { return freeze(V.clone({ ...last, phase, hostEpoch: epoch, generation })); }
     function notify(reason, discontinuity = false) { if (discontinuity && reason !== "closing") participant?.invalidate(); if (discontinuity) epoch++; generation++; const change = freeze({ version: 1, kind: "snapshot-invalidated", durability: "ephemeral", hostEpoch: epoch, generation, reason }); for (const listener of [...listeners]) { try { Promise.resolve(listener(change)).catch(() => {}); } catch (_) {} } }
     function unavailable(code, state = "unavailable") { last = { ...last, readiness: { state, reason: code }, permissions: { taskReads: "unavailable", completionProof: "unavailable", mutations: "unsupported", history: "unsupported" } }; notify("unavailable", true); }
     function failure(code, state = "unavailable") { return freeze({ version: 1, state, code, retry: ["LOCK_LOST", "ROOT_IDENTITY_CHANGED", "REPOSITORY_CONFLICT", "RECOVERY_REQUIRED"].includes(code) ? "explicit-reopen" : state === "unsupported" ? "review" : "refresh" }); }
-    async function observe(signal) { const registry = G.validateRegistry(await options.registry.read(signal), config); if (config.scope === "device-private-project") check(registry.owners.length === 1 && same(registry.owners[0].owner, require("./private-authority").bindingOwner(config.binding)) && registry.owners[0].partitionId === "private" && !registry.owners[0].shared, "Permanent owner scope differs."); const identity = options.identity ? await options.identity.read(signal) : null; return { registry, ownerContextPin: registry.digest, identity: identity === null ? null : V.clone(identity), identityPin: G.identityPin(identity) }; }
+    async function observe(signal) { const registry = G.validateRegistry(await options.registry.read(signal), config); if (config.scope === "device-private-project") check(registry.owners.length === 1 && same(registry.owners[0].owner, require("./private-authority").bindingOwner(config.binding)) && registry.owners[0].partitionId === "private" && !registry.owners[0].shared, "Permanent owner scope differs."); if (options.gitSharing) { check(registry.owners.length === 1 && registry.owners[0].owner.type === "project" && registry.owners[0].shared && registry.owners[0].shareApproval !== null && registry.owners[0].available, "Reviewed Git Project registry required."); if(makeWriter) check(options.writerPolicy.owners.length === 1 && options.writerPolicy.owners[0].partitionId === registry.owners[0].partitionId && same(options.writerPolicy.owners[0].owner,registry.owners[0].owner),"Git writer policy differs from physical registry owner."); } const identity = options.identity ? await options.identity.read(signal) : null; return { registry, ownerContextPin: registry.digest, identity: identity === null ? null : V.clone(identity), identityPin: G.identityPin(identity) }; }
     function stopOwned() { for (const stop of stops.splice(0)) { try { stop(); } catch (_) {} } monitorHealthy = false; }
     function startOwned() {
         function own(stop) { check(typeof stop === "function", "Provider unsubscribe required."); stops.push(stop); }
@@ -101,20 +105,38 @@ function constructHost(input, options, makeWriter) {
     async function start(creating, args) {
         if (disposed || phase === "disposed") throw safeError("HOST_DISPOSED");
         if (phase === "closing") throw safeError("HOST_CLOSING");
-        try { const authorization = config.scope === "device-private-project" ? "verifiedCutover" : "syntheticOnly"; const keys = creating ? ["version", "authorityId", "partitions", "reason", authorization, ...(args.version === 2 ? ["taskMutationVersion"] : [])] : ["version", "expectedAuthorityId", authorization]; V.fields(args, keys, keys); check((args.version === 1 || creating && args.version === 2 && args.taskMutationVersion === 1) && args[authorization] === true && (creating ? args.authorityId : args.expectedAuthorityId) === config.authorityId, "Explicit authority required."); if (creating) V.text(args.reason); } catch (_) { throw safeError("HOST_CONTRACT"); }
+        try { const authorization = config.scope === "inactive-disposable" ? "syntheticOnly" : "verifiedCutover"; const keys = creating ? ["version", "authorityId", "partitions", "reason", authorization, ...([2, 3].includes(args.version) ? ["taskMutationVersion"] : []), ...(args.version === 3 ? ["gitSharedVersion", ...(Object.hasOwn(args,"genesis") ? ["genesis"] : [])] : [])] : ["version", "expectedAuthorityId", authorization]; V.fields(args, keys, keys); check((args.version === 1 || creating && [2, 3].includes(args.version) && args.taskMutationVersion === 1 && (args.version !== 3 || args.gitSharedVersion === 2 && !!options.gitSharing)) && args[authorization] === true && (creating ? args.authorityId : args.expectedAuthorityId) === config.authorityId, "Explicit authority required."); if (creating) { V.text(args.reason); if(options.gitSharing) check(args.version === 3,"Git creation requires explicit provenance capability."); } } catch (_) { throw safeError("HOST_CONTRACT"); }
         if (opening) { if (creating) throw safeError("HOST_OPENING"); return opening; }
         if (phase === "open") { if (creating) throw safeError("ALREADY_EXISTS"); return host.refresh(); }
         const detached = V.clone(args); phase = "opening"; last.readiness = { state: "not-ready", reason: "HOST_OPENING" }; notify("reopened", true);
         opening = (async () => {
             try {
                 if (config.scope === "device-private-project") { await observe(); if (creating) check(detached.version === 2 && detached.taskMutationVersion === 1 && detached.partitions.length === 1 && detached.partitions[0].id === "private" && detached.partitions[0].kind === require("./private-authority").bindingKind(config.binding) && same(detached.partitions[0].owner, require("./private-authority").bindingOwner(config.binding)), "Permanent partition scope differs."); }
-                const port = await A.admit(config, creating), settings = { ...(options.repositoryOptions ?? {}), directory: config.directory, storageFormat: "private-v4", storagePort: port, taskMutationVersion: creating && detached.version === 2 ? 1 : undefined, commandAdmission: participant?.gate, ...(participant ? { externalReservations: participant.inventory, resolvers: participant.resolvers } : {}) };
+                if(config.scope === "device-private-git-project") { const binding=await require("./git-authority").validateBinding(config.binding,config.directory), o=await observe(); check(o.registry.owners[0].owner.id===binding.binding.projectId && o.registry.owners[0].root===config.binding.projectRoot && o.registry.owners[0].dashboard===config.binding.dashboard && o.registry.owners[0].partitionId===binding.binding.genesis.partition.id && o.registry.owners[0].shareApproval.reviewDigest===binding.namespaceDigest,"Shared physical registry binding differs."); if(creating) check(same(detached.genesis,binding.binding.genesis),"Shared creation genesis differs."); }
+                const port = await A.admit(config, creating, options.gitSharing?.replicaId ?? null), settings = { ...(options.repositoryOptions ?? {}), directory: config.directory, storageFormat: "private-v4", storagePort: port, taskMutationVersion: creating && [2, 3].includes(detached.version) ? 1 : undefined, gitSharedVersion: creating && detached.version === 3 ? 2 : undefined, sharedGenesis: creating && detached.version === 3 ? detached.genesis : undefined, sharedReplicaId: options.gitSharing?.replicaId, commandAdmission: participant?.gate, ...(participant ? { externalReservations: participant.inventory, resolvers: participant.resolvers } : {}) };
                 if (makeWriter && !options.requestRetention && (await port.list()).some(n => n.startsWith("REQUEST-"))) throw safeError("REQUEST_RETENTION_REQUIRED");
                 // Port/root/profile cannot be overridden by repository options.
                 participant?.start(creating);
                 repo = creating ? await J.createJsonRepository({ ...settings, storeId: config.authorityId, expectedAuthorityId: config.authorityId, partitions: detached.partitions }) : await J.openJsonRepository({ ...settings, expectedAuthorityId: config.authorityId });
+                if (repo.info().storage?.gitSharedVersion === 2 || options.gitSharing) check(repo.info().storage?.gitSharedVersion === 2 && !!options.gitSharing, "Git capability requires explicit matching host admission.");
                 if (makeWriter && !options.requestRetention && (await port.list()).some(n => n.startsWith("REQUEST-"))) throw safeError("REQUEST_RETENTION_REQUIRED");
                 if (options.requestRetention) {
+                    // Git-only bounded bulk receipt inspection. Both accepted captures
+                    // and export revalidate the current native authority/lease/fences.
+                    // No cache, persistent outcome or arbitrary receipt query is added.
+                    const inspectCommitted = options.gitSharing ? async records => {
+                        if(!records.length)return new Set();
+                        const before=(await capture({selection:"status"},undefined,true)).value;
+                        check(before?.status==="ok"&&before.snapshot.readiness.state==="ready"&&before.snapshot.recovery.state==="intact","Retained observation unavailable.");
+                        const packet=await repo.exportSharedPacket(),after=(await capture({selection:"status"},undefined,true)).value;
+                        check(after?.status==="ok"&&after.snapshot.readiness.state==="ready"&&after.snapshot.recovery.state==="intact"&&same(before.stamp.head,after.stamp.head)&&before.stamp.hostEpoch===after.stamp.hostEpoch&&before.stamp.ownerContextPin===after.stamp.ownerContextPin&&before.stamp.identityPin===after.stamp.identityPin,"Retained observation changed.");
+                        const frames=new Map(packet.frames.map(f=>[f.id,f])),head=packet.head===null?null:frames.get(packet.head),receipts=new Map();
+                        check(packet.genesis.authorityId===config.authorityId&&(head?.receipt.result.revisionId??packet.genesis.revisionId)===after.stamp.head.revisionId,"Retained export head differs.");
+                        for(let id=packet.head;id!==null;){const f=frames.get(id);check(f,"Retained receipt ancestry missing.");receipts.set(f.receipt.operationId,f.receipt);id=f.parent;}
+                        const committed=new Set();for(const r of records){const receipt=receipts.get(r.operationId);
+                            if(same(r.owner,packet.genesis.partition.owner)&&r.partitionId===packet.genesis.partition.id&&r.writerRequest.scope.ownerContextPin===after.stamp.ownerContextPin&&r.writerRequest.scope.identityPin===after.stamp.identityPin&&receipt?.partitionIds.includes(r.partitionId)&&require("../src/git-shared").hash(JSON.parse(receipt.payload))===r.commandDigest)committed.add(r.operationId);
+                        }return committed;
+                    } : undefined;
                     retained = require("./pending-requests").createPendingRequests(port, config, options.requestRetention, async record => {
                         // A Resource's location inventory may legitimately change
                         // between sessions. Its immutable command/guards remain
@@ -135,7 +157,7 @@ function constructHost(input, options, makeWriter) {
                             stamp: result?.status === "ok" ? result.stamp : null, partitions: result?.status === "ok" ? result.snapshot.partitions : [],
                             ready: result?.status === "ok" && result.snapshot.readiness.state === "ready" && result.snapshot.recovery.state === "intact",
                             taskMutationVersion: result?.snapshot?.storage?.taskMutationVersion ?? null };
-                    });
+                    }, inspectCommitted);
                     await retained.start(creating);
                 }
                 if (phase === "closing" || disposed) return info();

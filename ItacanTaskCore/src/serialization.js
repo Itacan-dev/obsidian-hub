@@ -59,3 +59,18 @@ function comparePartitionHeads(local, remote) {
     return "conflict-or-unproven-ancestry";
 }
 module.exports = { PUBLIC_TASK_FIELDS, serializeSharedPartition, deserializeSharedPartition, validateSharedPacket, comparePartitionHeads };
+
+// Full-view packet v2 is terminally incompatible; no implicit proof upgrade.
+async function deserializeSharedPacketV2(raw) {
+    check(typeof raw === "string", "Serialized packet required.");
+    require("./errors").fail("UNSUPPORTED_SCHEMA", "Full-view Git packets require their original inactive client.");
+}
+async function deserializeSharedPacketV3(raw, expectedGenesis) {
+    check(typeof raw === "string" && raw.length <= 64 * 1024 * 1024 && new TextEncoder().encode(raw).byteLength <= 64 * 1024 * 1024, "Bounded shared packet required.");
+    let p; try { p = JSON.parse(raw); } catch (_) { fail("VALIDATION", "Invalid shared packet JSON."); }
+    require("./value").jsonValue(p); const G = require("./git-shared"), ns = G.namespace(p);
+    if (expectedGenesis !== undefined) check(canonical(ns.genesis) === canonical(expectedGenesis), "Unexpected shared Project/authority.");
+    const g = G.graph(ns); await G.validateState({ ...g.current, gitShared: ns }); return clone(p);
+}
+module.exports.deserializeSharedPacketV2 = deserializeSharedPacketV2;
+module.exports.deserializeSharedPacketV3 = deserializeSharedPacketV3;

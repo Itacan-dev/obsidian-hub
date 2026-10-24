@@ -6,7 +6,9 @@ const same = (a, b) => a?.type === b?.type && a?.id === b?.id;
 // before renderer asynchronous work, even after beforeunload was prevented.
 function registerNativeQuit(plugin, host, bridge) {
     let stopWindow = () => {};
-    const drain = done => { Promise.resolve().then(() => host.close()).then(() => done(true), error => {
+    let drainWork = null;
+    const closeNative = () => drainWork ?? (drainWork = Promise.resolve().then(() => host.close()));
+    const drain = done => { closeNative().then(() => done(true), error => {
         console.error("Native shutdown did not complete; quit cancelled", error);
         try { new (require("obsidian").Notice)("Native task shutdown did not complete. Quit cancelled; review native recovery.", 10000); } catch (_) {}
         done(false);
@@ -26,7 +28,15 @@ function registerNativeQuit(plugin, host, bridge) {
     const workspace = plugin.app.workspace;
     let stopTasks = () => {};
     if (workspace?.on && workspace.offref) { const ref = workspace.on("quit", tasks => { tasks.add(() => host.close()); }); stopTasks = () => workspace.offref(ref); }
-    const stop = () => { stopTasks(); stopWindow(); };
+    let releasePending = null;
+    const stop = () => {
+        stopTasks();
+        // Component unload does not await async shutdown. Retain the main
+        // close gate until every accepted operation and lease has drained.
+        if (!releasePending) releasePending = closeNative().then(() => stopWindow(), error => {
+            console.error("Native close gate retained after failed shutdown", error);
+        });
+    };
     stop.stopTasks = () => stopTasks();
     plugin.register(stop);
     return stop;

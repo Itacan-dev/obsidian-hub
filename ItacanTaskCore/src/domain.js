@@ -111,7 +111,7 @@ function validateState(state) {
     if (![1, 2, 3, 4].includes(state.schemaVersion)) fail("UNSUPPORTED_SCHEMA", "Unsupported repository schema.");
     if (state.schemaVersion >= 2 && state.schemaVersion <= 3 && state.recurrence?.version !== state.schemaVersion - 1 || state.schemaVersion === 1 && Object.hasOwn(state, "recurrence") || state.schemaVersion === 4 && Object.hasOwn(state, "recurrence") && ![1, 2].includes(state.recurrence?.version)) fail("UNSUPPORTED_SCHEMA", "Unsupported recurrence namespace; refusing downgrade.");
     if (state.schemaVersion === 4 && (!state.historyImport || state.historyImport.version !== 1 || state.historyImport.format !== "itacan-private-history-import" || canonical(state.historyImport.requiredCapabilities ?? null) !== canonical(["private-history-import-v1"]))) fail("UNSUPPORTED_SCHEMA", "Missing/unsupported private import capability.");
-    const stateFields = ["schemaVersion", "storeId", "revision", "revisionId", "parentRevisionId", "partitions", "tasks", "history", "bindings", "receipts", "retiredStepIds", ...(Object.hasOwn(state, "recurrence") ? ["recurrence"] : []), ...(state.schemaVersion === 4 ? ["historyImport"] : [])];
+    const stateFields = ["schemaVersion", "storeId", "revision", "revisionId", "parentRevisionId", "partitions", "tasks", "history", "bindings", "receipts", "retiredStepIds", ...(Object.hasOwn(state, "recurrence") ? ["recurrence"] : []), ...(state.schemaVersion === 4 ? ["historyImport"] : []), ...(Object.hasOwn(state, "gitShared") ? ["gitShared"] : [])];
     fields(state, stateFields, stateFields);
     uuid(state.storeId); revision(state.revision); uuid(state.revisionId);
     if (state.parentRevisionId !== null) uuid(state.parentRevisionId);
@@ -158,7 +158,8 @@ function validateState(state) {
         check(canonical(command) === receipt.payload && command.operationId === receipt.operationId, "Receipt identity/payload mismatch.");
         check(Array.isArray(receipt.partitionIds) && new Set(receipt.partitionIds).size === receipt.partitionIds.length && receipt.partitionIds.every(id => partitions.has(id)), "Invalid receipt partitions.");
         const result = receipt.result;
-        fields(result, ["operationId", "repositoryRevision", "revisionId", "taskId", "taskRevision", "task", "tasks", "change", "replayed", "recurrence", "historyImport", "atomicTask"], ["operationId", "repositoryRevision", "revisionId", "taskId", "taskRevision", "task", "tasks", "change", "replayed"]);
+        check((command.type === "git.receive") === Object.hasOwn(result, "gitShared") && (command.type !== "git.receive" || !!state.gitShared), "Git application receipt discriminator mismatch.");
+        fields(result, ["operationId", "repositoryRevision", "revisionId", "taskId", "taskRevision", "task", "tasks", "change", "replayed", "recurrence", "historyImport", "atomicTask", ...(state.gitShared ? ["gitShared"] : [])], ["operationId", "repositoryRevision", "revisionId", "taskId", "taskRevision", "task", "tasks", "change", "replayed"]);
         check(require("./completion-effects").isAtomic(command.type) === Object.hasOwn(result, "atomicTask"), "Atomic task receipt discriminator mismatch.");
         check(require("./history-import").isImport(command.type) === Object.hasOwn(result, "historyImport") && (!result.historyImport || state.schemaVersion === 4), "Import receipt discriminator/barrier mismatch.");
         check(command.type.startsWith("recurrence.") === Object.hasOwn(result, "recurrence"), "Recurrence receipt discriminator mismatch.");
@@ -179,8 +180,8 @@ function validateState(state) {
         jsonValue(result); jsonValue(receipt.coordination);
     }
     check(receiptRevisions.size === state.revision, "Repository revisions are missing their durable receipts.");
-    require("./source-content").validateContentContinuity(state);
-    require("./completion-effects").validateState(state);
+    if (state.gitShared) require("./git-shared").validateRelations(state);
+    else { require("./source-content").validateContentContinuity(state); require("./completion-effects").validateState(state); }
     if (state.recurrence) require("./recurrence").validateNamespace(state);
     if (state.schemaVersion === 4) require("./history-import").validateNamespace(state);
     require("./history-import").rejectUnplannedReferences(state);

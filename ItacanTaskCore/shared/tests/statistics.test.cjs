@@ -1,0 +1,7 @@
+"use strict";
+const test=require('node:test'),{assert,fixture,S,crypto}=require('./support.cjs'),{account}=require('../../integration/completion-feed'),stats=require('../../../.obsidian/plugins/hub-project-menu/lib/domain/statistics');
+test('accepted remote completion evidence feeds unchanged full Statistics models in all date ranges',async t=>{
+ const f=await fixture(t),id=f.tasks[0].id;await f.repos[0].execute(S.save(f.ctx(f.repos[0]),f.repos[0].getTask(id),{parentCompletion:{kind:'complete',completedAt:1792661004000}},crypto.randomUUID()));await f.receive(1,await f.packet(0));
+ const raw=[{id:7,timestamp:null,text:'Invalid first',projectId:'legacy'},{id:7,timestamp:1792661000000,text:'Shadowed',projectId:'legacy'},{id:'7',timestamp:1792661000000,text:'Typed distinct',projectId:'legacy'}];
+ const models=[];for(let i=0;i<2;i++){const snapshot=await f.repos[i].readSnapshot({version:4,authorityId:f.authority,owners:[f.owner],selection:'history'}),native={version:1,authorityId:f.authority,stamp:{head:snapshot.head},history:snapshot.history},a=account(raw,native),prepared=stats.prepareStatistics({completions:a.completions},1792661005000);assert.equal(a.records.filter(x=>x.nativeHistory).length,1);assert(!prepared.completions.some(x=>x.id===7));assert(prepared.completions.some(x=>x.id==='7'));models.push({prepared,ranges:stats.RANGES.map(([key])=>{const m=stats.aggregateStatistics(prepared,key);return{m,tasks:stats.seriesFor(m,'tasks','all'),steps:stats.seriesFor(m,'steps','all')}})});}assert.deepEqual(models[0],models[1]);assert.equal(raw[0].id,7);
+});

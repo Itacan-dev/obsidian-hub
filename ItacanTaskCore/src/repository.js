@@ -6,11 +6,24 @@ const { validateCommand, applyCommand } = require("./commands");
 const { buildIndexes } = require("./indexes");
 const Admission = require("./command-admission");
 
-function initialState(partitions, storeId, nextId) {
+function publicationResult(candidate, command, changes) {
+    const affectedTasks = changes.taskIds.map(id => candidate.tasks.find(task => task.id === id));
+    const targetTask = command.taskId ? candidate.tasks.find(task => task.id === command.taskId) : affectedTasks.length === 1 ? affectedTasks[0] : null;
+    const result = { operationId: command.operationId, repositoryRevision: candidate.revision, revisionId: candidate.revisionId,
+        taskId: targetTask?.id ?? null, taskRevision: targetTask?.revision ?? null, task: targetTask ? clone(targetTask) : null,
+        tasks: affectedTasks.map(clone), change: { type: command.type, operationId: command.operationId, repositoryRevision: candidate.revision,
+    taskIds: changes.taskIds, eventIds: changes.eventIds, partitions: candidate.partitions.filter(p => changes.partitionIds.includes(p.id)).map(clone) }, replayed: false, ...(changes.recurrence ? { recurrence: clone(changes.recurrence) } : {}), ...(changes.historyImport ? { historyImport: clone(changes.historyImport) } : {}) };
+    if (changes.atomicTask) result.atomicTask = clone(changes.atomicTask);
+    if (changes.gitShared) result.gitShared = clone(changes.gitShared);
+    return result;
+}
+function initialState(partitions, storeId, nextId, gitSharedVersion, sharedGenesis) {
+    check(gitSharedVersion === undefined || gitSharedVersion === 2, "Unsupported Git proof capability.");
     check(Array.isArray(partitions), "Explicit partitions are required."); uuid(storeId);
     const state = { schemaVersion: 1, storeId, revision: 0, revisionId: nextId(), parentRevisionId: null,
         partitions: partitions.map(p => { fields(p, ["id", "kind", "owner"], ["id", "kind", "owner"]); return { ...clone(p), revision: 0, head: null, parentHead: null }; }),
         tasks: [], history: [], bindings: [], receipts: [], retiredStepIds: [] };
+    if (gitSharedVersion === 2) require("./git-shared").initialize(state, sharedGenesis);
     validateState(state); return state;
 }
 class TaskRepository {
@@ -60,6 +73,20 @@ class TaskRepository {
         return clone({ version: 1, series, rule: n.ruleRevisions.find(r => r.ruleId === series.ruleId && r.revision === series.ruleRevision), template: series.templateId === null ? null : { definition: n.templates.find(t => t.id === series.templateId), revision: n.templateRevisions.find(t => t.templateId === series.templateId && t.revision === series.templateRevision) }, membership: n.memberships.find(o => o.seriesId === id) }); }
     recurrenceReadiness(options) { this.assertOpen(); if (options !== undefined) { fields(options, ["version", "seriesId"], ["version", "seriesId"]); if (options.version !== 2) fail("UNSUPPORTED_SCHEMA", "Unsupported readiness contract."); uuid(options.seriesId); return clone(require("./recurrence-generation").readiness(this.#state, options.seriesId, this.#storage.recurrenceFence)); }
         return clone({ version: 1, definitionWritesAllowed: !this.#storage.recurrenceFence, generationSupported: false, recoveryFence: this.#storage.recurrenceFence ?? null }); }
+    exportSharedPacket() {
+        this.assertOpen();
+        const work = this.#queue.then(async () => {
+            const state = await this.#storage.load(); validateState(state);
+            check(state.storeId === this.#state.storeId && state.revisionId === this.#state.revisionId && state.gitShared, "Shared authoritative capture unavailable.");
+            const observation = await this.#storage.beginReadObservation?.();
+            await this.#storage.assertAllWritable?.(state);
+            await require("./git-shared").validateState(state);
+            const packet = require("./git-shared").packet(state.gitShared);
+            await this.#storage.assertReadObservation?.(observation);
+            await this.#storage.assertAllWritable?.(state); return clone(packet);
+        });
+        this.#queue = work.catch(() => {}); return work;
+    }
     exportSharedPartition(partitionId) {
         this.assertOpen(); const partition = this.#state.partitions.find(p => p.id === partitionId);
         check(!!partition, "Unknown partition.");
@@ -123,16 +150,20 @@ class TaskRepository {
         this.notificationErrors.push(String(error?.message ?? error)); this.notificationErrors = this.notificationErrors.slice(-20);
         try { this.#options.onSubscriberError?.(error); } catch (_) { /* Commit already succeeded. */ }
     }
-    execute(input, admissionTicket) {
+    execute(input, admissionTicket, replicationEvidence) {
         this.assertOpen(); const command = clone(input); validateCommand(command);
+        let sharedPacket = null, replicationError = null;
+        if (replicationEvidence !== undefined) { try { fields(replicationEvidence, ["version", "packet"], ["version", "packet"]); sharedPacket = clone(replicationEvidence.packet); check(replicationEvidence.version === 1 && command.type === "git.receive" && require("./git-shared").hash(sharedPacket) === command.payload.packetDigest, "Replication evidence is receive-only and digest-bound."); } catch (error) { replicationError = error; } }
         const work = this.#queue.then(async () => {
             const state = await this.#storage.load(); validateState(state);
             if (state.storeId !== this.#state.storeId || state.revisionId !== this.#state.revisionId) fail("REPOSITORY_CONFLICT", "Repository generation changed outside this instance.");
+            if (state.gitShared) { check(this.#storage.gitSharedCapability?.(), "Git capability required."); check([...require("./git-shared").TYPES, "git.receive"].includes(command.type), "Unsupported Git operation."); } else check(command.type !== "git.receive", "Git receive requires explicit creation capability.");
             await this.#storage.assertAllWritable?.(state);
             if (["task.save", "task.createRich"].includes(command.type) && !this.#storage.atomicTaskCapability?.()) fail("ATOMIC_TASK_CAPABILITY_REQUIRED", "Atomic commands require capability enabled at creation.");
             if (this.#admission && this.#storage.recurrenceFence) fail("RECOVERY_REQUIRED", "Writer-hosted commands require intact ready state.");
             const admission = await Admission.begin(this.#admission, admissionTicket, command, state);
-            const payload = canonical(command), receipt = this.#indexes.receipts.get(command.operationId);
+            if (replicationError) throw replicationError;
+            const payload = canonical(command), receipt = this.#indexes.receipts.get(command.operationId) ?? (state.gitShared ? require("./git-shared").receiptEvidence(state, command.operationId)?.receipt : null);
             const imports = require("./history-import"), importScope = imports.mergeScope(this.#storage.importRecoveryScope ?? null, imports.scopeOf(state));
             await this.#storage.assertHistoryImportWritable?.(command, state);
             imports.assertWritable(command, state, this.#storage.recurrenceFence, importScope);
@@ -144,31 +175,29 @@ class TaskRepository {
             if (this.#admission && this.#storage.recurrenceFence) fail("RECOVERY_REQUIRED", "Observed recovery fence blocks writer replay.");
             if (receipt) {
                 if (receipt.payload !== payload) fail("OPERATION_CONFLICT", "Operation ID was reused with a different command.");
-                return { ...clone(receipt.result), replayed: true };
+                const origin = state.gitShared && !this.#indexes.receipts.has(command.operationId) ? require("./git-shared").receiptEvidence(state, command.operationId) : null;
+                return { ...clone(receipt.result), replayed: true, ...(origin ? { originReplay: { version: 1, originId: origin.origin.id,
+                    application: { operationId: origin.application.operationId, repositoryRevision: origin.application.result.repositoryRevision, revisionId: origin.application.result.revisionId } } } : {}) };
             }
             await Admission.fresh(this.#admission, admission, state);
             if (command.expectedRepositoryRevision !== undefined && command.expectedRepositoryRevision !== state.revision) fail("REPOSITORY_CONFLICT", "Repository revision is stale.", { expected: command.expectedRepositoryRevision, actual: state.revision });
             const now = this.#clock(); timestamp(now); check(now !== null, "Clock must return a timestamp.");
             await this.#options.fault?.("beforeCommandValidation");
             const recoveryReservedIds = importScope ? [...importScope.taskIds, ...importScope.stepIds, ...importScope.eventIds] : [];
-            const context = { now, nextId: () => { const id = this.nextId(); if (recoveryReservedIds.includes(id) && !require("./completion-effects").isAtomic(command.type)) fail("IDENTITY_CONFLICT", "Identity remains protected by import recovery scope."); return id; }, resolvers: this.#resolvers, fault: this.#options.fault, externalReservations: this.#options.externalReservations, historyImportEvidence: this.#options.historyImportEvidence, recoveryReservedIds };
+            const allocations = [], allocate = () => { const id = this.nextId(); if (state.gitShared) allocations.push(id); return id; };
+            const context = { now, sharedPacket, gitInventory: !!state.gitShared && !!this.#storage.gitSharedCapability?.(), nextId: () => { const id = allocate(); if (recoveryReservedIds.includes(id) && !require("./completion-effects").isAtomic(command.type)) fail("IDENTITY_CONFLICT", "Identity remains protected by import recovery scope."); return id; }, resolvers: this.#resolvers, fault: this.#options.fault, externalReservations: this.#options.externalReservations, historyImportEvidence: this.#options.historyImportEvidence, recoveryReservedIds };
             const candidate = clone(state), changes = await applyCommand(candidate, command, context);
             if (candidate.historyImport) await this.#options.fault?.("history:beforeProjectionMetadata");
             imports.reconcile(candidate, state, command, changes.atomicTask ?? null);
             if (changes.atomicTask && candidate.historyImport) await this.#options.fault?.("atomic:afterImportReconciliation");
-            candidate.revision++; candidate.parentRevisionId = candidate.revisionId; candidate.revisionId = this.nextId();
+            candidate.revision++; candidate.parentRevisionId = candidate.revisionId; candidate.revisionId = allocate();
             for (const partition of candidate.partitions) if (changes.partitionIds.includes(partition.id)) {
-                partition.revision++; partition.parentHead = partition.head; partition.head = this.nextId(); validatePartition(partition);
+                partition.revision++; partition.parentHead = partition.head; partition.head = allocate(); validatePartition(partition);
             }
-            const affectedTasks = changes.taskIds.map(id => candidate.tasks.find(task => task.id === id));
-            const targetTask = command.taskId ? candidate.tasks.find(task => task.id === command.taskId) : affectedTasks.length === 1 ? affectedTasks[0] : null;
-            const result = { operationId: command.operationId, repositoryRevision: candidate.revision, revisionId: candidate.revisionId,
-                taskId: targetTask?.id ?? null, taskRevision: targetTask?.revision ?? null, task: targetTask ? clone(targetTask) : null,
-                tasks: affectedTasks.map(clone), change: { type: command.type, operationId: command.operationId, repositoryRevision: candidate.revision,
-                    taskIds: changes.taskIds, eventIds: changes.eventIds, partitions: candidate.partitions.filter(p => changes.partitionIds.includes(p.id)).map(clone) }, replayed: false, ...(changes.recurrence ? { recurrence: clone(changes.recurrence) } : {}), ...(changes.historyImport ? { historyImport: clone(changes.historyImport) } : {}) };
-            if (changes.atomicTask) result.atomicTask = clone(changes.atomicTask);
+            const result = publicationResult(candidate, command, changes);
             await this.#options.fault?.("beforeReceiptPersistence");
             candidate.receipts.push({ operationId: command.operationId, payload, result: clone(result), partitionIds: changes.partitionIds, coordination: command.coordination ?? null });
+            if (state.gitShared) { require("./git-shared").record(candidate, state, candidate.receipts.at(-1), { allocations, now, replicaId: this.#options.sharedReplicaId, inventory: this.#options.externalReservations }, sharedPacket); await require("./git-shared").validateState(candidate); }
             if (changes.historyImport) await this.#options.fault?.("history:beforeCandidateValidation");
             if (command.type === "recurrence.complete") await this.#options.fault?.("beforeRecurrenceCandidateValidation");
             validateState(candidate); if (changes.atomicTask) await this.#options.fault?.("atomic:afterReceiptValidation"); await this.#options.fault?.("beforeCommit");
@@ -194,4 +223,4 @@ class TaskRepository {
         try { await this.#closePromise; } catch (error) { this.#closing = false; throw error; }
     }
 }
-module.exports = { initialState, TaskRepository };
+module.exports = { initialState, TaskRepository, publicationResult };

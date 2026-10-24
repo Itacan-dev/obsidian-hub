@@ -16,12 +16,18 @@ function openNativeTaskRecovery(plugin) {
             this.body.createEl("p", { text: "Checking retained requests…" });
             try {
                 const owners = host.ownerHosts ? host.ownerHosts() : [host];
-                const collections = await Promise.all(owners.map(async h => { try { const runtime = h.runtime(); return { owner: h.owner, runtime, requests: await runtime.retained() }; } catch (_) { return { owner: h.owner, runtime: null, requests: [] }; } }));
+                const collections = await Promise.all(owners.map(async h => { try { const runtime = h.runtime(); return { host:h, owner: h.owner, runtime, requests: await runtime.retained() }; } catch (_) { return { owner: h.owner, runtime: null, requests: [] }; } }));
                 if (ticket !== this.generation) return;
                 this.body.replaceChildren();
-                for (const { owner, runtime, requests } of collections) {
+                for (const { host:ownerHost, owner, runtime, requests } of collections) {
                 this.body.createEl("p", { text: owner.type + ": " + owner.id });
                 if (!runtime) { this.body.createEl("p", { text: "Native authority unavailable. Evidence preserved.", attr: { role: "alert" } }); continue; }
+                const sharing=ownerHost?.synchronization?.();
+                if(sharing){
+                    const describe=()=>{const s=sharing.status(),c=s.capacity;return "Git tasks: "+s.state+(c?". Remaining: "+c.remainingFrames+"/"+c.frameLimit+" frames"+(c.transport?", "+Math.max(0,c.transport.objectLimit-c.transport.objects)+" objects, "+Math.max(0,c.transport.headLimit-c.transport.heads)+" heads":""):"")+". Local publication does not confirm exchange with another client.";};
+                    const status=this.body.createEl("p",{text:describe()}),retry=this.body.createEl("button",{text:"Process Git task changes"});
+                    retry.onclick=async()=>{retry.disabled=true;try{await sharing.sync();status.textContent=describe();}catch(_){status.textContent=describe()+" Synchronization unavailable; preserve retained requests and shared evidence.";}finally{retry.disabled=false;}};
+                }
                 if (!requests.length) this.body.createEl("p", { text: "No retained requests." });
                 for (const request of requests) {
                     const id = request.operationId;

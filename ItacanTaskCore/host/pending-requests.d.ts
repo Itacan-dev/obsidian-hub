@@ -5,15 +5,19 @@ import type {OperationEvidenceV3} from "../src/snapshot-read";
 import type {HostReadStampV1} from "./index";
 export type RetainedIntentV1=(Extract<ActionEnvelopeV1,{authority:NativeAuthorityV1}> & {action:Extract<ApplicationActionV1,{kind:"set-completion"|"set-step-completion"|"delete-tree"}>})|import("../application/contracts").AtomicActionEnvelopeV2;
 export interface RequestRetentionOptionsV1 {version:1;rehearsalId:string}
+export interface RequestRetentionOptionsV2 {version:2;rehearsalId:string}
 export interface RetainedRequestV1 {readonly format:"itacan-native-ui-request";readonly version:1;readonly authorityId:string;readonly applicationContextId:string;readonly rehearsalId:string;readonly owner:WorkspaceRef;readonly partitionId:string;readonly operationId:string;readonly intent:RetainedIntentV1;readonly intentDigest:string;readonly writerRequest:WriterRequestV1<NativeTaskWriteV1|NativeStepWriteV1>;readonly writerRequestDigest:string;readonly commandDigest:string;readonly checksum:string}
 export interface RetainedRequestPortV1 {
  prepare(capability:WriterCapabilityV1,intent:RetainedRequestV1["intent"]):Promise<RetainedRequestV1>;
+ assertResolved(capability:WriterCapabilityV1):Promise<void>;
  list(capability:WriterCapabilityV1):Promise<readonly Pick<RetainedRequestV1,"operationId"|"intentDigest"|"owner"|"partitionId">[]>;
  get(capability:WriterCapabilityV1,operationId:string):Promise<RetainedRequestV1>;
  reconcile(capability:WriterCapabilityV1,operationId:string):Promise<OperationEvidenceV3>;
  inspect(capability:WriterCapabilityV1,operationId:string):Promise<RequestRecoveryInspectionV1>;
  replay(capability:WriterCapabilityV1,review:RequestRecoveryInspectionV1,signal?:AbortSignal):Promise<import("../writer").WriterOutcomeV1>;
 }
+export interface RetainedGitRequestV2 extends Omit<RetainedRequestV1,"format"|"version"|"intent"|"writerRequest"> {readonly format:"itacan-native-shared-request";readonly version:2;readonly intent:{version:1;kind:"git-receive";prepared:import("../writer").PreparedGitReceiveV1};readonly writerRequest:import("../writer").WriterRequestV1<import("../writer").NativeSharedWriteV1>}
+export interface RetainedGitRequestPortV2 extends Omit<RetainedRequestPortV1,"get"> {get(capability:WriterCapabilityV1,operationId:string):Promise<RetainedRequestV1|RetainedGitRequestV2>}
 export interface RequestRecoveryInspectionV1 {
  readonly version:1;readonly privacy:"local-private";readonly authorityId:string;readonly applicationContextId:string;readonly operationId:string;
  readonly classification:"confirmed-committed"|"committed-refresh-unavailable"|"execution-uncertain"|"conflict"|"damaged"|"authority-unavailable";

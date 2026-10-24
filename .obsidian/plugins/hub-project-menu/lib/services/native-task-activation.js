@@ -60,6 +60,7 @@ function ownerKey(owner) {
 function ownerFolder(local, vaultId, owner) { return path.join(location(local, vaultId), "owners", ownerKey(owner)); }
 async function readOwnerPlan(file) {
     const p = verify(await readOrdinary(file));
+    if(p.version===3) return require("./native-git-activation").validatePlan(p);
     const fields = ["version", "kind", "vaultId", "deviceId", "owner", "projectRoot", "dashboard", "archive", "archiveHash", "sources", "historyDigest", "metadataDigest", "options", "deviceEvidence"];
     V.fields(p, fields, fields);
     const b = p.options?.config?.binding;
@@ -70,6 +71,7 @@ async function readOwnerPlan(file) {
     return p;
 }
 async function assertOwnerActive(p, folder) {
+    if(p.version===3) return require("./native-git-activation").assertActive(p,folder);
     check(checksum(await readOwnerPlan(path.join(folder, "CUTOVER-v1.json"))) === checksum(p), "Owner cutover changed.");
     const a = verify(await readOrdinary(path.join(folder, "ACTIVATION-v1.json")));
     V.fields(a, ["version", "kind", "state", "planDigest", "authorityId"], ["version", "kind", "state", "planDigest", "authorityId"]);
@@ -85,7 +87,7 @@ async function loadActivations(plugin, onlyOwner = null) {
     const vault = await fs.realpath(plugin.app.vault.adapter.getBasePath()), stat = await fs.stat(vault, { bigint: true });
     const vaultPin = { real: vault, dev: String(stat.dev), ino: String(stat.ino) };
     let id; try { id = await A.registration(vault); } catch (_) { return result; } const base = path.join(location(process.env.LOCALAPPDATA, id), "owners");
-    let names; try { names = await fs.readdir(base); } catch (e) { if (e.code === "ENOENT") return result; throw e; }
+    let names; try { names = await fs.readdir(base); } catch (e) { if (e.code === "ENOENT") names = []; else throw e; }
     for (const name of names.sort()) {
         const match = /^(project|resource)-(.+)$/.exec(name); check(match, "Unknown owner activation evidence.");
         const owner = { type: match[1], id: match[2] }; if (onlyOwner && (owner.type !== onlyOwner.type || owner.id !== onlyOwner.id)) continue; check(ownerKey(owner) === name, "Owner activation directory mismatch.");
@@ -96,12 +98,13 @@ async function loadActivations(plugin, onlyOwner = null) {
             check(await A.ordinaryPath(folder) === await fs.realpath(folder), "Activation directory changed.");
             const p = await readOwnerPlan(path.join(folder, "CUTOVER-v1.json"));
             check(V.canonical(p.owner) === V.canonical(owner) && p.vaultId === id && p.deviceId === plugin.dataStore.deviceId && path.relative(await fs.realpath(p.options.config.binding.vaultRoot), vault) === "", "Activation vault/device mismatch.");
-            Object.assign(reserved, { projectRoot: p.projectRoot, dashboard: p.dashboard });
-            check(current?.root === p.projectRoot && current?.path === p.dashboard && (owner.type === "resource" ? current.contextKind === "resource" && current.resourceType === owner.id : current.contextKind !== "resource" && !current.shared && ["active", "future", "shelved"].includes(current.status)), "Activation physical owner changed.");
+            Object.assign(reserved, { projectRoot: p.projectRoot, dashboard: p.dashboard, ...(p.version === 3 ? { joinExisting: true } : {}) });
+            check(current?.root === p.projectRoot && current?.path === p.dashboard && (owner.type === "resource" ? current.contextKind === "resource" && current.resourceType === owner.id : current.contextKind !== "resource" && !!(current.shared || require("./shared-projects").SHARED_PROJECT_ROOTS.includes(current.root)) === (p.version===3) && ["active", "future", "shelved"].includes(current.status)), "Activation physical owner changed.");
             await assertOwnerActive(p, folder);
             result.push({ ...p.options, vaultPin, assertActivation: () => assertOwnerActive(p, folder) });
         } catch (_) { result.push(reserved); }
     }
+    result.push(...(await require("./native-git-transition").discover(plugin,result)).filter(o => !onlyOwner || o.owner.type === onlyOwner.type && o.owner.id === onlyOwner.id));
     return result;
 }
-module.exports = { seal, verify, checksum, location, readPlan, assertActive, loadActivation, ownerKey, ownerFolder, readOwnerPlan, assertOwnerActive, loadActivations };
+module.exports = { readOrdinary, checksumBytes:A.digest, seal, verify, checksum, location, readPlan, assertActive, loadActivation, ownerKey, ownerFolder, readOwnerPlan, assertOwnerActive, loadActivations };
