@@ -12463,6 +12463,10 @@ module.exports = class HubProjectMenu extends Plugin {
                 );
             };
 
+        // Home must not capture Dataview's still-empty startup index.
+        window.hubGetHomeProjects = () => this.projectWizard.getProjectRecords()
+            .filter(project => project.path.startsWith("Projects/"));
+
         window.hubGetProjectCategories =
             () =>
                 this.projectWizard
@@ -12771,7 +12775,8 @@ module.exports = class HubProjectMenu extends Plugin {
             this.nativeTaskHost.guardUnsupported();
             // Initial native admission waits for layout/metadata readiness.
             // Obsidian must finish plugin onload before that event can arrive.
-            if (this.app.workspace.layoutReady) await this.nativeTaskHost.ready;
+            // Owner admission stays asynchronous on layout-ready loads too.
+            // Navigation/factories must be available while native panels initialize.
             this.addCommand({ id: "native-task-recovery", name: "Native task recovery",
                 callback: () => { this.nativeTaskRecoveryModal?.close(); this.nativeTaskRecoveryModal = require("./lib/ui/native-task-recovery").openNativeTaskRecovery(this); } });
         }
@@ -13000,6 +13005,7 @@ module.exports = class HubProjectMenu extends Plugin {
         delete window.hubCreateMarkdown;
         delete window.hubClearCompletedTasks;
         delete window.hubOpenProjectWizard;
+        delete window.hubGetHomeProjects;
         delete window.hubGetProjectCategories;
         delete window.hubGetResourceTypes;
         delete window.hubGetResourceFolders;

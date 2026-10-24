@@ -45,7 +45,12 @@ function composeNativeHosts(plugin, hosts) {
     const select = owner => { const h = hosts.find(h => same(h.owner, owner)); if (!h) throw Error("Native owner unavailable."); return h; };
     const legacy = { async read() { const records = copy(plugin.projectWizard.completedTaskHistory ?? plugin.projectWizard.data.completedTaskHistory ?? []); return { version: 1, revision: require("../../../../../ItacanTaskCore/writer/policy").hash(records), records }; },
         subscribe(fn) { document.addEventListener("hub-completed-tasks-changed", fn); return () => document.removeEventListener("hub-completed-tasks-changed", fn); } };
-    const evidence = { read: () => Promise.all(hosts.map(h => h.historyEvidence.read())), subscribe(fn) { const stops = hosts.map(h => h.historyEvidence.subscribe(fn)); return () => stops.forEach(stop => stop()); } };
+    const evidence = { read: () => {
+        // An initializing owner cannot contribute to an accepted complete aggregate.
+        // Avoid rereading healthy authorities only to reject an incomplete result.
+        if (hosts.some(h => h.status().state !== "ready")) return Promise.reject(Error("Native History is not ready."));
+        return Promise.all(hosts.map(h => h.historyEvidence.read()));
+    }, subscribe(fn) { const stops = hosts.map(h => h.historyEvidence.subscribe(fn)); return () => stops.forEach(stop => stop()); } };
     const completionFeed = require("../../../../../ItacanTaskCore/integration/completion-feed").createCompletionFeed({ native: evidence, legacy,
         navigate: ref => select(ref.owner).completionFeed.reveal({ nativeHistory: ref }) });
     const consumers = require("../../../../../ItacanTaskCore/integration/home-schedule");
@@ -53,7 +58,7 @@ function composeNativeHosts(plugin, hosts) {
     const host = Object.freeze({
         ready: Promise.allSettled(hosts.map(h => h.ready)), completionFeed,
         matches: owner => hosts.some(h => h.matches(owner)),
-        nativeTasks: Object.freeze({ consumerUiV1: true, owners: hosts.map(h => h.owner), matches: owner => hosts.some(h => h.matches(owner)), mergeHome: consumers.mergeHome, taskKey: consumers.taskKey,
+        nativeTasks: Object.freeze({ consumerUiV1: true, availability: () => hosts.some(h => !["opening", "ready"].includes(h.status().state)) ? "unavailable" : hosts.every(h => h.status().state === "ready") ? "current" : "loading", owners: hosts.map(h => h.owner), matches: owner => hosts.some(h => h.matches(owner)), mergeHome: consumers.mergeHome, taskKey: consumers.taskKey,
             createPanelRead: args => select(args.workspace).nativeTasks.createPanelRead(args) }),
         status: () => ({ mode: "native-owners", owners: hosts.map(h => h.status()) }),
         ownerHosts: () => hosts.slice(), runtime: owner => select(owner).runtime(),

@@ -89,10 +89,15 @@ function createOwnerHost(plugin, options, coordinated = false) {
     wrap(plugin, "performClearCompletedTasks", requests => { for (const r of requests ?? []) rejectLegacy(r); });
     wrap(plugin.planning, "project", id => { if (owner.type === "project" && id === owner.id) unavailable(); });
     const originalRead = plugin.taskData.readPages;
-    const readPages = function (...args) { return originalRead.apply(this, args).filter(page => {
-        const context = plugin.projectWizard.getContextForPath(page.file?.path);
-        return !ownsPath(page.file?.path) && !matches(workspaceRef(context));
-    }); };
+    const readPages = function (...args) {
+        // Resolve physical ownership once per owner/query, never per Markdown page.
+        // Resource mounts do not create another physical task owner.
+        const current = project(), root = matches(workspaceRef(current)) ? current.root : null;
+        return originalRead.apply(this, args).filter(page => {
+            const file = page.file?.path;
+            return !ownsPath(file) && !(typeof root === "string" && typeof file === "string" && (file === root || file.startsWith(root + "/")));
+        });
+    };
     plugin.taskData.readPages = readPages;
     stops.push(() => { if (plugin.taskData.readPages === readPages) plugin.taskData.readPages = originalRead; });
     // Unsupported domain entry points are guarded before their queues/saves.
@@ -144,9 +149,9 @@ function createOwnerHost(plugin, options, coordinated = false) {
     }, subscribe(fn) { historyListeners.add(fn); return () => historyListeners.delete(fn); } };
     const failedPanel = ({ component }) => {
         const stop = () => {}; component.register(stop);
-        return { close: stop, actions: { mutate: unavailable, editTask: unavailable }, read: async () => ({ tasks: [], changed: true, availability: "unavailable", diagnostics: [{ code: "NATIVE_PROJECT_UNAVAILABLE" }] }), accept: stop, reconcile: unavailable, toggle: unavailable, clear: unavailable, reveal: unavailable, create: unavailable };
+        return { close: stop, actions: { mutate: unavailable, editTask: unavailable }, read: async () => ({ tasks: [], changed: true, availability: state === "opening" ? "loading" : "unavailable", diagnostics: [{ code: state === "opening" ? "NATIVE_PROJECT_INITIALIZING" : "NATIVE_PROJECT_UNAVAILABLE" }] }), accept: stop, reconcile: unavailable, toggle: unavailable, clear: unavailable, reveal: unavailable, create: unavailable };
     };
-    const nativeTasks = Object.freeze({ owner, consumerUiV1: true, mergeHome: consumers.mergeHome, taskKey: consumers.taskKey,
+    const nativeTasks = Object.freeze({ owner, consumerUiV1: true, availability: () => state === "ready" ? "current" : state === "opening" ? "loading" : "unavailable", mergeHome: consumers.mergeHome, taskKey: consumers.taskKey,
         createPanelRead(args) {
             let inner = null, closed = false;
             // The core subscription emits immediately. Defer its UI callback
@@ -202,7 +207,7 @@ function createOwnerHost(plugin, options, coordinated = false) {
             if(options.gitSharing){
                 const project=await require("../../../../../ItacanTaskCore/shared/project-binding").admitProject({vaultRoot:options.vaultPin.real,projectId:owner.id,projectRoot:options.projectRoot,dashboard:options.dashboard});
                 const transport=await require("../../../../../ItacanTaskCore/shared/git-transport").createGitPacketTransport({version:1,root:project.gitRoot,authorityId:config.authorityId,projectId:owner.id});
-                synchronization=require("../../../../../ItacanTaskCore/shared/runtime-sync").createRuntimeSync({runtime,transport,assertBinding:async()=>{await options.assertActivation?.();const current=await require("../../../../../ItacanTaskCore/shared/project-binding").admitProject({vaultRoot:options.vaultPin.real,projectId:owner.id,projectRoot:options.projectRoot,dashboard:options.dashboard});if(current.namespaceDigest!==project.namespaceDigest)throw Error("Shared namespace changed.");},changed:changedState});
+                synchronization=require("../../../../../ItacanTaskCore/shared/runtime-sync").createRuntimeSync({runtime,transport,assertBinding:async()=>{await options.assertActivation?.();const current=await require("../../../../../ItacanTaskCore/shared/project-binding").admitProject({vaultRoot:options.vaultPin.real,projectId:owner.id,projectRoot:options.projectRoot,dashboard:options.dashboard});if(current.namespaceDigest!==project.namespaceDigest)throw Error("Shared namespace changed.");}});
                 let syncing=null,dirty=false;const requestSync=()=>{if(stopped)return;dirty=true;if(syncing)return;syncing=(async()=>{while(dirty&&!stopped){dirty=false;await synchronization.sync().catch(()=>{});}})().finally(()=>{syncing=null;if(dirty&&!stopped)requestSync();});};
                 stops.push(runtime.sharing.subscribe(change=>{if(change.reason==="repository")requestSync();}));
                 // Startup publishes committed-but-unexported receipts and scans

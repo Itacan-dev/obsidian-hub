@@ -16738,6 +16738,8 @@ const { applyTaskEdit } = __hubRequire("lib/domain/tasks.js");
 const { taskMetadata } = __hubRequire("lib/domain/task-planning.js");
 const { TaskServiceError } = __hubRequire("lib/services/task-service-errors.js");
 const homes = new WeakMap();
+// Presentation only: never a task read, mutation guard or complete-count authority.
+const previousPresentations = new WeakMap();
 const taskFacts = task => task.nativeReference ? [task.nativeReference, task.text, task.completed, task.nativeReadOnly, taskMetadata(task), task.steps] : [task.path, task.line, task.text, task.hubTaskId ?? null, !!task.completed, !!task.identityConflict,
     taskMetadata(task), task.homePhysicalOwner ?? null, task.homeProjectReference ?? null,
     (task.steps ?? []).map(step => [step.line, step.text, step.hubTaskId ?? null, !!step.completed, step.parent ?? null])];
@@ -16759,7 +16761,7 @@ function createHomeTaskRead({ plugin, component, changed, resolveOwner, editTask
     let consumers = homes.get(plugin);
     if (!consumers) {
         homes.set(plugin, consumers = new Set());
-        plugin.register(() => { for (const close of [...consumers]) close(); consumers.clear(); homes.delete(plugin); });
+        plugin.register(() => { for (const close of [...consumers]) close(); consumers.clear(); homes.delete(plugin); previousPresentations.delete(plugin); });
     }
     const alive = () => { if (closed) throw new TaskServiceError("CLOSED", "This Home task view has closed."); };
     const checkOwner = (task, fresh) => {
@@ -16855,10 +16857,10 @@ function createHomeTaskRead({ plugin, component, changed, resolveOwner, editTask
     };
     if (!nativeTasks?.consumerUiV1) return legacy;
     if (typeof resolveNativeOwner !== "function") throw new TaskServiceError("UNAVAILABLE", "Native Home owner resolver required.");
-    let nativeGeneration = 0, available = false, accepted = [], nativeRows = [], nativeContext = null, composing = 0;
+    let nativeGeneration = 0, available = false, readState = "loading", accepted = [], nativeRows = [], nativeContext = null, composing = 0;
     const owners = nativeTasks.owners ?? [nativeTasks.owner];
     const panels = owners.map(owner => ({ owner, panel: nativeTasks.createPanelRead({ plugin, component, workspace: owner,
-        changed() { nativeGeneration++; available = false; if (!closed && !composing) changed(); } }) }));
+        changed() { nativeGeneration++; available = false; readState = "loading"; if (!closed && !composing) changed(); } }) }));
     const panelFor = task => { const entry = panels.find(p => sameWorkspace(p.owner, task.nativeReference?.owner)); if (!entry) throw new TaskServiceError("UNAVAILABLE", "Native task owner unavailable."); return entry.panel; };
     const native = {
         close: () => panels.forEach(p => p.panel.close()),
@@ -16876,8 +16878,8 @@ function createHomeTaskRead({ plugin, component, changed, resolveOwner, editTask
         return task;
     };
     const merge = items => owners.reduce((rows, owner, i) => nativeTasks.mergeHome(rows, nativeRows.filter(t => sameWorkspace(t.nativeReference?.owner, owner)), owner, nativeContext[i], resolveNativeOwner), items);
-    const unavailable = () => ({ items: accepted.map(item => isNative(item.task) ? { ...item, task: { ...item.task, nativeReadOnly: true } } : item),
-        changed: true, availability: "unavailable", countComplete: false, diagnostics: [{ code: "NATIVE_HOME_UNAVAILABLE" }] });
+    const unavailable = (state = "unavailable") => { readState = state; return ({ items: accepted.map(item => isNative(item.task) ? { ...item, task: { ...item.task, nativeReadOnly: true } } : item),
+        changed: true, availability: state, countComplete: false, diagnostics: [{ code: state === "loading" ? "NATIVE_HOME_INITIALIZING" : "NATIVE_HOME_UNAVAILABLE" }] }); };
     return {
         ...legacy,
         close() { native.close(); legacy.close(); available = false; },
@@ -16886,6 +16888,8 @@ function createHomeTaskRead({ plugin, component, changed, resolveOwner, editTask
             editTask: (task, saved) => isNative(task) ? native.actions.editTask(requireNative(task), saved) : legacy.actions.editTask(task, saved)
         },
         async read() {
+            const state = nativeTasks.availability?.();
+            if (state && state !== "current") { available = false; return unavailable(state); }
             composing++;
             try { for (let attempt = 0; attempt < 3; attempt++) {
                 const ng = nativeGeneration, lg = session.generation;
@@ -16898,14 +16902,31 @@ function createHomeTaskRead({ plugin, component, changed, resolveOwner, editTask
                 try {
                     nativeRows = n.tasks; nativeContext = n.context;
                     const items = merge(l.items);
-                    available = true;
+                    available = true; readState = "current";
                     return { items, changed: wrapperSignature(items) !== last, availability: "current", countComplete: true, diagnostics: l.diagnostics };
                 } catch (_) { available = false; return unavailable(); }
             }
             available = false; return unavailable();
-            } finally { composing--; }
+            } catch (_) { available = false; return unavailable(); }
+            finally { composing--; }
         },
-        accept(items) { if (available) { accepted = items; native.accept(nativeRows); } legacy.accept(items); },
+        previousPresentation() {
+            const previous = previousPresentations.get(plugin);
+            if (!previous || previous.source !== nativeTasks || previous.vault !== plugin.app?.vault?.adapter?.getBasePath?.()) return [];
+            return previous.items.flatMap(item => {
+                const ref = item.task.nativeReference, context = previous.contexts.find(c => sameWorkspace(c.owner, ref.owner)), owner = resolveNativeOwner(ref.owner);
+                if (!context || !owner || owner.deleted || owner.root !== context.root || owner.path !== context.dashboard) return [];
+                return [{ ...item, owner, task: { ...item.task, steps: item.task.steps.map(s => ({ ...s })), nativeReadOnly: true } }];
+            });
+        },
+        accept(items) {
+            if (available) {
+                accepted = items; native.accept(nativeRows);
+                previousPresentations.set(plugin, { source: nativeTasks, vault: plugin.app?.vault?.adapter?.getBasePath?.(),
+                    contexts: nativeContext, items: items.filter(item => isNative(item.task)) });
+            }
+            legacy.accept(items);
+        },
         reconcile(items, edit) {
             if (closed) return [];
             if (edit.backend === "native") {
@@ -16926,7 +16947,7 @@ function createHomeTaskRead({ plugin, component, changed, resolveOwner, editTask
             if (isNative(task)) throw new TaskServiceError("UNSUPPORTED", "Native source navigation is unavailable.");
             return legacy.reveal(task);
         },
-        availability: () => available ? "current" : "unavailable"
+        availability: () => { if (closed) return "unavailable"; const state = nativeTasks.availability?.(); return state && state !== "current" ? state : available ? "current" : readState; }
     };
 }
 module.exports = { createHomeTaskRead };
@@ -18345,7 +18366,18 @@ async function readAuthoritative(vaultRoot,file,owner,authorityId){
  const observation=selected(resolved);async function assertCurrent(){check(P.same(await source(file),local)&&P.same(await source(sharedFile,true),shared),'Authoritative application inventory changed during capture.');}
  await assertCurrent();return{evidence:effective,observation,assertCurrent};
 }
-function createInventoryEvidence(plugin,owner,authorityId){return Object.freeze({async read(){const vault=plugin.app.vault.adapter.getBasePath(),file=path.join(vault,plugin.manifest.dir,'data.json'),observed=await readAuthoritative(vault,file,owner,authorityId),memory=selected(plugin.projectWizard.data);check(P.same(observed.observation,memory),'Application inventory is not coherently persisted.');await observed.assertCurrent();check(P.same(selected(plugin.projectWizard.data),memory),'Application inventory changed during capture.');return observed.evidence;}});}
+function createInventoryEvidence(plugin,owner,authorityId){
+ const transient=new Set(['Shared inventory changed during capture.','Authoritative application inventory changed during capture.','Application inventory changed during capture.']);
+ return Object.freeze({async read(){
+  // Startup UI persistence can cross a capture. Retry the complete observation,
+  // never reuse one side of a failed bracket or accept mismatched memory/data.
+  for(let attempt=0;attempt<3;attempt++)try{
+   const vault=plugin.app.vault.adapter.getBasePath(),file=path.join(vault,plugin.manifest.dir,'data.json'),observed=await readAuthoritative(vault,file,owner,authorityId),memory=selected(plugin.projectWizard.data);
+   check(P.same(observed.observation,memory),'Application inventory is not coherently persisted.');
+   await observed.assertCurrent();check(P.same(selected(plugin.projectWizard.data),memory),'Application inventory changed during capture.');return observed.evidence;
+  }catch(error){if(attempt===2||error.code!=='VALIDATION'||!transient.has(error.message))throw error;await new Promise(resolve=>setImmediate(resolve));}
+ }});
+}
 module.exports={capture,createInventoryEvidence,readAuthoritative};
 
 },
@@ -18561,7 +18593,12 @@ function composeNativeHosts(plugin, hosts) {
     const select = owner => { const h = hosts.find(h => same(h.owner, owner)); if (!h) throw Error("Native owner unavailable."); return h; };
     const legacy = { async read() { const records = copy(plugin.projectWizard.completedTaskHistory ?? plugin.projectWizard.data.completedTaskHistory ?? []); return { version: 1, revision: __hubRequire("../../../ItacanTaskCore/writer/policy.js").hash(records), records }; },
         subscribe(fn) { document.addEventListener("hub-completed-tasks-changed", fn); return () => document.removeEventListener("hub-completed-tasks-changed", fn); } };
-    const evidence = { read: () => Promise.all(hosts.map(h => h.historyEvidence.read())), subscribe(fn) { const stops = hosts.map(h => h.historyEvidence.subscribe(fn)); return () => stops.forEach(stop => stop()); } };
+    const evidence = { read: () => {
+        // An initializing owner cannot contribute to an accepted complete aggregate.
+        // Avoid rereading healthy authorities only to reject an incomplete result.
+        if (hosts.some(h => h.status().state !== "ready")) return Promise.reject(Error("Native History is not ready."));
+        return Promise.all(hosts.map(h => h.historyEvidence.read()));
+    }, subscribe(fn) { const stops = hosts.map(h => h.historyEvidence.subscribe(fn)); return () => stops.forEach(stop => stop()); } };
     const completionFeed = __hubRequire("../../../ItacanTaskCore/integration/completion-feed.js").createCompletionFeed({ native: evidence, legacy,
         navigate: ref => select(ref.owner).completionFeed.reveal({ nativeHistory: ref }) });
     const consumers = __hubRequire("../../../ItacanTaskCore/integration/home-schedule.js");
@@ -18569,7 +18606,7 @@ function composeNativeHosts(plugin, hosts) {
     const host = Object.freeze({
         ready: Promise.allSettled(hosts.map(h => h.ready)), completionFeed,
         matches: owner => hosts.some(h => h.matches(owner)),
-        nativeTasks: Object.freeze({ consumerUiV1: true, owners: hosts.map(h => h.owner), matches: owner => hosts.some(h => h.matches(owner)), mergeHome: consumers.mergeHome, taskKey: consumers.taskKey,
+        nativeTasks: Object.freeze({ consumerUiV1: true, availability: () => hosts.some(h => !["opening", "ready"].includes(h.status().state)) ? "unavailable" : hosts.every(h => h.status().state === "ready") ? "current" : "loading", owners: hosts.map(h => h.owner), matches: owner => hosts.some(h => h.matches(owner)), mergeHome: consumers.mergeHome, taskKey: consumers.taskKey,
             createPanelRead: args => select(args.workspace).nativeTasks.createPanelRead(args) }),
         status: () => ({ mode: "native-owners", owners: hosts.map(h => h.status()) }),
         ownerHosts: () => hosts.slice(), runtime: owner => select(owner).runtime(),
@@ -18678,10 +18715,15 @@ function createOwnerHost(plugin, options, coordinated = false) {
     wrap(plugin, "performClearCompletedTasks", requests => { for (const r of requests ?? []) rejectLegacy(r); });
     wrap(plugin.planning, "project", id => { if (owner.type === "project" && id === owner.id) unavailable(); });
     const originalRead = plugin.taskData.readPages;
-    const readPages = function (...args) { return originalRead.apply(this, args).filter(page => {
-        const context = plugin.projectWizard.getContextForPath(page.file?.path);
-        return !ownsPath(page.file?.path) && !matches(workspaceRef(context));
-    }); };
+    const readPages = function (...args) {
+        // Resolve physical ownership once per owner/query, never per Markdown page.
+        // Resource mounts do not create another physical task owner.
+        const current = project(), root = matches(workspaceRef(current)) ? current.root : null;
+        return originalRead.apply(this, args).filter(page => {
+            const file = page.file?.path;
+            return !ownsPath(file) && !(typeof root === "string" && typeof file === "string" && (file === root || file.startsWith(root + "/")));
+        });
+    };
     plugin.taskData.readPages = readPages;
     stops.push(() => { if (plugin.taskData.readPages === readPages) plugin.taskData.readPages = originalRead; });
     // Unsupported domain entry points are guarded before their queues/saves.
@@ -18733,9 +18775,9 @@ function createOwnerHost(plugin, options, coordinated = false) {
     }, subscribe(fn) { historyListeners.add(fn); return () => historyListeners.delete(fn); } };
     const failedPanel = ({ component }) => {
         const stop = () => {}; component.register(stop);
-        return { close: stop, actions: { mutate: unavailable, editTask: unavailable }, read: async () => ({ tasks: [], changed: true, availability: "unavailable", diagnostics: [{ code: "NATIVE_PROJECT_UNAVAILABLE" }] }), accept: stop, reconcile: unavailable, toggle: unavailable, clear: unavailable, reveal: unavailable, create: unavailable };
+        return { close: stop, actions: { mutate: unavailable, editTask: unavailable }, read: async () => ({ tasks: [], changed: true, availability: state === "opening" ? "loading" : "unavailable", diagnostics: [{ code: state === "opening" ? "NATIVE_PROJECT_INITIALIZING" : "NATIVE_PROJECT_UNAVAILABLE" }] }), accept: stop, reconcile: unavailable, toggle: unavailable, clear: unavailable, reveal: unavailable, create: unavailable };
     };
-    const nativeTasks = Object.freeze({ owner, consumerUiV1: true, mergeHome: consumers.mergeHome, taskKey: consumers.taskKey,
+    const nativeTasks = Object.freeze({ owner, consumerUiV1: true, availability: () => state === "ready" ? "current" : state === "opening" ? "loading" : "unavailable", mergeHome: consumers.mergeHome, taskKey: consumers.taskKey,
         createPanelRead(args) {
             let inner = null, closed = false;
             // The core subscription emits immediately. Defer its UI callback
@@ -18791,7 +18833,7 @@ function createOwnerHost(plugin, options, coordinated = false) {
             if(options.gitSharing){
                 const project=await __hubRequire("../../../ItacanTaskCore/shared/project-binding.js").admitProject({vaultRoot:options.vaultPin.real,projectId:owner.id,projectRoot:options.projectRoot,dashboard:options.dashboard});
                 const transport=await __hubRequire("../../../ItacanTaskCore/shared/git-transport.js").createGitPacketTransport({version:1,root:project.gitRoot,authorityId:config.authorityId,projectId:owner.id});
-                synchronization=__hubRequire("../../../ItacanTaskCore/shared/runtime-sync.js").createRuntimeSync({runtime,transport,assertBinding:async()=>{await options.assertActivation?.();const current=await __hubRequire("../../../ItacanTaskCore/shared/project-binding.js").admitProject({vaultRoot:options.vaultPin.real,projectId:owner.id,projectRoot:options.projectRoot,dashboard:options.dashboard});if(current.namespaceDigest!==project.namespaceDigest)throw Error("Shared namespace changed.");},changed:changedState});
+                synchronization=__hubRequire("../../../ItacanTaskCore/shared/runtime-sync.js").createRuntimeSync({runtime,transport,assertBinding:async()=>{await options.assertActivation?.();const current=await __hubRequire("../../../ItacanTaskCore/shared/project-binding.js").admitProject({vaultRoot:options.vaultPin.real,projectId:owner.id,projectRoot:options.projectRoot,dashboard:options.dashboard});if(current.namespaceDigest!==project.namespaceDigest)throw Error("Shared namespace changed.");}});
                 let syncing=null,dirty=false;const requestSync=()=>{if(stopped)return;dirty=true;if(syncing)return;syncing=(async()=>{while(dirty&&!stopped){dirty=false;await synchronization.sync().catch(()=>{});}})().finally(()=>{syncing=null;if(dirty&&!stopped)requestSync();});};
                 stops.push(runtime.sharing.subscribe(change=>{if(change.reason==="repository")requestSync();}));
                 // Startup publishes committed-but-unexported receipts and scans
@@ -32521,7 +32563,7 @@ function mountTaskWorkspace({ plugin, component, dv, root, toolbar, filesGrid, f
     content.addEventListener("focusin", revealFocusedControl);
     component.register(() => content.removeEventListener("focusin", revealFocusedControl));
     let tasks = [], locations = [], workspaces = [], dirty = true, disposed = false, readGeneration = 0;
-    let nativeAvailable = false, nativeRefreshTimer = null, nativeReading = false;
+    let nativeLoading = true, nativeAvailable = false, nativeRefreshTimer = null, nativeReading = false;
     const native = nativeTasks?.consumerUiV1 && (nativeTasks.matches ? nativeTasks.matches({ type: "project", id: workspace.projectId }) : nativeTasks.owner.type === "project" && nativeTasks.owner.id === workspace.projectId)
         ? nativeTasks.createPanelRead({ plugin, component, workspace: { type: "project", id: workspace.projectId }, changed: () => { nativeAvailable = false; if (nativeReading) return; clearTimeout(nativeRefreshTimer); nativeRefreshTimer = setTimeout(() => { if (!disposed) void refresh(); }, 50); } }) : null;
     nativeAvailable = !native;
@@ -32601,6 +32643,8 @@ function mountTaskWorkspace({ plugin, component, dv, root, toolbar, filesGrid, f
                 nativeReading = true;
                 const result = await native.read(); if (cancelled()) return;
                 if (!result) throw Error("Native Schedule capture was superseded.");
+                nativeLoading = result.availability === "loading";
+                if (nativeLoading) { nativeAvailable = false; tasks = tasks.map(task => ({ ...task, nativeReadOnly: true })); render(); return; }
                 if (result.availability !== "current" || result.context.root !== workspace.root || result.context.dashboard !== workspace.path || result.context.status !== workspace.status) throw Error("Native Schedule owner unavailable.");
                 tasks = result.tasks; locations = []; nativeAvailable = true; native.accept(tasks); dirty = false; render(); return;
             }
@@ -32615,7 +32659,7 @@ function mountTaskWorkspace({ plugin, component, dv, root, toolbar, filesGrid, f
             }
             dirty = false; render();
         } catch (error) {
-            if (!cancelled()) { if (native) { nativeAvailable = false; tasks = tasks.map(task => ({ ...task, nativeReadOnly: true })); render(); }
+            if (!cancelled()) { if (native) { nativeLoading = false; nativeAvailable = false; tasks = tasks.map(task => ({ ...task, nativeReadOnly: true })); render(); }
                 console.error("Schedule task read failed", error);
                 if (!native) new (require("obsidian").Notice)("Schedule tasks could not be loaded. Please try again."); }
         } finally { if (native) nativeReading = false; if (generation === readGeneration) content.removeAttribute("aria-busy"); }
@@ -32638,7 +32682,7 @@ function mountTaskWorkspace({ plugin, component, dv, root, toolbar, filesGrid, f
             content.contains(focused) && hasKeyboardFocus(focused) ? focused.dataset.scheduleControl : null;
         scheduleFocusRequest = undefined;
         content.empty();
-        if (native && !nativeAvailable) content.createDiv({ cls: "hub-task-view-empty", text: "Schedule unavailable. Retained tasks are not a complete current total.", attr: { role: "status" } });
+        if (native && !nativeAvailable) content.createDiv({ cls: "hub-task-view-empty", text: nativeLoading ? "Loading tasks..." : "Schedule unavailable. Retained tasks are not a complete current total.", attr: { role: "status" } });
         const context = { workspace, resource, folders: locations.filter(item => item.folder), now,
             ui, pending, currentPath, unavailable: native && !nativeAvailable, locationLabel: describe, phaseLabel: task => plugin.planning?.phaseFor(task)?.name, apply, edit, create, render,
             toggle: mutate,
@@ -46424,6 +46468,10 @@ module.exports = class HubProjectMenu extends Plugin {
                 );
             };
 
+        // Home must not capture Dataview's still-empty startup index.
+        window.hubGetHomeProjects = () => this.projectWizard.getProjectRecords()
+            .filter(project => project.path.startsWith("Projects/"));
+
         window.hubGetProjectCategories =
             () =>
                 this.projectWizard
@@ -46732,7 +46780,8 @@ module.exports = class HubProjectMenu extends Plugin {
             this.nativeTaskHost.guardUnsupported();
             // Initial native admission waits for layout/metadata readiness.
             // Obsidian must finish plugin onload before that event can arrive.
-            if (this.app.workspace.layoutReady) await this.nativeTaskHost.ready;
+            // Owner admission stays asynchronous on layout-ready loads too.
+            // Navigation/factories must be available while native panels initialize.
             this.addCommand({ id: "native-task-recovery", name: "Native task recovery",
                 callback: () => { this.nativeTaskRecoveryModal?.close(); this.nativeTaskRecoveryModal = __hubRequire("lib/ui/native-task-recovery.js").openNativeTaskRecovery(this); } });
         }
@@ -46961,6 +47010,7 @@ module.exports = class HubProjectMenu extends Plugin {
         delete window.hubCreateMarkdown;
         delete window.hubClearCompletedTasks;
         delete window.hubOpenProjectWizard;
+        delete window.hubGetHomeProjects;
         delete window.hubGetProjectCategories;
         delete window.hubGetResourceTypes;
         delete window.hubGetResourceFolders;

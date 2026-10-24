@@ -27,8 +27,15 @@ module.exports = async function ({ app, api }, root) {
     await wait(() => app.metadataCache.getFileCache(app.vault.getAbstractFileByPath(nativeDashboard))?.frontmatter?.projectId, "Project metadata");
     const pages = [{ file: { path: "Projects/Other/Work/Tasks.md", tasks: [{ path: "Projects/Other/Work/Tasks.md", line: 2, lineCount: 1, text: "Legacy task <!-- hub-task:legacy-task -->", status: " ", completed: false, checked: false, children: [], parent: null }] } }];
     app.plugins.plugins.dataview = { api: { pages: () => ({ array: () => pages }), index: { initialized: true } } };
+    async function admitted(plugin) {
+        // Actual onload exposes consumers/navigation before owner admission finishes.
+        assert.equal(typeof window.hubCreateTaskPanelRead, "function");
+        assert.equal(typeof window.hubCreateHomeTaskRead, "function");
+        assert.equal(typeof window.hubOpenWorkspace, "function");
+        await plugin.nativeTaskHost?.ready; return plugin;
+    }
     async function start() {
-        await progress("start requested, permanent=" + permanent); window.__m1dReady = false; window.__m1dError = null; await app.plugins.loadManifests(); await app.plugins.enablePlugin("hub-project-menu"); await progress("actual onload returned"); if (permanent) { await wait(() => window.hubCreateTaskPanelRead && Object.hasOwn(app.plugins.plugins["hub-project-menu"], "nativeTaskHost"), "production consumer hooks"); return app.plugins.plugins["hub-project-menu"]; } await wait(() => window.__m1dReady, "actual onload"); return window.__m1dPlugin;
+        await progress("start requested, permanent=" + permanent); window.__m1dReady = false; window.__m1dError = null; await app.plugins.loadManifests(); await app.plugins.enablePlugin("hub-project-menu"); await progress("actual onload returned"); if (permanent) { await wait(() => window.hubCreateTaskPanelRead && Object.hasOwn(app.plugins.plugins["hub-project-menu"], "nativeTaskHost"), "production consumer hooks"); return admitted(app.plugins.plugins["hub-project-menu"]); } await wait(() => window.__m1dReady, "actual onload"); return admitted(window.__m1dPlugin);
     }
     async function stop(plugin) { await progress("stop requested"); await app.plugins.disablePlugin("hub-project-menu"); await plugin.nativeTaskStopping; await progress("stop finished"); }
     if (permanent) await fs.copyFile(path.join(staged, "main.js"), path.join(directory, "main.js"));

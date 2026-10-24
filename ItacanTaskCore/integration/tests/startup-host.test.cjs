@@ -90,7 +90,7 @@ test("first-start layout readiness keeps guards immediate and promotes existing 
     const panel = host.nativeTasks.createPanelRead({ plugin: f.plugin, component: { register() {} }, workspace: f.configuration.owner, changed: () => panels++ });
     const stop = host.completionFeed.subscribe(() => history++);
     assert.equal(host.status().state, "opening"); assert.throws(() => f.plugin.mutateTask({ path: f.configuration.dashboard }));
-    assert.equal((await panel.read()).availability, "unavailable"); assert.deepEqual(await fs.readdir(f.configuration.config.directory), []);
+    assert.equal((await panel.read()).availability, "loading"); assert.deepEqual(await fs.readdir(f.configuration.config.directory), []);
     f.plugin.app.workspace.layoutReady = true; callbacks[0](); callbacks[0](); await host.ready;
     assert.equal(host.status().state, "ready"); assert.equal((await panel.read()).availability, "current"); assert(panels > 0 && history > 0);
     assert.equal((await fs.readdir(f.configuration.config.directory)).filter(n => n.startsWith("gen-")).length, 1);
@@ -181,4 +181,16 @@ test("quit Tasks waits for an accepted published write before releasing the leas
         const repo = await require("../../src/json-repository").openJsonRepository({ directory: f.configuration.config.directory, storageFormat: "private-v4", expectedAuthorityId: f.configuration.config.authorityId });
         try { const snapshot = await repo.readSnapshot({ version: 1, authorityId: f.configuration.config.authorityId, owners: [f.configuration.owner], selection: "tasks" }); assert.equal(snapshot.tasks.length, 1); assert.equal(snapshot.tasks[0].title, values.text); } finally { await repo.close(); }
     } finally { release(); await host.close(); }
+});
+
+test("native Legacy-read exclusion resolves each physical owner once instead of once per page", async t => {
+    const f = await fixture(t); let contextReads = 0, projectReads = 0;
+    const context = f.plugin.projectWizard.getContextForPath, project = f.plugin.projectWizard.getProjectById;
+    f.plugin.projectWizard.getContextForPath = (...a) => { contextReads++; return context(...a); };
+    f.plugin.projectWizard.getProjectById = (...a) => { projectReads++; return project(...a); };
+    const pages = Array.from({length: 2000}, (_, i) => ({file:{path:i % 2 ? "Resources/Knowledge/"+i+".md" : "Projects/Synthetic/"+i+".md"}}));
+    f.plugin.taskData.readPages = () => pages; const h = await f.start(); contextReads = projectReads = 0;
+    const kept = f.plugin.taskData.readPages(); assert.equal(kept.length,1000); assert.equal(contextReads,0); assert.equal(projectReads,1);
+    assert.equal(h.status().state,"ready"); f.change(p => p.root = "Projects/Moved"); contextReads = projectReads = 0;
+    f.plugin.taskData.readPages(); assert.equal(contextReads,0); assert.equal(projectReads,1);
 });

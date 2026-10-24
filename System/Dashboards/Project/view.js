@@ -2770,7 +2770,7 @@ const tasksBody =
 let currentProjectTasks = [];
 let visibleCompletedTasks = [];
 let clearingCompletedTasks = false;
-let taskPanelDisposed = false;
+let taskPanelLoading = true, taskPanelDisposed = false;
 let taskPanelGeneration = 0;
 const taskPanelRead = window.hubCreateTaskPanelRead?.({
     component: dv.component,
@@ -2835,7 +2835,9 @@ function renderTaskRows() {
 
     if (tasksBody.hubTaskUi && !tasksBody.hubTaskUi.beginRender(() => renderTaskRows())) return;
     tasksBody.empty();
-
+    if (taskPanelLoading && !currentProjectTasks.length) {
+        tasksBody.createDiv({ cls: "project-empty", text: "Loading tasks...", attr: { role: "status" } }); return;
+    }
 
     const oathPlan = tasksBody.hubTaskUi?.partitionOath?.(currentProjectTasks);
     const ordinaryTasks = oathPlan?.ordinary ?? currentProjectTasks;
@@ -3106,6 +3108,13 @@ async function renderCurrentTasks() {
         const result = await readProjectTasks();
         if (!result || taskPanelDisposed || !root.isConnected || generation !== taskPanelGeneration || taskWorkspace?.active()) return;
         if (tasksBody.hubTaskUi?.defer(() => { void renderCurrentTasks(); })) return;
+        taskPanelLoading = result.availability === "loading";
+        if (result.availability && result.availability !== "current") {
+            let status = tasksBody.querySelector("[data-task-read-status]");
+            if (!status) status = tasksBody.createDiv({ cls: "project-empty", attr: { "data-task-read-status": "", role: "status" } });
+            status.textContent = result.availability === "loading" ? "Loading tasks..." : "Tasks are temporarily unavailable. Existing tasks are retained.";
+            return;
+        }
         tasksBody.querySelector("[data-task-read-status]")?.remove();
         if (result.changed) {
             currentProjectTasks = result.tasks; taskPanelRead.accept(currentProjectTasks);

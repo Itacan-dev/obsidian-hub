@@ -6,9 +6,6 @@ const homePeriod = window.hubGetHomeTimePeriod();
 
 // ---------- DATA ----------
 
-const projectPages =
-    dv.pages('"Projects"');
-
 const resourceTypes =
     window.hubGetResourceTypes?.() ?? [];
 
@@ -86,24 +83,17 @@ refreshProjectCategories();
 
 
 
-const projects = projectPages
-    .where(p => p.type === "project")
-    .array()
-    .map(p => ({
-        sourcePath: p.file.path,
-        sourceRoot: folderPath(p.file.path),
-
-        path: p.file.path,
-        root: folderPath(p.file.path),
-
-        projectId: p.projectId,
-
-        name: p.file.name,
-        status: p.status,
-        categoryId: p.category,
-
-        deleted: false
+function homeProjectRecords() {
+    if (window.hubGetHomeProjects) return window.hubGetHomeProjects().map(project => ({
+        ...project, sourcePath: project.path, sourceRoot: project.root, deleted: false
     }));
+    return dv.pages('"Projects"').where(p => p.type === "project").array().map(p => ({
+        sourcePath: p.file.path, sourceRoot: folderPath(p.file.path),
+        path: p.file.path, root: folderPath(p.file.path), projectId: p.projectId,
+        name: p.file.name, status: p.status, categoryId: p.category, deleted: false
+    }));
+}
+const projects = homeProjectRecords();
 
 
 const savedProjectCardOrder =
@@ -838,7 +828,7 @@ const upcomingBody =
     });
 
 let homeTaskDisposed = false, homeTaskGeneration = 0, homeTaskStatus = null;
-let homeTaskRefreshPending = false, homeTaskCountComplete = true;
+let homeTaskRefreshPending = false, homeTaskCountComplete = false, homeTaskLoading = true;
 const homeTaskDocument = upcomingBody.ownerDocument;
 function deferHomeTaskInteraction() {
     const interaction = homeTaskRead?.availability ? ".menu, .modal-container form" : ".menu, .modal-container";
@@ -864,6 +854,9 @@ const homeTaskRead = window.hubCreateHomeTaskRead?.({
     },
     changed: () => { queueMicrotask(() => { if (!homeTaskDisposed && root.isConnected) void loadTaskData(); }); }
 });
+const retainedPresentation = homeTaskRead?.previousPresentation?.() ?? [];
+projectTasks = retainedPresentation.filter(item => item.owner.contextKind !== "resource");
+resourceTasks = retainedPresentation.filter(item => item.owner.contextKind === "resource");
 dv.component.register(() => { homeTaskDisposed = true; homeTaskGeneration++; });
 function reconcileHomeTaskEdit(edit) {
     homeTaskGeneration++;
@@ -928,7 +921,7 @@ function renderTasksToDo(
             upcomingBody,
             "div",
             "home-empty",
-            homeTaskCountComplete ? "No tasks to do." : "Tasks are temporarily unavailable."
+            homeTaskCountComplete ? "No tasks to do." : homeTaskLoading ? "Loading tasks..." : "Tasks are temporarily unavailable."
         );
 
         return;
@@ -4753,10 +4746,10 @@ async function refreshCompletedTaskHistory(render = true) {
         }
     } catch (error) {
         if (historyReadDisposed || !root.isConnected || ticket !== historyReadGeneration) return;
-        if (!historyReadStatus) historyReadStatus = recentBody.parentElement.createDiv({ cls: "home-empty", text: "Task History is temporarily unavailable. Existing History is retained." });
+        if (!historyReadStatus) historyReadStatus = recentBody.parentElement.createDiv({ cls: "home-empty", text: homeTaskRead?.availability?.() === "loading" ? "Loading task History..." : "Task History is temporarily unavailable. Existing History is retained." });
         historyReadStatus.setAttribute("role", "status"); historyReadStatus.setAttribute("data-task-history-status", "");
         historyReadStatus.hidden = progressView !== "tasks";
-        console.error("Recorded task History read failed", error);
+        if (homeTaskRead?.availability?.() !== "loading") console.error("Recorded task History read failed", error);
     }
 }
 
@@ -5532,30 +5525,34 @@ async function loadTaskData(render = true) {
         if (!result || homeTaskDisposed || !root.isConnected || ticket !== homeTaskGeneration) return;
         if (deferHomeTaskInteraction()) return;
         if (upcomingBody.hubTaskUi?.defer(() => { void loadTaskData(render); })) return;
-        homeTaskCountComplete = result.countComplete !== false;
+        const stateChanged = homeTaskCountComplete !== (result.countComplete !== false) || homeTaskLoading !== (result.availability === "loading");
+        homeTaskCountComplete = result.countComplete !== false; homeTaskLoading = result.availability === "loading";
         homeTaskStatus?.remove(); homeTaskStatus = null;
-        if (!homeTaskCountComplete) {
-            homeTaskStatus = upcoming.createDiv({ cls: "home-empty", text: "Native tasks are unavailable. Retained tasks are not a complete current total." });
+        if (!homeTaskCountComplete && result.items.length) {
+            homeTaskStatus = upcoming.createDiv({ cls: "home-empty", text: homeTaskLoading ? "Loading tasks..." : "Native tasks are unavailable. Retained tasks are not a complete current total." });
             homeTaskStatus.setAttribute("role", "status");
         }
         if (result.changed) {
             projectTasks = result.items.filter(item => item.owner.contextKind !== "resource");
             resourceTasks = result.items.filter(item => item.owner.contextKind === "resource");
             homeTaskRead.accept(result.items);
-            if (render) renderTaskContext();
         }
+        if (render && (result.changed || stateChanged)) renderTaskContext();
     } catch (error) {
         if (homeTaskDisposed || !root.isConnected || ticket !== homeTaskGeneration) return;
-        if (homeTaskRead?.availability) { homeTaskCountComplete = false; homeTaskCount = null; if (typeof homeContext !== "undefined") homeContext.setText("Tasks temporarily unavailable."); }
-        if (!homeTaskStatus) homeTaskStatus = upcoming.createDiv({ cls: "home-empty", text: "Tasks are temporarily unavailable. Existing tasks are retained." });
-        homeTaskStatus.setAttribute("role", "status");
-        console.error("Home task read failed", error);
+        homeTaskLoading = homeTaskRead?.availability?.() === "loading";
+        if (homeTaskRead?.availability) { homeTaskCountComplete = false; homeTaskCount = null; if (typeof homeContext !== "undefined") homeContext.setText(homeTaskLoading ? (retainedPresentation.length ? "Refreshing tasks..." : "Loading tasks...") : "Tasks temporarily unavailable."); }
+        if ([...projectTasks, ...resourceTasks].length && !homeTaskStatus) homeTaskStatus = upcoming.createDiv({ cls: "home-empty", text: homeTaskLoading ? "Loading tasks..." : "Tasks are temporarily unavailable. Existing tasks are retained." });
+        homeTaskStatus?.setAttribute("role", "status");
+        if (render) renderTaskContext();
+        if (!homeTaskLoading) console.error("Home task read failed", error);
     }
 }
 
 async function loadSecondaryData() {
-    await loadTaskData(false);
     if (homeTaskDisposed || !root.isConnected) return;
+    // Independent panels must not queue behind native admission or task reads.
+    void loadTaskData();
 
     recentItems =
         window.hubGetActivityLog?.()
@@ -5564,10 +5561,8 @@ async function loadSecondaryData() {
     progressReports =
         getScopedProgressReports();
 
-    await refreshCompletedTaskHistory(false);
-    if (historyReadDisposed || !root.isConnected) return;
-
-    renderActiveContext();
+    renderActiveProgressView();
+    void refreshCompletedTaskHistory();
 }
 
 
@@ -5583,7 +5578,7 @@ function renderTaskContext() {
     homeTaskCount = homeTaskCountComplete ? (window.hubTaskGroups?.(homeTasks).active ?? homeTasks.filter(item => !item.task.completed)).length : null;
 
 
-    if (!homeTaskCountComplete && typeof homeContext !== "undefined") homeContext.setText("Tasks temporarily unavailable.");
+    if (!homeTaskCountComplete && typeof homeContext !== "undefined") homeContext.setText(homeTaskLoading ? (retainedPresentation.length ? "Refreshing tasks..." : "Loading tasks...") : "Tasks temporarily unavailable.");
     else updateHomeContext();
 
 
@@ -5598,6 +5593,32 @@ function renderActiveContext() {
     renderActiveProgressView();
 }
 
-frame.defer(() => { void loadSecondaryData(); });
+// Subscribe before the final capture, so metadata becoming ready during this
+// render cannot strand Home with an empty Project/owner snapshot.
+function refreshHomeProjects() {
+    if (homeTaskDisposed || !root.isConnected || !window.hubGetHomeProjects) return;
+    const records = homeProjectRecords();
+    const fields = ["projectId", "path", "root", "name", "status", "categoryId"];
+    const before = JSON.stringify(projects.map(project => fields.map(key => project[key])));
+    const next = records.map(record => {
+        const existing = projects.find(project => project.projectId === record.projectId);
+        return existing ? Object.assign(existing, record) : record;
+    });
+    if (before === JSON.stringify(next.map(project => fields.map(key => project[key])))) return;
+    projects.splice(0, projects.length, ...next);
+    renderProjects(currentProjectStatus);
+    renderProjectTabCounts();
+    renderActiveContext();
+    void loadTaskData();
+}
+if (window.hubGetHomeProjects && app.metadataCache?.on) {
+    dv.component.registerEvent(app.metadataCache.on("resolved", refreshHomeProjects));
+    dv.component.registerEvent(app.metadataCache.on("changed", file => {
+        if (projects.some(project => project.path === file.path)
+            || app.metadataCache.getFileCache(file)?.frontmatter?.type === "project") refreshHomeProjects();
+    }));
+}
+renderTaskContext();
+frame.defer(() => { refreshHomeProjects(); void loadSecondaryData(); });
 frame.commit();
 window.hubEnterDashboard?.(root);

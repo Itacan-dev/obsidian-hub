@@ -31,5 +31,16 @@ async function readAuthoritative(vaultRoot,file,owner,authorityId){
  const observation=selected(resolved);async function assertCurrent(){check(P.same(await source(file),local)&&P.same(await source(sharedFile,true),shared),'Authoritative application inventory changed during capture.');}
  await assertCurrent();return{evidence:effective,observation,assertCurrent};
 }
-function createInventoryEvidence(plugin,owner,authorityId){return Object.freeze({async read(){const vault=plugin.app.vault.adapter.getBasePath(),file=path.join(vault,plugin.manifest.dir,'data.json'),observed=await readAuthoritative(vault,file,owner,authorityId),memory=selected(plugin.projectWizard.data);check(P.same(observed.observation,memory),'Application inventory is not coherently persisted.');await observed.assertCurrent();check(P.same(selected(plugin.projectWizard.data),memory),'Application inventory changed during capture.');return observed.evidence;}});}
+function createInventoryEvidence(plugin,owner,authorityId){
+ const transient=new Set(['Shared inventory changed during capture.','Authoritative application inventory changed during capture.','Application inventory changed during capture.']);
+ return Object.freeze({async read(){
+  // Startup UI persistence can cross a capture. Retry the complete observation,
+  // never reuse one side of a failed bracket or accept mismatched memory/data.
+  for(let attempt=0;attempt<3;attempt++)try{
+   const vault=plugin.app.vault.adapter.getBasePath(),file=path.join(vault,plugin.manifest.dir,'data.json'),observed=await readAuthoritative(vault,file,owner,authorityId),memory=selected(plugin.projectWizard.data);
+   check(P.same(observed.observation,memory),'Application inventory is not coherently persisted.');
+   await observed.assertCurrent();check(P.same(selected(plugin.projectWizard.data),memory),'Application inventory changed during capture.');return observed.evidence;
+  }catch(error){if(attempt===2||error.code!=='VALIDATION'||!transient.has(error.message))throw error;await new Promise(resolve=>setImmediate(resolve));}
+ }});
+}
 module.exports={capture,createInventoryEvidence,readAuthoritative};

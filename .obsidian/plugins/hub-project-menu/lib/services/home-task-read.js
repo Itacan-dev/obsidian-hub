@@ -6,6 +6,8 @@ const { applyTaskEdit } = require("../domain/tasks");
 const { taskMetadata } = require("../domain/task-planning");
 const { TaskServiceError } = require("./task-service-errors");
 const homes = new WeakMap();
+// Presentation only: never a task read, mutation guard or complete-count authority.
+const previousPresentations = new WeakMap();
 const taskFacts = task => task.nativeReference ? [task.nativeReference, task.text, task.completed, task.nativeReadOnly, taskMetadata(task), task.steps] : [task.path, task.line, task.text, task.hubTaskId ?? null, !!task.completed, !!task.identityConflict,
     taskMetadata(task), task.homePhysicalOwner ?? null, task.homeProjectReference ?? null,
     (task.steps ?? []).map(step => [step.line, step.text, step.hubTaskId ?? null, !!step.completed, step.parent ?? null])];
@@ -27,7 +29,7 @@ function createHomeTaskRead({ plugin, component, changed, resolveOwner, editTask
     let consumers = homes.get(plugin);
     if (!consumers) {
         homes.set(plugin, consumers = new Set());
-        plugin.register(() => { for (const close of [...consumers]) close(); consumers.clear(); homes.delete(plugin); });
+        plugin.register(() => { for (const close of [...consumers]) close(); consumers.clear(); homes.delete(plugin); previousPresentations.delete(plugin); });
     }
     const alive = () => { if (closed) throw new TaskServiceError("CLOSED", "This Home task view has closed."); };
     const checkOwner = (task, fresh) => {
@@ -123,10 +125,10 @@ function createHomeTaskRead({ plugin, component, changed, resolveOwner, editTask
     };
     if (!nativeTasks?.consumerUiV1) return legacy;
     if (typeof resolveNativeOwner !== "function") throw new TaskServiceError("UNAVAILABLE", "Native Home owner resolver required.");
-    let nativeGeneration = 0, available = false, accepted = [], nativeRows = [], nativeContext = null, composing = 0;
+    let nativeGeneration = 0, available = false, readState = "loading", accepted = [], nativeRows = [], nativeContext = null, composing = 0;
     const owners = nativeTasks.owners ?? [nativeTasks.owner];
     const panels = owners.map(owner => ({ owner, panel: nativeTasks.createPanelRead({ plugin, component, workspace: owner,
-        changed() { nativeGeneration++; available = false; if (!closed && !composing) changed(); } }) }));
+        changed() { nativeGeneration++; available = false; readState = "loading"; if (!closed && !composing) changed(); } }) }));
     const panelFor = task => { const entry = panels.find(p => sameWorkspace(p.owner, task.nativeReference?.owner)); if (!entry) throw new TaskServiceError("UNAVAILABLE", "Native task owner unavailable."); return entry.panel; };
     const native = {
         close: () => panels.forEach(p => p.panel.close()),
@@ -144,8 +146,8 @@ function createHomeTaskRead({ plugin, component, changed, resolveOwner, editTask
         return task;
     };
     const merge = items => owners.reduce((rows, owner, i) => nativeTasks.mergeHome(rows, nativeRows.filter(t => sameWorkspace(t.nativeReference?.owner, owner)), owner, nativeContext[i], resolveNativeOwner), items);
-    const unavailable = () => ({ items: accepted.map(item => isNative(item.task) ? { ...item, task: { ...item.task, nativeReadOnly: true } } : item),
-        changed: true, availability: "unavailable", countComplete: false, diagnostics: [{ code: "NATIVE_HOME_UNAVAILABLE" }] });
+    const unavailable = (state = "unavailable") => { readState = state; return ({ items: accepted.map(item => isNative(item.task) ? { ...item, task: { ...item.task, nativeReadOnly: true } } : item),
+        changed: true, availability: state, countComplete: false, diagnostics: [{ code: state === "loading" ? "NATIVE_HOME_INITIALIZING" : "NATIVE_HOME_UNAVAILABLE" }] }); };
     return {
         ...legacy,
         close() { native.close(); legacy.close(); available = false; },
@@ -154,6 +156,8 @@ function createHomeTaskRead({ plugin, component, changed, resolveOwner, editTask
             editTask: (task, saved) => isNative(task) ? native.actions.editTask(requireNative(task), saved) : legacy.actions.editTask(task, saved)
         },
         async read() {
+            const state = nativeTasks.availability?.();
+            if (state && state !== "current") { available = false; return unavailable(state); }
             composing++;
             try { for (let attempt = 0; attempt < 3; attempt++) {
                 const ng = nativeGeneration, lg = session.generation;
@@ -166,14 +170,31 @@ function createHomeTaskRead({ plugin, component, changed, resolveOwner, editTask
                 try {
                     nativeRows = n.tasks; nativeContext = n.context;
                     const items = merge(l.items);
-                    available = true;
+                    available = true; readState = "current";
                     return { items, changed: wrapperSignature(items) !== last, availability: "current", countComplete: true, diagnostics: l.diagnostics };
                 } catch (_) { available = false; return unavailable(); }
             }
             available = false; return unavailable();
-            } finally { composing--; }
+            } catch (_) { available = false; return unavailable(); }
+            finally { composing--; }
         },
-        accept(items) { if (available) { accepted = items; native.accept(nativeRows); } legacy.accept(items); },
+        previousPresentation() {
+            const previous = previousPresentations.get(plugin);
+            if (!previous || previous.source !== nativeTasks || previous.vault !== plugin.app?.vault?.adapter?.getBasePath?.()) return [];
+            return previous.items.flatMap(item => {
+                const ref = item.task.nativeReference, context = previous.contexts.find(c => sameWorkspace(c.owner, ref.owner)), owner = resolveNativeOwner(ref.owner);
+                if (!context || !owner || owner.deleted || owner.root !== context.root || owner.path !== context.dashboard) return [];
+                return [{ ...item, owner, task: { ...item.task, steps: item.task.steps.map(s => ({ ...s })), nativeReadOnly: true } }];
+            });
+        },
+        accept(items) {
+            if (available) {
+                accepted = items; native.accept(nativeRows);
+                previousPresentations.set(plugin, { source: nativeTasks, vault: plugin.app?.vault?.adapter?.getBasePath?.(),
+                    contexts: nativeContext, items: items.filter(item => isNative(item.task)) });
+            }
+            legacy.accept(items);
+        },
         reconcile(items, edit) {
             if (closed) return [];
             if (edit.backend === "native") {
@@ -194,7 +215,7 @@ function createHomeTaskRead({ plugin, component, changed, resolveOwner, editTask
             if (isNative(task)) throw new TaskServiceError("UNSUPPORTED", "Native source navigation is unavailable.");
             return legacy.reveal(task);
         },
-        availability: () => available ? "current" : "unavailable"
+        availability: () => { if (closed) return "unavailable"; const state = nativeTasks.availability?.(); return state && state !== "current" ? state : available ? "current" : readState; }
     };
 }
 module.exports = { createHomeTaskRead };

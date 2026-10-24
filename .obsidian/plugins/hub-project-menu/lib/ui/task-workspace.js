@@ -70,7 +70,7 @@ function mountTaskWorkspace({ plugin, component, dv, root, toolbar, filesGrid, f
     content.addEventListener("focusin", revealFocusedControl);
     component.register(() => content.removeEventListener("focusin", revealFocusedControl));
     let tasks = [], locations = [], workspaces = [], dirty = true, disposed = false, readGeneration = 0;
-    let nativeAvailable = false, nativeRefreshTimer = null, nativeReading = false;
+    let nativeLoading = true, nativeAvailable = false, nativeRefreshTimer = null, nativeReading = false;
     const native = nativeTasks?.consumerUiV1 && (nativeTasks.matches ? nativeTasks.matches({ type: "project", id: workspace.projectId }) : nativeTasks.owner.type === "project" && nativeTasks.owner.id === workspace.projectId)
         ? nativeTasks.createPanelRead({ plugin, component, workspace: { type: "project", id: workspace.projectId }, changed: () => { nativeAvailable = false; if (nativeReading) return; clearTimeout(nativeRefreshTimer); nativeRefreshTimer = setTimeout(() => { if (!disposed) void refresh(); }, 50); } }) : null;
     nativeAvailable = !native;
@@ -150,6 +150,8 @@ function mountTaskWorkspace({ plugin, component, dv, root, toolbar, filesGrid, f
                 nativeReading = true;
                 const result = await native.read(); if (cancelled()) return;
                 if (!result) throw Error("Native Schedule capture was superseded.");
+                nativeLoading = result.availability === "loading";
+                if (nativeLoading) { nativeAvailable = false; tasks = tasks.map(task => ({ ...task, nativeReadOnly: true })); render(); return; }
                 if (result.availability !== "current" || result.context.root !== workspace.root || result.context.dashboard !== workspace.path || result.context.status !== workspace.status) throw Error("Native Schedule owner unavailable.");
                 tasks = result.tasks; locations = []; nativeAvailable = true; native.accept(tasks); dirty = false; render(); return;
             }
@@ -164,7 +166,7 @@ function mountTaskWorkspace({ plugin, component, dv, root, toolbar, filesGrid, f
             }
             dirty = false; render();
         } catch (error) {
-            if (!cancelled()) { if (native) { nativeAvailable = false; tasks = tasks.map(task => ({ ...task, nativeReadOnly: true })); render(); }
+            if (!cancelled()) { if (native) { nativeLoading = false; nativeAvailable = false; tasks = tasks.map(task => ({ ...task, nativeReadOnly: true })); render(); }
                 console.error("Schedule task read failed", error);
                 if (!native) new (require("obsidian").Notice)("Schedule tasks could not be loaded. Please try again."); }
         } finally { if (native) nativeReading = false; if (generation === readGeneration) content.removeAttribute("aria-busy"); }
@@ -187,7 +189,7 @@ function mountTaskWorkspace({ plugin, component, dv, root, toolbar, filesGrid, f
             content.contains(focused) && hasKeyboardFocus(focused) ? focused.dataset.scheduleControl : null;
         scheduleFocusRequest = undefined;
         content.empty();
-        if (native && !nativeAvailable) content.createDiv({ cls: "hub-task-view-empty", text: "Schedule unavailable. Retained tasks are not a complete current total.", attr: { role: "status" } });
+        if (native && !nativeAvailable) content.createDiv({ cls: "hub-task-view-empty", text: nativeLoading ? "Loading tasks..." : "Schedule unavailable. Retained tasks are not a complete current total.", attr: { role: "status" } });
         const context = { workspace, resource, folders: locations.filter(item => item.folder), now,
             ui, pending, currentPath, unavailable: native && !nativeAvailable, locationLabel: describe, phaseLabel: task => plugin.planning?.phaseFor(task)?.name, apply, edit, create, render,
             toggle: mutate,
