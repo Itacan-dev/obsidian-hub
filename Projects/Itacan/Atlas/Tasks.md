@@ -1,6 +1,6 @@
-- [ ] Refactor Atlas whitelisting into site/app clusters that permit all required supporting domains <!-- hub-task:d9e34e87-2b7a-4441-86d3-20c20a751620 -->
-- [ ] Maintain a background dependency-domain registry for common sites and web apps to avoid manual whitelisting <!-- hub-task:44c1c865-9d29-4144-9f33-6c438f603377 -->
-- [ ] Support built-in extensions such as uBlock Origin Lite with automatic background updates; defer user-managed extensions <!-- hub-task:eec48933-1153-44e9-af66-5e43e0727814 -->
-- [ ] Investigate browser data storage and add Settings controls to clear history, cookies, cache, site data, and related data <!-- hub-task:5c4768d7-c59d-4cae-bba9-947cde77233c -->
-- [ ] Integrate and improve Atlas Settings within the browser interface instead of a separate window <!-- hub-task:7e999fbd-3eda-4924-9b87-16fc959a1fe5 -->
-- [ ] Expand Atlas mouse, tab, and window functionality with multiple windows and improved new-tab and tab-opening behavior <!-- hub-task:cc46f7ce-30ea-4004-9d1a-79f926ee4c91 -->
+- Refactor Atlas whitelisting into site/app clusters that permit all required supporting domains <!-- hub-task:d9e34e87-2b7a-4441-86d3-20c20a751620 -->
+- Maintain a background dependency-domain registry for common sites and web apps to avoid manual whitelisting <!-- hub-task:44c1c865-9d29-4144-9f33-6c438f603377 -->
+- Support built-in extensions such as uBlock Origin Lite with automatic background updates; defer user-managed extensions <!-- hub-task:eec48933-1153-44e9-af66-5e43e0727814 -->
+- Investigate browser data storage and add Settings controls to clear history, cookies, cache, site data, and related data <!-- hub-task:5c4768d7-c59d-4cae-bba9-947cde77233c -->
+- Integrate and improve Atlas Settings within the browser interface instead of a separate window <!-- hub-task:7e999fbd-3eda-4924-9b87-16fc959a1fe5 -->
+- Expand Atlas mouse, tab, and window functionality with multiple windows and improved new-tab and tab-opening behavior <!-- hub-task:cc46f7ce-30ea-4004-9d1a-79f926ee4c91 -->

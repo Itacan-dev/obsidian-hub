@@ -132,3 +132,18 @@
 
 # Dataview's safe query settings are required by the shared dashboards.
 !/.obsidian/plugins/dataview/data.json
+
+# Portable native Git task evidence only; runtime state remains device-local.
+!/.itacan-native/
+/.itacan-native/**
+!/.itacan-native/.gitattributes
+!/.itacan-native/projects/
+!/.itacan-native/projects/*.json
+!/.itacan-native/transitions/
+!/.itacan-native/transitions/*.json
+!/.itacan-native/v3/
+!/.itacan-native/v3/*/
+!/.itacan-native/v3/*/objects/
+!/.itacan-native/v3/*/objects/*.json
+!/.itacan-native/v3/*/heads/
+!/.itacan-native/v3/*/heads/*.json

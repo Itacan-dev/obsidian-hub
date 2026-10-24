@@ -1,53 +1,53 @@
-- [ ] Write the primary views section <!-- hub-task:7f5fc3bf-e6ba-44ec-badc-330e0f3f268d -->
+- Write the primary views section <!-- hub-task:7f5fc3bf-e6ba-44ec-badc-330e0f3f268d -->
 
-- [ ] Complete Obsidian prototype, including Hub and Atlas <!-- hub-task:b208baad-1f29-446d-b202-3e5f69685d99 -->
-- [ ] Validate core workflows through sustained prototype use <!-- hub-task:92c8bbb6-284d-4ca8-a5ab-1f2901d5b329 -->
-- [ ] Conduct initial competitor and workflow research <!-- hub-task:657739cf-9d70-4d93-91d4-64a9c81b3a57 -->
-- [ ] Interview prospective users about workflows and problems <!-- hub-task:82d9aac2-b702-4fe2-b5d8-5009b847fdf7 -->
-- [ ] Refine initial target users and core use cases <!-- hub-task:02c12194-b961-4da3-9823-84d9a8b151bb -->
-- [ ] Test product terminology and descriptions with potential users <!-- hub-task:c4231f04-dd02-446f-bddf-8d2e2608682a -->
-- [ ] Design onboarding and guided-setup flow <!-- hub-task:3de0554d-a77b-4557-85ab-1f96d9f6e9e3 -->
-- [ ] Define initial target market <!-- hub-task:1f7aea72-8c70-4629-b0ec-6719bf1f492c -->
-- [ ] Design application-wide Theme System <!-- hub-task:526724e8-9433-4ba7-a066-e91e989f524a -->
-- [ ] Define Theme Pack structure and customizable properties <!-- hub-task:6a598442-1109-4c28-8ce7-a8251fe66bb5 -->
-- [ ] Define Itacan positioning, differentiation, and value language <!-- hub-task:5304e44d-a236-4b33-838c-36ca8c0e09dd -->
-- [ ] Recruit Closed Beta cohort <!-- hub-task:f4ae0729-56ab-4418-bc44-20dc5565da30 -->
-- [ ] Create Itacan landing page / early public presence <!-- hub-task:45b5f20a-aa6a-4cf0-b82b-6f03ed444191 -->
-- [ ] Set up early-access / beta sign-up <!-- hub-task:ef727a09-afed-43eb-9226-9d969379e4c5 -->
-- [ ] Prepare initial screenshots and product demonstrations <!-- hub-task:7e47bbf0-aa17-445d-aea6-f2b26a9f82e8 -->
-- [ ] Begin communicating Itacan in relevant communities <!-- hub-task:96208546-cd06-46e3-8f8f-20b63ff9cecf -->
-- [ ] Register with KTH Innovation <!-- hub-task:25e88dc4-e369-43d7-be1e-61430c529182 -->
-- [ ] Read The Odyssey <!-- hub-task:e7146204-d95c-4f72-9ebc-2cc8f3900191 -->
-- [ ] Finalize functionality documentation <!-- hub-task:641bf272-1b93-46d4-b1b4-24ded1b48171 -->
-- [ ] Finalize interface designs and visual references <!-- hub-task:38196ad5-ffca-43ee-a492-bfc498e756b6 -->
-- [ ] Finalize application architecture <!-- hub-task:2781b282-8e30-4fc9-ae34-c93f50184740 -->
-- [ ] Finalize component and data architecture <!-- hub-task:03820009-0268-414c-a240-d53e7da8e575 -->
-- [ ] Define coding and design principles <!-- hub-task:35311400-e131-43ab-ad14-103ee72147d5 -->
-- [ ] Prepare Codex prompts and implementation instructions <!-- hub-task:55bb900e-1cda-4a4d-a436-98a1e8655a13 -->
-- [ ] Define implementation agents and responsibilities <!-- hub-task:ea2e7212-362a-43a1-bb7a-29c8437bc7b6 -->
-- [ ] Define acceptance criteria and test requirements <!-- hub-task:7e2e7bc5-10ce-4b82-b21f-df170d134d4b -->
-- [ ] Prepare required application assets <!-- hub-task:18fd78e6-351a-4ac0-a3a1-d03f46e5c534 -->
-- [ ] Resolve remaining implementation decisions <!-- hub-task:4160b402-0cd5-476e-8a6a-564f2aef38ab -->
-- [ ] Complete build-ready Itacan specification <!-- hub-task:d56ca3cf-3aa3-4f8b-a6b3-245fc694c447 -->
-- [ ] Define provisional Free / Light / Pro pricing model <!-- hub-task:d6096112-d2d7-47b4-a836-1b1e61ca271d -->
-- [ ] Define initial launch strategy <!-- hub-task:a0e016d1-87cb-4cf1-ac96-ca2524b1ae4a -->
-- [ ] Build standalone Itacan application <!-- hub-task:2124eae6-bd7c-4647-87b1-bf816986ef32 -->
-- [ ] Integrate all core systems into standalone application <!-- hub-task:608f65a7-b6bc-45d0-8ebc-f7fb8a756fda -->
-- [ ] Run internal integration testing <!-- hub-task:128006e7-f366-4943-bad7-edbfec4edc86 -->
-- [ ] Reach Internal Alpha <!-- hub-task:d3c56b6a-f104-4341-8609-473f69751394 -->
-- [ ] Confirm Closed Beta cohort <!-- hub-task:005dd4ad-5637-4516-9f0c-db5360c59a89 -->
-- [ ] Fix major defects and reliability problems <!-- hub-task:0fea99ba-fe83-4338-bc9e-6b420f732212 -->
-- [ ] Run regression and specification-conformance testing <!-- hub-task:3da1d615-b381-4d15-86d3-463889c11107 -->
-- [ ] Test installation, updates, and platform integration <!-- hub-task:4dd93283-1ed4-450f-aa8f-bbb8cda73860 -->
-- [ ] Optimize performance and refine usability <!-- hub-task:be83d9ba-4264-4ec8-835c-7cafeeee1cb8 -->
-- [ ] Launch Closed Beta <!-- hub-task:6b5df7d1-59b0-4af1-9f68-09d81b03648f -->
-- [ ] Collect and categorize Closed Beta feedback <!-- hub-task:2c03f516-36bc-4782-a5c9-2c89d9289eb8 -->
-- [ ] Convert beta feedback into concrete product changes <!-- hub-task:557fa722-0965-4568-897b-ce8f9be8dc54 -->
-- [ ] Finalize launch pricing and plan structure <!-- hub-task:6e981afe-e222-43cd-985a-bc710ef77b00 -->
-- [ ] Finalize launch messaging, website content, and pricing pages <!-- hub-task:a28e3be5-f0c2-4d62-b77e-09c3bb3821aa -->
-- [ ] Prepare onboarding, documentation, and support material <!-- hub-task:90a52e56-04dc-412a-a696-36422eb7340c -->
-- [ ] Prepare launch demonstrations and acquisition channels <!-- hub-task:c5278c8d-fcd2-4a53-b534-2242b6329461 -->
-- [ ] Produce v1.0 release candidate <!-- hub-task:733808ed-7911-4637-b03d-058602e62f10 -->
-- [ ] Release Itacan v1.0, provided the beta supports release <!-- hub-task:713c82a6-a58b-43ee-b344-63679e138e28 -->
-- [ ] Evaluate whether to begin macOS support <!-- hub-task:0e82cfe0-9782-41cf-8cc5-d147ce9f7c31 -->
+- Complete Obsidian prototype, including Hub and Atlas <!-- hub-task:b208baad-1f29-446d-b202-3e5f69685d99 -->
+- Validate core workflows through sustained prototype use <!-- hub-task:92c8bbb6-284d-4ca8-a5ab-1f2901d5b329 -->
+- Conduct initial competitor and workflow research <!-- hub-task:657739cf-9d70-4d93-91d4-64a9c81b3a57 -->
+- Interview prospective users about workflows and problems <!-- hub-task:82d9aac2-b702-4fe2-b5d8-5009b847fdf7 -->
+- Refine initial target users and core use cases <!-- hub-task:02c12194-b961-4da3-9823-84d9a8b151bb -->
+- Test product terminology and descriptions with potential users <!-- hub-task:c4231f04-dd02-446f-bddf-8d2e2608682a -->
+- Design onboarding and guided-setup flow <!-- hub-task:3de0554d-a77b-4557-85ab-1f96d9f6e9e3 -->
+- Define initial target market <!-- hub-task:1f7aea72-8c70-4629-b0ec-6719bf1f492c -->
+- Design application-wide Theme System <!-- hub-task:526724e8-9433-4ba7-a066-e91e989f524a -->
+- Define Theme Pack structure and customizable properties <!-- hub-task:6a598442-1109-4c28-8ce7-a8251fe66bb5 -->
+- Define Itacan positioning, differentiation, and value language <!-- hub-task:5304e44d-a236-4b33-838c-36ca8c0e09dd -->
+- Recruit Closed Beta cohort <!-- hub-task:f4ae0729-56ab-4418-bc44-20dc5565da30 -->
+- Create Itacan landing page / early public presence <!-- hub-task:45b5f20a-aa6a-4cf0-b82b-6f03ed444191 -->
+- Set up early-access / beta sign-up <!-- hub-task:ef727a09-afed-43eb-9226-9d969379e4c5 -->
+- Prepare initial screenshots and product demonstrations <!-- hub-task:7e47bbf0-aa17-445d-aea6-f2b26a9f82e8 -->
+- Begin communicating Itacan in relevant communities <!-- hub-task:96208546-cd06-46e3-8f8f-20b63ff9cecf -->
+- Register with KTH Innovation <!-- hub-task:25e88dc4-e369-43d7-be1e-61430c529182 -->
+- Read The Odyssey <!-- hub-task:e7146204-d95c-4f72-9ebc-2cc8f3900191 -->
+- Finalize functionality documentation <!-- hub-task:641bf272-1b93-46d4-b1b4-24ded1b48171 -->
+- Finalize interface designs and visual references <!-- hub-task:38196ad5-ffca-43ee-a492-bfc498e756b6 -->
+- Finalize application architecture <!-- hub-task:2781b282-8e30-4fc9-ae34-c93f50184740 -->
+- Finalize component and data architecture <!-- hub-task:03820009-0268-414c-a240-d53e7da8e575 -->
+- Define coding and design principles <!-- hub-task:35311400-e131-43ab-ad14-103ee72147d5 -->
+- Prepare Codex prompts and implementation instructions <!-- hub-task:55bb900e-1cda-4a4d-a436-98a1e8655a13 -->
+- Define implementation agents and responsibilities <!-- hub-task:ea2e7212-362a-43a1-bb7a-29c8437bc7b6 -->
+- Define acceptance criteria and test requirements <!-- hub-task:7e2e7bc5-10ce-4b82-b21f-df170d134d4b -->
+- Prepare required application assets <!-- hub-task:18fd78e6-351a-4ac0-a3a1-d03f46e5c534 -->
+- Resolve remaining implementation decisions <!-- hub-task:4160b402-0cd5-476e-8a6a-564f2aef38ab -->
+- Complete build-ready Itacan specification <!-- hub-task:d56ca3cf-3aa3-4f8b-a6b3-245fc694c447 -->
+- Define provisional Free / Light / Pro pricing model <!-- hub-task:d6096112-d2d7-47b4-a836-1b1e61ca271d -->
+- Define initial launch strategy <!-- hub-task:a0e016d1-87cb-4cf1-ac96-ca2524b1ae4a -->
+- Build standalone Itacan application <!-- hub-task:2124eae6-bd7c-4647-87b1-bf816986ef32 -->
+- Integrate all core systems into standalone application <!-- hub-task:608f65a7-b6bc-45d0-8ebc-f7fb8a756fda -->
+- Run internal integration testing <!-- hub-task:128006e7-f366-4943-bad7-edbfec4edc86 -->
+- Reach Internal Alpha <!-- hub-task:d3c56b6a-f104-4341-8609-473f69751394 -->
+- Confirm Closed Beta cohort <!-- hub-task:005dd4ad-5637-4516-9f0c-db5360c59a89 -->
+- Fix major defects and reliability problems <!-- hub-task:0fea99ba-fe83-4338-bc9e-6b420f732212 -->
+- Run regression and specification-conformance testing <!-- hub-task:3da1d615-b381-4d15-86d3-463889c11107 -->
+- Test installation, updates, and platform integration <!-- hub-task:4dd93283-1ed4-450f-aa8f-bbb8cda73860 -->
+- Optimize performance and refine usability <!-- hub-task:be83d9ba-4264-4ec8-835c-7cafeeee1cb8 -->
+- Launch Closed Beta <!-- hub-task:6b5df7d1-59b0-4af1-9f68-09d81b03648f -->
+- Collect and categorize Closed Beta feedback <!-- hub-task:2c03f516-36bc-4782-a5c9-2c89d9289eb8 -->
+- Convert beta feedback into concrete product changes <!-- hub-task:557fa722-0965-4568-897b-ce8f9be8dc54 -->
+- Finalize launch pricing and plan structure <!-- hub-task:6e981afe-e222-43cd-985a-bc710ef77b00 -->
+- Finalize launch messaging, website content, and pricing pages <!-- hub-task:a28e3be5-f0c2-4d62-b77e-09c3bb3821aa -->
+- Prepare onboarding, documentation, and support material <!-- hub-task:90a52e56-04dc-412a-a696-36422eb7340c -->
+- Prepare launch demonstrations and acquisition channels <!-- hub-task:c5278c8d-fcd2-4a53-b534-2242b6329461 -->
+- Produce v1.0 release candidate <!-- hub-task:733808ed-7911-4637-b03d-058602e62f10 -->
+- Release Itacan v1.0, provided the beta supports release <!-- hub-task:713c82a6-a58b-43ee-b344-63679e138e28 -->
+- Evaluate whether to begin macOS support <!-- hub-task:0e82cfe0-9782-41cf-8cc5-d147ce9f7c31 -->
 
