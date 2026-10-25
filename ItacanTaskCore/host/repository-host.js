@@ -18,7 +18,7 @@ function constructHost(input, options, makeWriter) {
     catch (_) { throw safeError("HOST_CONTRACT"); }
     options = Object.freeze({ ...options, repositoryOptions: Object.freeze({ ...options.repositoryOptions }) });
     let phase = "configured", repo = null, opening = null, closing = null, disposed = false, epoch = 0, generation = 0, readNumber = 0, monitorHealthy = false;
-    let stops = [], listeners = new Set(), lastContext = null, retained = null;
+    let stops = [], listeners = new Set(), lastContext = null, retained = null, receiptAnchor = null;
     check(!options.requestRetention || !!makeWriter, "Retention requires a writer host.");
     check(config.scope === "inactive-disposable" || !makeWriter || !!options.requestRetention, "Permanent writer requires retained requests.");
     check(config.scope!=="device-private-git-project"||!!options.gitSharing&&!!makeWriter&&options.requestRetention?.version===2&&options.writerPolicy.inventory.version===2,"Permanent Git writer requires retained requests and authoritative inventory.");
@@ -35,7 +35,11 @@ function constructHost(input, options, makeWriter) {
     function notify(reason, discontinuity = false) { if (discontinuity && reason !== "closing") participant?.invalidate(); if (discontinuity) epoch++; generation++; const change = freeze({ version: 1, kind: "snapshot-invalidated", durability: "ephemeral", hostEpoch: epoch, generation, reason }); for (const listener of [...listeners]) { try { Promise.resolve(listener(change)).catch(() => {}); } catch (_) {} } }
     function unavailable(code, state = "unavailable") { last = { ...last, readiness: { state, reason: code }, permissions: { taskReads: "unavailable", completionProof: "unavailable", mutations: "unsupported", history: "unsupported" } }; notify("unavailable", true); }
     function failure(code, state = "unavailable") { return freeze({ version: 1, state, code, retry: ["LOCK_LOST", "ROOT_IDENTITY_CHANGED", "REPOSITORY_CONFLICT", "RECOVERY_REQUIRED"].includes(code) ? "explicit-reopen" : state === "unsupported" ? "review" : "refresh" }); }
-    async function observe(signal) { const registry = G.validateRegistry(await options.registry.read(signal), config); if (config.scope === "device-private-project") check(registry.owners.length === 1 && same(registry.owners[0].owner, require("./private-authority").bindingOwner(config.binding)) && registry.owners[0].partitionId === "private" && !registry.owners[0].shared, "Permanent owner scope differs."); if (options.gitSharing) { check(registry.owners.length === 1 && registry.owners[0].owner.type === "project" && registry.owners[0].shared && registry.owners[0].shareApproval !== null && registry.owners[0].available, "Reviewed Git Project registry required."); if(makeWriter) check(options.writerPolicy.owners.length === 1 && options.writerPolicy.owners[0].partitionId === registry.owners[0].partitionId && same(options.writerPolicy.owners[0].owner,registry.owners[0].owner),"Git writer policy differs from physical registry owner."); } const identity = options.identity ? await options.identity.read(signal) : null; return { registry, ownerContextPin: registry.digest, identity: identity === null ? null : V.clone(identity), identityPin: G.identityPin(identity) }; }
+    async function observe(signal) { const registry = G.validateRegistry(await options.registry.read(signal), config); if (config.scope === "device-private-project") check(registry.owners.length === 1 && same(registry.owners[0].owner, require("./private-authority").bindingOwner(config.binding)) && registry.owners[0].partitionId === "private" && !registry.owners[0].shared, "Permanent owner scope differs."); if (options.gitSharing) { check(registry.owners.length === 1 && registry.owners[0].owner.type === "project" && registry.owners[0].shared && registry.owners[0].shareApproval !== null && registry.owners[0].available, "Reviewed Git Project registry required."); if(makeWriter) check(options.writerPolicy.owners.length === 1 && options.writerPolicy.owners[0].partitionId === registry.owners[0].partitionId && same(options.writerPolicy.owners[0].owner,registry.owners[0].owner),"Git writer policy differs from physical registry owner."); } const identity = options.identity ? await options.identity.read(signal) : null;
+        // Legacy binding-v1 omits its physical root. Pin the initial validated
+        // registry root for receipt inspection throughout this host lifetime.
+        if (!receiptAnchor && config.scope === "device-private-project" && config.binding.version === 1 && registry.owners[0].available && registry.owners[0].dashboard !== null) receiptAnchor = { root: registry.owners[0].root, dashboard: registry.owners[0].dashboard };
+        return { registry, ownerContextPin: registry.digest, identity: identity === null ? null : V.clone(identity), identityPin: G.identityPin(identity) }; }
     function stopOwned() { for (const stop of stops.splice(0)) { try { stop(); } catch (_) {} } monitorHealthy = false; }
     function startOwned() {
         function own(stop) { check(typeof stop === "function", "Provider unsubscribe required."); stops.push(stop); }
@@ -43,6 +47,16 @@ function constructHost(input, options, makeWriter) {
         own(options.registry.subscribe(() => { lastContext = null; unavailable("OWNER_CONTEXT_INVALIDATED"); }));
         if (options.identity) own(options.identity.subscribe(() => { lastContext = null; unavailable("IDENTITY_CONTEXT_INVALIDATED"); }));
         stops.push(M.monitorRoot(config.directory, () => notify("storage"), () => { monitorHealthy = false; unavailable("STORAGE_MONITOR_UNAVAILABLE"); })); monitorHealthy = true;
+    }
+    function boundReceiptOwner(record, observation) {
+        const binding = config.binding, shared = config.scope === "device-private-git-project";
+        if (!binding || !["device-private-project", "device-private-git-project"].includes(config.scope)) return false;
+        const owner = shared ? { type: "project", id: binding.projectId } : require("./private-authority").bindingOwner(binding);
+        const entry = observation.registry.owners.find(o => same(o.owner, owner));
+        const partition = shared ? options.writerPolicy.owners.find(o => same(o.owner, owner))?.partitionId : "private";
+        const root = shared ? binding.projectRoot : binding.ownerRoot ?? receiptAnchor?.root;
+        const dashboard = binding.dashboard ?? receiptAnchor?.dashboard;
+        return typeof root === "string" && typeof dashboard === "string" && same(record.owner, owner) && record.partitionId === partition && entry?.available && entry.shared === shared && entry.partitionId === partition && entry.root === root && entry.dashboard === dashboard;
     }
     async function capture(request, signal, scoped = false) {
         if (disposed || phase !== "open") return { failure: failure(phase === "disposed" ? "HOST_DISPOSED" : "HOST_NOT_OPEN") };
@@ -90,11 +104,22 @@ function constructHost(input, options, makeWriter) {
                     for (const p of snapshot.partitions) check(header.partitions.some(h => h.id === p.id && same(h.owner, p.owner) && h.revision === p.revision && h.head === p.head), "Partition header mismatch.");
                 }
                 for (const p of snapshot.partitions) check(before.registry.owners.some(o => same(o.owner, p.owner) && o.partitionId === p.id), "Owner partition mismatch.");
-                for (const t of [...snapshot.tasks, ...snapshot.targets.map(t => t.task).filter(Boolean), ...(snapshot.editor?.state === "available" ? [{ ...snapshot.editor, location: snapshot.editor.draft.metadata.location }] : [])]) { const owner = before.registry.owners.find(o => same(o.owner, t.owner)); check(owner && owner.partitionId === t.partitionId, "Task partition mismatch."); if (t.location) check(owner.locations.some(l => same(l, t.location)), "Location evidence unavailable."); }
+                const locationFacts = [];
+                for (const t of [...snapshot.tasks, ...snapshot.targets.map(t => t.task).filter(Boolean), ...(snapshot.editor?.state === "available" ? [{ ...snapshot.editor, id: snapshot.editor.taskId, location: snapshot.editor.draft.metadata.location }] : [])]) {
+                    const owner = before.registry.owners.find(o => same(o.owner, t.owner)); check(owner && owner.partitionId === t.partitionId, "Task partition mismatch.");
+                    const available = t.location === null || owner.locations.some(l => same(l, t.location));
+                    // An explicit UI capture may report an unresolved reference,
+                    // never claim it resolved or admit a mutation against it.
+                    if (!available) {
+                        check(!before.registry.owners.some(o => !same(o.owner, t.owner) && o.locations.some(l => same(l, t.location))), "Location belongs to another owner.");
+                        check(scoped && request.locationEvidence === "report-unavailable", "Location evidence unavailable.");
+                    }
+                    if (request.locationEvidence) locationFacts.push({ taskId: t.id, state: available ? "available" : "unavailable" });
+                }
                 const stamp = { version: 1, hostEpoch: epoch, readGeneration: ++readNumber, head: snapshot.head, ownerContextPin: before.ownerContextPin, identityPin: before.identityPin };
                 lastContext = before;
                 last = { ...last, storeId: snapshot.authorityId, logicalSchemaVersion: snapshot.logicalSchemaVersion, namespaces: snapshot.namespaces, storage: snapshot.storage, head: snapshot.head, ownerContextPin: before.ownerContextPin, identityPin: before.identityPin, readiness: snapshot.readiness, permissions: { taskReads: snapshot.readiness.state === "ready" ? "available" : "recovered-observation", completionProof: snapshot.readiness.state === "ready" ? "available" : "unavailable", mutations: "unsupported", history: "unsupported" } };
-                return { value: freeze(scoped ? { version: 2, kind: "scoped-capture", status: "ok", info: info(), stamp, snapshot } : { version: 1, status: "ok", stamp, snapshot }), context: before };
+                return { value: freeze(scoped ? { version: 2, kind: "scoped-capture", status: "ok", info: info(), stamp, snapshot, ...(request.locationEvidence ? { locationFacts } : {}) } : { version: 1, status: "ok", stamp, snapshot }), context: before };
             } catch (error) {
                 const code = coded(error); if (code === "SNAPSHOT_UNSTABLE") continue;
                 const state = code === "UNSUPPORTED_SCHEMA" ? "unsupported" : "unavailable"; unavailable(code, state); return { failure: failure(code, state) };
@@ -128,26 +153,24 @@ function constructHost(input, options, makeWriter) {
                         if(!records.length)return new Set();
                         const before=(await capture({selection:"status"},undefined,true)).value;
                         check(before?.status==="ok"&&before.snapshot.readiness.state==="ready"&&before.snapshot.recovery.state==="intact","Retained observation unavailable.");
-                        const packet=await repo.exportSharedPacket(),after=(await capture({selection:"status"},undefined,true)).value;
+                        const packet=await repo.exportSharedPacket(),afterCapture=await capture({selection:"status"},undefined,true),after=afterCapture.value;
                         check(after?.status==="ok"&&after.snapshot.readiness.state==="ready"&&after.snapshot.recovery.state==="intact"&&same(before.stamp.head,after.stamp.head)&&before.stamp.hostEpoch===after.stamp.hostEpoch&&before.stamp.ownerContextPin===after.stamp.ownerContextPin&&before.stamp.identityPin===after.stamp.identityPin,"Retained observation changed.");
                         const frames=new Map(packet.frames.map(f=>[f.id,f])),head=packet.head===null?null:frames.get(packet.head),receipts=new Map();
                         check(packet.genesis.authorityId===config.authorityId&&(head?.receipt.result.revisionId??packet.genesis.revisionId)===after.stamp.head.revisionId,"Retained export head differs.");
                         for(let id=packet.head;id!==null;){const f=frames.get(id);check(f,"Retained receipt ancestry missing.");receipts.set(f.receipt.operationId,f.receipt);id=f.parent;}
                         const committed=new Set();for(const r of records){const receipt=receipts.get(r.operationId);
-                            if(same(r.owner,packet.genesis.partition.owner)&&r.partitionId===packet.genesis.partition.id&&r.writerRequest.scope.ownerContextPin===after.stamp.ownerContextPin&&r.writerRequest.scope.identityPin===after.stamp.identityPin&&receipt?.partitionIds.includes(r.partitionId)&&require("../src/git-shared").hash(JSON.parse(receipt.payload))===r.commandDigest)committed.add(r.operationId);
+                            if(same(r.owner,packet.genesis.partition.owner)&&r.partitionId===packet.genesis.partition.id&&(r.writerRequest.scope.ownerContextPin===after.stamp.ownerContextPin||boundReceiptOwner(r,afterCapture.context))&&r.writerRequest.scope.identityPin===after.stamp.identityPin&&receipt?.partitionIds.includes(r.partitionId)&&require("../src/git-shared").hash(JSON.parse(receipt.payload))===r.commandDigest)committed.add(r.operationId);
                         }return committed;
                     } : undefined;
                     retained = require("./pending-requests").createPendingRequests(port, config, options.requestRetention, async record => {
-                        // A Resource's location inventory may legitimately change
-                        // between sessions. Its immutable command/guards remain
-                        // unchanged; only receipt inspection may use the current
-                        // validated physical Resource binding. Inactive/unbound
-                        // contexts retain the original strict pin contract.
+                        // File inventory changes do not undo committed receipts.
+                        // Inspect them under the current, validated permanent owner
+                        // binding; retain the command and every original replay guard.
                         let ownerContextPin = record?.writerRequest.scope.ownerContextPin;
-                        const binding = config.binding;
-                        if (record && config.scope === "device-private-project" && binding?.version === 2 && binding.owner.type === "resource") {
-                            const current = await observe(), entry = current.registry.owners.find(o => same(o.owner, binding.owner));
-                            check(same(record.owner, binding.owner) && record.partitionId === "private" && entry?.available && !entry.shared && entry.partitionId === "private" && entry.root === binding.ownerRoot && entry.dashboard === binding.dashboard, "Bound Resource receipt context differs.");
+                        const binding = config.binding, permanent = ["device-private-project", "device-private-git-project"].includes(config.scope);
+                        if (record && permanent && binding) {
+                            const current = await observe();
+                            check(boundReceiptOwner(record, current), "Bound workspace receipt context differs.");
                             ownerContextPin = current.ownerContextPin;
                         }
                         const result = record ? await host.readOperation({ version: 3, authorityId: config.authorityId, selection: "operation", owners: [record.owner],
@@ -181,11 +204,12 @@ function constructHost(input, options, makeWriter) {
         async readScoped(request, signal) {
             let detached;
             try {
-                V.jsonValue(request); V.fields(request, ["version", "authorityId", "ownerContextPin", "identityPin", "selection", "owners", "targets", "includeArchived", "includeDeleted", "includeConsumerFacts"], ["version", "authorityId", "selection", "owners"]);
+                V.jsonValue(request); V.fields(request, ["version", "authorityId", "ownerContextPin", "identityPin", "selection", "owners", "targets", "includeArchived", "includeDeleted", "includeConsumerFacts", "locationEvidence"], ["version", "authorityId", "selection", "owners"]);
                 check(request.version === 2 && request.authorityId === config.authorityId && ["tasks", "editor"].includes(request.selection), "Scoped capture contract required.");
                 if (request.ownerContextPin !== undefined) V.text(request.ownerContextPin);
                 if (request.identityPin !== undefined && request.identityPin !== null) V.text(request.identityPin);
-                const { ownerContextPin, identityPin, ...core } = request;
+                if (request.locationEvidence !== undefined) check(request.locationEvidence === "report-unavailable", "Unsupported location presentation.");
+                const { ownerContextPin, identityPin, locationEvidence, ...core } = request;
                 require("../src/snapshot-read").validateRequest({ ...core, version: 1 });
                 detached = V.clone(request);
             } catch (_) { throw safeError("HOST_CONTRACT"); }

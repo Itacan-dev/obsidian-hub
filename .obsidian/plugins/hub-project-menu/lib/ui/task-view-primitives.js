@@ -39,22 +39,22 @@ function source(host, task, context) {
         try { await context.openSource(task); }
         catch (error) { new Notice(error.message || "Could not open task location."); }
     }, "hub-button-plain hub-full-location");
-    el.title = label; el.setAttribute("aria-label", "Open location: " + label);
-    if (task.nativeReference) { el.disabled = true; el.title = "Native source navigation is unavailable."; }
+    el.title = task.nativeReference ? require("../domain/native-task-location").locationBreadcrumb(task, { type: "project", id: context.workspace.projectId })?.full ?? label : label; el.setAttribute("aria-label", "Open location: " + label);
+    if (task.nativeReference) { el.disabled = true; el.setAttribute("aria-label", "Location: " + el.title); }
 }
 function bindTask(row, title, checkbox, task, context, options = {}) {
-    context.ui.bind(row, title, task, () => task.nativeReference ? "" : context.currentPath(task.path), { dates: false, steps: false, ...options });
+    context.ui.bind(row, title, task, () => task.nativeReference ? "" : context.currentPath(task.path), { dates: false, steps: false, locationWorkspace: { type: "project", id: context.workspace.projectId }, ...options });
     row.classList.toggle("is-completed", !!task.completed);
     const key = task.nativeReference ? JSON.stringify([task.nativeReference.authorityId, task.nativeReference.owner, task.nativeReference.taskId]) : task.hubTaskId ?? task.path + ":" + task.line;
-    checkbox.checked = !!task.completed; checkbox.disabled = !!task.nativeReadOnly || !!context.unavailable || context.pending.has(key);
+    checkbox.checked = !!task.completed; checkbox.disabled = !!(task.nativeReadOnly || task.nativeLocationUnavailable) || !!context.unavailable || context.pending.has(key);
     checkbox.addEventListener("click", event => event.stopPropagation());
     checkbox.addEventListener("change", async () => {
-        if (task.nativeReadOnly || context.unavailable || context.pending.has(key)) { checkbox.checked = !!task.completed; return; }
+        if (task.nativeReadOnly || task.nativeLocationUnavailable || context.unavailable || context.pending.has(key)) { checkbox.checked = !!task.completed; return; }
         const completed = checkbox.checked;
         context.pending.add(key); checkbox.disabled = true;
         try { context.apply(await context.toggle(task.nativeReference ? { ...task, completed } : { ...task, path: context.currentPath(task.path), completed })); }
         catch (error) { checkbox.checked = !!task.completed; new Notice(error.message || "Could not update task."); }
-        finally { context.pending.delete(key); checkbox.disabled = !!task.nativeReadOnly || !!context.unavailable; context.render(); }
+        finally { context.pending.delete(key); checkbox.disabled = !!(task.nativeReadOnly || task.nativeLocationUnavailable) || !!context.unavailable; context.render(); }
     });
 }
 function taskCard(host, task, context, compact = false) {

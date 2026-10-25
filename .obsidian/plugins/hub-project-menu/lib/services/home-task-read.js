@@ -8,7 +8,7 @@ const { TaskServiceError } = require("./task-service-errors");
 const homes = new WeakMap();
 // Presentation only: never a task read, mutation guard or complete-count authority.
 const previousPresentations = new WeakMap();
-const taskFacts = task => task.nativeReference ? [task.nativeReference, task.text, task.completed, task.nativeReadOnly, taskMetadata(task), task.steps] : [task.path, task.line, task.text, task.hubTaskId ?? null, !!task.completed, !!task.identityConflict,
+const taskFacts = task => task.nativeReference ? [task.nativeReference, task.text, task.completed, task.nativeReadOnly, task.location, task.nativeLocationUnavailable ?? false, task.nativeLocationDisplay ?? null, taskMetadata(task), task.steps] : [task.path, task.line, task.text, task.hubTaskId ?? null, !!task.completed, !!task.identityConflict,
     taskMetadata(task), task.homePhysicalOwner ?? null, task.homeProjectReference ?? null,
     (task.steps ?? []).map(step => [step.line, step.text, step.hubTaskId ?? null, !!step.completed, step.parent ?? null])];
 const signature = tasks => JSON.stringify(tasks.map(taskFacts));

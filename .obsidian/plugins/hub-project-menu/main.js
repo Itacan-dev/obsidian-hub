@@ -782,14 +782,14 @@ function createNativeEditorReadPort(host, options) {
         const fail = code => freeze({ version: 1, state: "unavailable", code });
         if (host.info().authorityId !== r.authorityId) return fail("AUTHORITY_MISMATCH");
         if (!policy.owners.some(p => p.partitionId === r.partitionId && P.same(p.owner, r.owner))) return fail("OWNER_MISMATCH");
-        const result = await host.readScoped({ version: 2, authorityId: r.authorityId, selection: "editor", owners: [r.owner], targets: [{ taskId: r.taskId, owner: r.owner, partitionId: r.partitionId }] }, signal);
+        const result = await host.readScoped({ version: 2, authorityId: r.authorityId, selection: "editor", ...(options.allowUnavailableLocations === true ? { locationEvidence: "report-unavailable" } : {}), owners: [r.owner], targets: [{ taskId: r.taskId, owner: r.owner, partitionId: r.partitionId }] }, signal);
         if (result.status !== "ok") return freeze({ version: 1, state: result.state, code: result.code, retry: result.retry });
         const info = result.info;
         if (info.readiness.state !== "ready") return fail("AUTHORITY_NOT_READY");
         if (result.snapshot.editor.state !== "available") return freeze({ ...result.snapshot.editor });
         const e = result.snapshot.editor;
         if (e.draft.metadata.phase && !policy.phases.values.some(p => P.same(p, e.draft.metadata.phase))) return fail("PHASE_CONTEXT_UNAVAILABLE");
-        return freeze({ version: 1, status: "ok", privacy: "local-private", stamp: result.stamp, editor: { ...e,
+        return freeze({ version: 1, status: "ok", privacy: "local-private", stamp: result.stamp, editor: { ...e, ...(options.allowUnavailableLocations === true ? { locationUnavailable: result.locationFacts?.some(f => f.taskId === r.taskId && f.state === "unavailable") === true } : {}),
             authority: { backend: "native", authorityId: r.authorityId, applicationContextId: info.applicationContextId },
             guard: { expectedRepositoryRevision: result.stamp.head.repositoryRevision, ownerContextPin: result.stamp.ownerContextPin, identityPin: result.stamp.identityPin, inventoryPin, phasePin, partitions: [{ id: e.partitionId, owner: e.owner, expectedRevision: e.expectedPartitionRevision }] } } });
     } });
@@ -1222,7 +1222,7 @@ function constructHost(input, options, makeWriter) {
     catch (_) { throw safeError("HOST_CONTRACT"); }
     options = Object.freeze({ ...options, repositoryOptions: Object.freeze({ ...options.repositoryOptions }) });
     let phase = "configured", repo = null, opening = null, closing = null, disposed = false, epoch = 0, generation = 0, readNumber = 0, monitorHealthy = false;
-    let stops = [], listeners = new Set(), lastContext = null, retained = null;
+    let stops = [], listeners = new Set(), lastContext = null, retained = null, receiptAnchor = null;
     check(!options.requestRetention || !!makeWriter, "Retention requires a writer host.");
     check(config.scope === "inactive-disposable" || !makeWriter || !!options.requestRetention, "Permanent writer requires retained requests.");
     check(config.scope!=="device-private-git-project"||!!options.gitSharing&&!!makeWriter&&options.requestRetention?.version===2&&options.writerPolicy.inventory.version===2,"Permanent Git writer requires retained requests and authoritative inventory.");
@@ -1239,7 +1239,11 @@ function constructHost(input, options, makeWriter) {
     function notify(reason, discontinuity = false) { if (discontinuity && reason !== "closing") participant?.invalidate(); if (discontinuity) epoch++; generation++; const change = freeze({ version: 1, kind: "snapshot-invalidated", durability: "ephemeral", hostEpoch: epoch, generation, reason }); for (const listener of [...listeners]) { try { Promise.resolve(listener(change)).catch(() => {}); } catch (_) {} } }
     function unavailable(code, state = "unavailable") { last = { ...last, readiness: { state, reason: code }, permissions: { taskReads: "unavailable", completionProof: "unavailable", mutations: "unsupported", history: "unsupported" } }; notify("unavailable", true); }
     function failure(code, state = "unavailable") { return freeze({ version: 1, state, code, retry: ["LOCK_LOST", "ROOT_IDENTITY_CHANGED", "REPOSITORY_CONFLICT", "RECOVERY_REQUIRED"].includes(code) ? "explicit-reopen" : state === "unsupported" ? "review" : "refresh" }); }
-    async function observe(signal) { const registry = G.validateRegistry(await options.registry.read(signal), config); if (config.scope === "device-private-project") check(registry.owners.length === 1 && same(registry.owners[0].owner, __hubRequire("../../../ItacanTaskCore/host/private-authority.js").bindingOwner(config.binding)) && registry.owners[0].partitionId === "private" && !registry.owners[0].shared, "Permanent owner scope differs."); if (options.gitSharing) { check(registry.owners.length === 1 && registry.owners[0].owner.type === "project" && registry.owners[0].shared && registry.owners[0].shareApproval !== null && registry.owners[0].available, "Reviewed Git Project registry required."); if(makeWriter) check(options.writerPolicy.owners.length === 1 && options.writerPolicy.owners[0].partitionId === registry.owners[0].partitionId && same(options.writerPolicy.owners[0].owner,registry.owners[0].owner),"Git writer policy differs from physical registry owner."); } const identity = options.identity ? await options.identity.read(signal) : null; return { registry, ownerContextPin: registry.digest, identity: identity === null ? null : V.clone(identity), identityPin: G.identityPin(identity) }; }
+    async function observe(signal) { const registry = G.validateRegistry(await options.registry.read(signal), config); if (config.scope === "device-private-project") check(registry.owners.length === 1 && same(registry.owners[0].owner, __hubRequire("../../../ItacanTaskCore/host/private-authority.js").bindingOwner(config.binding)) && registry.owners[0].partitionId === "private" && !registry.owners[0].shared, "Permanent owner scope differs."); if (options.gitSharing) { check(registry.owners.length === 1 && registry.owners[0].owner.type === "project" && registry.owners[0].shared && registry.owners[0].shareApproval !== null && registry.owners[0].available, "Reviewed Git Project registry required."); if(makeWriter) check(options.writerPolicy.owners.length === 1 && options.writerPolicy.owners[0].partitionId === registry.owners[0].partitionId && same(options.writerPolicy.owners[0].owner,registry.owners[0].owner),"Git writer policy differs from physical registry owner."); } const identity = options.identity ? await options.identity.read(signal) : null;
+        // Legacy binding-v1 omits its physical root. Pin the initial validated
+        // registry root for receipt inspection throughout this host lifetime.
+        if (!receiptAnchor && config.scope === "device-private-project" && config.binding.version === 1 && registry.owners[0].available && registry.owners[0].dashboard !== null) receiptAnchor = { root: registry.owners[0].root, dashboard: registry.owners[0].dashboard };
+        return { registry, ownerContextPin: registry.digest, identity: identity === null ? null : V.clone(identity), identityPin: G.identityPin(identity) }; }
     function stopOwned() { for (const stop of stops.splice(0)) { try { stop(); } catch (_) {} } monitorHealthy = false; }
     function startOwned() {
         function own(stop) { check(typeof stop === "function", "Provider unsubscribe required."); stops.push(stop); }
@@ -1247,6 +1251,16 @@ function constructHost(input, options, makeWriter) {
         own(options.registry.subscribe(() => { lastContext = null; unavailable("OWNER_CONTEXT_INVALIDATED"); }));
         if (options.identity) own(options.identity.subscribe(() => { lastContext = null; unavailable("IDENTITY_CONTEXT_INVALIDATED"); }));
         stops.push(M.monitorRoot(config.directory, () => notify("storage"), () => { monitorHealthy = false; unavailable("STORAGE_MONITOR_UNAVAILABLE"); })); monitorHealthy = true;
+    }
+    function boundReceiptOwner(record, observation) {
+        const binding = config.binding, shared = config.scope === "device-private-git-project";
+        if (!binding || !["device-private-project", "device-private-git-project"].includes(config.scope)) return false;
+        const owner = shared ? { type: "project", id: binding.projectId } : __hubRequire("../../../ItacanTaskCore/host/private-authority.js").bindingOwner(binding);
+        const entry = observation.registry.owners.find(o => same(o.owner, owner));
+        const partition = shared ? options.writerPolicy.owners.find(o => same(o.owner, owner))?.partitionId : "private";
+        const root = shared ? binding.projectRoot : binding.ownerRoot ?? receiptAnchor?.root;
+        const dashboard = binding.dashboard ?? receiptAnchor?.dashboard;
+        return typeof root === "string" && typeof dashboard === "string" && same(record.owner, owner) && record.partitionId === partition && entry?.available && entry.shared === shared && entry.partitionId === partition && entry.root === root && entry.dashboard === dashboard;
     }
     async function capture(request, signal, scoped = false) {
         if (disposed || phase !== "open") return { failure: failure(phase === "disposed" ? "HOST_DISPOSED" : "HOST_NOT_OPEN") };
@@ -1294,11 +1308,22 @@ function constructHost(input, options, makeWriter) {
                     for (const p of snapshot.partitions) check(header.partitions.some(h => h.id === p.id && same(h.owner, p.owner) && h.revision === p.revision && h.head === p.head), "Partition header mismatch.");
                 }
                 for (const p of snapshot.partitions) check(before.registry.owners.some(o => same(o.owner, p.owner) && o.partitionId === p.id), "Owner partition mismatch.");
-                for (const t of [...snapshot.tasks, ...snapshot.targets.map(t => t.task).filter(Boolean), ...(snapshot.editor?.state === "available" ? [{ ...snapshot.editor, location: snapshot.editor.draft.metadata.location }] : [])]) { const owner = before.registry.owners.find(o => same(o.owner, t.owner)); check(owner && owner.partitionId === t.partitionId, "Task partition mismatch."); if (t.location) check(owner.locations.some(l => same(l, t.location)), "Location evidence unavailable."); }
+                const locationFacts = [];
+                for (const t of [...snapshot.tasks, ...snapshot.targets.map(t => t.task).filter(Boolean), ...(snapshot.editor?.state === "available" ? [{ ...snapshot.editor, id: snapshot.editor.taskId, location: snapshot.editor.draft.metadata.location }] : [])]) {
+                    const owner = before.registry.owners.find(o => same(o.owner, t.owner)); check(owner && owner.partitionId === t.partitionId, "Task partition mismatch.");
+                    const available = t.location === null || owner.locations.some(l => same(l, t.location));
+                    // An explicit UI capture may report an unresolved reference,
+                    // never claim it resolved or admit a mutation against it.
+                    if (!available) {
+                        check(!before.registry.owners.some(o => !same(o.owner, t.owner) && o.locations.some(l => same(l, t.location))), "Location belongs to another owner.");
+                        check(scoped && request.locationEvidence === "report-unavailable", "Location evidence unavailable.");
+                    }
+                    if (request.locationEvidence) locationFacts.push({ taskId: t.id, state: available ? "available" : "unavailable" });
+                }
                 const stamp = { version: 1, hostEpoch: epoch, readGeneration: ++readNumber, head: snapshot.head, ownerContextPin: before.ownerContextPin, identityPin: before.identityPin };
                 lastContext = before;
                 last = { ...last, storeId: snapshot.authorityId, logicalSchemaVersion: snapshot.logicalSchemaVersion, namespaces: snapshot.namespaces, storage: snapshot.storage, head: snapshot.head, ownerContextPin: before.ownerContextPin, identityPin: before.identityPin, readiness: snapshot.readiness, permissions: { taskReads: snapshot.readiness.state === "ready" ? "available" : "recovered-observation", completionProof: snapshot.readiness.state === "ready" ? "available" : "unavailable", mutations: "unsupported", history: "unsupported" } };
-                return { value: freeze(scoped ? { version: 2, kind: "scoped-capture", status: "ok", info: info(), stamp, snapshot } : { version: 1, status: "ok", stamp, snapshot }), context: before };
+                return { value: freeze(scoped ? { version: 2, kind: "scoped-capture", status: "ok", info: info(), stamp, snapshot, ...(request.locationEvidence ? { locationFacts } : {}) } : { version: 1, status: "ok", stamp, snapshot }), context: before };
             } catch (error) {
                 const code = coded(error); if (code === "SNAPSHOT_UNSTABLE") continue;
                 const state = code === "UNSUPPORTED_SCHEMA" ? "unsupported" : "unavailable"; unavailable(code, state); return { failure: failure(code, state) };
@@ -1332,26 +1357,24 @@ function constructHost(input, options, makeWriter) {
                         if(!records.length)return new Set();
                         const before=(await capture({selection:"status"},undefined,true)).value;
                         check(before?.status==="ok"&&before.snapshot.readiness.state==="ready"&&before.snapshot.recovery.state==="intact","Retained observation unavailable.");
-                        const packet=await repo.exportSharedPacket(),after=(await capture({selection:"status"},undefined,true)).value;
+                        const packet=await repo.exportSharedPacket(),afterCapture=await capture({selection:"status"},undefined,true),after=afterCapture.value;
                         check(after?.status==="ok"&&after.snapshot.readiness.state==="ready"&&after.snapshot.recovery.state==="intact"&&same(before.stamp.head,after.stamp.head)&&before.stamp.hostEpoch===after.stamp.hostEpoch&&before.stamp.ownerContextPin===after.stamp.ownerContextPin&&before.stamp.identityPin===after.stamp.identityPin,"Retained observation changed.");
                         const frames=new Map(packet.frames.map(f=>[f.id,f])),head=packet.head===null?null:frames.get(packet.head),receipts=new Map();
                         check(packet.genesis.authorityId===config.authorityId&&(head?.receipt.result.revisionId??packet.genesis.revisionId)===after.stamp.head.revisionId,"Retained export head differs.");
                         for(let id=packet.head;id!==null;){const f=frames.get(id);check(f,"Retained receipt ancestry missing.");receipts.set(f.receipt.operationId,f.receipt);id=f.parent;}
                         const committed=new Set();for(const r of records){const receipt=receipts.get(r.operationId);
-                            if(same(r.owner,packet.genesis.partition.owner)&&r.partitionId===packet.genesis.partition.id&&r.writerRequest.scope.ownerContextPin===after.stamp.ownerContextPin&&r.writerRequest.scope.identityPin===after.stamp.identityPin&&receipt?.partitionIds.includes(r.partitionId)&&__hubRequire("../../../ItacanTaskCore/src/git-shared.js").hash(JSON.parse(receipt.payload))===r.commandDigest)committed.add(r.operationId);
+                            if(same(r.owner,packet.genesis.partition.owner)&&r.partitionId===packet.genesis.partition.id&&(r.writerRequest.scope.ownerContextPin===after.stamp.ownerContextPin||boundReceiptOwner(r,afterCapture.context))&&r.writerRequest.scope.identityPin===after.stamp.identityPin&&receipt?.partitionIds.includes(r.partitionId)&&__hubRequire("../../../ItacanTaskCore/src/git-shared.js").hash(JSON.parse(receipt.payload))===r.commandDigest)committed.add(r.operationId);
                         }return committed;
                     } : undefined;
                     retained = __hubRequire("../../../ItacanTaskCore/host/pending-requests.js").createPendingRequests(port, config, options.requestRetention, async record => {
-                        // A Resource's location inventory may legitimately change
-                        // between sessions. Its immutable command/guards remain
-                        // unchanged; only receipt inspection may use the current
-                        // validated physical Resource binding. Inactive/unbound
-                        // contexts retain the original strict pin contract.
+                        // File inventory changes do not undo committed receipts.
+                        // Inspect them under the current, validated permanent owner
+                        // binding; retain the command and every original replay guard.
                         let ownerContextPin = record?.writerRequest.scope.ownerContextPin;
-                        const binding = config.binding;
-                        if (record && config.scope === "device-private-project" && binding?.version === 2 && binding.owner.type === "resource") {
-                            const current = await observe(), entry = current.registry.owners.find(o => same(o.owner, binding.owner));
-                            check(same(record.owner, binding.owner) && record.partitionId === "private" && entry?.available && !entry.shared && entry.partitionId === "private" && entry.root === binding.ownerRoot && entry.dashboard === binding.dashboard, "Bound Resource receipt context differs.");
+                        const binding = config.binding, permanent = ["device-private-project", "device-private-git-project"].includes(config.scope);
+                        if (record && permanent && binding) {
+                            const current = await observe();
+                            check(boundReceiptOwner(record, current), "Bound workspace receipt context differs.");
                             ownerContextPin = current.ownerContextPin;
                         }
                         const result = record ? await host.readOperation({ version: 3, authorityId: config.authorityId, selection: "operation", owners: [record.owner],
@@ -1385,11 +1408,12 @@ function constructHost(input, options, makeWriter) {
         async readScoped(request, signal) {
             let detached;
             try {
-                V.jsonValue(request); V.fields(request, ["version", "authorityId", "ownerContextPin", "identityPin", "selection", "owners", "targets", "includeArchived", "includeDeleted", "includeConsumerFacts"], ["version", "authorityId", "selection", "owners"]);
+                V.jsonValue(request); V.fields(request, ["version", "authorityId", "ownerContextPin", "identityPin", "selection", "owners", "targets", "includeArchived", "includeDeleted", "includeConsumerFacts", "locationEvidence"], ["version", "authorityId", "selection", "owners"]);
                 check(request.version === 2 && request.authorityId === config.authorityId && ["tasks", "editor"].includes(request.selection), "Scoped capture contract required.");
                 if (request.ownerContextPin !== undefined) V.text(request.ownerContextPin);
                 if (request.identityPin !== undefined && request.identityPin !== null) V.text(request.identityPin);
-                const { ownerContextPin, identityPin, ...core } = request;
+                if (request.locationEvidence !== undefined) check(request.locationEvidence === "report-unavailable", "Unsupported location presentation.");
+                const { ownerContextPin, identityPin, locationEvidence, ...core } = request;
                 __hubRequire("../../../ItacanTaskCore/src/snapshot-read.js").validateRequest({ ...core, version: 1 });
                 detached = V.clone(request);
             } catch (_) { throw safeError("HOST_CONTRACT"); }
@@ -1786,11 +1810,11 @@ async function openProjectRuntime(config, options) {
         if (options.creating) await session.host.create({ version: shared ? 3 : 2, authorityId: config.authorityId, partitions: [{ id: o.partitionId, owner, kind: shared ? "git-project" : owner.type === "resource" ? "resource" : "private-project" }], reason: "Explicit owner-scoped authority creation", ...authorization, taskMutationVersion: 1, ...(shared ? {gitSharedVersion:2,genesis:options.sharedGenesis}: {}) });
         else await session.host.open({ version: 1, expectedAuthorityId: config.authorityId, ...authorization });
     } catch (error) { await session.dispose().catch(() => {}); throw error; }
-    const taskService = new TaskService(createNativeReadAdapter(session.host)), editorPort = createNativeEditorReadPort(session.host, { writerPolicy: options.writerPolicy });
+    const taskService = new TaskService(createNativeReadAdapter(session.host)), editorPort = createNativeEditorReadPort(session.host, { writerPolicy: options.writerPolicy, ...(options.consumerUiV1 ? { allowUnavailableLocations: true } : {}) });
     const grant = () => session.authorize({ version: 1, owners: options.writerPolicy.owners, commands: options.writerPolicy.commands });
     async function withGrant(fn) { const cap = await grant(); try { return await fn(cap); } finally { session.revoke(cap); } }
     const alive = () => check(!closed, "Project runtime is closed.");
-    async function capture() { alive(); const r = await session.host.readScoped({ version: 2, authorityId: config.authorityId, owners: [owner], selection: "tasks", ...(options.consumerUiV1 ? { includeConsumerFacts: true } : {}) }); check(r.status === "ok" && r.info.readiness.state === "ready", "Native Project unavailable."); return r; }
+    async function capture() { alive(); const r = await session.host.readScoped({ version: 2, authorityId: config.authorityId, owners: [owner], selection: "tasks", ...(options.consumerUiV1 ? { includeConsumerFacts: true, locationEvidence: "report-unavailable" } : {}) }); check(r.status === "ok" && r.info.readiness.state === "ready", "Native Project unavailable."); return r; }
     async function consumerContext(stamp) {
         const registry = __hubRequire("../../../ItacanTaskCore/host/registry.js").validateRegistry(await options.registry.read(), config), h = session.host.info();
         check(registry.digest === stamp.ownerContextPin && h.hostEpoch === stamp.hostEpoch && h.readiness.state === "ready", "Consumer context changed.");
@@ -1800,7 +1824,7 @@ async function openProjectRuntime(config, options) {
         return { owner, root: entry.root, dashboard: entry.dashboard, status: entry.status };
     }
     async function list() { const r = await capture(); const context = options.consumerUiV1 ? await consumerContext(r.stamp) : undefined;
-        return freeze({ stamp: r.stamp, tasks: r.snapshot.tasks.map(t => view(t, config.authorityId)), ...(context ? { context } : {}) }); }
+        return freeze({ stamp: r.stamp, tasks: r.snapshot.tasks.map(t => ({ ...view(t, config.authorityId), ...(r.locationFacts?.some(f => f.taskId === t.id && f.state === "unavailable") ? { nativeLocationUnavailable: true } : {}), ...(options.describeLocation ? { nativeLocationDisplay: options.describeLocation(t.location) } : {}) })), ...(context ? { context } : {}) }); }
     async function rawEditor(id) { alive(); const r = await editorPort.read({ version: 1, authorityId: config.authorityId, owner, partitionId: options.writerPolicy.owners[0].partitionId, taskId: id }); check(r.status === "ok", "Native editor unavailable."); return r.editor; }
     const editor = async id => B.editable(await rawEditor(id));
     async function creationContext() { const r = await capture(); return { authority, owner, guard: { expectedRepositoryRevision: r.stamp.head.repositoryRevision, ownerContextPin: r.stamp.ownerContextPin, identityPin: r.stamp.identityPin,
@@ -1817,11 +1841,11 @@ async function openProjectRuntime(config, options) {
             let retained = null;
             try { retained = await session.requests.get(cap, intent.operationId); } catch (error) { if (error.code !== "ENOENT") throw error; }
             if (!retained) {
-                if (intent.action.kind === "rich-create") { const d = intent.action.draft; check(d.continuation === "" && d.metadata.phase === null && (owner.type === "resource" || d.metadata.location === null) && d.steps.every(s => s.body === "" && s.parentStepId === null), "Creation exceeds compact form."); }
+                if (intent.action.kind === "rich-create") { const d = intent.action.draft; check(d.continuation === "" && d.metadata.phase === null && d.steps.every(s => s.body === "" && s.parentStepId === null), "Creation exceeds compact form."); }
                 else {
                     const e = await editor(intent.action.target.taskId);
                     if (intent.action.kind === "full-save") { const d = intent.action.draft, originals = new Map(e.draft.steps.map(s => [s.id, s]));
-                        check(d.continuation === e.draft.continuation && (owner.type === "resource" || same(d.metadata.location, e.draft.metadata.location)) && same(d.metadata.phase, e.draft.metadata.phase) && d.steps.every(s => s.parentStepId === null && s.body === (originals.get(s.id)?.body ?? "") && (!originals.has(s.id) || s.order === originals.get(s.id).order)), "Hidden native content must survive."); }
+                        check(d.continuation === e.draft.continuation && same(d.metadata.phase, e.draft.metadata.phase) && d.steps.every(s => s.parentStepId === null && s.body === (originals.get(s.id)?.body ?? "") && (!originals.has(s.id) || s.order === originals.get(s.id).order)), "Hidden native content must survive."); }
                 }
             }
             await session.requests.prepare(cap, intent);
@@ -1865,37 +1889,41 @@ async function openProjectRuntime(config, options) {
     function formService(app, sourceLabel = owner.type === "resource" ? "Resource" : "Project") {
         let original = null, attempt = null;
         async function issue(values, build) {
-            const fingerprint = V.canonical([B.fingerprint(values), owner.type === "resource" ? values.nativeLocation ?? null : null]);
+            check(values.nativeOwner === undefined || same(values.nativeOwner, owner), "Changing an existing authority's task owner is unavailable.");
+            const fingerprint = V.canonical([B.fingerprint(values), values.nativeLocation ?? null]);
             check(!attempt || attempt.fingerprint === fingerprint, "Keep the original request until reviewed.");
             if (!attempt) attempt = { fingerprint, intent: await build() };
             return editResult(await mutate(attempt.intent));
         }
-        const location = values => {
-            if (owner.type !== "resource") return null;
+        const location = async values => {
             const id = values.nativeLocation ?? "";
             if (!id) return null;
-            const ref = resourceLocations.find(l => l.id === id); check(ref, "Resource location changed or is unavailable."); return V.clone(ref);
+            const registry = __hubRequire("../../../ItacanTaskCore/host/registry.js").validateRegistry(await options.registry.read(), config);
+            const current = registry.owners.find(entry => same(entry.owner, owner) && entry.available);
+            const ref = current?.locations.find(l => l.id === id); check(ref, "Task location changed or is unavailable."); return V.clone(ref);
         };
         return { app, formContext: snapshot => ({ destination: { authorityId: config.authorityId, owner }, sourcePath: null, sourceLabel,
-            ...(owner.type === "resource" ? { resourceLocations: resourceLocations.map(l => ({ ...V.clone(l), label: options.locationLabel?.(l) ?? l.id })), nativeLocation: snapshot?.nativeLocation ?? "" } : {}) }), context: () => null, phases: () => [],
-            async read(task) { original = await editor(task.id ?? task.nativeReference?.taskId); return { ...B.toForm(original), ...(owner.type === "resource" ? { nativeLocation: original.draft.metadata.location?.id ?? "" } : {}) }; },
-            async create(destination, text, values) { check(destination.authorityId === config.authorityId && same(destination.owner, owner), "Destination changed."); return issue(values, async () => { const i = B.create(await creationContext(), values); i.action.draft.id = randomUUID(); i.action.draft.metadata.location = location(values); return i; }); },
-            async save(snapshot, values) { check(original, "Editor snapshot missing."); return issue(values, () => { if (values.operation === "delete") return B.remove(original); const i = B.save(original, values); if (owner.type === "resource") i.action.draft.metadata.location = location(values); return i; }); }
+            nativeLocation: snapshot?.nativeLocation ?? "", ...(owner.type === "resource" ? { resourceLocations: resourceLocations.map(l => ({ ...V.clone(l), label: options.locationLabel?.(l) ?? l.id })) } : {}) }), context: () => null, phases: () => [],
+            async read(task) { original = await editor(task.id ?? task.nativeReference?.taskId); return { ...B.toForm(original), nativeLocation: original.draft.metadata.location?.id ?? "" }; },
+            async create(destination, text, values) { check(destination.authorityId === config.authorityId && same(destination.owner, owner), "Destination changed."); return issue(values, async () => { const i = B.create(await creationContext(), values); i.action.draft.id = randomUUID(); i.action.draft.metadata.location = await location(values); return i; }); },
+            async save(snapshot, values) { check(original, "Editor snapshot missing."); return issue(values, async () => { if (values.operation === "delete") return B.remove(original); const i = B.save(original, values); if (Object.hasOwn(values, "nativeLocation")) i.action.draft.metadata.location = await location(values); return i; }); }
         };
     }
+    const editorService = plugin => options.describeLocation ? __hubRequire("lib/services/native-task-locations.js").locationService(formService(plugin.app), plugin, owner) : formService(plugin.app);
+
     function createPanelRead({ plugin, component, workspace, changed = () => {} }) {
         check(same(workspace, owner), "Project panel owner differs.");
         let disposed = false, generation = 0, last = null, availability = "current";
         const stop = session.host.subscribe(() => { generation++; if (!disposed) changed(); });
         const close = () => { if (disposed) return; disposed = true; generation++; stop(); }; component.register(close);
         const reference = task => { if (options.consumerUiV1) { check(availability === "current", "Native Project unavailable."); check(!task.nativeReadOnly, "Native task action is unavailable."); } const r = task.nativeReference; check(r && r.authorityId === config.authorityId && same(r.owner, owner), "Native action scope differs."); return r; };
-        async function change(request) { const r = reference(request), e = await editor(r.taskId); check(e.taskRevision === r.taskRevision, "Task changed; reopen it.");
+        async function change(request) { check(!request.nativeLocationUnavailable, "Choose a valid task location before completing this task."); const r = reference(request), e = await editor(r.taskId); check(!e.locationUnavailable, "Choose a valid task location before completing this task."); check(e.taskRevision === r.taskRevision, "Task changed; reopen it.");
             check(!disposed, "Panel is closed."); let i;
             if (request.operation === "step") { check(e.draft.steps.some(s => s.id === request.step?.id), "Step unavailable."); i = B.complete(e, request.stepCompleted, request.step.id); }
             else { check(request.operation === undefined && typeof request.completed === "boolean", "Native source action unavailable."); i = B.complete(e, request.completed); }
             return editResult(await mutate(i));
         }
-        const controller = { close, actions: { mutate: change, editTask(task, saved) { check(!disposed, "Panel is closed."); reference(task); return __hubRequire("lib/ui/task-editor.js").openTaskEditor(formService(plugin.app), task, saved); } },
+        const controller = { close, actions: { mutate: change, editTask(task, saved) { check(!disposed, "Panel is closed."); reference(task); return __hubRequire("lib/ui/task-editor.js").openTaskEditor(editorService(plugin), task, saved); } },
             async read() { const ticket = generation; try { const r = await list(); if (disposed || ticket !== generation) return null; const signature = V.canonical(r.tasks); availability = "current"; return { tasks: r.tasks, changed: signature !== last, diagnostics: [], availability, ...(options.consumerUiV1 ? { stamp: r.stamp, context: r.context } : {}) }; }
                 catch (_) { if (disposed) return null; availability = "unavailable"; return { tasks: [], changed: true, availability, diagnostics: [{ code: "NATIVE_PROJECT_UNAVAILABLE" }] }; } },
             accept(tasks) { last = V.canonical(tasks); },
@@ -1903,7 +1931,7 @@ async function openProjectRuntime(config, options) {
             toggle: (task, completed) => change({ ...task, completed }),
             clear: async () => { throw Error("Native clear-completed is unavailable."); },
             reveal: async () => { throw Error("Native source navigation is unavailable."); },
-            create(options = {}) { check(!disposed, "Panel is closed."); return __hubRequire("lib/ui/task-editor.js").openTaskCreator(formService(plugin.app), options); }
+            create(options = {}) { check(!disposed, "Panel is closed."); return __hubRequire("lib/ui/task-editor.js").openTaskCreator(editorService(plugin), options); }
         };
         return controller;
     }
@@ -12843,6 +12871,37 @@ module.exports = {
 };
 
 },
+"lib/domain/native-task-location.js": function (module, exports, __hubRequire) {
+"use strict";
+const sameOwner = (a, b) => !!a && !!b && a.type === b.type && a.id === b.id;
+function relativePath(root, path) {
+    const valid = value => typeof value === "string" && !!value && !/^[a-z]:/i.test(value) && !value.includes("\\") && !value.startsWith("/") && value.split("/").every(p => p && p !== "." && p !== "..");
+    if (!valid(root) || !valid(path) || path !== root && !path.startsWith(root + "/")) throw Error("Location is outside its workspace.");
+    return path === root ? "" : path.slice(root.length + 1);
+}
+function locationReference(owner, root, path, type) {
+    if (!owner || !["project", "resource"].includes(owner.type) || typeof owner.id !== "string" || !owner.id || !["folder", "note"].includes(type)) throw Error("Invalid native location.");
+    const relative = relativePath(root, path);
+    if (!relative) { if (type !== "folder") throw Error("The workspace root must be a folder."); return null; }
+    // Opaque schema references, salted by physical owner and relative path.
+    // No device/vault path enters a portable Git command or receipt.
+    const hash = require("node:crypto").createHash("sha256").update(JSON.stringify([[owner.type, owner.id], type, relative])).digest("hex");
+    return { type, id: "workspace-location:v1:" + hash };
+}
+function locationBreadcrumb(task, contextOwner = null) {
+    const display = task.nativeLocationDisplay, owner = task.nativeReference?.owner ?? task.owner ?? task.nativeOwner;
+    if (!display) return null;
+    const inside = sameOwner(owner, contextOwner), name = display.workspaceName || (owner?.type === "resource" ? "Resource" : "Project");
+    const route = display.available === false ? ["Location unavailable"] : display.segments;
+    const full = [name, ...route].join(" / ");
+    let parts = inside ? [...route] : [name, ...route];
+    if (!parts.length) parts = ["Workspace root"];
+    if (parts.length > 3) parts = [parts[0], "\u2026", parts.at(-1)];
+    return { label: parts.join(" / "), full, available: display.available !== false };
+}
+module.exports = { sameOwner, relativePath, locationReference, locationBreadcrumb };
+
+},
 "lib/domain/navigation-history.js": function (module, exports, __hubRequire) {
 "use strict";
 
@@ -16740,7 +16799,7 @@ const { TaskServiceError } = __hubRequire("lib/services/task-service-errors.js")
 const homes = new WeakMap();
 // Presentation only: never a task read, mutation guard or complete-count authority.
 const previousPresentations = new WeakMap();
-const taskFacts = task => task.nativeReference ? [task.nativeReference, task.text, task.completed, task.nativeReadOnly, taskMetadata(task), task.steps] : [task.path, task.line, task.text, task.hubTaskId ?? null, !!task.completed, !!task.identityConflict,
+const taskFacts = task => task.nativeReference ? [task.nativeReference, task.text, task.completed, task.nativeReadOnly, task.location, task.nativeLocationUnavailable ?? false, task.nativeLocationDisplay ?? null, taskMetadata(task), task.steps] : [task.path, task.line, task.text, task.hubTaskId ?? null, !!task.completed, !!task.identityConflict,
     taskMetadata(task), task.homePhysicalOwner ?? null, task.homeProjectReference ?? null,
     (task.steps ?? []).map(step => [step.line, step.text, step.hubTaskId ?? null, !!step.completed, step.parent ?? null])];
 const signature = tasks => JSON.stringify(tasks.map(taskFacts));
@@ -18670,7 +18729,8 @@ function createOwnerHost(plugin, options, coordinated = false) {
     const consumers = __hubRequire("../../../ItacanTaskCore/integration/home-schedule.js");
     const { owner } = options, stops = [], registryListeners = new Set(), historyListeners = new Set(), stateListeners = new Set(), feedListeners = new Map();
     let config = options.config, cancelReadiness = null;
-    const locationLabels = new Map();
+    let locationSource;
+    const taskLocations = () => locationSource ??= __hubRequire("lib/services/native-task-locations.js").createNativeTaskLocations(plugin);
     let runtime = null, feed = null, synchronization = null, stopped = false, closing = null, state = "opening", ready;
     const matches = ref => ref?.type === owner.type && ref.id === owner.id;
     const workspaceRef = __hubRequire("lib/services/task-service-legacy-values.js").workspaceRef;
@@ -18760,7 +18820,7 @@ function createOwnerHost(plugin, options, coordinated = false) {
             const p = project(), shared = !!p?.shared || __hubRequire("lib/services/shared-projects.js").SHARED_PROJECT_ROOTS.includes(p?.root);
             const candidates = owner.type === "resource" ? plugin.projectWizard.getResourceTypes().filter(p => p.resourceType === owner.id) : plugin.projectWizard.getProjectRecords().filter(p => p.projectId === owner.id), physical = plugin.projectWizard.getContextForPath(options.dashboard);
             const available = candidates.length === 1 && matches(workspaceRef(physical)) && matches(workspaceRef(p)) && p.root === options.projectRoot && p.path === options.dashboard && (owner.type === "resource" || ["active", "future", "shelved"].includes(p.status)) && shared === !!options.gitSharing;
-            const locations = owner.type === "resource" ? plugin.app.vault.getAllLoadedFiles().filter(file => ownsPath(file.path) && (file.children || file.extension === "md")).map(file => { const type = file.children ? "folder" : "note", id = "resource-location:" + hash([owner, type, file.path]); locationLabels.set(id, file.path); return { type, id }; }).sort((a, b) => a.type.localeCompare(b.type) || a.id.localeCompare(b.id)) : [];
+            const locations = taskLocations().catalog(owner);
             const body = { version: 1, registryId: config.registryId, applicationContextId: config.applicationContextId, revision: JSON.stringify([p?.projectId ?? null, p?.root ?? null, p?.path ?? null, p?.status ?? null, shared]),
                 owners: [{ owner, partitionId: options.partitionId, root: options.projectRoot, dashboard: options.dashboard, status: p?.status ?? "active", available, shared, shareApproval: options.gitSharing ? {version:1,projectId:owner.id,root:options.projectRoot,reviewDigest:config.binding?.namespaceDigest ?? options.namespaceDigest} : null, locations, mounts: [] }] };
             return { ...body, digest: registryDigest(body) };
@@ -18806,7 +18866,7 @@ function createOwnerHost(plugin, options, coordinated = false) {
         status: () => ({ mode: "native-project", state, owner: copy(owner), ...(synchronization ? {sharing:synchronization.status()} : {}) }),
         synchronization: () => synchronization,
         runtime: () => { if (stopped || state !== "ready") return unavailable(); return runtime; },
-        create(options = {}) { const r = host.runtime(); return __hubRequire("lib/ui/task-editor.js").openTaskCreator(r.formService(plugin.app), options); },
+        create(options = {}) { const r = host.runtime(); return __hubRequire("lib/ui/task-editor.js").openTaskCreator(__hubRequire("lib/services/native-task-locations.js").locationService(r.formService(plugin.app), plugin, owner), options); },
         async close() {
             if (closing) return closing; stopped = true; state = "closing"; cancelReadiness?.(); changedState();
             closing = (async () => { await ready; await synchronization?.close(); await runtime?.close(); if (!coordinated) release(); state = "closed"; })();
@@ -18829,7 +18889,7 @@ function createOwnerHost(plugin, options, coordinated = false) {
             if(options.gitSharing){inventoryEvidence=__hubRequire("lib/services/native-git-inventory.js").createInventoryEvidence(plugin,owner,config.authorityId);const observed=await inventoryEvidence.read();phases=observed.phases;inventory=__hubRequire("../../../ItacanTaskCore/shared/inventory.js").capture(config.authorityId,observed.inventory,phases);}
             runtime = await openProjectRuntime(config, { owner, registry, writerPolicy: policy({version:1,owners:[{owner,partitionId:options.partitionId}],commands:["task.createRich","task.save","task.complete","step.complete","task.delete",...(options.gitSharing?["git.receive"]:[])],inventory,phases}),
                 inventoryEvidence,gitSharing:options.gitSharing,sharedGenesis:options.sharedGenesis,
-                locationLabel: ref => locationLabels.get(ref.id) ?? ref.id, rehearsalId: options.rehearsalId, creating: options.creating === true, consumerUiV1: true, historyUiV1: true });
+                locationLabel: ref => taskLocations().resolve(owner, ref)?.path ?? "Location unavailable", describeLocation: ref => taskLocations().describe(owner, ref), rehearsalId: options.rehearsalId, creating: options.creating === true, consumerUiV1: true, historyUiV1: true });
             if(options.gitSharing){
                 const project=await __hubRequire("../../../ItacanTaskCore/shared/project-binding.js").admitProject({vaultRoot:options.vaultPin.real,projectId:owner.id,projectRoot:options.projectRoot,dashboard:options.dashboard});
                 const transport=await __hubRequire("../../../ItacanTaskCore/shared/git-transport.js").createGitPacketTransport({version:1,root:project.gitRoot,authorityId:config.authorityId,projectId:owner.id});
@@ -18864,6 +18924,132 @@ function createNativeTaskHost(plugin) {
     return __hubRequire("lib/services/native-task-host-multi.js").composeNativeHosts(plugin, options.map(o => createOwnerHost(plugin, o, true)));
 }
 module.exports = { authorizeNativeTaskRehearsal, authorizeNativeTaskActivation, createNativeTaskHost };
+
+},
+"lib/services/native-task-locations.js": function (module, exports, __hubRequire) {
+"use strict";
+const L = __hubRequire("lib/domain/native-task-location.js");
+const ownerKey = owner => JSON.stringify([owner.type, owner.id]);
+const workspaceRef = value => value.contextKind === "resource" ? { type: "resource", id: value.resourceType ?? value.id } : { type: "project", id: value.projectId };
+const providers = new WeakMap();
+const sameRef = (a, b) => a === null && b === null || !!a && !!b && a.type === b.type && a.id === b.id;
+function createNativeTaskLocations(plugin) {
+    if (providers.has(plugin)) return providers.get(plugin);
+    const vault = plugin.app.vault, wizard = plugin.projectWizard;
+    let epoch = 0;
+    const indexes = new Map(), stops = [];
+    for (const event of ["create", "delete", "rename"]) if (vault.on) { const ref = vault.on(event, () => { epoch++; }); stops.push(() => vault.offref(ref)); }
+    if (plugin.app.metadataCache?.on) { const cache = plugin.app.metadataCache, ref = cache.on("changed", file => { if (cache.getFileCache(file)?.frontmatter?.type === "project" || cache.getFileCache(file)?.frontmatter?.type === "resource" || [...indexes.values()].some(i => i.workspace.path === file.path)) epoch++; }); stops.push(() => cache.offref(ref)); }
+    plugin.register?.(() => { stops.forEach(stop => stop()); indexes.clear(); providers.delete(plugin); });
+    let workspaceEpoch = -1, workspaceRecords = [];
+    const workspaces = (fresh = false) => {
+        if (fresh || workspaceEpoch !== epoch) { workspaceRecords = [...wizard.getProjectRecords(), ...wizard.getResourceTypes()].map(w => ({ ...w, owner: workspaceRef(w) })); workspaceEpoch = epoch; }
+        return workspaceRecords;
+    };
+    function workspace(owner, fresh = false) {
+        const all = workspaces(fresh), matches = all.filter(w => L.sameOwner(w.owner, owner));
+        if (matches.length !== 1) throw Error("Workspace is unavailable or ambiguous.");
+        return { ...matches[0], physicalOwners: all };
+    }
+    const typeOf = file => Array.isArray(file?.children) ? "folder" : file?.extension === "md" ? "note" : null;
+    function physical(w, path) {
+        L.relativePath(w.root, path);
+        const file = vault.getAbstractFileByPath(path), type = typeOf(file);
+        const owners = w.physicalOwners.filter(candidate => path === candidate.root || path.startsWith(candidate.root + "/")).sort((a, b) => b.root.length - a.root.length);
+        if (!type || !owners.length || owners.length > 1 && owners[0].root === owners[1].root || !L.sameOwner(owners[0].owner, w.owner)) throw Error("Location is unavailable or belongs to another workspace.");
+        return { file, type };
+    }
+    function entry(w, path) {
+        const { file, type } = physical(w, path);
+        return { path, type, name: file.name ?? path.split("/").at(-1), reference: L.locationReference(w.owner, w.root, path, type) };
+    }
+    function legacyReference(w, path, type) {
+        if (w.owner.type !== "resource") return null;
+        const hash = __hubRequire("../../../ItacanTaskCore/writer/policy.js").hash;
+        return { type, id: "resource-location:" + hash([w.owner, type, path]) };
+    }
+    function index(owner, fresh = false) {
+        const key = ownerKey(owner), previous = indexes.get(key);
+        if (!fresh && previous?.epoch === epoch) return previous;
+        const w = workspace(owner, fresh), root = vault.getAbstractFileByPath(w.root), refs = [], byId = new Map(), stack = [...(root?.children ?? [])];
+        if (!root || !Array.isArray(root.children)) throw Error("Workspace root is unavailable.");
+        const rootLegacy = legacyReference(w, w.root, "folder");
+        if (rootLegacy) { refs.push(rootLegacy); byId.set(rootLegacy.id, entry(w, w.root)); }
+        while (stack.length) {
+            const file = stack.pop(); if (!typeOf(file)) continue;
+            let item; try { item = entry(w, file.path); } catch (_) { continue; }
+            refs.push(item.reference); byId.set(item.reference.id, item);
+            const legacy = legacyReference(w, item.path, item.type);
+            if (legacy) { refs.push(legacy); byId.set(legacy.id, item); }
+            if (item.type === "folder") stack.push(...file.children);
+        }
+        const value = { epoch, workspace: w, refs: refs.sort((a, b) => a.type.localeCompare(b.type) || a.id.localeCompare(b.id)), byId };
+        indexes.set(key, value); return value;
+    }
+    // Admission always captures the current indexed physical tree. Only
+    // presentation lookup reuses the event-invalidated reference index.
+    function catalog(owner) { return index(owner, true).refs.map(ref => ({ ...ref })); }
+    function resolve(owner, reference) {
+        const current = index(owner), w = current.workspace;
+        if (reference === null) return entry(w, w.root);
+        const item = current.byId.get(reference?.id);
+        return item && item.type === reference.type ? { ...item, reference: { ...reference } } : null;
+    }
+    function describe(owner, reference) {
+        try { const current = index(owner), w = current.workspace, item = resolve(owner, reference);
+            return { workspaceName: w.name ?? w.label ?? (owner.type === "resource" ? "Resource" : "Project"), available: !!item,
+                segments: item ? L.relativePath(w.root, item.path).split("/").filter(Boolean) : [] };
+        } catch (_) { return { workspaceName: indexes.get(ownerKey(owner))?.workspace.name ?? (owner.type === "resource" ? "Resource" : "Project"), segments: [], available: false }; }
+    }
+    const provider = { workspace, describe, resolve, catalog,
+        resolveId(owner, id) { try { const item = index(owner).byId.get(id); return item ? { ...item, reference: { type: item.type, id } } : null; } catch (_) { return null; } },
+        workspaces: () => { const status = plugin.nativeTaskHost?.status(), states = status?.owners ?? (status ? [status] : []);
+            return workspaces().map(w => ({ owner: w.owner, name: w.name ?? w.label, root: w.root,
+                available: !!plugin.nativeTaskHost?.matches(w.owner) && states.some(s => L.sameOwner(s.owner, w.owner) && s.state === "ready") })); },
+        browse(owner, path) {
+            const w = workspace(owner), current = entry(w, path ?? w.root);
+            if (current.type !== "folder") throw Error("Folder is unavailable.");
+            const rows = (vault.getAbstractFileByPath(current.path).children ?? []).flatMap(file => {
+                try { return typeOf(file) ? [entry(w, file.path)] : []; } catch (_) { return []; }
+            }).sort((a, b) => (a.type === b.type ? 0 : a.type === "folder" ? -1 : 1) || a.name.localeCompare(b.name, undefined, { numeric: true }));
+            return { workspace: w, current, rows };
+        },
+        select(owner, path, type) { const w = workspace(owner), selected = entry(w, path); if (selected.type !== type) throw Error("Location changed. Choose it again."); return { owner: w.owner, reference: selected.reference, path: selected.path, type, display: describe(owner, selected.reference) }; }
+    };
+    providers.set(plugin, provider); return provider;
+}
+function locationService(service, plugin, owner) {
+    const locations = createNativeTaskLocations(plugin), services = new Map(), key = ownerKey;
+    services.set(key(owner), service);
+    let creationOwner = null;
+    const choose = target => {
+        if (!plugin.nativeTaskHost?.matches(target)) throw Error("Native workspace is unavailable. Markdown fallback is disabled.");
+        if (!services.has(key(target))) services.set(key(target), plugin.nativeTaskHost.runtime(target).formService(plugin.app));
+        return services.get(key(target));
+    };
+    return { ...service, nativeLocations: locations, nativeOwner: owner,
+        formContext: snapshot => ({ ...service.formContext(snapshot), nativeOwner: owner }),
+        async create(destination, text, values) {
+            const target = values.nativeOwner ?? owner;
+            if (creationOwner && !L.sameOwner(creationOwner, target)) throw Error("Keep the original creation request until reviewed.");
+            const selected = choose(target); creationOwner = { ...target };
+            return selected.create(selected.formContext(values).destination, text, values);
+        },
+        save(snapshot, values) {
+            if (!L.sameOwner(values.nativeOwner ?? owner, owner)) return Promise.reject(Error("Moving an existing task between workspaces is unavailable. Its identity is preserved."));
+            return service.save(snapshot, values);
+        }
+    };
+}
+function nativeCreationOwner(plugin, options = {}) {
+    const explicit = options.location ?? options.path ?? options.root;
+    const context = explicit != null ? plugin.taskEditor.context(explicit) : plugin.taskEditor.currentContext();
+    let owner = options.owner ?? (context ? workspaceRef(context) : null);
+    // Match Add's existing Home default, without entering a Markdown editor.
+    if (!owner && explicit == null) owner = { type: "resource", id: "references" };
+    return owner && plugin.nativeTaskHost?.matches(owner) ? owner : null;
+}
+module.exports = { createNativeTaskLocations, locationService, workspaceRef, nativeCreationOwner };
 
 },
 "lib/services/native-task-report-evidence.js": function (module, exports, __hubRequire) {
@@ -31106,7 +31292,12 @@ function mountTaskCardPresentation(row, textEl, task, getPath, { now = new Date(
     const info = textEl.parentElement, checkbox = row.querySelector('input[type="checkbox"]');
     const source = info.querySelector(".home-task-location, .project-task-location");
     const description = options.selection || options.description === false ? null : mountDescriptionIndicator(row, info);
-    let indicator, dates, dateSpan, dateValue, phase;
+    let indicator, dates, dateSpan, dateValue, phase, sourceControl, sourceText;
+    if (source && options.locationAction) {
+        source.empty(); sourceControl = source.createEl("button", { cls: "hub-button-plain hub-task-location-trigger", attr: { type: "button", "aria-haspopup": "dialog" } });
+        __hubRequire("lib/ui/icons.js").setHubIcon(sourceControl.createSpan({ attr: { "aria-hidden": "true" } }), "folder");
+        sourceText = sourceControl.createSpan(); sourceControl.addEventListener("click", event => { event.stopPropagation(); options.locationAction(); });
+    }
     function update(next = task) {
         task = next;
         row.classList.toggle("is-completed", !!task.completed);
@@ -31136,10 +31327,19 @@ function mountTaskCardPresentation(row, textEl, task, getPath, { now = new Date(
             else { dateSpan.removeAttribute("title"); dateSpan.removeAttribute("aria-label"); }
         } else { dates?.remove(); dates = dateSpan = dateValue = null; }
         if (source) {
-            const label = options.sourceLabel ?? (options.selection && !options.normalSource ? getPath().replace(/\.md$/i, "").split("/").join(" › ") : taskSourceLabel(getPath()));
+            const native = __hubRequire("lib/domain/native-task-location.js").locationBreadcrumb(options.nativeDisplay ? { ...task, nativeLocationDisplay: options.nativeDisplay() } : task, options.locationWorkspace);
+            const label = native?.label ?? options.sourceLabel ?? (options.selection && !options.normalSource ? getPath().replace(/\.md$/i, "").split("/").join(" › ") : taskSourceLabel(getPath()));
+            if (native) {
+                source.title = native.full; source.classList.toggle("is-location-unavailable", !native.available);
+                if (checkbox && (options.nativeDisplay || task.nativeLocationUnavailable)) checkbox.disabled = !native.available;
+            }
+            if (sourceControl) { sourceText.textContent = label; sourceControl.setAttribute("aria-label", "Location: " + (native?.full ?? label)); sourceControl.title = native?.full ?? label; }
+
             const labelText = source.firstChild;
-            if (labelText?.nodeType === 3) labelText.textContent = label;
-            else source.prepend(row.ownerDocument.createTextNode(label));
+            if (!sourceControl) {
+                if (labelText?.nodeType === 3) labelText.textContent = label;
+                else source.prepend(row.ownerDocument.createTextNode(label));
+            }
             const phaseText = !options.selection && phaseLabel?.(task);
             if (phaseText) {
                 phase ??= source.createSpan({ cls: "hub-task-phase" });
@@ -31149,7 +31349,7 @@ function mountTaskCardPresentation(row, textEl, task, getPath, { now = new Date(
         description?.update(task.description);
     }
     update();
-    return { update, get indicator() { return indicator; }, get dates() { return dates; }, get phase() { return phase; },
+    return { update, get sourceControl() { return sourceControl; }, get indicator() { return indicator; }, get dates() { return dates; }, get phase() { return phase; },
         get descriptionIndicator() { return description?.element; }, destroy() { description?.destroy(); } };
 }
 
@@ -31465,15 +31665,29 @@ function openTaskEditor(service, task, onEdit = () => {}, creation = null) {
             let errorEl;
             const clearError = () => { if (errorEl) errorEl.textContent = ""; };
             const state = { ...snapshot, steps: snapshot.steps.map(step => ({ ...step })) };
-            // Location selection is deferred. Preserve the exact destination,
-            // including the native file object following a rename while open.
+            // Legacy source destinations and native workspace locations remain
+            // separate; opening a picker only changes this editor's draft.
             const location = () => formContext ? formContext.sourcePath : snapshot.file?.path ?? snapshot.path;
+            state.nativeOwner ??= formContext?.nativeOwner;
+            state.nativeLocation ??= formContext?.nativeLocation ?? "";
+            const openLocation = () => {
+                if (this.saving || !service.nativeLocations) return;
+                if (this.locationPicker) { this.locationPicker.modalEl.focus(); return; }
+                this.taskFields.closePopovers();
+                const owner = state.nativeOwner;
+                const reference = state.nativeLocation ? { type: state.nativeLocationType ?? service.nativeLocations.resolveId?.(owner, state.nativeLocation)?.type, id: state.nativeLocation } : null;
+                this.locationPicker = __hubRequire("lib/ui/task-location-picker.js").openTaskLocationPicker(service.app, {
+                    locations: service.nativeLocations, owner, reference, allowOwnerChange: !!creation,
+                    onChoose: selected => { state.nativeOwner = selected.owner; state.nativeLocation = selected.reference?.id ?? ""; state.nativeLocationType = selected.reference?.type; this.taskFields.refresh(); clearError(); },
+                    onClose: () => { this.locationPicker = null; if (!this.closed) this.taskFields.presentation.sourceControl?.focus({ preventScroll: true }); }
+                });
+            };
             this.taskFields = mountLiveTaskForm({ host: form, state, service,
                 initialStepsOpen: !creation && snapshot.steps.length > 0,
                 onChange: clearError,
                 text: { placeholder: creation ? "What needs doing?" : "" },
-                location, presentationContext: formContext });
-            if (formContext?.resourceLocations) {
+                location, presentationContext: formContext, onLocation: service.nativeLocations ? openLocation : null });
+            if (formContext?.resourceLocations && !service.nativeLocations) {
                 const label = form.createEl("label", { text: "Location (optional)" });
                 const select = label.createEl("select", { attr: { "aria-label": "Resource task location" } });
                 select.createEl("option", { value: "", text: "Resource" });
@@ -31539,13 +31753,20 @@ function openTaskEditor(service, task, onEdit = () => {}, creation = null) {
             else { this.modalEl.tabIndex = -1; this.modalEl.focus({ preventScroll: true }); }
         }
         close() { if (!this.saving) { this.closed = true; super.close(); } }
-        onClose() { this.closed = true; this.taskFields?.destroy(); this.contentEl.empty(); }
+        onClose() { this.closed = true; this.locationPicker?.close(); this.taskFields?.destroy(); this.contentEl.empty(); }
     }
     const modal = new TaskModal(service.app);
     // Obsidian appends the modal before calling onOpen and does not await it.
     // Keep the native container detached until the snapshot is available; there
     // is no intermediate modal, backdrop, focus transfer or loading geometry.
-    const present = () => { if (modal.closed) return null; modal.formContext = service.formContext?.(modal.snapshot) ?? null; modal.open(); return modal; };
+    const present = () => { if (modal.closed) return null; modal.formContext = service.formContext?.(modal.snapshot) ?? null;
+        const nativePath = creation?.location ?? creation?.path ?? creation?.root;
+        if (service.nativeLocations && nativePath && !Object.hasOwn(modal.snapshot, "nativeLocation")) {
+            const file = service.app.vault.getAbstractFileByPath(nativePath);
+            const selected = service.nativeLocations.select(service.nativeOwner, nativePath, Array.isArray(file?.children) ? "folder" : "note");
+            modal.snapshot.nativeLocation = selected.reference?.id ?? ""; modal.snapshot.nativeLocationType = selected.reference?.type;
+        }
+        modal.open(); return modal; };
     const failed = error => { if (modal.closed) return null; modal.close(); new Notice(error.message); return null; };
     if (creation) {
         try {
@@ -32037,7 +32258,7 @@ function mountTaskDescriptionPopover(control, state, onChange, onFeedback, bind 
     refresh(); return { ...picker, refresh };
 }
 
-function mountLiveTaskForm({ host, state, service, location, text, initialStepsOpen = false, onChange = () => {}, presentationContext = null }) {
+function mountLiveTaskForm({ host, state, service, location, text, initialStepsOpen = false, onChange = () => {}, presentationContext = null, onLocation = null }) {
     const element = host.createDiv({ cls: "hub-task-live-fields" });
     const surface = element.createDiv({ cls: "hub-task-card-container" });
     const parts = createTaskRow(surface, state, state.completed, { checkboxScope: host.ownerDocument.body });
@@ -32051,7 +32272,12 @@ function mountLiveTaskForm({ host, state, service, location, text, initialStepsO
         const path = location(), file = service.app.vault.getAbstractFileByPath(path);
         return Array.isArray(file?.children) ? path + "/Tasks.md" : path; };
     const phaseLabel = task => (service.phases?.(location()) ?? []).find(phase => phase.id === task.phaseId)?.name;
-    const presentation = mountTaskCardPresentation(parts.row, parts.textEl, state, cardPath, { phaseLabel, ...(presentationContext ? { sourceLabel: presentationContext.sourceLabel } : {}) });
+    const presentation = mountTaskCardPresentation(parts.row, parts.textEl, state, cardPath, { phaseLabel,
+        ...(presentationContext ? { sourceLabel: presentationContext.sourceLabel } : {}),
+        ...(service.nativeLocations ? { locationAction: onLocation, nativeDisplay: () => {
+            const ref = state.nativeLocation ? service.nativeLocations.resolveId(state.nativeOwner, state.nativeLocation)?.reference ?? { id: state.nativeLocation, type: state.nativeLocationType } : null;
+            return service.nativeLocations.describe(state.nativeOwner, ref);
+        } } : {}) });
     parts.textEl.classList.add("hub-task-markdown");
     const checklist = createTaskChecklist(parts.info, { emptyAction: true });
     // Only seed disclosure at construction; refreshes respect the user's choice.
@@ -32175,6 +32401,116 @@ function mountLiveTaskForm({ host, state, service, location, text, initialStepsO
 module.exports = { mountLiveTaskForm, mountTaskDateEndpoint };
 
 },
+"lib/ui/task-location-picker.js": function (module, exports, __hubRequire) {
+"use strict";
+const { Modal } = require("obsidian");
+const { createModalHeader, layoutModal } = __hubRequire("lib/ui/window-title.js");
+const { setHubIcon } = __hubRequire("lib/ui/icons.js");
+const { sameOwner, relativePath } = __hubRequire("lib/domain/native-task-location.js");
+function openTaskLocationPicker(app, { locations, owner, reference = null, allowOwnerChange = false, onChoose, onClose = () => {} }) {
+    class LocationModal extends Modal {
+        onOpen() {
+            this.modalEl.classList.add("hub-task-location-dialog");
+            this.modalEl.setAttribute("aria-label", "Task location");
+            this.contentEl.classList.add("hub-button-scope");
+            createModalHeader(this.contentEl, { title: "Location", icon: "folder-open" });
+            const label = this.contentEl.createEl("label", { cls: "hub-task-location-workspace", text: "Workspace" });
+            this.workspaceSelect = label.createEl("select", { attr: { "aria-label": "Owning workspace" } });
+            const choices = locations.workspaces();
+            for (const [type, name] of [["project", "Projects"], ["resource", "Resources"]]) {
+                const group = this.workspaceSelect.createEl("optgroup", { attr: { label: name } });
+                for (const choice of choices.filter(w => w.owner.type === type)) {
+                    const option = group.createEl("option", { value: JSON.stringify(choice.owner), text: choice.name });
+                    option.disabled = !choice.available && !sameOwner(owner, choice.owner);
+                }
+            }
+            this.owner = { ...owner }; this.workspaceSelect.value = JSON.stringify({ type: owner.type, id: owner.id });
+            this.workspaceSelect.disabled = !allowOwnerChange;
+            if (!allowOwnerChange) this.workspaceSelect.title = "Existing task ownership cannot be changed.";
+            this.breadcrumbs = this.contentEl.createEl("nav", { cls: "hub-task-location-breadcrumbs", attr: { "aria-label": "Folder breadcrumbs" } });
+            const toolbar = this.contentEl.createDiv({ cls: "hub-task-location-toolbar" });
+            this.chooseFolder = toolbar.createEl("button", { text: "Choose this folder", attr: { type: "button" } });
+            this.chooseFolder.onclick = () => { try { this.proposed = locations.select(this.owner, this.path, "folder"); this.updateSelection(); } catch (error) { this.showError(error); } };
+            this.list = this.contentEl.createDiv({ cls: "hub-task-location-entries", attr: { role: "group", "aria-label": "Folders and Markdown notes" } });
+            this.selection = this.contentEl.createDiv({ cls: "hub-task-location-selection", attr: { role: "status", "aria-label": "Selected location" } });
+            this.error = this.contentEl.createDiv({ cls: "hub-task-error", attr: { role: "alert" } });
+            const actions = this.contentEl.createDiv({ cls: "hub-task-dialog-actions" });
+            actions.createEl("button", { text: "Cancel", attr: { type: "button" } }).onclick = () => this.close();
+            this.confirm = actions.createEl("button", { text: "Use location", cls: "mod-cta", attr: { type: "button" } });
+            this.confirm.onclick = () => {
+                try {
+                    const accepted = this.proposed && locations.resolve(this.proposed.owner, this.proposed.reference);
+                    if (!accepted || accepted.path !== this.proposed.path || accepted.type !== this.proposed.type) throw Error("Location is no longer available. Choose a replacement.");
+                    onChoose({ ...this.proposed, display: locations.describe(this.proposed.owner, this.proposed.reference) }); this.close();
+                } catch (error) { this.showError(error); this.confirm.disabled = true; }
+            };
+            this.workspaceSelect.onchange = () => {
+                this.owner = JSON.parse(this.workspaceSelect.value); this.proposed = null;
+                this.path = locations.workspace(this.owner).root; this.renderFolder();
+            };
+            let initial;
+            try { initial = locations.resolve(owner, reference); } catch (_) {}
+            this.proposed = initial ? { owner: this.owner, reference, path: initial.path, type: initial.type } : null;
+            const workspace = locations.workspace(owner);
+            this.path = initial ? initial.type === "folder" ? initial.path : initial.path.slice(0, initial.path.lastIndexOf("/")) : workspace.root;
+            this.renderFolder();
+            if (!initial) this.showError(Error("Saved location is unavailable. Choose a replacement."));
+            const body = layoutModal(this, { footer: actions }); body.classList.add("hub-task-location-body");
+            this.list.addEventListener("keydown", event => {
+                const buttons = [...this.list.querySelectorAll("button")], index = buttons.indexOf(event.target);
+                if (index < 0 || !["ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) return;
+                event.preventDefault(); const next = event.key === "Home" ? 0 : event.key === "End" ? buttons.length - 1 : Math.max(0, Math.min(buttons.length - 1, index + (event.key === "ArrowDown" ? 1 : -1))); buttons[next]?.focus();
+            });
+            this.refs = ["create", "delete", "rename"].map(event => app.vault.on(event, (file, oldPath) => {
+                const root = locations.workspace(this.owner).root;
+                if ([file?.path, oldPath].some(path => path === root || path?.startsWith(root + "/"))) this.renderFolder();
+            }));
+        }
+        showError(error) { this.error.textContent = error.message; }
+        updateSelection() {
+            let current;
+            try { current = this.proposed && locations.resolve(this.proposed.owner, this.proposed.reference); } catch (_) {}
+            this.confirm.disabled = !current;
+            const name = this.proposed ? locations.workspace(this.proposed.owner).name : null;
+            this.selection.textContent = current ? [name, ...relativePath(locations.workspace(this.proposed.owner).root, current.path).split("/")].filter(Boolean).join(" / ") : "No location selected";
+            this.selection.title = this.selection.textContent;
+            for (const row of this.list.querySelectorAll("[data-location-path]")) row.classList.toggle("is-selected", !!current && sameOwner(this.owner, this.proposed.owner) && row.dataset.locationPath === current.path);
+        }
+        renderFolder() {
+            this.error.textContent = ""; this.breadcrumbs.empty(); this.list.empty();
+            const w = locations.workspace(this.owner), route = relativePath(w.root, this.path).split("/").filter(Boolean);
+            const paths = [w.root, ...route.map((_part, i) => w.root + "/" + route.slice(0, i + 1).join("/"))];
+            for (let i = 0; i < paths.length; i++) {
+                if (i) this.breadcrumbs.createSpan({ text: "/", attr: { "aria-hidden": "true" } });
+                const button = this.breadcrumbs.createEl("button", { text: i ? route[i - 1] : w.name, attr: { type: "button", title: paths[i] } });
+                if (i === paths.length - 1) button.setAttribute("aria-current", "location");
+                button.onclick = () => { this.path = paths[i]; this.renderFolder(); this.chooseFolder.focus(); };
+            }
+            try {
+                const folder = locations.browse(this.owner, this.path); this.chooseFolder.disabled = false;
+                for (const item of folder.rows) {
+                    const row = this.list.createEl("button", { cls: "hub-task-location-entry", attr: { type: "button", title: item.name } });
+                    row.dataset.locationPath = item.path; row.dataset.locationType = item.type;
+                    setHubIcon(row.createSpan({ cls: "hub-task-location-icon", attr: { "aria-hidden": "true" } }), item.type === "folder" ? "folder" : "file-text");
+                    row.createSpan({ cls: "hub-task-location-name", text: item.name });
+                    if (item.type === "folder") setHubIcon(row.createSpan({ cls: "hub-task-location-icon", attr: { "aria-hidden": "true" } }), "chevron-right");
+                    row.onclick = () => {
+                        try { if (item.type === "folder") { this.path = item.path; this.renderFolder(); this.chooseFolder.focus(); }
+                            else { this.proposed = locations.select(this.owner, item.path, "note"); this.error.textContent = ""; this.updateSelection(); } }
+                        catch (error) { this.showError(error); }
+                    };
+                }
+                if (!folder.rows.length) this.list.createDiv({ cls: "hub-task-location-empty", text: "This folder is empty." });
+            } catch (error) { this.chooseFolder.disabled = true; this.showError(error); }
+            this.updateSelection();
+        }
+        onClose() { for (const ref of this.refs ?? []) app.vault.offref(ref); this.contentEl.empty(); onClose(); }
+    }
+    const modal = new LocationModal(app); modal.open(); return modal;
+}
+module.exports = { openTaskLocationPicker };
+
+},
 "lib/ui/task-popover.js": function (module, exports, __hubRequire) {
 "use strict";
 const { setHubIcon } = __hubRequire("lib/ui/icons.js");
@@ -32291,7 +32627,7 @@ function createTaskSteps({ markdown, mutate, onEdit, report, setIcon }) {
             void markdown.render(text, step.text, getPath);
             bindCompletionSound(checkbox, playStepCompletionSound);
             checkbox.addEventListener("change", async () => {
-                if (state.pending) { refresh(); return; }
+                if (state.pending || native && (task.nativeReadOnly || task.nativeLocationUnavailable)) { refresh(); return; }
                 const pending = state.pending = { id: step.id, line: step.line, completed: checkbox.checked };
                 refresh();
                 try {
@@ -32310,7 +32646,7 @@ function createTaskSteps({ markdown, mutate, onEdit, report, setIcon }) {
             let completed = 0;
             for (const { row, checkbox, step } of rows) {
                 checkbox.checked = state.pending && (native ? state.pending.id === step.id : state.pending.line === step.line) ? state.pending.completed : step.completed;
-                checkbox.disabled = !!state.pending || !!(native && task.nativeReadOnly);
+                checkbox.disabled = !!state.pending || !!(native && (task.nativeReadOnly || task.nativeLocationUnavailable));
                 row.classList.toggle("is-completed", checkbox.checked);
                 if (checkbox.checked) completed++;
             }
@@ -32410,22 +32746,22 @@ function source(host, task, context) {
         try { await context.openSource(task); }
         catch (error) { new Notice(error.message || "Could not open task location."); }
     }, "hub-button-plain hub-full-location");
-    el.title = label; el.setAttribute("aria-label", "Open location: " + label);
-    if (task.nativeReference) { el.disabled = true; el.title = "Native source navigation is unavailable."; }
+    el.title = task.nativeReference ? __hubRequire("lib/domain/native-task-location.js").locationBreadcrumb(task, { type: "project", id: context.workspace.projectId })?.full ?? label : label; el.setAttribute("aria-label", "Open location: " + label);
+    if (task.nativeReference) { el.disabled = true; el.setAttribute("aria-label", "Location: " + el.title); }
 }
 function bindTask(row, title, checkbox, task, context, options = {}) {
-    context.ui.bind(row, title, task, () => task.nativeReference ? "" : context.currentPath(task.path), { dates: false, steps: false, ...options });
+    context.ui.bind(row, title, task, () => task.nativeReference ? "" : context.currentPath(task.path), { dates: false, steps: false, locationWorkspace: { type: "project", id: context.workspace.projectId }, ...options });
     row.classList.toggle("is-completed", !!task.completed);
     const key = task.nativeReference ? JSON.stringify([task.nativeReference.authorityId, task.nativeReference.owner, task.nativeReference.taskId]) : task.hubTaskId ?? task.path + ":" + task.line;
-    checkbox.checked = !!task.completed; checkbox.disabled = !!task.nativeReadOnly || !!context.unavailable || context.pending.has(key);
+    checkbox.checked = !!task.completed; checkbox.disabled = !!(task.nativeReadOnly || task.nativeLocationUnavailable) || !!context.unavailable || context.pending.has(key);
     checkbox.addEventListener("click", event => event.stopPropagation());
     checkbox.addEventListener("change", async () => {
-        if (task.nativeReadOnly || context.unavailable || context.pending.has(key)) { checkbox.checked = !!task.completed; return; }
+        if (task.nativeReadOnly || task.nativeLocationUnavailable || context.unavailable || context.pending.has(key)) { checkbox.checked = !!task.completed; return; }
         const completed = checkbox.checked;
         context.pending.add(key); checkbox.disabled = true;
         try { context.apply(await context.toggle(task.nativeReference ? { ...task, completed } : { ...task, path: context.currentPath(task.path), completed })); }
         catch (error) { checkbox.checked = !!task.completed; new Notice(error.message || "Could not update task."); }
-        finally { context.pending.delete(key); checkbox.disabled = !!task.nativeReadOnly || !!context.unavailable; context.render(); }
+        finally { context.pending.delete(key); checkbox.disabled = !!(task.nativeReadOnly || task.nativeLocationUnavailable) || !!context.unavailable; context.render(); }
     });
 }
 function taskCard(host, task, context, compact = false) {
@@ -32603,7 +32939,7 @@ function mountTaskWorkspace({ plugin, component, dv, root, toolbar, filesGrid, f
     component.register(() => modeWidthObserver.disconnect());
     const currentPath = path => plugin.taskData.currentPath(path);
     const owner = task => workspaces.find(item => validLocation(currentPath(task.path), item)) ?? workspace;
-    const describe = task => task.nativeReference ? workspace.name ?? "Project" : locationLabel(currentPath(task.path), owner(task), owner(task).root !== workspace.root);
+    const describe = task => task.nativeReference ? __hubRequire("lib/domain/native-task-location.js").locationBreadcrumb(task, { type: "project", id: workspace.projectId })?.label ?? workspace.name ?? "Project" : locationLabel(currentPath(task.path), owner(task), owner(task).root !== workspace.root);
     const belongs = task => validLocation(task.path, workspace);
     const apply = edit => {
         if (native) { const next = native.reconcile(tasks, edit); nativeAvailable = edit.availability === "current"; tasks = nativeAvailable ? next : tasks.map(task => ({ ...task, nativeReadOnly: true })); dirty = true; render(); void refresh(); return; }
@@ -48131,8 +48467,8 @@ module.exports = class HubProjectMenu extends Plugin {
 
     openTaskCreator(options = {}) {
         if (!this.nativeTaskHost) return openTaskCreator(this.taskEditor, options);
-        const owner = options.location ? this.taskEditor.context(options.location) : this.taskEditor.currentContext();
-        if (this.nativeTaskHost?.matches(__hubRequire("lib/services/task-service-legacy-values.js").workspaceRef(owner))) return this.nativeTaskHost.create(options);
+        const owner = __hubRequire("lib/services/native-task-locations.js").nativeCreationOwner(this, options);
+        if (owner) return this.nativeTaskHost.create({ ...options, owner });
         return openTaskCreator(this.taskEditor, options);
     }
 

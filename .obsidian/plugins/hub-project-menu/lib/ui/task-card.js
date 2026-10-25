@@ -54,7 +54,12 @@ function mountTaskCardPresentation(row, textEl, task, getPath, { now = new Date(
     const info = textEl.parentElement, checkbox = row.querySelector('input[type="checkbox"]');
     const source = info.querySelector(".home-task-location, .project-task-location");
     const description = options.selection || options.description === false ? null : mountDescriptionIndicator(row, info);
-    let indicator, dates, dateSpan, dateValue, phase;
+    let indicator, dates, dateSpan, dateValue, phase, sourceControl, sourceText;
+    if (source && options.locationAction) {
+        source.empty(); sourceControl = source.createEl("button", { cls: "hub-button-plain hub-task-location-trigger", attr: { type: "button", "aria-haspopup": "dialog" } });
+        require("./icons").setHubIcon(sourceControl.createSpan({ attr: { "aria-hidden": "true" } }), "folder");
+        sourceText = sourceControl.createSpan(); sourceControl.addEventListener("click", event => { event.stopPropagation(); options.locationAction(); });
+    }
     function update(next = task) {
         task = next;
         row.classList.toggle("is-completed", !!task.completed);
@@ -84,10 +89,19 @@ function mountTaskCardPresentation(row, textEl, task, getPath, { now = new Date(
             else { dateSpan.removeAttribute("title"); dateSpan.removeAttribute("aria-label"); }
         } else { dates?.remove(); dates = dateSpan = dateValue = null; }
         if (source) {
-            const label = options.sourceLabel ?? (options.selection && !options.normalSource ? getPath().replace(/\.md$/i, "").split("/").join(" › ") : taskSourceLabel(getPath()));
+            const native = require("../domain/native-task-location").locationBreadcrumb(options.nativeDisplay ? { ...task, nativeLocationDisplay: options.nativeDisplay() } : task, options.locationWorkspace);
+            const label = native?.label ?? options.sourceLabel ?? (options.selection && !options.normalSource ? getPath().replace(/\.md$/i, "").split("/").join(" › ") : taskSourceLabel(getPath()));
+            if (native) {
+                source.title = native.full; source.classList.toggle("is-location-unavailable", !native.available);
+                if (checkbox && (options.nativeDisplay || task.nativeLocationUnavailable)) checkbox.disabled = !native.available;
+            }
+            if (sourceControl) { sourceText.textContent = label; sourceControl.setAttribute("aria-label", "Location: " + (native?.full ?? label)); sourceControl.title = native?.full ?? label; }
+
             const labelText = source.firstChild;
-            if (labelText?.nodeType === 3) labelText.textContent = label;
-            else source.prepend(row.ownerDocument.createTextNode(label));
+            if (!sourceControl) {
+                if (labelText?.nodeType === 3) labelText.textContent = label;
+                else source.prepend(row.ownerDocument.createTextNode(label));
+            }
             const phaseText = !options.selection && phaseLabel?.(task);
             if (phaseText) {
                 phase ??= source.createSpan({ cls: "hub-task-phase" });
@@ -97,7 +111,7 @@ function mountTaskCardPresentation(row, textEl, task, getPath, { now = new Date(
         description?.update(task.description);
     }
     update();
-    return { update, get indicator() { return indicator; }, get dates() { return dates; }, get phase() { return phase; },
+    return { update, get sourceControl() { return sourceControl; }, get indicator() { return indicator; }, get dates() { return dates; }, get phase() { return phase; },
         get descriptionIndicator() { return description?.element; }, destroy() { description?.destroy(); } };
 }
 

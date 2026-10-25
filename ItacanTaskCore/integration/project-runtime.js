@@ -28,11 +28,11 @@ async function openProjectRuntime(config, options) {
         if (options.creating) await session.host.create({ version: shared ? 3 : 2, authorityId: config.authorityId, partitions: [{ id: o.partitionId, owner, kind: shared ? "git-project" : owner.type === "resource" ? "resource" : "private-project" }], reason: "Explicit owner-scoped authority creation", ...authorization, taskMutationVersion: 1, ...(shared ? {gitSharedVersion:2,genesis:options.sharedGenesis}: {}) });
         else await session.host.open({ version: 1, expectedAuthorityId: config.authorityId, ...authorization });
     } catch (error) { await session.dispose().catch(() => {}); throw error; }
-    const taskService = new TaskService(createNativeReadAdapter(session.host)), editorPort = createNativeEditorReadPort(session.host, { writerPolicy: options.writerPolicy });
+    const taskService = new TaskService(createNativeReadAdapter(session.host)), editorPort = createNativeEditorReadPort(session.host, { writerPolicy: options.writerPolicy, ...(options.consumerUiV1 ? { allowUnavailableLocations: true } : {}) });
     const grant = () => session.authorize({ version: 1, owners: options.writerPolicy.owners, commands: options.writerPolicy.commands });
     async function withGrant(fn) { const cap = await grant(); try { return await fn(cap); } finally { session.revoke(cap); } }
     const alive = () => check(!closed, "Project runtime is closed.");
-    async function capture() { alive(); const r = await session.host.readScoped({ version: 2, authorityId: config.authorityId, owners: [owner], selection: "tasks", ...(options.consumerUiV1 ? { includeConsumerFacts: true } : {}) }); check(r.status === "ok" && r.info.readiness.state === "ready", "Native Project unavailable."); return r; }
+    async function capture() { alive(); const r = await session.host.readScoped({ version: 2, authorityId: config.authorityId, owners: [owner], selection: "tasks", ...(options.consumerUiV1 ? { includeConsumerFacts: true, locationEvidence: "report-unavailable" } : {}) }); check(r.status === "ok" && r.info.readiness.state === "ready", "Native Project unavailable."); return r; }
     async function consumerContext(stamp) {
         const registry = require("../host/registry").validateRegistry(await options.registry.read(), config), h = session.host.info();
         check(registry.digest === stamp.ownerContextPin && h.hostEpoch === stamp.hostEpoch && h.readiness.state === "ready", "Consumer context changed.");
@@ -42,7 +42,7 @@ async function openProjectRuntime(config, options) {
         return { owner, root: entry.root, dashboard: entry.dashboard, status: entry.status };
     }
     async function list() { const r = await capture(); const context = options.consumerUiV1 ? await consumerContext(r.stamp) : undefined;
-        return freeze({ stamp: r.stamp, tasks: r.snapshot.tasks.map(t => view(t, config.authorityId)), ...(context ? { context } : {}) }); }
+        return freeze({ stamp: r.stamp, tasks: r.snapshot.tasks.map(t => ({ ...view(t, config.authorityId), ...(r.locationFacts?.some(f => f.taskId === t.id && f.state === "unavailable") ? { nativeLocationUnavailable: true } : {}), ...(options.describeLocation ? { nativeLocationDisplay: options.describeLocation(t.location) } : {}) })), ...(context ? { context } : {}) }); }
     async function rawEditor(id) { alive(); const r = await editorPort.read({ version: 1, authorityId: config.authorityId, owner, partitionId: options.writerPolicy.owners[0].partitionId, taskId: id }); check(r.status === "ok", "Native editor unavailable."); return r.editor; }
     const editor = async id => B.editable(await rawEditor(id));
     async function creationContext() { const r = await capture(); return { authority, owner, guard: { expectedRepositoryRevision: r.stamp.head.repositoryRevision, ownerContextPin: r.stamp.ownerContextPin, identityPin: r.stamp.identityPin,
@@ -59,11 +59,11 @@ async function openProjectRuntime(config, options) {
             let retained = null;
             try { retained = await session.requests.get(cap, intent.operationId); } catch (error) { if (error.code !== "ENOENT") throw error; }
             if (!retained) {
-                if (intent.action.kind === "rich-create") { const d = intent.action.draft; check(d.continuation === "" && d.metadata.phase === null && (owner.type === "resource" || d.metadata.location === null) && d.steps.every(s => s.body === "" && s.parentStepId === null), "Creation exceeds compact form."); }
+                if (intent.action.kind === "rich-create") { const d = intent.action.draft; check(d.continuation === "" && d.metadata.phase === null && d.steps.every(s => s.body === "" && s.parentStepId === null), "Creation exceeds compact form."); }
                 else {
                     const e = await editor(intent.action.target.taskId);
                     if (intent.action.kind === "full-save") { const d = intent.action.draft, originals = new Map(e.draft.steps.map(s => [s.id, s]));
-                        check(d.continuation === e.draft.continuation && (owner.type === "resource" || same(d.metadata.location, e.draft.metadata.location)) && same(d.metadata.phase, e.draft.metadata.phase) && d.steps.every(s => s.parentStepId === null && s.body === (originals.get(s.id)?.body ?? "") && (!originals.has(s.id) || s.order === originals.get(s.id).order)), "Hidden native content must survive."); }
+                        check(d.continuation === e.draft.continuation && same(d.metadata.phase, e.draft.metadata.phase) && d.steps.every(s => s.parentStepId === null && s.body === (originals.get(s.id)?.body ?? "") && (!originals.has(s.id) || s.order === originals.get(s.id).order)), "Hidden native content must survive."); }
                 }
             }
             await session.requests.prepare(cap, intent);
@@ -107,37 +107,41 @@ async function openProjectRuntime(config, options) {
     function formService(app, sourceLabel = owner.type === "resource" ? "Resource" : "Project") {
         let original = null, attempt = null;
         async function issue(values, build) {
-            const fingerprint = V.canonical([B.fingerprint(values), owner.type === "resource" ? values.nativeLocation ?? null : null]);
+            check(values.nativeOwner === undefined || same(values.nativeOwner, owner), "Changing an existing authority's task owner is unavailable.");
+            const fingerprint = V.canonical([B.fingerprint(values), values.nativeLocation ?? null]);
             check(!attempt || attempt.fingerprint === fingerprint, "Keep the original request until reviewed.");
             if (!attempt) attempt = { fingerprint, intent: await build() };
             return editResult(await mutate(attempt.intent));
         }
-        const location = values => {
-            if (owner.type !== "resource") return null;
+        const location = async values => {
             const id = values.nativeLocation ?? "";
             if (!id) return null;
-            const ref = resourceLocations.find(l => l.id === id); check(ref, "Resource location changed or is unavailable."); return V.clone(ref);
+            const registry = require("../host/registry").validateRegistry(await options.registry.read(), config);
+            const current = registry.owners.find(entry => same(entry.owner, owner) && entry.available);
+            const ref = current?.locations.find(l => l.id === id); check(ref, "Task location changed or is unavailable."); return V.clone(ref);
         };
         return { app, formContext: snapshot => ({ destination: { authorityId: config.authorityId, owner }, sourcePath: null, sourceLabel,
-            ...(owner.type === "resource" ? { resourceLocations: resourceLocations.map(l => ({ ...V.clone(l), label: options.locationLabel?.(l) ?? l.id })), nativeLocation: snapshot?.nativeLocation ?? "" } : {}) }), context: () => null, phases: () => [],
-            async read(task) { original = await editor(task.id ?? task.nativeReference?.taskId); return { ...B.toForm(original), ...(owner.type === "resource" ? { nativeLocation: original.draft.metadata.location?.id ?? "" } : {}) }; },
-            async create(destination, text, values) { check(destination.authorityId === config.authorityId && same(destination.owner, owner), "Destination changed."); return issue(values, async () => { const i = B.create(await creationContext(), values); i.action.draft.id = randomUUID(); i.action.draft.metadata.location = location(values); return i; }); },
-            async save(snapshot, values) { check(original, "Editor snapshot missing."); return issue(values, () => { if (values.operation === "delete") return B.remove(original); const i = B.save(original, values); if (owner.type === "resource") i.action.draft.metadata.location = location(values); return i; }); }
+            nativeLocation: snapshot?.nativeLocation ?? "", ...(owner.type === "resource" ? { resourceLocations: resourceLocations.map(l => ({ ...V.clone(l), label: options.locationLabel?.(l) ?? l.id })) } : {}) }), context: () => null, phases: () => [],
+            async read(task) { original = await editor(task.id ?? task.nativeReference?.taskId); return { ...B.toForm(original), nativeLocation: original.draft.metadata.location?.id ?? "" }; },
+            async create(destination, text, values) { check(destination.authorityId === config.authorityId && same(destination.owner, owner), "Destination changed."); return issue(values, async () => { const i = B.create(await creationContext(), values); i.action.draft.id = randomUUID(); i.action.draft.metadata.location = await location(values); return i; }); },
+            async save(snapshot, values) { check(original, "Editor snapshot missing."); return issue(values, async () => { if (values.operation === "delete") return B.remove(original); const i = B.save(original, values); if (Object.hasOwn(values, "nativeLocation")) i.action.draft.metadata.location = await location(values); return i; }); }
         };
     }
+    const editorService = plugin => options.describeLocation ? require(pluginRoot + "services/native-task-locations").locationService(formService(plugin.app), plugin, owner) : formService(plugin.app);
+
     function createPanelRead({ plugin, component, workspace, changed = () => {} }) {
         check(same(workspace, owner), "Project panel owner differs.");
         let disposed = false, generation = 0, last = null, availability = "current";
         const stop = session.host.subscribe(() => { generation++; if (!disposed) changed(); });
         const close = () => { if (disposed) return; disposed = true; generation++; stop(); }; component.register(close);
         const reference = task => { if (options.consumerUiV1) { check(availability === "current", "Native Project unavailable."); check(!task.nativeReadOnly, "Native task action is unavailable."); } const r = task.nativeReference; check(r && r.authorityId === config.authorityId && same(r.owner, owner), "Native action scope differs."); return r; };
-        async function change(request) { const r = reference(request), e = await editor(r.taskId); check(e.taskRevision === r.taskRevision, "Task changed; reopen it.");
+        async function change(request) { check(!request.nativeLocationUnavailable, "Choose a valid task location before completing this task."); const r = reference(request), e = await editor(r.taskId); check(!e.locationUnavailable, "Choose a valid task location before completing this task."); check(e.taskRevision === r.taskRevision, "Task changed; reopen it.");
             check(!disposed, "Panel is closed."); let i;
             if (request.operation === "step") { check(e.draft.steps.some(s => s.id === request.step?.id), "Step unavailable."); i = B.complete(e, request.stepCompleted, request.step.id); }
             else { check(request.operation === undefined && typeof request.completed === "boolean", "Native source action unavailable."); i = B.complete(e, request.completed); }
             return editResult(await mutate(i));
         }
-        const controller = { close, actions: { mutate: change, editTask(task, saved) { check(!disposed, "Panel is closed."); reference(task); return require(pluginRoot + "ui/task-editor").openTaskEditor(formService(plugin.app), task, saved); } },
+        const controller = { close, actions: { mutate: change, editTask(task, saved) { check(!disposed, "Panel is closed."); reference(task); return require(pluginRoot + "ui/task-editor").openTaskEditor(editorService(plugin), task, saved); } },
             async read() { const ticket = generation; try { const r = await list(); if (disposed || ticket !== generation) return null; const signature = V.canonical(r.tasks); availability = "current"; return { tasks: r.tasks, changed: signature !== last, diagnostics: [], availability, ...(options.consumerUiV1 ? { stamp: r.stamp, context: r.context } : {}) }; }
                 catch (_) { if (disposed) return null; availability = "unavailable"; return { tasks: [], changed: true, availability, diagnostics: [{ code: "NATIVE_PROJECT_UNAVAILABLE" }] }; } },
             accept(tasks) { last = V.canonical(tasks); },
@@ -145,7 +149,7 @@ async function openProjectRuntime(config, options) {
             toggle: (task, completed) => change({ ...task, completed }),
             clear: async () => { throw Error("Native clear-completed is unavailable."); },
             reveal: async () => { throw Error("Native source navigation is unavailable."); },
-            create(options = {}) { check(!disposed, "Panel is closed."); return require(pluginRoot + "ui/task-editor").openTaskCreator(formService(plugin.app), options); }
+            create(options = {}) { check(!disposed, "Panel is closed."); return require(pluginRoot + "ui/task-editor").openTaskCreator(editorService(plugin), options); }
         };
         return controller;
     }

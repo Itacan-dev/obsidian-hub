@@ -938,7 +938,7 @@ function renderTasksToDo(
 
         const { row, checkbox, textEl } = window.hubCreateTaskRow(target, task, completed, { variant: "home" });
         row.homeTaskKey = task.nativeReference ? JSON.stringify([task.nativeReference.authorityId, task.nativeReference.owner, task.nativeReference.taskId]) : task.hubTaskId ?? `${task.path}\0${task.line}`;
-        upcomingBody.hubTaskUi?.bind(row, textEl, task, () => task.nativeReference ? "" : currentPath(task.path, owner), task.nativeReference ? { sourceLabel: owner.name } : {});
+        upcomingBody.hubTaskUi?.bind(row, textEl, task, () => task.nativeReference ? "" : currentPath(task.path, owner), task.nativeReference ? { sourceLabel: owner.name, locationWorkspace: null } : {});
         if (task.nativeReference) row.querySelector(".home-task-location")?.setAttribute("aria-disabled", "true");
 
 
@@ -1016,7 +1016,7 @@ function renderTasksToDo(
         checkbox.addEventListener(
             "change",
             async () => {
-                if (task.nativeReadOnly) { checkbox.checked = !!task.completed; return; }
+                if (task.nativeReadOnly || task.nativeLocationUnavailable) { checkbox.checked = !!task.completed; return; }
 
                 checkbox.disabled = true;
 

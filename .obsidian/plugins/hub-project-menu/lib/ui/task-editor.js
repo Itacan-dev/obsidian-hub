@@ -28,15 +28,29 @@ function openTaskEditor(service, task, onEdit = () => {}, creation = null) {
             let errorEl;
             const clearError = () => { if (errorEl) errorEl.textContent = ""; };
             const state = { ...snapshot, steps: snapshot.steps.map(step => ({ ...step })) };
-            // Location selection is deferred. Preserve the exact destination,
-            // including the native file object following a rename while open.
+            // Legacy source destinations and native workspace locations remain
+            // separate; opening a picker only changes this editor's draft.
             const location = () => formContext ? formContext.sourcePath : snapshot.file?.path ?? snapshot.path;
+            state.nativeOwner ??= formContext?.nativeOwner;
+            state.nativeLocation ??= formContext?.nativeLocation ?? "";
+            const openLocation = () => {
+                if (this.saving || !service.nativeLocations) return;
+                if (this.locationPicker) { this.locationPicker.modalEl.focus(); return; }
+                this.taskFields.closePopovers();
+                const owner = state.nativeOwner;
+                const reference = state.nativeLocation ? { type: state.nativeLocationType ?? service.nativeLocations.resolveId?.(owner, state.nativeLocation)?.type, id: state.nativeLocation } : null;
+                this.locationPicker = require("./task-location-picker").openTaskLocationPicker(service.app, {
+                    locations: service.nativeLocations, owner, reference, allowOwnerChange: !!creation,
+                    onChoose: selected => { state.nativeOwner = selected.owner; state.nativeLocation = selected.reference?.id ?? ""; state.nativeLocationType = selected.reference?.type; this.taskFields.refresh(); clearError(); },
+                    onClose: () => { this.locationPicker = null; if (!this.closed) this.taskFields.presentation.sourceControl?.focus({ preventScroll: true }); }
+                });
+            };
             this.taskFields = mountLiveTaskForm({ host: form, state, service,
                 initialStepsOpen: !creation && snapshot.steps.length > 0,
                 onChange: clearError,
                 text: { placeholder: creation ? "What needs doing?" : "" },
-                location, presentationContext: formContext });
-            if (formContext?.resourceLocations) {
+                location, presentationContext: formContext, onLocation: service.nativeLocations ? openLocation : null });
+            if (formContext?.resourceLocations && !service.nativeLocations) {
                 const label = form.createEl("label", { text: "Location (optional)" });
                 const select = label.createEl("select", { attr: { "aria-label": "Resource task location" } });
                 select.createEl("option", { value: "", text: "Resource" });
@@ -102,13 +116,20 @@ function openTaskEditor(service, task, onEdit = () => {}, creation = null) {
             else { this.modalEl.tabIndex = -1; this.modalEl.focus({ preventScroll: true }); }
         }
         close() { if (!this.saving) { this.closed = true; super.close(); } }
-        onClose() { this.closed = true; this.taskFields?.destroy(); this.contentEl.empty(); }
+        onClose() { this.closed = true; this.locationPicker?.close(); this.taskFields?.destroy(); this.contentEl.empty(); }
     }
     const modal = new TaskModal(service.app);
     // Obsidian appends the modal before calling onOpen and does not await it.
     // Keep the native container detached until the snapshot is available; there
     // is no intermediate modal, backdrop, focus transfer or loading geometry.
-    const present = () => { if (modal.closed) return null; modal.formContext = service.formContext?.(modal.snapshot) ?? null; modal.open(); return modal; };
+    const present = () => { if (modal.closed) return null; modal.formContext = service.formContext?.(modal.snapshot) ?? null;
+        const nativePath = creation?.location ?? creation?.path ?? creation?.root;
+        if (service.nativeLocations && nativePath && !Object.hasOwn(modal.snapshot, "nativeLocation")) {
+            const file = service.app.vault.getAbstractFileByPath(nativePath);
+            const selected = service.nativeLocations.select(service.nativeOwner, nativePath, Array.isArray(file?.children) ? "folder" : "note");
+            modal.snapshot.nativeLocation = selected.reference?.id ?? ""; modal.snapshot.nativeLocationType = selected.reference?.type;
+        }
+        modal.open(); return modal; };
     const failed = error => { if (modal.closed) return null; modal.close(); new Notice(error.message); return null; };
     if (creation) {
         try {

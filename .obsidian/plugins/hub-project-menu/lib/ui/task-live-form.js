@@ -87,7 +87,7 @@ function mountTaskDescriptionPopover(control, state, onChange, onFeedback, bind 
     refresh(); return { ...picker, refresh };
 }
 
-function mountLiveTaskForm({ host, state, service, location, text, initialStepsOpen = false, onChange = () => {}, presentationContext = null }) {
+function mountLiveTaskForm({ host, state, service, location, text, initialStepsOpen = false, onChange = () => {}, presentationContext = null, onLocation = null }) {
     const element = host.createDiv({ cls: "hub-task-live-fields" });
     const surface = element.createDiv({ cls: "hub-task-card-container" });
     const parts = createTaskRow(surface, state, state.completed, { checkboxScope: host.ownerDocument.body });
@@ -101,7 +101,12 @@ function mountLiveTaskForm({ host, state, service, location, text, initialStepsO
         const path = location(), file = service.app.vault.getAbstractFileByPath(path);
         return Array.isArray(file?.children) ? path + "/Tasks.md" : path; };
     const phaseLabel = task => (service.phases?.(location()) ?? []).find(phase => phase.id === task.phaseId)?.name;
-    const presentation = mountTaskCardPresentation(parts.row, parts.textEl, state, cardPath, { phaseLabel, ...(presentationContext ? { sourceLabel: presentationContext.sourceLabel } : {}) });
+    const presentation = mountTaskCardPresentation(parts.row, parts.textEl, state, cardPath, { phaseLabel,
+        ...(presentationContext ? { sourceLabel: presentationContext.sourceLabel } : {}),
+        ...(service.nativeLocations ? { locationAction: onLocation, nativeDisplay: () => {
+            const ref = state.nativeLocation ? service.nativeLocations.resolveId(state.nativeOwner, state.nativeLocation)?.reference ?? { id: state.nativeLocation, type: state.nativeLocationType } : null;
+            return service.nativeLocations.describe(state.nativeOwner, ref);
+        } } : {}) });
     parts.textEl.classList.add("hub-task-markdown");
     const checklist = createTaskChecklist(parts.info, { emptyAction: true });
     // Only seed disclosure at construction; refreshes respect the user's choice.

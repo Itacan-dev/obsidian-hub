@@ -2883,7 +2883,7 @@ function renderTaskRows() {
     ) {
 
         const { row, checkbox, textEl } = window.hubCreateTaskRow(target, task, completed);
-        tasksBody.hubTaskUi?.bind(row, textEl, task, () => window.hubTaskData?.currentPath(task.path) ?? task.path);
+        tasksBody.hubTaskUi?.bind(row, textEl, task, () => window.hubTaskData?.currentPath(task.path) ?? task.path, { locationWorkspace: isResourceContext ? { type: "resource", id: current.resourceType } : { type: "project", id: current.projectId } });
 
 
         if (completed) {
@@ -2965,7 +2965,7 @@ function renderTaskRows() {
                 const previousState =
                     task.completed;
                 const requestedState = checkbox.checked;
-
+                if (task.nativeLocationUnavailable) { checkbox.checked = previousState; return; }
 
                 checkbox.disabled =
                     true;
@@ -3011,7 +3011,7 @@ function renderTaskRows() {
                         previousState;
 
                     checkbox.disabled =
-                        false;
+                        !!task.nativeLocationUnavailable;
                 }
             }
         );
@@ -5141,6 +5141,7 @@ root.addEventListener(
 taskWorkspace = window.hubMountTaskWorkspace?.({
     component: dv.component, dv, root, toolbar: shortcutsBar, filesGrid: grid, filesPanel: folderStack, roadmapParent: left,
     workspace: { root: projectRoot, projectId: contextId, name: current.file.name,
+        path: current.file.path, status: current.status,
         contextKind: isResourceContext ? "resource" : "project" },
     onFiles: () => { renderCurrentTasks(); scheduleProgressHeightSync(); },
     openSource: path => {

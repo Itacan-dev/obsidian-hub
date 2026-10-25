@@ -9,15 +9,15 @@ async function fixture(t) {
     const stops = [], events = new Set(), calls = [];
     let project = { projectId: "synthetic", contextKind: "project", root: "Projects/Synthetic", path: "Projects/Synthetic/Dashboard.md", status: "active" };
     const original = name => (...args) => { calls.push([name, ...args]); return name; };
-    const plugin = { app: { vault: { adapter: { getBasePath: () => path.join(root, "vault") }, getMarkdownFiles: () => [], on: (_event, callback) => { const ref = { callback }; events.add(ref); return ref; }, offref: ref => events.delete(ref) } },
-        register: fn => stops.push(fn), projectWizard: { data: {}, completedTaskHistory: [], getProjectById: () => project, getProjectRecords: () => [project], getContextForPath: p => p?.startsWith(project.root + "/") ? project : null },
+    const plugin = { app: { vault: { adapter: { getBasePath: () => path.join(root, "vault") }, getMarkdownFiles: () => [], getAbstractFileByPath: path => path === project.root ? { path, children: [] } : path === project.path ? { path, extension: "md" } : null, on: (_event, callback) => { const ref = { callback }; events.add(ref); return ref; }, offref: ref => events.delete(ref) } },
+        register: fn => stops.push(fn), projectWizard: { data: {}, completedTaskHistory: [], getProjectById: () => project, getResourceTypes: () => [], getProjectRecords: () => [project], getContextForPath: p => p?.startsWith(project.root + "/") ? project : null },
         taskEditor: Object.fromEntries(["file", "destination", "create", "save"].map(n => [n, original(n)])), taskData: { readPages: () => [{ file: { path: project.path } }, { file: { path: "Resources/Knowledge/Tasks.md" } }] },
         mutateTask: original("mutate"), performClearCompletedTasks: original("clear"), planning: { project: original("planning") }, inbox: { makeTask: original("inbox"), taskDestination: original("destination"), taskLocations: () => ["legacy"], required: () => ({ intent: { workspaceId: "synthetic" } }) },
         oath: { take: original("oath"), resolveWorkspace: ref => ref, workspaces: () => [project, { contextKind: "resource", projectId: "knowledge" }] } };
     const configuration = { version: 1, syntheticOnly: true, root, owner: { type: "project", id: project.projectId }, projectRoot: project.root, dashboard: project.path, partitionId: "private", rehearsalId: crypto.randomUUID(), creating: true,
         config: { version: 1, scope: "inactive-disposable", storageFormat: "private-v4", directory: path.join(root, "native"), authorityId: crypto.randomUUID(), applicationContextId: "test-context", registryId: "test-registry" } };
-    let host; t.after(async () => { await host?.close(); assert.equal(events.size, 0); global.document = documentBefore; });
-    return { root, plugin, configuration, calls, events, get host() { return host; }, async start() { await authorizeNativeTaskRehearsal(plugin, configuration); host = createNativeTaskHost(plugin); host.guardUnsupported(); await host.ready; return host; }, change(fn) { fn(project); events.forEach(e => e.callback()); } };
+    let host; t.after(async () => { await host?.close(); for (const stop of stops.splice(0).reverse()) stop(); assert.equal(events.size, 0); global.document = documentBefore; });
+    return { root, plugin, configuration, calls, events, unload() { for (const stop of stops.splice(0).reverse()) stop(); }, get host() { return host; }, async start() { await authorizeNativeTaskRehearsal(plugin, configuration); host = createNativeTaskHost(plugin); host.guardUnsupported(); await host.ready; return host; }, change(fn) { fn(project); events.forEach(e => e.callback()); } };
 }
 test("default host construction imports no native module, acquires no resources and mutates no service", () => {
     const old = Module._load, imports = []; Module._load = function (name) { imports.push(name); return old.apply(this, arguments); };
@@ -119,9 +119,10 @@ test("unload cancels pending layout initialization without acquiring a writer", 
 test("metadata event readiness rechecks after registration and removes its subscriptions", async t => {
     const f = await fixture(t), file = { path: f.configuration.dashboard }, listeners = new Map(); let indexed = false;
     f.plugin.app.workspace = { layoutReady: true, onLayoutReady() { throw Error("already ready"); } };
-    f.plugin.app.vault.getAbstractFileByPath = () => file;
+    const lookup = f.plugin.app.vault.getAbstractFileByPath;
+    f.plugin.app.vault.getAbstractFileByPath = path => path === file.path ? file : lookup(path);
     f.plugin.app.metadataCache = { getFileCache: () => indexed ? {} : null, on(name, fn) { listeners.set(name, fn); if (name === "resolved") { indexed = true; fn(); } return name; }, offref: ref => listeners.delete(ref) };
-    const host = await f.start(); assert.equal(host.status().state, "ready"); assert.equal(listeners.size, 0); await host.close();
+    const host = await f.start(); assert.equal(host.status().state, "ready"); assert.equal(listeners.has("resolved"), false); assert.deepEqual([...listeners.keys()], ["changed"]); await host.close(); f.unload(); assert.equal(listeners.size, 0);
 });
 
 test("unload cancels pending metadata readiness and ignores later events", async t => {

@@ -38,7 +38,15 @@ module.exports = async function ({ app, api }, root) {
         await progress("start requested, permanent=" + permanent); window.__m1dReady = false; window.__m1dError = null; await app.plugins.loadManifests(); await app.plugins.enablePlugin("hub-project-menu"); await progress("actual onload returned"); if (permanent) { await wait(() => window.hubCreateTaskPanelRead && Object.hasOwn(app.plugins.plugins["hub-project-menu"], "nativeTaskHost"), "production consumer hooks"); return admitted(app.plugins.plugins["hub-project-menu"]); } await wait(() => window.__m1dReady, "actual onload"); return admitted(window.__m1dPlugin);
     }
     async function stop(plugin) { await progress("stop requested"); await app.plugins.disablePlugin("hub-project-menu"); await plugin.nativeTaskStopping; await progress("stop finished"); }
-    if (permanent) await fs.copyFile(path.join(staged, "main.js"), path.join(directory, "main.js"));
+    if (permanent) {
+        // Isolate admission lookup before the first onload too: the everyday
+        // installation already has permanent activation evidence now.
+        const local = path.join(root, "device-private"), roaming = path.join(root, "roaming");
+        await fs.mkdir(local, { recursive: true }); await fs.mkdir(path.join(roaming, "obsidian"), { recursive: true });
+        process.env.LOCALAPPDATA = local; process.env.APPDATA = roaming;
+        await fs.writeFile(path.join(roaming, "obsidian/obsidian.json"), JSON.stringify({ vaults: { "0123456789abcdef": { path: vault } } }));
+        await fs.copyFile(path.join(staged, "main.js"), path.join(directory, "main.js"));
+    }
     let plugin = await start();
     assert.equal(plugin.nativeTaskHost, null); assert.equal(plugin.taskService.capabilities().backend, "legacy-markdown"); assert.deepEqual(await fs.readdir(path.join(root, "native")), []);
     record("actual ordinary onload: Legacy service, no native directory writes or host");
@@ -59,7 +67,7 @@ module.exports = async function ({ app, api }, root) {
         config: { version: 1, scope: "inactive-disposable", storageFormat: "private-v4", authorityId: crypto.randomUUID(), directory: path.join(root, "native"), applicationContextId: "startup-" + crypto.randomUUID(), registryId: "startup-registry" } };
     if (permanent) {
         const C = require("../controlled-cutover.cjs"), A = require("../../host/private-authority"), R = require("../../../.obsidian/plugins/hub-project-menu/lib/services/native-task-activation"), P0 = require("../../../.obsidian/plugins/hub-project-menu/lib/services/native-cutover-preparation");
-        const local = path.join(root, "device-private"), roaming = path.join(root, "roaming"); await fs.mkdir(local); await fs.mkdir(path.join(roaming, "obsidian"), { recursive: true });
+        const local = path.join(root, "device-private"), roaming = path.join(root, "roaming"); await fs.mkdir(local, { recursive: true }); await fs.mkdir(path.join(roaming, "obsidian"), { recursive: true });
         process.env.LOCALAPPDATA = local; process.env.APPDATA = roaming;
         await fs.writeFile(path.join(roaming, "obsidian/obsidian.json"), JSON.stringify({ vaults: { "0123456789abcdef": { path: vault } } }));
         await create(nativeRoot + "/Meta/Tasks.md", "# Keep heading\n\n- [ ] Consult archived task\n\nKeep prose.\n");
@@ -147,6 +155,9 @@ module.exports = async function ({ app, api }, root) {
         await wait(async () => (await recovered.list()).tasks.length === 2, "supported whole-tree deletion");
         const retainedHistory = await window.hubCreateTaskHistoryRead({ component: deletionComponent }).read(); assert(retainedHistory.records.some(r => r.nativeHistory?.taskId === toDelete.id));
         deletionComponent.unload(); record("permanent startup whole-tree Delete confirmation preserves valid native completion History");
+    }
+    if (permanent && process.env.ITACAN_TASK_LOCATION_CHECKS === "1") {
+        checks.push(...await require("./native-location-obsidian.cjs")({ app, api, plugin, owner: config.owner, root, permanent: true }));
     }
     await stop(plugin); config.creating = true; if (permanent) await fs.rename(activationFile, activationFile + ".preserved"); else await fs.writeFile(configuration, JSON.stringify(config)); plugin = await start(); assert.equal(plugin.nativeTaskHost.status().state, "unavailable");
     const failedComponent = new api.Component(); failedComponent.load(); const failedPanel = window.hubCreateTaskPanelRead({ component: failedComponent, workspace: config.owner, changed() {} }); assert.equal((await failedPanel.read()).availability, "unavailable"); assert.throws(() => failedPanel.create());

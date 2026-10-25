@@ -110,7 +110,7 @@ function mountTaskWorkspace({ plugin, component, dv, root, toolbar, filesGrid, f
     component.register(() => modeWidthObserver.disconnect());
     const currentPath = path => plugin.taskData.currentPath(path);
     const owner = task => workspaces.find(item => validLocation(currentPath(task.path), item)) ?? workspace;
-    const describe = task => task.nativeReference ? workspace.name ?? "Project" : locationLabel(currentPath(task.path), owner(task), owner(task).root !== workspace.root);
+    const describe = task => task.nativeReference ? require("../domain/native-task-location").locationBreadcrumb(task, { type: "project", id: workspace.projectId })?.label ?? workspace.name ?? "Project" : locationLabel(currentPath(task.path), owner(task), owner(task).root !== workspace.root);
     const belongs = task => validLocation(task.path, workspace);
     const apply = edit => {
         if (native) { const next = native.reconcile(tasks, edit); nativeAvailable = edit.availability === "current"; tasks = nativeAvailable ? next : tasks.map(task => ({ ...task, nativeReadOnly: true })); dirty = true; render(); void refresh(); return; }

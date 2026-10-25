@@ -7,11 +7,12 @@ import type {OperationEvidenceV3} from "../src/snapshot-read";
 import type {HostedEditorV1} from "../host/editor-read";
 export interface NativeProjectTaskV1 {
  readonly id:string;readonly nativeReference:{authorityId:string;owner:WorkspaceRef;taskId:string;taskRevision:number};readonly owner:WorkspaceRef;
+ readonly nativeLocationUnavailable?:true;readonly nativeLocationDisplay?:{readonly workspaceName:string;readonly segments:readonly string[];readonly available:boolean};
  readonly location:import("../src/contracts").LocationRef|null;readonly text:string;readonly description:string;readonly completed:boolean;readonly necessity:"must"|"should"|null;
  readonly fromDate:string|null;readonly fromTime:string|null;readonly dueDate:string|null;readonly dueTime:string|null;
  readonly steps:readonly {id:string;taskId:string;text:string;completed:boolean;parentStepId:string|null}[];readonly nativeReadOnly:boolean;
 }
-export interface ProjectRuntimeOptionsV1 extends HostOptionsV1 {owner:WorkspaceRef;writerPolicy:WriterPolicyV1;sharedGenesis?:import("../src/git-shared").GitGenesisV1;rehearsalId:string;creating:boolean;locationLabel?:(ref:import("../src/contracts").LocationRef)=>string;consumerUiV1?:true;historyUiV1?:true}
+export interface ProjectRuntimeOptionsV1 extends HostOptionsV1 {owner:WorkspaceRef;writerPolicy:WriterPolicyV1;sharedGenesis?:import("../src/git-shared").GitGenesisV1;rehearsalId:string;creating:boolean;locationLabel?:(ref:import("../src/contracts").LocationRef)=>string;describeLocation?:(ref:import("../src/contracts").LocationRef|null)=>{workspaceName:string;segments:string[];available:boolean};consumerUiV1?:true;historyUiV1?:true}
 export interface NativeProjectRuntimeV1 {
  readonly recovery:{inspect(operationId:string):Promise<import("../host/pending-requests").RequestRecoveryInspectionV1>;
   reconcile(operationId:string):Promise<{readonly inspection:import("../host/pending-requests").RequestRecoveryInspectionV1;readonly presentation:{readonly state:"current";readonly stamp:HostReadStampV1}|{readonly state:"unavailable"|"not-requested";readonly code:string}}>;

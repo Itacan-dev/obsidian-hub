@@ -23,11 +23,11 @@ export type HostReadRequestV1=SnapshotRequestV1 & {ownerContextPin:string};
 export type HostReadResultV1=HostFailureV1|{version:1;status:"ok";stamp:HostReadStampV1;snapshot:CoherentSnapshotV1};
 /** Fresh global status admission plus bounded data from one accepted head. Pins,
  * when supplied, are expectations; omitted pins are acquired in this capture. */
-export type HostScopedRequestV2={version:2;authorityId:string;ownerContextPin?:string;identityPin?:string|null} & (
+export type HostScopedRequestV2={version:2;authorityId:string;ownerContextPin?:string;identityPin?:string|null;locationEvidence?:"report-unavailable"} & (
  {selection:"tasks";owners:readonly WorkspaceRef[];includeArchived?:boolean;includeDeleted?:boolean;includeConsumerFacts?:boolean;targets?:never} |
  {selection:"editor";owners:readonly [WorkspaceRef];targets:import("../src/editor-read").EditorReadRequestV1["targets"];includeArchived?:never;includeDeleted?:never});
 export type HostScopedFailureV2=Omit<HostFailureV1,"version"> & {version:2;kind:"scoped-capture"};
-export type HostScopedResultV2<S extends CoherentSnapshotV1=CoherentSnapshotV1>=HostScopedFailureV2|{version:2;kind:"scoped-capture";status:"ok";info:Readonly<HostInfoV1>;stamp:HostReadStampV1;snapshot:S};
+export type HostScopedResultV2<S extends CoherentSnapshotV1=CoherentSnapshotV1>=HostScopedFailureV2|{version:2;kind:"scoped-capture";status:"ok";info:Readonly<HostInfoV1>;stamp:HostReadStampV1;snapshot:S;locationFacts?:readonly {taskId:string;state:"available"|"unavailable"}[]};
 export interface NativeRepositoryHostV1 {info():Readonly<HostInfoV1>;create(options:(Omit<GitCreateHostOptionsV3,"syntheticOnly"> & {verifiedCutover:true})|GitCreateHostOptionsV3|CreateHostOptionsV1|import("../atomic-task/contracts").AtomicCreateHostOptionsV2|{version:2;authorityId:string;partitions:readonly PartitionDefinition[];reason:string;verifiedCutover:true;taskMutationVersion:1}):Promise<HostInfoV1>;open(options:OpenHostOptionsV1|{version:1;expectedAuthorityId:string;verifiedCutover:true}):Promise<HostInfoV1>;refresh():Promise<HostInfoV1>;read(request:HostReadRequestV1,signal?:AbortSignal):Promise<HostReadResultV1>;read(request:import("../src/editor-read").EditorReadRequestV1 & {ownerContextPin:string},signal?:AbortSignal):Promise<HostFailureV1|{version:1;status:"ok";stamp:HostReadStampV1;snapshot:import("../src/editor-read").EditorSnapshotV1}>;subscribe(listener:(change:HostInvalidationV1)=>void):()=>void;close():Promise<void>;dispose():Promise<void>}
 export interface NativeRepositoryHostV1 {
  readScoped(request:Extract<HostScopedRequestV2,{selection:"editor"}>,signal?:AbortSignal):Promise<HostScopedResultV2<import("../src/editor-read").EditorSnapshotV1>>;

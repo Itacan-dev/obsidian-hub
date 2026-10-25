@@ -25,3 +25,8 @@ void host.readScoped({...q,version:1});
 // @ts-expect-error editor requires exact target
 void host.readScoped({...q,selection:"editor"});
 void old;
+
+// Unresolved UI locations are explicit facts; default reads remain strict.
+void host.readScoped({...q,locationEvidence:"report-unavailable"}).then(r=>{if("status" in r)r.locationFacts?.forEach(f=>{const state:"available"|"unavailable"=f.state;void state;});});
+// @ts-expect-error no unverified/force location policy
+void host.readScoped({...q,locationEvidence:"trust"});

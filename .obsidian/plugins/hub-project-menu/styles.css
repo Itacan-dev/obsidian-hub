@@ -3987,3 +3987,29 @@ body.hub-project-note-mode
     .hub-atlas-host-access label { display: grid; grid-template-columns: minmax(0, 1fr); }
     .hub-atlas-pending-row > div { flex-basis: 100%; min-width: 0; }
 }
+
+/* Native task location: compact immediate-child browser, no directory tree. */
+.modal.hub-task-location-dialog { width: 560px; max-width: calc(100vw - 32px); }
+.hub-task-location-workspace { display: flex; align-items: center; justify-content: space-between; gap: 16px; color: var(--text-muted); }
+.hub-task-location-workspace select { min-width: 0; max-width: 75%; }
+.hub-task-location-breadcrumbs { display: flex; align-items: center; gap: 6px; overflow-x: auto; margin: 12px 0 8px; padding-bottom: 4px; white-space: nowrap; }
+.hub-task-location-breadcrumbs button { box-shadow: none; background: transparent; border: 0; padding: 3px 4px; color: var(--text-muted); }
+.hub-task-location-breadcrumbs [aria-current] { color: var(--text-normal); }
+.hub-task-location-toolbar { display: flex; justify-content: flex-end; margin-bottom: 8px; }
+.hub-task-location-entries { height: 272px; overflow-y: auto; border: 1px solid var(--background-modifier-border); border-radius: var(--radius-m); padding: 4px; }
+.hub-task-location-entry { display: flex; align-items: center; gap: 8px; width: 100%; height: 32px; padding: 5px 8px; text-align: left; border: 0; box-shadow: none; background: transparent; }
+.hub-task-location-entry:hover, .hub-task-location-entry.is-selected { background: var(--background-modifier-hover); }
+.hub-task-location-entry:focus-visible, .hub-task-location-breadcrumbs button:focus-visible { outline: 2px solid var(--background-modifier-border-focus); outline-offset: -2px; }
+.hub-task-location-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hub-task-location-icon, .hub-task-location-trigger > span:first-child { display: inline-flex; flex-shrink: 0; color: var(--text-muted); }
+.hub-task-location-icon svg, .hub-task-location-trigger svg { width: 16px; height: 16px; }
+.hub-task-location-empty { padding: 24px 8px; color: var(--text-muted); text-align: center; }
+.hub-task-location-selection { margin-top: 10px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hub-task-location-trigger { display: inline-flex; align-items: center; gap: 5px; max-width: 100%; padding: 0; color: var(--text-muted); font: inherit; text-align: left; box-shadow: none; }
+.hub-task-location-trigger > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.is-location-unavailable { color: var(--text-warning); }
+
+.hub-task-location-dialog .hub-task-location-entry { color: var(--text-normal); font-size: var(--hub-font-body); }
+.hub-task-location-dialog .hub-task-location-entry:focus-visible { color: var(--text-normal); background: var(--background-modifier-hover); }
+.hub-task-location-dialog .hub-task-location-breadcrumbs button { color: var(--text-normal); opacity: .75; }
+.hub-task-location-dialog .hub-task-location-breadcrumbs [aria-current] { opacity: 1; }

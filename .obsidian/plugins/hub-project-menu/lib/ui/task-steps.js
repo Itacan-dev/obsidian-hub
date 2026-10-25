@@ -22,7 +22,7 @@ function createTaskSteps({ markdown, mutate, onEdit, report, setIcon }) {
             void markdown.render(text, step.text, getPath);
             bindCompletionSound(checkbox, playStepCompletionSound);
             checkbox.addEventListener("change", async () => {
-                if (state.pending) { refresh(); return; }
+                if (state.pending || native && (task.nativeReadOnly || task.nativeLocationUnavailable)) { refresh(); return; }
                 const pending = state.pending = { id: step.id, line: step.line, completed: checkbox.checked };
                 refresh();
                 try {
@@ -41,7 +41,7 @@ function createTaskSteps({ markdown, mutate, onEdit, report, setIcon }) {
             let completed = 0;
             for (const { row, checkbox, step } of rows) {
                 checkbox.checked = state.pending && (native ? state.pending.id === step.id : state.pending.line === step.line) ? state.pending.completed : step.completed;
-                checkbox.disabled = !!state.pending || !!(native && task.nativeReadOnly);
+                checkbox.disabled = !!state.pending || !!(native && (task.nativeReadOnly || task.nativeLocationUnavailable));
                 row.classList.toggle("is-completed", checkbox.checked);
                 if (checkbox.checked) completed++;
             }

@@ -44,7 +44,8 @@ function createOwnerHost(plugin, options, coordinated = false) {
     const consumers = require("../../../../../ItacanTaskCore/integration/home-schedule");
     const { owner } = options, stops = [], registryListeners = new Set(), historyListeners = new Set(), stateListeners = new Set(), feedListeners = new Map();
     let config = options.config, cancelReadiness = null;
-    const locationLabels = new Map();
+    let locationSource;
+    const taskLocations = () => locationSource ??= require("./native-task-locations").createNativeTaskLocations(plugin);
     let runtime = null, feed = null, synchronization = null, stopped = false, closing = null, state = "opening", ready;
     const matches = ref => ref?.type === owner.type && ref.id === owner.id;
     const workspaceRef = require("./task-service-legacy-values").workspaceRef;
@@ -134,7 +135,7 @@ function createOwnerHost(plugin, options, coordinated = false) {
             const p = project(), shared = !!p?.shared || require("./shared-projects").SHARED_PROJECT_ROOTS.includes(p?.root);
             const candidates = owner.type === "resource" ? plugin.projectWizard.getResourceTypes().filter(p => p.resourceType === owner.id) : plugin.projectWizard.getProjectRecords().filter(p => p.projectId === owner.id), physical = plugin.projectWizard.getContextForPath(options.dashboard);
             const available = candidates.length === 1 && matches(workspaceRef(physical)) && matches(workspaceRef(p)) && p.root === options.projectRoot && p.path === options.dashboard && (owner.type === "resource" || ["active", "future", "shelved"].includes(p.status)) && shared === !!options.gitSharing;
-            const locations = owner.type === "resource" ? plugin.app.vault.getAllLoadedFiles().filter(file => ownsPath(file.path) && (file.children || file.extension === "md")).map(file => { const type = file.children ? "folder" : "note", id = "resource-location:" + hash([owner, type, file.path]); locationLabels.set(id, file.path); return { type, id }; }).sort((a, b) => a.type.localeCompare(b.type) || a.id.localeCompare(b.id)) : [];
+            const locations = taskLocations().catalog(owner);
             const body = { version: 1, registryId: config.registryId, applicationContextId: config.applicationContextId, revision: JSON.stringify([p?.projectId ?? null, p?.root ?? null, p?.path ?? null, p?.status ?? null, shared]),
                 owners: [{ owner, partitionId: options.partitionId, root: options.projectRoot, dashboard: options.dashboard, status: p?.status ?? "active", available, shared, shareApproval: options.gitSharing ? {version:1,projectId:owner.id,root:options.projectRoot,reviewDigest:config.binding?.namespaceDigest ?? options.namespaceDigest} : null, locations, mounts: [] }] };
             return { ...body, digest: registryDigest(body) };
@@ -180,7 +181,7 @@ function createOwnerHost(plugin, options, coordinated = false) {
         status: () => ({ mode: "native-project", state, owner: copy(owner), ...(synchronization ? {sharing:synchronization.status()} : {}) }),
         synchronization: () => synchronization,
         runtime: () => { if (stopped || state !== "ready") return unavailable(); return runtime; },
-        create(options = {}) { const r = host.runtime(); return require("../ui/task-editor").openTaskCreator(r.formService(plugin.app), options); },
+        create(options = {}) { const r = host.runtime(); return require("../ui/task-editor").openTaskCreator(require("./native-task-locations").locationService(r.formService(plugin.app), plugin, owner), options); },
         async close() {
             if (closing) return closing; stopped = true; state = "closing"; cancelReadiness?.(); changedState();
             closing = (async () => { await ready; await synchronization?.close(); await runtime?.close(); if (!coordinated) release(); state = "closed"; })();
@@ -203,7 +204,7 @@ function createOwnerHost(plugin, options, coordinated = false) {
             if(options.gitSharing){inventoryEvidence=require("./native-git-inventory").createInventoryEvidence(plugin,owner,config.authorityId);const observed=await inventoryEvidence.read();phases=observed.phases;inventory=require("../../../../../ItacanTaskCore/shared/inventory").capture(config.authorityId,observed.inventory,phases);}
             runtime = await openProjectRuntime(config, { owner, registry, writerPolicy: policy({version:1,owners:[{owner,partitionId:options.partitionId}],commands:["task.createRich","task.save","task.complete","step.complete","task.delete",...(options.gitSharing?["git.receive"]:[])],inventory,phases}),
                 inventoryEvidence,gitSharing:options.gitSharing,sharedGenesis:options.sharedGenesis,
-                locationLabel: ref => locationLabels.get(ref.id) ?? ref.id, rehearsalId: options.rehearsalId, creating: options.creating === true, consumerUiV1: true, historyUiV1: true });
+                locationLabel: ref => taskLocations().resolve(owner, ref)?.path ?? "Location unavailable", describeLocation: ref => taskLocations().describe(owner, ref), rehearsalId: options.rehearsalId, creating: options.creating === true, consumerUiV1: true, historyUiV1: true });
             if(options.gitSharing){
                 const project=await require("../../../../../ItacanTaskCore/shared/project-binding").admitProject({vaultRoot:options.vaultPin.real,projectId:owner.id,projectRoot:options.projectRoot,dashboard:options.dashboard});
                 const transport=await require("../../../../../ItacanTaskCore/shared/git-transport").createGitPacketTransport({version:1,root:project.gitRoot,authorityId:config.authorityId,projectId:owner.id});

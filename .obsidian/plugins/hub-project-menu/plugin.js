@@ -14126,8 +14126,8 @@ module.exports = class HubProjectMenu extends Plugin {
 
     openTaskCreator(options = {}) {
         if (!this.nativeTaskHost) return openTaskCreator(this.taskEditor, options);
-        const owner = options.location ? this.taskEditor.context(options.location) : this.taskEditor.currentContext();
-        if (this.nativeTaskHost?.matches(require("./lib/services/task-service-legacy-values").workspaceRef(owner))) return this.nativeTaskHost.create(options);
+        const owner = require("./lib/services/native-task-locations").nativeCreationOwner(this, options);
+        if (owner) return this.nativeTaskHost.create({ ...options, owner });
         return openTaskCreator(this.taskEditor, options);
     }
 
