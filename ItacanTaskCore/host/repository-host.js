@@ -180,7 +180,17 @@ function constructHost(input, options, makeWriter) {
                             stamp: result?.status === "ok" ? result.stamp : null, partitions: result?.status === "ok" ? result.snapshot.partitions : [],
                             ready: result?.status === "ok" && result.snapshot.readiness.state === "ready" && result.snapshot.recovery.state === "intact",
                             taskMutationVersion: result?.snapshot?.storage?.taskMutationVersion ?? null };
-                    }, inspectCommitted);
+                    }, inspectCommitted, async record => {
+                        const before = await observe(), info = repo.info();
+                        const captureBefore = (await capture({ selection: "status" }, undefined, true)).value;
+                        check(captureBefore?.status === "ok" && captureBefore.snapshot.readiness.state === "ready" && captureBefore.snapshot.recovery.state === "intact" && info.recovery === null, "Intact bootstrap authority required.");
+                        const packet = await repo.exportSharedPacket();
+                        check(info.revision === 0 && info.revisionId === packet.genesis.revisionId && captureBefore.stamp.head.repositoryRevision === 0 && captureBefore.stamp.head.revisionId === packet.genesis.revisionId, "Original committed genesis required.");
+                        const proof = await require("./bootstrap-rejection").prove({ config, record, observation: before, packet, writerPolicy: options.writerPolicy });
+                        const after = await observe(), captureAfter = (await capture({ selection: "status" }, undefined, true)).value;
+                        check(captureAfter?.status === "ok" && same(before, after) && same(captureBefore.stamp.head, captureAfter.stamp.head) && captureBefore.stamp.hostEpoch === captureAfter.stamp.hostEpoch && captureAfter.snapshot.recovery.state === "intact" && repo.info().recovery === null, "Bootstrap rejection observation changed.");
+                        return proof;
+                    });
                     await retained.start(creating);
                 }
                 if (phase === "closing" || disposed) return info();

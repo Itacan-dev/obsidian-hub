@@ -8,7 +8,8 @@ const { InboxModal } = require("./inbox");
 
 function currentSource(plugin) {
     const leaf = plugin.app.workspace.activeLeaf;
-    const context = plugin.workspaceModes?.currentContext();
+    const filePath = leaf?.view?.file?.path;
+    const context = filePath ? plugin.projectWizard.getContextForPath(filePath) : plugin.workspaceModes?.currentContext();
     const browser = browserViewState(leaf?.getViewState?.());
     return { origin: browser ? "Atlas" : "Quick Add",
         ...(context ? { workspaceId: context.projectId, workspaceName: context.name } : {}),

@@ -2,6 +2,21 @@
 const test = require("node:test"), assert = require("node:assert/strict"), fs = require("node:fs/promises"), path = require("node:path"), os = require("node:os"), crypto = require("node:crypto"), Module = require("node:module");
 const file = path.resolve(__dirname, "../../../.obsidian/plugins/hub-project-menu/lib/services/native-task-host.js");
 const { authorizeNativeTaskRehearsal, createNativeTaskHost } = require(file);
+
+test("shutdown drains an operator join session that is still opening and rejects later recovery admission", async t => {
+    const transition = require("../../../.obsidian/plugins/hub-project-menu/lib/services/native-git-transition"), oldJoin = transition.join, oldOpen = transition.openJoinRecovery;
+    const f = await fixture(t); f.configuration.joinExisting = true;
+    let entered, releaseOpen, releaseWork, closed = 0;
+    const started = new Promise(resolve => { entered = resolve; }), openingGate = new Promise(resolve => { releaseOpen = resolve; }), work = new Promise(resolve => { releaseWork = resolve; });
+    transition.join = async () => { throw Error("Isolated interrupted join"); };
+    transition.openJoinRecovery = async () => { entered(); await openingGate; return { async close() { closed++; await work; } }; };
+    t.after(() => { transition.join = oldJoin; transition.openJoinRecovery = oldOpen; });
+    const host = await f.start(), session = host.openJoinRecovery(); await started;
+    let drained = false; const shutdown = host.close().then(() => { drained = true; });
+    await new Promise(resolve => setImmediate(resolve)); assert.equal(drained, false);
+    releaseOpen(); await session; await new Promise(resolve => setImmediate(resolve)); assert.equal(closed, 1); assert.equal(drained, false);
+    releaseWork(); await shutdown; assert.equal(host.status().state, "closed"); await assert.rejects(host.openJoinRecovery(), /unavailable/);
+});
 async function fixture(t) {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "itacan-startup-test-"));
     for (const name of ["vault", "native"]) await fs.mkdir(path.join(root, name));

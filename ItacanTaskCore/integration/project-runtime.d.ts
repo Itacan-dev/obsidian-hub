@@ -15,6 +15,8 @@ export interface NativeProjectTaskV1 {
 export interface ProjectRuntimeOptionsV1 extends HostOptionsV1 {owner:WorkspaceRef;writerPolicy:WriterPolicyV1;sharedGenesis?:import("../src/git-shared").GitGenesisV1;rehearsalId:string;creating:boolean;locationLabel?:(ref:import("../src/contracts").LocationRef)=>string;describeLocation?:(ref:import("../src/contracts").LocationRef|null)=>{workspaceName:string;segments:string[];available:boolean};consumerUiV1?:true;historyUiV1?:true}
 export interface NativeProjectRuntimeV1 {
  readonly recovery:{inspect(operationId:string):Promise<import("../host/pending-requests").RequestRecoveryInspectionV1>;
+  reviewBootstrapRejection(operationId:string):Promise<import("../host/pending-requests").BootstrapRejectionReviewV1>;
+  concludeBootstrapRejection(review:import("../host/pending-requests").BootstrapRejectionReviewV1):Promise<{readonly operationId:string;readonly state:"rejected-before-commit"}>;
   reconcile(operationId:string):Promise<{readonly inspection:import("../host/pending-requests").RequestRecoveryInspectionV1;readonly presentation:{readonly state:"current";readonly stamp:HostReadStampV1}|{readonly state:"unavailable"|"not-requested";readonly code:string}}>;
   replay(review:import("../host/pending-requests").RequestRecoveryInspectionV1,signal?:AbortSignal):Promise<ApplicationMutationOutcomeV1|import("../writer").WriterOutcomeV1>};
  readonly historyEvidence:{read(signal?:AbortSignal):Promise<import("../host/history-read").HistoryObservationV1>;subscribe(listener:(change:unknown)=>void):()=>void;dispose():void}|null;
@@ -29,6 +31,6 @@ export interface NativeProjectRuntimeV1 {
  info():{scope:"inactive-disposable"|"device-private-project"|"device-private-git-project";authority:NativeAuthorityV1;owner:WorkspaceRef;lastOutcome:ApplicationMutationOutcomeV1|null;history:"unavailable"|"rehearsal";statistics:"unavailable"|"rehearsal";home:"unavailable"|"rehearsal";schedule:"unavailable"|"rehearsal"};
  assertRetainedResolved():Promise<void>;
  retained():Promise<readonly Pick<RetainedRequestV1,"operationId"|"intentDigest"|"owner"|"partitionId">[]>;
- getRetained(operationId:string):Promise<RetainedRequestV1|import("../host/pending-requests").RetainedGitRequestV2>;reconcile(operationId:string):Promise<OperationEvidenceV3>;replay(operationId:string):Promise<ApplicationMutationOutcomeV1>;close():Promise<void>;
+ getRetained(operationId:string):Promise<RetainedRequestV1|import("../host/pending-requests").RetainedGitRequestV2>;reconcile(operationId:string):Promise<OperationEvidenceV3|import("../host/pending-requests").RejectedBootstrapOutcomeV1>;replay(operationId:string):Promise<ApplicationMutationOutcomeV1>;close():Promise<void>;
 }
 export function openProjectRuntime(config:NativeAuthorityConfigV1,options:ProjectRuntimeOptionsV1):Promise<NativeProjectRuntimeV1>;

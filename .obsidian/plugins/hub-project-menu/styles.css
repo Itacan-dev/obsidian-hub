@@ -690,40 +690,40 @@
     padding-right: calc(var(--hub-task-config-content-inset) - var(--hub-task-phase-scrollbar, 0px));
 }
 .hub-task-config-section.hub-task-phase-live button.hub-task-property-option { justify-content: flex-start; }
-.modal.hub-task-live-dialog .project-task-row { background: transparent; cursor: default; }
-.modal.hub-task-live-dialog .project-task-row:hover .project-task-text { color: var(--text-normal); }
+:is(.modal.hub-task-live-dialog, .hub-native-capture-task) .project-task-row { background: transparent; cursor: default; }
+:is(.modal.hub-task-live-dialog, .hub-native-capture-task) .project-task-row:hover .project-task-text { color: var(--text-normal); }
 /* Modals live outside dashboard views, whose completed-title CSS may be absent.
    The real native title editor inherits this decoration from its title host. */
-.modal.hub-task-live-dialog .project-task-row.is-completed .project-task-text { color: var(--text-muted); text-decoration: line-through; }
-.modal.hub-task-live-dialog .project-task-text { position: relative; isolation: isolate; cursor: text; }
-.modal.hub-task-live-dialog .project-task-text::before {
+:is(.modal.hub-task-live-dialog, .hub-native-capture-task) .project-task-row.is-completed .project-task-text { color: var(--text-muted); text-decoration: line-through; }
+:is(.modal.hub-task-live-dialog, .hub-native-capture-task) .project-task-text { position: relative; isolation: isolate; cursor: text; }
+:is(.modal.hub-task-live-dialog, .hub-native-capture-task) .project-task-text::before {
     content: ""; position: absolute; z-index: -1; inset: -2px -4px -1px; border-radius: var(--radius-s, 4px); pointer-events: none;
 }
-.modal.hub-task-live-dialog .has-description .project-task-text::before { right: 28px; }
-.modal.hub-task-live-dialog .project-task-text[role=button]:focus-visible { outline: 1px solid var(--text-muted); outline-offset: 2px; }
-.modal.hub-task-live-dialog .project-task-text:is(:hover,:focus-within)::before { background: var(--background-modifier-hover); }
+:is(.modal.hub-task-live-dialog, .hub-native-capture-task) .has-description .project-task-text::before { right: 28px; }
+:is(.modal.hub-task-live-dialog, .hub-native-capture-task) .project-task-text[role=button]:focus-visible { outline: 1px solid var(--text-muted); outline-offset: 2px; }
+:is(.modal.hub-task-live-dialog, .hub-native-capture-task) .project-task-text:is(:hover,:focus-within)::before { background: var(--background-modifier-hover); }
 .hub-button-scope .hub-task-live-fields button:is(.hub-task-config-action,.hub-task-inline-action):enabled:is(:hover,:active) { background: var(--background-modifier-hover); box-shadow: none; transform: none; }
-.modal.hub-task-live-dialog .hub-task-card-edit-input {
+:is(.modal.hub-task-live-dialog, .hub-native-capture-task) .hub-task-card-edit-input {
     --input-shadow: none; --input-shadow-focus: none; --input-border-width: 0; --input-border-width-focus: 0;
     display: block; width: 100%; min-width: 0; min-height: 0; max-height: none; margin: 0; padding: 0;
     border: 0; background: transparent; box-shadow: none; outline: none;
     font: inherit; color: inherit; text-decoration: inherit; resize: none; overflow: hidden; overflow-wrap: anywhere;
 }
-.modal.hub-task-live-dialog .hub-task-card-edit-input:is(:focus,:focus-visible) { border: 0; box-shadow: none; outline: none; }
+:is(.modal.hub-task-live-dialog, .hub-native-capture-task) .hub-task-card-edit-input:is(:focus,:focus-visible) { border: 0; box-shadow: none; outline: none; }
 .hub-task-live-fields input.hub-task-card-edit-input { height: 1lh; }
-.modal.hub-task-live-dialog .hub-task-card-edit-input::placeholder { font: inherit; color: var(--text-muted); opacity: 1; }
+:is(.modal.hub-task-live-dialog, .hub-native-capture-task) .hub-task-card-edit-input::placeholder { font: inherit; color: var(--text-muted); opacity: 1; }
 .hub-task-live-fields .project-task-text:has(.hub-task-card-edit-input.hub-keyboard-focus:focus) { outline: 1px solid var(--text-muted); outline-offset: 2px; border-radius: 3px; }
-.modal.hub-task-live-dialog .hub-task-live-fields .hub-task-step-text:has(.hub-task-card-edit-input:focus) { color: var(--text-normal); text-decoration: none; }
+:is(.modal.hub-task-live-dialog, .hub-native-capture-task) .hub-task-live-fields .hub-task-step-text:has(.hub-task-card-edit-input:focus) { color: var(--text-normal); text-decoration: none; }
 .hub-button-scope .hub-task-live-fields .hub-task-step-item > button {
     flex: 0 0 16px; width: 16px; height: 16px; min-height: 0; margin: 2px 0 0 auto; padding: 0;
     border: 0; background: transparent; box-shadow: none; color: var(--text-muted);
 }
 .hub-task-live-fields .hub-task-step-item > button svg { width: 16px; height: 16px; }
 .hub-task-live-fields .hub-task-step-text:has(.hub-task-card-edit-input) { flex: 1; }
-.modal.hub-task-live-dialog .hub-task-step-item .hub-task-card-edit-input {
+:is(.modal.hub-task-live-dialog, .hub-native-capture-task) .hub-task-step-item .hub-task-card-edit-input {
     height: auto; min-height: 1lh; line-height: inherit;
 }
-.modal.hub-task-live-dialog .hub-task-step-text:has(.hub-task-card-edit-input.hub-keyboard-focus:focus) {
+:is(.modal.hub-task-live-dialog, .hub-native-capture-task) .hub-task-step-text:has(.hub-task-card-edit-input.hub-keyboard-focus:focus) {
     outline: 1px solid var(--text-muted); outline-offset: 1px; border-radius: 3px;
 }
 .hub-button-scope .hub-task-live-fields .hub-task-step-items button.hub-task-inline-action {
@@ -4013,3 +4013,17 @@ body.hub-project-note-mode
 .hub-task-location-dialog .hub-task-location-entry:focus-visible { color: var(--text-normal); background: var(--background-modifier-hover); }
 .hub-task-location-dialog .hub-task-location-breadcrumbs button { color: var(--text-normal); opacity: .75; }
 .hub-task-location-dialog .hub-task-location-breadcrumbs [aria-current] { opacity: 1; }
+
+/* Native capture keeps the existing modal shell and two-column Inbox. */
+.hub-native-capture-task { min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+.hub-native-capture-task > .hub-capture-field { display: flex; align-items: center; gap: 12px; justify-content: space-between; }
+.hub-native-capture-task select { max-width: 75%; min-width: 0; }
+.hub-native-capture-task > button { align-self: flex-start; }
+.hub-native-capture-details .hub-task-live-fields { margin-top: 4px; }
+.hub-native-capture-details .hub-task-card-container { min-width: 0; }
+.hub-native-capture-task .hub-task-error:empty { display: none; }
+.hub-inbox-organize-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-block: 14px; }
+.hub-inbox-dialog .hub-inbox-form-host { margin-top: 12px; }
+.hub-inbox-dialog .hub-inbox-row-copy { min-width: 0; }
+.hub-inbox-dialog .hub-inbox-row-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hub-quick-add-dialog.is-expanded:has(.hub-native-capture-task) { width: 560px; }

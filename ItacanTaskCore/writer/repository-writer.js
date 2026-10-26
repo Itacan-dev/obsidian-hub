@@ -31,6 +31,8 @@ function createParticipant(config,options,host) {
   start:creating=>pair.start(creating),finish:()=>pair.finish(),invalidate(){generation++;},closing(){closing=true;},
   session(readHost){
    const retainedPort=options.requestRetention?Object.freeze({
+    reviewBootstrapRejection:async(capability,id)=>{grant({capability});await inventoryFresh();return host.retention().reviewBootstrapRejection(id);},
+    concludeBootstrapRejection:async(capability,review)=>{grant({capability});await inventoryFresh();return host.retention().concludeBootstrapRejection(review);},
     prepare:async(capability,intent)=>{const g=grant({capability}),c=require("../application/intents").compile(intent);check(c.request&&g.commands.includes(c.request.command.type)&&c.request.scope.partitions.every(p=>g.owners.some(o=>o.partitionId===p.id&&P.same(o.owner,p.owner))),"Retained request exceeds grant.");await inventoryFresh();return host.retention().prepare(c.intent);},
     assertResolved:async capability=>{grant({capability});const held=pending;await host.retention().assertResolved();if(held&&pending===held){const r=await host.retention().get(held.operationId);check(r.writerRequestDigest===held.digest,"Pending request differs.");if(pending===held)pending=null;}},
     list:async capability=>{const g=grant({capability});return (await host.retention().list()).filter(r=>g.owners.some(p=>p.partitionId===r.partitionId&&P.same(p.owner,r.owner)));},
@@ -48,7 +50,7 @@ function createParticipant(config,options,host) {
      const info=await host.refresh(),o=await observed(),current=await host.exportSharedPacket(),after=await observed();check(P.same(o,after)&&host.info().head.revisionId===info.head.revisionId,"Sharing preparation context changed.");check(P.same(current.genesis,packet.genesis)&&current.genesis.authorityId===config.authorityId,"Shared authority differs.");
      const p=o.registry.owners[0],request={version:1,reason:"Explicit Git packet receive",scope:{authorityId:config.authorityId,ownerContextPin:o.ownerContextPin,identityPin:o.identityPin,inventoryPin,phasePin,partitions:[{id:p.partitionId,owner:p.owner,expectedRevision:info.head.repositoryRevision}]},command:G.receiveCommand({storeId:config.authorityId,revision:info.head.repositoryRevision,partitions:[{id:p.partitionId,owner:p.owner}]},packet,operationId)};
      check(generation===grant({capability}).generation,"Writer context changed.");const prepared=freeze({version:1,request:P.request(request,"shared"),packet:V.clone(packet)});
-     if(options.requestRetention){const prior=await host.retention().list();if(prior.some(r=>r.operationId===operationId)){const held=await host.retention().get(operationId);check(P.same(held.intent.prepared,prepared),"Exact original retained receive required.");return prepared;}
+     if(options.requestRetention){const prior=await host.retention().list();if(prior.some(r=>r.operationId===operationId)){check(!(await host.retention().isRejected(operationId)),"Rejected bootstrap cannot be prepared again.");const held=await host.retention().get(operationId);check(P.same(held.intent.prepared,prepared),"Exact original retained receive required.");return prepared;}
       if(!G.previewReceive(current,packet).changed)return freeze({...prepared,noop:true});await host.retention().prepare({version:1,kind:"git-receive",prepared});}
      return prepared;
     },

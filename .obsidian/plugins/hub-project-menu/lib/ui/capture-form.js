@@ -42,7 +42,7 @@ function noteTitle(draft) {
 
 // Both overlays retain their content and attachment controls. A fixed Inbox
 // form owns one type at a time; Inbox can confirm and remount a different type.
-function mountCaptureForm({ host, service, draft = {}, onChange = () => {}, fixedType = null, captureId = () => null }) {
+function mountCaptureForm({ host, service, draft = {}, onChange = () => {}, onSubmit = () => {}, fixedType = null, captureId = () => null }) {
     const taskEditor = service.plugin.taskEditor;
     const element = host.createDiv({ cls: "hub-capture-form hub-task-form" });
     const lockedType = ["task", "note", "file"].includes(fixedType) ? fixedType : null;
@@ -53,11 +53,11 @@ function mountCaptureForm({ host, service, draft = {}, onChange = () => {}, fixe
     const workspace = () => destinations().find(item => item.id === state.workspaceId);
     const locations = () => {
         const current = workspace(); if (!current) return [];
-        return service.taskLocations(state.workspaceId);
+        return state.type === "note" ? (service.noteLocations?.(state.workspaceId) ?? service.taskLocations(state.workspaceId)) : service.taskLocations(state.workspaceId);
     };
     const folders = () => {
         const current = workspace(); if (!current) return [];
-        return service.folders(state.workspaceId).filter(item => current.contextKind === "resource" || item.path !== current.root);
+        return service.folders(state.workspaceId);
     };
     const notify = () => { if (!disposed) onChange(value()); };
     const initializeTitle = () => {
@@ -66,16 +66,10 @@ function mountCaptureForm({ host, service, draft = {}, onChange = () => {}, fixe
             if (state.title == null) state.title = noteTitle(state);
         }
     };
-    const clearInvalidDestinations = () => {
-        if (state.folder && !folders().some(item => item.path === state.folder)) state.folder = "";
-        if (state.location && !locations().some(item => item.path === state.location)) state.location = "";
-        const operation = service.get(captureId())?.operation;
-        if (state.noteLocation && operation?.kind !== "note-insertion") {
-            const selected = noteLocation(state.noteLocation), parsed = selected && service.noteCache.get(selected.path)?.parsed;
-            if (!selected || !locations().some(item => !item.folder && item.path === selected.path) ||
-                parsed && !resolveNoteLocation(parsed, selected)) state.noteLocation = null;
-        }
-    };
+    // Preserve unavailable saved choices; submission validates them and the
+    // existing pickers let the user explicitly choose a replacement.
+    const clearInvalidDestinations = () => {};
+
     const group = title => {
         const section = element.createEl("section", { cls: "hub-capture-form-group" });
         if (title) section.createEl("h3", { cls: "hub-capture-section-heading", text: title });
@@ -116,7 +110,7 @@ function mountCaptureForm({ host, service, draft = {}, onChange = () => {}, fixe
                     selectedId: state.workspaceId,
                     onSelect: selected => {
                         if (disposed) return;
-                        if (selected.id !== state.workspaceId) { state.folder = ""; state.location = ""; state.noteLocation = null; state.phaseId = ""; }
+                        if (selected.id !== state.workspaceId) { state.folder = selected.root; state.location = ""; state.noteLocation = null; }
                         state.workspaceId = selected.id; render(); notify();
                     },
                     restoreFocus: () => restorePickerFocus("Save to")
@@ -131,7 +125,7 @@ function mountCaptureForm({ host, service, draft = {}, onChange = () => {}, fixe
         const items = task ? locations() : folders(), path = state[task ? "location" : "folder"];
         const selected = items.find(item => item.path === path);
         return { label, title: selected?.label ?? selected?.name ?? (task ? "Choose a note or folder…" : "Choose a folder…"),
-            subtitle: selected && task ? selected.folder ? "Folder · Tasks note" : "Markdown note · " + selected.path.split("/").pop() : null,
+            subtitle: !selected && path ? "Saved destination unavailable: " + path : selected && task ? selected.folder ? "Folder · Tasks note" : "Markdown note · " + selected.path.split("/").pop() : null,
             icon: selected && task && !selected.folder ? "notebook-text" : "folder", disabled: !current,
             onOpen: () => {
                 if (picker || disposed) return;
@@ -146,6 +140,7 @@ function mountCaptureForm({ host, service, draft = {}, onChange = () => {}, fixe
         createCapturePickerTrigger(fieldHost(parent, task ? "Location" : "Folder"), locationControl(task));
     }
     function renderTask() {
+        if(service.plugin.nativeTaskHost){taskFields=require("./native-capture-task").mountNativeCaptureTask({host:element,service,draft:state,captureId,details:true,onSubmit,onChange:value=>{state=value;notify()}});return;}
         taskFields = mountTaskForm({ app: service.app, host: element, state, service: taskEditor,
             destination: { workspace: workspaceControl(), location: locationControl(true) },
             location: () => state.location || workspace()?.root, onChange: notify });
@@ -166,10 +161,10 @@ function mountCaptureForm({ host, service, draft = {}, onChange = () => {}, fixe
         checkingNote = service.readNotePositions(id, location.path).then(parsed => {
             if (disposed || element.closest("[aria-busy=true]") || service.get(captureId())?.operation?.kind === "note-insertion" ||
                 id !== state.workspaceId || JSON.stringify(location) !== JSON.stringify(state.noteLocation)) return;
-            if (!resolveNoteLocation(parsed, location)) state.noteLocation = null;
+            if (!resolveNoteLocation(parsed, location)) state.noteLocationUnavailable = true;
         }).catch(() => {
             if (!disposed && !element.closest("[aria-busy=true]") && service.get(captureId())?.operation?.kind !== "note-insertion" &&
-                id === state.workspaceId && JSON.stringify(location) === JSON.stringify(state.noteLocation)) state.noteLocation = null;
+                id === state.workspaceId && JSON.stringify(location) === JSON.stringify(state.noteLocation)) state.noteLocationUnavailable = true;
         }).finally(() => {
             checkingNote = null;
             if (!disposed && !element.closest("[aria-busy=true]")) refresh();
@@ -177,7 +172,7 @@ function mountCaptureForm({ host, service, draft = {}, onChange = () => {}, fixe
     }
     function render() {
         taskFields?.destroy(); taskFields = null;
-        initializeTitle(); clearInvalidDestinations(); element.replaceChildren();
+        initializeTitle(); if(state.type!=="task" && state.workspaceId && !state.folder) state.folder=workspace()?.root??""; clearInvalidDestinations(); element.replaceChildren();
         const placement = group();
         if (!lockedType && state.inputPath !== "file" && !state.attachments?.length) {
             mountCaptureTypeControl({ host: placement, selectedType: state.type, onSelect: type => {
@@ -203,9 +198,9 @@ function mountCaptureForm({ host, service, draft = {}, onChange = () => {}, fixe
             }
         }
     }
-    function value() { return { ...state, attachments: [...(state.attachments ?? [])], steps: state.steps.map(step => ({ ...step })) }; }
+    function value() { if(state.type === "task" && service.plugin.nativeTaskHost && taskFields?.value) return taskFields.value(); return { ...state, attachments: [...(state.attachments ?? [])], steps: state.steps.map(step => ({ ...step })) }; }
     function valid() {
-        return service.completion(state, captureId()).complete;
+        return service.completion(value(), captureId()).complete;
     }
     const refresh = () => {
         if (disposed) return;
@@ -232,7 +227,7 @@ function mountCaptureForm({ host, service, draft = {}, onChange = () => {}, fixe
     listen(service.plugin.app.metadataCache, "changed");
     service.plugin.planning?.subscribe?.({ register: dispose => disposers.push(dispose) }, refresh);
     return {
-        value, valid, refresh,
+        value, valid, refresh, prepare: () => taskFields?.prepare?.() !== false,
         update(patch) {
             const layoutChanged = (!lockedType && patch.type !== undefined && patch.type !== state.type) ||
                 (patch.workspaceId !== undefined && patch.workspaceId !== state.workspaceId) ||
@@ -240,12 +235,13 @@ function mountCaptureForm({ host, service, draft = {}, onChange = () => {}, fixe
                 (patch.location !== undefined && patch.location !== state.location) || patch.phaseId !== undefined ||
                 (patch.inputPath !== undefined && patch.inputPath !== state.inputPath);
             if (patch.workspaceId !== undefined && patch.workspaceId !== state.workspaceId) {
-                state.folder = ""; state.location = ""; state.noteLocation = null; state.phaseId = "";
+                state.folder = destinations().find(w=>w.id===patch.workspaceId)?.root ?? ""; state.location = ""; state.noteLocation = null;
             }
             Object.assign(state, patch, lockedType ? { type: lockedType } : {});
             if (patch.steps) state.steps = patch.steps.map(step => ({ ...step }));
             initializeTitle(); clearInvalidDestinations();
             if (layoutChanged) render();
+            else if(state.type === "task" && service.plugin.nativeTaskHost) taskFields?.update?.(patch);
             notify();
         },
         focus() { element.querySelector("button.is-active,button,input,select")?.focus(); },

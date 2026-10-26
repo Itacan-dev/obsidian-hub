@@ -79,6 +79,8 @@ async function openProjectRuntime(config, options) {
         if (raw.canReplay) recoveryReviews.set(report, raw); return report;
     }
     const recovery = Object.freeze({
+        reviewBootstrapRejection: id => withGrant(cap => session.requests.reviewBootstrapRejection(cap, id)),
+        concludeBootstrapRejection: review => withGrant(cap => session.requests.concludeBootstrapRejection(cap, review)),
         async inspect(id) { V.text(id); if (closed) return recoveryUnavailable(id); try { return await withGrant(async cap => recoveryReview(await session.requests.inspect(cap, id))); } catch (_) { return recoveryUnavailable(id); } },
         async reconcile(id) {
             V.text(id); if (closed) return freeze({ inspection: recoveryUnavailable(id), presentation: { state: "unavailable", code: "RUNTIME_CLOSED" } });

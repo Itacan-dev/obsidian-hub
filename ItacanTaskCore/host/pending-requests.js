@@ -4,12 +4,13 @@ const V = require("../src/value"), P = require("../writer/policy"), A = require(
 const { check, fail } = require("../src/errors"), { freeze } = require("../src/snapshot-read");
 const markerName = "REQUEST-RETENTION-v1.json", prefix = "REQUEST-v1-";
 const fields = (v, keys) => V.fields(v, keys, keys);
-function createPendingRequests(port, config, settings, inspect, inspectCommitted) {
+function createPendingRequests(port, config, settings, inspect, inspectCommitted, proveBootstrapRejection) {
     fields(settings, ["version", "rehearsalId"]); check([1,2].includes(settings.version), "Unsupported retention version."); V.uuid(settings.rehearsalId);
     const markerBody = { format: "itacan-native-request-retention", version: settings.version, authorityId: config.authorityId, applicationContextId: config.applicationContextId, rehearsalId: settings.rehearsalId };
-    let stopped = false, ready = false, reviews = new WeakMap(), permits = new WeakMap(); const inflight = new Set(), preparing = new Map(), prior = new Set();
+    let stopped = false, ready = false, reviews = new WeakMap(), permits = new WeakMap(); const rejectionReviews = new WeakMap(), inflight = new Set(), preparing = new Map(), prior = new Set();
     const sealed = body => ({ ...body, checksum: P.hash(body) });
     const name = id => prefix + P.hash(id) + ".json";
+    const rejectionName = id => "REQUEST-REJECTED-v1-" + P.hash(id) + ".json";
     const owned = () => port.assertWriter();
     function tracked(work) {
         check(ready && !stopped, "Retention is closed."); const job = work().catch(error => { const code = ["OPERATION_CONFLICT", "OUTCOME_RECONCILIATION_REQUIRED", "WRITER_ADMISSION_REQUIRED", "LOCK_LOST", "ROOT_IDENTITY_CHANGED", "ENOENT", "VALIDATION", "RECOVERY_REVIEW_REQUIRED", "RECOVERY_REVIEW_STALE", "ORIGINAL_GUARDS_STALE", "EXACT_REPLAY_SAFETY_UNPROVEN"].includes(error?.code) ? error.code : "REQUEST_RETENTION_INVALID"; fail(code, "Retained request evidence is unavailable."); }); inflight.add(job); job.finally(() => inflight.delete(job)).catch(() => {}); return job;
@@ -38,12 +39,27 @@ function createPendingRequests(port, config, settings, inspect, inspectCommitted
     }
     async function names() {
         const all = await port.list();
-        check(all.filter(n => n.startsWith("REQUEST-")).every(n => n === markerName || /^REQUEST-v1-[a-f0-9]{64}\.json$/.test(n)), "Unsupported request evidence.");
+        check(all.filter(n => n.startsWith("REQUEST-")).every(n => n === markerName || /^REQUEST-v1-[a-f0-9]{64}\.json$/.test(n) || settings.version === 2 && /^REQUEST-REJECTED-v1-[a-f0-9]{64}\.json$/.test(n)), "Unsupported request evidence.");
         return all.filter(n => n.startsWith(prefix));
+    }
+    async function rejection(r, state = null) {
+        let value; try { value = JSON.parse(await port.read(rejectionName(r.operationId))); } catch (e) { if (e.code === "ENOENT") return null; throw e; }
+        const { checksum, ...body } = value;
+        fields(body, ["format", "version", "authorityId", "applicationContextId", "rehearsalId", "operationId", "recordChecksum", "proof"]);
+        check(checksum === P.hash(body) && body.format === "itacan-native-rejected-bootstrap" && body.version === 1 && body.authorityId === config.authorityId && body.applicationContextId === config.applicationContextId && body.rehearsalId === settings.rehearsalId && body.operationId === r.operationId && body.recordChecksum === r.checksum && r.intent.kind === "git-receive", "Rejected bootstrap integrity differs.");
+        const p = body.proof;
+        fields(p, ["version", "kind", "code", "genesis", "originalOwnerContextPin", "reviewedOwnerContextPin", "inventoryPin", "phasePin"]);
+        check(p.version === 1 && p.kind === "bootstrap-empty-location-catalog" && p.code === "REJECTED_BEFORE_COMMIT" && P.same(p.genesis, r.intent.prepared.packet.genesis) && p.originalOwnerContextPin === r.writerRequest.scope.ownerContextPin && p.inventoryPin === r.writerRequest.scope.inventoryPin && p.phasePin === r.writerRequest.scope.phasePin && /^[a-f0-9]{64}$/.test(p.reviewedOwnerContextPin), "Rejected bootstrap proof differs.");
+        // A terminal rejection must never coexist with a matching or conflicting receipt.
+        if (state) check(!state.receipts.some(x => x.operationId === r.operationId) && state.gitShared && P.same(state.gitShared.genesis, p.genesis) && !state.gitShared.frames.some(f => f.receipt.operationId === r.operationId), "Rejected bootstrap has a receipt or different genesis.");
+        else { const o = await observation(r); check(o.ready && o.operation.state === "missing", "Rejected bootstrap outcome conflicts."); }
+        return freeze(value);
     }
     async function marker() { check(P.same(JSON.parse(await port.read(markerName)), sealed(markerBody)), "Retention marker differs."); }
     async function getRaw(id) { await owned(); await marker(); const n = name(id), raw = await port.read(n), value = validate(raw, n); await owned(); return value; }
-    async function all() { await owned(); await marker(); const records = []; for (const n of await names()) records.push(validate(await port.read(n), n)); await owned(); return records; }
+    async function all() { await owned(); await marker(); const records = []; for (const n of await names()) records.push(validate(await port.read(n), n));
+        for (const n of (await port.list()).filter(n => n.startsWith("REQUEST-REJECTED-"))) check(records.some(r => rejectionName(r.operationId) === n), "Orphan rejected bootstrap evidence.");
+        await owned(); return records; }
     async function write(n, value) {
         const raw = V.canonical(value) + "\n"; await owned();
         try { await port.writeNew(n, raw); }
@@ -55,6 +71,7 @@ function createPendingRequests(port, config, settings, inspect, inspectCommitted
     async function requireResolved(records, currentId = null, state = null, recovery = false) {
         const batch = !state && settings.version === 2 && inspectCommitted ? await inspectCommitted(records) : null;
         for (const r of records) {
+            if (await rejection(r, state)) continue;
             if (r.operationId === currentId && (!prior.has(r.operationId) || recovery)) continue;
             if (state) {
                 const receipt = state.receipts.find(x => x.operationId === r.operationId);
@@ -84,6 +101,21 @@ function createPendingRequests(port, config, settings, inspect, inspectCommitted
         return p;
     }
     return Object.freeze({
+        reviewBootstrapRejection(id) { return tracked(async () => {
+            const r = await getRaw(id), existing = await rejection(r);
+            if (existing) return freeze({ operationId: id, state: "rejected-before-commit", proof: existing.proof });
+            check(typeof proveBootstrapRejection === "function", "Bootstrap rejection review unavailable.");
+            const proof = await proveBootstrapRejection(r), report = freeze({ operationId: id, state: "reviewable-rejection", recordChecksum: r.checksum, proof });
+            rejectionReviews.set(report, { record: r, proof }); return report;
+        }); },
+        concludeBootstrapRejection(review) { return tracked(async () => {
+            const selected = rejectionReviews.get(review); check(selected, "An original bootstrap rejection review is required."); rejectionReviews.delete(review);
+            const r = await getRaw(selected.record.operationId); check(r.checksum === selected.record.checksum, "Bootstrap request changed.");
+            check(P.same(await proveBootstrapRejection(r), selected.proof), "Bootstrap rejection review is stale.");
+            await write(rejectionName(r.operationId), sealed({ format: "itacan-native-rejected-bootstrap", version: 1, authorityId: config.authorityId, applicationContextId: config.applicationContextId, rehearsalId: settings.rehearsalId, operationId: r.operationId, recordChecksum: r.checksum, proof: selected.proof }));
+            await rejection(r); return freeze({ operationId: r.operationId, state: "rejected-before-commit" });
+        }); },
+        isRejected(id) { return tracked(async () => !!(await rejection(await getRaw(id)))); },
         async start(creating) {
             stopped = false; ready = false; prior.clear(); await owned();
             if (creating) await write(markerName, sealed(markerBody));
@@ -96,7 +128,7 @@ function createPendingRequests(port, config, settings, inspect, inspectCommitted
             const promise = tracked(async () => {
                 check(preparing.size === 0, "Another request preparation is in progress.");
                 const records = await all(), old = records.find(x => x.operationId === id);
-                if (old) { if (!P.same(old, r)) fail("OPERATION_CONFLICT", "Retained operation conflicts."); return old; }
+                if (old) { if (!P.same(old, r)) fail("OPERATION_CONFLICT", "Retained operation conflicts."); check(!(await rejection(old)), "Rejected bootstrap cannot be prepared again."); return old; }
                 await requireResolved(records);
                 if(settings.version===2){const o=await observation(r);check(o.ready&&o.stamp&&r.writerRequest.command.expectedRepositoryRevision===o.stamp.head.repositoryRevision&&r.writerRequest.scope.ownerContextPin===o.stamp.ownerContextPin&&r.writerRequest.scope.identityPin===o.stamp.identityPin,"Preparation context changed before retention.");}
                 await write(name(id), r); return freeze(V.clone(r));
@@ -106,7 +138,7 @@ function createPendingRequests(port, config, settings, inspect, inspectCommitted
         assertResolved() { return tracked(async () => { await requireResolved(await all()); }); },
         list() { return tracked(async () => freeze((await all()).map(r => ({ operationId: r.operationId, intentDigest: r.intentDigest, owner: r.owner, partitionId: r.partitionId })))); },
         get(id) { V.text(id); return tracked(() => getRaw(id)); },
-        reconcile(id) { V.text(id); return tracked(async () => reconcileRecord(await getRaw(id))); },
+        reconcile(id) { V.text(id); return tracked(async () => { const r = await getRaw(id); return await rejection(r) ? freeze({state:"rejected",code:"REJECTED_BEFORE_COMMIT",operationId:id,receipt:null,taskIds:[],eventIds:[]}) : reconcileRecord(r); }); },
         inspect(id) { V.text(id); return tracked(async () => {
             let r = null, o, damaged = false;
             try { r = await getRaw(id); o = await observation(r); await all(); }
@@ -114,8 +146,10 @@ function createPendingRequests(port, config, settings, inspect, inspectCommitted
                 if (["LOCK_LOST", "ROOT_IDENTITY_CHANGED"].includes(error?.code)) return freeze({ version: 1, privacy: "local-private", authorityId: config.authorityId, applicationContextId: config.applicationContextId, operationId: id, classification: "authority-unavailable", code: error.code, owner: null, partitionId: null, recordChecksum: null, commandDigest: null, observation: null, receipt: null, taskIds: [], eventIds: [], canReplay: false, replayCode: "AUTHORITY_UNAVAILABLE" });
                 damaged = true; o = await observation(null);
             }
-            const op = o.operation, classification = !o.ready ? "authority-unavailable" : damaged ? "damaged" : op.state === "committed" ? "confirmed-committed" : op.state === "missing" ? "execution-uncertain" : op.state === "conflict" ? "conflict" : "authority-unavailable";
+            const terminal = r && !damaged ? await rejection(r) : null;
+            const op = o.operation, classification = !o.ready ? "authority-unavailable" : damaged ? "damaged" : terminal ? "confirmed-rejected" : op.state === "committed" ? "confirmed-committed" : op.state === "missing" ? "execution-uncertain" : op.state === "conflict" ? "conflict" : "authority-unavailable";
             let code = !o.ready ? "AUTHORITY_UNAVAILABLE" : damaged ? "REQUEST_RETENTION_INVALID" : op.code, replay = damaged ? "REQUEST_RETENTION_INVALID" : replayCode(r, o);
+            if (terminal) { code = "REJECTED_BEFORE_COMMIT"; replay = "TERMINAL_REJECTION"; }
             if (["EXACT_COMMITTED_REPLAY", "EXACT_ORIGINAL_HEAD_REPLAY"].includes(replay)) {
                 try { await requireResolved((await all()).filter(x => x.operationId !== id)); } catch (_) { replay = "OTHER_REQUEST_UNRESOLVED"; }
             }
@@ -128,6 +162,7 @@ function createPendingRequests(port, config, settings, inspect, inspectCommitted
         permit(review) { return tracked(async () => {
             const selected = reviews.get(review); if (!selected) fail("RECOVERY_REVIEW_REQUIRED", "An original accepted recovery review is required."); reviews.delete(review);
             const r = await getRaw(selected.record.operationId), o = await observation(r);
+            check(!(await rejection(r)), "Rejected bootstrap cannot be replayed.");
             if (r.checksum !== selected.record.checksum || !o.ready || !sameObservation(selected.stamp, o.stamp)) fail("RECOVERY_REVIEW_STALE", "Recovery observation changed.");
             const code = replayCode(r, o); if (!["EXACT_COMMITTED_REPLAY", "EXACT_ORIGINAL_HEAD_REPLAY"].includes(code)) fail(code, "Exact replay cannot be admitted.");
             await requireResolved((await all()).filter(x => x.operationId !== r.operationId));
@@ -141,6 +176,7 @@ function createPendingRequests(port, config, settings, inspect, inspectCommitted
             check(ready, "Retention unavailable.");
             const records = await all(), r = records.find(x => x.operationId === request.command.operationId);
             if (!r || r.writerRequestDigest !== P.hash(request) || r.commandDigest !== P.hash(A.compile(request))) fail("WRITER_ADMISSION_REQUIRED", "Exact retained request required.");
+            check(!(await rejection(r, state)), "Rejected bootstrap cannot execute.");
             if (permission) replayPermit(permission, r, state, info);
             await requireResolved(records, r.operationId, state, !!permission);
             return r;

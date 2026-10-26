@@ -46,7 +46,8 @@ function createOwnerHost(plugin, options, coordinated = false) {
     let config = options.config, cancelReadiness = null;
     let locationSource;
     const taskLocations = () => locationSource ??= require("./native-task-locations").createNativeTaskLocations(plugin);
-    let runtime = null, feed = null, synchronization = null, stopped = false, closing = null, state = "opening", ready;
+    let runtime = null, feed = null, synchronization = null, stopped = false, closing = null, state = "opening", ready, joinRecovery = null, joinRecoveryOpening = null;
+    let refreshing = null, inventorySignature = null; const runtimeStops = [];
     const matches = ref => ref?.type === owner.type && ref.id === owner.id;
     const workspaceRef = require("./task-service-legacy-values").workspaceRef;
     const workspaceId = owner.type === "resource" ? "resource:" + owner.id : owner.id;
@@ -103,16 +104,19 @@ function createOwnerHost(plugin, options, coordinated = false) {
     stops.push(() => { if (plugin.taskData.readPages === readPages) plugin.taskData.readPages = originalRead; });
     // Unsupported domain entry points are guarded before their queues/saves.
     const guardUnsupported = () => {
-        wrap(plugin.inbox, "makeTask", (values, captureId) => {
-            const capture = captureId ? plugin.inbox.required(captureId) : null;
-            const candidates = [values, capture?.intent, capture?.operation];
-            for (const c of candidates) if (c && (c.workspaceId === workspaceId || matches(c.workspace) || ownsPath(c.location))) unavailable();
-        });
+        // Inbox now publishes through its explicit native adapter. The legacy
+        // TaskEditor write guards above remain in force for every native owner.
+        if (!(plugin.inbox instanceof require("./inbox").HubInboxService)) {
+            wrap(plugin.inbox, "makeTask", (values,captureId) => {
+                const capture=captureId?plugin.inbox.required(captureId):null;
+                for(const c of [values,capture?.intent,capture?.operation]) if(c&&(c.workspaceId===workspaceId||matches(c.workspace)||ownsPath(c.location))) unavailable();
+            });
+            const locations=plugin.inbox.taskLocations;
+            const taskLocations=function(id){return id===workspaceId?[]:locations.call(this,id)};
+            plugin.inbox.taskLocations=taskLocations;
+            stops.push(()=>{if(plugin.inbox.taskLocations===taskLocations)plugin.inbox.taskLocations=locations});
+        }
         wrap(plugin.inbox, "taskDestination", values => { if (values.workspaceId === workspaceId || matches(values.workspace) || ownsPath(values.location)) unavailable(); });
-        const locations = plugin.inbox.taskLocations;
-        const taskLocations = function (id) { return id === workspaceId ? [] : locations.call(this, id); };
-        plugin.inbox.taskLocations = taskLocations;
-        stops.push(() => { if (plugin.inbox.taskLocations === taskLocations) plugin.inbox.taskLocations = locations; });
         wrap(plugin.oath, "take", draft => { if (matches(draft.workspace)) unavailable(); });
         const resolve = plugin.oath.resolveWorkspace;
         const resolveWorkspace = function (ref, ...args) { return matches(ref) ? null : resolve.call(this, ref, ...args); };
@@ -154,13 +158,13 @@ function createOwnerHost(plugin, options, coordinated = false) {
     };
     const nativeTasks = Object.freeze({ owner, consumerUiV1: true, availability: () => state === "ready" ? "current" : state === "opening" ? "loading" : "unavailable", mergeHome: consumers.mergeHome, taskKey: consumers.taskKey,
         createPanelRead(args) {
-            let inner = null, closed = false;
+            let inner = null, innerRuntime = null, closed = false;
             // The core subscription emits immediately. Defer its UI callback
             // until the delegate is assigned, so a refresh cannot reenter its
             // construction and create duplicate subscriptions.
             let queued = false;
             const refresh = () => { if (queued || closed) return; queued = true; queueMicrotask(() => { queued = false; if (!closed && !stopped) args.changed?.(); }); };
-            const current = () => { if (closed || stopped || state !== "ready") return null; return inner ??= runtime.nativeTasks.createPanelRead({ ...args, changed: refresh }); };
+            const current = () => { if (closed || stopped || state !== "ready") return null; if (innerRuntime !== runtime) { inner?.close(); inner = null; innerRuntime = runtime; } return inner ??= runtime.nativeTasks.createPanelRead({ ...args, changed: refresh }); };
             const changed = () => args.changed?.(); stateListeners.add(changed);
             const close = () => { if (closed) return; closed = true; stateListeners.delete(changed); inner?.close(); };
             args.component.register(close);
@@ -177,16 +181,72 @@ function createOwnerHost(plugin, options, coordinated = false) {
     const release = () => { if (released) return; released = true; for (const stop of stops.reverse()) stop(); for (const l of feedListeners.values()) l.stop?.(); feedListeners.clear(); registryListeners.clear(); historyListeners.clear(); stateListeners.clear(); };
     const host = {
         nativeTasks, completionFeed, matches, rejectLegacy, guardUnsupported, release,
-        owner, historyEvidence: { read: () => host.runtime().historyEvidence.read(), subscribe(fn) { let stop = null; const bind = () => { if (!stop && state === "ready") stop = runtime.historyEvidence.subscribe(fn); fn({ reason: "registry" }); }; stateListeners.add(bind); if (state === "ready") stop = runtime.historyEvidence.subscribe(fn); return () => { stateListeners.delete(bind); stop?.(); }; } },
+        owner, historyEvidence: { read: () => host.runtime().historyEvidence.read(), subscribe(fn) { let stop = null, bound = null; const bind = () => { if (bound !== runtime || state !== "ready") { stop?.(); stop = null; bound = runtime; } if (!stop && state === "ready") stop = runtime.historyEvidence.subscribe(fn); fn({ reason: "registry" }); }; stateListeners.add(bind); if (state === "ready") { bound = runtime; stop = runtime.historyEvidence.subscribe(fn); } return () => { stateListeners.delete(bind); stop?.(); }; } },
         status: () => ({ mode: "native-project", state, owner: copy(owner), ...(synchronization ? {sharing:synchronization.status()} : {}) }),
         synchronization: () => synchronization,
+        async openJoinRecovery() {
+            await ready; if (stopped || state !== "unavailable" || !options.joinExisting || joinRecoveryOpening) unavailable();
+            const opening = (async () => { await joinRecovery?.close(); if (stopped) unavailable(); return joinRecovery = await require("./native-git-transition").openJoinRecovery(plugin, owner); })();
+            joinRecoveryOpening = opening; try { return await opening; } finally { joinRecoveryOpening = null; }
+        },
         runtime: () => { if (stopped || state !== "ready") return unavailable(); return runtime; },
         create(options = {}) { const r = host.runtime(); return require("../ui/task-editor").openTaskCreator(require("./native-task-locations").locationService(r.formService(plugin.app), plugin, owner), options); },
         async close() {
             if (closing) return closing; stopped = true; state = "closing"; cancelReadiness?.(); changedState();
-            closing = (async () => { await ready; await synchronization?.close(); await runtime?.close(); if (!coordinated) release(); state = "closed"; })();
+            closing = (async () => { await ready; await joinRecoveryOpening?.catch(() => {}); await joinRecovery?.close(); await refreshing?.catch(() => {}); runtimeStops.splice(0).reverse().forEach(stop => stop()); await synchronization?.close(); await runtime?.close(); if (!coordinated) release(); state = "closed"; })();
             return closing;
         }
+    };
+    // Application inventory remains immutable for each writer session. Rebind
+    // only by draining and reopening the same validated authority; never change
+    // a saved command, guard, receipt, witness or recovery fence in place.
+    async function openCurrentRuntime(creating) {
+            let inventory={version:1,revision:"synthetic-empty",ids:[]},phases={version:1,revision:"no-phases",values:[]},inventoryEvidence;
+            if(options.gitSharing){inventoryEvidence=require("./native-git-inventory").createInventoryEvidence(plugin,owner,config.authorityId);const observed=await inventoryEvidence.read();phases=observed.phases;inventory=require("../../../../../ItacanTaskCore/shared/inventory").capture(config.authorityId,observed.inventory,phases);}
+            inventorySignature = hash({inventory,phases});
+            runtime = await openProjectRuntime(config, { owner, registry, writerPolicy: policy({version:1,owners:[{owner,partitionId:options.partitionId}],commands:["task.createRich","task.save","task.complete","step.complete","task.delete",...(options.gitSharing?["git.receive"]:[])],inventory,phases}),
+                inventoryEvidence,gitSharing:options.gitSharing,sharedGenesis:options.sharedGenesis,
+                locationLabel: ref => taskLocations().resolve(owner, ref)?.path ?? "Location unavailable", describeLocation: ref => taskLocations().describe(owner, ref), rehearsalId: options.rehearsalId, creating, consumerUiV1: true, historyUiV1: true });
+            if(options.gitSharing){
+                const project=await require("../../../../../ItacanTaskCore/shared/project-binding").admitProject({vaultRoot:options.vaultPin.real,projectId:owner.id,projectRoot:options.projectRoot,dashboard:options.dashboard});
+                const transport=await require("../../../../../ItacanTaskCore/shared/git-transport").createGitPacketTransport({version:1,root:project.gitRoot,authorityId:config.authorityId,projectId:owner.id});
+                synchronization=require("../../../../../ItacanTaskCore/shared/runtime-sync").createRuntimeSync({runtime,transport,assertBinding:async()=>{await options.assertActivation?.();const current=await require("../../../../../ItacanTaskCore/shared/project-binding").admitProject({vaultRoot:options.vaultPin.real,projectId:owner.id,projectRoot:options.projectRoot,dashboard:options.dashboard});if(current.namespaceDigest!==project.namespaceDigest)throw Error("Shared namespace changed.");}});
+                let syncing=null,dirty=false;const requestSync=()=>{if(stopped)return;dirty=true;if(syncing)return;syncing=(async()=>{while(dirty&&!stopped){dirty=false;await synchronization.sync().catch(()=>{});}})().finally(()=>{syncing=null;if(dirty&&!stopped)requestSync();});};
+                runtimeStops.push(runtime.sharing.subscribe(change=>{if(change.reason==="repository")requestSync();}));
+                // Startup publishes committed-but-unexported receipts and scans
+                // incoming files. A failed scan stays visible for explicit retry.
+                await synchronization.sync().catch(()=>{});
+                const watch=require("node:fs").watch(path.join(project.gitRoot,".itacan-native/v3",config.authorityId,"heads"),(_event,name)=>{if(!name||String(name).endsWith(".json"))requestSync();});watch.on("error",()=>{});runtimeStops.push(()=>watch.close());
+            }
+            if (!stopped) { feed = runtime.completionFeed({ legacy, app: plugin.app }); await runtime.list(); await feed.read();
+                if (!stopped) { for (const l of feedListeners.values()) l.stop = feed.subscribe(l.fn); state = "ready"; changedState(); for (const l of feedListeners.values()) { try { Promise.resolve(l.fn()).catch(() => {}); } catch (_) {} } }
+            }
+    }
+    host.refreshInventory = () => {
+        if (!options.gitSharing) return Promise.resolve();
+        if (refreshing) return refreshing.then(() => host.refreshInventory());
+        refreshing = (async () => {
+            await ready; if (stopped) return;
+            if (state !== "ready") throw Error("Native shared authority is unavailable.");
+            const observed = await require("./native-git-inventory").createInventoryEvidence(plugin,owner,config.authorityId).read();
+            const inventory = require("../../../../../ItacanTaskCore/shared/inventory").capture(config.authorityId,observed.inventory,observed.phases);
+            if (inventorySignature === hash({inventory,phases:observed.phases})) return;
+            // An unresolved original request must be recovered, not replaced by
+            // a fresh session that could hide uncertainty or stale replay guards.
+            await runtime.assertRetainedResolved();
+            state = "opening"; changedState();
+            try {
+                runtimeStops.splice(0).reverse().forEach(stop => stop());
+                for (const listener of feedListeners.values()) { listener.stop?.(); listener.stop = null; }
+                await synchronization?.close(); await runtime.close();
+                synchronization = null; runtime = null; feed = null;
+                if (stopped) return;
+                await options.assertActivation?.();
+                await openCurrentRuntime(false);
+            }
+            catch (error) { state = stopped ? "closing" : "unavailable"; await synchronization?.close().catch(()=>{}); await runtime?.close().catch(()=>{}); changedState(); throw error; }
+        })().finally(() => { refreshing = null; });
+        return refreshing;
     };
     ready = (async () => {
         try {
@@ -200,25 +260,7 @@ function createOwnerHost(plugin, options, coordinated = false) {
             }
             if (stopped) return;
             if (options.blocked) throw Error("Cutover requires explicit recovery review.");
-            let inventory={version:1,revision:"synthetic-empty",ids:[]},phases={version:1,revision:"no-phases",values:[]},inventoryEvidence;
-            if(options.gitSharing){inventoryEvidence=require("./native-git-inventory").createInventoryEvidence(plugin,owner,config.authorityId);const observed=await inventoryEvidence.read();phases=observed.phases;inventory=require("../../../../../ItacanTaskCore/shared/inventory").capture(config.authorityId,observed.inventory,phases);}
-            runtime = await openProjectRuntime(config, { owner, registry, writerPolicy: policy({version:1,owners:[{owner,partitionId:options.partitionId}],commands:["task.createRich","task.save","task.complete","step.complete","task.delete",...(options.gitSharing?["git.receive"]:[])],inventory,phases}),
-                inventoryEvidence,gitSharing:options.gitSharing,sharedGenesis:options.sharedGenesis,
-                locationLabel: ref => taskLocations().resolve(owner, ref)?.path ?? "Location unavailable", describeLocation: ref => taskLocations().describe(owner, ref), rehearsalId: options.rehearsalId, creating: options.creating === true, consumerUiV1: true, historyUiV1: true });
-            if(options.gitSharing){
-                const project=await require("../../../../../ItacanTaskCore/shared/project-binding").admitProject({vaultRoot:options.vaultPin.real,projectId:owner.id,projectRoot:options.projectRoot,dashboard:options.dashboard});
-                const transport=await require("../../../../../ItacanTaskCore/shared/git-transport").createGitPacketTransport({version:1,root:project.gitRoot,authorityId:config.authorityId,projectId:owner.id});
-                synchronization=require("../../../../../ItacanTaskCore/shared/runtime-sync").createRuntimeSync({runtime,transport,assertBinding:async()=>{await options.assertActivation?.();const current=await require("../../../../../ItacanTaskCore/shared/project-binding").admitProject({vaultRoot:options.vaultPin.real,projectId:owner.id,projectRoot:options.projectRoot,dashboard:options.dashboard});if(current.namespaceDigest!==project.namespaceDigest)throw Error("Shared namespace changed.");}});
-                let syncing=null,dirty=false;const requestSync=()=>{if(stopped)return;dirty=true;if(syncing)return;syncing=(async()=>{while(dirty&&!stopped){dirty=false;await synchronization.sync().catch(()=>{});}})().finally(()=>{syncing=null;if(dirty&&!stopped)requestSync();});};
-                stops.push(runtime.sharing.subscribe(change=>{if(change.reason==="repository")requestSync();}));
-                // Startup publishes committed-but-unexported receipts and scans
-                // incoming files. A failed scan stays visible for explicit retry.
-                await synchronization.sync().catch(()=>{});
-                const watch=require("node:fs").watch(path.join(project.gitRoot,".itacan-native/v3",config.authorityId,"heads"),(_event,name)=>{if(!name||String(name).endsWith(".json"))requestSync();});watch.on("error",()=>{});stops.push(()=>watch.close());
-            }
-            if (!stopped) { feed = runtime.completionFeed({ legacy, app: plugin.app }); await runtime.list(); await feed.read();
-                if (!stopped) { for (const l of feedListeners.values()) l.stop = feed.subscribe(l.fn); state = "ready"; changedState(); for (const l of feedListeners.values()) { try { Promise.resolve(l.fn()).catch(() => {}); } catch (_) {} } }
-            }
+            await openCurrentRuntime(options.creating === true);
         } catch (error) { console.error("Native task owner unavailable", owner.id, error.code ?? "INITIALIZATION_FAILED", String(error.message).slice(0, 160)); state = stopped ? "closing" : "unavailable"; await synchronization?.close().catch(() => {}); await runtime?.close().catch(() => {}); changedState(); }
     })();
     // The shared helper registers one owning-window drain and Obsidian Tasks

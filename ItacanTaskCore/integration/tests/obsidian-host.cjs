@@ -33,9 +33,9 @@ electron.app.whenReady().then(async () => { try {
  const scenario = process.env.ITACAN_REAL_HOST_SCENARIO ?? "project";
  if (!["project", "home-schedule", "history", "startup", "cutover", "device-identity", "multi-owner", "git-shared"].includes(scenario)) throw Error("Unknown rehearsal scenario");
  const fixture = path.join(__dirname, process.env.ITACAN_N4_PEER ? "git-peer-obsidian.cjs" : scenario === "git-shared" ? "git-production-obsidian.cjs" : scenario === "multi-owner" ? "multi-owner-obsidian.cjs" : scenario === "device-identity" ? "cutover-identity.cjs" : ["startup", "cutover"].includes(scenario) ? "startup-obsidian.cjs" : scenario === "project" ? "obsidian-fixture.cjs" : scenario === "history" ? "history-obsidian.cjs" : "home-schedule-obsidian.cjs");
- if (process.env.ITACAN_TASK_LOCATION_CHECKS === "1") {
+ if (process.env.ITACAN_TASK_LOCATION_CHECKS === "1" || process.env.ITACAN_NATIVE_CAPTURE_CHECKS === "1") {
   electron.ipcMain.handle("itacan-location-input", async(event, key) => {
-   const codes={ArrowDown:40,ArrowUp:38,Escape:27,Tab:9};if(event.sender!==w.webContents || !Object.hasOwn(codes,key))throw Error("Owned location fixture input required");
+   const codes={ArrowDown:40,ArrowUp:38,Escape:27,Tab:9,Enter:13};if(event.sender!==w.webContents || !Object.hasOwn(codes,key))throw Error("Owned location fixture input required");
    const debuggerApi=w.webContents.debugger;if(!debuggerApi.isAttached())debuggerApi.attach("1.3");
    for(const type of ["keyDown","keyUp"])await debuggerApi.sendCommand("Input.dispatchKeyEvent",{type,key,code:key,windowsVirtualKeyCode:codes[key]});
   });

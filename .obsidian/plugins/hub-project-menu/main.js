@@ -715,6 +715,35 @@ async function inspectNativeRepository(input) {
 module.exports = { validateConfig, admit, inspectNativeRepository, PinnedDirectory, pinRoot, assertPrivateAtomicCreation };
 
 },
+"../../../ItacanTaskCore/host/bootstrap-rejection.js": function (module, exports, __hubRequire) {
+"use strict";
+// A terminal non-execution proof, never a task receipt or replay permission.
+const V = __hubRequire("../../../ItacanTaskCore/src/value.js"), G = __hubRequire("../../../ItacanTaskCore/src/git-shared.js"), P = __hubRequire("../../../ItacanTaskCore/writer/policy.js");
+const { check } = __hubRequire("../../../ItacanTaskCore/src/errors.js"), { registryDigest } = __hubRequire("../../../ItacanTaskCore/host/registry.js");
+async function prove({ config, record, observation, packet, writerPolicy }) {
+    check(config.scope === "device-private-git-project" && record.format === "itacan-native-shared-request" && record.version === 2 && record.intent.kind === "git-receive", "Only a bound bootstrap receive can be concluded.");
+    const r = record.writerRequest, original = V.clone(observation.registry);
+    check(original.owners.length === 1 && original.owners[0].locations.length > 0 && observation.identityPin === null && r.scope.identityPin === null, "Bootstrap identity/catalog unavailable.");
+    original.owners[0].locations = []; original.digest = registryDigest(original);
+    check(original.digest === r.scope.ownerContextPin && r.command.expectedRepositoryRevision === 0 && r.scope.partitions.length === 1 && r.scope.partitions[0].expectedRevision === 0 && P.same(r.scope.partitions[0].owner, original.owners[0].owner) && r.scope.partitions[0].id === original.owners[0].partitionId, "Original bootstrap guards differ.");
+    check(r.scope.inventoryPin === P.hash(writerPolicy.inventory) && r.scope.phasePin === P.hash(writerPolicy.phases), "Original reservation/Phase guards differ.");
+    check(packet.head === null && packet.frames.length === 0 && packet.genesis.authorityId === config.authorityId && packet.genesis.partition.id === record.partitionId && P.same(packet.genesis.partition.owner, record.owner), "Intact original genesis required.");
+    check(r.command.payload.authorityId === config.authorityId && r.command.payload.projectId === record.owner.id && r.command.payload.partitionId === record.partitionId && r.command.payload.packetDigest === G.hash(record.intent.prepared.packet), "Original packet binding differs.");
+    const incoming = await __hubRequire("../../../ItacanTaskCore/src/serialization.js").deserializeSharedPacketV3(V.canonical(record.intent.prepared.packet), packet.genesis);
+    const { accepted, taskHeads, conflicts, ...native } = G.graph(G.namespace(packet)).current;
+    const prior = { ...native, gitShared: G.namespace(packet) };
+    let rejected = false;
+    try { await G.applyReceive(V.clone(prior), r.command, { sharedPacket: incoming, resolvers: { location: () => null, phase: () => null } }); }
+    catch (e) { if (e.code !== "VALIDATION" || e.message !== "Location is missing or belongs to another workspace.") throw e; rejected = true; }
+    check(rejected, "Original receive is not the empty-catalog defect.");
+    const candidate = V.clone(prior), owner = observation.registry.owners[0];
+    await G.applyReceive(candidate, r.command, { sharedPacket: incoming, resolvers: { location: ref => owner.locations.some(l => P.same(l, ref)) ? { ...ref, owner: owner.owner } : null, phase: () => null } });
+    P.candidate(r, candidate, prior, writerPolicy.inventory);
+    return { version: 1, kind: "bootstrap-empty-location-catalog", code: "REJECTED_BEFORE_COMMIT", genesis: V.clone(packet.genesis), originalOwnerContextPin: r.scope.ownerContextPin, reviewedOwnerContextPin: observation.ownerContextPin, inventoryPin: r.scope.inventoryPin, phasePin: r.scope.phasePin };
+}
+module.exports = { prove };
+
+},
 "../../../ItacanTaskCore/host/completion-proof.js": function (module, exports, __hubRequire) {
 "use strict";
 const V = __hubRequire("../../../ItacanTaskCore/src/value.js"), F1 = __hubRequire("../../../ItacanTaskCore/oath/evidence.js"), F2 = __hubRequire("../../../ItacanTaskCore/oath/completion-proof.js");
@@ -940,12 +969,13 @@ const V = __hubRequire("../../../ItacanTaskCore/src/value.js"), P = __hubRequire
 const { check, fail } = __hubRequire("../../../ItacanTaskCore/src/errors.js"), { freeze } = __hubRequire("../../../ItacanTaskCore/src/snapshot-read.js");
 const markerName = "REQUEST-RETENTION-v1.json", prefix = "REQUEST-v1-";
 const fields = (v, keys) => V.fields(v, keys, keys);
-function createPendingRequests(port, config, settings, inspect, inspectCommitted) {
+function createPendingRequests(port, config, settings, inspect, inspectCommitted, proveBootstrapRejection) {
     fields(settings, ["version", "rehearsalId"]); check([1,2].includes(settings.version), "Unsupported retention version."); V.uuid(settings.rehearsalId);
     const markerBody = { format: "itacan-native-request-retention", version: settings.version, authorityId: config.authorityId, applicationContextId: config.applicationContextId, rehearsalId: settings.rehearsalId };
-    let stopped = false, ready = false, reviews = new WeakMap(), permits = new WeakMap(); const inflight = new Set(), preparing = new Map(), prior = new Set();
+    let stopped = false, ready = false, reviews = new WeakMap(), permits = new WeakMap(); const rejectionReviews = new WeakMap(), inflight = new Set(), preparing = new Map(), prior = new Set();
     const sealed = body => ({ ...body, checksum: P.hash(body) });
     const name = id => prefix + P.hash(id) + ".json";
+    const rejectionName = id => "REQUEST-REJECTED-v1-" + P.hash(id) + ".json";
     const owned = () => port.assertWriter();
     function tracked(work) {
         check(ready && !stopped, "Retention is closed."); const job = work().catch(error => { const code = ["OPERATION_CONFLICT", "OUTCOME_RECONCILIATION_REQUIRED", "WRITER_ADMISSION_REQUIRED", "LOCK_LOST", "ROOT_IDENTITY_CHANGED", "ENOENT", "VALIDATION", "RECOVERY_REVIEW_REQUIRED", "RECOVERY_REVIEW_STALE", "ORIGINAL_GUARDS_STALE", "EXACT_REPLAY_SAFETY_UNPROVEN"].includes(error?.code) ? error.code : "REQUEST_RETENTION_INVALID"; fail(code, "Retained request evidence is unavailable."); }); inflight.add(job); job.finally(() => inflight.delete(job)).catch(() => {}); return job;
@@ -974,12 +1004,27 @@ function createPendingRequests(port, config, settings, inspect, inspectCommitted
     }
     async function names() {
         const all = await port.list();
-        check(all.filter(n => n.startsWith("REQUEST-")).every(n => n === markerName || /^REQUEST-v1-[a-f0-9]{64}\.json$/.test(n)), "Unsupported request evidence.");
+        check(all.filter(n => n.startsWith("REQUEST-")).every(n => n === markerName || /^REQUEST-v1-[a-f0-9]{64}\.json$/.test(n) || settings.version === 2 && /^REQUEST-REJECTED-v1-[a-f0-9]{64}\.json$/.test(n)), "Unsupported request evidence.");
         return all.filter(n => n.startsWith(prefix));
+    }
+    async function rejection(r, state = null) {
+        let value; try { value = JSON.parse(await port.read(rejectionName(r.operationId))); } catch (e) { if (e.code === "ENOENT") return null; throw e; }
+        const { checksum, ...body } = value;
+        fields(body, ["format", "version", "authorityId", "applicationContextId", "rehearsalId", "operationId", "recordChecksum", "proof"]);
+        check(checksum === P.hash(body) && body.format === "itacan-native-rejected-bootstrap" && body.version === 1 && body.authorityId === config.authorityId && body.applicationContextId === config.applicationContextId && body.rehearsalId === settings.rehearsalId && body.operationId === r.operationId && body.recordChecksum === r.checksum && r.intent.kind === "git-receive", "Rejected bootstrap integrity differs.");
+        const p = body.proof;
+        fields(p, ["version", "kind", "code", "genesis", "originalOwnerContextPin", "reviewedOwnerContextPin", "inventoryPin", "phasePin"]);
+        check(p.version === 1 && p.kind === "bootstrap-empty-location-catalog" && p.code === "REJECTED_BEFORE_COMMIT" && P.same(p.genesis, r.intent.prepared.packet.genesis) && p.originalOwnerContextPin === r.writerRequest.scope.ownerContextPin && p.inventoryPin === r.writerRequest.scope.inventoryPin && p.phasePin === r.writerRequest.scope.phasePin && /^[a-f0-9]{64}$/.test(p.reviewedOwnerContextPin), "Rejected bootstrap proof differs.");
+        // A terminal rejection must never coexist with a matching or conflicting receipt.
+        if (state) check(!state.receipts.some(x => x.operationId === r.operationId) && state.gitShared && P.same(state.gitShared.genesis, p.genesis) && !state.gitShared.frames.some(f => f.receipt.operationId === r.operationId), "Rejected bootstrap has a receipt or different genesis.");
+        else { const o = await observation(r); check(o.ready && o.operation.state === "missing", "Rejected bootstrap outcome conflicts."); }
+        return freeze(value);
     }
     async function marker() { check(P.same(JSON.parse(await port.read(markerName)), sealed(markerBody)), "Retention marker differs."); }
     async function getRaw(id) { await owned(); await marker(); const n = name(id), raw = await port.read(n), value = validate(raw, n); await owned(); return value; }
-    async function all() { await owned(); await marker(); const records = []; for (const n of await names()) records.push(validate(await port.read(n), n)); await owned(); return records; }
+    async function all() { await owned(); await marker(); const records = []; for (const n of await names()) records.push(validate(await port.read(n), n));
+        for (const n of (await port.list()).filter(n => n.startsWith("REQUEST-REJECTED-"))) check(records.some(r => rejectionName(r.operationId) === n), "Orphan rejected bootstrap evidence.");
+        await owned(); return records; }
     async function write(n, value) {
         const raw = V.canonical(value) + "\n"; await owned();
         try { await port.writeNew(n, raw); }
@@ -991,6 +1036,7 @@ function createPendingRequests(port, config, settings, inspect, inspectCommitted
     async function requireResolved(records, currentId = null, state = null, recovery = false) {
         const batch = !state && settings.version === 2 && inspectCommitted ? await inspectCommitted(records) : null;
         for (const r of records) {
+            if (await rejection(r, state)) continue;
             if (r.operationId === currentId && (!prior.has(r.operationId) || recovery)) continue;
             if (state) {
                 const receipt = state.receipts.find(x => x.operationId === r.operationId);
@@ -1020,6 +1066,21 @@ function createPendingRequests(port, config, settings, inspect, inspectCommitted
         return p;
     }
     return Object.freeze({
+        reviewBootstrapRejection(id) { return tracked(async () => {
+            const r = await getRaw(id), existing = await rejection(r);
+            if (existing) return freeze({ operationId: id, state: "rejected-before-commit", proof: existing.proof });
+            check(typeof proveBootstrapRejection === "function", "Bootstrap rejection review unavailable.");
+            const proof = await proveBootstrapRejection(r), report = freeze({ operationId: id, state: "reviewable-rejection", recordChecksum: r.checksum, proof });
+            rejectionReviews.set(report, { record: r, proof }); return report;
+        }); },
+        concludeBootstrapRejection(review) { return tracked(async () => {
+            const selected = rejectionReviews.get(review); check(selected, "An original bootstrap rejection review is required."); rejectionReviews.delete(review);
+            const r = await getRaw(selected.record.operationId); check(r.checksum === selected.record.checksum, "Bootstrap request changed.");
+            check(P.same(await proveBootstrapRejection(r), selected.proof), "Bootstrap rejection review is stale.");
+            await write(rejectionName(r.operationId), sealed({ format: "itacan-native-rejected-bootstrap", version: 1, authorityId: config.authorityId, applicationContextId: config.applicationContextId, rehearsalId: settings.rehearsalId, operationId: r.operationId, recordChecksum: r.checksum, proof: selected.proof }));
+            await rejection(r); return freeze({ operationId: r.operationId, state: "rejected-before-commit" });
+        }); },
+        isRejected(id) { return tracked(async () => !!(await rejection(await getRaw(id)))); },
         async start(creating) {
             stopped = false; ready = false; prior.clear(); await owned();
             if (creating) await write(markerName, sealed(markerBody));
@@ -1032,7 +1093,7 @@ function createPendingRequests(port, config, settings, inspect, inspectCommitted
             const promise = tracked(async () => {
                 check(preparing.size === 0, "Another request preparation is in progress.");
                 const records = await all(), old = records.find(x => x.operationId === id);
-                if (old) { if (!P.same(old, r)) fail("OPERATION_CONFLICT", "Retained operation conflicts."); return old; }
+                if (old) { if (!P.same(old, r)) fail("OPERATION_CONFLICT", "Retained operation conflicts."); check(!(await rejection(old)), "Rejected bootstrap cannot be prepared again."); return old; }
                 await requireResolved(records);
                 if(settings.version===2){const o=await observation(r);check(o.ready&&o.stamp&&r.writerRequest.command.expectedRepositoryRevision===o.stamp.head.repositoryRevision&&r.writerRequest.scope.ownerContextPin===o.stamp.ownerContextPin&&r.writerRequest.scope.identityPin===o.stamp.identityPin,"Preparation context changed before retention.");}
                 await write(name(id), r); return freeze(V.clone(r));
@@ -1042,7 +1103,7 @@ function createPendingRequests(port, config, settings, inspect, inspectCommitted
         assertResolved() { return tracked(async () => { await requireResolved(await all()); }); },
         list() { return tracked(async () => freeze((await all()).map(r => ({ operationId: r.operationId, intentDigest: r.intentDigest, owner: r.owner, partitionId: r.partitionId })))); },
         get(id) { V.text(id); return tracked(() => getRaw(id)); },
-        reconcile(id) { V.text(id); return tracked(async () => reconcileRecord(await getRaw(id))); },
+        reconcile(id) { V.text(id); return tracked(async () => { const r = await getRaw(id); return await rejection(r) ? freeze({state:"rejected",code:"REJECTED_BEFORE_COMMIT",operationId:id,receipt:null,taskIds:[],eventIds:[]}) : reconcileRecord(r); }); },
         inspect(id) { V.text(id); return tracked(async () => {
             let r = null, o, damaged = false;
             try { r = await getRaw(id); o = await observation(r); await all(); }
@@ -1050,8 +1111,10 @@ function createPendingRequests(port, config, settings, inspect, inspectCommitted
                 if (["LOCK_LOST", "ROOT_IDENTITY_CHANGED"].includes(error?.code)) return freeze({ version: 1, privacy: "local-private", authorityId: config.authorityId, applicationContextId: config.applicationContextId, operationId: id, classification: "authority-unavailable", code: error.code, owner: null, partitionId: null, recordChecksum: null, commandDigest: null, observation: null, receipt: null, taskIds: [], eventIds: [], canReplay: false, replayCode: "AUTHORITY_UNAVAILABLE" });
                 damaged = true; o = await observation(null);
             }
-            const op = o.operation, classification = !o.ready ? "authority-unavailable" : damaged ? "damaged" : op.state === "committed" ? "confirmed-committed" : op.state === "missing" ? "execution-uncertain" : op.state === "conflict" ? "conflict" : "authority-unavailable";
+            const terminal = r && !damaged ? await rejection(r) : null;
+            const op = o.operation, classification = !o.ready ? "authority-unavailable" : damaged ? "damaged" : terminal ? "confirmed-rejected" : op.state === "committed" ? "confirmed-committed" : op.state === "missing" ? "execution-uncertain" : op.state === "conflict" ? "conflict" : "authority-unavailable";
             let code = !o.ready ? "AUTHORITY_UNAVAILABLE" : damaged ? "REQUEST_RETENTION_INVALID" : op.code, replay = damaged ? "REQUEST_RETENTION_INVALID" : replayCode(r, o);
+            if (terminal) { code = "REJECTED_BEFORE_COMMIT"; replay = "TERMINAL_REJECTION"; }
             if (["EXACT_COMMITTED_REPLAY", "EXACT_ORIGINAL_HEAD_REPLAY"].includes(replay)) {
                 try { await requireResolved((await all()).filter(x => x.operationId !== id)); } catch (_) { replay = "OTHER_REQUEST_UNRESOLVED"; }
             }
@@ -1064,6 +1127,7 @@ function createPendingRequests(port, config, settings, inspect, inspectCommitted
         permit(review) { return tracked(async () => {
             const selected = reviews.get(review); if (!selected) fail("RECOVERY_REVIEW_REQUIRED", "An original accepted recovery review is required."); reviews.delete(review);
             const r = await getRaw(selected.record.operationId), o = await observation(r);
+            check(!(await rejection(r)), "Rejected bootstrap cannot be replayed.");
             if (r.checksum !== selected.record.checksum || !o.ready || !sameObservation(selected.stamp, o.stamp)) fail("RECOVERY_REVIEW_STALE", "Recovery observation changed.");
             const code = replayCode(r, o); if (!["EXACT_COMMITTED_REPLAY", "EXACT_ORIGINAL_HEAD_REPLAY"].includes(code)) fail(code, "Exact replay cannot be admitted.");
             await requireResolved((await all()).filter(x => x.operationId !== r.operationId));
@@ -1077,6 +1141,7 @@ function createPendingRequests(port, config, settings, inspect, inspectCommitted
             check(ready, "Retention unavailable.");
             const records = await all(), r = records.find(x => x.operationId === request.command.operationId);
             if (!r || r.writerRequestDigest !== P.hash(request) || r.commandDigest !== P.hash(A.compile(request))) fail("WRITER_ADMISSION_REQUIRED", "Exact retained request required.");
+            check(!(await rejection(r, state)), "Rejected bootstrap cannot execute.");
             if (permission) replayPermit(permission, r, state, info);
             await requireResolved(records, r.operationId, state, !!permission);
             return r;
@@ -1384,7 +1449,17 @@ function constructHost(input, options, makeWriter) {
                             stamp: result?.status === "ok" ? result.stamp : null, partitions: result?.status === "ok" ? result.snapshot.partitions : [],
                             ready: result?.status === "ok" && result.snapshot.readiness.state === "ready" && result.snapshot.recovery.state === "intact",
                             taskMutationVersion: result?.snapshot?.storage?.taskMutationVersion ?? null };
-                    }, inspectCommitted);
+                    }, inspectCommitted, async record => {
+                        const before = await observe(), info = repo.info();
+                        const captureBefore = (await capture({ selection: "status" }, undefined, true)).value;
+                        check(captureBefore?.status === "ok" && captureBefore.snapshot.readiness.state === "ready" && captureBefore.snapshot.recovery.state === "intact" && info.recovery === null, "Intact bootstrap authority required.");
+                        const packet = await repo.exportSharedPacket();
+                        check(info.revision === 0 && info.revisionId === packet.genesis.revisionId && captureBefore.stamp.head.repositoryRevision === 0 && captureBefore.stamp.head.revisionId === packet.genesis.revisionId, "Original committed genesis required.");
+                        const proof = await __hubRequire("../../../ItacanTaskCore/host/bootstrap-rejection.js").prove({ config, record, observation: before, packet, writerPolicy: options.writerPolicy });
+                        const after = await observe(), captureAfter = (await capture({ selection: "status" }, undefined, true)).value;
+                        check(captureAfter?.status === "ok" && same(before, after) && same(captureBefore.stamp.head, captureAfter.stamp.head) && captureBefore.stamp.hostEpoch === captureAfter.stamp.hostEpoch && captureAfter.snapshot.recovery.state === "intact" && repo.info().recovery === null, "Bootstrap rejection observation changed.");
+                        return proof;
+                    });
                     await retained.start(creating);
                 }
                 if (phase === "closing" || disposed) return info();
@@ -1861,6 +1936,8 @@ async function openProjectRuntime(config, options) {
         if (raw.canReplay) recoveryReviews.set(report, raw); return report;
     }
     const recovery = Object.freeze({
+        reviewBootstrapRejection: id => withGrant(cap => session.requests.reviewBootstrapRejection(cap, id)),
+        concludeBootstrapRejection: review => withGrant(cap => session.requests.concludeBootstrapRejection(cap, review)),
         async inspect(id) { V.text(id); if (closed) return recoveryUnavailable(id); try { return await withGrant(async cap => recoveryReview(await session.requests.inspect(cap, id))); } catch (_) { return recoveryUnavailable(id); } },
         async reconcile(id) {
             V.text(id); if (closed) return freeze({ inspection: recoveryUnavailable(id), presentation: { state: "unavailable", code: "RUNTIME_CLOSED" } });
@@ -5608,6 +5685,8 @@ function createParticipant(config,options,host) {
   start:creating=>pair.start(creating),finish:()=>pair.finish(),invalidate(){generation++;},closing(){closing=true;},
   session(readHost){
    const retainedPort=options.requestRetention?Object.freeze({
+    reviewBootstrapRejection:async(capability,id)=>{grant({capability});await inventoryFresh();return host.retention().reviewBootstrapRejection(id);},
+    concludeBootstrapRejection:async(capability,review)=>{grant({capability});await inventoryFresh();return host.retention().concludeBootstrapRejection(review);},
     prepare:async(capability,intent)=>{const g=grant({capability}),c=__hubRequire("../../../ItacanTaskCore/application/intents.js").compile(intent);check(c.request&&g.commands.includes(c.request.command.type)&&c.request.scope.partitions.every(p=>g.owners.some(o=>o.partitionId===p.id&&P.same(o.owner,p.owner))),"Retained request exceeds grant.");await inventoryFresh();return host.retention().prepare(c.intent);},
     assertResolved:async capability=>{grant({capability});const held=pending;await host.retention().assertResolved();if(held&&pending===held){const r=await host.retention().get(held.operationId);check(r.writerRequestDigest===held.digest,"Pending request differs.");if(pending===held)pending=null;}},
     list:async capability=>{const g=grant({capability});return (await host.retention().list()).filter(r=>g.owners.some(p=>p.partitionId===r.partitionId&&P.same(p.owner,r.owner)));},
@@ -5625,7 +5704,7 @@ function createParticipant(config,options,host) {
      const info=await host.refresh(),o=await observed(),current=await host.exportSharedPacket(),after=await observed();check(P.same(o,after)&&host.info().head.revisionId===info.head.revisionId,"Sharing preparation context changed.");check(P.same(current.genesis,packet.genesis)&&current.genesis.authorityId===config.authorityId,"Shared authority differs.");
      const p=o.registry.owners[0],request={version:1,reason:"Explicit Git packet receive",scope:{authorityId:config.authorityId,ownerContextPin:o.ownerContextPin,identityPin:o.identityPin,inventoryPin,phasePin,partitions:[{id:p.partitionId,owner:p.owner,expectedRevision:info.head.repositoryRevision}]},command:G.receiveCommand({storeId:config.authorityId,revision:info.head.repositoryRevision,partitions:[{id:p.partitionId,owner:p.owner}]},packet,operationId)};
      check(generation===grant({capability}).generation,"Writer context changed.");const prepared=freeze({version:1,request:P.request(request,"shared"),packet:V.clone(packet)});
-     if(options.requestRetention){const prior=await host.retention().list();if(prior.some(r=>r.operationId===operationId)){const held=await host.retention().get(operationId);check(P.same(held.intent.prepared,prepared),"Exact original retained receive required.");return prepared;}
+     if(options.requestRetention){const prior=await host.retention().list();if(prior.some(r=>r.operationId===operationId)){check(!(await host.retention().isRejected(operationId)),"Rejected bootstrap cannot be prepared again.");const held=await host.retention().get(operationId);check(P.same(held.intent.prepared,prepared),"Exact original retained receive required.");return prepared;}
       if(!G.previewReceive(current,packet).changed)return freeze({...prepared,noop:true});await host.retention().prepare({version:1,kind:"git-receive",prepared});}
      return prepared;
     },
@@ -12656,7 +12735,7 @@ function captureIntent(values = {}, attachments = []) {
     const type = attachments.length ? (["task", "note", "file"].includes(input.type) || input.workspaceId || input.folder ? "file" : null) : ["task", "note"].includes(input.type) ? input.type : null;
     if (!type) return null;
     const intent = { inputPath: attachments.length ? "file" : "text", type };
-    const keys = type === "task" ? ["workspaceId", "location", "necessity", "fromDate", "dueDate", "fromTime", "dueTime", "phaseId"] :
+    const keys = type === "task" ? ["workspaceId", "location", "nativeLocation", "taskTitle", "description", "necessity", "fromDate", "dueDate", "fromTime", "dueTime", "phaseId"] :
         type === "note" ? ["workspaceId", "folder", "title"] : ["workspaceId", "folder"];
     for (const key of keys) {
         if (typeof input[key] === "string" || input[key] === null) intent[key] = input[key];
@@ -12666,6 +12745,7 @@ function captureIntent(values = {}, attachments = []) {
         const location = noteLocation(input.noteLocation);
         if (location || input.noteLocation === null) intent.noteLocation = location;
     }
+    if(type === "task") { if(typeof input.completed === "boolean") intent.completed=input.completed; if(Object.hasOwn(input,"completedAt") && (input.completedAt===null || typeof input.completedAt==="number")) intent.completedAt=input.completedAt; }
     if (type === "task" && Array.isArray(input.steps)) {
         intent.steps = input.steps.map(step => {
             const result = {};
@@ -12678,16 +12758,17 @@ function captureIntent(values = {}, attachments = []) {
     return intent;
 }
 
-function captureDraft(capture = {}) {
+function captureDraft(capture = {}, type = null) {
     const operation = capture.operation?.state !== "done" ? capture.operation : null;
     const draft = { text: String(capture.text ?? capture.taskTitle ?? ""), attachments: (capture.attachments ?? []).map(ref => ({ ...ref })),
         source: sourceMetadata(capture.source), ...(capture.intent ?? {}) };
+    if(type && !operation) Object.assign(draft,capture.actionDrafts?.[type]??(capture.intent?.type===type?capture.intent:{}),{type});
     if (operation) {
-        const insertion = operation.kind === "note-insertion";
-        Object.assign(draft, operation.kind === "task" ? operation.values : insertion ? {} : { folder: operation.folder, title: operation.title },
-            { type: operation.kind === "files" ? "file" : insertion ? "note" : operation.kind, workspaceId: operation.workspaceId },
+        const insertion = operation.kind === "note-insertion", task = ["task","native-task"].includes(operation.kind);
+        Object.assign(draft, task ? operation.values : insertion ? {} : { folder: operation.folder, title: operation.title },
+            { type: operation.kind === "files" ? "file" : insertion ? "note" : task ? "task" : operation.kind, workspaceId: operation.workspaceId },
             insertion ? { noteAction: "existing", noteLocation: noteLocation(operation.noteLocation) } : {});
-        if (operation.kind === "task") Object.assign(draft, { text: operation.input?.text ?? operation.text, location: operation.location });
+        if (task) Object.assign(draft, { text: operation.input?.text ?? operation.text, ...(operation.kind === "native-task" ? {taskTitle:operation.values.text,nativeLocation:operation.location?.id??""} : {location:operation.location}) });
         else if (operation.input?.text !== undefined) draft.text = operation.input.text;
         // A rolled-back file/note attempt may retain an edited destination.
         // Ready receipts always retain their already-created destination.
@@ -12695,7 +12776,6 @@ function captureDraft(capture = {}) {
     }
     draft.inputPath = draft.attachments.length ? "file" : "text";
     if (Array.isArray(draft.steps)) draft.steps = draft.steps.map(step => ({ ...step }));
-    delete draft.taskTitle;
     delete draft.linkedProjectId;
     return draft;
 }
@@ -17048,6 +17128,8 @@ class HubInboxService {
             }));
         }
     }
+    refreshNativeInventory(owner) { const root=this.plugin.nativeTaskHost,host=owner&&root?.ownerHosts?root.ownerHosts().find(h=>h.matches(owner)):root; if(owner&&!host)throw Error("Native task authority is unavailable.");return host?.refreshInventory?.() ?? Promise.resolve(); }
+    scheduleNativeRefresh() { this.nativeRefresh = Promise.resolve().then(()=>this.refreshNativeInventory()).catch(error=>{ console.error("Native capture inventory refresh requires review",error); }); return this.nativeRefresh; }
     get state() { return this.plugin.projectWizard.data.inbox ?? { version: INBOX_VERSION, captures: [] }; }
     get captures() { return (Array.isArray(this.state.captures) ? this.state.captures : []).filter(item => item && typeof item.id === "string"); }
     get count() { return this.captures.length; }
@@ -17103,7 +17185,8 @@ class HubInboxService {
                 JSON.stringify(sourceMetadata(values.source ?? previous.source)) !== JSON.stringify(previous.source)) {
                 throw Error("Retry this item's saved operation before editing its content or attachments.");
             }
-            if (previous.operation.kind === "task") {
+            if (previous.operation.kind === "native-task") { __hubRequire("lib/services/native-inbox-task.js").sameValues(previous.operation,values); }
+            else if (previous.operation.kind === "task") {
                 this.assertTaskValues(previous.operation, values);
                 if (values.workspaceId && values.workspaceId !== previous.operation.workspaceId) throw Error("Retry this task's original workspace.");
             } else if (previous.operation.kind === "note-insertion") {
@@ -17117,10 +17200,13 @@ class HubInboxService {
         if (String(text).trim() && attachments.length && !(String(previous.text).trim() && previous.attachments.length)) {
             throw Error("Write something or add a file. Clear the text or remove the file first.");
         }
-        const legacyRemainder = !previous.intent && !values.intent && (String(previous.text).trim() && previous.attachments.length ||
+        const legacyRemainder = !this.plugin.nativeTaskHost && !previous.intent && !values.intent && (String(previous.text).trim() && previous.attachments.length ||
             values.type === "task" && (taskTitle(text) !== text.trim() || values.taskTitle !== undefined && String(values.taskTitle).trim() !== text.trim()));
         const intent = legacyRemainder ? null : captureIntent({ ...previous.intent, ...values }, attachments);
-        const result = { ...previous, text, attachments, kind: captureKind(text, attachments), source: sourceMetadata(values.source ?? previous.source) };
+        const actionDrafts = {...previous.actionDrafts};
+        if(previous.intent?.type && previous.intent.type !== intent?.type) actionDrafts[previous.intent.type] = clone(previous.intent);
+        if(Object.keys(actionDrafts).length && intent?.type) actionDrafts[intent.type] = clone(intent);
+        const result = { ...previous, ...(Object.keys(actionDrafts).length?{actionDrafts}:{}), text, attachments, kind: captureKind(text, attachments), source: sourceMetadata(values.source ?? previous.source) };
         if (intent) result.intent = intent; else delete result.intent;
         if (JSON.stringify(result) === JSON.stringify(previous)) return previous;
         await this.replace(result); return result;
@@ -17168,7 +17254,7 @@ class HubInboxService {
         if (text.trim() && refs.length && !(capture.text.trim() && capture.attachments.length)) {
             throw Error("Write something or add a file. Clear the text or remove the file first.");
         }
-        const legacyRemainder = !capture.intent && (capture.text.trim() && capture.attachments.length ||
+        const legacyRemainder = !this.plugin.nativeTaskHost && !capture.intent && (capture.text.trim() && capture.attachments.length ||
             values.type === "task" && (taskTitle(text) !== text.trim() || values.taskTitle !== undefined && String(values.taskTitle).trim() !== text.trim()));
         const intent = legacyRemainder ? null : captureIntent({ ...capture.intent, ...values }, refs);
         if (text !== capture.text || JSON.stringify(refs) !== JSON.stringify(capture.attachments) ||
@@ -17181,6 +17267,7 @@ class HubInboxService {
         return capture;
     }
     completion(values = {}, captureId) {
+        if(values.type === "task" && this.plugin.nativeTaskHost) { try { __hubRequire("lib/services/native-inbox-task.js").payload(this,values,this.get(captureId)??{}); return {complete:true,ready:true,error:null,ratio:1,missing:[],completedRequired:1,totalRequired:1}; } catch(error) { return {complete:false,ready:false,error:error.message,ratio:0,missing:[],completedRequired:0,totalRequired:1}; } }
         const type = values.type, requirements = [];
         const requireValue = (valid, message) => { if (!valid) throw Error(message); };
         const check = (label, validate, progress = true) => {
@@ -17248,7 +17335,8 @@ class HubInboxService {
     workspace(id) { return this.destinations().find(workspace => workspace.id === id || workspace.root === id) ?? null; }
     workspacePath(path, workspace) {
         if (typeof path !== "string" || !path || !validLocation(path, workspace)) return false;
-        if (workspace.contextKind === "resource") return true;
+        if(path === workspace.root) return !!this.plugin.nativeTaskHost || workspace.contextKind === "resource";
+        if (workspace.contextKind === "resource" || this.plugin.nativeTaskHost && path.slice(0,path.lastIndexOf("/")) === workspace.root) return true;
         // Files renders direct child folders as real Project workspaces. The
         // synthetic root group exists only to display older loose root files.
         const relative = path.slice(workspace.root.length + 1), name = relative.split("/")[0];
@@ -17256,8 +17344,9 @@ class HubInboxService {
     }
     taskLocations(id) {
         const workspace = this.workspace(id); if (!workspace) return [];
-        return this.plugin.taskEditor.locations(workspace.root).filter(location => this.workspacePath(location.path, workspace));
+        return this.plugin.taskEditor.locations(workspace.root).filter(location => this.workspacePath(location.path, workspace) && (workspace.contextKind === "resource" || location.path !== workspace.root));
     }
+    noteLocations(id) { const workspace=this.workspace(id);return workspace?this.plugin.taskEditor.locations(workspace.root).filter(location=>this.workspacePath(location.path,workspace)):[]; }
     noteDestination(values, structural = true) {
         const workspace = this.workspace(values.workspaceId), location = noteLocation(values.noteLocation);
         if (!workspace || this.plugin.oath?.canOpen(workspace) === false) throw Error("Choose an available note workspace.");
@@ -17285,11 +17374,9 @@ class HubInboxService {
             .sort((a, b) => a.path === workspace.root ? -1 : b.path === workspace.root ? 1 : a.label.localeCompare(b.label, undefined, { numeric: true }));
     }
     destination(values) {
-        const workspace = this.workspace(values.workspaceId), folder = values.folder || (workspace?.contextKind === "resource" ? workspace.root : "");
+        const workspace = this.workspace(values.workspaceId), folder = values.folder || (this.plugin.nativeTaskHost || workspace?.contextKind === "resource" ? workspace?.root : "");
         if (!workspace) throw Error("This Project or Resource is no longer available. Choose a destination.");
-        if (workspace.contextKind === "project" && (!folder || folder === workspace.root)) {
-            throw Error("Choose a workspace folder inside this Project. The Project root is not a destination.");
-        }
+
         if (!this.workspacePath(folder, workspace) || !isFolderLike(this.app.vault.getAbstractFileByPath(folder))) {
             throw Error("This destination folder is no longer available. Choose another folder.");
         }
@@ -17314,9 +17401,8 @@ class HubInboxService {
         const workspace = taskWorkspaces(this.plugin).find(item => item.projectId === operation.workspaceId);
         if (!workspace) throw Error("This Project or Resource is no longer available. Choose a destination.");
         const folder = operation.folder;
-        if (workspace.contextKind === "project" && (!folder || folder === workspace.root)) {
-            throw Error("Choose a workspace folder inside this Project. The Project root is not a destination.");
-        }
+
+        if (!this.plugin.nativeTaskHost && workspace.contextKind === "project" && (!folder || folder === workspace.root)) throw Error("Choose a workspace folder inside this Project. The Project root is not a destination.");
         const paths = [...(operation.moves ?? []).map(move => move.to), ...(operation.note ? [operation.note.path] : [])];
         if (typeof folder !== "string" || !validLocation(folder, workspace) || paths.some(path => typeof path !== "string" ||
             path.slice(0, path.lastIndexOf("/")) !== folder || !validLocation(path, workspace))) {
@@ -17402,6 +17488,7 @@ class HubInboxService {
         }
     }
     delete(id) { return this.enqueue(async () => {
+        if(this.required(id).operation?.kind === "native-task") throw Error("Resolve the retained native task operation before deleting its source item.");
         const capture = this.required(id);
         if (["note", "files"].includes(capture.operation?.kind) && capture.operation.state === "prepared") {
             let valid = false;
@@ -17659,7 +17746,9 @@ class HubInboxService {
             return kind === "note" ? { file, attachments: files } : { files, note: file };
         } catch (error) { error.captureId = capture.id; throw error; }
     }
-    makeTask(values, captureId) { return this.enqueue(async () => {
+    makeTask(values, captureId, attempt) {
+        if(this.plugin.nativeTaskHost) return this.enqueue(()=>__hubRequire("lib/services/native-inbox-task.js").submit(this,values,captureId,attempt));
+        return this.enqueue(async () => {
         let capture = captureId ? this.required(captureId) : await this.createCapture({ ...values, type: "task" });
         values = { ...capture.intent, ...values, type: "task" };
         try {
@@ -18464,17 +18553,18 @@ async function planFor({vaultRoot,deviceId,localDataRoot,projectId,projectRoot,d
  await __hubRequire("../../../ItacanTaskCore/host/git-authority.js").validateBinding(b,directory);
  return R.seal({version:3,kind:'itacan-owner-cutover',vaultId,deviceId,owner,projectRoot,dashboard,archive,archiveHash:A.digest(await fs.readFile(path.join(archive,'MANIFEST.json'))),sources:await Promise.all(observed.transition.sources.map(async s=>({path:s.path,sourceHash:s.sourceHash,proposedHash:A.digest(await fs.readFile(path.join(vaultRoot,s.path)))}))),historyDigest:A.digest(JSON.stringify(data.completedTaskHistory??[])),metadataDigest:A.digest(JSON.stringify(data.taskMetadata??{})),deviceEvidence,options:{version:1,owner,projectRoot,dashboard,partitionId:observed.binding.genesis.partition.id,rehearsalId:crypto.randomUUID(),creating:false,gitSharing:{version:1,replicaId:crypto.randomUUID()},sharedGenesis:observed.binding.genesis,config:{version:1,scope:'device-private-git-project',storageFormat:'private-v4',authorityId,directory,applicationContextId:'shared-'+projectId,registryId:'project-'+projectId,binding:b}}});
 }
-async function openLocal(plan){
+async function openLocal(plan,plugin=null){
  const p=R.verify(plan),o=p.options,b=o.config.binding;await inspect({vaultRoot:b.vaultRoot,projectId:p.owner.id,projectRoot:p.projectRoot,dashboard:p.dashboard});
  const dataFile=path.join(b.vaultRoot,'.obsidian/plugins/hub-project-menu/data.json'),readEvidence=async()=>(await __hubRequire("lib/services/native-git-inventory.js").readAuthoritative(b.vaultRoot,dataFile,p.owner,o.config.authorityId)).evidence,evidence=await readEvidence(),I=__hubRequire("../../../ItacanTaskCore/shared/inventory.js"),WP=__hubRequire("../../../ItacanTaskCore/writer/policy.js"),{registryDigest}=__hubRequire("../../../ItacanTaskCore/host/registry.js");
  const header=P.projectHeader(await fs.readFile(path.join(b.vaultRoot,p.dashboard),'utf8'),p.dashboard),body={version:1,registryId:o.config.registryId,applicationContextId:o.config.applicationContextId,revision:JSON.stringify([p.owner.id,p.projectRoot,p.dashboard,header.status,true]),owners:[{owner:p.owner,partitionId:o.partitionId,root:p.projectRoot,dashboard:p.dashboard,status:header.status,available:true,shared:true,shareApproval:{version:1,projectId:p.owner.id,root:p.projectRoot,reviewDigest:b.namespaceDigest},locations:[],mounts:[]}]};
- const registry={read:async()=>{await inspect({vaultRoot:b.vaultRoot,projectId:p.owner.id,projectRoot:p.projectRoot,dashboard:p.dashboard});return{...body,digest:registryDigest(body)}},subscribe:()=>()=>{}};
+ const locations=plugin?__hubRequire("lib/services/native-task-locations.js").createNativeTaskLocations(plugin):null;
+ const registry={read:async()=>{await inspect({vaultRoot:b.vaultRoot,projectId:p.owner.id,projectRoot:p.projectRoot,dashboard:p.dashboard});const current=V.clone(body);current.owners[0].locations=locations?locations.catalog(p.owner):[];return{...current,digest:registryDigest(current)}},subscribe:()=>()=>{}};
  await fs.mkdir(o.config.directory,{recursive:true});let creating=false;try{await fs.access(path.join(o.config.directory,'CURRENT.json'))}catch(e){if(e.code!=='ENOENT')throw e;check(!(await fs.readdir(o.config.directory)).length,'Partially initialized authority requires recovery review.');creating=true;}
  return __hubRequire("../../../ItacanTaskCore/integration/project-runtime.js").openProjectRuntime(o.config,{owner:p.owner,registry,writerPolicy:WP.policy({version:1,owners:[{owner:p.owner,partitionId:o.partitionId}],commands:['task.createRich','task.save','task.complete','step.complete','task.delete','git.receive'],inventory:I.capture(o.config.authorityId,evidence.inventory,evidence.phases),phases:evidence.phases}),inventoryEvidence:{read:readEvidence},gitSharing:o.gitSharing,sharedGenesis:o.sharedGenesis,rehearsalId:o.rehearsalId,creating,consumerUiV1:true,historyUiV1:true});
 }
-async function initialize(plan){
+async function initialize(plan,plugin=null){
  const p=R.verify(plan),b=p.options.config.binding,folder=R.ownerFolder(b.localDataRoot,p.vaultId,p.owner),saved=await R.readOwnerPlan(path.join(folder,'CUTOVER-v1.json'));check(same(saved,p),'Existing shared activation plan changed.');await P.verifyArchive(p.archive);check(A.digest(await fs.readFile(path.join(p.archive,'MANIFEST.json')))===p.archiveHash,'Local archive changed.');
- const runtime=await openLocal(plan);try{const observed=await inspect({vaultRoot:b.vaultRoot,projectId:p.owner.id,projectRoot:p.projectRoot,dashboard:p.dashboard}),transport=await __hubRequire("../../../ItacanTaskCore/shared/git-transport.js").createGitPacketTransport({version:1,root:observed.gitRoot,authorityId:p.options.config.authorityId,projectId:p.owner.id}),sync=__hubRequire("../../../ItacanTaskCore/shared/runtime-sync.js").createRuntimeSync({runtime,transport,assertBinding:()=>inspect({vaultRoot:b.vaultRoot,projectId:p.owner.id,projectRoot:p.projectRoot,dashboard:p.dashboard})});try{const status=await sync.sync();check(status.state==='local-published'||status.state==='near-capacity','Shared join has unresolved evidence.');}finally{await sync.close()}}finally{await runtime.close()}
+ const runtime=await openLocal(plan,plugin);try{const observed=await inspect({vaultRoot:b.vaultRoot,projectId:p.owner.id,projectRoot:p.projectRoot,dashboard:p.dashboard}),transport=await __hubRequire("../../../ItacanTaskCore/shared/git-transport.js").createGitPacketTransport({version:1,root:observed.gitRoot,authorityId:p.options.config.authorityId,projectId:p.owner.id}),sync=__hubRequire("../../../ItacanTaskCore/shared/runtime-sync.js").createRuntimeSync({runtime,transport,assertBinding:()=>inspect({vaultRoot:b.vaultRoot,projectId:p.owner.id,projectRoot:p.projectRoot,dashboard:p.dashboard})});try{const status=await sync.sync();check(status.state==='local-published'||status.state==='near-capacity','Shared join has unresolved evidence.');}finally{await sync.close()}}finally{await runtime.close()}
  const data=JSON.parse(await fs.readFile(path.join(b.vaultRoot,'.obsidian/plugins/hub-project-menu/data.json'),'utf8'));check(A.digest(JSON.stringify(data.completedTaskHistory??[]))===p.historyDigest&&A.digest(JSON.stringify(data.taskMetadata??{}))===p.metadataDigest,'History/metadata changed during initialization.');
  const activation=R.seal({version:3,kind:'itacan-owner-activation',state:'active',planDigest:R.checksum(p),authorityId:p.options.config.authorityId}),file=path.join(folder,'ACTIVATION-v1.json');try{await writeNew(file,activation)}catch(e){if(e.code!=='EEXIST')throw e;check(same(await R.readOrdinary(file),activation),'Existing activation differs.');}return{state:'active',owner:p.owner,authorityId:p.options.config.authorityId,folder};
 }
@@ -18486,9 +18576,143 @@ async function join(plugin,owner){
  const vaultRoot=await fs.realpath(plugin.app.vault.adapter.getBasePath()),physical=plugin.projectWizard.getProjectById(owner.id);check(physical&&physical.root&&physical.path,'Registered shared Project not ready.');const observed=await inspect({vaultRoot,projectId:owner.id,projectRoot:physical.root,dashboard:physical.path}),vaultId=await A.registration(vaultRoot),folder=R.ownerFolder(process.env.LOCALAPPDATA,vaultId,owner);let plan;
  try{plan=await R.readOrdinary(path.join(folder,'CUTOVER-v1.json'));const p=R.verify(plan);check(p.deviceId===plugin.dataStore.deviceId&&p.options.config.binding.namespaceDigest===observed.namespaceDigest,'Existing join binding differs.');}
  catch(e){if(e.code!=='ENOENT')throw e;const inventory=await P.inspectVault(vaultRoot),sources=inventory.sources.filter(s=>s.owner?.type==='project'&&s.owner.id===owner.id);check(sources.every(s=>!s.parsed.tasks.some(t=>t.text.trim())),'Active Legacy tasks remain on joining client.');const archive=await P.captureArchive({vaultRoot,vaultId,localDataRoot:process.env.LOCALAPPDATA,archivesRoot:path.join(process.env.LOCALAPPDATA,'Itacan/CutoverArchives/v1',vaultId,'join-'+crypto.randomUUID())});const localData=await fs.readFile(path.join(vaultRoot,'.obsidian/plugins/hub-project-menu/data.json'));await writeNew(path.join(archive.archive,'APPLICATION-DATA.json'),localData);await writeNew(path.join(archive.archive,'APPLICATION-DATA.sha256'),A.digest(localData)+'\n');plan=await planFor({vaultRoot,deviceId:plugin.dataStore.deviceId,localDataRoot:process.env.LOCALAPPDATA,projectId:owner.id,projectRoot:physical.root,dashboard:physical.path,archive:archive.archive});await fs.mkdir(path.dirname(folder),{recursive:true});await fs.mkdir(folder);await writeNew(path.join(folder,'CUTOVER-v1.json'),plan);}
- await initialize(plan);return R.verify(plan).options;
+ await initialize(plan,plugin);return R.verify(plan).options;
 }
-module.exports={portableHash,transitionPath,validateTransition,inspect,planFor,openLocal,initialize,discover,join,writeNew};
+// Explicit operator review only. Ordinary startup never concludes a failed request.
+async function openJoinRecovery(plugin,owner){
+ const vault=await fs.realpath(plugin.app.vault.adapter.getBasePath()),id=await A.registration(vault),folder=R.ownerFolder(process.env.LOCALAPPDATA,id,owner);
+ try{await fs.access(path.join(folder,'ACTIVATION-v1.json'));throw Error('An active owner does not use bootstrap recovery.')}catch(e){if(e.code!=='ENOENT')throw e;}
+ const plan=await R.readOrdinary(path.join(folder,'CUTOVER-v1.json')),p=R.verify(plan);
+ check(p.version===3&&same(p.owner,owner)&&p.vaultId===id&&p.deviceId===plugin.dataStore.deviceId,'Join recovery binding differs.');
+ await P.verifyArchive(p.archive);check(A.digest(await fs.readFile(path.join(p.archive,'MANIFEST.json')))===p.archiveHash,'Join archive changed.');
+ const runtime=await openLocal(plan,plugin);let closed=false,queue=Promise.resolve();
+ const track=work=>{check(!closed,'Join recovery is closed.');const result=queue.then(work);queue=result.catch(()=>{});return result;};
+ return {requests:()=>track(()=>runtime.retained()),review:id=>track(()=>runtime.recovery.reviewBootstrapRejection(id)),
+  conclude:review=>track(()=>runtime.recovery.concludeBootstrapRejection(review)),
+  async close(){closed=true;await queue;await runtime.close();},
+  finish:()=>track(async()=>{closed=true;await runtime.close();return initialize(plan,plugin);})};
+}
+module.exports={portableHash,transitionPath,validateTransition,inspect,planFor,openLocal,initialize,discover,join,writeNew,openJoinRecovery};
+
+},
+"lib/services/native-inbox-task.js": function (module, exports, __hubRequire) {
+"use strict";
+const { randomUUID, createHash } = require("node:crypto");
+const B = __hubRequire("../../../ItacanTaskCore/product-ui/bridge.cjs");
+const { canonical } = __hubRequire("../../../ItacanTaskCore/src/value.js");
+const { taskFormValues } = __hubRequire("lib/domain/task-form.js");
+const { taskTitle } = __hubRequire("lib/domain/inbox.js");
+const { taskWorkspaces } = __hubRequire("lib/services/task-locations.js");
+const { createNativeTaskLocations } = __hubRequire("lib/services/native-task-locations.js");
+const hash = value => createHash("sha256").update(canonical(value)).digest("hex");
+const workspaceId = w => w.contextKind === "resource" ? "resource:" + (w.resourceType ?? w.id) : w.projectId;
+const ownerOf = w => w.contextKind === "resource" ? {type:"resource",id:w.resourceType ?? w.id} : {type:"project",id:w.projectId};
+function workspaces(service) { return taskWorkspaces(service.plugin).map(w=>({...w,id:workspaceId(w)})); }
+function sourceDestination(service, source = {}) {
+    const physical = source.path && service.plugin.projectWizard.getContextForPath(source.path);
+    const workspace = workspaces(service).find(w=>w.id === (physical ? workspaceId(physical) : source.workspaceId));
+    if (!workspace) return {};
+    let location = workspace.root;
+    const file = source.path && service.app.vault.getAbstractFileByPath(source.path);
+    if (file && source.path !== workspace.path && (source.path === workspace.root || source.path.startsWith(workspace.root + "/"))) location = Array.isArray(file.children) ? file.path : file.parent?.path ?? workspace.root;
+    return {workspaceId:workspace.id,location};
+}
+function draft(service, values = {}, capture = {}) {
+    const text = String(values.text ?? capture.text ?? ""), lines = text.split(/\r?\n/), first = lines.findIndex(l=>l.trim());
+    const title = values.taskTitle ?? taskTitle(text), description = values.description ?? (first < 0 ? "" : lines.slice(first+1).join("\n"));
+    const initial=sourceDestination(service,capture.source ?? values.source);if(values.workspaceId && initial.workspaceId!==values.workspaceId)delete initial.location;return {...initial,...values,text,taskTitle:title,description};
+}
+function payload(service, values, capture) {
+    const v=draft(service,values,capture),w=workspaces(service).find(w=>w.id===v.workspaceId);
+    if(!w)throw Error("Choose an available task workspace.");
+    const owner=ownerOf(w),host=service.plugin.nativeTaskHost;
+    if(!host?.matches(owner))throw Error("Native task authority is unavailable. Markdown fallback is disabled.");
+    const status=host.status?.(),states=status?.owners??(status?[status]:[]);
+    if(states.length && !states.some(s=>s.owner?.type===owner.type&&s.owner.id===owner.id&&s.state==='ready'))throw Error("Native task workspace is initializing or unavailable.");
+    if(service.plugin.oath?.canOpen(w)===false)throw Error("This workspace is unavailable during your Oath.");
+    if(v.attachments?.length || capture?.attachments?.length)throw Error("Files cannot be converted to native task attachments. Organize the files as a note or move them.");
+    if(v.phaseId || v.milestoneId || v.recurrence || v.steps?.some(s=>s.parentStepId != null))throw Error("Recorded Phase, recurrence or nested-Step details require review; native capture does not support them.");
+    const fields=taskFormValues({...v,text:v.taskTitle}),locations=createNativeTaskLocations(service.plugin);
+    let location=null;
+    if(Object.hasOwn(v,"nativeLocation")) {
+        if(v.nativeLocation) { const selected=locations.resolveId(owner,v.nativeLocation);if(!selected)throw Error("Saved task location is unavailable. Choose a replacement.");location=selected.reference; }
+    } else if(v.location) {
+        const file=service.app.vault.getAbstractFileByPath(v.location);
+        if(!file)throw Error("Saved task location is unavailable. Choose a replacement.");
+        location=locations.select(owner,v.location,Array.isArray(file.children)?"folder":"note").reference;
+    }
+    const data={text:fields.text,description:v.description ?? "",necessity:fields.necessity ?? null,fromDate:fields.fromDate ?? null,fromTime:fields.fromTime ?? null,dueDate:fields.dueDate ?? null,dueTime:fields.dueTime ?? null,completed:!!v.completed,steps:fields.steps.map(s=>({text:s.text,completed:!!s.completed,...(Object.hasOwn(s,"completedAt")?{completedAt:s.completedAt}:{})}))};
+    if(Object.hasOwn(v,"completedAt"))data.completedAt=v.completedAt;
+    return {workspace:w,owner,location,data};
+}
+function operationId(operation) { if(!/^native-op:[0-9a-f-]{36}$/i.test(operation?.requestKey ?? ""))throw Error("Native capture request evidence is invalid.");return operation.requestKey.slice(10); }
+function sameValues(operation, values) {
+    if(values.type && values.type!=="task" || values.workspaceId!==undefined && values.workspaceId!==operation.workspaceId)throw Error("Retry the original native task operation before changing its destination.");
+    for(const key of ["description","necessity","fromDate","fromTime","dueDate","dueTime","steps","completed","completedAt"])if(values[key]!==undefined&&canonical(values[key]??null)!==canonical(operation.values[key]??null))throw Error("Retry this task's original saved details.");
+    if(values.taskTitle!==undefined&&values.taskTitle!==operation.values.text || values.nativeLocation!==undefined&&values.nativeLocation!==(operation.location?.id??""))throw Error("Retry this task's original title and location.");
+}
+function validateLink(service, operation) {
+    const owner=JSON.parse(operation.ownerKey),w=workspaces(service).find(w=>w.id===operation.workspaceId);
+    if(!w||canonical(ownerOf(w))!==canonical(owner)||hash({owner,location:operation.location,data:operation.values})!==operation.fingerprint)throw Error("Native capture operation binding is invalid.");
+    operationId(operation);return owner;
+}
+function validateRetained(operation, retained) {
+    const i=retained.intent,d=i.action?.draft,v=operation.values;
+    if(i.operationId!==operationId(operation)||i.action?.kind!=="rich-create"||canonical(i.owner)!==canonical(JSON.parse(operation.ownerKey))||!d)throw Error("Native capture retained operation differs.");
+    const m=d.metadata,initial=v=>v.completed?{completed:true,...(Object.hasOwn(v,"completedAt")?{completedAt:v.completedAt}:{})}:{completed:false,completedAt:null};
+    if(m.title!==v.text||m.description!==v.description||m.importance!==v.necessity||canonical(m.location)!==canonical(operation.location)||canonical(m.start)!==canonical(v.fromDate?{date:v.fromDate,time:v.fromTime}:null)||canonical(m.due)!==canonical(v.dueDate?{date:v.dueDate,time:v.dueTime}:null)||m.phase!==null||d.continuation!==""||canonical(d.initial)!==canonical(initial(v))||d.steps.length!==v.steps.length)throw Error("Native capture retained task evidence differs.");
+    for(let n=0;n<d.steps.length;n++)if(d.steps[n].title!==v.steps[n].text||canonical(d.steps[n].initial)!==canonical(initial(v.steps[n]))||d.steps[n].parentStepId!==null||d.steps[n].body!==""||d.steps[n].order!==n)throw Error("Native capture retained Step evidence differs.");
+}
+async function submit(service, values, captureId, attempt = {}) {
+    let capture=captureId?service.required(captureId):null,operation=capture?.operation;
+    try {
+        if(operation && operation.kind!=="native-task")throw Error("This item retains an earlier saved operation. Review that operation before choosing a new authority.");
+        let p;
+        if(operation){service.assertInput(capture,values);sameValues(operation,values);p={owner:validateLink(service,operation),location:operation.location,data:operation.values};}
+        else {
+            p=payload(service,values,capture ?? {});
+            const fingerprint=hash({owner:p.owner,location:p.location,data:p.data});
+            if(attempt.operation && attempt.operation.fingerprint!==fingerprint)throw Error("Keep the original native request until its outcome is reviewed.");
+            operation=attempt.operation ?? {kind:"native-task",state:"reserved",requestKey:"native-op:"+randomUUID(),ownerKey:JSON.stringify(p.owner),workspaceId:p.workspace.id,location:p.location,values:p.data,fingerprint,...(capture?{input:service.input(capture,values)}:{})};
+            if(capture){capture=await service.prepareCapture(capture,{...values,type:"task"});operation.input=service.input(capture,values);capture=await service.replace({...capture,operation});}
+            else attempt.operation=operation;
+        }
+        // A matching authoritative receipt wins even if Inbox cleanup changed
+        // application evidence or its acknowledgement was interrupted.
+        if(capture?.operation){
+            const runtime=service.plugin.nativeTaskHost.runtime(p.owner),id=operationId(operation);
+            let held=null;try{held=await runtime.getRetained(id)}catch(e){if(e.code!=="ENOENT")throw e}
+            if(held){validateRetained(operation,held);const review=await runtime.recovery.inspect(id);
+                if(["confirmed-committed","committed-refresh-unavailable"].includes(review.classification)){await service.finish(capture);service.scheduleNativeRefresh();return{backend:"native",taskId:held.intent.action.draft.id,operationId:id,reconciled:true,message:"Task created."};}}
+        }
+        // A new Inbox reservation changes the immutable session policy. Drain
+        // and reopen through the production host; do not regenerate old guards.
+        await service.refreshNativeInventory(p.owner);
+        const runtime=service.plugin.nativeTaskHost.runtime(p.owner),id=operationId(operation);
+        let retained=null;try{retained=await runtime.getRetained(id)}catch(e){if(e.code!=="ENOENT")throw e}
+        let result,taskId;
+        if(retained){
+            validateRetained(operation,retained);
+            const review=await runtime.recovery.inspect(id);
+            taskId=retained.intent.action.draft.id;
+            if(["confirmed-committed","committed-refresh-unavailable"].includes(review.classification))result={status:"committed",receipt:review.receipt,operationId:id};
+            else result=await runtime.mutate(retained.intent);
+        } else {
+            if(attempt.intent && attempt.intent.operationId!==id)throw Error("Native request identity changed.");
+            const intent=attempt.intent ?? B.create(await runtime.creationContext(),p.data,id);
+            if(!intent.action.draft.id)intent.action.draft.id=randomUUID();intent.action.draft.metadata.location=p.location;
+            attempt.intent=intent;taskId=intent.action.draft.id;result=await runtime.mutate(intent);
+        }
+        if(!["committed","replayed"].includes(result.status))throw Error("Native task outcome requires review ("+(result.code??result.status)+"). Original request retained: "+id);
+        if(result.receipt?.operationId!==id)throw Error("Native task receipt identity differs.");
+        if(capture)await service.finish(capture);
+        // Cleanup is no longer an outcome authority. A subsequent refresh error
+        // must never turn a known committed task into another creation request.
+        service.scheduleNativeRefresh();
+        return {backend:"native",taskId,operationId:id,message:"Task created."};
+    }catch(error){if(capture)error.captureId=capture.id;throw error;}
+}
+module.exports={workspaces,ownerOf,sourceDestination,draft,payload,sameValues,submit};
 
 },
 "lib/services/native-task-activation.js": function (module, exports, __hubRequire) {
@@ -18669,6 +18893,8 @@ function composeNativeHosts(plugin, hosts) {
             createPanelRead: args => select(args.workspace).nativeTasks.createPanelRead(args) }),
         status: () => ({ mode: "native-owners", owners: hosts.map(h => h.status()) }),
         ownerHosts: () => hosts.slice(), runtime: owner => select(owner).runtime(),
+        openJoinRecovery: owner => select(owner).openJoinRecovery(),
+        refreshInventory: () => Promise.all(hosts.map(h => h.refreshInventory())), 
         rejectLegacy(value) { for (const h of hosts) h.rejectLegacy(value); },
         guardUnsupported() { for (const h of hosts) h.guardUnsupported(); },
         create(options = {}) { const context = options.location ? plugin.taskEditor.context(options.location) : plugin.taskEditor.currentContext(); const owner = options.owner ?? __hubRequire("lib/services/task-service-legacy-values.js").workspaceRef(context); return select(owner).create(options); },
@@ -18731,7 +18957,8 @@ function createOwnerHost(plugin, options, coordinated = false) {
     let config = options.config, cancelReadiness = null;
     let locationSource;
     const taskLocations = () => locationSource ??= __hubRequire("lib/services/native-task-locations.js").createNativeTaskLocations(plugin);
-    let runtime = null, feed = null, synchronization = null, stopped = false, closing = null, state = "opening", ready;
+    let runtime = null, feed = null, synchronization = null, stopped = false, closing = null, state = "opening", ready, joinRecovery = null, joinRecoveryOpening = null;
+    let refreshing = null, inventorySignature = null; const runtimeStops = [];
     const matches = ref => ref?.type === owner.type && ref.id === owner.id;
     const workspaceRef = __hubRequire("lib/services/task-service-legacy-values.js").workspaceRef;
     const workspaceId = owner.type === "resource" ? "resource:" + owner.id : owner.id;
@@ -18788,16 +19015,19 @@ function createOwnerHost(plugin, options, coordinated = false) {
     stops.push(() => { if (plugin.taskData.readPages === readPages) plugin.taskData.readPages = originalRead; });
     // Unsupported domain entry points are guarded before their queues/saves.
     const guardUnsupported = () => {
-        wrap(plugin.inbox, "makeTask", (values, captureId) => {
-            const capture = captureId ? plugin.inbox.required(captureId) : null;
-            const candidates = [values, capture?.intent, capture?.operation];
-            for (const c of candidates) if (c && (c.workspaceId === workspaceId || matches(c.workspace) || ownsPath(c.location))) unavailable();
-        });
+        // Inbox now publishes through its explicit native adapter. The legacy
+        // TaskEditor write guards above remain in force for every native owner.
+        if (!(plugin.inbox instanceof __hubRequire("lib/services/inbox.js").HubInboxService)) {
+            wrap(plugin.inbox, "makeTask", (values,captureId) => {
+                const capture=captureId?plugin.inbox.required(captureId):null;
+                for(const c of [values,capture?.intent,capture?.operation]) if(c&&(c.workspaceId===workspaceId||matches(c.workspace)||ownsPath(c.location))) unavailable();
+            });
+            const locations=plugin.inbox.taskLocations;
+            const taskLocations=function(id){return id===workspaceId?[]:locations.call(this,id)};
+            plugin.inbox.taskLocations=taskLocations;
+            stops.push(()=>{if(plugin.inbox.taskLocations===taskLocations)plugin.inbox.taskLocations=locations});
+        }
         wrap(plugin.inbox, "taskDestination", values => { if (values.workspaceId === workspaceId || matches(values.workspace) || ownsPath(values.location)) unavailable(); });
-        const locations = plugin.inbox.taskLocations;
-        const taskLocations = function (id) { return id === workspaceId ? [] : locations.call(this, id); };
-        plugin.inbox.taskLocations = taskLocations;
-        stops.push(() => { if (plugin.inbox.taskLocations === taskLocations) plugin.inbox.taskLocations = locations; });
         wrap(plugin.oath, "take", draft => { if (matches(draft.workspace)) unavailable(); });
         const resolve = plugin.oath.resolveWorkspace;
         const resolveWorkspace = function (ref, ...args) { return matches(ref) ? null : resolve.call(this, ref, ...args); };
@@ -18839,13 +19069,13 @@ function createOwnerHost(plugin, options, coordinated = false) {
     };
     const nativeTasks = Object.freeze({ owner, consumerUiV1: true, availability: () => state === "ready" ? "current" : state === "opening" ? "loading" : "unavailable", mergeHome: consumers.mergeHome, taskKey: consumers.taskKey,
         createPanelRead(args) {
-            let inner = null, closed = false;
+            let inner = null, innerRuntime = null, closed = false;
             // The core subscription emits immediately. Defer its UI callback
             // until the delegate is assigned, so a refresh cannot reenter its
             // construction and create duplicate subscriptions.
             let queued = false;
             const refresh = () => { if (queued || closed) return; queued = true; queueMicrotask(() => { queued = false; if (!closed && !stopped) args.changed?.(); }); };
-            const current = () => { if (closed || stopped || state !== "ready") return null; return inner ??= runtime.nativeTasks.createPanelRead({ ...args, changed: refresh }); };
+            const current = () => { if (closed || stopped || state !== "ready") return null; if (innerRuntime !== runtime) { inner?.close(); inner = null; innerRuntime = runtime; } return inner ??= runtime.nativeTasks.createPanelRead({ ...args, changed: refresh }); };
             const changed = () => args.changed?.(); stateListeners.add(changed);
             const close = () => { if (closed) return; closed = true; stateListeners.delete(changed); inner?.close(); };
             args.component.register(close);
@@ -18862,16 +19092,72 @@ function createOwnerHost(plugin, options, coordinated = false) {
     const release = () => { if (released) return; released = true; for (const stop of stops.reverse()) stop(); for (const l of feedListeners.values()) l.stop?.(); feedListeners.clear(); registryListeners.clear(); historyListeners.clear(); stateListeners.clear(); };
     const host = {
         nativeTasks, completionFeed, matches, rejectLegacy, guardUnsupported, release,
-        owner, historyEvidence: { read: () => host.runtime().historyEvidence.read(), subscribe(fn) { let stop = null; const bind = () => { if (!stop && state === "ready") stop = runtime.historyEvidence.subscribe(fn); fn({ reason: "registry" }); }; stateListeners.add(bind); if (state === "ready") stop = runtime.historyEvidence.subscribe(fn); return () => { stateListeners.delete(bind); stop?.(); }; } },
+        owner, historyEvidence: { read: () => host.runtime().historyEvidence.read(), subscribe(fn) { let stop = null, bound = null; const bind = () => { if (bound !== runtime || state !== "ready") { stop?.(); stop = null; bound = runtime; } if (!stop && state === "ready") stop = runtime.historyEvidence.subscribe(fn); fn({ reason: "registry" }); }; stateListeners.add(bind); if (state === "ready") { bound = runtime; stop = runtime.historyEvidence.subscribe(fn); } return () => { stateListeners.delete(bind); stop?.(); }; } },
         status: () => ({ mode: "native-project", state, owner: copy(owner), ...(synchronization ? {sharing:synchronization.status()} : {}) }),
         synchronization: () => synchronization,
+        async openJoinRecovery() {
+            await ready; if (stopped || state !== "unavailable" || !options.joinExisting || joinRecoveryOpening) unavailable();
+            const opening = (async () => { await joinRecovery?.close(); if (stopped) unavailable(); return joinRecovery = await __hubRequire("lib/services/native-git-transition.js").openJoinRecovery(plugin, owner); })();
+            joinRecoveryOpening = opening; try { return await opening; } finally { joinRecoveryOpening = null; }
+        },
         runtime: () => { if (stopped || state !== "ready") return unavailable(); return runtime; },
         create(options = {}) { const r = host.runtime(); return __hubRequire("lib/ui/task-editor.js").openTaskCreator(__hubRequire("lib/services/native-task-locations.js").locationService(r.formService(plugin.app), plugin, owner), options); },
         async close() {
             if (closing) return closing; stopped = true; state = "closing"; cancelReadiness?.(); changedState();
-            closing = (async () => { await ready; await synchronization?.close(); await runtime?.close(); if (!coordinated) release(); state = "closed"; })();
+            closing = (async () => { await ready; await joinRecoveryOpening?.catch(() => {}); await joinRecovery?.close(); await refreshing?.catch(() => {}); runtimeStops.splice(0).reverse().forEach(stop => stop()); await synchronization?.close(); await runtime?.close(); if (!coordinated) release(); state = "closed"; })();
             return closing;
         }
+    };
+    // Application inventory remains immutable for each writer session. Rebind
+    // only by draining and reopening the same validated authority; never change
+    // a saved command, guard, receipt, witness or recovery fence in place.
+    async function openCurrentRuntime(creating) {
+            let inventory={version:1,revision:"synthetic-empty",ids:[]},phases={version:1,revision:"no-phases",values:[]},inventoryEvidence;
+            if(options.gitSharing){inventoryEvidence=__hubRequire("lib/services/native-git-inventory.js").createInventoryEvidence(plugin,owner,config.authorityId);const observed=await inventoryEvidence.read();phases=observed.phases;inventory=__hubRequire("../../../ItacanTaskCore/shared/inventory.js").capture(config.authorityId,observed.inventory,phases);}
+            inventorySignature = hash({inventory,phases});
+            runtime = await openProjectRuntime(config, { owner, registry, writerPolicy: policy({version:1,owners:[{owner,partitionId:options.partitionId}],commands:["task.createRich","task.save","task.complete","step.complete","task.delete",...(options.gitSharing?["git.receive"]:[])],inventory,phases}),
+                inventoryEvidence,gitSharing:options.gitSharing,sharedGenesis:options.sharedGenesis,
+                locationLabel: ref => taskLocations().resolve(owner, ref)?.path ?? "Location unavailable", describeLocation: ref => taskLocations().describe(owner, ref), rehearsalId: options.rehearsalId, creating, consumerUiV1: true, historyUiV1: true });
+            if(options.gitSharing){
+                const project=await __hubRequire("../../../ItacanTaskCore/shared/project-binding.js").admitProject({vaultRoot:options.vaultPin.real,projectId:owner.id,projectRoot:options.projectRoot,dashboard:options.dashboard});
+                const transport=await __hubRequire("../../../ItacanTaskCore/shared/git-transport.js").createGitPacketTransport({version:1,root:project.gitRoot,authorityId:config.authorityId,projectId:owner.id});
+                synchronization=__hubRequire("../../../ItacanTaskCore/shared/runtime-sync.js").createRuntimeSync({runtime,transport,assertBinding:async()=>{await options.assertActivation?.();const current=await __hubRequire("../../../ItacanTaskCore/shared/project-binding.js").admitProject({vaultRoot:options.vaultPin.real,projectId:owner.id,projectRoot:options.projectRoot,dashboard:options.dashboard});if(current.namespaceDigest!==project.namespaceDigest)throw Error("Shared namespace changed.");}});
+                let syncing=null,dirty=false;const requestSync=()=>{if(stopped)return;dirty=true;if(syncing)return;syncing=(async()=>{while(dirty&&!stopped){dirty=false;await synchronization.sync().catch(()=>{});}})().finally(()=>{syncing=null;if(dirty&&!stopped)requestSync();});};
+                runtimeStops.push(runtime.sharing.subscribe(change=>{if(change.reason==="repository")requestSync();}));
+                // Startup publishes committed-but-unexported receipts and scans
+                // incoming files. A failed scan stays visible for explicit retry.
+                await synchronization.sync().catch(()=>{});
+                const watch=require("node:fs").watch(path.join(project.gitRoot,".itacan-native/v3",config.authorityId,"heads"),(_event,name)=>{if(!name||String(name).endsWith(".json"))requestSync();});watch.on("error",()=>{});runtimeStops.push(()=>watch.close());
+            }
+            if (!stopped) { feed = runtime.completionFeed({ legacy, app: plugin.app }); await runtime.list(); await feed.read();
+                if (!stopped) { for (const l of feedListeners.values()) l.stop = feed.subscribe(l.fn); state = "ready"; changedState(); for (const l of feedListeners.values()) { try { Promise.resolve(l.fn()).catch(() => {}); } catch (_) {} } }
+            }
+    }
+    host.refreshInventory = () => {
+        if (!options.gitSharing) return Promise.resolve();
+        if (refreshing) return refreshing.then(() => host.refreshInventory());
+        refreshing = (async () => {
+            await ready; if (stopped) return;
+            if (state !== "ready") throw Error("Native shared authority is unavailable.");
+            const observed = await __hubRequire("lib/services/native-git-inventory.js").createInventoryEvidence(plugin,owner,config.authorityId).read();
+            const inventory = __hubRequire("../../../ItacanTaskCore/shared/inventory.js").capture(config.authorityId,observed.inventory,observed.phases);
+            if (inventorySignature === hash({inventory,phases:observed.phases})) return;
+            // An unresolved original request must be recovered, not replaced by
+            // a fresh session that could hide uncertainty or stale replay guards.
+            await runtime.assertRetainedResolved();
+            state = "opening"; changedState();
+            try {
+                runtimeStops.splice(0).reverse().forEach(stop => stop());
+                for (const listener of feedListeners.values()) { listener.stop?.(); listener.stop = null; }
+                await synchronization?.close(); await runtime.close();
+                synchronization = null; runtime = null; feed = null;
+                if (stopped) return;
+                await options.assertActivation?.();
+                await openCurrentRuntime(false);
+            }
+            catch (error) { state = stopped ? "closing" : "unavailable"; await synchronization?.close().catch(()=>{}); await runtime?.close().catch(()=>{}); changedState(); throw error; }
+        })().finally(() => { refreshing = null; });
+        return refreshing;
     };
     ready = (async () => {
         try {
@@ -18885,25 +19171,7 @@ function createOwnerHost(plugin, options, coordinated = false) {
             }
             if (stopped) return;
             if (options.blocked) throw Error("Cutover requires explicit recovery review.");
-            let inventory={version:1,revision:"synthetic-empty",ids:[]},phases={version:1,revision:"no-phases",values:[]},inventoryEvidence;
-            if(options.gitSharing){inventoryEvidence=__hubRequire("lib/services/native-git-inventory.js").createInventoryEvidence(plugin,owner,config.authorityId);const observed=await inventoryEvidence.read();phases=observed.phases;inventory=__hubRequire("../../../ItacanTaskCore/shared/inventory.js").capture(config.authorityId,observed.inventory,phases);}
-            runtime = await openProjectRuntime(config, { owner, registry, writerPolicy: policy({version:1,owners:[{owner,partitionId:options.partitionId}],commands:["task.createRich","task.save","task.complete","step.complete","task.delete",...(options.gitSharing?["git.receive"]:[])],inventory,phases}),
-                inventoryEvidence,gitSharing:options.gitSharing,sharedGenesis:options.sharedGenesis,
-                locationLabel: ref => taskLocations().resolve(owner, ref)?.path ?? "Location unavailable", describeLocation: ref => taskLocations().describe(owner, ref), rehearsalId: options.rehearsalId, creating: options.creating === true, consumerUiV1: true, historyUiV1: true });
-            if(options.gitSharing){
-                const project=await __hubRequire("../../../ItacanTaskCore/shared/project-binding.js").admitProject({vaultRoot:options.vaultPin.real,projectId:owner.id,projectRoot:options.projectRoot,dashboard:options.dashboard});
-                const transport=await __hubRequire("../../../ItacanTaskCore/shared/git-transport.js").createGitPacketTransport({version:1,root:project.gitRoot,authorityId:config.authorityId,projectId:owner.id});
-                synchronization=__hubRequire("../../../ItacanTaskCore/shared/runtime-sync.js").createRuntimeSync({runtime,transport,assertBinding:async()=>{await options.assertActivation?.();const current=await __hubRequire("../../../ItacanTaskCore/shared/project-binding.js").admitProject({vaultRoot:options.vaultPin.real,projectId:owner.id,projectRoot:options.projectRoot,dashboard:options.dashboard});if(current.namespaceDigest!==project.namespaceDigest)throw Error("Shared namespace changed.");}});
-                let syncing=null,dirty=false;const requestSync=()=>{if(stopped)return;dirty=true;if(syncing)return;syncing=(async()=>{while(dirty&&!stopped){dirty=false;await synchronization.sync().catch(()=>{});}})().finally(()=>{syncing=null;if(dirty&&!stopped)requestSync();});};
-                stops.push(runtime.sharing.subscribe(change=>{if(change.reason==="repository")requestSync();}));
-                // Startup publishes committed-but-unexported receipts and scans
-                // incoming files. A failed scan stays visible for explicit retry.
-                await synchronization.sync().catch(()=>{});
-                const watch=require("node:fs").watch(path.join(project.gitRoot,".itacan-native/v3",config.authorityId,"heads"),(_event,name)=>{if(!name||String(name).endsWith(".json"))requestSync();});watch.on("error",()=>{});stops.push(()=>watch.close());
-            }
-            if (!stopped) { feed = runtime.completionFeed({ legacy, app: plugin.app }); await runtime.list(); await feed.read();
-                if (!stopped) { for (const l of feedListeners.values()) l.stop = feed.subscribe(l.fn); state = "ready"; changedState(); for (const l of feedListeners.values()) { try { Promise.resolve(l.fn()).catch(() => {}); } catch (_) {} } }
-            }
+            await openCurrentRuntime(options.creating === true);
         } catch (error) { console.error("Native task owner unavailable", owner.id, error.code ?? "INITIALIZATION_FAILED", String(error.message).slice(0, 160)); state = stopped ? "closing" : "unavailable"; await synchronization?.close().catch(() => {}); await runtime?.close().catch(() => {}); changedState(); }
     })();
     // The shared helper registers one owning-window drain and Obsidian Tasks
@@ -23608,7 +23876,8 @@ const { InboxModal } = __hubRequire("lib/ui/inbox.js");
 
 function currentSource(plugin) {
     const leaf = plugin.app.workspace.activeLeaf;
-    const context = plugin.workspaceModes?.currentContext();
+    const filePath = leaf?.view?.file?.path;
+    const context = filePath ? plugin.projectWizard.getContextForPath(filePath) : plugin.workspaceModes?.currentContext();
     const browser = browserViewState(leaf?.getViewState?.());
     return { origin: browser ? "Atlas" : "Quick Add",
         ...(context ? { workspaceId: context.projectId, workspaceName: context.name } : {}),
@@ -23714,7 +23983,7 @@ function noteTitle(draft) {
 
 // Both overlays retain their content and attachment controls. A fixed Inbox
 // form owns one type at a time; Inbox can confirm and remount a different type.
-function mountCaptureForm({ host, service, draft = {}, onChange = () => {}, fixedType = null, captureId = () => null }) {
+function mountCaptureForm({ host, service, draft = {}, onChange = () => {}, onSubmit = () => {}, fixedType = null, captureId = () => null }) {
     const taskEditor = service.plugin.taskEditor;
     const element = host.createDiv({ cls: "hub-capture-form hub-task-form" });
     const lockedType = ["task", "note", "file"].includes(fixedType) ? fixedType : null;
@@ -23725,11 +23994,11 @@ function mountCaptureForm({ host, service, draft = {}, onChange = () => {}, fixe
     const workspace = () => destinations().find(item => item.id === state.workspaceId);
     const locations = () => {
         const current = workspace(); if (!current) return [];
-        return service.taskLocations(state.workspaceId);
+        return state.type === "note" ? (service.noteLocations?.(state.workspaceId) ?? service.taskLocations(state.workspaceId)) : service.taskLocations(state.workspaceId);
     };
     const folders = () => {
         const current = workspace(); if (!current) return [];
-        return service.folders(state.workspaceId).filter(item => current.contextKind === "resource" || item.path !== current.root);
+        return service.folders(state.workspaceId);
     };
     const notify = () => { if (!disposed) onChange(value()); };
     const initializeTitle = () => {
@@ -23738,16 +24007,10 @@ function mountCaptureForm({ host, service, draft = {}, onChange = () => {}, fixe
             if (state.title == null) state.title = noteTitle(state);
         }
     };
-    const clearInvalidDestinations = () => {
-        if (state.folder && !folders().some(item => item.path === state.folder)) state.folder = "";
-        if (state.location && !locations().some(item => item.path === state.location)) state.location = "";
-        const operation = service.get(captureId())?.operation;
-        if (state.noteLocation && operation?.kind !== "note-insertion") {
-            const selected = noteLocation(state.noteLocation), parsed = selected && service.noteCache.get(selected.path)?.parsed;
-            if (!selected || !locations().some(item => !item.folder && item.path === selected.path) ||
-                parsed && !resolveNoteLocation(parsed, selected)) state.noteLocation = null;
-        }
-    };
+    // Preserve unavailable saved choices; submission validates them and the
+    // existing pickers let the user explicitly choose a replacement.
+    const clearInvalidDestinations = () => {};
+
     const group = title => {
         const section = element.createEl("section", { cls: "hub-capture-form-group" });
         if (title) section.createEl("h3", { cls: "hub-capture-section-heading", text: title });
@@ -23788,7 +24051,7 @@ function mountCaptureForm({ host, service, draft = {}, onChange = () => {}, fixe
                     selectedId: state.workspaceId,
                     onSelect: selected => {
                         if (disposed) return;
-                        if (selected.id !== state.workspaceId) { state.folder = ""; state.location = ""; state.noteLocation = null; state.phaseId = ""; }
+                        if (selected.id !== state.workspaceId) { state.folder = selected.root; state.location = ""; state.noteLocation = null; }
                         state.workspaceId = selected.id; render(); notify();
                     },
                     restoreFocus: () => restorePickerFocus("Save to")
@@ -23803,7 +24066,7 @@ function mountCaptureForm({ host, service, draft = {}, onChange = () => {}, fixe
         const items = task ? locations() : folders(), path = state[task ? "location" : "folder"];
         const selected = items.find(item => item.path === path);
         return { label, title: selected?.label ?? selected?.name ?? (task ? "Choose a note or folder…" : "Choose a folder…"),
-            subtitle: selected && task ? selected.folder ? "Folder · Tasks note" : "Markdown note · " + selected.path.split("/").pop() : null,
+            subtitle: !selected && path ? "Saved destination unavailable: " + path : selected && task ? selected.folder ? "Folder · Tasks note" : "Markdown note · " + selected.path.split("/").pop() : null,
             icon: selected && task && !selected.folder ? "notebook-text" : "folder", disabled: !current,
             onOpen: () => {
                 if (picker || disposed) return;
@@ -23818,6 +24081,7 @@ function mountCaptureForm({ host, service, draft = {}, onChange = () => {}, fixe
         createCapturePickerTrigger(fieldHost(parent, task ? "Location" : "Folder"), locationControl(task));
     }
     function renderTask() {
+        if(service.plugin.nativeTaskHost){taskFields=__hubRequire("lib/ui/native-capture-task.js").mountNativeCaptureTask({host:element,service,draft:state,captureId,details:true,onSubmit,onChange:value=>{state=value;notify()}});return;}
         taskFields = mountTaskForm({ app: service.app, host: element, state, service: taskEditor,
             destination: { workspace: workspaceControl(), location: locationControl(true) },
             location: () => state.location || workspace()?.root, onChange: notify });
@@ -23838,10 +24102,10 @@ function mountCaptureForm({ host, service, draft = {}, onChange = () => {}, fixe
         checkingNote = service.readNotePositions(id, location.path).then(parsed => {
             if (disposed || element.closest("[aria-busy=true]") || service.get(captureId())?.operation?.kind === "note-insertion" ||
                 id !== state.workspaceId || JSON.stringify(location) !== JSON.stringify(state.noteLocation)) return;
-            if (!resolveNoteLocation(parsed, location)) state.noteLocation = null;
+            if (!resolveNoteLocation(parsed, location)) state.noteLocationUnavailable = true;
         }).catch(() => {
             if (!disposed && !element.closest("[aria-busy=true]") && service.get(captureId())?.operation?.kind !== "note-insertion" &&
-                id === state.workspaceId && JSON.stringify(location) === JSON.stringify(state.noteLocation)) state.noteLocation = null;
+                id === state.workspaceId && JSON.stringify(location) === JSON.stringify(state.noteLocation)) state.noteLocationUnavailable = true;
         }).finally(() => {
             checkingNote = null;
             if (!disposed && !element.closest("[aria-busy=true]")) refresh();
@@ -23849,7 +24113,7 @@ function mountCaptureForm({ host, service, draft = {}, onChange = () => {}, fixe
     }
     function render() {
         taskFields?.destroy(); taskFields = null;
-        initializeTitle(); clearInvalidDestinations(); element.replaceChildren();
+        initializeTitle(); if(state.type!=="task" && state.workspaceId && !state.folder) state.folder=workspace()?.root??""; clearInvalidDestinations(); element.replaceChildren();
         const placement = group();
         if (!lockedType && state.inputPath !== "file" && !state.attachments?.length) {
             mountCaptureTypeControl({ host: placement, selectedType: state.type, onSelect: type => {
@@ -23875,9 +24139,9 @@ function mountCaptureForm({ host, service, draft = {}, onChange = () => {}, fixe
             }
         }
     }
-    function value() { return { ...state, attachments: [...(state.attachments ?? [])], steps: state.steps.map(step => ({ ...step })) }; }
+    function value() { if(state.type === "task" && service.plugin.nativeTaskHost && taskFields?.value) return taskFields.value(); return { ...state, attachments: [...(state.attachments ?? [])], steps: state.steps.map(step => ({ ...step })) }; }
     function valid() {
-        return service.completion(state, captureId()).complete;
+        return service.completion(value(), captureId()).complete;
     }
     const refresh = () => {
         if (disposed) return;
@@ -23904,7 +24168,7 @@ function mountCaptureForm({ host, service, draft = {}, onChange = () => {}, fixe
     listen(service.plugin.app.metadataCache, "changed");
     service.plugin.planning?.subscribe?.({ register: dispose => disposers.push(dispose) }, refresh);
     return {
-        value, valid, refresh,
+        value, valid, refresh, prepare: () => taskFields?.prepare?.() !== false,
         update(patch) {
             const layoutChanged = (!lockedType && patch.type !== undefined && patch.type !== state.type) ||
                 (patch.workspaceId !== undefined && patch.workspaceId !== state.workspaceId) ||
@@ -23912,12 +24176,13 @@ function mountCaptureForm({ host, service, draft = {}, onChange = () => {}, fixe
                 (patch.location !== undefined && patch.location !== state.location) || patch.phaseId !== undefined ||
                 (patch.inputPath !== undefined && patch.inputPath !== state.inputPath);
             if (patch.workspaceId !== undefined && patch.workspaceId !== state.workspaceId) {
-                state.folder = ""; state.location = ""; state.noteLocation = null; state.phaseId = "";
+                state.folder = destinations().find(w=>w.id===patch.workspaceId)?.root ?? ""; state.location = ""; state.noteLocation = null;
             }
             Object.assign(state, patch, lockedType ? { type: lockedType } : {});
             if (patch.steps) state.steps = patch.steps.map(step => ({ ...step }));
             initializeTitle(); clearInvalidDestinations();
             if (layoutChanged) render();
+            else if(state.type === "task" && service.plugin.nativeTaskHost) taskFields?.update?.(patch);
             notify();
         },
         focus() { element.querySelector("button.is-active,button,input,select")?.focus(); },
@@ -26128,636 +26393,85 @@ function ensureHubIcon(name) {
 module.exports = { setHubIcon, ensureHubIcon };
 
 },
-"lib/ui/inbox-guidance.js": function (module, exports, __hubRequire) {
-"use strict";
-
-const { mountTransientEffects } = __hubRequire("lib/ui/attention.js");
-let instance = 0;
-
-// Presentation only: the service's ordered missing requirements and readiness
-// remain the single source of truth, including invalid optional Task edits.
-function mountCaptureGuidance({ body, readyArrow, completion, guideOnOpen = false }) {
-    const hintId = `hub-inbox-guidance-${++instance}`;
-    const hint = body.createSpan({ cls: "hub-guidance-status", attr: { id: hintId, role: "status", "aria-live": "polite" } });
-    const effects = mountTransientEffects(body);
-    let warning = null, readyCued = false, opened = false, disposed = false;
-    const firstMissing = state => [...body.querySelectorAll("[data-capture-field]")]
-        .find(field => state.missing.includes(field.dataset.captureField));
-    function clearWarning() {
-        if (!warning) return;
-        const element = warning; warning = null;
-        effects.cancel(element);
-        for (const control of [element, ...element.querySelectorAll("button,input,textarea,select")]) {
-            const ids = (control.getAttribute("aria-describedby") ?? "").split(/\s+/).filter(id => id && id !== hintId);
-            if (ids.length) control.setAttribute("aria-describedby", ids.join(" ")); else control.removeAttribute("aria-describedby");
-        }
-        hint.textContent = "";
-    }
-    function guide() {
-        if (disposed) return false;
-        clearWarning();
-        const state = completion(), target = firstMissing(state);
-        if (!target) return false;
-        warning = target; hint.textContent = `${target.dataset.captureField} is required.`;
-        for (const control of [...target.querySelectorAll("button,input,textarea,select")]) {
-            const ids = new Set((control.getAttribute("aria-describedby") ?? "").split(/\s+/).filter(Boolean));
-            ids.add(hintId); control.setAttribute("aria-describedby", [...ids].join(" "));
-        }
-        effects.pulse(target, body, clearWarning);
-        return true;
-    }
-    return {
-        guide,
-        update() {
-            if (disposed) return;
-            const state = completion(), target = firstMissing(state);
-            if (guideOnOpen && !opened && target) guide();
-            // Inbox guides on opening; Quick Add only guides direct attempts.
-            // Edits never move the user's place or replay attention.
-            if (warning && target !== warning) clearWarning();
-            if (state.ready && !readyCued) { readyCued = true; effects.run(readyArrow, "hub-ready-nudge"); }
-            if (!state.ready) { readyCued = false; effects.cancel(readyArrow); }
-            opened = true;
-        },
-        destroy() {
-            disposed = true; clearWarning(); hint.remove();
-            effects.destroy();
-        }
-    };
-}
-
-function mountInboxGuidance(options) {
-    return mountCaptureGuidance({ ...options, guideOnOpen: true });
-}
-
-module.exports = { mountInboxGuidance, mountCaptureGuidance };
-
-},
 "lib/ui/inbox.js": function (module, exports, __hubRequire) {
 "use strict";
 const { Notice, Menu } = require("obsidian");
-const { formatDateTime } = __hubRequire("lib/domain/dates.js");
 const { CaptureModal, CaptureConfirmation, action, attachments } = __hubRequire("lib/ui/capture-modal.js");
-const { setHubIcon, ensureHubIcon } = __hubRequire("lib/ui/icons.js");
-const { disclosureIcons } = __hubRequire("lib/ui/disclosure.js");
-const { bindMenuToggle } = __hubRequire("lib/ui/menu-toggle.js");
-const { mountCaptureForm, mountCaptureTypeControl, noteTitle } = __hubRequire("lib/ui/capture-form.js");
-const { mountInboxGuidance } = __hubRequire("lib/ui/inbox-guidance.js");
-const { linkFromText, captureDraft, sortedCaptures, INBOX_SORTS, inboxCounts } = __hubRequire("lib/domain/inbox.js");
-const { mountTaskText } = __hubRequire("lib/ui/task-form.js");
-
-const SORT_ICONS = {
-    "most-complete": "list-sort-descending",
-    "least-complete": "list-sort-ascending",
-    newest: "clock-arrow-down",
-    oldest: "clock-arrow-up",
-    type: "files"
-};
-function sortIcon(sort) {
-    const icon = SORT_ICONS[sort];
-    ensureHubIcon(icon);
-    return icon;
-}
-
-function timestamp(value) { return formatDateTime(new Date(value)); }
-function preview(capture) { return String(capture.text ?? "").trim() || capture.attachments.map(ref => ref.name).join(", ") || "Untitled item"; }
-function detailTitle(capture) {
-    const line = preview(capture).split(/\r?\n/)[0];
-    return line.length > 160 ? line.slice(0, 157) + "…" : line;
-}
-function contentIcon(capture) {
-    const type = (capture.operation?.state !== "done" ? capture.operation?.kind : null) ?? capture.intent?.type;
-    if (type === "task") return "square";
-    if (type === "note" || type === "note-insertion") return "notebook-text";
-    return capture.attachments.length ? capture.attachments[0].mime?.startsWith("image/") ? "image" : "file" : "file-question-mark";
-}
-
-function hasTypeSpecificDetails(draft) {
-    if (draft.type === "task") return ["location", "necessity", "fromDate", "dueDate", "fromTime", "dueTime", "phaseId"]
-        .some(key => !!draft[key]) || draft.steps?.some(step => String(step.text ?? "").trim() || step.completed);
-    return draft.type === "note" && (!!draft.folder || !!draft.noteLocation || draft.noteAction === "existing" ||
-        !!String(draft.title ?? "").trim() && draft.title !== noteTitle(draft));
-}
-
+const { setHubIcon } = __hubRequire("lib/ui/icons.js");
+const { formatDateTime } = __hubRequire("lib/domain/dates.js");
+const { captureDraft, captureIntent, sortedCaptures, inboxCounts, INBOX_SORTS } = __hubRequire("lib/domain/inbox.js");
+const { mountCaptureForm } = __hubRequire("lib/ui/capture-form.js");
+const { mountNativeCaptureTask } = __hubRequire("lib/ui/native-capture-task.js");
+const clone = value => JSON.parse(JSON.stringify(value));
+const preview = capture => capture.text?.trim() || capture.attachments?.map(a=>a.name).join(", ") || "Untitled item";
+const fingerprint = value => JSON.stringify({text:value.text,attachments:value.attachments,intent:captureIntent(value,value.attachments??[])});
 class InboxModal extends CaptureModal {
     onOpen() {
-        this.modalEl.classList.add("hub-inbox-dialog");
-        this.header("Inbox", "Saved items awaiting organisation", "inbox");
-        this.filter = "all"; this.sortOrder = this.service.sortPreference; this.selectedId = null;
-        this.rows = new Map(); this.checkingPositions = new Set();
-        const body = this.contentEl.createDiv({ cls: "hub-inbox-body" });
-        const aside = body.createEl("aside", { cls: "hub-inbox-sidebar", attr: { "aria-label": "Inbox items" } });
-        const toolbar = aside.createDiv({ cls: "hub-inbox-toolbar" });
-        this.filters = toolbar.createDiv({ cls: "hub-inbox-filters hub-equal-selectors hub-option-group", attr: { role: "group", "aria-label": "Filter items" } });
-        const counts = inboxCounts(this.service.captures);
-        this.filterButtons = [["all", "All"], ["text", "Texts"], ["files", "Files"]].map(([key, label]) => {
-            // Layout reads in refresh must see the final initial selection,
-            // otherwise the shared button transition animates neutral to accent.
-            const selected = key === this.filter;
-            const button = action(this.filters, `${label} (${counts[key]})`, null, () => { void this.changeFilter(key); }, selected ? "is-selected" : "");
-            button.setAttribute("aria-pressed", String(selected));
-            return { key, label, button };
-        });
-        const sort = toolbar.createDiv({ cls: "hub-inbox-sort" });
-        this.sort = action(sort, "", sortIcon(this.sortOrder), () => this.showSortMenu(), "hub-panel-action hub-inbox-sort-button");
-        this.sortIcon = this.sort.querySelector(".hub-capture-icon");
-        this.stopSortToggle = bindMenuToggle(this.sort, { isOpen: () => !!this.sortMenu, close: () => this.sortMenu?.hide() });
-        const sortLabels = this.sort.querySelector("span:not(.hub-capture-icon)"); sortLabels.classList.add("hub-inbox-sort-label");
-        this.sortLabel = sortLabels.createSpan({ text: "Most complete" });
-        // Intrinsic measuring labels reserve the longest option in the current
-        // theme/font, with no guessed character count or selection-dependent width.
-        for (const [, label] of INBOX_SORTS) sortLabels.createSpan({ text: label, cls: "hub-inbox-sort-measure", attr: { "aria-hidden": "true" } });
-        for (const [key, value] of Object.entries({ "aria-label": "Sort items", "aria-haspopup": "menu", "aria-expanded": "false" })) this.sort.setAttribute(key, value);
-        disclosureIcons(this.sort);
-        this.sort.addEventListener("keydown", event => {
-            if (event.key === "ArrowDown") { event.preventDefault(); this.showSortMenu(); }
-        });
-        this.list = aside.createDiv({ cls: "hub-inbox-list", attr: { role: "group", "aria-label": "Inbox items" } });
-        this.list.addEventListener("keydown", event => {
-            const rows = [...this.list.querySelectorAll("button[data-capture-id]")];
-            const index = rows.indexOf(event.target);
-            if (index < 0) return;
-            const next = event.key === "ArrowDown" ? Math.min(rows.length - 1, index + 1) : event.key === "ArrowUp" ? Math.max(0, index - 1) : event.key === "Home" ? 0 : event.key === "End" ? rows.length - 1 : null;
-            if (next === null) return;
-            event.preventDefault(); rows[next].click();
-            this.list.querySelector(`[data-capture-id="${rows[next].dataset.captureId}"]`)?.focus();
-        });
-        this.detail = body.createEl("section", { cls: "hub-inbox-detail", attr: { "aria-label": "Item details", tabindex: "-1" } });
-        this.detail.addEventListener("focusout", () => queueMicrotask(() => {
-            if (this.reorderPending && !this.editingText()) this.refresh();
-        }));
-        this.deleteKey = event => {
-            if (event.key !== "Delete" || event.defaultPrevented || event.repeat || event.isComposing ||
-                event.ctrlKey || event.metaKey || event.altKey || event.shiftKey || this.busy || this.confirmation || this.sortMenu || this.itemMenu || !this.selectedId) return;
-            const target = event.target;
-            if (target.isContentEditable || target.closest('input,textarea,select,[contenteditable]:not([contenteditable="false"]),[role="textbox"],[role="combobox"],.cm-editor,.menu')) return;
-            event.preventDefault(); event.stopPropagation(); void this.remove(this.selectedId);
-        };
-        this.modalEl.addEventListener("keydown", this.deleteKey);
-        this.submitKey = event => {
-            if (event.key !== "Enter" || event.defaultPrevented || event.repeat || event.isComposing || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey ||
-                this.busy || this.confirmation || this.sortMenu || this.itemMenu || !this.draft) return;
-            const target = event.target;
-            if (!this.detail.contains(target) || target.isContentEditable || target.closest('textarea,select,[contenteditable]:not([contenteditable="false"]),[role="combobox"],.menu')) return;
-            // Buttons, pickers, date/time and Step editors keep their own Enter behavior.
-            if (target !== this.taskInput && target.getAttribute("aria-label") !== "Note title" && target !== this.detail) return;
-            event.preventDefault(); void this.commit();
-        };
-        this.modalEl.addEventListener("keydown", this.submitKey);
-        const footer = this.contentEl.createDiv({ cls: "hub-capture-actions hub-inbox-footer" });
-        action(footer, "Close", null, () => this.close());
-        this.stop = this.service.onChange(() => this.refresh());
-        this.refresh(); this.filterButtons[0].button.focus();
+        this.modalEl.classList.add("hub-inbox-dialog");this.header("Inbox","Saved items awaiting organisation","inbox");
+        this.filter="all";this.sortOrder=["most-complete","least-complete"].includes(this.service.sortPreference)?"newest":this.service.sortPreference;
+        this.rows=new Map();this.drafts=new Map();this.actionsByItem=new Map();this.selectedId=null;this.mode=null;this.dirty=false;
+        const body=this.contentEl.createDiv({cls:"hub-inbox-body"}),aside=body.createEl("aside",{cls:"hub-inbox-sidebar",attr:{"aria-label":"Inbox items"}}),toolbar=aside.createDiv({cls:"hub-inbox-toolbar"});
+        const filters=toolbar.createDiv({cls:"hub-inbox-filters hub-equal-selectors hub-option-group",attr:{role:"group","aria-label":"Filter items"}});
+        this.filterButtons=[["all","All"],["text","Texts"],["files","Files"]].map(([key,label])=>({key,label,button:action(filters,label,null,()=>{void this.changeFilter(key)})}));
+        this.sort=action(toolbar,"Sort","arrow-down-wide-narrow",()=>this.showSortMenu(),"hub-panel-action hub-inbox-sort-button");this.sort.setAttribute("aria-label","Sort items");
+        this.list=aside.createDiv({cls:"hub-inbox-list",attr:{role:"group","aria-label":"Inbox items"}});
+        this.list.addEventListener("keydown",event=>{const rows=[...this.list.querySelectorAll('[data-capture-id]')],at=rows.indexOf(event.target);if(at<0)return;const n=event.key==='ArrowDown'?Math.min(rows.length-1,at+1):event.key==='ArrowUp'?Math.max(0,at-1):event.key==='Home'?0:event.key==='End'?rows.length-1:null;if(n!==null){event.preventDefault();void this.select(rows[n].dataset.captureId,true)}});
+        this.detail=body.createEl("section",{cls:"hub-inbox-detail",attr:{"aria-label":"Item details",tabindex:"-1"}});
+        const footer=this.contentEl.createDiv({cls:"hub-capture-actions hub-inbox-footer"});action(footer,"Close",null,()=>this.close());
+        this.stop=this.service.onChange(()=>{if(this.busy)this.needsRefresh=true;else this.refresh()});
+        this.deleteKey=e=>{if(e.key==='Delete'&&!e.repeat&&!e.target.closest('input,textarea,select,[contenteditable],.menu')&&!this.busy&&!this.confirmation){e.preventDefault();void this.remove(this.selectedId)}};this.modalEl.addEventListener('keydown',this.deleteKey);
+        this.refresh();this.filterButtons[0].button.focus();
     }
-    showSortMenu() {
-        if (this.closed || this.busy || this.sort.disabled) return;
-        this.itemMenu?.hide();
-        if (this.sortMenu) { this.sortMenu.hide(); return; }
-        const menu = this.sortMenu = new Menu();
-        for (const [sort, label] of INBOX_SORTS) menu.addItem(item => item
-            .setTitle(label).setIcon(sortIcon(sort)).setChecked(this.sortOrder === sort).onClick(() => { void this.changeSort(sort); }));
-        menu.onHide(() => {
-            if (this.sortMenu === menu) this.sortMenu = null;
-            this.sort.setAttribute("aria-expanded", "false");
-            const focused = this.sort.ownerDocument.activeElement;
-            if (!this.closed && this.sort.isConnected && (focused === this.sort.ownerDocument.body || focused?.closest(".menu"))) this.sort.focus({ preventScroll: true });
-        });
-        this.sort.setAttribute("aria-expanded", "true");
-        const rect = this.sort.getBoundingClientRect(); menu.showAtPosition({ x: rect.left, y: rect.bottom });
+    visible(){return sortedCaptures(this.service.captures,{filter:this.filter,sort:this.sortOrder})}
+    async changeFilter(filter){if(this.busy||!await this.flushEdits())return;this.filter=filter;this.refresh()}
+    showSortMenu(){if(this.busy)return;const menu=this.sortMenu=new Menu();for(const [key,label]of INBOX_SORTS.filter(([key])=>!key.includes('complete')))menu.addItem(i=>i.setTitle(label).setChecked(key===this.sortOrder).onClick(async()=>{if(!await this.flushEdits())return;await this.service.setSortPreference(key);this.sortOrder=key;this.refresh()}));menu.onHide(()=>{this.sortMenu=null;this.sort.focus()});const r=this.sort.getBoundingClientRect();menu.showAtPosition({x:r.left,y:r.bottom})}
+    refresh(){
+        if(this.closed)return;const captures=this.visible(),scroll=this.list.scrollTop,counts=inboxCounts(this.service.captures);
+        for(const f of this.filterButtons){f.button.querySelector('span').textContent=f.label+' ('+counts[f.key]+')';f.button.classList.toggle('is-selected',f.key===this.filter);f.button.setAttribute('aria-pressed',String(f.key===this.filter))}
+        for(const [id,row]of this.rows)if(!captures.some(c=>c.id===id)){row.button.remove();this.rows.delete(id)}
+        this.list.querySelector('.hub-capture-empty')?.remove();if(!captures.length)this.list.createDiv({cls:'hub-capture-empty',text:this.service.count?'No items match this filter.':'Your Inbox is empty. Use Quick Add to save something for later.'});
+        captures.forEach((capture,index)=>{let row=this.rows.get(capture.id);if(!row){const button=this.list.createEl('button',{cls:'hub-inbox-row',attr:{type:'button','data-capture-id':capture.id}}),icon=button.createSpan({cls:'hub-capture-icon'}),copy=button.createDiv({cls:'hub-inbox-row-copy'}),title=copy.createDiv({cls:'hub-inbox-row-title'}),date=copy.createDiv({cls:'hub-capture-muted'});row={button,icon,title,date};this.rows.set(capture.id,row);button.onclick=()=>{void this.select(capture.id)};button.oncontextmenu=e=>{e.preventDefault();this.showItemMenu(capture.id,{x:e.clientX,y:e.clientY})};}
+            setHubIcon(row.icon,capture.attachments.length?'file':'file-text');row.title.textContent=preview(capture);row.title.title=row.title.textContent;row.date.textContent=formatDateTime(new Date(capture.createdAt));row.button.classList.toggle('is-selected',capture.id===this.selectedId);row.button.setAttribute('aria-pressed',String(capture.id===this.selectedId));if(this.list.children[index]!==row.button)this.list.insertBefore(row.button,this.list.children[index]??null);
+        });this.list.scrollTop=scroll;
+        if(!captures.some(c=>c.id===this.selectedId)){this.resetForm();this.selectedId=captures[0]?.id??null;this.loadSelected();for(const [id,row]of this.rows){row.button.classList.toggle('is-selected',id===this.selectedId);row.button.setAttribute('aria-pressed',String(id===this.selectedId))}}
     }
-    canChangeType(capture) {
-        return !!capture && !capture.operation && (capture.attachments.length ? !capture.intent?.type : [undefined, null, "task", "note"].includes(capture.intent?.type));
+    showItemMenu(id,position){const c=this.service.get(id);if(!c||this.busy)return;const menu=new Menu();menu.addItem(i=>i.setTitle('Open').setIcon('panel-right-open').onClick(()=>this.select(id)));if(!c.attachments.length)menu.addItem(i=>i.setTitle('Create task').setIcon('square-plus').onClick(async()=>{await this.select(id);await this.createTask()}));menu.addSeparator();menu.addItem(i=>i.setTitle('Delete').setIcon('trash-2').setWarning(true).onClick(()=>this.remove(id)));menu.showAtPosition(position)}
+    async select(id,focus=false){if(this.busy||id===this.selectedId||!await this.flushEdits())return;this.remember();this.resetForm();this.selectedId=id;this.loadSelected();this.refresh();if(focus)this.rows.get(id)?.button.focus({preventScroll:true})}
+    remember(){if(!this.selectedId||!this.draft)return;const value=this.form?.value()??this.draft;this.draft={...this.draft,...value};this.drafts.set(this.selectedId,clone(this.draft));if(this.mode){const choices=this.actionsByItem.get(this.selectedId)??{};choices[this.mode]=clone(this.draft);this.actionsByItem.set(this.selectedId,choices)}}
+    resetForm(){this.form?.destroy();this.form=null;this.mode=null;this.draft=null;this.dirty=false;this.save=null}
+    loadSelected(){
+        this.detail.empty();this.detail.classList.add('is-action-form');const c=this.service.get(this.selectedId);if(!c){this.detail.createDiv({cls:'hub-capture-empty',text:'Select an item to organize.'});return;}
+        this.draft=clone(this.drafts.get(c.id)??captureDraft(c));this.detail.createEl('h3',{text:c.attachments.length?'File':'Text',cls:'hub-inbox-detail-title hub-inbox-action-heading'});
+        const body=this.detail.createDiv({cls:'hub-inbox-action-body'});this.sourceInput=null;
+        if(c.text || !c.attachments.length){this.sourceInput=body.createEl('textarea',{cls:'hub-quick-add-input',attr:{rows:'4','aria-label':'Captured content'}});this.sourceInput.value=this.draft.text;this.sourceInput.disabled=!!c.operation&&c.operation.state!=='done';this.sourceInput.oninput=()=>{this.draft.text=this.sourceInput.value;this.dirty=true;this.form?.update({text:this.draft.text})};}
+        if(c.attachments.length)attachments(body.createDiv({cls:'hub-capture-attachments'}),c.attachments,this.service,{open:ref=>{void this.run(()=>this.service.openAttachment(ref))}});
+        const actions=body.createDiv({cls:'hub-inbox-organize-actions'});
+        const task=action(actions,'Create task','square-plus',()=>{void this.createTask()},'mod-cta');task.disabled=!!c.attachments.length;if(task.disabled)task.title='Native task attachments are unavailable. Organize the files below.';
+        const newNote=action(actions,'New note','notebook-plus',()=>{void this.showAction('note','new')});const existing=action(actions,'Add to existing note','notebook-pen',()=>{void this.showAction('note','existing')});existing.disabled=!!c.attachments.length;if(existing.disabled)existing.title='Use New note or Organize files to preserve these files.';
+        this.actionHost=body.createDiv({cls:'hub-inbox-form-host'});
+        const footer=this.detail.createDiv({cls:'hub-capture-actions hub-inbox-action-footer'});this.deleteButton=action(footer,'Delete','trash-2',()=>{void this.remove(c.id)},'hub-capture-delete');this.submitHost=footer.createSpan();
+        const pending=c.operation&&c.operation.state!=='done';if(pending){task.disabled=!['native-task','task'].includes(c.operation.kind);newNote.disabled=true;existing.disabled=true;this.detail.createDiv({cls:'hub-capture-muted',text:'This item retains its original destination operation. Retry to confirm its outcome; no duplicate will be created.'});this.deleteButton.disabled=c.operation.kind==='native-task';void this.showAction(c.operation.kind==='native-task'||c.operation.kind==='task'?'task':c.operation.kind==='files'?'file':'note',c.operation.kind==='note-insertion'?'existing':'new',true);}
+        else if(c.attachments.length)void this.showAction('file',null,true);else void this.showAction('task',null,true);
     }
-    showItemMenu(id, position) {
-        const capture = this.service.get(id);
-        if (!capture || this.closed || this.busy || this.confirmation) return;
-        const menu = new Menu();
-        menu.addItem(item => item.setTitle("Open").setIcon("panel-right-open").onClick(() => {
-            void this.openItem(id);
-        }));
-        menu.addItem(item => item.setTitle("Send to Itacan").setIcon("send")
-            .setDisabled(!this.itemCompletion(capture).ready).onClick(async () => {
-                if (await this.openItem(id) && this.itemCompletion(this.service.get(id)).ready) await this.commit();
-            }));
-        const type = this.selectedId === id ? this.mode : captureDraft(capture).type;
-        if (this.canChangeType(capture)) menu.addItem(item => item.setTitle(["task", "note"].includes(type) ? "Change type" : "Choose type").setIcon("repeat-2")
-            .onClick(() => this.showTypeMenu(id, position)));
-        menu.addSeparator();
-        menu.addItem(item => item.setTitle("Delete").setIcon("trash-2").setWarning(true)
-            .onClick(() => { void this.remove(id); }));
-        this.presentItemMenu(menu, id, position);
-    }
-    showTypeMenu(id, position) {
-        const capture = this.service.get(id);
-        if (!this.canChangeType(capture) || this.closed || this.busy || this.confirmation) return;
-        const type = id === this.selectedId ? this.mode : capture.intent?.type;
-        const menu = new Menu();
-        for (const [value, label, icon] of capture.attachments.length ? [["file", "File", "file"]] : [["task", "Task", "square"], ["note", "Note", "notebook-text"]])
-            menu.addItem(item => item.setTitle(label).setIcon(icon).setChecked(type === value).onClick(async () => {
-                if (await this.openItem(id) && this.canChangeType(this.service.get(id))) await this.classify(value);
-            }));
-        this.presentItemMenu(menu, id, position);
-    }
-    presentItemMenu(menu, id, position) {
-        this.sortMenu?.hide(); this.itemMenu?.hide(); this.itemMenu = menu;
-        menu.onHide(() => {
-            if (this.itemMenu !== menu) return;
-            this.itemMenu = null;
-            const doc = this.modalEl.ownerDocument, focused = doc.activeElement;
-            if (!this.closed && (focused === doc.body || focused?.closest(".menu"))) this.rows.get(id)?.button.focus({ preventScroll: true });
-        });
-        menu.showAtPosition(position);
-    }
-    async openItem(id) {
-        if (this.closed || this.busy || this.confirmation || !this.service.get(id)) return false;
-        await this.select(id);
-        if (this.closed || this.selectedId !== id) return false;
-        this.detail.focus({ preventScroll: true });
-        return true;
-    }
-    async changeSort(sort) {
-        if (this.closed || this.busy || !await this.flushEdits()) return;
-        this.sortOrder = sort; this.refresh({ resetScroll: true });
-        this.sortSave = this.service.setSortPreference(sort).catch(error => {
-            new Notice(`The Inbox sort preference could not be saved. ${error.message}`);
-        });
-        await this.sortSave;
-    }
-    itemCompletion(capture) {
-        const values = capture.id === this.selectedId && this.draft ? this.form?.value() ?? this.draft : undefined;
-        return this.service.getInboxCompletion(capture, values);
-    }
-    visible() {
-        return sortedCaptures(this.service.captures, { filter: this.filter, sort: this.sortOrder, completion: item => this.itemCompletion(item) });
-    }
-    editingText() {
-        const focused = this.detail?.ownerDocument.activeElement;
-        return this.detail?.contains(focused) && focused.matches('textarea,input:not([type="checkbox"]),[contenteditable="true"]');
-    }
-    loadNotePositions(captures) {
-        for (const capture of captures) {
-            const draft = captureDraft(capture), location = draft.noteLocation;
-            if (draft.type !== "note" || draft.noteAction !== "existing" || !location || location.targetType === "note" ||
-                this.service.noteCache.has(location.path) || this.checkingPositions.has(location.path)) continue;
-            this.checkingPositions.add(location.path);
-            // Reuse the picker/form's structural validation cache after reopening
-            // Inbox, including notes that have not been selected in the list.
-            this.service.readNotePositions(draft.workspaceId, location.path).then(() => this.refresh()).catch(() => {})
-                .finally(() => this.checkingPositions.delete(location.path));
-        }
-    }
-    async changeFilter(key) {
-        if (this.busy || !await this.flushEdits()) return;
-        this.filter = key; this.refresh({ resetScroll: true });
-    }
-    refresh({ resetScroll = false } = {}) {
-        if (this.closed) return;
-        if (this.busy) { this.needsRefresh = true; return; }
-        this.needsRefresh = false;
-        let rows = this.visible();
-        const previous = this.list.ownerDocument.activeElement?.dataset?.captureId, scrollTop = this.list.scrollTop;
-        const anchor = [...this.list.children].find(row => row.dataset.captureId && row.getBoundingClientRect().bottom > this.list.getBoundingClientRect().top);
-        const anchorTop = anchor?.getBoundingClientRect().top;
-        this.sortLabel.textContent = INBOX_SORTS.find(([key]) => key === this.sortOrder)[1];
-        this.sort.dataset.value = this.sortOrder;
-        const activeIcon = sortIcon(this.sortOrder);
-        if (this.sortIconName !== activeIcon) { setHubIcon(this.sortIcon, activeIcon); this.sortIconName = activeIcon; }
-        const counts = inboxCounts(this.service.captures);
-        this.filterButtons.forEach(({ key, label, button }) => {
-            button.querySelector("span").textContent = `${label} (${counts[key]})`;
-            button.classList.toggle("is-selected", key === this.filter); button.setAttribute("aria-pressed", String(key === this.filter));
-        });
-        const currentOrder = [...this.list.children].map(row => row.dataset.captureId).filter(Boolean);
-        this.reorderPending = !resetScroll && ["most-complete", "least-complete"].includes(this.sortOrder) && this.editingText() &&
-            currentOrder.join("|") !== rows.map(item => item.id).join("|");
-        if (this.reorderPending) {
-            const remaining = new Map(rows.map(item => [item.id, item]));
-            rows = currentOrder.filter(id => remaining.has(id)).map(id => { const item = remaining.get(id); remaining.delete(id); return item; }).concat([...remaining.values()]);
-        }
-        if (!rows.some(capture => capture.id === this.selectedId)) {
-            this.resetAction(); this.selectedId = rows[0]?.id ?? null;
-        }
-        const visibleIds = new Set(rows.map(item => item.id));
-        for (const [id, row] of this.rows) if (!visibleIds.has(id)) { row.button.remove(); this.rows.delete(id); }
-        this.list.querySelector(".hub-capture-empty")?.remove();
-        if (!rows.length) this.list.createDiv({ cls: "hub-capture-empty", text: this.service.count ? "No items match this filter." : "Your Inbox is empty. Use Quick Add to save something for later." });
-        rows.forEach((capture, index) => {
-            const row = this.updateRow(capture);
-            const at = this.list.children[index];
-            if (at !== row.button) this.list.insertBefore(row.button, at ?? null);
-        });
-        if (resetScroll) this.list.scrollTop = 0;
-        else if (anchor?.isConnected) this.list.scrollTop = scrollTop + anchor.getBoundingClientRect().top - anchorTop;
-        else this.list.scrollTop = scrollTop;
-        this.loadNotePositions(this.service.captures);
-        if (!this.mode) this.renderDetail();
-        this.syncSubmit();
-        this.guidance?.update();
-        if (previous) (this.rows.get(previous)?.button ?? this.rows.get(this.selectedId)?.button)?.focus({ preventScroll: true });
-    }
-    updateRow(capture) {
-        let row = this.rows.get(capture.id);
-        if (!row) {
-            const button = this.list.createEl("button", { cls: "hub-inbox-row", attr: { type: "button", "data-capture-id": capture.id,
-                "aria-describedby": `${this.prefix}-completion-${capture.id}` } });
-            const icon = button.createSpan({ cls: "hub-capture-icon", attr: { "aria-hidden": "true" } });
-            const copy = button.createDiv({ cls: "hub-inbox-row-copy" }), heading = copy.createDiv({ cls: "hub-inbox-row-heading" });
-            const title = heading.createDiv({ cls: "hub-inbox-row-title" });
-            const status = heading.createSpan({ cls: "hub-inbox-completion-label", attr: { "aria-hidden": "true" } });
-            const metadata = copy.createDiv({ cls: "hub-capture-muted" });
-            const progress = copy.createDiv({ cls: "hub-inbox-completion-progress", attr: { id: `${this.prefix}-completion-${capture.id}`, role: "progressbar", "aria-valuemin": "0" } });
-            row = { button, icon, title, status, metadata, progress }; this.rows.set(capture.id, row);
-            button.addEventListener("click", () => { void this.select(capture.id); });
-            button.addEventListener("contextmenu", event => {
-                event.preventDefault(); event.stopPropagation();
-                this.showItemMenu(capture.id, { x: event.clientX, y: event.clientY });
-            });
-            button.addEventListener("keydown", event => {
-                if (event.key !== "ContextMenu" && !(event.key === "F10" && event.shiftKey)) return;
-                event.preventDefault(); event.stopPropagation();
-                const bounds = button.getBoundingClientRect();
-                this.showItemMenu(capture.id, { x: bounds.left + 12, y: bounds.top + 12 });
-            });
-        }
-        row.button.classList.toggle("is-selected", capture.id === this.selectedId);
-        row.button.setAttribute("aria-pressed", String(capture.id === this.selectedId));
-        const icon = contentIcon(capture);
-        if (row.iconName !== icon) { setHubIcon(row.icon, icon); row.iconName = icon; }
-        row.icon.classList.toggle("hub-inbox-unsorted-icon", icon === "file-question-mark");
-        const draft = capture.id === this.selectedId ? this.draft : null;
-        row.title.textContent = preview(draft ? { ...capture, text: draft.text } : capture); row.title.title = row.title.textContent;
-        row.metadata.textContent = timestamp(capture.createdAt);
-        const completion = this.itemCompletion(capture), { ready, totalRequired, completedRequired } = completion;
-        row.status.empty();
-        if (ready) setHubIcon(row.status.createSpan({ cls: "hub-capture-icon" }), "check");
-        const remaining = totalRequired - completedRequired;
-        const status = ready ? "Ready" : totalRequired ? `${remaining} ${remaining === 1 ? "detail" : "details"} left` : "Choose type";
-        row.status.createSpan({ text: status });
-        const description = ready ? "All required details complete" : !totalRequired ? "Type not selected" :
-            `${status}${completion.missing.length ? ". Missing: " + completion.missing.join(", ") : completion.error ? ". " + completion.error : ""}`;
-        row.progress.setAttribute("aria-valuemax", String(totalRequired || 1)); row.progress.setAttribute("aria-valuenow", String(completedRequired));
-        row.progress.setAttribute("aria-label", description); row.progress.setAttribute("aria-valuetext", description);
-        row.progress.style.setProperty("--hub-completion-segments", String(totalRequired || 1));
-        if (row.progress.children.length !== totalRequired) {
-            row.progress.empty();
-            for (let index = 0; index < totalRequired; index++) row.progress.createSpan({ cls: "hub-inbox-completion-segment", attr: { "aria-hidden": "true" } });
-        }
-        [...row.progress.children].forEach((segment, index) => segment.classList.toggle("is-complete", index < completedRequired));
-        return row;
-    }
-    async select(id) {
-        if (this.busy || id === this.selectedId || !await this.flushEdits()) return;
-        this.selectedId = id; this.resetAction();
-        this.error.textContent = ""; this.refresh();
-    }
-    renderDetail() {
-        this.resetAction(); this.detail.empty(); this.detail.classList.remove("is-action-form");
-        const capture = this.service.get(this.selectedId);
-        if (!capture) { this.detail.createDiv({ cls: "hub-capture-empty", text: "Select an item to review it." }); return; }
-        const pendingKind = capture.operation?.state !== "done" ? capture.operation?.kind : null;
-        const type = (pendingKind === "files" ? "file" : pendingKind === "note-insertion" ? "note" : pendingKind) ?? capture.intent?.type;
-        if (type && (capture.operation?.state !== "done" || type !== "task")) { this.edit(type); return; }
-        if ((!capture.attachments.length || !capture.text.trim()) && (!capture.operation || capture.operation.state === "done")) { this.renderUnsorted(capture); return; }
-        this.detail.classList.add("is-action-form");
-        const body = this.detail.createDiv({ cls: "hub-inbox-action-body" });
-        const title = detailTitle(capture);
-        body.createEl("h3", { cls: "hub-inbox-detail-title", text: title });
-        body.createDiv({ cls: "hub-capture-muted", text: `${timestamp(capture.createdAt)} · ${capture.kind === "link" ? "Link" : capture.attachments.length ? "Files" : "Text"}` });
-        const view = body.createDiv({ cls: "hub-inbox-preview" });
-        if (capture.text && capture.text.trim() !== title) view.createDiv({ cls: "hub-inbox-text", text: capture.text });
-        if (capture.source) {
-            const source = view.createDiv({ cls: "hub-capture-source hub-capture-muted" });
-            source.createDiv({ text: [capture.source.origin, capture.source.workspaceName, capture.source.title].filter(Boolean).join(" · ") });
-            if (capture.source.url) source.createDiv({ text: capture.source.url });
-            if (capture.source.path) source.createDiv({ text: capture.source.path });
-        }
-        const refs = view.createDiv({ cls: "hub-capture-attachments" });
-        const url = this.service.captureUrl?.(capture) ?? linkFromText(capture.text) ?? capture.source?.url;
-        const openAttachment = ref => { void this.run(async () => { if (await this.service.openAttachment(ref) !== false) this.finish(); }); };
-        // One file is the Capture's Open action; multiple files keep individual
-        // row actions, as do files accompanying a separately openable URL.
-        attachments(refs, capture.attachments, this.service, { open: url || capture.attachments.length > 1 ? openAttachment : undefined });
-        if (capture.operation) view.createEl("p", { cls: "hub-capture-muted", text: capture.operation.state === "done" ? "A task has been created. The remaining content and files are kept here." : "A previous save is pending. Retry the same action to finish safely." });
-        const section = this.detail.createEl("section", { cls: "hub-inbox-actions-section hub-inbox-action-footer", attr: { "aria-labelledby": this.prefix + "-actions" } });
-        section.createEl("h3", { cls: "hub-inbox-actions-heading", text: "Actions", attr: { id: this.prefix + "-actions" } });
-        const actions = section.createDiv({ cls: "hub-inbox-detail-actions", attr: { role: "group", "aria-labelledby": this.prefix + "-actions" } });
-        const pending = capture.operation && capture.operation.state !== "done";
-        if (pending) {
-            action(actions, "Retry save", null, () => { void this.run(async () => {
-                const values = { ...capture, workspaceId: capture.operation.workspaceId, folder: capture.operation.folder };
-                const result = capture.operation.kind === "task" ? await this.service.makeTask(values, capture.id) :
-                    capture.operation.kind === "note" ? await this.service.createNote(values, capture.id) : await this.service.addFiles(values, capture.id);
-                new Notice(result?.message ?? "Item saved."); this.refresh();
-            }); });
-            // A prepared file/note save may have rolled back before its folder
-            // disappeared. Reopen its original action to choose a valid folder.
-            if (capture.operation.state === "prepared") {
-                if (capture.operation.kind === "note") action(actions, "Make note", "notebook-text", () => this.edit("note"));
-                if (capture.operation.kind === "files") action(actions, "Move to…", "folder", () => this.edit("file"));
-            }
-        }
-        else {
-            if (capture.text && capture.operation?.state !== "done") action(actions, "Make task", "square", () => this.edit("task"));
-            action(actions, "Make note", "notebook-text", () => this.edit("note"));
-            if (capture.attachments.length) action(actions, "Move to…", "folder", () => this.edit("file"));
-        }
-        if (url) action(actions, "Open", "external-link", () => { void this.run(async () => { await this.options.openLink?.(url); this.finish(); }); });
-        else if (capture.attachments.length === 1 && this.service.attachmentExists(capture.attachments[0]))
-            action(actions, "Open", "external-link", () => openAttachment(capture.attachments[0]));
-        this.deleteButton = action(actions, "Delete", "trash-2", () => { void this.remove(capture.id); }, "hub-capture-delete");
-    }
-    renderUnsorted(capture) {
-        this.mode = "unsorted"; this.draft = captureDraft(capture);
-        this.detail.classList.add("is-action-form");
-        const file = !!capture.attachments.length;
-        this.detail.createEl("h3", { text: file ? "File" : "Text", cls: "hub-inbox-detail-title hub-inbox-action-heading" });
-        const body = this.detail.createDiv({ cls: "hub-inbox-action-body" });
-        if (file) attachments(body.createDiv({ cls: "hub-capture-attachments" }), capture.attachments, this.service, {
-            open: ref => { void this.run(async () => { if (await this.service.openAttachment(ref) !== false) this.finish(); }); }
-        });
-        else {
-            const content = body.createDiv({ cls: "hub-field-group", attr: { "data-capture-field": "Content" } });
-            const input = content.createEl("textarea", { cls: "hub-quick-add-input", attr: { rows: "3", "aria-label": "Text" } });
-            input.value = this.draft.text;
-            input.addEventListener("input", () => { this.draft.text = input.value; this.sync(); this.persistDraft(this.draft); });
-        }
-        mountCaptureTypeControl({ host: body, file, disabledTypes: capture.operation?.state === "done" ? ["task"] : [], onSelect: type => { void this.classify(type); } });
-        this.guidance = mountInboxGuidance({ body, completion: () => this.service.getInboxCompletion(capture, this.draft) });
-        this.guidance.update();
-        const footer = this.detail.createDiv({ cls: "hub-capture-actions hub-inbox-action-footer hub-inbox-unsorted-footer" });
-        action(footer, "Delete", "trash-2", () => { void this.remove(capture.id); }, "hub-capture-delete");
-    }
-    async classify(type) {
-        if (!["task", "note", "file"].includes(type) || this.busy || this.confirmation || !await this.flushEdits()) return;
-        const capture = this.service.get(this.selectedId); if (!capture) return;
-        if (!!capture.attachments.length !== (type === "file") || this.mode === type || this.mode !== "unsorted" && capture.operation) return;
-        if (type === "task" && capture.operation?.state === "done") return;
-        const draft = this.form?.value() ?? this.draft;
-        if (draft && hasTypeSpecificDetails(draft)) {
-            const target = type === "task" ? "Task" : "Note", previous = draft.type === "task" ? "task" : "note";
-            if (!await this.confirm({ title: `Switch to ${target}?`,
-                message: `Changing this item to a ${target} will clear its ${previous} details. The text and Save to destination will be kept.`,
-                confirmLabel: "Continue" }) || this.closed || this.selectedId !== capture.id) return;
-        }
-        const saved = await this.run(() => this.service.updateCapture(capture.id, { type, intent: { type, inputPath: type === "file" ? "file" : "text" } }));
-        if (saved && !this.closed) { this.resetAction(); this.refresh(); }
-    }
-    persistDraft(values) {
-        // Snapshot the existing form value only for the atomic write. The live
-        // editor has one content value; saves never replace it while typing.
-        this.pendingEdit = { id: this.selectedId, values: JSON.parse(JSON.stringify(values)) };
-        return this.flushEdits();
-    }
-    flushEdits() {
-        if (this.editSave) return this.editSave;
-        if (!this.pendingEdit) return Promise.resolve(true);
-        this.editSave = (async () => {
-            while (this.pendingEdit) {
-                const edit = this.pendingEdit; this.pendingEdit = null;
-                if (!this.service.get(edit.id)) continue;
-                try { await this.service.updateCapture(edit.id, edit.values); }
-                catch (error) {
-                    if (!this.service.get(edit.id)) continue;
-                    this.pendingEdit ??= edit;
-                    this.editError = error.message || "Could not save. Please try again.";
-                    if (!this.closed) this.error.textContent = this.editError;
-                    return false;
-                }
-            }
-            if (!this.closed && this.editError && this.error.textContent === this.editError) this.error.textContent = "";
-            this.editError = null;
-            return true;
-        })().finally(() => { this.editSave = null; });
-        return this.editSave;
-    }
-    async confirm(options) {
-        if (this.closed || this.busy || this.confirmation) return false;
-        const modal = this.confirmation = new CaptureConfirmation(this.app, null, {
-            ...options, returnFocus: this.modalEl.ownerDocument.activeElement
-        });
-        const confirmed = await modal.ask();
-        if (this.confirmation === modal) this.confirmation = null;
-        return confirmed;
-    }
-    async remove(id) {
-        if (this.busy || this.closed || !this.service.get(id) || !await this.confirm({
-            title: "Delete this inbox item?", message: "This item will be removed from your Inbox.", confirmLabel: "Delete", destructive: true
-        }) || this.closed || !await this.flushEdits()) return;
-        return this.run(async () => {
-            await this.service.delete(id); new Notice("Item deleted."); this.resetAction(); this.refresh();
-        });
-    }
-    edit(type) {
-        const capture = this.service.get(this.selectedId); if (!capture || this.busy) return;
-        if (!["task", "note", "file"].includes(type)) return;
-        const operation = capture.operation?.state === "prepared" && capture.operation.kind === (type === "file" ? "files" : type) ? capture.operation : null;
-        this.resetAction(); this.mode = type; this.error.textContent = ""; this.detail.empty();
-        this.detail.classList.add("is-action-form");
-        this.detail.createEl("h3", { text: type === "file" ? "File" : type === "task" ? "Task" : "Note", cls: "hub-inbox-detail-title hub-inbox-action-heading" });
-        const body = this.detail.createDiv({ cls: "hub-inbox-action-body" });
-        this.draft = { ...captureDraft(capture), type, attachments: [...capture.attachments],
-            ...(capture.intent || (capture.operation?.state !== "done" && capture.operation?.workspaceId) ? {} :
-                { workspaceId: this.options.workspaceId ?? "" }),
-            ...(operation ? { workspaceId: operation.workspaceId, folder: operation.folder, title: operation.title } : {}) };
-        // Legacy mixed captures retain their additional source content. New
-        // captures have one canonical task text or note content editor.
-        const legacyTask = type === "task" && !capture.intent && (capture.attachments.length || /[\r\n]/.test(capture.text.trim()));
-        if (legacyTask) {
-            this.draft.taskTitle = capture.operation?.kind === "task" ? capture.operation.text : capture.text.trim().split(/\r?\n/)[0];
-            this.draft.text = capture.text;
-        }
-        let content;
-        if (type === "note" || legacyTask || (capture.text && type === "file")) {
-            const field = body.createDiv({ cls: "hub-field-group", attr: type === "note" ? { "data-capture-field": "Content" } : {} });
-            if (type !== "note") field.createEl("label", { cls: "hub-capture-label", text: "Captured content", attr: { for: this.prefix + "-content" } });
-            content = field.createEl("textarea", { cls: "hub-quick-add-input", attr: { id: this.prefix + "-content", rows: "3", "aria-label": type === "note" ? "Note content" : "Captured content" } }); content.value = capture.text;
-            content.readOnly = !!capture.operation && capture.operation.state !== "done";
-        }
-        if (type === "task") {
-            const taskState = legacyTask ? { ...this.draft, text: this.draft.taskTitle ?? capture.text.trim().split(/\r?\n/)[0] } : this.draft;
-            const field = body.createDiv({ cls: "hub-field-group", attr: { "data-capture-field": "Content" } });
-            this.taskInput = mountTaskText(field, taskState, patch => {
-                this.form?.update(legacyTask ? { taskTitle: patch.text } : patch); this.sync();
-            }, { placeholder: "What needs doing?", multiline: !legacyTask && /[\r\n]/.test(this.draft.text) });
-            if (legacyTask) this.draft.taskTitle = taskState.text;
-        }
-        const refs = body.createDiv({ cls: "hub-capture-attachments" });
-        if (type === "file") refs.dataset.captureField = "File";
-        attachments(refs, capture.attachments, this.service, { open: type === "file" ? ref => {
-            void this.run(async () => { if (await this.service.openAttachment(ref) !== false) this.finish(); });
-        } : undefined });
-        const host = body.createDiv({ cls: "hub-inbox-form-host" });
-        this.form = mountCaptureForm({ host, service: this.service, draft: this.draft, fixedType: type,
-            captureId: () => this.selectedId,
-            onChange: value => { this.draft = value; this.sync(); if (!this.busy && !this.closed) this.persistDraft(value); } });
-        content?.addEventListener("input", () => { this.form.update({ text: content.value }); this.sync(); });
-        const actions = this.detail.createDiv({ cls: "hub-capture-actions hub-inbox-action-footer" });
-        action(actions, "Delete", "trash-2", () => { void this.remove(capture.id); }, "hub-capture-delete");
-        this.save = action(actions, "Add to Itacan", null, () => { void this.commit(); }, "mod-cta hub-guided-submit");
-        this.readyArrow = this.save.createSpan({ cls: "hub-inbox-submit-arrow hub-capture-icon", attr: { "aria-hidden": "true" } });
-        setHubIcon(this.readyArrow, "arrow-right");
-        this.guidance = mountInboxGuidance({ body, readyArrow: this.readyArrow,
-            completion: () => this.service.getInboxCompletion(this.service.get(this.selectedId), this.form.value()) });
-        this.form.focus?.();
+    async showAction(type,noteAction=null,initial=false){
+        const c=this.service.get(this.selectedId);if(!c||this.busy&&!initial)return;if(!initial&&!await this.flushEdits())return;this.remember();const content=this.draft?.text??c.text,choices=this.actionsByItem.get(c.id)??{};
+        const draft={...captureDraft(c,type),...choices[type],text:content,type,...(noteAction?{noteAction}:{})};this.form?.destroy();this.form=null;this.actionHost.empty();this.submitHost.empty();this.mode=type;this.draft=draft;
+        const changed=value=>{const changed=fingerprint(value)!==fingerprint(this.draft);this.draft=value;this.drafts.set(c.id,clone(value));if(changed)this.dirty=true;this.sync()};
+        this.form=type==='task'&&this.service.plugin.nativeTaskHost?mountNativeCaptureTask({host:this.actionHost,service:this.service,draft,captureId:()=>c.id,onChange:changed,onSubmit:()=>{void this.commit()},details:false}):mountCaptureForm({host:this.actionHost,service:this.service,draft,fixedType:type,captureId:()=>c.id,onChange:changed});
+        this.draft=this.form.value();if(!initial)this.dirty=true;
+        if(type!=='task')this.save=action(this.submitHost,type==='file'?'Organize files':noteAction==='existing'?'Add text':'Create note',null,()=>{void this.commit()},'mod-cta');
         this.sync();
-        if (!capture.operation && (!legacyTask || capture.intent)) this.persistDraft(this.form.value());
     }
-    resetAction() {
-        this.guidance?.destroy(); this.guidance = null;
-        this.form?.destroy(); this.form = null; this.mode = null; this.draft = null; this.save = null; this.readyArrow = null;
-    }
-    syncSubmit() {
-        if (!this.save?.isConnected) return;
-        const blocked = this.busy || !this.form?.valid();
-        this.save.disabled = this.busy;
-        this.save.setAttribute("aria-disabled", String(blocked));
-    }
-    sync() {
-        if (this.needsRefresh && !this.busy) this.refresh();
-        const selected = this.service.get(this.selectedId);
-        if (selected && this.rows.has(selected.id)) this.updateRow(selected);
-        if (["most-complete", "least-complete"].includes(this.sortOrder) && this.editingText()) this.reorderPending = true;
-        this.syncSubmit();
-        this.guidance?.update();
-        const operation = this.service.get(this.selectedId)?.operation;
-        if (this.form && operation && operation.state !== "done" && (operation.kind === "task" || operation.kind === "note-insertion" || operation.state === "ready")) {
-            this.detail.querySelectorAll(".hub-inbox-action-body button,.hub-inbox-action-body input,.hub-inbox-action-body textarea,.hub-inbox-action-body select").forEach(control => control.disabled = true);
-        }
-    }
-    async commit() {
-        if (this.busy || this.closed) return;
-        if (!this.form) { this.guidance?.guide(); return; }
-        if (!this.form.valid()) {
-            if (!this.guidance?.guide()) this.error.textContent = this.itemCompletion(this.service.get(this.selectedId)).error ?? "Check the item details.";
-            return;
-        }
-        if (!await this.flushEdits()) return;
-        return this.run(async () => {
-            const draft = this.form.value(), id = this.selectedId;
-            if (draft.type !== this.mode) throw Error("Choose the item action again.");
-            const result = draft.type === "task" ? await this.service.makeTask(draft, id) : draft.type === "note" ?
-                await this.service.createNote(draft, id) : await this.service.addFiles(draft, id);
-            new Notice(result?.message ?? (draft.type === "file" ? "Files moved." : `Added ${draft.type}.`));
-            this.mode = null; this.form?.destroy(); this.form = null; this.refresh();
-            (this.list.querySelector(`[data-capture-id="${this.selectedId}"]`) ?? this.filterButtons[0].button).focus();
-        });
-    }
-    onProblem(error) { if (error.noteLocationInvalid) this.form?.update({ noteLocation: null }); }
-    async close() {
-        if (this.closed || this.busy || !await this.flushEdits()) return;
-        await this.sortSave;
-        if (!this.closed) super.close();
-    }
-    onClose() {
-        this.modalEl.removeEventListener("keydown", this.deleteKey);
-        this.modalEl.removeEventListener("keydown", this.submitKey); this.stopSortToggle?.();
-        this.confirmation?.close(); this.confirmation = null;
-        this.guidance?.destroy(); this.guidance = null;
-        this.sortMenu?.hide(); this.sortMenu = null;
-        this.itemMenu?.hide(); this.itemMenu = null; super.onClose();
-    }
+    async flushEdits(){if(!this.dirty||!this.selectedId)return true;const id=this.selectedId,value=this.form?.value()??this.draft;if(!this.service.get(id)){this.dirty=false;return true}try{await this.service.updateCapture(id,value);this.dirty=false;this.remember();return true}catch(error){this.error.textContent=error.message;return false}}
+    sync(){if(this.needsRefresh&&!this.busy){this.needsRefresh=false;this.refresh()}if(this.save)this.save.disabled=this.busy;const c=this.service.get(this.selectedId);if(c?.operation&&c.operation.state!=='done'&&(['native-task','task','note-insertion'].includes(c.operation.kind)||c.operation.state==='ready')){this.actionHost.querySelectorAll('input,textarea,select,button').forEach(e=>e.disabled=true)}}
+    async createTask(){if(this.busy||this.closed)return;const c=this.service.get(this.selectedId);if(!c||c.attachments.length)return;if(this.mode!=='task'){await this.showAction('task');if(this.mode!=='task')return;}return this.commit()}
+    async commit(){if(this.busy||this.closed||!this.form)return;if(this.form.prepare?.()===false)return;if(!this.service.get(this.selectedId)?.operation&&!this.form.valid()){this.error.textContent=this.service.completion(this.form.value(),this.selectedId).error??'Choose the required destination.';return;}if(!await this.flushEdits())return;
+        return this.run(async()=>{const id=this.selectedId,draft=this.form.value(),result=this.mode==='task'?await this.service.makeTask(draft,id):this.mode==='note'?await this.service.createNote(draft,id):await this.service.addFiles(draft,id);new Notice(result?.message??'Item organized.');this.drafts.delete(id);this.actionsByItem.delete(id);this.dirty=false;this.resetForm();this.refresh()});}
+    async remove(id){if(this.busy||!this.service.get(id)||this.confirmation)return;const dialog=this.confirmation=new CaptureConfirmation(this.app,null,{title:'Delete this inbox item?',message:'This item will be removed from your Inbox.',confirmLabel:'Delete',destructive:true});const yes=await dialog.ask();this.confirmation=null;if(!yes||this.closed)return;await this.run(async()=>{await this.service.delete(id);this.drafts.delete(id);this.actionsByItem.delete(id);this.resetForm();this.selectedId=null;this.refresh()});}
+    async close(){if(this.busy||this.closed||!await this.flushEdits())return;super.close()}
+    onClose(){this.modalEl.removeEventListener('keydown',this.deleteKey);this.confirmation?.close();this.sortMenu?.hide();this.remember();this.service.scheduleNativeRefresh?.();super.onClose()}
 }
-module.exports = { InboxModal };
+module.exports={InboxModal};
 
 },
 "lib/ui/list-reorder.js": function (module, exports, __hubRequire) {
@@ -27427,6 +27141,38 @@ function mountMusicControl(plugin, host) {
     return { button, open, destroy() { destroyed = true; stop(); modal?.close(); button.remove(); } };
 }
 module.exports = { MusicModal, mountMusicControl, formatTime };
+
+},
+"lib/ui/native-capture-task.js": function (module, exports, __hubRequire) {
+"use strict";
+const N = __hubRequire("lib/services/native-inbox-task.js");
+const { createNativeTaskLocations } = __hubRequire("lib/services/native-task-locations.js");
+const { mountLiveTaskForm } = __hubRequire("lib/ui/task-live-form.js");
+function mountNativeCaptureTask({host,service,draft={},captureId=()=>null,onChange=()=>{},onSubmit=()=>{},details=true}) {
+    let full=N.draft(service,draft,service.get(captureId())??{source:draft.source}),disposed=false,picker=null,fields=null;
+    const element=host.createEl("form",{cls:"hub-native-capture-task"}),label=element.createEl("label",{cls:"hub-capture-field",text:"Task workspace"}),select=label.createEl("select",{attr:{"aria-label":"Task workspace"}});
+    element.addEventListener("submit",event=>{event.preventDefault();onSubmit()});
+    select.createEl("option",{value:"",text:"Choose a Project or Resource"});
+    const available=N.workspaces(service);for(const [kind,title]of[["project","Projects"],["resource","Resources"]]){const group=select.createEl("optgroup",{attr:{label:title}});for(const w of available.filter(w=>(w.contextKind==='resource'?'resource':'project')===kind))group.createEl("option",{value:w.id,text:w.name??w.label});}
+    if(full.workspaceId&&!available.some(w=>w.id===full.workspaceId))select.createEl("option",{value:full.workspaceId,text:"Unavailable saved workspace",attr:{disabled:""}});
+    select.value=full.workspaceId??"";
+    const base=createNativeTaskLocations(service.plugin),locations={...base,describe:(owner,ref)=>owner?base.describe(owner,ref):{workspaceName:"Choose workspace",segments:[],available:false},resolveId:(owner,id)=>owner?base.resolveId(owner,id):null};
+    const current=()=>available.find(w=>w.id===full.workspaceId),state={text:full.taskTitle,description:full.description,steps:(full.steps??[]).map(s=>({...s})),necessity:full.necessity??null,fromDate:full.fromDate??null,fromTime:full.fromTime??null,dueDate:full.dueDate??null,dueTime:full.dueTime??null,completed:!!full.completed,phaseId:full.phaseId??null,nativeLocation:full.nativeLocation??""};
+    function setOwner(){state.nativeOwner=current()?N.ownerOf(current()):undefined;}
+    setOwner();if(!Object.hasOwn(full,'nativeLocation')&&full.location&&state.nativeOwner){try{const f=service.app.vault.getAbstractFileByPath(full.location);state.nativeLocation=base.select(state.nativeOwner,full.location,Array.isArray(f?.children)?'folder':'note').reference?.id??'';}catch{state.nativeLocation='unavailable:'+full.location;}}
+    const notice=element.createDiv({cls:"hub-task-error",attr:{role:"status"}}),toggle=element.createEl("button",{text:details?"Hide task details":"Task details",attr:{type:"button","aria-expanded":String(details)}}),body=element.createDiv({cls:"hub-native-capture-details"});
+    body.hidden=!details;
+    function value(){const steps=state.steps.map(s=>({...s}));if(fields?.steps.hasPending&&fields.steps.draftInput.value.trim())steps.push({text:fields.steps.draftInput.value,completed:fields.steps.pendingCompleted});return{...full,type:'task',taskTitle:state.text,description:state.description,steps,necessity:state.necessity,fromDate:state.fromDate,fromTime:state.fromTime,dueDate:state.dueDate,dueTime:state.dueTime,completed:state.completed,phaseId:full.phaseId??state.phaseId,nativeLocation:state.nativeLocation};}
+    const changed=()=>{if(!disposed)onChange(value())};
+    const openLocation=()=>{if(!state.nativeOwner){notice.textContent='Choose a task workspace first.';select.focus();return;}if(picker)return;fields?.closePopovers();const ref=state.nativeLocation?base.resolveId(state.nativeOwner,state.nativeLocation)?.reference??{type:'folder',id:state.nativeLocation}:null;picker=__hubRequire("lib/ui/task-location-picker.js").openTaskLocationPicker(service.app,{locations:base,owner:state.nativeOwner,reference:ref,allowOwnerChange:true,onChoose:selected=>{const w=available.find(w=>{const o=N.ownerOf(w);return o.type===selected.owner.type&&o.id===selected.owner.id});if(!w)return;full.workspaceId=w.id;full.location='';select.value=w.id;setOwner();state.nativeLocation=selected.reference?.id??'';fields.refresh();notice.textContent='';changed()},onClose:()=>{picker=null;if(!disposed)fields?.presentation.sourceControl?.focus({preventScroll:true})}})};
+    function mount(){if(fields)return;fields=mountLiveTaskForm({host:body,state,service:{app:service.app,nativeLocations:locations,phases:()=>[],context:()=>null},location:()=>current()?.root??'',presentationContext:{sourcePath:null,sourceLabel:'Location'},onLocation:openLocation,initialStepsOpen:state.steps.length>0,text:{placeholder:'What needs doing?'},onChange:changed});fields.resizeTitle();}
+    if(details)mount();
+    if(full.phaseId){notice.textContent='This item has a recorded Phase. Native capture cannot assign Phases.';const clear=element.createEl('button',{text:'Leave Phase unassigned for this task',attr:{type:'button'}});clear.onclick=()=>{state.phaseId=null;full.phaseId=null;notice.textContent='';clear.remove();changed()};}
+    select.onchange=()=>{full.workspaceId=select.value;full.location='';state.nativeLocation='';setOwner();notice.textContent='';fields?.refresh();changed()};
+    toggle.onclick=()=>{body.hidden=!body.hidden;if(!body.hidden)mount();toggle.textContent=body.hidden?'Task details':'Hide task details';toggle.setAttribute('aria-expanded',String(!body.hidden));fields?.resizeTitle()};
+    return{element,workspaceSelect:select,value,valid(){try{N.payload(service,value(),service.get(captureId())??{});return true}catch{return false}},prepare(){fields?.closePopovers();return fields?.commitPending()!==false},refresh(){fields?.refresh()},update(patch){full={...full,...patch};if(Object.hasOwn(patch,'text')&&!Object.hasOwn(draft,'taskTitle')){const v=N.draft(service,{...full,taskTitle:undefined,description:undefined},{});state.text=v.taskTitle;if(!Object.hasOwn(draft,'description'))state.description=v.description;}if(patch.steps)state.steps=patch.steps.map(s=>({...s}));fields?.refresh();changed()},focus(){if(!state.nativeOwner)select.focus();else{mount();fields.input.focus()}},destroy(){disposed=true;picker?.close();fields?.destroy();element.remove()}};
+}
+module.exports={mountNativeCaptureTask};
 
 },
 "lib/ui/native-task-recovery.js": function (module, exports, __hubRequire) {
@@ -30272,7 +30018,7 @@ module.exports = { mountProjectRoadmap };
 const { Notice } = require("obsidian");
 const { CaptureModal, action, attachments } = __hubRequire("lib/ui/capture-modal.js");
 const { mountCaptureForm } = __hubRequire("lib/ui/capture-form.js");
-const { mountCaptureGuidance } = __hubRequire("lib/ui/inbox-guidance.js");
+
 const { linkFromText } = __hubRequire("lib/domain/inbox.js");
 const { mountTaskText } = __hubRequire("lib/ui/task-form.js");
 
@@ -30343,30 +30089,24 @@ class QuickAddModal extends CaptureModal {
         this.more = action(footer, "More options", null, () => this.expand());
         this.send = action(footer, "Send to Inbox", null, () => { void this.sendInbox(); }, "mod-cta");
         this.add = action(footer, "Add to Itacan", null, () => { void this.addDirect(); }, "mod-cta hub-guided-submit"); this.add.hidden = true;
-        this.guidance = mountCaptureGuidance({ body: this.body,
-            completion: () => this.service.completion(this.form?.value() ?? this.draft, this.captureId) });
         this.sync(); this.input.focus();
     }
     expand() {
-        if (this.form || this.busy || this.pendingImports || (!this.draft.text.trim() && !this.draft.attachments.length)) return;
+        if (this.form || this.busy || this.pendingImports) return;
         this.more.hidden = true; this.add.hidden = false;
         this.expanded.hidden = false; this.modalEl.classList.add("is-expanded");
         if (this.draft.attachments.length) this.draft.type = "file";
         this.form = mountCaptureForm({ host: this.expanded, service: this.service, draft: this.draft,
-            captureId: () => this.captureId,
+            captureId: () => this.captureId, onSubmit: () => { void this.addDirect(); },
             onChange: value => { this.draft = value; this.sync(); } });
         this.sync(); this.form.focus?.();
     }
     sync() {
         if (this.closed || !this.send) return;
         const file = !!this.draft.attachments.length, waiting = this.busy || !!this.pendingImports;
-        const text = !!this.draft.text.trim(), content = file || text;
-        if (!content && !waiting && this.form) {
-            this.form.destroy(); this.form = null; this.more.hidden = false; this.add.hidden = true;
-            this.expanded.hidden = true; this.modalEl.classList.remove("is-expanded");
-        }
+        const text = !!(this.draft.text.trim() || this.draft.taskTitle?.trim()), content = file || text;
         const complete = !!this.form?.valid();
-        this.textPath.hidden = file;
+        this.textPath.hidden = file || this.form?.value().type === "task";
         const pendingNote = this.service.get(this.captureId)?.operation?.kind === "note-insertion";
         this.input.disabled = waiting || file || pendingNote;
         this.label.hidden = true;
@@ -30376,8 +30116,8 @@ class QuickAddModal extends CaptureModal {
         this.attach.hidden = file || text;
         this.attach.disabled = waiting || text;
         this.fileInput.disabled = this.attach.disabled;
-        this.more.disabled = waiting || !content;
-        this.send.disabled = waiting || complete || !content;
+        this.more.disabled = waiting;
+        this.send.disabled = waiting || !content;
         this.send.classList.toggle("mod-cta", !this.form);
         this.add.disabled = waiting;
         this.add.setAttribute("aria-disabled", String(waiting || !complete));
@@ -30418,26 +30158,28 @@ class QuickAddModal extends CaptureModal {
     }
     sendInbox() {
         if (this.busy || this.pendingImports) return;
-        if (!this.draft.text.trim() && !this.draft.attachments.length) return;
-        if (this.form?.valid()) return;
+        if (!this.draft.text.trim() && !this.draft.taskTitle?.trim() && !this.draft.attachments.length) return;
         return this.run(async () => {
-            if (this.captureId) await this.service.updateCapture(this.captureId, this.draft);
-            else await this.service.capture(this.draft);
+            const value = this.form?.value() ?? this.draft;
+            if(!value.text.trim()) value.text=[value.taskTitle,value.description].filter(Boolean).join("\n");
+            if (this.captureId) await this.service.updateCapture(this.captureId, value);
+            else await this.service.capture(value);
             this.saved = true;
             new Notice("Sent to Inbox."); this.finish();
         });
     }
     addDirect() {
         if (this.busy || this.pendingImports) return;
+        if(this.form?.prepare?.() === false) return;
         if (!this.form?.valid()) {
             // Use the same required-field ordering as Inbox. Optional invalid
             // edits retain meaningful errors without becoming amber targets.
-            if (!this.guidance?.guide()) this.error.textContent = this.service.completion(this.form?.value() ?? this.draft, this.captureId).error ?? "";
+            this.error.textContent = this.service.completion(this.form?.value() ?? this.draft, this.captureId).error ?? "";
             return;
         }
         return this.run(async () => {
             const draft = this.form.value();
-            const result = draft.type === "task" ? await this.service.makeTask(draft, this.captureId) : draft.type === "note" ?
+            const result = draft.type === "task" ? await this.service.makeTask(draft, this.captureId, this.nativeAttempt ??= {}) : draft.type === "note" ?
                 await this.service.createNote(draft, this.captureId) : await this.service.addFiles(draft, this.captureId);
             this.saved = true; new Notice(result?.message ?? `Added ${draft.type}.`); this.finish();
         });
@@ -30448,7 +30190,7 @@ class QuickAddModal extends CaptureModal {
     }
     close() { if (!this.pendingImports) super.close(); }
     onClose() {
-        this.guidance?.destroy();
+        this.service.scheduleNativeRefresh?.();
         if (!this.saved && this.draft.attachments.length) void this.service.releaseAttachments(this.draft.attachments)
             .catch(error => new Notice(`Could not remove temporary attachment: ${error.message}`));
         super.onClose();

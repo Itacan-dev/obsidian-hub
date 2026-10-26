@@ -62,6 +62,8 @@ function composeNativeHosts(plugin, hosts) {
             createPanelRead: args => select(args.workspace).nativeTasks.createPanelRead(args) }),
         status: () => ({ mode: "native-owners", owners: hosts.map(h => h.status()) }),
         ownerHosts: () => hosts.slice(), runtime: owner => select(owner).runtime(),
+        openJoinRecovery: owner => select(owner).openJoinRecovery(),
+        refreshInventory: () => Promise.all(hosts.map(h => h.refreshInventory())), 
         rejectLegacy(value) { for (const h of hosts) h.rejectLegacy(value); },
         guardUnsupported() { for (const h of hosts) h.guardUnsupported(); },
         create(options = {}) { const context = options.location ? plugin.taskEditor.context(options.location) : plugin.taskEditor.currentContext(); const owner = options.owner ?? require("./task-service-legacy-values").workspaceRef(context); return select(owner).create(options); },

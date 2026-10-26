@@ -2,7 +2,7 @@
 const { Notice } = require("obsidian");
 const { CaptureModal, action, attachments } = require("./capture-modal");
 const { mountCaptureForm } = require("./capture-form");
-const { mountCaptureGuidance } = require("./inbox-guidance");
+
 const { linkFromText } = require("../domain/inbox");
 const { mountTaskText } = require("./task-form");
 
@@ -73,30 +73,24 @@ class QuickAddModal extends CaptureModal {
         this.more = action(footer, "More options", null, () => this.expand());
         this.send = action(footer, "Send to Inbox", null, () => { void this.sendInbox(); }, "mod-cta");
         this.add = action(footer, "Add to Itacan", null, () => { void this.addDirect(); }, "mod-cta hub-guided-submit"); this.add.hidden = true;
-        this.guidance = mountCaptureGuidance({ body: this.body,
-            completion: () => this.service.completion(this.form?.value() ?? this.draft, this.captureId) });
         this.sync(); this.input.focus();
     }
     expand() {
-        if (this.form || this.busy || this.pendingImports || (!this.draft.text.trim() && !this.draft.attachments.length)) return;
+        if (this.form || this.busy || this.pendingImports) return;
         this.more.hidden = true; this.add.hidden = false;
         this.expanded.hidden = false; this.modalEl.classList.add("is-expanded");
         if (this.draft.attachments.length) this.draft.type = "file";
         this.form = mountCaptureForm({ host: this.expanded, service: this.service, draft: this.draft,
-            captureId: () => this.captureId,
+            captureId: () => this.captureId, onSubmit: () => { void this.addDirect(); },
             onChange: value => { this.draft = value; this.sync(); } });
         this.sync(); this.form.focus?.();
     }
     sync() {
         if (this.closed || !this.send) return;
         const file = !!this.draft.attachments.length, waiting = this.busy || !!this.pendingImports;
-        const text = !!this.draft.text.trim(), content = file || text;
-        if (!content && !waiting && this.form) {
-            this.form.destroy(); this.form = null; this.more.hidden = false; this.add.hidden = true;
-            this.expanded.hidden = true; this.modalEl.classList.remove("is-expanded");
-        }
+        const text = !!(this.draft.text.trim() || this.draft.taskTitle?.trim()), content = file || text;
         const complete = !!this.form?.valid();
-        this.textPath.hidden = file;
+        this.textPath.hidden = file || this.form?.value().type === "task";
         const pendingNote = this.service.get(this.captureId)?.operation?.kind === "note-insertion";
         this.input.disabled = waiting || file || pendingNote;
         this.label.hidden = true;
@@ -106,8 +100,8 @@ class QuickAddModal extends CaptureModal {
         this.attach.hidden = file || text;
         this.attach.disabled = waiting || text;
         this.fileInput.disabled = this.attach.disabled;
-        this.more.disabled = waiting || !content;
-        this.send.disabled = waiting || complete || !content;
+        this.more.disabled = waiting;
+        this.send.disabled = waiting || !content;
         this.send.classList.toggle("mod-cta", !this.form);
         this.add.disabled = waiting;
         this.add.setAttribute("aria-disabled", String(waiting || !complete));
@@ -148,26 +142,28 @@ class QuickAddModal extends CaptureModal {
     }
     sendInbox() {
         if (this.busy || this.pendingImports) return;
-        if (!this.draft.text.trim() && !this.draft.attachments.length) return;
-        if (this.form?.valid()) return;
+        if (!this.draft.text.trim() && !this.draft.taskTitle?.trim() && !this.draft.attachments.length) return;
         return this.run(async () => {
-            if (this.captureId) await this.service.updateCapture(this.captureId, this.draft);
-            else await this.service.capture(this.draft);
+            const value = this.form?.value() ?? this.draft;
+            if(!value.text.trim()) value.text=[value.taskTitle,value.description].filter(Boolean).join("\n");
+            if (this.captureId) await this.service.updateCapture(this.captureId, value);
+            else await this.service.capture(value);
             this.saved = true;
             new Notice("Sent to Inbox."); this.finish();
         });
     }
     addDirect() {
         if (this.busy || this.pendingImports) return;
+        if(this.form?.prepare?.() === false) return;
         if (!this.form?.valid()) {
             // Use the same required-field ordering as Inbox. Optional invalid
             // edits retain meaningful errors without becoming amber targets.
-            if (!this.guidance?.guide()) this.error.textContent = this.service.completion(this.form?.value() ?? this.draft, this.captureId).error ?? "";
+            this.error.textContent = this.service.completion(this.form?.value() ?? this.draft, this.captureId).error ?? "";
             return;
         }
         return this.run(async () => {
             const draft = this.form.value();
-            const result = draft.type === "task" ? await this.service.makeTask(draft, this.captureId) : draft.type === "note" ?
+            const result = draft.type === "task" ? await this.service.makeTask(draft, this.captureId, this.nativeAttempt ??= {}) : draft.type === "note" ?
                 await this.service.createNote(draft, this.captureId) : await this.service.addFiles(draft, this.captureId);
             this.saved = true; new Notice(result?.message ?? `Added ${draft.type}.`); this.finish();
         });
@@ -178,7 +174,7 @@ class QuickAddModal extends CaptureModal {
     }
     close() { if (!this.pendingImports) super.close(); }
     onClose() {
-        this.guidance?.destroy();
+        this.service.scheduleNativeRefresh?.();
         if (!this.saved && this.draft.attachments.length) void this.service.releaseAttachments(this.draft.attachments)
             .catch(error => new Notice(`Could not remove temporary attachment: ${error.message}`));
         super.onClose();

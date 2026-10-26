@@ -33,6 +33,8 @@ class HubInboxService {
             }));
         }
     }
+    refreshNativeInventory(owner) { const root=this.plugin.nativeTaskHost,host=owner&&root?.ownerHosts?root.ownerHosts().find(h=>h.matches(owner)):root; if(owner&&!host)throw Error("Native task authority is unavailable.");return host?.refreshInventory?.() ?? Promise.resolve(); }
+    scheduleNativeRefresh() { this.nativeRefresh = Promise.resolve().then(()=>this.refreshNativeInventory()).catch(error=>{ console.error("Native capture inventory refresh requires review",error); }); return this.nativeRefresh; }
     get state() { return this.plugin.projectWizard.data.inbox ?? { version: INBOX_VERSION, captures: [] }; }
     get captures() { return (Array.isArray(this.state.captures) ? this.state.captures : []).filter(item => item && typeof item.id === "string"); }
     get count() { return this.captures.length; }
@@ -88,7 +90,8 @@ class HubInboxService {
                 JSON.stringify(sourceMetadata(values.source ?? previous.source)) !== JSON.stringify(previous.source)) {
                 throw Error("Retry this item's saved operation before editing its content or attachments.");
             }
-            if (previous.operation.kind === "task") {
+            if (previous.operation.kind === "native-task") { require("./native-inbox-task").sameValues(previous.operation,values); }
+            else if (previous.operation.kind === "task") {
                 this.assertTaskValues(previous.operation, values);
                 if (values.workspaceId && values.workspaceId !== previous.operation.workspaceId) throw Error("Retry this task's original workspace.");
             } else if (previous.operation.kind === "note-insertion") {
@@ -102,10 +105,13 @@ class HubInboxService {
         if (String(text).trim() && attachments.length && !(String(previous.text).trim() && previous.attachments.length)) {
             throw Error("Write something or add a file. Clear the text or remove the file first.");
         }
-        const legacyRemainder = !previous.intent && !values.intent && (String(previous.text).trim() && previous.attachments.length ||
+        const legacyRemainder = !this.plugin.nativeTaskHost && !previous.intent && !values.intent && (String(previous.text).trim() && previous.attachments.length ||
             values.type === "task" && (taskTitle(text) !== text.trim() || values.taskTitle !== undefined && String(values.taskTitle).trim() !== text.trim()));
         const intent = legacyRemainder ? null : captureIntent({ ...previous.intent, ...values }, attachments);
-        const result = { ...previous, text, attachments, kind: captureKind(text, attachments), source: sourceMetadata(values.source ?? previous.source) };
+        const actionDrafts = {...previous.actionDrafts};
+        if(previous.intent?.type && previous.intent.type !== intent?.type) actionDrafts[previous.intent.type] = clone(previous.intent);
+        if(Object.keys(actionDrafts).length && intent?.type) actionDrafts[intent.type] = clone(intent);
+        const result = { ...previous, ...(Object.keys(actionDrafts).length?{actionDrafts}:{}), text, attachments, kind: captureKind(text, attachments), source: sourceMetadata(values.source ?? previous.source) };
         if (intent) result.intent = intent; else delete result.intent;
         if (JSON.stringify(result) === JSON.stringify(previous)) return previous;
         await this.replace(result); return result;
@@ -153,7 +159,7 @@ class HubInboxService {
         if (text.trim() && refs.length && !(capture.text.trim() && capture.attachments.length)) {
             throw Error("Write something or add a file. Clear the text or remove the file first.");
         }
-        const legacyRemainder = !capture.intent && (capture.text.trim() && capture.attachments.length ||
+        const legacyRemainder = !this.plugin.nativeTaskHost && !capture.intent && (capture.text.trim() && capture.attachments.length ||
             values.type === "task" && (taskTitle(text) !== text.trim() || values.taskTitle !== undefined && String(values.taskTitle).trim() !== text.trim()));
         const intent = legacyRemainder ? null : captureIntent({ ...capture.intent, ...values }, refs);
         if (text !== capture.text || JSON.stringify(refs) !== JSON.stringify(capture.attachments) ||
@@ -166,6 +172,7 @@ class HubInboxService {
         return capture;
     }
     completion(values = {}, captureId) {
+        if(values.type === "task" && this.plugin.nativeTaskHost) { try { require("./native-inbox-task").payload(this,values,this.get(captureId)??{}); return {complete:true,ready:true,error:null,ratio:1,missing:[],completedRequired:1,totalRequired:1}; } catch(error) { return {complete:false,ready:false,error:error.message,ratio:0,missing:[],completedRequired:0,totalRequired:1}; } }
         const type = values.type, requirements = [];
         const requireValue = (valid, message) => { if (!valid) throw Error(message); };
         const check = (label, validate, progress = true) => {
@@ -233,7 +240,8 @@ class HubInboxService {
     workspace(id) { return this.destinations().find(workspace => workspace.id === id || workspace.root === id) ?? null; }
     workspacePath(path, workspace) {
         if (typeof path !== "string" || !path || !validLocation(path, workspace)) return false;
-        if (workspace.contextKind === "resource") return true;
+        if(path === workspace.root) return !!this.plugin.nativeTaskHost || workspace.contextKind === "resource";
+        if (workspace.contextKind === "resource" || this.plugin.nativeTaskHost && path.slice(0,path.lastIndexOf("/")) === workspace.root) return true;
         // Files renders direct child folders as real Project workspaces. The
         // synthetic root group exists only to display older loose root files.
         const relative = path.slice(workspace.root.length + 1), name = relative.split("/")[0];
@@ -241,8 +249,9 @@ class HubInboxService {
     }
     taskLocations(id) {
         const workspace = this.workspace(id); if (!workspace) return [];
-        return this.plugin.taskEditor.locations(workspace.root).filter(location => this.workspacePath(location.path, workspace));
+        return this.plugin.taskEditor.locations(workspace.root).filter(location => this.workspacePath(location.path, workspace) && (workspace.contextKind === "resource" || location.path !== workspace.root));
     }
+    noteLocations(id) { const workspace=this.workspace(id);return workspace?this.plugin.taskEditor.locations(workspace.root).filter(location=>this.workspacePath(location.path,workspace)):[]; }
     noteDestination(values, structural = true) {
         const workspace = this.workspace(values.workspaceId), location = noteLocation(values.noteLocation);
         if (!workspace || this.plugin.oath?.canOpen(workspace) === false) throw Error("Choose an available note workspace.");
@@ -270,11 +279,9 @@ class HubInboxService {
             .sort((a, b) => a.path === workspace.root ? -1 : b.path === workspace.root ? 1 : a.label.localeCompare(b.label, undefined, { numeric: true }));
     }
     destination(values) {
-        const workspace = this.workspace(values.workspaceId), folder = values.folder || (workspace?.contextKind === "resource" ? workspace.root : "");
+        const workspace = this.workspace(values.workspaceId), folder = values.folder || (this.plugin.nativeTaskHost || workspace?.contextKind === "resource" ? workspace?.root : "");
         if (!workspace) throw Error("This Project or Resource is no longer available. Choose a destination.");
-        if (workspace.contextKind === "project" && (!folder || folder === workspace.root)) {
-            throw Error("Choose a workspace folder inside this Project. The Project root is not a destination.");
-        }
+
         if (!this.workspacePath(folder, workspace) || !isFolderLike(this.app.vault.getAbstractFileByPath(folder))) {
             throw Error("This destination folder is no longer available. Choose another folder.");
         }
@@ -299,9 +306,8 @@ class HubInboxService {
         const workspace = taskWorkspaces(this.plugin).find(item => item.projectId === operation.workspaceId);
         if (!workspace) throw Error("This Project or Resource is no longer available. Choose a destination.");
         const folder = operation.folder;
-        if (workspace.contextKind === "project" && (!folder || folder === workspace.root)) {
-            throw Error("Choose a workspace folder inside this Project. The Project root is not a destination.");
-        }
+
+        if (!this.plugin.nativeTaskHost && workspace.contextKind === "project" && (!folder || folder === workspace.root)) throw Error("Choose a workspace folder inside this Project. The Project root is not a destination.");
         const paths = [...(operation.moves ?? []).map(move => move.to), ...(operation.note ? [operation.note.path] : [])];
         if (typeof folder !== "string" || !validLocation(folder, workspace) || paths.some(path => typeof path !== "string" ||
             path.slice(0, path.lastIndexOf("/")) !== folder || !validLocation(path, workspace))) {
@@ -387,6 +393,7 @@ class HubInboxService {
         }
     }
     delete(id) { return this.enqueue(async () => {
+        if(this.required(id).operation?.kind === "native-task") throw Error("Resolve the retained native task operation before deleting its source item.");
         const capture = this.required(id);
         if (["note", "files"].includes(capture.operation?.kind) && capture.operation.state === "prepared") {
             let valid = false;
@@ -644,7 +651,9 @@ class HubInboxService {
             return kind === "note" ? { file, attachments: files } : { files, note: file };
         } catch (error) { error.captureId = capture.id; throw error; }
     }
-    makeTask(values, captureId) { return this.enqueue(async () => {
+    makeTask(values, captureId, attempt) {
+        if(this.plugin.nativeTaskHost) return this.enqueue(()=>require("./native-inbox-task").submit(this,values,captureId,attempt));
+        return this.enqueue(async () => {
         let capture = captureId ? this.required(captureId) : await this.createCapture({ ...values, type: "task" });
         values = { ...capture.intent, ...values, type: "task" };
         try {
