@@ -1,6 +1,7 @@
 "use strict";
 
 const { randomUUID } = require("crypto");
+const { increment } = require("./storage-diagnostics");
 const Core = require("../core/index");
 const { compileCuratedWhitelist, curatedWhitelist, serviceHostnames } = require("../presets/curated-whitelist");
 const { initialApplication, buildDestinationChange, validateDestinations, mergeCuratedDestinations, replacementMatches, samePolicy } = require("./application");
@@ -32,10 +33,12 @@ function createAtlasRuntime({ repository, clock, configuration = DEVELOPMENT_CON
         ownerId: randomUUID(), ...(managedBlacklist === undefined ? {} : { managedBlacklist }) });
     const contexts = new Map(), subscribers = new Set();
     let queue = Promise.resolve(), enabled = true, batchDepth = 0, pendingPublication = false, lastPublication = null;
+    let epoch = 0, recoveryEpoch = -1, recoveryUsed = false, recovering = false, opening = 0;
+    const recovery = { automaticAttempts: 0, automaticSucceeded: 0, automaticFailed: 0, manualAttempts: 0, manualSucceeded: 0, manualFailed: 0, status: "IDLE" };
     const describe = createPresentation(); let applicationVersion, cachedApplication;
     const presentationTime = () => { try { return clock.now(); } catch (_) { return NaN; } };
     const enqueue = work => {
-        const task = queue.then(async () => { batchDepth++; try { return await work(); }
+        const task = queue.then(async () => { batchDepth++; epoch++; try { return await work(); }
             catch (_) { failAll("ADAPTER_FAILURE"); return blocked("ADAPTER_FAILURE"); }
             finally { batchDepth--; if (pendingPublication) { pendingPublication = false; publish(); } } });
         queue = task.then(() => undefined, () => undefined); return task;
@@ -63,9 +66,48 @@ function createAtlasRuntime({ repository, clock, configuration = DEVELOPMENT_CON
         publish();
     }
     function failAll(reason) { for (const context of contexts.values()) failContext(context, blocked(reason)); }
+    function storageView() { try { return repository.getDiagnostics?.() ?? null; } catch (_) { return null; } }
+    async function recoverTransientStorage() {
+        const state = controller.getView(), failure = storageView()?.lastFailure;
+        if (!enabled || opening || recovering || recoveryUsed || state.status !== "UNAVAILABLE" || state.reason !== "WRITE_FAILED" ||
+            state.pendingCommitId !== null || failure?.operation !== "COMMIT" || failure.outcome !== "NOT_WRITTEN" ||
+            !["BUSY", "INTERRUPTED", "IO_ERROR"].includes(failure.cause)) return false;
+        recoveryUsed = true; recovering = true; recoveryEpoch = epoch;
+        recovery.automaticAttempts = increment(recovery.automaticAttempts); recovery.status = "ATTEMPTING";
+        try {
+            // A released/loading request cannot retain correlation through a
+            // controller reload. Never replay its request, body or confirmation.
+            for (const context of contexts.values()) {
+                context.rootOrigin = null;
+                if (context.flight) failContext(context, blocked("RECOVERY_REQUIRED"));
+            }
+            await controller.open(); // same owner, repository and clock floor
+            if (controller.getView().status === "READY") {
+                // Core ends old Journeys. Only fresh checks may retain a loaded
+                // page; an intermediate without independent access is closed.
+                for (const context of contexts.values()) if (context.displayed && !context.closed) await recheck(context);
+            }
+        } catch (_) { /* A recovery error cannot create authority. */ }
+        finally { recovering = false; }
+        const ready = controller.getView().status === "READY";
+        recovery[ready ? "automaticSucceeded" : "automaticFailed"] = increment(recovery[ready ? "automaticSucceeded" : "automaticFailed"]);
+        recovery.status = ready ? "RECOVERED" : "BLOCKED"; publish(); return ready;
+    }
     async function core(operation) {
-        const response = await controller.handle(operation);
-        if (response.type === "BLOCKED") failAll(response.reason);
+        let response = await controller.handle(operation), recovered = false, reassessed = false;
+        if (response.type === "BLOCKED") {
+            recovered = await recoverTransientStorage();
+            // Repeat only a pure assessment/clock observation after verified
+            // recovery. BEGIN, grants, proposals and confirmations never replay.
+            if (recovered && ["CHECK_NAVIGATION", "OBSERVE_TIME"].includes(operation.kind)) {
+                const context = operation.kind === "CHECK_NAVIGATION" ? contexts.get(operation.context.contextId) : null;
+                reassessed = true; response = await controller.handle(context ? { ...operation, context: binding(context) } : operation);
+            }
+            if (response.type === "BLOCKED" && (reassessed || !recovered || controller.getView().status !== "READY")) failAll(response.reason);
+        } else if (!recovering && !opening && recoveryEpoch !== epoch && controller.getView().status === "READY") {
+            // A separate healthy operation establishes a new failure episode.
+            recoveryUsed = false;
+        }
         return response;
     }
     function attach(nativeId, effects) {
@@ -73,7 +115,9 @@ function createAtlasRuntime({ repository, clock, configuration = DEVELOPMENT_CON
             phase: "BLANK", response: null, origin: null, flight: null, displayed: null, rootOrigin: null };
         contexts.set(context.id, context); publish(); return context;
     }
-    async function open() {
+    async function open(manual = false) {
+        opening++; if (manual) { recovery.manualAttempts = increment(recovery.manualAttempts); }
+        try {
         enabled = true;
         // Recovery invalidates all browser provenance before Core closes old
         // Journey bindings. It never resumes an old held request/confirmation.
@@ -88,7 +132,10 @@ function createAtlasRuntime({ repository, clock, configuration = DEVELOPMENT_CON
                 }
             }
         }
-        const view = await controller.open(); publish(); return view;
+        const view = await controller.open();
+        if (manual) { const ready = view.status === "READY"; recoveryUsed = !ready; recovery[ready ? "manualSucceeded" : "manualFailed"] = increment(recovery[ready ? "manualSucceeded" : "manualFailed"]); recovery.status = ready ? "RECOVERED" : "BLOCKED"; }
+        publish(); return view;
+        } finally { opening--; }
     }
     async function initialize(policy, terms = configuration) {
         if (controller.getView().status !== "UNINITIALIZED") return blocked("ALREADY_INITIALIZED");
@@ -184,7 +231,8 @@ function createAtlasRuntime({ repository, clock, configuration = DEVELOPMENT_CON
             } else {
                 response = await core({ kind: "CHECK_NAVIGATION", target: webTarget(url), context: binding(context) });
             }
-            if (!allowed(response)) { failContext(context, response); return response; }
+            if (context.closed || !enabled) return blocked("CONTEXT_CLOSED");
+            if (!allowed(response)) { if (context.flight === captured) failContext(context, response); return response; }
             if (context.flight !== captured) return response; // completion saved; newer request still held
             context.displayed = { url, loaderId, response };
             context.flight = null; context.response = response; context.origin = homeOrigin(url);
@@ -193,10 +241,11 @@ function createAtlasRuntime({ repository, clock, configuration = DEVELOPMENT_CON
     }
     async function recheck(context) {
         if (context.closed && context.phase !== "BLOCKED") return;
-        const loaded = context.displayed;
+        const loaded = context.displayed, generation = context.generation;
         if (!loaded) {
             if (context.phase === "BLOCKED" && context.origin) {
-                context.response = await core({ kind: "CHECK_NAVIGATION", target: webTarget(context.origin), context: binding(context) });
+                const origin = context.origin, response = await core({ kind: "CHECK_NAVIGATION", target: webTarget(origin), context: binding(context) });
+                if (enabled && contexts.get(context.id) === context && context.generation === generation && context.phase === "BLOCKED" && context.origin === origin) context.response = response;
             }
             return;
         }
@@ -211,6 +260,7 @@ function createAtlasRuntime({ repository, clock, configuration = DEVELOPMENT_CON
         const current = journey(context);
         const response = await core({ kind: "CHECK_NAVIGATION", target: webTarget(loaded.url),
             context: binding(context, current ? { kind: "RETAINED", sourceHostname: current.currentHostname } : undefined) });
+        if (!valid(context, generation) || context.displayed !== loaded) return;
         if (!allowed(response)) failContext(context, response);
         else {
             context.response = response; loaded.response = response;
@@ -218,7 +268,8 @@ function createAtlasRuntime({ repository, clock, configuration = DEVELOPMENT_CON
         }
     }
     async function observe() {
-        if (!enabled || controller.getView().status !== "READY") return;
+        if (!enabled) return;
+        if (controller.getView().status !== "READY") { await recoverTransientStorage(); if (controller.getView().status !== "READY") { publish(); return; } }
         await core({ kind: "OBSERVE_TIME" });
         for (const context of contexts.values()) await recheck(context);
         publish();
@@ -252,6 +303,7 @@ function createAtlasRuntime({ repository, clock, configuration = DEVELOPMENT_CON
         const display = describe(state, cachedApplication, enabled, presentationTime(), managed, managedBlacklist !== undefined);
         return { ...state, enabled, application: cachedApplication, ...display, starter,
             initialConfiguration: state.snapshot ? null : configuration, repositoryIssue: repository.issue ?? null,
+            storage: storageView(), recovery: { ...recovery },
             contexts: [...contexts.values()].map(context => ({ id: context.id, nativeId: context.nativeId,
                 generation: context.generation, closed: context.closed, phase: context.phase,
                 response: context.response, origin: context.origin, journey: snapshot()?.journeyState.journeys.find(j => j.contextId === context.id) ?? null })) };
@@ -336,7 +388,7 @@ function createAtlasRuntime({ repository, clock, configuration = DEVELOPMENT_CON
                 finally { repository.clearApplicationStage(); }
             } catch (error) { return { type: "REJECTED", reason: error.message }; }
         }
-        if (kind === "RECOVER" && Object.keys(input).length === 1) return open();
+        if (kind === "RECOVER" && Object.keys(input).length === 1) return open(true);
         if (kind === "INITIALIZE" && Object.keys(input).length === 3) return initialize(input.policy, input.configuration);
         if (["PROPOSE_POLICY", "PROPOSE_SETTINGS", "REVIEW_POLICY", "CONFIRM_POLICY", "CANCEL_POLICY"].includes(kind)) {
             const oldRevision = snapshot()?.policyRevision;
@@ -420,7 +472,13 @@ function createAtlasRuntime({ repository, clock, configuration = DEVELOPMENT_CON
         const prior = controller.getView();
         const receipt = await repository.replace(prior.storageVersion, `presentation:${randomUUID()}`,
             { schemaVersion: 2, snapshot: prior.snapshot, application });
-        if (receipt.type !== "COMMITTED") { failAll(reason); await core({ kind: "OBSERVE_TIME" }); publish(); return blocked(reason); }
+        if (receipt.type !== "COMMITTED") {
+            // A proven aborted metadata save cannot revoke otherwise-valid
+            // browsing. Unknown outcomes still close content before reconciling.
+            if (receipt.type !== "NOT_WRITTEN") failAll(reason);
+            await core({ kind: "OBSERVE_TIME" }); publish();
+            return blocked(receipt.type === "NOT_WRITTEN" && controller.getView().status === "READY" ? "PRESENTATION_NOT_WRITTEN" : reason);
+        }
         await core({ kind: "OBSERVE_TIME" }); publish();
         return controller.getView().status === "READY" ? { type: "COMMITTED", operation: "PRESENTATION" } : blocked(reason);
     }
@@ -428,7 +486,7 @@ function createAtlasRuntime({ repository, clock, configuration = DEVELOPMENT_CON
         updateManaged: work => enqueue(async () => { const result = await work(); if (result && controller.getView().status === "READY") await observe(); else publish(); return result; }),
         open: () => enqueue(open), command: input => {
             let copy; try { copy = structuredClone(input); } catch (_) { copy = null; }
-            return enqueue(() => command(copy));
+            return enqueue(() => enabled ? command(copy) : blocked("INTEGRATION_SUSPENDED"));
         }, observe: () => enqueue(observe), close, retireDocument, view, now: () => clock.now(),
         block: (context, reason) => failContext(context, blocked(reason)),
         subscribe(callback) { if (!subscribers.size) lastPublication = presentationKey(view(), presentationTime()); subscribers.add(callback); return () => subscribers.delete(callback); },

@@ -1,0 +1,226 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-10-26",
+  "baselineCommit": "d5087e3a944eca545241bb1b4b09fdc8c91600c0",
+  "backend": "Node filesystem, isolated temporary repositories on Windows",
+  "method": "Controlled faults around real fs calls; no user authority files accessed. Probe compares archived baseline source with repaired source. OS sharing violation is a separate test.",
+  "before": {
+    "date": "2026-10-26",
+    "cases": [
+      {
+        "name": "confirmed-pre-journal-failure-latches",
+        "afterFailure": "UNAVAILABLE",
+        "reason": "WRITE_FAILED",
+        "afterHealthyObservation": "UNAVAILABLE",
+        "journalAbsent": true,
+        "policyIntact": true,
+        "afterManualRecovery": "READY"
+      },
+      {
+        "name": "load-validation-cached-bytes-race",
+        "loadedType": "READY",
+        "returnedOldPolicy": true,
+        "cachedBytesChanged": true,
+        "cachedBytesEqualExternal": true
+      },
+      {
+        "name": "definite-display-failure-closes-content",
+        "closedByDisplayFailure": true,
+        "controller": "READY"
+      },
+      {
+        "name": "owner-lock-acknowledgement-failure",
+        "first": "UNAVAILABLE",
+        "second": "UNAVAILABLE",
+        "issue": "STORAGE_LOCKED"
+      },
+      {
+        "name": "external-revocation-during-load",
+        "externalWriteInjected": true,
+        "revocationRetained": false,
+        "status": "READY",
+        "navigationReleased": true
+      },
+      {
+        "name": "persistent-growth",
+        "samples": [
+          {
+            "documents": 0,
+            "bytes": 1165,
+            "journeys": 0,
+            "ended": 0,
+            "receiptHistory": 0
+          },
+          {
+            "documents": 25,
+            "bytes": 1421,
+            "journeys": 1,
+            "ended": 1,
+            "receiptHistory": 0
+          },
+          {
+            "documents": 100,
+            "bytes": 1424,
+            "journeys": 1,
+            "ended": 1,
+            "receiptHistory": 0
+          }
+        ]
+      },
+      {
+        "name": "distinct-context-growth",
+        "samples": [
+          {
+            "closedContexts": 0,
+            "bytes": 1165,
+            "journeys": 0,
+            "ended": 0
+          },
+          {
+            "closedContexts": 25,
+            "bytes": 7532,
+            "journeys": 25,
+            "ended": 25
+          },
+          {
+            "closedContexts": 100,
+            "bytes": 26660,
+            "journeys": 100,
+            "ended": 100
+          }
+        ]
+      }
+    ]
+  },
+  "after": {
+    "date": "2026-10-26",
+    "cases": [
+      {
+        "name": "confirmed-pre-journal-failure-latches",
+        "afterFailure": "READY",
+        "reason": null,
+        "afterHealthyObservation": "READY",
+        "journalAbsent": true,
+        "policyIntact": true,
+        "afterManualRecovery": "READY"
+      },
+      {
+        "name": "load-validation-cached-bytes-race",
+        "loadedType": "READY",
+        "returnedOldPolicy": true,
+        "cachedBytesChanged": false,
+        "cachedBytesEqualExternal": false
+      },
+      {
+        "name": "definite-display-failure-closes-content",
+        "closedByDisplayFailure": false,
+        "controller": "READY"
+      },
+      {
+        "name": "owner-lock-acknowledgement-failure",
+        "first": "UNAVAILABLE",
+        "second": "UNINITIALIZED",
+        "issue": null
+      },
+      {
+        "name": "external-revocation-during-load",
+        "externalWriteInjected": true,
+        "revocationRetained": true,
+        "status": "UNAVAILABLE",
+        "navigationReleased": false
+      },
+      {
+        "name": "persistent-growth",
+        "samples": [
+          {
+            "documents": 0,
+            "bytes": 1165,
+            "journeys": 0,
+            "ended": 0,
+            "receiptHistory": 0
+          },
+          {
+            "documents": 25,
+            "bytes": 1421,
+            "journeys": 1,
+            "ended": 1,
+            "receiptHistory": 0
+          },
+          {
+            "documents": 100,
+            "bytes": 1424,
+            "journeys": 1,
+            "ended": 1,
+            "receiptHistory": 0
+          }
+        ]
+      },
+      {
+        "name": "distinct-context-growth",
+        "samples": [
+          {
+            "closedContexts": 0,
+            "bytes": 1165,
+            "journeys": 0,
+            "ended": 0
+          },
+          {
+            "closedContexts": 25,
+            "bytes": 7532,
+            "journeys": 25,
+            "ended": 25
+          },
+          {
+            "closedContexts": 100,
+            "bytes": 26660,
+            "journeys": 100,
+            "ended": 100
+          }
+        ]
+      }
+    ]
+  },
+  "verification": {
+    "core": {
+      "passed": 191,
+      "failed": 0
+    },
+    "adapter": {
+      "passed": 120,
+      "failed": 0,
+      "newStorageTests": 23,
+      "skipped": 0
+    },
+    "hub": {
+      "passed": 554,
+      "failed": 1,
+      "preExistingFailure": "task-data.test.js: extracted Home fixture omits homeTaskCountComplete",
+      "isolatedHeadFailureReproduced": true
+    },
+    "native": {
+      "passed": 25,
+      "failed": 0,
+      "newStorageCases": 3
+    },
+    "browser": {
+      "passed": 7,
+      "failed": 0
+    },
+    "adapterTypecheck": "passed",
+    "coreTypecheck": "passed",
+    "independentBuilds": {
+      "main.js": {
+        "sourceBuildSha256": "53192b444555329fa28d4e44ee56b2449e69bb47d2c4434bf24954bdb92c350f",
+        "installedSha256": "1803388fc661b5560492ffeb7080f53c5be01d93c2caf00bf530389f5991dd5b",
+        "installedUnchanged": true,
+        "independentBuildsEqual": true
+      },
+      "atlas-native.cjs": {
+        "sourceBuildSha256": "6601f4c34cada9cd689c2e0b1cc568859de39e811744b1a2e572df12ccf086c9",
+        "installedSha256": "df51003cd21e58269240ee14085dd6a47155ef7e0c726dc199388ebbb427c6f1",
+        "installedUnchanged": true,
+        "independentBuildsEqual": true
+      }
+    }
+  }
+}

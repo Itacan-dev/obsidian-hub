@@ -20,14 +20,14 @@ function installAtlasIntegration(plugin) {
     const bridge = {
         view() { return description ?? { status: "UNAVAILABLE", reason: issue, snapshot: null, contexts: [] }; },
         async command(input) {
-            if (!host) return { type: "BLOCKED", reason: issue };
+            if (stopped || !host) return { type: "BLOCKED", reason: stopped ? "INTEGRATION_CLOSED" : issue };
             if (["START_ACCESS", "CONFIRM_ACCESS_AND_OPEN", "CANCEL_ACCESS", "OPEN_HOME", "RETRY_JOURNEY", "CANCEL_JOURNEY"].includes(input?.kind)) {
                 const context = bridge.view().contexts.find(c => c.id === input.contextId && c.generation === input.generation);
                 if (!context || !bridge.canActOnContext(context)) return { type: "BLOCKED", reason: "STALE_CONTEXT" };
             }
-            const result = JSON.parse(await host.commandJSON(JSON.stringify(input))); if (readDescription()) { refresh(); publish(); } return result;
+            const result = JSON.parse(await host.commandJSON(JSON.stringify(input))); if (stopped) return { type: "BLOCKED", reason: "TRANSPORT_UNRESOLVED" }; if (readDescription()) { refresh(); publish(); } return result;
         },
-        subscribe(callback) { listeners.add(callback); return () => listeners.delete(callback); },
+        subscribe(callback) { if (stopped) return () => {}; listeners.add(callback); return () => listeners.delete(callback); },
         isSettingsOpen: () => getSettingsOwner(plugin).isOpen(),
         canActOnContext(context) {
             if (stopped || !host) return false;
@@ -35,8 +35,9 @@ function installAtlasIntegration(plugin) {
             const leaf = record && app.workspace.getLeavesOfType("webviewer").find(l => l.view === record.view);
             return !!leaf && canUseAtlasContext(plugin, leaf);
         },
-        forget(nativeId) { host?.forget(nativeId); },
+        forget(nativeId) { if (!stopped) host?.forget(nativeId); },
         open(route) {
+            if (stopped) return false;
             const session = getAtlasSession(bridge), target = normalizeRoute(route, session.route);
             if (stopped || !target) return false;
             session.route = target;
@@ -260,7 +261,7 @@ function installAtlasIntegration(plugin) {
         const directory = path.resolve(base, plugin.manifest.dir);
         const candidate = window.electron.remote.require(path.join(directory, "atlas-native.cjs"))
             .getAtlasHost({ directory, partition: app.getWebviewPartition() });
-        if (candidate.apiVersion !== 4) {
+        if (candidate.apiVersion !== 5) {
             // Never hot-swap an old controller or its uncertain-write guards.
             try { candidate.unsubscribe(null); } catch (_) { /* quarantine below */ }
             throw new Error("NATIVE_ADAPTER_UPGRADE_REQUIRED");
@@ -292,12 +293,12 @@ function installAtlasIntegration(plugin) {
                 const state = leaf.getViewState?.();
                 return state?.type === "webviewer" && state.state?.url === "about:blank" && (!leaf.view?.url || leaf.view.url === "about:blank");
             });
-            if (existing) { await app.workspace.revealLeaf(existing); scan(); const eligible = canOpenAtlas(plugin, existing, expectedMode); if (eligible) existing.view.contentEl.querySelector(".hub-atlas-home input[type=search]")?.focus({ preventScroll: true }); return eligible; }
+            if (existing) { await app.workspace.revealLeaf(existing); scan(); const eligible = !stopped && canOpenAtlas(plugin, existing, expectedMode); if (eligible) existing.view.contentEl.querySelector(".hub-atlas-home input[type=search]")?.focus({ preventScroll: true }); return eligible; }
             const preferred = modes.pickContentLeaf() ?? source, anchor = canOpenAtlas(plugin, preferred, expectedMode) ? preferred : source;
             if (!canOpenAtlas(plugin, source, expectedMode)) return false;
             const leaf = modes.createTabLeaf(anchor);
             await leaf.setViewState({ type: "webviewer", state: { url: "about:blank", atlasHome: true, title: "Atlas" }, active: true });
-            if (!canOpenAtlas(plugin, leaf, expectedMode)) { leaf.detach?.(); return false; }
+            if (stopped || !canOpenAtlas(plugin, leaf, expectedMode)) { leaf.detach?.(); return false; }
             leaf.view.__atlasHome = true; scan(); modes.captureNoteLayout(); leaf.view.contentEl.querySelector(".hub-atlas-home input[type=search]")?.focus({ preventScroll: true }); return true;
         };
         const pending = work().finally(() => { if (launchingHome === pending) launchingHome = null; });

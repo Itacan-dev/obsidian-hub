@@ -1,11 +1,14 @@
 "use strict";
-const { spawn } = require("child_process"), fs = require("fs"), path = require("path"), os = require("os");
+const { spawn, execFileSync } = require("child_process"), fs = require("fs"), path = require("path"), os = require("os");
 const directory = fs.mkdtempSync(path.join(os.tmpdir(), "atlas-native-test-"));
-const env = { ...process.env, ATLAS_NATIVE_TEST_ROOT: directory };
+const bundle = path.join(directory, "build");
+// Validate current source without deploying over the installed plugin.
+execFileSync(process.execPath, [path.resolve(__dirname, "../../../../build.js"), "--output-dir", bundle], { windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
+const env = { ...process.env, ATLAS_NATIVE_TEST_ROOT: directory, ATLAS_NATIVE_TEST_BUNDLE: path.join(bundle, "atlas-native.cjs") };
 delete env.ELECTRON_RUN_AS_NODE;
 const child = spawn(require("electron"), [path.join(__dirname, "runner.cjs")], { env, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
 let output = "", completed = false;
-child.stdout.on("data", data => { process.stdout.write(data); output = (output + data.toString()).slice(-1000); completed ||= /Native Atlas tests: 22 passed/.test(output); });
+child.stdout.on("data", data => { process.stdout.write(data); output = (output + data.toString()).slice(-1000); completed ||= /Native Atlas tests: 25 passed/.test(output); });
 child.stderr.on("data", data => process.stderr.write(data));
 child.on("error", error => { console.error(error); process.exitCode = 1; });
 child.on("close", code => {

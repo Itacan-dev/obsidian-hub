@@ -244,11 +244,53 @@ app.whenReady().then(async () => {
         assert.equal(item.guest.isDestroyed(), true); assert.equal(item.context.displayed, null);
         assert.equal(runtime.view().snapshot.accessState.grants.some(grant => grant.expiresAt > now), false);
     });
+    await caseTest("a confirmed transient checkpoint failure recovers without reloading a valid native page", async () => {
+        const item = await createGuest(), prior = runtime.view(), beforeRequests = requests.length, originalIO = repository.io, io = Object.create(fs);
+        let injected = false;
+        io.openSync = (name, ...args) => { if (!injected && path.basename(String(name)).startsWith(".authority-")) { injected = true; throw Object.assign(Error("injected busy candidate"), { code: "EBUSY" }); } return fs.openSync(name, ...args); };
+        try {
+            repository.io = io; now++; await runtime.observe();
+            assert.ok(injected); assert.equal(runtime.view().status, "READY");
+            assert.equal(runtime.view().recovery.automaticAttempts, prior.recovery.automaticAttempts + 1);
+            assert.equal(runtime.view().recovery.automaticSucceeded, prior.recovery.automaticSucceeded + 1);
+            assert.equal(item.guest.isDestroyed(), false); assert.equal(item.context.phase, "DISPLAYED");
+            assert.equal(requests.length, beforeRequests, "Recovery never reloads or replays a request");
+            assert.deepEqual(runtime.view().snapshot.policy, prior.snapshot.policy);
+        } finally { repository.io = originalIO; }
+        const denied = await createGuest(url("blocked.test", "/storage-still-denied"));
+        assert.equal(denied.context.phase, "BLOCKED"); assert.equal(requests.some(r => r.pathname === "/storage-still-denied"), false);
+    });
+    await caseTest("persistent candidate failure exhausts one native recovery and manual recovery remains usable", async () => {
+        const item = await createGuest(), prior = runtime.view(), originalIO = repository.io, io = Object.create(fs); let failures = 0;
+        io.openSync = (name, ...args) => { if (path.basename(String(name)).startsWith(".authority-")) { failures++; throw Object.assign(Error("persistent busy candidate"), { code: "EBUSY" }); } return fs.openSync(name, ...args); };
+        try {
+            repository.io = io; now++; await runtime.observe();
+            assert.equal(runtime.view().status, "UNAVAILABLE"); assert.equal(item.guest.isDestroyed(), true);
+            for (let i = 0; i < 20; i++) { now++; await runtime.observe(); }
+            assert.equal(failures, 2); assert.equal(runtime.view().recovery.automaticAttempts, prior.recovery.automaticAttempts + 1);
+            assert.equal(runtime.view().recovery.automaticFailed, prior.recovery.automaticFailed + 1); assert.deepEqual(runtime.view().snapshot.policy, prior.snapshot.policy);
+        } finally { repository.io = originalIO; }
+        await runtime.command({ kind: "RECOVER" }); assert.equal(runtime.view().status, "READY");
+        const fresh = await createGuest(); assert.equal(fresh.context.phase, "DISPLAYED");
+    });
+    await caseTest("a real applied write with lost acknowledgement stays fenced until explicit native reconciliation", async () => {
+        const item = await createGuest(), prior = runtime.view(), originalIO = repository.io, io = Object.create(fs); let injected = false;
+        io.renameSync = (from, to) => { fs.renameSync(from, to); if (!injected) { injected = true; throw Object.assign(Error("lost native acknowledgement"), { code: "EIO" }); } };
+        try {
+            repository.io = io; now++; await runtime.observe(); assert.ok(injected);
+            assert.equal(runtime.view().status, "RECONCILING"); assert.equal(item.guest.isDestroyed(), true);
+            for (let i = 0; i < 5; i++) await runtime.observe();
+            assert.equal(runtime.view().recovery.automaticAttempts, prior.recovery.automaticAttempts);
+            assert.ok(repository.read("pending.json"));
+        } finally { repository.io = originalIO; }
+        await runtime.command({ kind: "RECOVER" }); assert.equal(runtime.view().status, "READY"); assert.equal(repository.read("pending.json"), null);
+        assert.deepEqual(runtime.view().snapshot.policy, prior.snapshot.policy); const fresh = await createGuest(); assert.equal(fresh.context.phase, "DISPLAYED");
+    });
     await caseTest("Obsidian renderer bridge and functional Atlas UI", async () => {
         const remoteMain = require("@electron/remote/main"); remoteMain.initialize();
         const uiDirectory = path.join(directory, "ui-plugin"); fs.mkdirSync(uiDirectory);
         const pluginDirectory = path.resolve(__dirname, "../../../..");
-        fs.copyFileSync(path.join(pluginDirectory, "atlas-native.cjs"), path.join(uiDirectory, "atlas-native.cjs"));
+        fs.copyFileSync(process.env.ATLAS_NATIVE_TEST_BUNDLE ?? path.join(pluginDirectory, "atlas-native.cjs"), path.join(uiDirectory, "atlas-native.cjs"));
         const bundleDirectory = path.join(uiDirectory, "lib/atlas/managed/data"); fs.mkdirSync(bundleDirectory, { recursive: true });
         for (const name of ["hosts", "metadata.json"]) fs.copyFileSync(path.join(pluginDirectory, "lib/atlas/managed/data", name), path.join(bundleDirectory, name));
         // Operational fetch uses only the pinned fixture bytes in this suite.
@@ -261,7 +303,7 @@ app.whenReady().then(async () => {
         assert.match(result, /^PASS/); console.log(result);
         await uiWindow.webContents.executeJavaScript("document.body.replaceChildren()"); uiWindow.close();
     });
-    assert.equal(passed, 22); console.log(`Native Atlas tests: ${passed} passed`);
+    assert.equal(passed, 25); console.log(`Native Atlas tests: ${passed} passed`);
     cleanup(0);
 }).catch(error => { console.error(error.stack); console.error(JSON.stringify(trace.slice(-8))); if (runtime) console.error(JSON.stringify(runtime.view().contexts.slice(-2))); cleanup(1); });
 async function cleanup(code) {

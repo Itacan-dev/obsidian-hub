@@ -1,7 +1,7 @@
 "use strict";
 const { el, button, countdown, updateCountdowns, configurationInput, formatMilliseconds, renderNavigation } = require("./ui");
 const { getAtlasSession, createDestinationDraft, draftBase } = require("./session");
-const { describeOutcome, describeAuthorityFailure } = require("./feedback");
+const { describeOutcome, describeAuthorityFailure, storageSummary } = require("./feedback");
 const { normalizeTarget } = require("../core/target");
 const { pendingActions, phaseAt, presentationNow } = require("./pending");
 const { keyed, phaseAnnouncer, text: setText } = require("./dom");
@@ -290,7 +290,7 @@ function mountAtlasSettings(parent, bridge) {
             setText(startupCause, describeAuthorityFailure(state));
             setText(startupCodes, ["Authority: " + state.status, "Reason: " + (state.reason ?? "unavailable"),
                 "Storage issue: " + (state.repositoryIssue ?? "none reported"),
-                ...(state.pendingCommitId ? ["Pending transaction: " + state.pendingCommitId] : [])].join(" · "));
+                ...(state.pendingCommitId ? ["A transaction awaits explicit reconciliation."] : []), ...storageSummary(state)].join(" · "));
         }
         const nextMode = state.status === "UNINITIALIZED" ? "setup" : snapshot ? "ready" : "unavailable";
         if (nextMode !== mode) {
@@ -406,8 +406,9 @@ function mountAtlasSettings(parent, bridge) {
                 if (model.values) inputs.forEach((input, i) => { input.value = model.values[i]; });
                 const capture = () => { model.values = inputs.map(input => input.value); model.original ??= JSON.stringify(model.values); model.dirty = JSON.stringify(model.values) !== model.original; updateSessionSummary(); };
                 captureTimings = capture; for (const input of inputs) input.addEventListener("input", capture); capture();
-                if (model.feedback) paint(feedback, model.feedback);
-                protectedButton(form, "Review timing change in Vault", async () => {
+                let feedbackSignature = JSON.stringify(model.feedback); paint(feedback, model.feedback);
+                const submitTiming = protectedButton(form, "Review timing change in Vault", async () => {
+                    if (disposed || session.timings !== model || model.busy) return;
                     capture();
                     if (model.unresolved) { paint(feedback, { text: "The timing submission outcome is unresolved. Your values are kept; review saved state before retrying.", tone: "unresolved", section: "diagnostics" }); return; }
                     const latest = bridge.view();
@@ -423,15 +424,25 @@ function mountAtlasSettings(parent, bridge) {
                         }); return;
                     }
                     try {
-                        const command = { kind: "PROPOSE_SETTINGS", candidateConfiguration: read() }; model.busy = true; inputs.forEach(input => { input.disabled = true; });
-                        const result = await send(command); model.busy = false; inputs.forEach(input => { input.disabled = false; });
-                        if (result?.type === "COMMITTED") { if (session.timings === model) { session.timings = null; reset(); } }
-                        else { model.feedback = describeOutcome(command, result, bridge.view()); model.unresolved = model.feedback.tone === "unresolved"; paint(feedback, model.feedback); }
-                    } catch (error) { model.feedback = { text: error.message + " Your timing draft is kept.", tone: "error" }; paint(feedback, model.feedback); }
+                        const command = { kind: "PROPOSE_SETTINGS", candidateConfiguration: read() }; model.busy = true; session.changed();
+                        const result = await send(command); model.busy = false;
+                        if (result?.type === "COMMITTED") session.clearTimings(model);
+                        else { model.feedback = describeOutcome(command, result, bridge.view()); model.unresolved = model.feedback.tone === "unresolved"; }
+                    } catch (error) { model.feedback = { text: error.message + " Your timing draft is kept.", tone: "error" }; }
+                    finally { model.busy = false; if (session.timings === model) session.changed(); }
                 });
+                section.syncTimings = () => {
+                    if (session.timings !== model) { reset(); return; }
+                    for (const input of inputs) input.disabled = !!model.busy;
+                    submitTiming.dataset.atlasNotReady = model.busy || model.unresolved ? "true" : "false";
+                    submitTiming.disabled = !!model.busy || !!model.unresolved || submitTiming.dataset.atlasBusy === "true" || bridge.view().status !== "READY";
+                    const next = JSON.stringify(model.feedback); if (next !== feedbackSignature) { feedbackSignature = next; paint(feedback, model.feedback); }
+                };
+                section.syncTimings();
             };
-            reset(); button(section, "Reload committed timings (discard edits)", () => { if (session.timings?.busy) return; session.timings = null; feedback.replaceChildren(); reset(); });
+            reset(); button(section, "Reload committed timings (discard edits)", () => { if (session.timings?.busy) return; feedback.replaceChildren(); session.clearTimings(session.timings); });
         }
+        sections.get("timings").syncTimings?.();
         const pending = snapshot.vaultState.pendingProposal;
         if (review?.proposalId !== pending?.id) review = null;
         rebuild("vault", JSON.stringify([pending && [pending.id, pending.basePolicyRevision, pending.baseConfigurationRevision, pending.createdAt, pending.readyAt, pending.confirmBy, pending.candidatePolicy, pending.candidateConfiguration], snapshot.policyRevision, snapshot.configurationRevision, application?.recovery ? application.revision : null, application?.pending, application?.recovery, state.status]), section => {
@@ -579,7 +590,7 @@ function mountAtlasSettings(parent, bridge) {
             el(diagnostics, "h3", "Diagnostics / Recovery"); const lines = Array.from({ length: 6 }, () => el(diagnostics, "p"));
             const details = el(diagnostics, "details"); el(details, "summary", "Technical details");
             const version = el(details, "p", undefined, "hub-atlas-source"); version.dataset.atlasStorageVersion = "";
-            const issue = el(details, "p"), journeyList = el(details, "div");
+            const issue = el(details, "p"), storageLines = Array.from({ length: 6 }, () => el(details, "p")), journeyList = el(details, "div");
             const syncJourneys = keyed(journeyList, () => ({ node: el(journeyList, "p") }), (r, j) => setText(r.node, j.rootHostname + " → " + j.currentHostname + " · " + j.phase.toLowerCase() + (j.endReason ? " · " + j.endReason.toLowerCase() : "")));
             el(diagnostics, "p", "Recovery reloads and reconciles authority. It never clears your policy, confirms a proposal or replays a browser request.");
             button(diagnostics, "Recover saved state", () => send({ kind: "RECOVER" }));
@@ -592,7 +603,7 @@ function mountAtlasSettings(parent, bridge) {
                     "Active grants " + (current.temporaryDestinations ?? []).filter(g => g.decision.outcome === "ALLOW").length + " · saved grants " + s.accessState.grants.length + " · pending requests " + s.accessState.pendingRequests.length + " · Vault proposal " + (s.vaultState.pendingProposal?.id ?? "none"),
                     "Managed sync " + (current.managed?.status ?? "unavailable") + " · last success " + timestamp(current.managed?.lastSuccessfulSync)];
                 values.forEach((value, i) => setText(lines[i], value)); setText(version, "Storage version: " + current.storageVersion);
-                setText(issue, current.repositoryIssue ? "Storage issue: " + current.repositoryIssue : ""); syncJourneys(s.journeyState.journeys);
+                setText(issue, current.repositoryIssue ? "Storage issue: " + current.repositoryIssue : ""); const storageText = storageSummary(current); storageLines.forEach((node, i) => setText(node, storageText[i] ?? "")); syncJourneys(s.journeyState.journeys);
             };
         }
         diagnostics.updateDiagnostics(state);
