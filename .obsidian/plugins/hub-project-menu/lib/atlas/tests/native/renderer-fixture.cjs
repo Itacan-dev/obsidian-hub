@@ -11,7 +11,12 @@ module.exports = async function runRendererFixture({ directory, pluginDirectory,
     // Exercise the installed native theme, including real hover/focus selectors
     // and the webview's is-loading pseudo-element. Fixture state stays isolated.
     const fs = require("fs"), os = require("os"), nativeStyle = document.createElement("style");
-    nativeStyle.textContent = fs.readFileSync(path.join(os.homedir(), "AppData/Roaming/obsidian/obsidian-1.14.4.asar/app.css"), "utf8");
+    const obsidianDirectory = path.join(process.env.APPDATA || path.join(os.homedir(), "AppData/Roaming"), "obsidian");
+    const archive = process.env.ATLAS_OBSIDIAN_ASAR || fs.readdirSync(obsidianDirectory)
+        .filter(name => /^obsidian-\d+\.\d+\.\d+\.asar$/.test(name))
+        .sort((a, b) => b.localeCompare(a, undefined, { numeric: true }))[0];
+    assert.ok(archive, "Installed Obsidian theme archive is required for native layout assertions");
+    nativeStyle.textContent = fs.readFileSync(path.join(path.resolve(obsidianDirectory, archive), "app.css"), "utf8");
     document.head.appendChild(nativeStyle); document.body.classList.add("theme-dark");
     const style = document.createElement("style");
     style.textContent = require("fs").readFileSync(path.join(pluginDirectory, "styles.css"), "utf8"); document.head.appendChild(style);
@@ -332,12 +337,18 @@ module.exports = async function runRendererFixture({ directory, pluginDirectory,
     workspace.activeLeaf = note; await delay(100);
     // Native identity is shared by clients and retained across UI plugin reload.
     const version = host.view().storageVersion;
-    bridge.destroy(); for (const callback of cleanup) callback();
+    const lateLookup = bridge.command({ kind: "LOOKUP_MANAGED", hostname: "trusted.test" });
+    bridge.destroy();
+    assert.equal((await lateLookup).reason, "TRANSPORT_UNRESOLVED", "A late reply cannot acknowledge success into a destroyed integration");
+    const closedRevision = host.view().snapshot.policyRevision;
+    assert.equal((await bridge.command({ kind: "PROPOSE_POLICY", candidatePolicy: { whitelist: [], blacklist: [] } })).reason, "INTEGRATION_CLOSED");
+    assert.equal(host.view().snapshot.policyRevision, closedRevision);
+    for (const callback of cleanup) callback();
     const again = window.electron.remote.require(path.join(directory, "atlas-native.cjs")).getAtlasHost({ directory, partition: "persist:vault-atlas-ui" });
     assert.equal(again.view().storageVersion, version); assert.equal(again.view().snapshot.policyRevision, 1);
     await again.open();
     const originalElectron = window.electron; let legacySuspended = false;
-    window.electron = { remote: { require: () => ({ getAtlasHost: () => ({ apiVersion: 1, unsubscribe() { legacySuspended = true; } }) }) } };
+    window.electron = { remote: { require: () => ({ getAtlasHost: () => ({ apiVersion: 4, unsubscribe() { legacySuspended = true; } }) }) } };
     const oldAdapter = install(plugin);
     assert.equal(oldAdapter.view().status, "UNAVAILABLE"); assert.equal(oldAdapter.view().reason, "NATIVE_ADAPTER_UPGRADE_REQUIRED"); assert.equal(legacySuspended, true);
     assert.equal(await oldAdapter.openFromNote(note), false); oldAdapter.destroy(); window.electron = originalElectron;

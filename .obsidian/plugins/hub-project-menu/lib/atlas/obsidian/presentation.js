@@ -53,7 +53,7 @@ function createPresentation() {
 // recovery, grants, requests, Journey/context changes and phase boundaries notify.
 function presentationKey(view, now) {
     const s = view.snapshot;
-    return JSON.stringify([view.status, view.reason, view.enabled, view.pendingCommitId, view.repositoryIssue, view.application,
+    return JSON.stringify([view.status, view.reason, view.enabled, view.pendingCommitId, view.repositoryIssue, view.storage?.lastFailure, view.recovery, view.application,
         s?.policy, s?.policyRevision, s?.configuration, s?.configurationRevision, s?.accessState.pendingRequests, s?.accessState.grants,
         s?.vaultState.pendingProposal, s?.vaultState.pendingProposal && phase(s.vaultState.pendingProposal, now), s?.journeyState.journeys,
         view.destinations, view.temporaryDestinations, view.contexts.map(c => [c.id, c.nativeId, c.generation, c.closed, c.phase, c.origin,
@@ -63,7 +63,7 @@ function createViewJSON(read, encode = JSON.stringify) {
     let key, destinations, temporary, encoded;
     return () => {
         const view = read(), next = JSON.stringify([view.status, view.reason, view.enabled, view.storageVersion, view.pendingCommitId,
-            view.repositoryIssue, view.contexts, view.managed]);
+            view.repositoryIssue, view.storage, view.recovery, view.contexts, view.managed]);
         if (next !== key || destinations !== view.destinations || temporary !== view.temporaryDestinations) {
             encoded = encode(view); key = next; destinations = view.destinations; temporary = view.temporaryDestinations;
         }

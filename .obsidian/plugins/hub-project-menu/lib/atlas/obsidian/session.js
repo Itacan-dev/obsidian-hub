@@ -23,6 +23,7 @@ function getAtlasSession(bridge) {
         changed() { for (const fn of listeners) fn(session.route, { navigation: false }); },
         subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); },
         clearDraft(token) { if (session.draft?.token !== token) return false; session.draft = null; session.changed(); return true; },
+        clearTimings(model) { if (session.timings !== model) return false; session.timings = null; session.changed(); return true; },
         dispose() { listeners.clear(); session.draft = null; session.timings = null; session.setup = null; session.feedback = null; session.contextFeedback.clear(); session.scrolls.clear(); sessions.delete(bridge); }
     };
     sessions.set(bridge, session); return session;

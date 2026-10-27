@@ -18,8 +18,8 @@ try{
  const Core=load('atlas/core/index'),Application=load('atlas/obsidian/application'),{getAtlasSession}=load('atlas/obsidian/session'),{mountSettingsControl,getSettingsOwner}=load('ui/settings'),{mountAtlasHome}=load('atlas/obsidian/home-ui');
  const cfg={accessTiming:{waitMs:10000,confirmationWindowMs:60000,grantDurationMs:60000},vaultTiming:{waitMs:30000,confirmationWindowMs:60000},journeyLimits:{lifetimeMs:300000,maxHops:12}};
  let snapshot={policy:{whitelist:['github.com','trusted.test'],blacklist:['www.github.com']},policyRevision:0,configuration:cfg,configurationRevision:0,accessState:Core.createAccessState(),vaultState:Core.createVaultState(),journeyState:Core.createJourneyState()};
- let application=Application.initialApplication(snapshot.policy),status='READY',fault=null,hold=null;const listeners=new Set(),commands=[];let subscriptions=0,disposals=0;
- const view=()=>structuredClone({status,enabled:true,snapshot,application,contexts:[],storageVersion:'fixture',starter:{policy:snapshot.policy},destinations:application.destinations.map(d=>({...d,decision:Core.evaluate({hostname:d.hostname},snapshot.policy),hosts:[d.hostname,...d.aliases,...d.destinations].map(hostname=>({hostname,decision:Core.evaluate({hostname},snapshot.policy)}))})),temporaryDestinations:[]});
+ let application=Application.initialApplication(snapshot.policy),status='READY',fault=null,hold=null,storage=null,recovery=null;const listeners=new Set(),commands=[];let subscriptions=0,disposals=0;
+ const view=()=>structuredClone({status,enabled:true,snapshot,application,storage,recovery,contexts:[],storageVersion:'fixture',starter:{policy:snapshot.policy},destinations:application.destinations.map(d=>({...d,decision:Core.evaluate({hostname:d.hostname},snapshot.policy),hosts:[d.hostname,...d.aliases,...d.destinations].map(hostname=>({hostname,decision:Core.evaluate({hostname},snapshot.policy)}))})),temporaryDestinations:[]});
  const publish=()=>listeners.forEach(fn=>fn());
  const plugin={app:{},registerDomEvent:(el,event,fn)=>el.addEventListener(event,fn)};
  const bridge={view,subscribe:fn=>{subscriptions++;listeners.add(fn);return()=>{assert(listeners.delete(fn),'One disposal per subscription');disposals++}},
@@ -98,6 +98,18 @@ try{
  await click(pane(),'Use reviewed timing revisions');await click(pane(),'Review timing change in Vault');
  assert(snapshot.vaultState.pendingProposal.candidateConfiguration.accessTiming.waitMs===12345&&snapshot.configuration.accessTiming.waitMs===14000,'Timing proposal freezes exact values; active terms unchanged');
  await click(pane(),'Cancel proposal');
+
+ // A timing save completing after close/remount must own only its original
+ // session model. Busy remounts cannot submit a second proposal.
+ await click(pane(),'Timings / Behaviour');let timingField=pane().querySelector('.hub-atlas-timing-form input');timingField.value='21.125';timingField.dispatchEvent(new Event('input'));
+ const timingCommands=commands.filter(c=>c.kind==='PROPOSE_SETTINGS').length;let releaseTiming;hold=new Promise(resolve=>{releaseTiming=resolve});button(pane(),'Review timing change in Vault').click();await tick();
+ assert(session.timings.busy,'Timing submission stays in the session');getSettingsOwner(plugin).close();bridge.open({section:'timings'});
+ timingField=pane().querySelector('.hub-atlas-timing-form input');assert(timingField.value==='21.125'&&timingField.disabled,'A remounted timing submission preserves and locks its exact input');
+ assert(button(pane(),'Review timing change in Vault').disabled,'Busy timing remount cannot submit again');releaseTiming();await tick();
+ assert(snapshot.vaultState.pendingProposal.candidateConfiguration.accessTiming.waitMs===21125,'Original timing proposal is frozen once');
+ assert(!session.timings.busy&&pane().querySelector('.hub-atlas-timing-form input').value==='14','Acknowledged completion resets the matching mounted form to committed timings');
+ assert(commands.filter(c=>c.kind==='PROPOSE_SETTINGS').length===timingCommands+1,'No duplicate timing submission');await click(pane(),'Cancel proposal');
+
  // A Core-created request is displayed consistently in Home and Settings.
  // Routing never creates a context, grant or confirmation.
  const nativeNow=Date.now;let displayNow=nativeNow()+1000;Date.now=()=>displayNow;
@@ -128,6 +140,19 @@ try{
  assert(!home.querySelector('.hub-atlas-pending').textContent.includes('Ready for explicit confirmation'),'Unresolved state cannot claim readiness');
  await click(home.querySelector('[data-atlas-pending-key=authority]'),'Review recovery');assert(!pane().querySelector('[data-atlas-page=diagnostics]').hidden,'Unresolved route opens recovery');
  status='READY';application={...application,recovery:null};Date.now=nativeNow;publish();
+ // Storage diagnostics share the existing recovery surface and do not submit,
+ // remount or clear the unrelated session editor while background state changes.
+ bridge.open({section:'sites'});await click(pane(),'Add a destination');const diagnosticDraft=pane().querySelector('.hub-atlas-draft');
+ const keptField=set(diagnosticDraft,'Name','Kept across storage recovery');keptField.focus();keptField.setSelectionRange(5,11);
+ const diagnosticCommands=commands.length;storage={loadAttempts:20,verifiedLoads:19,initializeAttempts:1,initialized:1,writeAttempts:8,committedWrites:6,notWrittenWrites:1,unknownWrites:1,conflicts:0,resolveAttempts:1,resolvedCommits:1,migrations:0,lastFailure:{sequence:1,operation:'COMMIT',stage:'CANDIDATE_WRITE',cause:'BUSY',outcome:'NOT_WRITTEN'}};
+ recovery={automaticAttempts:1,automaticSucceeded:1,automaticFailed:0,manualAttempts:0,manualSucceeded:0,manualFailed:0,status:'RECOVERED'};publish();
+ assert(pane().querySelector('[aria-label="Name"]')===keptField&&keptField.value==='Kept across storage recovery'&&keptField.selectionStart===5,'Storage publication preserves the mounted editor and selection');
+ assert(commands.length===diagnosticCommands,'Diagnostics publication never requests recovery or retries an action');
+ bridge.open({section:'diagnostics'});const diagnosticPage=pane().querySelector('[data-atlas-page=diagnostics]');
+ assert(diagnosticPage.textContent.includes('COMMIT · CANDIDATE_WRITE · BUSY · NOT_WRITTEN')&&diagnosticPage.textContent.includes('Automatic recovery: 1 attempted · 1 succeeded'),'Safe failure and bounded recovery visible in existing diagnostics');
+ await click(diagnosticPage,'Recover saved state');assert(session.draft.fields.name==='Kept across storage recovery','Explicit recovery keeps unrelated draft values');
+ assert(commands.filter(c=>c.kind==='RECOVER').length===2,'Only deliberate recovery commands are sent');
+ bridge.open({section:'sites'});await click(pane().querySelector('.hub-atlas-draft'),'Discard draft');storage=null;recovery=null;publish();
  for(let i=0;i<3;i++){getSettingsOwner(plugin).close();bridge.open({section:i%2?'temporary':'vault'});assert(document.querySelectorAll('.hub-settings-dialog').length===1,'Repeated opening stays single-owned')}
  getSettingsOwner(plugin).close();disposeHome();control.destroy();assert(listeners.size===0&&subscriptions===disposals,'All listeners disposed exactly once');
 
