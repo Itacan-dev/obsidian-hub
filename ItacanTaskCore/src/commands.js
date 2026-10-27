@@ -5,7 +5,7 @@ const { TASK_FIELDS, STEP_FIELDS, workspaceKey, validateTask, validateHistory, v
 
 const CREATE_FIELDS = TASK_FIELDS.filter(key => !["revision", "partitionId"].includes(key));
 const UPDATE_FIELDS = ["title", "importance", "start", "due", "description", "captureSource"];
-const TYPES = ["task.create", "task.createMany", "task.update", "task.relocate", "task.complete", "task.archive", "task.delete", "step.add", "step.update", "step.reorder", "step.delete", "step.complete", "history.record", "task.editStructure", "task.save", "task.createRich", "git.receive"];
+const TYPES = ["task.create", "task.createMany", "task.update", "task.relocate", "task.complete", "task.archive", "task.delete", "step.add", "step.update", "step.reorder", "step.delete", "step.complete", "history.record", "task.editStructure", "task.save", "task.createRich", "git.receive", "personal.enroll", "personal.bootstrap", "personal.receive", "personal.upgrade", "personal.resolve"];
 
 function validateCommand(command) {
     fields(command, ["operationId", "type", "taskId", "expectedRevision", "expectedRepositoryRevision", "payload", "context", "coordination"], ["operationId", "type", "payload"]);
@@ -15,7 +15,7 @@ function validateCommand(command) {
     const importCommand = require("./history-import").isImport(command.type);
     check(TYPES.includes(command.type) || recurrenceTypes.includes(command.type) || importCommand, "Unsupported command.");
     check(command.payload !== null && typeof command.payload === "object" && !Array.isArray(command.payload), "Command payload must be a record.");
-    if (!["task.create", "task.createMany", "task.createRich", "history.record", "git.receive"].includes(command.type) && !importCommand) {
+    if (!["task.create", "task.createMany", "task.createRich", "history.record", "git.receive", "personal.enroll", "personal.bootstrap", "personal.receive", "personal.upgrade", "personal.resolve"].includes(command.type) && !importCommand) {
         uuid(command.taskId); revision(command.expectedRevision); check(command.expectedRevision >= 1, "Expected task revision is required.");
     } else check(command.taskId === undefined && command.expectedRevision === undefined, "Creation/history commands do not accept an existing task revision.");
     if (command.expectedRepositoryRevision !== undefined) revision(command.expectedRepositoryRevision);
@@ -31,6 +31,7 @@ function validateCommand(command) {
     if (command.type.startsWith("recurrence.")) require("./recurrence").validateRecurrenceCommand(command);
     if (importCommand) require("./history-import").validateCommand(command);
     if (require("./completion-effects").isAtomic(command.type)) require("./atomic-task").validateCommand(command);
+    if (command.type.startsWith("personal.")) require("./personal-shared").validateCommand(command);
     if (command.type === "git.receive") require("./git-shared").validateReceiveCommand(command);
 }
 function newTask(input, partitionId, now, nextId) {
@@ -53,6 +54,7 @@ function newTask(input, partitionId, now, nextId) {
 
 async function applyCommand(state, command, context) {
     const { now, nextId, resolvers, fault, externalReservations, recoveryReservedIds = [] } = context;
+    if (command.type.startsWith("personal.")) return require("./personal-shared").apply(state, command, context);
     if (command.type === "git.receive") return require("./git-shared").applyReceive(state, command, context);
     if (require("./completion-effects").isAtomic(command.type)) return require("./atomic-task").applyAtomic(state, command, context);
     if (require("./history-import").isImport(command.type)) return require("./history-import").applyImport(state, command, context);

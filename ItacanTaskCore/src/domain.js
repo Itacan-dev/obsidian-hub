@@ -111,8 +111,9 @@ function validateState(state) {
     if (![1, 2, 3, 4].includes(state.schemaVersion)) fail("UNSUPPORTED_SCHEMA", "Unsupported repository schema.");
     if (state.schemaVersion >= 2 && state.schemaVersion <= 3 && state.recurrence?.version !== state.schemaVersion - 1 || state.schemaVersion === 1 && Object.hasOwn(state, "recurrence") || state.schemaVersion === 4 && Object.hasOwn(state, "recurrence") && ![1, 2].includes(state.recurrence?.version)) fail("UNSUPPORTED_SCHEMA", "Unsupported recurrence namespace; refusing downgrade.");
     if (state.schemaVersion === 4 && (!state.historyImport || state.historyImport.version !== 1 || state.historyImport.format !== "itacan-private-history-import" || canonical(state.historyImport.requiredCapabilities ?? null) !== canonical(["private-history-import-v1"]))) fail("UNSUPPORTED_SCHEMA", "Missing/unsupported private import capability.");
-    const stateFields = ["schemaVersion", "storeId", "revision", "revisionId", "parentRevisionId", "partitions", "tasks", "history", "bindings", "receipts", "retiredStepIds", ...(Object.hasOwn(state, "recurrence") ? ["recurrence"] : []), ...(state.schemaVersion === 4 ? ["historyImport"] : []), ...(Object.hasOwn(state, "gitShared") ? ["gitShared"] : [])];
+    const stateFields = ["schemaVersion", "storeId", "revision", "revisionId", "parentRevisionId", "partitions", "tasks", "history", "bindings", "receipts", "retiredStepIds", ...(Object.hasOwn(state, "recurrence") ? ["recurrence"] : []), ...(state.schemaVersion === 4 ? ["historyImport"] : []), ...(Object.hasOwn(state, "gitShared") ? ["gitShared"] : []), ...(Object.hasOwn(state, "personalShared") ? ["personalShared"] : [])];
     fields(state, stateFields, stateFields);
+    check(!(state.gitShared && state.personalShared), "Personal and Git profiles are exclusive.");
     uuid(state.storeId); revision(state.revision); uuid(state.revisionId);
     if (state.parentRevisionId !== null) uuid(state.parentRevisionId);
     check((state.revision === 0) === (state.parentRevisionId === null), "Repository ancestry mismatch.");
@@ -159,7 +160,8 @@ function validateState(state) {
         check(Array.isArray(receipt.partitionIds) && new Set(receipt.partitionIds).size === receipt.partitionIds.length && receipt.partitionIds.every(id => partitions.has(id)), "Invalid receipt partitions.");
         const result = receipt.result;
         check((command.type === "git.receive") === Object.hasOwn(result, "gitShared") && (command.type !== "git.receive" || !!state.gitShared), "Git application receipt discriminator mismatch.");
-        fields(result, ["operationId", "repositoryRevision", "revisionId", "taskId", "taskRevision", "task", "tasks", "change", "replayed", "recurrence", "historyImport", "atomicTask", ...(state.gitShared ? ["gitShared"] : [])], ["operationId", "repositoryRevision", "revisionId", "taskId", "taskRevision", "task", "tasks", "change", "replayed"]);
+        fields(result, ["operationId", "repositoryRevision", "revisionId", "taskId", "taskRevision", "task", "tasks", "change", "replayed", "recurrence", "historyImport", "atomicTask", ...(state.gitShared ? ["gitShared"] : []), ...(state.personalShared ? ["personal"] : [])], ["operationId", "repositoryRevision", "revisionId", "taskId", "taskRevision", "task", "tasks", "change", "replayed"]);
+        check(command.type.startsWith("personal.") === Object.hasOwn(result, "personal") && (!result.personal || !!state.personalShared), "Personal receipt discriminator mismatch.");
         check(require("./completion-effects").isAtomic(command.type) === Object.hasOwn(result, "atomicTask"), "Atomic task receipt discriminator mismatch.");
         check(require("./history-import").isImport(command.type) === Object.hasOwn(result, "historyImport") && (!result.historyImport || state.schemaVersion === 4), "Import receipt discriminator/barrier mismatch.");
         check(command.type.startsWith("recurrence.") === Object.hasOwn(result, "recurrence"), "Recurrence receipt discriminator mismatch.");
@@ -180,7 +182,8 @@ function validateState(state) {
         jsonValue(result); jsonValue(receipt.coordination);
     }
     check(receiptRevisions.size === state.revision, "Repository revisions are missing their durable receipts.");
-    if (state.gitShared) require("./git-shared").validateRelations(state);
+    if (state.personalShared) require("./personal-shared").validateRelations(state);
+    else if (state.gitShared) require("./git-shared").validateRelations(state);
     else { require("./source-content").validateContentContinuity(state); require("./completion-effects").validateState(state); }
     if (state.recurrence) require("./recurrence").validateNamespace(state);
     if (state.schemaVersion === 4) require("./history-import").validateNamespace(state);

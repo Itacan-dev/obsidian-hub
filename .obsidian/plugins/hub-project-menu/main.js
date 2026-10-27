@@ -647,10 +647,13 @@ async function pinRoot(directory, config = null) {
     for (const value of [process.env.OneDrive, process.env.OneDriveConsumer, process.env.OneDriveCommercial].filter(Boolean)) check(!within(path.resolve(value), real) && path.resolve(value) !== real, "Cloud root is not admitted.");
     return pin;
 }
-async function admit(config, creating = false, gitReplicaId = null) {
+async function admit(config, creating = false, gitReplicaId = null, personal = null) {
     if (gitReplicaId !== null) { V.uuid(gitReplicaId); check(["inactive-disposable","device-private-git-project"].includes(config.scope), "Explicit Git replica admission required."); }
     check(config.scope!=="device-private-git-project"||gitReplicaId!==null,"Git runtime requires a replica identity.");
-    const key = gitReplicaId === null ? config.authorityId : config.authorityId + ":git-replica:" + gitReplicaId;
+    if(personal){check(gitReplicaId===null && ["inactive-disposable","device-private-project"].includes(config.scope),"Personal/Git admission profiles are exclusive.");const seed=__hubRequire("../../../ItacanTaskCore/personal/enrollment.js").validate(personal.seed,personal.binding);__hubRequire("../../../ItacanTaskCore/personal/binding.js").confirm(personal.binding,personal.pairing?.bindingDigest);check(seed.authorityId===config.authorityId && __hubRequire("../../../ItacanTaskCore/personal/membership.js").members(personal.binding,personal.members).get(personal.signer?.replicaId)===personal.signer?.publicKey,"Personal replica authority differs.");}
+    const key = personal ? config.authorityId+":personal-replica:"+(personal.binding.base??personal.binding).spaceId+":"+personal.signer.replicaId : gitReplicaId === null ? config.authorityId : config.authorityId + ":git-replica:" + gitReplicaId;
+    check(!personal || ![...admissions.keys()].some(k=>k.startsWith(config.authorityId+":git-replica:")),"Git authority cannot enroll privately.");
+    check(gitReplicaId===null || ![...admissions.keys()].some(k=>k.startsWith(config.authorityId+":personal-replica:")),"Personal authority cannot become Git.");
     if (gitReplicaId !== null && admissions.has(config.authorityId) || gitReplicaId === null && [...admissions.keys()].some(k => k.startsWith(config.authorityId + ":git-replica:"))) fail("STORAGE_AUTHORITY_MISMATCH", "Private and Git authority profiles cannot share an admitted identity.");
     const pin = await pinRoot(config.directory, config), previous = admissions.get(key);
     if (previous && (previous.dev !== pin.dev || previous.ino !== pin.ino)) fail("STORAGE_AUTHORITY_MISMATCH", "Authority already names another physical root.");
@@ -969,10 +972,11 @@ const V = __hubRequire("../../../ItacanTaskCore/src/value.js"), P = __hubRequire
 const { check, fail } = __hubRequire("../../../ItacanTaskCore/src/errors.js"), { freeze } = __hubRequire("../../../ItacanTaskCore/src/snapshot-read.js");
 const markerName = "REQUEST-RETENTION-v1.json", prefix = "REQUEST-v1-";
 const fields = (v, keys) => V.fields(v, keys, keys);
-function createPendingRequests(port, config, settings, inspect, inspectCommitted, proveBootstrapRejection) {
-    fields(settings, ["version", "rehearsalId"]); check([1,2].includes(settings.version), "Unsupported retention version."); V.uuid(settings.rehearsalId);
+function createPendingRequests(port, config, settings, inspect, inspectCommitted, proveBootstrapRejection, personalContext, provePrivateSaveRejection) {
+    fields(settings, ["version", "rehearsalId"]); check([1,2,3,4].includes(settings.version), "Unsupported retention version."); V.uuid(settings.rehearsalId);
+    let observedMarkerVersion=settings.version;
     const markerBody = { format: "itacan-native-request-retention", version: settings.version, authorityId: config.authorityId, applicationContextId: config.applicationContextId, rehearsalId: settings.rehearsalId };
-    let stopped = false, ready = false, reviews = new WeakMap(), permits = new WeakMap(); const rejectionReviews = new WeakMap(), inflight = new Set(), preparing = new Map(), prior = new Set();
+    let stopped = false, ready = false, reviews = new WeakMap(), permits = new WeakMap(); const privateSaveReviews = new WeakMap(), rejectionReviews = new WeakMap(), inflight = new Set(), preparing = new Map(), prior = new Set();
     const sealed = body => ({ ...body, checksum: P.hash(body) });
     const name = id => prefix + P.hash(id) + ".json";
     const rejectionName = id => "REQUEST-REJECTED-v1-" + P.hash(id) + ".json";
@@ -981,6 +985,19 @@ function createPendingRequests(port, config, settings, inspect, inspectCommitted
         check(ready && !stopped, "Retention is closed."); const job = work().catch(error => { const code = ["OPERATION_CONFLICT", "OUTCOME_RECONCILIATION_REQUIRED", "WRITER_ADMISSION_REQUIRED", "LOCK_LOST", "ROOT_IDENTITY_CHANGED", "ENOENT", "VALIDATION", "RECOVERY_REVIEW_REQUIRED", "RECOVERY_REVIEW_STALE", "ORIGINAL_GUARDS_STALE", "EXACT_REPLAY_SAFETY_UNPROVEN"].includes(error?.code) ? error.code : "REQUEST_RETENTION_INVALID"; fail(code, "Retained request evidence is unavailable."); }); inflight.add(job); job.finally(() => inflight.delete(job)).catch(() => {}); return job;
     }
     function record(intent) {
+        if(intent?.kind==="personal-operation"&&intent.version===2){
+            check(settings.version===4,"Personal v2 requires retention v4.");fields(intent,["version","kind","prepared"]);const p=intent.prepared;fields(p,["version","request","evidence"]);check(p.version===2,"Personal preparation v2 required.");fields(p.evidence,["version","binding","seed","members","packet","review"]);check(p.evidence.version===2&&p.evidence.binding.version===2,"Personal v2 evidence required.");const r=P.request(p.request,"personal"),seed=__hubRequire("../../../ItacanTaskCore/personal/enrollment.js").validate(p.evidence.seed,p.evidence.binding);__hubRequire("../../../ItacanTaskCore/personal/membership.js").members(p.evidence.binding,p.evidence.members);check(r.scope.authorityId===config.authorityId&&seed.authorityId===config.authorityId&&r.scope.partitions.length===1&&P.same(r.scope.partitions[0].owner,seed.owner)&&r.scope.partitions[0].id===seed.partition.id&&r.command.payload.bindingDigest===P.hash(p.evidence.binding)&&r.command.payload.profileDigest===p.evidence.binding.profile.digest,"Personal v2 retained scope differs.");
+            if(r.command.type==="personal.receive"){check(p.evidence.packet!==null&&P.hash(p.evidence.packet)===r.command.payload.packetDigest&&P.same(p.evidence.packet.binding,p.evidence.binding)&&P.same(p.evidence.packet.seed,p.evidence.seed),"Personal v2 retained packet differs.");__hubRequire("../../../ItacanTaskCore/src/personal-shared-v2.js").namespace(p.evidence.packet);}else check(p.evidence.packet===null,"Non-receive cannot retain an incoming packet.");
+            if(r.command.type==="personal.resolve")check(p.evidence.review&&p.evidence.review.previewDigest===r.command.payload.previewDigest&&p.evidence.review.conflictDigest===r.command.payload.conflictDigest&&p.evidence.review.selectedOriginId===r.command.payload.choice.originId&&P.same(p.evidence.review.reviewedHeads,r.command.payload.reviewedHeads),"Original resolution review required.");else check(p.evidence.review===null,"Foreign resolution review.");
+            return sealed({format:"itacan-native-personal-request",version:4,authorityId:config.authorityId,applicationContextId:config.applicationContextId,rehearsalId:settings.rehearsalId,owner:V.clone(seed.owner),partitionId:seed.partition.id,operationId:r.command.operationId,intent:V.clone(intent),intentDigest:P.hash(intent),writerRequest:V.clone(r),writerRequestDigest:P.hash(r),commandDigest:P.hash(A.compile(r))});
+        }
+        if(intent?.kind==="personal-operation") {
+            check([3,4].includes(settings.version),"Personal operations require retention v3/v4.");fields(intent,["version","kind","prepared"]);check(intent.version===1,"Personal intent v1 required.");const p=intent.prepared;fields(p,["version","request","evidence"]);check(p.version===1,"Personal preparation v1 required.");fields(p.evidence,["version","binding","seed","members","packet"]);check(p.evidence.version===1,"Personal retained evidence v1 required.");
+            const r=P.request(p.request,"personal"),E=__hubRequire("../../../ItacanTaskCore/personal/enrollment.js"),G=__hubRequire("../../../ItacanTaskCore/src/personal-shared.js"),seed=E.validate(p.evidence.seed,p.evidence.binding);__hubRequire("../../../ItacanTaskCore/personal/membership.js").members(p.evidence.binding,p.evidence.members);
+            check(r.scope.authorityId===config.authorityId&&seed.authorityId===config.authorityId&&r.scope.partitions.length===1&&P.same(r.scope.partitions[0].owner,seed.owner)&&r.scope.partitions[0].id===seed.partition.id,"Personal retained scope differs.");
+            if(r.command.type==="personal.receive"){check(p.evidence.packet!==null&&G.hash(p.evidence.packet)===r.command.payload.packetDigest&&P.same(p.evidence.packet.binding,p.evidence.binding)&&P.same(p.evidence.packet.seed,p.evidence.seed),"Personal retained packet differs.");G.namespace(p.evidence.packet);}else check(p.evidence.packet===null&&r.command.payload.bindingDigest===P.hash(p.evidence.binding)&&r.command.payload.seedDigest===p.evidence.seed.digest,"Personal retained enrollment differs.");
+            return sealed({format:"itacan-native-personal-request",version:3,authorityId:config.authorityId,applicationContextId:config.applicationContextId,rehearsalId:settings.rehearsalId,owner:V.clone(seed.owner),partitionId:seed.partition.id,operationId:r.command.operationId,intent:V.clone(intent),intentDigest:P.hash(intent),writerRequest:V.clone(r),writerRequestDigest:P.hash(r),commandDigest:P.hash(A.compile(r))});
+        }
         if (intent?.kind === "git-receive") {
             check(settings.version === 2, "Git receive requires explicit retention version 2.");
             fields(intent,["version","kind","prepared"]); check(intent.version === 1,"Unsupported retained shared intent.");
@@ -1004,11 +1021,24 @@ function createPendingRequests(port, config, settings, inspect, inspectCommitted
     }
     async function names() {
         const all = await port.list();
-        check(all.filter(n => n.startsWith("REQUEST-")).every(n => n === markerName || /^REQUEST-v1-[a-f0-9]{64}\.json$/.test(n) || settings.version === 2 && /^REQUEST-REJECTED-v1-[a-f0-9]{64}\.json$/.test(n)), "Unsupported request evidence.");
+        check(all.filter(n => n.startsWith("REQUEST-")).every(n => n === markerName || /^REQUEST-v1-[a-f0-9]{64}\.json$/.test(n) || [1,2,4].includes(settings.version) && /^REQUEST-REJECTED-v1-[a-f0-9]{64}\.json$/.test(n)), "Unsupported request evidence.");
         return all.filter(n => n.startsWith(prefix));
     }
     async function rejection(r, state = null) {
         let value; try { value = JSON.parse(await port.read(rejectionName(r.operationId))); } catch (e) { if (e.code === "ENOENT") return null; throw e; }
+        if(value.format==="itacan-native-rejected-private-save"){
+            const {checksum,...body}=value;fields(body,["format","version","authorityId","applicationContextId","rehearsalId","operationId","recordChecksum","commandDigest","proof"]);
+            check([1,4].includes(settings.version)&&checksum===P.hash(body)&&body.version===1&&body.authorityId===config.authorityId&&body.applicationContextId===config.applicationContextId&&body.rehearsalId===settings.rehearsalId&&body.operationId===r.operationId&&body.recordChecksum===r.checksum&&body.commandDigest===r.commandDigest&&r.format==="itacan-native-ui-request"&&r.writerRequest.command.type==="task.save","Private save rejection identity differs.");
+            if(state)__hubRequire("../../../ItacanTaskCore/src/private-save-rejection.js").verify(state,A.compile(r.writerRequest),body.proof);
+            else{check(typeof provePrivateSaveRejection==="function","Private save proof unavailable.");check(P.same(await provePrivateSaveRejection(r,body.proof),body.proof),"Private save rejection evidence differs.");}
+            return freeze(value);
+        }
+        if(value.format==="itacan-native-rejected-personal-resolution"){
+            const {checksum,...body}=value;fields(body,["format","version","authorityId","operationId","recordChecksum","commandDigest","proof"]);const p=__hubRequire("../../../ItacanTaskCore/personal/membership.js").open(body.proof,personalContext?.signer.publicKey,personalContext?.signer.replicaId);
+            fields(p,["authorityId","head","operationId","commandDigest","code","publication","bindingDigest","replicaId"]);check(p.bindingDigest===P.hash(personalContext.binding)&&p.replicaId===personalContext.signer.replicaId&&["PERSONAL_REVIEW_STALE","REPOSITORY_CONFLICT","PARTITION_CONFLICT","WRITER_EVIDENCE_CONFLICT","REFERENCE_UNRESOLVED"].includes(p.code),"Personal rejection attestation differs.");
+            check(settings.version===4&&checksum===P.hash(body)&&body.version===1&&body.authorityId===config.authorityId&&body.operationId===r.operationId&&r.writerRequest.command.type==="personal.resolve"&&body.recordChecksum===r.checksum&&body.commandDigest===r.commandDigest&&p.publication==="not-attempted"&&p.authorityId===config.authorityId&&p.operationId===r.operationId&&p.commandDigest===r.commandDigest,"Personal terminal rejection differs.");
+            if(state)check(state.revision>=p.head.repositoryRevision&&!(state.receipts.some(x=>x.operationId===r.operationId))&&!state.personalShared?.frames.some(f=>f.receipt.operationId===r.operationId),"Rejected resolution has contradictory evidence.");else{const o=await observation(r);check(o.ready&&o.operation.state==="missing"&&o.stamp.head.repositoryRevision>=p.head.repositoryRevision,"Rejected resolution outcome contradicts authoritative observation.");}return freeze(value);
+        }
         const { checksum, ...body } = value;
         fields(body, ["format", "version", "authorityId", "applicationContextId", "rehearsalId", "operationId", "recordChecksum", "proof"]);
         check(checksum === P.hash(body) && body.format === "itacan-native-rejected-bootstrap" && body.version === 1 && body.authorityId === config.authorityId && body.applicationContextId === config.applicationContextId && body.rehearsalId === settings.rehearsalId && body.operationId === r.operationId && body.recordChecksum === r.checksum && r.intent.kind === "git-receive", "Rejected bootstrap integrity differs.");
@@ -1020,7 +1050,7 @@ function createPendingRequests(port, config, settings, inspect, inspectCommitted
         else { const o = await observation(r); check(o.ready && o.operation.state === "missing", "Rejected bootstrap outcome conflicts."); }
         return freeze(value);
     }
-    async function marker() { check(P.same(JSON.parse(await port.read(markerName)), sealed(markerBody)), "Retention marker differs."); }
+    async function marker() { check(P.same(JSON.parse(await port.read(markerName)), sealed({...markerBody,version:observedMarkerVersion})), "Retention marker differs."); }
     async function getRaw(id) { await owned(); await marker(); const n = name(id), raw = await port.read(n), value = validate(raw, n); await owned(); return value; }
     async function all() { await owned(); await marker(); const records = []; for (const n of await names()) records.push(validate(await port.read(n), n));
         for (const n of (await port.list()).filter(n => n.startsWith("REQUEST-REJECTED-"))) check(records.some(r => rejectionName(r.operationId) === n), "Orphan rejected bootstrap evidence.");
@@ -1066,6 +1096,17 @@ function createPendingRequests(port, config, settings, inspect, inspectCommitted
         return p;
     }
     return Object.freeze({
+        reviewPrivateSaveRejection(id){return tracked(async()=>{
+            check([1,4].includes(settings.version)&&typeof provePrivateSaveRejection==="function","Private save recovery is unavailable.");
+            const r=await getRaw(id),existing=await rejection(r);if(existing)return freeze({operationId:id,state:"proven-not-executed",proof:existing.proof});
+            check(r.format==="itacan-native-ui-request"&&r.writerRequest.command.type==="task.save","Only original private saves may be reviewed.");
+            const proof=await provePrivateSaveRejection(r),report=freeze({operationId:id,state:"reviewable-nonexecution",recordChecksum:r.checksum,proof});privateSaveReviews.set(report,{record:r,proof});return report;
+        });},
+        concludePrivateSaveRejection(review){return tracked(async()=>{
+            const selected=privateSaveReviews.get(review);check(selected,"Original private save nonexecution review required.");privateSaveReviews.delete(review);
+            const r=await getRaw(selected.record.operationId);check(r.checksum===selected.record.checksum&&P.same(await provePrivateSaveRejection(r),selected.proof),"Private save recovery review is stale.");
+            await write(rejectionName(r.operationId),sealed({format:"itacan-native-rejected-private-save",version:1,authorityId:config.authorityId,applicationContextId:config.applicationContextId,rehearsalId:settings.rehearsalId,operationId:r.operationId,recordChecksum:r.checksum,commandDigest:r.commandDigest,proof:selected.proof}));await rejection(r);return freeze({operationId:r.operationId,state:"proven-not-executed"});
+        });},
         reviewBootstrapRejection(id) { return tracked(async () => {
             const r = await getRaw(id), existing = await rejection(r);
             if (existing) return freeze({ operationId: id, state: "rejected-before-commit", proof: existing.proof });
@@ -1081,10 +1122,11 @@ function createPendingRequests(port, config, settings, inspect, inspectCommitted
             await rejection(r); return freeze({ operationId: r.operationId, state: "rejected-before-commit" });
         }); },
         isRejected(id) { return tracked(async () => !!(await rejection(await getRaw(id)))); },
+        concludePersonalResolutionRejection(proof){return tracked(async()=>{check(settings.version===4,"Personal retention v4 required.");const p=__hubRequire("../../../ItacanTaskCore/src/repository.js").consumePersonalResolutionRejection(proof),r=await getRaw(p.operationId),o=await observation(r);check(r.writerRequest.command.type==="personal.resolve"&&r.commandDigest===p.commandDigest&&p.authorityId===config.authorityId&&o.ready&&o.operation.state==="missing"&&P.same(o.stamp.head,{authorityId:config.authorityId,...p.head}),"Personal rejection observation changed.");await write(rejectionName(r.operationId),sealed({format:"itacan-native-rejected-personal-resolution",version:1,authorityId:config.authorityId,operationId:r.operationId,recordChecksum:r.checksum,commandDigest:r.commandDigest,proof:__hubRequire("../../../ItacanTaskCore/personal/membership.js").seal({...p,bindingDigest:P.hash(personalContext.binding),replicaId:personalContext.signer.replicaId},personalContext.signer)}));return freeze({operationId:r.operationId,state:"rejected",code:"REJECTED_BEFORE_COMMIT"});});},
         async start(creating) {
             stopped = false; ready = false; prior.clear(); await owned();
             if (creating) await write(markerName, sealed(markerBody));
-            else check(P.same(JSON.parse(await port.read(markerName)), sealed(markerBody)), "Retention marker differs.");
+            else {const value=JSON.parse(await port.read(markerName));if((settings.version===3&&value.version===1)||(settings.version===4&&[1,3].includes(value.version)))observedMarkerVersion=value.version;check(P.same(value,sealed({...markerBody,version:observedMarkerVersion})),"Retention marker differs.");}
             for (const r of await all()) prior.add(r.operationId); ready = true;
         },
         prepare(input) {
@@ -1095,15 +1137,18 @@ function createPendingRequests(port, config, settings, inspect, inspectCommitted
                 const records = await all(), old = records.find(x => x.operationId === id);
                 if (old) { if (!P.same(old, r)) fail("OPERATION_CONFLICT", "Retained operation conflicts."); check(!(await rejection(old)), "Rejected bootstrap cannot be prepared again."); return old; }
                 await requireResolved(records);
-                if(settings.version===2){const o=await observation(r);check(o.ready&&o.stamp&&r.writerRequest.command.expectedRepositoryRevision===o.stamp.head.repositoryRevision&&r.writerRequest.scope.ownerContextPin===o.stamp.ownerContextPin&&r.writerRequest.scope.identityPin===o.stamp.identityPin,"Preparation context changed before retention.");}
+                if((settings.version===3&&observedMarkerVersion===1)||(settings.version===4&&[1,3].includes(observedMarkerVersion))){await owned();await marker();const temp="retention-personal-"+require("node:crypto").randomUUID()+".tmp";await port.writeNew(temp,V.canonical(sealed(markerBody))+"\n");await port.replace(temp,markerName);observedMarkerVersion=settings.version;await marker();await port.syncDirectory();}
+                if([2,3,4].includes(settings.version)){const o=await observation(r);check(o.ready&&o.stamp&&r.writerRequest.command.expectedRepositoryRevision===o.stamp.head.repositoryRevision&&r.writerRequest.scope.ownerContextPin===o.stamp.ownerContextPin&&r.writerRequest.scope.identityPin===o.stamp.identityPin,"Preparation context changed before retention.");}
                 await write(name(id), r); return freeze(V.clone(r));
             });
             preparing.set(id, { digest: r.checksum, promise }); promise.finally(() => preparing.delete(id)).catch(() => {}); return promise;
         },
         assertResolved() { return tracked(async () => { await requireResolved(await all()); }); },
+        assertRejectedCandidate(state){return tracked(async()=>{check(settings.version===4,"Personal v4 candidate check required.");for(const r of await all())await rejection(r,state);});},
+        assertIncomingPacket(packet){return tracked(async()=>{check(settings.version===4,"Personal v4 packet check required.");for(const r of await all())if(await rejection(r))check(!packet.frames.some(f=>f.receipt.operationId===r.operationId),"Incoming origin contradicts terminal nonexecution evidence.");});},
         list() { return tracked(async () => freeze((await all()).map(r => ({ operationId: r.operationId, intentDigest: r.intentDigest, owner: r.owner, partitionId: r.partitionId })))); },
         get(id) { V.text(id); return tracked(() => getRaw(id)); },
-        reconcile(id) { V.text(id); return tracked(async () => { const r = await getRaw(id); return await rejection(r) ? freeze({state:"rejected",code:"REJECTED_BEFORE_COMMIT",operationId:id,receipt:null,taskIds:[],eventIds:[]}) : reconcileRecord(r); }); },
+        reconcile(id) { V.text(id); return tracked(async () => { const r = await getRaw(id); const terminal=await rejection(r);return terminal ? freeze({state:"rejected",code:terminal.format==="itacan-native-rejected-private-save"?"PROVEN_NOT_EXECUTED":"REJECTED_BEFORE_COMMIT",operationId:id,receipt:null,taskIds:[],eventIds:[]}) : reconcileRecord(r); }); },
         inspect(id) { V.text(id); return tracked(async () => {
             let r = null, o, damaged = false;
             try { r = await getRaw(id); o = await observation(r); await all(); }
@@ -1114,7 +1159,7 @@ function createPendingRequests(port, config, settings, inspect, inspectCommitted
             const terminal = r && !damaged ? await rejection(r) : null;
             const op = o.operation, classification = !o.ready ? "authority-unavailable" : damaged ? "damaged" : terminal ? "confirmed-rejected" : op.state === "committed" ? "confirmed-committed" : op.state === "missing" ? "execution-uncertain" : op.state === "conflict" ? "conflict" : "authority-unavailable";
             let code = !o.ready ? "AUTHORITY_UNAVAILABLE" : damaged ? "REQUEST_RETENTION_INVALID" : op.code, replay = damaged ? "REQUEST_RETENTION_INVALID" : replayCode(r, o);
-            if (terminal) { code = "REJECTED_BEFORE_COMMIT"; replay = "TERMINAL_REJECTION"; }
+            if (terminal) { code = terminal.format==="itacan-native-rejected-private-save"?"PROVEN_NOT_EXECUTED":"REJECTED_BEFORE_COMMIT"; replay = "TERMINAL_REJECTION"; }
             if (["EXACT_COMMITTED_REPLAY", "EXACT_ORIGINAL_HEAD_REPLAY"].includes(replay)) {
                 try { await requireResolved((await all()).filter(x => x.operationId !== id)); } catch (_) { replay = "OTHER_REQUEST_UNRESOLVED"; }
             }
@@ -1291,20 +1336,21 @@ function constructHost(input, options, makeWriter) {
     check(!options.requestRetention || !!makeWriter, "Retention requires a writer host.");
     check(config.scope === "inactive-disposable" || !makeWriter || !!options.requestRetention, "Permanent writer requires retained requests.");
     check(config.scope!=="device-private-git-project"||!!options.gitSharing&&!!makeWriter&&options.requestRetention?.version===2&&options.writerPolicy.inventory.version===2,"Permanent Git writer requires retained requests and authoritative inventory.");
+    if(options.personalSync){check(!options.gitSharing && !!makeWriter && options.requestRetention?.version===(options.personalSync.binding.version===2?4:3) && ["inactive-disposable","device-private-project"].includes(config.scope),"Personal writer requires distinct retained admission.");const p=options.personalSync;__hubRequire("../../../ItacanTaskCore/personal/binding.js").confirm(p.binding,p.pairing?.bindingDigest);const seed=__hubRequire("../../../ItacanTaskCore/personal/enrollment.js").validate(p.seed,p.binding);check(seed.authorityId===config.authorityId && __hubRequire("../../../ItacanTaskCore/personal/membership.js").members(p.binding,p.members).get(p.signer?.replicaId)===p.signer?.publicKey,"Paired personal authority differs.");}
     if (options.gitSharing) {
         V.fields(options.gitSharing, ["version", "replicaId"], ["version", "replicaId"]); check(options.gitSharing.version === 1 && ["inactive-disposable","device-private-git-project"].includes(config.scope), "Explicit Git protocol admission required."); V.uuid(options.gitSharing.replicaId);
     }
     if (options.requestRetention) {
         V.jsonValue(options.requestRetention); V.fields(options.requestRetention, ["version", "rehearsalId"], ["version", "rehearsalId"]);
-        check(options.requestRetention.version === 1 || options.requestRetention.version === 2 && !!options.gitSharing, "Unsupported retention version."); V.uuid(options.requestRetention.rehearsalId);
+        check(options.requestRetention.version === 1 || options.requestRetention.version === 2 && !!options.gitSharing || [3,4].includes(options.requestRetention.version) && !!options.personalSync, "Unsupported retention version."); V.uuid(options.requestRetention.rehearsalId);
     }
     let last = { version: 1, privacy: "local-private", phase, authorityId: config.authorityId, storeId: null, applicationContextId: config.applicationContextId, storageFormat: "private-v4", wireVersion: 4, logicalSchemaVersion: null, namespaces: null, head: null, hostEpoch: epoch, generation, ownerContextPin: null, identityPin: null, readiness: { state: "not-ready", reason: "HOST_CONFIGURED" }, permissions: { taskReads: "unavailable", completionProof: "unavailable", mutations: "unsupported", history: "unsupported" } };
-    const participant = makeWriter ? makeWriter(config, options, { info: () => info(), observe, execute: (command, ticket, evidence) => repo.execute(command, ticket, evidence), exportSharedPacket: () => repo.exportSharedPacket(), refresh: () => host.refresh(), retention: () => retained }) : null;
+    const participant = makeWriter ? makeWriter(config, options, { info: () => info(), observe, execute: (command, ticket, evidence) => repo.execute(command, ticket, evidence), exportSharedPacket: () => repo.exportSharedPacket(), exportPersonalPacket: () => repo.exportPersonalPacket(), refresh: () => host.refresh(), retention: () => retained }) : null;
     function info() { return freeze(V.clone({ ...last, phase, hostEpoch: epoch, generation })); }
     function notify(reason, discontinuity = false) { if (discontinuity && reason !== "closing") participant?.invalidate(); if (discontinuity) epoch++; generation++; const change = freeze({ version: 1, kind: "snapshot-invalidated", durability: "ephemeral", hostEpoch: epoch, generation, reason }); for (const listener of [...listeners]) { try { Promise.resolve(listener(change)).catch(() => {}); } catch (_) {} } }
     function unavailable(code, state = "unavailable") { last = { ...last, readiness: { state, reason: code }, permissions: { taskReads: "unavailable", completionProof: "unavailable", mutations: "unsupported", history: "unsupported" } }; notify("unavailable", true); }
     function failure(code, state = "unavailable") { return freeze({ version: 1, state, code, retry: ["LOCK_LOST", "ROOT_IDENTITY_CHANGED", "REPOSITORY_CONFLICT", "RECOVERY_REQUIRED"].includes(code) ? "explicit-reopen" : state === "unsupported" ? "review" : "refresh" }); }
-    async function observe(signal) { const registry = G.validateRegistry(await options.registry.read(signal), config); if (config.scope === "device-private-project") check(registry.owners.length === 1 && same(registry.owners[0].owner, __hubRequire("../../../ItacanTaskCore/host/private-authority.js").bindingOwner(config.binding)) && registry.owners[0].partitionId === "private" && !registry.owners[0].shared, "Permanent owner scope differs."); if (options.gitSharing) { check(registry.owners.length === 1 && registry.owners[0].owner.type === "project" && registry.owners[0].shared && registry.owners[0].shareApproval !== null && registry.owners[0].available, "Reviewed Git Project registry required."); if(makeWriter) check(options.writerPolicy.owners.length === 1 && options.writerPolicy.owners[0].partitionId === registry.owners[0].partitionId && same(options.writerPolicy.owners[0].owner,registry.owners[0].owner),"Git writer policy differs from physical registry owner."); } const identity = options.identity ? await options.identity.read(signal) : null;
+    async function observe(signal) { const registry = G.validateRegistry(await options.registry.read(signal), config); if (config.scope === "device-private-project") check(registry.owners.length === 1 && same(registry.owners[0].owner, __hubRequire("../../../ItacanTaskCore/host/private-authority.js").bindingOwner(config.binding)) && registry.owners[0].partitionId === "private" && !registry.owners[0].shared, "Permanent owner scope differs."); if (options.gitSharing) { check(registry.owners.length === 1 && registry.owners[0].owner.type === "project" && registry.owners[0].shared && registry.owners[0].shareApproval !== null && registry.owners[0].available, "Reviewed Git Project registry required."); if(makeWriter) check(options.writerPolicy.owners.length === 1 && options.writerPolicy.owners[0].partitionId === registry.owners[0].partitionId && same(options.writerPolicy.owners[0].owner,registry.owners[0].owner),"Git writer policy differs from physical registry owner."); } if(options.personalSync){const seed=options.personalSync.seed.body,entry=registry.owners[0],bound=(options.personalSync.binding.base??options.personalSync.binding).owners.find(x=>x.authorityId===config.authorityId);check(registry.owners.length===1 && entry.available && !entry.shared && entry.shareApproval===null && entry.partitionId===seed.partition.id && same(entry.owner,seed.owner) && entry.root===bound.root && entry.dashboard===bound.dashboard,"Personal physical registry differs.");} const identity = options.identity ? await options.identity.read(signal) : null;
         // Legacy binding-v1 omits its physical root. Pin the initial validated
         // registry root for receipt inspection throughout this host lifetime.
         if (!receiptAnchor && config.scope === "device-private-project" && config.binding.version === 1 && registry.owners[0].available && registry.owners[0].dashboard !== null) receiptAnchor = { root: registry.owners[0].root, dashboard: registry.owners[0].dashboard };
@@ -1390,6 +1436,7 @@ function constructHost(input, options, makeWriter) {
                 last = { ...last, storeId: snapshot.authorityId, logicalSchemaVersion: snapshot.logicalSchemaVersion, namespaces: snapshot.namespaces, storage: snapshot.storage, head: snapshot.head, ownerContextPin: before.ownerContextPin, identityPin: before.identityPin, readiness: snapshot.readiness, permissions: { taskReads: snapshot.readiness.state === "ready" ? "available" : "recovered-observation", completionProof: snapshot.readiness.state === "ready" ? "available" : "unavailable", mutations: "unsupported", history: "unsupported" } };
                 return { value: freeze(scoped ? { version: 2, kind: "scoped-capture", status: "ok", info: info(), stamp, snapshot, ...(request.locationEvidence ? { locationFacts } : {}) } : { version: 1, status: "ok", stamp, snapshot }), context: before };
             } catch (error) {
+                if(options.personalSync?.binding.version===2&&request.selection==="history"&&error.code==="PERSONAL_HISTORY_CONFLICT")return{failure:failure("PERSONAL_HISTORY_CONFLICT")};
                 const code = coded(error); if (code === "SNAPSHOT_UNSTABLE") continue;
                 const state = code === "UNSUPPORTED_SCHEMA" ? "unsupported" : "unavailable"; unavailable(code, state); return { failure: failure(code, state) };
             }
@@ -1407,7 +1454,7 @@ function constructHost(input, options, makeWriter) {
             try {
                 if (config.scope === "device-private-project") { await observe(); if (creating) check(detached.version === 2 && detached.taskMutationVersion === 1 && detached.partitions.length === 1 && detached.partitions[0].id === "private" && detached.partitions[0].kind === __hubRequire("../../../ItacanTaskCore/host/private-authority.js").bindingKind(config.binding) && same(detached.partitions[0].owner, __hubRequire("../../../ItacanTaskCore/host/private-authority.js").bindingOwner(config.binding)), "Permanent partition scope differs."); }
                 if(config.scope === "device-private-git-project") { const binding=await __hubRequire("../../../ItacanTaskCore/host/git-authority.js").validateBinding(config.binding,config.directory), o=await observe(); check(o.registry.owners[0].owner.id===binding.binding.projectId && o.registry.owners[0].root===config.binding.projectRoot && o.registry.owners[0].dashboard===config.binding.dashboard && o.registry.owners[0].partitionId===binding.binding.genesis.partition.id && o.registry.owners[0].shareApproval.reviewDigest===binding.namespaceDigest,"Shared physical registry binding differs."); if(creating) check(same(detached.genesis,binding.binding.genesis),"Shared creation genesis differs."); }
-                const port = await A.admit(config, creating, options.gitSharing?.replicaId ?? null), settings = { ...(options.repositoryOptions ?? {}), directory: config.directory, storageFormat: "private-v4", storagePort: port, taskMutationVersion: creating && [2, 3].includes(detached.version) ? 1 : undefined, gitSharedVersion: creating && detached.version === 3 ? 2 : undefined, sharedGenesis: creating && detached.version === 3 ? detached.genesis : undefined, sharedReplicaId: options.gitSharing?.replicaId, commandAdmission: participant?.gate, ...(participant ? { externalReservations: participant.inventory, resolvers: participant.resolvers } : {}) };
+                const port = await A.admit(config, creating, options.gitSharing?.replicaId ?? null, options.personalSync ?? null), settings = { ...(options.repositoryOptions ?? {}), directory: config.directory, storageFormat: "private-v4", storagePort: port, taskMutationVersion: creating && [2, 3].includes(detached.version) ? 1 : undefined, gitSharedVersion: creating && detached.version === 3 ? 2 : undefined, sharedGenesis: creating && detached.version === 3 ? detached.genesis : undefined, sharedReplicaId: options.gitSharing?.replicaId, personalSync:options.personalSync?{...options.personalSync,phases:options.writerPolicy.phases}:undefined, commandAdmission: participant?.gate, ...(participant ? { externalReservations: participant.inventory, resolvers: participant.resolvers } : {}) };
                 if (makeWriter && !options.requestRetention && (await port.list()).some(n => n.startsWith("REQUEST-"))) throw safeError("REQUEST_RETENTION_REQUIRED");
                 // Port/root/profile cannot be overridden by repository options.
                 participant?.start(creating);
@@ -1459,6 +1506,13 @@ function constructHost(input, options, makeWriter) {
                         const after = await observe(), captureAfter = (await capture({ selection: "status" }, undefined, true)).value;
                         check(captureAfter?.status === "ok" && same(before, after) && same(captureBefore.stamp.head, captureAfter.stamp.head) && captureBefore.stamp.hostEpoch === captureAfter.stamp.hostEpoch && captureAfter.snapshot.recovery.state === "intact" && repo.info().recovery === null, "Bootstrap rejection observation changed.");
                         return proof;
+                    }, options.personalSync, async(record,proof=null)=>{
+                        check(!options.gitSharing&&record.owner&&record.partitionId==="private","Private save recovery scope required.");
+                        const before=await observe(),a=(await capture({selection:"status"},undefined,true)).value;
+                        check(a?.status==="ok"&&a.snapshot.readiness.state==="ready"&&a.snapshot.recovery.state==="intact"&&repo.info().recovery===null&&before.registry.owners.some(o=>o.available&&!o.shared&&same(o.owner,record.owner)&&o.partitionId===record.partitionId),"Private save recovery authority unavailable.");
+                        if(config.scope==="device-private-project")check(boundReceiptOwner(record,before),"Private save physical binding differs.");
+                        const result=await repo.proveStalePrivateSave(__hubRequire("../../../ItacanTaskCore/writer/admission.js").compile(record.writerRequest),proof),after=await observe(),z=(await capture({selection:"status"},undefined,true)).value;
+                        check(z?.status==="ok"&&z.snapshot.recovery.state==="intact"&&same(before,after)&&same(a.stamp.head,z.stamp.head)&&a.stamp.hostEpoch===z.stamp.hostEpoch&&a.stamp.ownerContextPin===z.stamp.ownerContextPin&&a.stamp.identityPin===z.stamp.identityPin&&repo.info().recovery===null,"Private save proof observation changed.");return result;
                     });
                     await retained.start(creating);
                 }
@@ -1868,15 +1922,16 @@ function view(t, authorityId) {
         location: V.clone(t.location), text: t.title, description: t.description, completed: t.completed, necessity: t.importance,
         fromDate: t.start?.date ?? null, fromTime: t.start?.time ?? null, dueDate: t.due?.date ?? null, dueTime: t.due?.time ?? null,
         steps: t.steps.map(s => ({ id: s.id, taskId: t.id, text: s.title, completed: s.completed, parentStepId: s.parentStepId })),
-        nativeReadOnly: !!t.phase || t.steps.some(s => s.parentStepId !== null) || t.consumerFacts?.recurrenceMember === true };
+        nativeReadOnly: !!t.phase || t.steps.some(s => s.parentStepId !== null) || t.consumerFacts?.recurrenceMember === true || t.consumerFacts?.personalConflict === true };
 }
 async function openProjectRuntime(config, options) {
     check(options.consumerUiV1 === undefined || options.consumerUiV1 === true, "Explicit consumer rehearsal option required.");
     config = freeze(V.clone(config)); options = { ...options, writerPolicy: freeze(V.clone(options.writerPolicy)) };
     check(["project", "resource"].includes(options.owner?.type) && options.writerPolicy.owners.length === 1 && same(options.owner, options.writerPolicy.owners[0].owner), "One private Project required.");
-    const shared = !!options.gitSharing;
+    const shared = !!options.gitSharing, personal = !!options.personalSync;
+    check(!(shared && personal),"Personal/Git replication profiles are exclusive.");
     const owner = freeze(V.clone(options.owner)), session = createNativeWriterSession(config, { registry: options.registry, identity: options.identity,
-        writerPolicy: options.writerPolicy, inventoryEvidence: options.inventoryEvidence, gitSharing: options.gitSharing, repositoryOptions: options.repositoryOptions, requestRetention: { version: shared ? 2 : 1, rehearsalId: options.rehearsalId } });
+        writerPolicy: options.writerPolicy, inventoryEvidence: options.inventoryEvidence, gitSharing: options.gitSharing, personalSync:options.personalSync, repositoryOptions: options.repositoryOptions, requestRetention: { version: personal ? (options.personalSync.binding.version===2?4:3) : shared ? 2 : 1, rehearsalId: options.rehearsalId } });
     let closed = false, lastOutcome = null, refreshedOperation = null, resourceLocations = [];
     const authority = { backend: "native", authorityId: config.authorityId, applicationContextId: config.applicationContextId };
     try {
@@ -1885,6 +1940,17 @@ async function openProjectRuntime(config, options) {
         if (options.creating) await session.host.create({ version: shared ? 3 : 2, authorityId: config.authorityId, partitions: [{ id: o.partitionId, owner, kind: shared ? "git-project" : owner.type === "resource" ? "resource" : "private-project" }], reason: "Explicit owner-scoped authority creation", ...authorization, taskMutationVersion: 1, ...(shared ? {gitSharedVersion:2,genesis:options.sharedGenesis}: {}) });
         else await session.host.open({ version: 1, expectedAuthorityId: config.authorityId, ...authorization });
     } catch (error) { await session.dispose().catch(() => {}); throw error; }
+    if(personal&&session.host.info().storage?.personalTransitionPending){await session.dispose();throw Error("Personal transition requires original-operation recovery.");}
+    if(personal && !session.host.info().storage?.personalSyncVersion){
+        check(["source","join"].includes(options.personalEnrollment),"Personal enrollment needs an explicit disposition.");
+        try { const cap=await session.authorize({version:1,owners:options.writerPolicy.owners,commands:options.writerPolicy.commands});
+            try {const type=options.personalEnrollment==="source"?"personal.enroll":"personal.bootstrap",prepared=await session.personal.prepareEnrollment(cap,type,options.personalEnrollmentOperationId);const result=await session.personal.receive(cap,prepared);check(result.status==="committed","Personal enrollment requires recovery.");}
+            finally{session.revoke(cap)}
+        }catch(e){await session.dispose();throw e}
+    }
+    if(personal&&options.personalSync.binding.version===2&&session.host.info().storage?.personalSyncVersion===1){
+        try{check(options.personalEnrollment==="upgrade","Explicit v1 personal upgrade disposition required.");const cap=await session.authorize({version:1,owners:options.writerPolicy.owners,commands:options.writerPolicy.commands});try{const p=await session.personal.prepareUpgrade(cap,options.personalEnrollmentOperationId),out=await session.personal.receive(cap,p);check(out.status==="committed","Personal upgrade requires authoritative recovery.");}finally{session.revoke(cap)}}catch(e){await session.dispose();throw e}
+    }
     const taskService = new TaskService(createNativeReadAdapter(session.host)), editorPort = createNativeEditorReadPort(session.host, { writerPolicy: options.writerPolicy, ...(options.consumerUiV1 ? { allowUnavailableLocations: true } : {}) });
     const grant = () => session.authorize({ version: 1, owners: options.writerPolicy.owners, commands: options.writerPolicy.commands });
     async function withGrant(fn) { const cap = await grant(); try { return await fn(cap); } finally { session.revoke(cap); } }
@@ -1936,6 +2002,8 @@ async function openProjectRuntime(config, options) {
         if (raw.canReplay) recoveryReviews.set(report, raw); return report;
     }
     const recovery = Object.freeze({
+        reviewPrivateSaveRejection: id => withGrant(cap => session.requests.reviewPrivateSaveRejection(cap,id)),
+        concludePrivateSaveRejection: review => withGrant(cap => session.requests.concludePrivateSaveRejection(cap,review)),
         reviewBootstrapRejection: id => withGrant(cap => session.requests.reviewBootstrapRejection(cap, id)),
         concludeBootstrapRejection: review => withGrant(cap => session.requests.concludeBootstrapRejection(cap, review)),
         async inspect(id) { V.text(id); if (closed) return recoveryUnavailable(id); try { return await withGrant(async cap => recoveryReview(await session.requests.inspect(cap, id))); } catch (_) { return recoveryUnavailable(id); } },
@@ -2013,7 +2081,8 @@ async function openProjectRuntime(config, options) {
         return controller;
     }
     const historyFeeds = new Set();
-    const historyEvidence = options.historyUiV1 ? __hubRequire("../../../ItacanTaskCore/host/history-read.js").createHistoryReadPort(session.host, { authorityId: config.authorityId, owners: [owner] }) : null;
+    const rawHistoryEvidence = options.historyUiV1 ? __hubRequire("../../../ItacanTaskCore/host/history-read.js").createHistoryReadPort(session.host, { authorityId: config.authorityId, owners: [owner] }) : null;
+    const historyEvidence = rawHistoryEvidence;
     function completionFeed({ legacy, app, navigate }) {
         alive(); check(options.historyUiV1 === true, "Explicit History rehearsal option required.");
         const port = historyEvidence;
@@ -2027,6 +2096,7 @@ async function openProjectRuntime(config, options) {
     }
     const nativeTasks = Object.freeze({ owner, createPanelRead, ...(options.consumerUiV1 ? { consumerUiV1: true, mergeHome: consumers.mergeHome, taskKey: consumers.taskKey } : {}) });
     return Object.freeze({ nativeTasks, owner, list, editor, creationContext, mutate, formService, completionFeed, historyEvidence, recovery,
+        ...(personal ? {personal:Object.freeze({replicaId:options.personalSync.signer.replicaId,subscribe:fn=>session.host.subscribe(fn),export:()=>withGrant(c=>session.personal.export(c)),status:()=>withGrant(c=>session.personal.status(c)),prepare:(packet,operationId)=>withGrant(c=>session.personal.prepare(c,packet,operationId)),receive:prepared=>withGrant(c=>session.personal.receive(c,prepared)),inspectConflict:taskId=>withGrant(c=>session.personal.inspectConflict(c,taskId)),...(options.personalSync.binding.version===2?{reviewResolution:(id,origin)=>withGrant(c=>session.personal.reviewResolution(c,id,origin)),prepareResolution:(review,id)=>withGrant(c=>session.personal.prepareResolution(c,review,id)),resolve:prepared=>withGrant(c=>session.personal.resolve(c,prepared)),inspectResolution:id=>withGrant(c=>session.personal.inspectResolution(c,id))}:{}),confirmAccepted:packet=>withGrant(c=>session.personal.confirmAccepted(c,packet))})}:{}),
         ...(shared ? {sharing:Object.freeze({subscribe:fn=>session.host.subscribe(fn),export:()=>withGrant(c=>session.shared.export(c)),status:()=>withGrant(c=>session.shared.status(c)),prepare:(packet,operationId)=>withGrant(c=>session.shared.prepare(c,packet,operationId)),receive:prepared=>withGrant(c=>session.shared.receive(c,prepared))})}:{}),
         info: () => freeze({ authority, owner, scope: config.scope, lastOutcome, history: options.historyUiV1 ? "rehearsal" : "unavailable", statistics: options.historyUiV1 ? "rehearsal" : "unavailable", home: options.consumerUiV1 ? "rehearsal" : "unavailable", schedule: options.consumerUiV1 ? "rehearsal" : "unavailable" }),
         assertRetainedResolved: () => withGrant(cap => session.requests.assertResolved(cap)),
@@ -2352,6 +2422,330 @@ function assessMigrationProtection(oaths, evidence) {
 module.exports = { resolveCommitmentTarget, assessMigrationProtection };
 
 },
+"../../../ItacanTaskCore/personal/binding.js": function (module, exports, __hubRequire) {
+"use strict";
+const V = __hubRequire("../../../ItacanTaskCore/src/value.js"), M = __hubRequire("../../../ItacanTaskCore/personal/membership.js"), { check } = __hubRequire("../../../ItacanTaskCore/src/errors.js");
+const collaborative = new Set(["4b597e3b-b588-4a29-969b-70db3a684112", "9325047c-eb3d-43e7-92f2-a9bf630afe13"]);
+function validate(value) {
+    if(value?.version===2)return __hubRequire("../../../ItacanTaskCore/personal/profile.js").validate(value);
+    V.jsonValue(value); M.exact(value, ["format", "version", "spaceId", "root", "owners", "protocol"]);
+    check(value.format === "itacan-personal-binding" && value.version === 1, "Personal binding version required."); V.uuid(value.spaceId);
+    M.exact(value.root, ["replicaId", "publicKey"]); V.uuid(value.root.replicaId); M.publicKey(value.root.publicKey);
+    check(V.canonical(value.protocol) === V.canonical({ packet: 1, frame: 1, enrollment: 1, membership: 1, retention: 3, capability: "personal-sync-proofs-v1" }), "Unsupported personal capabilities.");
+    check(Array.isArray(value.owners) && value.owners.length > 0 && value.owners.length <= 64, "Explicit personal owners required.");
+    const owners = new Set(), authorities = new Set(), roots = [];
+    for (const o of value.owners) {
+        M.exact(o, ["owner", "authorityId", "partitionId", "kind", "root", "dashboard", "seedDigest"]);
+        __hubRequire("../../../ItacanTaskCore/src/domain.js").workspace(o.owner); V.uuid(o.authorityId); V.referenceId(o.partitionId);
+        check(!collaborative.has(o.owner.id) && o.partitionId === "private" && o.kind === (o.owner.type === "resource" ? "resource" : "private-project"), "Personal partition differs.");
+        check(!owners.has(V.canonical(o.owner)) && !authorities.has(o.authorityId), "Duplicate personal authority/owner.");
+        owners.add(V.canonical(o.owner)); authorities.add(o.authorityId);
+        for (const p of [o.root, o.dashboard]) check(typeof p === "string" && p.length > 0 && !p.includes("\\") && !p.startsWith("/") && !/^[a-z]:/i.test(p) && p.split("/").every(x => x && x !== "." && x !== ".."), "Portable personal root required.");
+        check(o.dashboard.startsWith(o.root + "/") && /^[a-f0-9]{64}$/.test(o.seedDigest), "Personal source/seed binding differs.");
+        check(!roots.some(r => r === o.root || r.startsWith(o.root + "/") || o.root.startsWith(r + "/")), "Overlapping physical personal owners."); roots.push(o.root);
+    }
+    return V.clone(value);
+}
+function fingerprint(binding) { return M.hash(validate(binding)); }
+function confirm(binding, expectedFingerprint) {
+    check(typeof expectedFingerprint === "string" && fingerprint(binding) === expectedFingerprint, "Personal pairing fingerprint differs.");
+    return Object.freeze({ version: binding.version, spaceId: (binding.base??binding).spaceId, bindingDigest: expectedFingerprint, ...(binding.version===2?{profileDigest:binding.profile.digest}:{}) });
+}
+module.exports = { validate, fingerprint, confirm };
+
+},
+"../../../ItacanTaskCore/personal/enrollment.js": function (module, exports, __hubRequire) {
+"use strict";
+// An explicitly trusted, validated existing native checkpoint; not invented origin replay.
+const V = __hubRequire("../../../ItacanTaskCore/src/value.js"), M = __hubRequire("../../../ItacanTaskCore/personal/membership.js"), { check } = __hubRequire("../../../ItacanTaskCore/src/errors.js");
+const SOURCE = "private-native-storage-v1", ATOMIC = "atomic-task-mutations-v1";
+function validateSource(state, capability) {
+    __hubRequire("../../../ItacanTaskCore/src/domain.js").validateState(state);
+    check(state.schemaVersion === 1 && !state.gitShared && !state.personalShared && !state.recurrence && !state.historyImport && state.partitions.length === 1, "Only supported native private state may enroll.");
+    const p = state.partitions[0];
+    check(p.id === "private" && p.kind === (p.owner.type === "resource" ? "resource" : "private-project"), "Personal physical partition differs.");
+    check(V.canonical(capability) === V.canonical({ storageFormat: "private-v4", barrierVersion: 2, logicalSchemaVersion: 1, requiredCapabilities: [SOURCE, ATOMIC] }), "Unsupported enrollment source capability.");
+    check(state.receipts.every(r => ["task.createRich", "task.save", "task.complete", "step.complete", "task.delete"].includes(JSON.parse(r.payload).type)), "Unsupported historical private command.");
+    // Exercise the authoritative event/receipt projection, including reopening and deleted targets.
+    __hubRequire("../../../ItacanTaskCore/src/history-read.js").projectHistory(state, { version: 4, authorityId: state.storeId, owners: [p.owner], selection: "history" }, { fenced: false, info: null });
+    return state;
+}
+function prepare({ spaceId, state, capability, signer }) {
+    V.uuid(spaceId); validateSource(state, capability);
+    const body = { format: "itacan-personal-enrollment", version: 1, spaceId, authorityId: state.storeId, owner: V.clone(state.partitions[0].owner),
+        partition: V.clone(state.partitions[0]), sourceCapability: V.clone(capability), sourceRevision: state.revision, sourceRevisionId: state.revisionId,
+        state: V.clone(state) };
+    return M.seal(body, signer);
+}
+function validate(seed, binding) {
+    __hubRequire("../../../ItacanTaskCore/personal/binding.js").validate(binding); binding=__hubRequire("../../../ItacanTaskCore/personal/profile.js").base(binding);
+    const b = M.open(seed, binding.root.publicKey, binding.root.replicaId);
+    M.exact(b, ["format", "version", "spaceId", "authorityId", "owner", "partition", "sourceCapability", "sourceRevision", "sourceRevisionId", "state"]);
+    const owner = binding.owners.find(o => o.authorityId === b.authorityId);
+    check(b.format === "itacan-personal-enrollment" && b.version === 1 && b.spaceId === binding.spaceId && owner && owner.seedDigest === seed.digest && V.canonical(owner.owner) === V.canonical(b.owner), "Enrollment identity differs.");
+    check(b.state.storeId === b.authorityId && b.state.revision === b.sourceRevision && b.state.revisionId === b.sourceRevisionId && V.canonical(b.partition) === V.canonical(b.state.partitions[0]) && b.partition.id === owner.partitionId && b.partition.kind === owner.kind && V.canonical(b.partition.owner) === V.canonical(b.owner), "Enrollment source head differs.");
+    validateSource(b.state, b.sourceCapability); return b;
+}
+module.exports = { validateSource, prepare, validate };
+
+},
+"../../../ItacanTaskCore/personal/local-identity.js": function (module, exports, __hubRequire) {
+"use strict";
+// Caller supplies Electron safeStorage (or a test protector), never a plaintext fallback.
+const fs=require("node:fs/promises"),path=require("node:path"),M=__hubRequire("../../../ItacanTaskCore/personal/membership.js"),{check}=__hubRequire("../../../ItacanTaskCore/src/errors.js");
+async function createIdentity(file,protector){check(protector?.isEncryptionAvailable()&&protector.getSelectedStorageBackend?.()!=="basic_text","Local key protection unavailable.");const id=M.identity(),protectedKey=protector.encryptString(id.exportPrivate().toString("base64"));const body={format:"itacan-personal-local-key",version:1,replicaId:id.replicaId,publicKey:id.publicKey,protectedKey:protectedKey.toString("base64")};const handle=await fs.open(file,"wx",0o600);try{await handle.writeFile(JSON.stringify(body)+"\n","utf8");await handle.sync();}finally{await handle.close()}check((await loadIdentity(file,protector)).publicKey===id.publicKey,"Protected key readback differs.");return id;}
+async function loadIdentity(file,protector){check(protector?.isEncryptionAvailable()&&protector.getSelectedStorageBackend?.()!=="basic_text","Local key protection unavailable.");const s=await fs.lstat(file);check(s.isFile()&&!s.isSymbolicLink(),"Ordinary local key required.");const b=JSON.parse(await fs.readFile(file,"utf8"));M.exact(b,["format","version","replicaId","publicKey","protectedKey"]);check(b.format==="itacan-personal-local-key"&&b.version===1,"Personal local key version differs.");const id=M.restore(b.replicaId,Buffer.from(protector.decryptString(Buffer.from(b.protectedKey,"base64")),"base64"));check(id.publicKey===b.publicKey,"Local personal key differs.");return id;}
+module.exports={createIdentity,loadIdentity};
+
+},
+"../../../ItacanTaskCore/personal/membership.js": function (module, exports, __hubRequire) {
+"use strict";
+// Personal identities only. Keys never enter a packet, seed or membership record.
+const crypto = require("node:crypto"), V = __hubRequire("../../../ItacanTaskCore/src/value.js"), { check } = __hubRequire("../../../ItacanTaskCore/src/errors.js");
+const hash = value => crypto.createHash("sha256").update(V.canonical(value)).digest("hex");
+const exact = (v, fields) => V.fields(v, fields, fields);
+const text = v => Buffer.from(V.canonical(v), "utf8");
+function publicKey(value) {
+    check(typeof value === "string", "Personal public key required.");
+    const key = crypto.createPublicKey({ key: Buffer.from(value, "base64"), type: "spki", format: "der" });
+    check(key.asymmetricKeyType === "ed25519" && key.export({ type: "spki", format: "der" }).toString("base64") === value, "Canonical Ed25519 key required.");
+    return key;
+}
+function identity(replicaId = crypto.randomUUID()) {
+    V.uuid(replicaId); const pair = crypto.generateKeyPairSync("ed25519");
+    return { replicaId, publicKey: pair.publicKey.export({ type: "spki", format: "der" }).toString("base64"),
+        sign: value => crypto.sign(null, text(value), pair.privateKey).toString("base64"),
+        exportPrivate: () => pair.privateKey.export({ type: "pkcs8", format: "der" }) };
+}
+function restore(replicaId, privateBytes) {
+    V.uuid(replicaId); const key = crypto.createPrivateKey({ key: privateBytes, type: "pkcs8", format: "der" });
+    check(key.asymmetricKeyType === "ed25519", "Personal key type differs.");
+    return { replicaId, publicKey: crypto.createPublicKey(key).export({ type: "spki", format: "der" }).toString("base64"), sign: v => crypto.sign(null, text(v), key).toString("base64") };
+}
+function verify(key, value, signature) {
+    check(typeof signature === "string" && Buffer.from(signature, "base64").length === 64 && Buffer.from(signature, "base64").toString("base64") === signature && crypto.verify(null, text(value), publicKey(key), Buffer.from(signature, "base64")), "Personal signature differs.");
+}
+function seal(body, signer) { V.jsonValue(body); const digest = hash(body); return { body: V.clone(body), digest, signer: signer.replicaId, signature: signer.sign(["itacan-personal-signature-v1", digest]) }; }
+function open(record, key, replicaId) {
+    V.jsonValue(record); exact(record, ["body", "digest", "signer", "signature"]); V.uuid(record.signer);
+    check(record.digest === hash(record.body) && record.signer === replicaId, "Personal signed identity differs.");
+    verify(key, ["itacan-personal-signature-v1", record.digest], record.signature); return V.clone(record.body);
+}
+function certify(binding, signer, member, parent = null) {
+    binding=binding.version===2?binding.base:binding;
+    return seal({ format: "itacan-personal-member", version: 1, spaceId: binding.spaceId, bindingDigest: hash(binding), parent,
+        replicaId: member.replicaId, publicKey: member.publicKey }, signer);
+}
+function members(binding, records) {
+    binding=binding.version===2?binding.base:binding;
+    check(Array.isArray(records) && records.length <= 32, "Bounded personal membership required.");
+    publicKey(binding.root.publicKey); V.uuid(binding.root.replicaId);
+    const result = new Map([[binding.root.replicaId, binding.root.publicKey]]), pending = new Map();
+    for (const r of records) { check(!pending.has(r.digest), "Duplicate member certificate."); pending.set(r.digest, r); }
+    const accepted = new Set();
+    while (pending.size) {
+        let progress = false;
+        for (const [id, r] of pending) {
+            if (!result.has(r.signer) || r.body.parent !== null && !accepted.has(r.body.parent)) continue;
+            const b = open(r, result.get(r.signer), r.signer);
+            exact(b, ["format", "version", "spaceId", "bindingDigest", "parent", "replicaId", "publicKey"]);
+            check(b.format === "itacan-personal-member" && b.version === 1 && b.spaceId === binding.spaceId && b.bindingDigest === hash(binding), "Foreign membership.");
+            if (b.parent === null) check(r.signer === binding.root.replicaId, "Non-root membership requires its issuer certificate.");
+            else check(records.find(x => x.digest === b.parent)?.body.replicaId === r.signer, "Membership parent is not the issuer.");
+            V.uuid(b.replicaId); publicKey(b.publicKey);
+            check(!result.has(b.replicaId) || result.get(b.replicaId) === b.publicKey, "Replica key equivocation.");
+            result.set(b.replicaId, b.publicKey); accepted.add(id); pending.delete(id); progress = true;
+        }
+        check(progress, "Untrusted or cyclic personal membership.");
+    }
+    check(new Set(result.values()).size === result.size, "Replica keys must be distinct."); return result;
+}
+module.exports = { hash, exact, publicKey, identity, restore, verify, seal, open, certify, members };
+
+},
+"../../../ItacanTaskCore/personal/onedrive-transport-v1.js": function (module, exports, __hubRequire) {
+"use strict";
+// OneDrive transports immutable files. Missing dependencies are not native corruption.
+const fs=require("node:fs/promises"),path=require("node:path"),crypto=require("node:crypto"),{execFile}=require("node:child_process");
+const V=__hubRequire("../../../ItacanTaskCore/src/value.js"),M=__hubRequire("../../../ItacanTaskCore/personal/membership.js"),B=__hubRequire("../../../ItacanTaskCore/personal/binding.js"),E=__hubRequire("../../../ItacanTaskCore/personal/enrollment.js"),G=__hubRequire("../../../ItacanTaskCore/src/personal-shared.js"),{check}=__hubRequire("../../../ItacanTaskCore/src/errors.js");
+const LIMIT=64*1024*1024,NAME=/^[a-f0-9]{64}\.json$/;
+const equal=(a,b)=>process.platform==="win32"?a.toLowerCase()===b.toLowerCase():a===b;
+const git=(cwd,args)=>new Promise((resolve,reject)=>execFile("git",["-C",cwd,...args],{windowsHide:true,env:{...process.env,GIT_OPTIONAL_LOCKS:"0",GIT_TERMINAL_PROMPT:"0"},encoding:"utf8",maxBuffer:1024*1024},(e,out)=>e?reject(e):resolve(out.trim())));
+async function ordinary(p,kind){const s=await fs.lstat(p);check(!s.isSymbolicLink()&&equal(await fs.realpath(p),path.resolve(p))&&(kind==="directory"?s.isDirectory():s.isFile()),"Ordinary personal transport path required.");return s;}
+async function createOneDriveTransport(input){
+ const {vaultRoot,binding,seed,pairing,signer}=input;B.confirm(binding,pairing?.bindingDigest);const owner=E.validate(seed,binding),root=await __hubRequire("../../../ItacanTaskCore/host/private-authority.js").ordinaryPath(vaultRoot);check(equal(root,await fs.realpath(vaultRoot)),"Vault transport root differs.");await ordinary(root,"directory");
+ let knownMembers=V.clone(input.members);const incomplete=new Map();check(M.members(binding,knownMembers).get(signer.replicaId)===signer.publicKey,"Personal publisher is not enrolled.");
+ const transportRoot=path.join(root,".itacan-personal-sync"),space=path.join(transportRoot,"v1/spaces",binding.spaceId),base=path.join(space,"owners",owner.authorityId);
+ async function privacy(){
+  await ordinary(root,"directory");let gitRoot;try{gitRoot=await git(root,["rev-parse","--show-toplevel"])}catch(e){if(e.code===128)return;throw e}
+  const rel=path.relative(gitRoot,transportRoot).split(path.sep).join("/");check(rel&&!rel.startsWith("../")&&!path.isAbsolute(rel),"Personal transport Git boundary differs.");
+  check((await git(gitRoot,["ls-files","--",rel])).length===0,"Personal evidence is tracked by Git; publication blocked.");
+  check((await git(gitRoot,["check-ignore","--",rel+"/v1/probe.json"])).length>0,"Personal evidence is not ignored by Git.");
+ }
+ async function directory(p,create){const rel=path.relative(root,p);check(rel&&!rel.startsWith("..")&&!path.isAbsolute(rel),"Personal transport escaped vault.");let part=root;for(const n of rel.split(path.sep)){part=path.join(part,n);if(create)await fs.mkdir(part).catch(e=>{if(e.code!=="EEXIST")throw e});try{await ordinary(part,"directory")}catch(e){if(!create&&e.code==="ENOENT")return false;throw e}}return true;}
+ async function readFile(file){const stat=await ordinary(file,"file");check(stat.size<=LIMIT,"Personal file exceeds capacity.");const raw=await fs.readFile(file,"utf8");check(Buffer.byteLength(raw)<=LIMIT,"Personal file grew beyond capacity.");let value;try{value=JSON.parse(raw)}catch(e){e.evidenceDigest=crypto.createHash("sha256").update(raw).digest("hex");throw e}check(raw===V.canonical(value)+"\n","Canonical personal file required.");return{value,raw,bytes:Buffer.byteLength(raw)};}
+ async function publishFile(dir,id,value){
+  await privacy();await directory(dir,true);const target=path.join(dir,id+".json"),raw=V.canonical(value)+"\n";check(Buffer.byteLength(raw)<=LIMIT,"Personal record exceeds capacity.");
+  try{check((await readFile(target)).raw===raw,"Changed immutable personal file.");return}catch(e){if(e.code!=="ENOENT")throw e}
+  const staging=path.join(transportRoot,".staging");await directory(staging,true);const temp=path.join(staging,crypto.randomUUID()+".tmp");let handle;
+  try{handle=await fs.open(temp,"wx");await handle.writeFile(raw,"utf8");await handle.sync();await handle.close();handle=null;await privacy();await ordinary(dir,"directory");try{await fs.link(temp,target)}catch(e){if(e.code!=="EEXIST")throw e}check((await readFile(target)).raw===raw,"Personal publication readback differs.");}
+  finally{await handle?.close();await fs.unlink(temp).catch(e=>{if(e.code!=="ENOENT")throw e})}
+ }
+ async function entries(dir){if(!await directory(dir,false))return[];const names=await fs.readdir(dir);check(names.length<=1024,"Personal collection exceeds capacity.");return names.sort();}
+ async function publish(packet){
+  await privacy();check(V.canonical(packet.binding)===V.canonical(binding)&&V.canonical(packet.seed)===V.canonical(seed),"Personal publication binding differs.");
+  const ns=G.namespace(packet),g=G.graph(ns);await G.validateState({...Object.fromEntries(Object.entries(g.current).filter(([k])=>!["accepted","taskHeads","conflicts"].includes(k))),personalShared:ns});
+  await publishFile(path.join(space,"bindings"),M.hash(binding),binding);for(const r of packet.members)await publishFile(path.join(space,"members"),r.digest,r);
+  await publishFile(path.join(base,"seeds"),seed.digest,seed);for(const f of packet.frames)await publishFile(path.join(base,"objects"),f.id,f);
+  const head=M.seal({format:"itacan-personal-head",version:1,spaceId:binding.spaceId,bindingDigest:M.hash(binding),authorityId:owner.authorityId,seedDigest:seed.digest,head:packet.head},signer);
+  await publishFile(path.join(base,"heads"),head.digest,head);return{version:1,state:"locally-published",head:packet.head,declaration:head.digest};
+ }
+ async function read(){
+  const result={version:1,packets:[],waiting:[],invalid:[],aliases:[],acknowledgements:[]};await privacy();let bytes=0;
+  const records=async(dir,validate)=>{const out=[];for(const name of await entries(dir)){try{check(name.endsWith(".json"),"Unexpected personal record name.");const r=await readFile(path.join(dir,name));bytes+=r.bytes;check(bytes<=LIMIT,"Personal transport byte capacity exceeded.");const id=validate(r.value);if(name!==id+".json")result.aliases.push({file:name,digest:id});out.push(r.value)}catch(e){const key=path.join(dir,name),old=incomplete.get(key),attempts=e.evidenceDigest?(old?.digest===e.evidenceDigest?old.count+1:1):0;if(e.evidenceDigest)incomplete.set(key,{digest:e.evidenceDigest,count:attempts});if(["ENOENT","EBUSY","EACCES","EIO","ENODATA","UNKNOWN"].includes(e.code)||e instanceof SyntaxError&&attempts<3)result.waiting.push({file:name,code:e.code??"INCOMPLETE_JSON"});else result.invalid.push({file:name,code:e.code??"INVALID_RECORD"})}}return out;};
+  for(const [file,expected] of [[path.join(space,"bindings",M.hash(binding)+".json"),binding],[path.join(base,"seeds",seed.digest+".json"),seed]])try{check((await readFile(file)).raw===V.canonical(expected)+"\n","Transport binding/seed differs.");}catch(e){(e.code==="ENOENT"?result.waiting:result.invalid).push({file:path.basename(file),code:e.code??"INVALID_ENROLLMENT"});return result;}
+  const observed=await records(path.join(space,"members"),r=>{check(r.digest===M.hash(r.body),"Changed member bytes.");return r.digest});
+  const all=new Map(knownMembers.map(r=>[r.digest,r]));for(const r of observed){try{const trial=[...all.values()].filter(x=>x.digest!==r.digest).concat(r);M.members(binding,trial);all.set(r.digest,r)}catch(e){result.invalid.push({file:r.digest,code:"UNTRUSTED_MEMBER"})}}
+  knownMembers=[...all.values()].sort((a,b)=>a.digest.localeCompare(b.digest));const keys=M.members(binding,knownMembers);
+  const objects=new Map();for(const f of await records(path.join(base,"objects"),f=>{const{id,signature,...body}=f;check(id===M.hash(body)&&keys.has(f.replicaId),"Foreign personal object.");M.verify(keys.get(f.replicaId),["itacan-personal-frame-v1",binding.spaceId,seed.digest,id],signature);return id})){check(!objects.has(f.id)||V.canonical(objects.get(f.id))===V.canonical(f),"Conflicting object alias.");objects.set(f.id,f)}
+  const heads=await records(path.join(base,"heads"),r=>{check(keys.has(r.signer),"Unknown head signer.");const b=M.open(r,keys.get(r.signer),r.signer);M.exact(b,["format","version","spaceId","bindingDigest","authorityId","seedDigest","head"]);check(b.format==="itacan-personal-head"&&b.version===1&&b.spaceId===binding.spaceId&&b.bindingDigest===M.hash(binding)&&b.authorityId===owner.authorityId&&b.seedDigest===seed.digest,"Foreign personal head.");return r.digest});
+  const packets=new Map();for(const h of heads){const ids=new Set(),visiting=new Set();try{const visit=id=>{if(id===null||ids.has(id))return;check(!visiting.has(id),"Cyclic personal transport proof.");if(!objects.has(id)){const e=Error("Missing dependency");e.code="MISSING_DEPENDENCY";throw e}visiting.add(id);const f=objects.get(id);visit(f.parent);for(const ref of f.packet?.frameIds??[])visit(ref);visiting.delete(id);ids.add(id)};visit(h.body.head);const packet={format:"itacan-personal-native",version:1,binding:V.clone(binding),seed:V.clone(seed),members:V.clone(knownMembers),head:h.body.head,frames:[...ids].sort().map(id=>objects.get(id))};packets.set(packet.head,packet)}catch(e){(e.code==="MISSING_DEPENDENCY"?result.waiting:result.invalid).push({file:h.digest,code:e.code??"INVALID_ANCESTRY"})}}
+  result.packets=[...packets.values()].filter(p=>!([...packets.values()].some(q=>q.head!==p.head&&q.frames.some(f=>f.id===p.head))));
+  for(const r of await records(path.join(base,"acknowledgements"),r=>{check(keys.has(r.signer),"Unknown acknowledgement signer.");const b=M.open(r,keys.get(r.signer),r.signer);M.exact(b,["format","version","spaceId","authorityId","bindingDigest","head","application"]);check(b.format==="itacan-personal-ack"&&b.version===1&&b.spaceId===binding.spaceId&&b.authorityId===owner.authorityId&&b.bindingDigest===M.hash(binding),"Foreign acknowledgement.");return r.digest}))result.acknowledgements.push(r);
+  return result;
+ }
+ async function acknowledge(head,application){check(application&&Number.isSafeInteger(application.repositoryRevision)&&typeof application.operationId==="string","Authoritative application receipt required.");const record=M.seal({format:"itacan-personal-ack",version:1,spaceId:binding.spaceId,authorityId:owner.authorityId,bindingDigest:M.hash(binding),head,application:V.clone(application)},signer);await publishFile(path.join(base,"acknowledgements"),record.digest,record);return record.digest;}
+ async function capacity(){const counts={objects:0,heads:0,acknowledgements:0,bytes:0,recordLimit:1024,byteLimit:LIMIT};for(const kind of ["objects","heads","acknowledgements"]){const names=await entries(path.join(base,kind));counts[kind]=names.length;for(const name of names){const stat=await ordinary(path.join(base,kind,name),"file");counts.bytes+=stat.size;}}return Object.freeze(counts);}
+ return Object.freeze({publish,read,acknowledge,capacity,assertPrivacy:privacy,paths:Object.freeze({root:transportRoot,space,owner:base})});
+}
+module.exports={createOneDriveTransport};
+
+},
+"../../../ItacanTaskCore/personal/onedrive-transport-v2.js": function (module, exports, __hubRequire) {
+"use strict";
+// OneDrive transports immutable files. Missing dependencies are not native corruption.
+const fs=require("node:fs/promises"),path=require("node:path"),crypto=require("node:crypto"),{execFile}=require("node:child_process");
+const V=__hubRequire("../../../ItacanTaskCore/src/value.js"),M=__hubRequire("../../../ItacanTaskCore/personal/membership.js"),B=__hubRequire("../../../ItacanTaskCore/personal/binding.js"),E=__hubRequire("../../../ItacanTaskCore/personal/enrollment.js"),G=__hubRequire("../../../ItacanTaskCore/src/personal-shared-v2.js"),{check}=__hubRequire("../../../ItacanTaskCore/src/errors.js");
+const LIMIT=64*1024*1024,NAME=/^[a-f0-9]{64}\.json$/;
+const equal=(a,b)=>process.platform==="win32"?a.toLowerCase()===b.toLowerCase():a===b;
+const git=(cwd,args)=>new Promise((resolve,reject)=>execFile("git",["-C",cwd,...args],{windowsHide:true,env:{...process.env,GIT_OPTIONAL_LOCKS:"0",GIT_TERMINAL_PROMPT:"0"},encoding:"utf8",maxBuffer:1024*1024},(e,out)=>e?reject(e):resolve(out.trim())));
+async function ordinary(p,kind){const s=await fs.lstat(p);check(!s.isSymbolicLink()&&equal(await fs.realpath(p),path.resolve(p))&&(kind==="directory"?s.isDirectory():s.isFile()),"Ordinary personal transport path required.");return s;}
+async function createOneDriveTransport(input){
+ const {vaultRoot,binding,seed,pairing,signer}=input;B.confirm(binding,pairing?.bindingDigest);const owner=E.validate(seed,binding),root=await __hubRequire("../../../ItacanTaskCore/host/private-authority.js").ordinaryPath(vaultRoot);check(equal(root,await fs.realpath(vaultRoot)),"Vault transport root differs.");await ordinary(root,"directory");
+ let knownMembers=V.clone(input.members);const incomplete=new Map();check(M.members(binding,knownMembers).get(signer.replicaId)===signer.publicKey,"Personal publisher is not enrolled.");
+ const transportRoot=path.join(root,".itacan-personal-sync"),space=path.join(transportRoot,"v2/spaces",binding.base.spaceId),base=path.join(space,"owners",owner.authorityId);
+ async function privacy(){
+  await ordinary(root,"directory");let gitRoot;try{gitRoot=await git(root,["rev-parse","--show-toplevel"])}catch(e){if(e.code===128)return;throw e}
+  const rel=path.relative(gitRoot,transportRoot).split(path.sep).join("/");check(rel&&!rel.startsWith("../")&&!path.isAbsolute(rel),"Personal transport Git boundary differs.");
+  check((await git(gitRoot,["ls-files","--",rel])).length===0,"Personal evidence is tracked by Git; publication blocked.");
+  check((await git(gitRoot,["check-ignore","--",rel+"/v1/probe.json"])).length>0,"Personal evidence is not ignored by Git.");
+ }
+ async function directory(p,create){const rel=path.relative(root,p);check(rel&&!rel.startsWith("..")&&!path.isAbsolute(rel),"Personal transport escaped vault.");let part=root;for(const n of rel.split(path.sep)){part=path.join(part,n);if(create)await fs.mkdir(part).catch(e=>{if(e.code!=="EEXIST")throw e});try{await ordinary(part,"directory")}catch(e){if(!create&&e.code==="ENOENT")return false;throw e}}return true;}
+ async function readFile(file){const stat=await ordinary(file,"file");check(stat.size<=LIMIT,"Personal file exceeds capacity.");const raw=await fs.readFile(file,"utf8");check(Buffer.byteLength(raw)<=LIMIT,"Personal file grew beyond capacity.");let value;try{value=JSON.parse(raw)}catch(e){e.evidenceDigest=crypto.createHash("sha256").update(raw).digest("hex");throw e}check(raw===V.canonical(value)+"\n","Canonical personal file required.");return{value,raw,bytes:Buffer.byteLength(raw)};}
+ async function publishFile(dir,id,value){
+  await privacy();await directory(dir,true);const target=path.join(dir,id+".json"),raw=V.canonical(value)+"\n";check(Buffer.byteLength(raw)<=LIMIT,"Personal record exceeds capacity.");
+  try{check((await readFile(target)).raw===raw,"Changed immutable personal file.");return}catch(e){if(e.code!=="ENOENT")throw e}
+  const staging=path.join(transportRoot,".staging");await directory(staging,true);const temp=path.join(staging,crypto.randomUUID()+".tmp");let handle;
+  try{handle=await fs.open(temp,"wx");await handle.writeFile(raw,"utf8");await handle.sync();await handle.close();handle=null;await privacy();await ordinary(dir,"directory");try{await fs.link(temp,target)}catch(e){if(e.code!=="EEXIST")throw e}check((await readFile(target)).raw===raw,"Personal publication readback differs.");}
+  finally{await handle?.close();await fs.unlink(temp).catch(e=>{if(e.code!=="ENOENT")throw e})}
+ }
+ async function entries(dir){if(!await directory(dir,false))return[];const names=await fs.readdir(dir);check(names.length<=1024,"Personal collection exceeds capacity.");return names.sort();}
+ async function publish(packet){
+  await privacy();check(V.canonical(packet.binding)===V.canonical(binding)&&V.canonical(packet.seed)===V.canonical(seed),"Personal publication binding differs.");
+  const ns=G.namespace(packet),g=G.graph(ns);await G.validateState({...Object.fromEntries(Object.entries(g.current).filter(([k])=>!["known","accepted","frontier","taskHeads","conflicts","accounting","personalHead"].includes(k))),personalShared:ns});
+  await publishFile(path.join(space,"profiles"),binding.profile.digest,binding.profile);await publishFile(path.join(space,"bindings"),M.hash(binding),binding);for(const r of packet.members)await publishFile(path.join(space,"members"),r.digest,r);
+  await publishFile(path.join(base,"seeds"),seed.digest,seed);for(const f of packet.frames)await publishFile(path.join(base,"objects"),f.id,f);
+  const head=M.seal({format:"itacan-personal-head",version:2,profileDigest:binding.profile.digest,spaceId:binding.base.spaceId,bindingDigest:M.hash(binding),authorityId:owner.authorityId,seedDigest:seed.digest,head:packet.head},signer);
+  await publishFile(path.join(base,"heads"),head.digest,head);return{version:1,state:"locally-published",head:packet.head,declaration:head.digest};
+ }
+ async function read(){
+  const result={version:1,packets:[],waiting:[],invalid:[],aliases:[],acknowledgements:[]};await privacy();let bytes=0;
+  const records=async(dir,validate)=>{const out=[];for(const name of await entries(dir)){try{check(name.endsWith(".json"),"Unexpected personal record name.");const r=await readFile(path.join(dir,name));bytes+=r.bytes;check(bytes<=LIMIT,"Personal transport byte capacity exceeded.");const id=validate(r.value);if(name!==id+".json")result.aliases.push({file:name,digest:id});out.push(r.value)}catch(e){const key=path.join(dir,name),old=incomplete.get(key),attempts=e.evidenceDigest?(old?.digest===e.evidenceDigest?old.count+1:1):0;if(e.evidenceDigest)incomplete.set(key,{digest:e.evidenceDigest,count:attempts});if(["ENOENT","EBUSY","EACCES","EIO","ENODATA","UNKNOWN"].includes(e.code)||e instanceof SyntaxError&&attempts<3)result.waiting.push({file:name,code:e.code??"INCOMPLETE_JSON"});else result.invalid.push({file:name,code:e.code??"INVALID_RECORD"})}}return out;};
+  for(const [file,expected] of [[path.join(space,"profiles",binding.profile.digest+".json"),binding.profile],[path.join(space,"bindings",M.hash(binding)+".json"),binding],[path.join(base,"seeds",seed.digest+".json"),seed]])try{check((await readFile(file)).raw===V.canonical(expected)+"\n","Transport binding/seed differs.");}catch(e){(e.code==="ENOENT"?result.waiting:result.invalid).push({file:path.basename(file),code:e.code??"INVALID_ENROLLMENT"});return result;}
+  const observed=await records(path.join(space,"members"),r=>{check(r.digest===M.hash(r.body),"Changed member bytes.");return r.digest});
+  const all=new Map(knownMembers.map(r=>[r.digest,r]));for(const r of observed){try{const trial=[...all.values()].filter(x=>x.digest!==r.digest).concat(r);M.members(binding,trial);all.set(r.digest,r)}catch(e){result.invalid.push({file:r.digest,code:"UNTRUSTED_MEMBER"})}}
+  knownMembers=[...all.values()].sort((a,b)=>a.digest.localeCompare(b.digest));const keys=M.members(binding,knownMembers);
+  const objects=new Map();for(const f of await records(path.join(base,"objects"),f=>{const{id,signature,...body}=f;check(id===M.hash(body)&&keys.has(f.replicaId),"Foreign personal object.");M.verify(keys.get(f.replicaId),f.version===1?["itacan-personal-frame-v1",binding.base.spaceId,seed.digest,id]:["itacan-personal-frame-v2",binding.base.spaceId,M.hash(binding),seed.digest,id],signature);return id})){check(!objects.has(f.id)||V.canonical(objects.get(f.id))===V.canonical(f),"Conflicting object alias.");objects.set(f.id,f)}
+  const heads=await records(path.join(base,"heads"),r=>{check(keys.has(r.signer),"Unknown head signer.");const b=M.open(r,keys.get(r.signer),r.signer);M.exact(b,["format","version","profileDigest","spaceId","bindingDigest","authorityId","seedDigest","head"]);check(b.format==="itacan-personal-head"&&b.version===2&&b.profileDigest===binding.profile.digest&&b.spaceId===binding.base.spaceId&&b.bindingDigest===M.hash(binding)&&b.authorityId===owner.authorityId&&b.seedDigest===seed.digest,"Foreign personal head.");return r.digest});
+  const packets=new Map();for(const h of heads){const ids=new Set(),visiting=new Set();try{const visit=id=>{if(id===null||ids.has(id))return;check(!visiting.has(id),"Cyclic personal transport proof.");if(!objects.has(id)){const e=Error("Missing dependency");e.code="MISSING_DEPENDENCY";throw e}visiting.add(id);const f=objects.get(id);visit(f.parent);for(const ref of f.packet?.frameIds??[])visit(ref);visiting.delete(id);ids.add(id)};visit(h.body.head);for(const c of binding.profile.body.legacyCuts.find(c=>c.authorityId===owner.authorityId).heads)visit(c);const packet={format:"itacan-personal-native",version:2,binding:V.clone(binding),seed:V.clone(seed),members:V.clone(knownMembers),head:h.body.head,frames:[...ids].sort().map(id=>objects.get(id))};packets.set(packet.head,packet)}catch(e){(e.code==="MISSING_DEPENDENCY"?result.waiting:result.invalid).push({file:h.digest,code:e.code??"INVALID_ANCESTRY"})}}
+  result.packets=[...packets.values()].filter(p=>!([...packets.values()].some(q=>q.head!==p.head&&q.frames.some(f=>f.id===p.head))));
+  for(const r of await records(path.join(base,"acknowledgements"),r=>{check(keys.has(r.signer),"Unknown acknowledgement signer.");const b=M.open(r,keys.get(r.signer),r.signer);M.exact(b,["format","version","profileDigest","spaceId","authorityId","bindingDigest","head","application"]);check(b.format==="itacan-personal-ack"&&b.version===2&&b.profileDigest===binding.profile.digest&&b.spaceId===binding.base.spaceId&&b.authorityId===owner.authorityId&&b.bindingDigest===M.hash(binding),"Foreign acknowledgement.");return r.digest}))result.acknowledgements.push(r);
+  return result;
+ }
+ async function acknowledge(head,application){check(application&&Number.isSafeInteger(application.repositoryRevision)&&typeof application.operationId==="string","Authoritative application receipt required.");const record=M.seal({format:"itacan-personal-ack",version:2,profileDigest:binding.profile.digest,spaceId:binding.base.spaceId,authorityId:owner.authorityId,bindingDigest:M.hash(binding),head,application:V.clone(application)},signer);await publishFile(path.join(base,"acknowledgements"),record.digest,record);return record.digest;}
+ async function capacity(){const counts={objects:0,heads:0,acknowledgements:0,bytes:0,recordLimit:1024,byteLimit:LIMIT};for(const kind of ["objects","heads","acknowledgements"]){const names=await entries(path.join(base,kind));counts[kind]=names.length;for(const name of names){const stat=await ordinary(path.join(base,kind,name),"file");counts.bytes+=stat.size;}}return Object.freeze(counts);}
+ return Object.freeze({publish,read,acknowledge,capacity,assertPrivacy:privacy,paths:Object.freeze({root:transportRoot,space,owner:base})});
+}
+module.exports={createOneDriveTransport};
+
+},
+"../../../ItacanTaskCore/personal/onedrive-transport.js": function (module, exports, __hubRequire) {
+"use strict";
+module.exports={createOneDriveTransport:input=>(input.binding.version===2?__hubRequire("../../../ItacanTaskCore/personal/onedrive-transport-v2.js"):__hubRequire("../../../ItacanTaskCore/personal/onedrive-transport-v1.js")).createOneDriveTransport(input)};
+
+},
+"../../../ItacanTaskCore/personal/profile.js": function (module, exports, __hubRequire) {
+"use strict";
+const V=__hubRequire("../../../ItacanTaskCore/src/value.js"),M=__hubRequire("../../../ItacanTaskCore/personal/membership.js"),{check}=__hubRequire("../../../ItacanTaskCore/src/errors.js");
+const protocol=Object.freeze({packet:2,frame:2,namespace:2,enrollment:1,membership:1,retention:4,capability:"personal-sync-proofs-v2"});
+const base=b=>b?.version===2?b.base:b;
+function validate(binding){
+ M.exact(binding,["format","version","base","profile"]);check(binding.format==="itacan-personal-binding"&&binding.version===2,"Personal binding v2 required.");__hubRequire("../../../ItacanTaskCore/personal/binding.js").validate(binding.base);
+ const b=binding.base,p=M.open(binding.profile,b.root.publicKey,b.root.replicaId);M.exact(p,["format","version","spaceId","baseBindingDigest","protocol","legacyCuts"]);
+ check(p.format==="itacan-personal-profile"&&p.version===2&&p.spaceId===b.spaceId&&p.baseBindingDigest===M.hash(b)&&V.canonical(p.protocol)===V.canonical(protocol),"Personal profile differs.");
+ check(Array.isArray(p.legacyCuts)&&p.legacyCuts.length===b.owners.length,"Complete personal legacy cuts required.");let last=null;
+ for(const c of p.legacyCuts){M.exact(c,["authorityId","heads"]);V.uuid(c.authorityId);check(b.owners.some(o=>o.authorityId===c.authorityId)&&(!last||last<c.authorityId),"Personal cutoff owner/order differs.");last=c.authorityId;check(Array.isArray(c.heads)&&c.heads.length<=1024&&V.canonical(c.heads)===V.canonical([...new Set(c.heads)].sort())&&c.heads.every(h=>typeof h==="string"&&/^[a-f0-9]{64}$/.test(h)),"Canonical personal cut heads required.");}
+ return V.clone(binding);
+}
+function create(binding,signer,cuts=binding.owners.map(o=>({authorityId:o.authorityId,heads:[]}))){__hubRequire("../../../ItacanTaskCore/personal/binding.js").validate(binding);check(binding.version===1&&signer.replicaId===binding.root.replicaId&&signer.publicKey===binding.root.publicKey,"Original root profile signature required.");return validate({format:"itacan-personal-binding",version:2,base:V.clone(binding),profile:M.seal({format:"itacan-personal-profile",version:2,spaceId:binding.spaceId,baseBindingDigest:M.hash(binding),protocol,legacyCuts:V.clone(cuts).sort((a,b)=>a.authorityId.localeCompare(b.authorityId))},signer)});}
+module.exports={protocol,base,validate,create};
+
+},
+"../../../ItacanTaskCore/personal/recovery.js": function (module, exports, __hubRequire) {
+"use strict";
+// Bootstrap recovery has no task-creation API and never allocates a replacement operation.
+const {createNativeWriterSession}=__hubRequire("../../../ItacanTaskCore/writer/index.js"),{check}=__hubRequire("../../../ItacanTaskCore/src/errors.js");
+async function openPersonalRecovery(config,options){
+ check(options.personalSync&&options.requestRetention?.version===(options.personalSync.binding.version===2?4:3),"Explicit personal recovery admission required.");
+ const session=createNativeWriterSession(config,options);
+ try{await session.host.open({version:1,expectedAuthorityId:config.authorityId,...(config.scope==="inactive-disposable"?{syntheticOnly:true}:{verifiedCutover:true})})}catch(e){await session.dispose();throw e}
+ let closed=false;async function withGrant(fn){check(!closed,"Personal recovery closed.");const cap=await session.authorize({version:1,owners:options.writerPolicy.owners,commands:options.writerPolicy.commands});try{return await fn(cap)}finally{session.revoke(cap)}}
+ return Object.freeze({personal:{recoveryOnly:true},retained:()=>withGrant(cap=>session.requests.list(cap)),recovery:Object.freeze({inspect:id=>withGrant(cap=>session.requests.inspect(cap,id)),reconcile:async id=>withGrant(async cap=>{await session.requests.reconcile(cap,id);return{inspection:await session.requests.inspect(cap,id),presentation:{state:"not-requested",code:"PERSONAL_RECOVERY_REOPEN_REQUIRED"}}}),replay:review=>withGrant(cap=>session.requests.replay(cap,review))}),async close(){if(closed)return;closed=true;await session.dispose()}});
+}
+module.exports={openPersonalRecovery};
+
+},
+"../../../ItacanTaskCore/personal/runtime-sync.js": function (module, exports, __hubRequire) {
+"use strict";
+// Local task readiness is independent of this background transport queue.
+const {randomUUID}=require("node:crypto"),V=__hubRequire("../../../ItacanTaskCore/src/value.js"),{check}=__hubRequire("../../../ItacanTaskCore/src/errors.js");
+const G=__hubRequire("../../../ItacanTaskCore/src/personal-shared.js");
+let background=Promise.resolve();
+function createPersonalSync({runtime,transport,assertBinding=async()=>{},changed=()=>{}}){
+ let stopped=false,queue=Promise.resolve(),status={version:1,state:"idle",publishedHead:null,accepted:0,conflicts:0,waiting:0,invalid:0,code:null};
+ const snapshot=()=>Object.freeze(V.clone(status)),announce=next=>{status={...status,...next};if(!stopped)changed(snapshot())};
+ async function run(){check(!stopped,"Personal synchronization closed.");announce({state:"checking",code:null});
+  try{
+   await assertBinding();await runtime.assertRetainedResolved();const initial=await runtime.personal.export();await transport.publish(initial);check(!stopped,"Personal synchronization closing.");
+   const incoming=await transport.read();let accepted=0,waitingLocation=false;
+   for(const packet of incoming.packets){check(!stopped,"Personal synchronization closing.");await assertBinding();
+    let prepared;try{prepared=await runtime.personal.prepare(packet,randomUUID())}catch(e){if(e.code==="PERSONAL_WAITING_LOCATION"){waitingLocation=true;continue}throw e}
+    const outcome=await runtime.personal.receive(prepared);check(outcome.status==="committed"||outcome.code==="PERSONAL_NO_CHANGES","Personal request requires authoritative recovery.");
+    if(outcome.status==="committed")accepted+=outcome.personal?.acceptedOrigins.length??0;
+    const current=await runtime.personal.status();if(!stopped&&!current.conflicts.length)await transport.acknowledge(packet.head,await runtime.personal.confirmAccepted(packet));
+   }
+   const final=await runtime.personal.export(),native=await runtime.personal.status();await transport.publish(final);await assertBinding();
+   let acknowledged=false;
+   for(const ack of incoming.acknowledgements)if(ack.signer!==runtime.personal.replicaId&&ack.body.head===final.head)for(const proof of incoming.packets){const ns=G.namespace(proof),g=G.graph(ns),frame=proof.frames.find(f=>f.replicaId===ack.signer&&f.receipt.operationId===ack.body.application.operationId&&f.receipt.result.repositoryRevision===ack.body.application.repositoryRevision&&f.receipt.result.revisionId===ack.body.application.revisionId);if(frame&&g.frames.has(ack.body.head)&&[...g.read(ack.body.head).accepted].every(id=>g.read(frame.id).accepted.has(id)))acknowledged=true;}
+   const capacity=transport.capacity?await transport.capacity():null,near=final.frames.length>=960||capacity&&(Math.max(capacity.objects,capacity.heads,capacity.acknowledgements)>=960||capacity.bytes>=capacity.byteLimit*0.9);
+   announce({state:native.conflicts.length?"conflicting":incoming.invalid.length?"invalid":waitingLocation?"waiting-for-location":incoming.waiting.length?"waiting-for-evidence":near?"near-capacity":acknowledged?"peer-acknowledged":"locally-published",publishedHead:final.head,accepted,conflicts:native.conflicts.length,waiting:incoming.waiting.length,invalid:incoming.invalid.length,capacity,code:near?"PERSONAL_CAPACITY_NEAR_LIMIT":null});return snapshot();
+  }catch(e){announce({state:["ENOENT","EACCES","EBUSY","EIO"].includes(e.code)?"waiting-for-evidence":"unavailable",code:e.code??"PERSONAL_SYNC_UNAVAILABLE"});throw e;}
+ }
+ return Object.freeze({status:snapshot,sync(){const work=queue.then(()=>{const job=background.then(async()=>{await new Promise(resolve=>setImmediate(resolve));return run()});background=job.catch(()=>{});return job});queue=work.catch(()=>{});return work;},async close(){stopped=true;await queue}});
+}
+module.exports={createPersonalSync};
+
+},
 "../../../ItacanTaskCore/product-ui/bridge.cjs": function (module, exports, __hubRequire) {
 "use strict";
 (function(root,factory){if(typeof module!=="undefined"&&module.exports)module.exports=factory();else root.ProductBridge=factory();})(globalThis,()=>{
@@ -2650,7 +3044,7 @@ const { TASK_FIELDS, STEP_FIELDS, workspaceKey, validateTask, validateHistory, v
 
 const CREATE_FIELDS = TASK_FIELDS.filter(key => !["revision", "partitionId"].includes(key));
 const UPDATE_FIELDS = ["title", "importance", "start", "due", "description", "captureSource"];
-const TYPES = ["task.create", "task.createMany", "task.update", "task.relocate", "task.complete", "task.archive", "task.delete", "step.add", "step.update", "step.reorder", "step.delete", "step.complete", "history.record", "task.editStructure", "task.save", "task.createRich", "git.receive"];
+const TYPES = ["task.create", "task.createMany", "task.update", "task.relocate", "task.complete", "task.archive", "task.delete", "step.add", "step.update", "step.reorder", "step.delete", "step.complete", "history.record", "task.editStructure", "task.save", "task.createRich", "git.receive", "personal.enroll", "personal.bootstrap", "personal.receive", "personal.upgrade", "personal.resolve"];
 
 function validateCommand(command) {
     fields(command, ["operationId", "type", "taskId", "expectedRevision", "expectedRepositoryRevision", "payload", "context", "coordination"], ["operationId", "type", "payload"]);
@@ -2660,7 +3054,7 @@ function validateCommand(command) {
     const importCommand = __hubRequire("../../../ItacanTaskCore/src/history-import.js").isImport(command.type);
     check(TYPES.includes(command.type) || recurrenceTypes.includes(command.type) || importCommand, "Unsupported command.");
     check(command.payload !== null && typeof command.payload === "object" && !Array.isArray(command.payload), "Command payload must be a record.");
-    if (!["task.create", "task.createMany", "task.createRich", "history.record", "git.receive"].includes(command.type) && !importCommand) {
+    if (!["task.create", "task.createMany", "task.createRich", "history.record", "git.receive", "personal.enroll", "personal.bootstrap", "personal.receive", "personal.upgrade", "personal.resolve"].includes(command.type) && !importCommand) {
         uuid(command.taskId); revision(command.expectedRevision); check(command.expectedRevision >= 1, "Expected task revision is required.");
     } else check(command.taskId === undefined && command.expectedRevision === undefined, "Creation/history commands do not accept an existing task revision.");
     if (command.expectedRepositoryRevision !== undefined) revision(command.expectedRepositoryRevision);
@@ -2676,6 +3070,7 @@ function validateCommand(command) {
     if (command.type.startsWith("recurrence.")) __hubRequire("../../../ItacanTaskCore/src/recurrence.js").validateRecurrenceCommand(command);
     if (importCommand) __hubRequire("../../../ItacanTaskCore/src/history-import.js").validateCommand(command);
     if (__hubRequire("../../../ItacanTaskCore/src/completion-effects.js").isAtomic(command.type)) __hubRequire("../../../ItacanTaskCore/src/atomic-task.js").validateCommand(command);
+    if (command.type.startsWith("personal.")) __hubRequire("../../../ItacanTaskCore/src/personal-shared.js").validateCommand(command);
     if (command.type === "git.receive") __hubRequire("../../../ItacanTaskCore/src/git-shared.js").validateReceiveCommand(command);
 }
 function newTask(input, partitionId, now, nextId) {
@@ -2698,6 +3093,7 @@ function newTask(input, partitionId, now, nextId) {
 
 async function applyCommand(state, command, context) {
     const { now, nextId, resolvers, fault, externalReservations, recoveryReservedIds = [] } = context;
+    if (command.type.startsWith("personal.")) return __hubRequire("../../../ItacanTaskCore/src/personal-shared.js").apply(state, command, context);
     if (command.type === "git.receive") return __hubRequire("../../../ItacanTaskCore/src/git-shared.js").applyReceive(state, command, context);
     if (__hubRequire("../../../ItacanTaskCore/src/completion-effects.js").isAtomic(command.type)) return __hubRequire("../../../ItacanTaskCore/src/atomic-task.js").applyAtomic(state, command, context);
     if (__hubRequire("../../../ItacanTaskCore/src/history-import.js").isImport(command.type)) return __hubRequire("../../../ItacanTaskCore/src/history-import.js").applyImport(state, command, context);
@@ -2858,6 +3254,7 @@ function describe(state,command,before,beforeBindings,after,afterBindings) {
 function transitionMatches(before,after,intent,clock) { check(before&&after,"Missing retained completion target.");if(intent.kind==="keep")check(before.completed===after.completed&&before.completedAt===after.completedAt,"Keep changed completion evidence.");else if(intent.kind==="complete")check(!before.completed&&after.completed&&after.completedAt===(intent.completedAt===undefined?clock:intent.completedAt),"Invalid genuine completion transition.");else check(intent.kind==="reopen"&&before.completed&&!after.completed&&after.completedAt===null,"Invalid reopening transition."); }
 function initialMatches(target,initial,clock) { check(target.completed===initial.completed&&target.completedAt===(initial.completed?(initial.completedAt===undefined?clock:initial.completedAt):null),"Invalid initial completion state."); }
 function validateReceipt(state,receipt) {
+ if(state.personalShared)return __hubRequire("../../../ItacanTaskCore/src/personal-shared.js").atomicReceipt(state,receipt);
  if(state.gitShared)return __hubRequire("../../../ItacanTaskCore/src/git-shared.js").atomicReceipt(state,receipt);
  const command=JSON.parse(receipt.payload),d=receipt.result.atomicTask;check(isAtomic(command.type),"Atomic descriptor on an unrelated command.");__hubRequire("../../../ItacanTaskCore/src/atomic-task.js").validateCommand(command);
  const after=receipt.result.task;check(after&&after.id===d?.taskId,"Missing atomic result task.");const before=command.type==="task.save"?priorTask(state,command.taskId,receipt.result.repositoryRevision):null;
@@ -3029,8 +3426,9 @@ function validateState(state) {
     if (![1, 2, 3, 4].includes(state.schemaVersion)) fail("UNSUPPORTED_SCHEMA", "Unsupported repository schema.");
     if (state.schemaVersion >= 2 && state.schemaVersion <= 3 && state.recurrence?.version !== state.schemaVersion - 1 || state.schemaVersion === 1 && Object.hasOwn(state, "recurrence") || state.schemaVersion === 4 && Object.hasOwn(state, "recurrence") && ![1, 2].includes(state.recurrence?.version)) fail("UNSUPPORTED_SCHEMA", "Unsupported recurrence namespace; refusing downgrade.");
     if (state.schemaVersion === 4 && (!state.historyImport || state.historyImport.version !== 1 || state.historyImport.format !== "itacan-private-history-import" || canonical(state.historyImport.requiredCapabilities ?? null) !== canonical(["private-history-import-v1"]))) fail("UNSUPPORTED_SCHEMA", "Missing/unsupported private import capability.");
-    const stateFields = ["schemaVersion", "storeId", "revision", "revisionId", "parentRevisionId", "partitions", "tasks", "history", "bindings", "receipts", "retiredStepIds", ...(Object.hasOwn(state, "recurrence") ? ["recurrence"] : []), ...(state.schemaVersion === 4 ? ["historyImport"] : []), ...(Object.hasOwn(state, "gitShared") ? ["gitShared"] : [])];
+    const stateFields = ["schemaVersion", "storeId", "revision", "revisionId", "parentRevisionId", "partitions", "tasks", "history", "bindings", "receipts", "retiredStepIds", ...(Object.hasOwn(state, "recurrence") ? ["recurrence"] : []), ...(state.schemaVersion === 4 ? ["historyImport"] : []), ...(Object.hasOwn(state, "gitShared") ? ["gitShared"] : []), ...(Object.hasOwn(state, "personalShared") ? ["personalShared"] : [])];
     fields(state, stateFields, stateFields);
+    check(!(state.gitShared && state.personalShared), "Personal and Git profiles are exclusive.");
     uuid(state.storeId); revision(state.revision); uuid(state.revisionId);
     if (state.parentRevisionId !== null) uuid(state.parentRevisionId);
     check((state.revision === 0) === (state.parentRevisionId === null), "Repository ancestry mismatch.");
@@ -3077,7 +3475,8 @@ function validateState(state) {
         check(Array.isArray(receipt.partitionIds) && new Set(receipt.partitionIds).size === receipt.partitionIds.length && receipt.partitionIds.every(id => partitions.has(id)), "Invalid receipt partitions.");
         const result = receipt.result;
         check((command.type === "git.receive") === Object.hasOwn(result, "gitShared") && (command.type !== "git.receive" || !!state.gitShared), "Git application receipt discriminator mismatch.");
-        fields(result, ["operationId", "repositoryRevision", "revisionId", "taskId", "taskRevision", "task", "tasks", "change", "replayed", "recurrence", "historyImport", "atomicTask", ...(state.gitShared ? ["gitShared"] : [])], ["operationId", "repositoryRevision", "revisionId", "taskId", "taskRevision", "task", "tasks", "change", "replayed"]);
+        fields(result, ["operationId", "repositoryRevision", "revisionId", "taskId", "taskRevision", "task", "tasks", "change", "replayed", "recurrence", "historyImport", "atomicTask", ...(state.gitShared ? ["gitShared"] : []), ...(state.personalShared ? ["personal"] : [])], ["operationId", "repositoryRevision", "revisionId", "taskId", "taskRevision", "task", "tasks", "change", "replayed"]);
+        check(command.type.startsWith("personal.") === Object.hasOwn(result, "personal") && (!result.personal || !!state.personalShared), "Personal receipt discriminator mismatch.");
         check(__hubRequire("../../../ItacanTaskCore/src/completion-effects.js").isAtomic(command.type) === Object.hasOwn(result, "atomicTask"), "Atomic task receipt discriminator mismatch.");
         check(__hubRequire("../../../ItacanTaskCore/src/history-import.js").isImport(command.type) === Object.hasOwn(result, "historyImport") && (!result.historyImport || state.schemaVersion === 4), "Import receipt discriminator/barrier mismatch.");
         check(command.type.startsWith("recurrence.") === Object.hasOwn(result, "recurrence"), "Recurrence receipt discriminator mismatch.");
@@ -3098,7 +3497,8 @@ function validateState(state) {
         jsonValue(result); jsonValue(receipt.coordination);
     }
     check(receiptRevisions.size === state.revision, "Repository revisions are missing their durable receipts.");
-    if (state.gitShared) __hubRequire("../../../ItacanTaskCore/src/git-shared.js").validateRelations(state);
+    if (state.personalShared) __hubRequire("../../../ItacanTaskCore/src/personal-shared.js").validateRelations(state);
+    else if (state.gitShared) __hubRequire("../../../ItacanTaskCore/src/git-shared.js").validateRelations(state);
     else { __hubRequire("../../../ItacanTaskCore/src/source-content.js").validateContentContinuity(state); __hubRequire("../../../ItacanTaskCore/src/completion-effects.js").validateState(state); }
     if (state.recurrence) __hubRequire("../../../ItacanTaskCore/src/recurrence.js").validateNamespace(state);
     if (state.schemaVersion === 4) __hubRequire("../../../ItacanTaskCore/src/history-import.js").validateNamespace(state);
@@ -3134,6 +3534,7 @@ function projectEditor(state, target, { fenced = false } = {}) {
     }
     if (task.partitionId !== target.partitionId || V.canonical(task.owner) !== V.canonical(target.owner)) return unavailable("OWNER_MISMATCH");
     if (task.deletedAt !== null) return unavailable("TASK_DELETED");
+    if(state.personalShared&&__hubRequire("../../../ItacanTaskCore/src/personal-shared.js").checked(state).current.conflicts.some(c=>c.taskId===task.id))return unavailable("PERSONAL_CONFLICT");
     const partition = state.partitions.find(p => p.id === task.partitionId), current = C.contentOf(task)?.revisions.at(-1).current;
     const steps = F.ordered(task.steps);
     return {
@@ -3348,37 +3749,8 @@ function buildGraph(ns,heads) {
     heads.forEach(visit);check(reachable.size===frames.size,"Unreferenced origin evidence is not a compact packet.");
     return {frames,read,current,memo,operations,commands};
 }
-function merge(local, remote, frames, read) {
-    // A conflicted branch is evidence even when its effects were not accepted.
-    // Propagate both heads to new replicas; acceptance alone would hide the
-    // unaccepted side and incorrectly make the target writable again.
-    const all = new Set([...local.accepted, ...remote.accepted, ...local.conflicts.flatMap(c => c.origins), ...remote.conflicts.flatMap(c => c.origins)]), accepted = new Set(local.accepted), taskHeads = new Map(local.taskHeads), conflicts = V.clone(local.conflicts), value = view(local);
-    const candidates = new Map();
-    for (const id of all) for (const taskId of frames.get(id).receipt.result.change.taskIds) { if (!candidates.has(taskId)) candidates.set(taskId, []); candidates.get(taskId).push(id); }
-    const conflicting = new Set();
-    for (const [taskId, ids] of candidates) {
-        const heads = ids.filter(id => !ids.some(other => id !== other && read(frames.get(other).parent).accepted.has(id))).sort();
-        if (heads.length > 1) {
-            conflicting.add(taskId); const body = { taskId, origins: heads }, conflict = { ...body, digest: hash(body) };
-            if (!conflicts.some(x => x.digest === conflict.digest)) conflicts.push(conflict);
-        } else if (heads.length === 1) taskHeads.set(taskId, heads[0]);
-    }
-    for (const id of remote.accepted) if (!frames.get(id).receipt.result.change.taskIds.some(taskId => conflicting.has(taskId))) accepted.add(id);
-    for (const [taskId, head] of taskHeads) {
-        if (conflicting.has(taskId)) { if (local.taskHeads.has(taskId)) taskHeads.set(taskId, local.taskHeads.get(taskId)); else taskHeads.delete(taskId); continue; }
-        const source = read(head), task = source.tasks.find(t => t.id === taskId);
-        check(task, "Origin task snapshot missing.");
-        value.tasks = value.tasks.filter(t => t.id !== taskId).concat(V.clone(task));
-        value.history = value.history.filter(e => e.taskId !== taskId).concat(V.clone(source.history.filter(e => e.taskId === taskId)));
-        value.bindings = value.bindings.filter(e => e.taskId !== taskId).concat(V.clone(source.bindings.filter(e => e.taskId === taskId)));
-    }
-    // Retired identities are permanent reservations, even if their task is no
-    // longer live. Unaccepted conflict branches do not become accepted effects.
-    value.retiredStepIds = sorted(new Set([...accepted].flatMap(id => frames.get(id).receipt.result.atomicTask?.retiredStepIds ?? [])));
-    value.tasks.sort((a, b) => compare(a.id, b.id)); value.history.sort((a, b) => compare(a.id, b.id)); value.bindings.sort((a, b) => compare(a.stepId ?? a.taskId, b.stepId ?? b.taskId)); value.retiredStepIds.sort();
-    conflicts.sort((a, b) => compare(a.digest, b.digest));
-    return { view: value, accepted, taskHeads, conflicts, summary: { version: 1, acceptedOrigins: sorted([...accepted].filter(id => !local.accepted.has(id))), conflicts } };
-}
+const { merge } = __hubRequire("../../../ItacanTaskCore/src/replication-graph.js");
+
 function checkedNamespace(state, internal = false) {
     check(state.schemaVersion === 1 && !state.recurrence && !state.historyImport && state.partitions.length === 1 && state.partitions[0].kind === "git-project", "Git provenance is not a private/recurrence/import upgrade.");
     const g = internal ? observedGraph(state.gitShared) : graph(state.gitShared), c = g.current;
@@ -3821,7 +4193,7 @@ module.exports = { HISTORY_IMPORT_COMMANDS, DECISION, CAPABILITY, isImport, hash
 "../../../ItacanTaskCore/src/history-read.js": function (module, exports, __hubRequire) {
 "use strict";
 // Private fixed projection of an already validated authoritative generation.
-const V = __hubRequire("../../../ItacanTaskCore/src/value.js"), F = __hubRequire("../../../ItacanTaskCore/src/completion-effects.js"), I = __hubRequire("../../../ItacanTaskCore/src/history-import.js"), { check } = __hubRequire("../../../ItacanTaskCore/src/errors.js");
+const V = __hubRequire("../../../ItacanTaskCore/src/value.js"), F = __hubRequire("../../../ItacanTaskCore/src/completion-effects.js"), I = __hubRequire("../../../ItacanTaskCore/src/history-import.js"), { check, fail } = __hubRequire("../../../ItacanTaskCore/src/errors.js");
 const hash = I.hash, same = F.same;
 function validateRequest(r) {
     V.jsonValue(r); V.fields(r, ["version", "authorityId", "owners", "selection"], ["version", "authorityId", "owners", "selection"]);
@@ -3830,6 +4202,7 @@ function validateRequest(r) {
     r.owners.forEach(__hubRequire("../../../ItacanTaskCore/src/domain.js").workspace); return V.clone(r);
 }
 function publication(state, e) {
+    if (state.personalShared) return __hubRequire("../../../ItacanTaskCore/src/personal-shared.js").eventPublication(state, e);
     if (state.gitShared) return __hubRequire("../../../ItacanTaskCore/src/git-shared.js").eventPublication(state, e);
     const r = state.receipts.find(r => r.operationId === e.operationId), c = r && JSON.parse(r.payload);
     check(r && r.result.change.eventIds.filter(id => id === e.id).length === 1 && r.partitionIds.includes(e.partitionId), "History creation receipt mismatch.");
@@ -3856,6 +4229,7 @@ function publication(state, e) {
     return { origin, receipt: { operationId: r.operationId, repositoryRevision: r.result.repositoryRevision, revisionId: r.result.revisionId, digest: hash(r), index: r.result.change.eventIds.indexOf(e.id) } };
 }
 function projectHistory(state, request, storage) {
+    if(state.personalShared){const conflicts=__hubRequire("../../../ItacanTaskCore/src/personal-shared.js").checked(state).current.conflicts;if(state.personalShared.version===2&&conflicts.length)fail("PERSONAL_HISTORY_CONFLICT","Personal History has unresolved conflicts.");check(conflicts.length===0,"Personal History has unresolved conflicts.");}
     const selected = owner => request.owners.some(o => same(o, owner));
     const base = __hubRequire("../../../ItacanTaskCore/src/snapshot-read.js").projectSnapshot(state, { version: 1, authorityId: request.authorityId, owners: request.owners, selection: "targets", targets: [] }, storage);
     check(base.partitions.length === request.owners.length, "History owner partition missing.");
@@ -3959,7 +4333,7 @@ function recoverable(error) {
     if (error.code && !["ENOENT", "INTEGRITY", "VALIDATION"].includes(error.code)) throw io(error, "Cannot read repository evidence.");
 }
 class JsonGenerationStorage {
-    #admission; #taskMutationVersion; #atomicRecoveryKnown; #gitSharedVersion; #gitVerification;
+    #admission; #taskMutationVersion; #atomicRecoveryKnown; #gitSharedVersion; #gitVerification; #personalScope = null;
     constructor(port, options) {
         this.#admission = Admission.repositoryGate(this, Admission.storageGate(port, options.commandAdmission));
         this.port = port; this.options = options; this.retention = options.retention ?? 4;
@@ -3976,9 +4350,12 @@ class JsonGenerationStorage {
     gitSharedCapability() { return this.#gitSharedVersion === 2; }
     atomicTaskCapability() { return this.#taskMutationVersion === 1; }
     atomicTaskRecoveryKnown() { if (this.atomicTaskCapability() && (this.recurrenceFence || this.recovery)) this.#atomicRecoveryKnown = true; return this.atomicTaskCapability() && this.#atomicRecoveryKnown; }
-    storageInfo() { return this.private ? { format: "private-v4", wireVersion: 4, authorityId: this.authorityId, minimumLogicalSchemaVersion: this.highestSchema, fenced: !!this.recurrenceFence, ...(this.atomicTaskCapability() ? { taskMutationVersion: 1 } : {}), ...(this.gitSharedCapability() ? { gitSharedVersion: 2 } : {}) } : null; }
-    adoptBarrier(b) { this.highestSchema = Math.max(this.highestSchema, b.minimumLogicalSchemaVersion); if (b.version >= 2) this.#taskMutationVersion = 1; if (b.version === 3) this.#gitSharedVersion = 2; this.importRecoveryScope = __hubRequire("../../../ItacanTaskCore/src/history-import.js").mergeScope(this.importRecoveryScope, b.importRecoveryScope); }
-    barrierFor(state = null) { return privateCodec.makeBarrier(this.authorityId, Math.max(this.highestSchema, state?.schemaVersion ?? 1), __hubRequire("../../../ItacanTaskCore/src/history-import.js").mergeScope(this.importRecoveryScope, state ? __hubRequire("../../../ItacanTaskCore/src/history-import.js").scopeOf(state) : null), this.#taskMutationVersion, this.#gitSharedVersion); }
+    storageInfo() { return this.private ? { format: "private-v4", wireVersion: 4, authorityId: this.authorityId, minimumLogicalSchemaVersion: this.highestSchema, fenced: !!this.recurrenceFence, ...(this.atomicTaskCapability() ? { taskMutationVersion: 1 } : {}), ...(this.gitSharedCapability() ? { gitSharedVersion: 2 } : {}), ...(this.#personalScope ? {personalSyncVersion:this.#personalScope.version, ...(this.personalTransitionPending?{personalTransitionPending:true}:{})} : {}) } : null; }
+    adoptBarrier(b) { this.highestSchema=Math.max(this.highestSchema,b.minimumLogicalSchemaVersion);if(b.version>=2)this.#taskMutationVersion=1;if(b.version===3)this.#gitSharedVersion=2;
+        if(b.version>=4){check(!this.#gitSharedVersion,"Git/personal capabilities are exclusive.");const prior=this.#personalScope,next=b.personalScope;if(prior&&canonical(prior)!==canonical(next)){const a=prior.version===1?prior:next,both=prior.version!==next.version;check(both&&a.version===1&&this.options.personalSync?.binding.version===2&&__hubRequire("../../../ItacanTaskCore/src/personal-shared.js").hash(this.options.personalSync.binding.base)===a.bindingDigest&&prior.seedDigest===next.seedDigest&&prior.replicaId===next.replicaId&&prior.rootOperationId===next.rootOperationId&&prior.rootCommandDigest===next.rootCommandDigest&&prior.sourceRevisionId===next.sourceRevisionId,"Personal authority scope changed.");}if(!prior||next.version>=prior.version)this.#personalScope=clone(next);}
+        this.importRecoveryScope=__hubRequire("../../../ItacanTaskCore/src/history-import.js").mergeScope(this.importRecoveryScope,b.importRecoveryScope); }
+
+    barrierFor(state = null) { return privateCodec.makeBarrier(this.authorityId, Math.max(this.highestSchema, state?.schemaVersion ?? 1), __hubRequire("../../../ItacanTaskCore/src/history-import.js").mergeScope(this.importRecoveryScope, state ? __hubRequire("../../../ItacanTaskCore/src/history-import.js").scopeOf(state) : null), this.#taskMutationVersion, this.#gitSharedVersion, state?.personalShared ? __hubRequire("../../../ItacanTaskCore/src/personal-shared.js").storageScope(state) : this.#personalScope); }
     parseStoredManifest(raw) {
         if (this.private) {
             let w; try { w = JSON.parse(raw); } catch (_) { fail("INTEGRITY", "Invalid private pointer JSON."); }
@@ -3994,6 +4371,20 @@ class JsonGenerationStorage {
     assertScopeEstablished() {
         if (this.private && (this.unprovenScope || this.recurrenceFence && !this.importRecoveryScope && (this.highestSchema === 4 || ["invalid-recovery-fence", "unreadable-recovery-fence"].includes(this.recurrenceFence.reason)))) fail("RECOVERY_REQUIRED", "Import identity scope cannot be established; no writer authority is exposed.");
     }
+    assertPersonalEnrollmentCommand(command,state){
+        const p=this.#personalScope;if(this.options.personalSync?.binding.version===2&&state.personalShared?.version===1)check(command.type==="personal.upgrade","Explicit personal v2 upgrade required.");
+        if(p?.version===2&&(!state.personalShared||state.personalShared.version===1))check(["personal.enroll","personal.bootstrap","personal.upgrade"].includes(command.type)&&__hubRequire("../../../ItacanTaskCore/src/personal-shared.js").hash(command)===p.transition.commandDigest,"Incomplete v2 transition requires exact original operation.");
+        else if(p&&!state.personalShared)check(["personal.enroll","personal.bootstrap"].includes(command.type)&&__hubRequire("../../../ItacanTaskCore/src/personal-shared.js").hash(command)===p.rootCommandDigest,"Incomplete personal enrollment requires its exact original operation.");
+    }
+    assertPersonalContext(state){
+        const p=this.#personalScope;this.personalTransitionPending=!!(p?.version===2&&state.personalShared?.version!==2);if(!p)return;const o=this.options.personalSync,G=__hubRequire("../../../ItacanTaskCore/src/personal-shared.js");check(o&&o.seed.digest===p.seedDigest&&o.signer?.replicaId===p.replicaId,"Paired personal replica required.");
+        if(p.version===1&&o.binding.version===2){check(G.hash(o.binding.base)===p.bindingDigest,"Personal upgrade binding differs.");if(state.personalShared?.version===1)check(canonical(G.storageScope(state))===canonical(p),"Original personal lineage differs.");else if(state.personalShared)check(G.storageScope(state).rootCommandDigest===p.rootCommandDigest,"Upgrade root differs.");return;}
+        check(o.pairing?.bindingDigest===p.bindingDigest&&G.hash(o.binding)===p.bindingDigest,"Paired personal binding differs.");
+        if(p.version===2&&state.personalShared?.version!==2)check(state.revisionId===p.transition.predecessorRevisionId,"Personal transition predecessor differs.");
+        else if(!state.personalShared)check(state.revisionId===p.sourceRevisionId,"Personal enrollment base differs.");
+        else check(canonical(G.storageScope(state))===canonical(p),"Personal storage lineage differs.");
+    }
+
     async assertAllWritable(state, { allowRecoveredRead = false } = {}) {
         if (!this.private && (state.schemaVersion === 4 || this.highestSchema === 4 || this.importRecoveryScope)) fail("STORAGE_PROFILE_REQUIRED", "All writes to stopped flat schema-4 state are prohibited.");
         if (this.private) {
@@ -4012,7 +4403,7 @@ class JsonGenerationStorage {
             if (this.atomicTaskCapability() && (this.recurrenceFence || this.recovery)) this.#atomicRecoveryKnown = true;
             if (!allowRecoveredRead && this.atomicTaskCapability() && this.#atomicRecoveryKnown) fail("ATOMIC_TASK_RECOVERY_FENCED", "Every mutation and mutation replay is blocked after known atomic-root recovery.");
         }
-        this.assertScopeEstablished();
+        this.assertScopeEstablished(); this.assertPersonalContext(state);
     }
     async assertLegacyEvidence() {
         if (this.private) return;
@@ -4039,12 +4430,13 @@ class JsonGenerationStorage {
         const prior=this.#gitVerification;
         if(this.private&&prior&&prior.authorityId===this.authorityId&&prior.storeId===storeId&&prior.descriptor===canonical(ref)&&prior.raw===raw){if(remember)this.adoptBarrier(prior.barrier);return clone(prior.state);}
         let state;
-        if (this.private) { const v = privateCodec.decodePrivateGeneration(raw, this.authorityId); if (this.atomicTaskCapability() && v.barrier.version < 2) fail("UNSUPPORTED_SCHEMA", "Atomic authority cannot select a pre-capability generation."); if (this.gitSharedCapability() && v.barrier.version !== 3) fail("UNSUPPORTED_SCHEMA", "Git authority cannot select a pre-provenance generation."); state = v.state; if (remember) this.adoptBarrier(v.barrier); }
+        if (this.private) { const v = privateCodec.decodePrivateGeneration(raw, this.authorityId); if (this.atomicTaskCapability() && v.barrier.version < 2) fail("UNSUPPORTED_SCHEMA", "Atomic authority cannot select a pre-capability generation."); if (this.gitSharedCapability() && v.barrier.version !== 3) fail("UNSUPPORTED_SCHEMA", "Git authority cannot select a pre-provenance generation."); state = v.state; if (remember) this.adoptBarrier(v.barrier); this.assertPersonalContext(state); }
         else { try { state = JSON.parse(raw); } catch (_) { fail("INTEGRITY", "Generation is not valid JSON."); } }
         validateState(state);
         if (state.gitShared) await __hubRequire("../../../ItacanTaskCore/src/git-shared.js").validateState(state);
         if (!this.private && state.schemaVersion === 4) fail("STORAGE_PROFILE_REQUIRED", "Flat schema-4 generations cannot grant legacy writer authority.");
         check(state.storeId === storeId && state.revision === ref.revision && state.revisionId === ref.revisionId && state.parentRevisionId === ref.parentRevisionId, "Generation identity differs from manifest.");
+        if(state.personalShared) await __hubRequire("../../../ItacanTaskCore/src/personal-shared.js").validateState(state);
         if(this.private&&state.gitShared&&raw.length<=16*1024*1024)this.#gitVerification={authorityId:this.authorityId,storeId,descriptor:canonical(ref),raw,state:clone(state),barrier:this.barrierFor(state)};
         return state;
     }
@@ -4261,7 +4653,7 @@ class JsonGenerationStorage {
             if (this.preservePrimary && priorRaw !== null) {
                 await this.port.writeNew(`evidence-current-${randomUUID()}.json`, priorRaw); this.preservePrimary = false;
             }
-            if (prior) await this.atomicManifest("RECOVERY.json", this.encodeStoredManifest(prior));
+            if (prior) await this.atomicManifest("RECOVERY.json", this.encodeStoredManifest(prior, state.personalShared ? candidateBarrier : null));
             await this.options.fault?.("beforeManifestReplace");
             if (intent) {
                 await this.assertHistoryImportWritable(intent.command, intent.priorState);
@@ -4322,6 +4714,7 @@ async function openRepository(options, creating) {
     check(options && typeof options === "object", "Repository options are required.");
     check(options.taskMutationVersion === undefined || creating && options.storageFormat === "private-v4" && options.taskMutationVersion === 1, "Atomic capability is a private creation-only option; opening never upgrades.");
     check(options.gitSharedVersion === undefined || creating && options.gitSharedVersion === 2 && options.taskMutationVersion === 1 && options.storageFormat === "private-v4", "Git capability is explicit creation-only.");
+    check(!options.personalSync || options.storageFormat === "private-v4" && options.gitSharedVersion === undefined && options.sharedGenesis === undefined, "Personal admission requires private storage exclusively.");
     check(options.sharedGenesis === undefined || creating && options.gitSharedVersion === 2, "Shared genesis is Git creation-only.");
     if (options.gitSharedVersion === 2) { uuid(options.sharedReplicaId); check(options.externalReservations, "Shared inventory required."); }
     // Even an injected port must be paired with an explicit directory.
@@ -4481,6 +4874,321 @@ class NodeDirectory {
 module.exports = { NodeDirectory };
 
 },
+"../../../ItacanTaskCore/src/personal-resolution.js": function (module, exports, __hubRequire) {
+"use strict";
+// Pure, graph-derived branch choice. No IO or independent outcome authority.
+const V=__hubRequire("../../../ItacanTaskCore/src/value.js"),M=__hubRequire("../../../ItacanTaskCore/personal/membership.js"),C=__hubRequire("../../../ItacanTaskCore/src/source-content.js"),{check,fail}=__hubRequire("../../../ItacanTaskCore/src/errors.js");
+const same=(a,b)=>V.canonical(a)===V.canonical(b),sorted=x=>[...new Set(x)].sort();
+function conflictDigest(g,taskId,heads){return M.hash({format:"itacan-personal-conflict",version:2,profileDigest:g.ns.binding.profile.digest,authorityId:g.seed.authorityId,partitionId:g.seed.partition.id,taskId,heads:sorted(heads)});}
+function preview(g,prior,taskId,originId){
+ const heads=prior.frontier.get(taskId)??[];check(heads.length>=2&&heads.includes(originId),"Resolution requires an exact competing branch.");const source=g.read(originId),selected=source.tasks.find(t=>t.id===taskId);check(selected,"Selected origin has no task.");
+ const taskNodes=[...prior.known].filter(id=>g.nodes.get(id)?.has(taskId)),versions=taskNodes.map(id=>g.read(id).tasks.find(t=>t.id===taskId)).filter(Boolean),retired=g.retirements(prior),ids=sorted(versions.flatMap(t=>t.steps.map(s=>s.id)));
+ if(selected.deletedAt===null&&versions.some(t=>t.deletedAt!==null))fail("PERSONAL_RESURRECTION_UNSUPPORTED","A known deletion forbids a live resolution.");
+ if(selected.deletedAt===null&&selected.steps.some(s=>retired.has(s.id)))fail("PERSONAL_RETIRED_STEP","Selected live branch contains a retired Step.");
+ const task=V.clone(selected),removed=[];if(task.deletedAt!==null){task.steps=task.steps.filter(s=>{if(retired.has(s.id)){removed.push(s.id);return false}return true});}
+ const liveIds=new Set(task.steps.map(s=>s.id)),retiredStepIds=sorted([...prior.retiredStepIds,...ids.filter(id=>!liveIds.has(id))]),catalog=g.catalog(prior),accounting=[],history=[];
+ for(const e of catalog.values())if(e.taskId===taskId){const decision=source.accounting.get(e.id),a=decision?V.clone(decision):{disposition:"superseded",counted:false,reopenedAt:null,operationId:null};accounting.push({eventId:e.id,...a});history.push({...V.clone(e),counted:a.counted,reopenedAt:a.reopenedAt});}
+ accounting.sort((a,b)=>a.eventId.localeCompare(b.eventId));history.sort((a,b)=>a.id.localeCompare(b.id));const bindings=task.deletedAt!==null?[]:source.bindings.filter(b=>b.taskId===taskId&&liveIds.has(b.stepId)||b.taskId===taskId&&b.stepId===null);
+ const content=C.contentOf(selected)?.revisions.at(-1).current??{continuation:"",stepBodies:selected.steps.map(s=>({id:s.id,body:""}))};const current={continuation:content.continuation,stepBodies:content.stepBodies.filter(b=>liveIds.has(b.id))};
+ const accountingChanges=accounting.map(a=>({eventId:a.eventId,before:{counted:prior.accounting.get(a.eventId)?.counted??false,reopenedAt:prior.accounting.get(a.eventId)?.reopenedAt??null,disposition:prior.accounting.get(a.eventId)?.disposition??"unresolved"},after:{counted:a.counted,reopenedAt:a.reopenedAt,disposition:a.disposition}}));
+ const value={task,content:current,accounting,accountingChanges,bindings:V.clone(bindings),retiredStepIds,newlyRetiredStepIds:retiredStepIds.filter(id=>!prior.retiredStepIds.includes(id)),removedTombstoneSteps:removed.sort(),nextTaskRevision:Math.max(...versions.map(t=>t.revision),prior.tasks.find(t=>t.id===taskId)?.revision??0)+1};
+ return {version:2,taskId,conflictDigest:conflictDigest(g,taskId,heads),reviewedHeads:sorted(heads),selectedOriginId:originId,previewDigest:M.hash(value),value};
+}
+function execute(g,prior,c,clock){
+ const p=c.payload,heads=prior.frontier.get(p.taskId)??[];if(prior.personalHead!==p.expectedLocalHead||M.hash(prior.tasks.find(t=>t.id===p.taskId)??null)!==(p.expectedTaskDigest??M.hash(null))||!same(heads,p.reviewedHeads)||conflictDigest(g,p.taskId,heads)!==p.conflictDigest)fail("PERSONAL_REVIEW_STALE","Personal conflict changed; renewed review required.");
+ const reviewed=preview(g,prior,p.taskId,p.choice.originId);if(reviewed.previewDigest!==p.previewDigest)fail("PERSONAL_REVIEW_STALE","Resolution consequences changed.");
+ const v=reviewed.value,task=V.clone(v.task),before=V.clone(task);task.revision=v.nextTaskRevision;task.modifiedAt=clock;C.finishContentRevision(task,before,c.operationId,v.content);
+ const next={tasks:prior.tasks.filter(t=>t.id!==p.taskId).concat(task).sort((a,b)=>a.id.localeCompare(b.id)),history:prior.history.filter(e=>e.taskId!==p.taskId).concat(v.accounting.map(a=>{const e=g.catalog(prior).get(a.eventId);return{...V.clone(e),counted:a.counted,reopenedAt:a.reopenedAt}})).sort((a,b)=>a.id.localeCompare(b.id)),bindings:prior.bindings.filter(b=>b.taskId!==p.taskId).concat(v.bindings).sort((a,b)=>(a.stepId??a.taskId).localeCompare(b.stepId??b.taskId)),retiredStepIds:sorted(v.retiredStepIds)};
+ const accounting=new Map(prior.accounting);for(const a of v.accounting)accounting.set(a.eventId,{disposition:a.disposition,counted:a.counted,reopenedAt:a.reopenedAt,operationId:c.operationId});
+ return {view:next,accounting,descriptor:{version:2,operationId:c.operationId,taskId:p.taskId,conflictDigest:p.conflictDigest,reviewedHeads:V.clone(p.reviewedHeads),selectedOriginId:p.choice.originId,previewDigest:p.previewDigest,resultingTaskDigest:M.hash(task),contentDigest:M.hash(v.content),accountingChanges:V.clone(v.accountingChanges),accounting:v.accounting.map(a=>({...a,operationId:c.operationId})),bindings:V.clone(v.bindings),retiredStepIds:next.retiredStepIds.filter(id=>!prior.retiredStepIds.includes(id)),removedTombstoneSteps:v.removedTombstoneSteps}};
+}
+module.exports={conflictDigest,preview,execute};
+
+},
+"../../../ItacanTaskCore/src/personal-shared-v1.js": function (module, exports, __hubRequire) {
+"use strict";
+// Personal profile v1. Existing private receipts are a validated enrollment base,
+// never renumbered remote local receipts. Git packet grammars remain separate.
+const V = __hubRequire("../../../ItacanTaskCore/src/value.js"), M = __hubRequire("../../../ItacanTaskCore/personal/membership.js"), E = __hubRequire("../../../ItacanTaskCore/personal/enrollment.js"), { check, fail } = __hubRequire("../../../ItacanTaskCore/src/errors.js");
+const same = (a,b) => V.canonical(a) === V.canonical(b), hash = M.hash, exact = M.exact;
+const TYPES = ["task.createRich", "task.save", "task.complete", "step.complete", "task.delete"];
+const PERSONAL = ["personal.enroll", "personal.bootstrap", "personal.receive"];
+const VIEW = ["tasks", "history", "bindings", "retiredStepIds"];
+const view = s => Object.fromEntries(VIEW.map(k => [k,V.clone(s[k])]));
+const hex = v => check(typeof v === "string" && /^[a-f0-9]{64}$/.test(v), "Personal digest required.");
+function packet(ns) { return { format: "itacan-personal-native", version: 1, ...Object.fromEntries(["binding","seed","members","head","frames"].map(k=>[k,V.clone(ns[k])])) }; }
+function namespace(p) {
+    V.jsonValue(p); exact(p,["format","version","binding","seed","members","head","frames"]);
+    check(p.format === "itacan-personal-native" && p.version === 1, "Personal packet v1 required.");
+    return { ...V.clone(p), format: "itacan-personal-origin-state" };
+}
+function delta(before,after,r) {
+    return { history: r.result.change.eventIds.map(id=>{const e=after.history.find(e=>e.id===id);check(e,"Missing personal event effect.");return V.clone(e)}),
+        bindings: { remove: before.bindings.filter(b=>!after.bindings.some(n=>same(b,n))).map(b=>b.eventId), add: after.bindings.filter(b=>!before.bindings.some(n=>same(b,n))).map(V.clone) },
+        retiredStepIds: after.retiredStepIds.filter(id=>!before.retiredStepIds.includes(id)) };
+}
+function changes(before,after,summary) {
+    return { taskIds: after.tasks.filter(t=>!same(t,before.tasks.find(x=>x.id===t.id)??null)).map(t=>t.id),
+        eventIds: after.history.filter(e=>!same(e,before.history.find(x=>x.id===e.id)??null)).map(e=>e.id), partitionIds:[before.partitions[0].id], personal:summary };
+}
+function union(a,b) {
+    check(same(a.binding,b.binding)&&same(a.seed,b.seed),"Personal binding/enrollment differs.");
+    const records = key => {const m=new Map(a[key].map(v=>[key==="members"?v.digest:v.id,v]));for(const v of b[key]){const id=key==="members"?v.digest:v.id;check(!m.has(id)||same(m.get(id),v),"Conflicting immutable personal object.");m.set(id,v)}return [...m.values()].sort((x,y)=>(key==="members"?x.digest:x.id).localeCompare(key==="members"?y.digest:y.id))};
+    return {...a,members:records("members"),frames:records("frames")};
+}
+function rootView(seed) {
+    return { ...V.clone(seed.state), accepted:new Set(["seed:"+hash(seed)]),taskHeads:new Map(seed.state.tasks.map(t=>[t.id,"seed:"+hash(seed)])),conflicts:[] };
+}
+function empty(seed, revisionId) {
+    V.uuid(revisionId); const p=seed.partition;
+    return {schemaVersion:1,storeId:seed.authorityId,revision:0,revisionId,parentRevisionId:null,partitions:[{id:p.id,kind:p.kind,owner:V.clone(p.owner),revision:0,head:null,parentHead:null}],tasks:[],history:[],bindings:[],retiredStepIds:[],receipts:[],accepted:new Set(),taskHeads:new Map(),conflicts:[]};
+}
+function materialize(prior,f,seed) {
+    const r=f.receipt,d=f.delta;exact(d,["history","bindings","retiredStepIds"]);exact(d.bindings,["remove","add"]);
+    for(const value of [d.history,d.bindings.remove,d.bindings.add,d.retiredStepIds])check(Array.isArray(value),"Personal transition collection missing.");
+    check(same(d.history.map(e=>e.id),r.result.change.eventIds),"Personal event coverage differs.");
+    const replace=(a,b,key)=>{check(new Set(b.map(x=>x[key])).size===b.length,"Duplicate personal transition target.");const m=new Map(b.map(x=>[x[key],x]));return a.map(x=>{const v=m.get(x[key])??x;m.delete(x[key]);return v}).concat([...m.values()]).map(V.clone)};
+    check(same(r.result.change.taskIds,r.result.tasks.map(t=>t.id)),"Personal task coverage differs.");
+    r.result.tasks.forEach(t=>{__hubRequire("../../../ItacanTaskCore/src/domain.js").validateTask(t);check(t.partitionId===seed.partition.id&&same(t.owner,seed.owner),"Foreign personal task.")});
+    d.history.forEach(e=>{__hubRequire("../../../ItacanTaskCore/src/domain.js").validateHistory(e);check(e.partitionId===seed.partition.id&&same(e.ownerAtEvent,seed.owner),"Foreign personal event.")});
+    const removals=new Set(d.bindings.remove);check(removals.size===d.bindings.remove.length&&d.bindings.remove.every(id=>prior.bindings.some(b=>b.eventId===id)),"Unproven binding removal.");
+    const out={schemaVersion:1,storeId:prior.storeId,revision:r.result.repositoryRevision,revisionId:r.result.revisionId,parentRevisionId:prior.revisionId,
+        partitions:V.clone(r.result.change.partitions),tasks:replace(prior.tasks,r.result.tasks,"id"),history:replace(prior.history,d.history,"id"),
+        bindings:prior.bindings.filter(b=>!removals.has(b.eventId)).concat(V.clone(d.bindings.add)),retiredStepIds:prior.retiredStepIds.concat(d.retiredStepIds),
+        receipts:prior.receipts.concat(V.clone(r)),accepted:new Set(prior.accepted),taskHeads:new Map(prior.taskHeads),conflicts:V.clone(prior.conflicts)};
+    if(JSON.parse(r.payload).type==="personal.receive"){out.tasks.sort((a,b)=>a.id.localeCompare(b.id));out.history.sort((a,b)=>a.id.localeCompare(b.id));out.bindings.sort((a,b)=>(a.stepId??a.taskId).localeCompare(b.stepId??b.taskId));out.retiredStepIds.sort();}
+    return out;
+}
+function graph(ns,heads=[ns.head]) {
+    V.jsonValue(ns);exact(ns,["format","version","binding","seed","members","head","frames"]);
+    check(ns.format==="itacan-personal-origin-state"&&ns.version===1,"Personal namespace v1 required.");
+    const seed=E.validate(ns.seed,ns.binding),keys=M.members(ns.binding,ns.members),baseline=rootView(seed),seedId=[...baseline.accepted][0];
+    check(Array.isArray(ns.frames)&&ns.frames.length<=1024&&Buffer.byteLength(V.canonical(ns))<=64*1024*1024,"Personal proof capacity exceeded.");
+    const frames=new Map(),commands=new Map(),operations=new Map(),memo=new Map(),visiting=new Set(),roots=new Set();let last=null;
+    for(const f of ns.frames){
+        exact(f,["version","id","parent","replicaId","clock","allocations","inventory","phases","receipt","packet","delta","signature"]);
+        const {id,signature,...body}=f;hex(id);check(f.version===1&&hash(body)===id&&keys.has(f.replicaId)&&(!last||last<id),"Personal frame identity/order differs.");last=id;
+        M.verify(keys.get(f.replicaId),["itacan-personal-frame-v1",ns.binding.spaceId,ns.seed.digest,id],signature);
+        V.timestamp(f.clock);check(f.clock!==null,"Personal clock missing.");if(f.parent!==null)hex(f.parent);
+        check(Array.isArray(f.allocations),"Personal allocations missing.");f.allocations.forEach(V.uuid);__hubRequire("../../../ItacanTaskCore/shared/inventory.js").validate(f.inventory,seed.authorityId);
+        exact(f.phases,["version","revision","values"]);check(f.phases.version===1&&Array.isArray(f.phases.values),"Personal Phase witness missing.");V.text(f.phases.revision);f.phases.values.forEach(p=>{exact(p,["projectId","phaseId"]);V.referenceId(p.projectId);V.referenceId(p.phaseId);check(seed.owner.type==="project"&&p.projectId===seed.owner.id,"Foreign personal Phase inventory.");});
+        exact(f.receipt,["operationId","payload","result","partitionIds","coordination"]);
+        const c=JSON.parse(f.receipt.payload);__hubRequire("../../../ItacanTaskCore/src/commands.js").validateCommand(c);
+        check(V.canonical(c)===f.receipt.payload&&c.operationId===f.receipt.operationId&&!operations.has(c.operationId)&&!seed.state.receipts.some(r=>r.operationId===c.operationId),"Conflicting personal operation.");
+        check([...TYPES,...PERSONAL].includes(c.type)&&same(c.coordination??null,f.receipt.coordination),"Personal operation scope differs.");
+        if(c.coordination){const x=c.coordination;exact(x,["service","id","evidence"]);const e=x.evidence;exact(e,["version","requestDigest","authorityId","ownerContextPin","identityPin","inventoryPin","phasePin","partitions"]);check(x.service==="itacan-native-writer-v1"&&x.id===c.operationId&&e.version===1&&e.authorityId===seed.authorityId&&e.inventoryPin===hash(f.inventory)&&e.phasePin===hash(f.phases)&&e.partitions.length===1&&e.partitions[0].id===seed.partition.id&&same(e.partitions[0].owner,seed.owner),"Personal writer evidence differs.");[e.requestDigest,e.ownerContextPin,e.inventoryPin,e.phasePin].forEach(hex);if(e.identityPin!==null)hex(e.identityPin);}
+        frames.set(id,f);commands.set(id,c);operations.set(c.operationId,f);
+    }
+    const read=id=>{
+        if(id===null||id===seedId)return baseline;if(memo.has(id))return memo.get(id);
+        check(frames.has(id)&&!visiting.has(id),"Missing/cyclic personal ancestry.");visiting.add(id);
+        const f=frames.get(id),c=commands.get(id),root=["personal.enroll","personal.bootstrap"].includes(c.type);
+        let prior;
+        if(root){check(f.parent===null&&!roots.has(f.replicaId),"Duplicate replica enrollment root.");roots.add(f.replicaId);check(c.payload.replicaId===f.replicaId&&c.payload.seedDigest===ns.seed.digest&&c.payload.bindingDigest===hash(ns.binding)&&c.payload.spaceId===ns.binding.spaceId,"Personal root commitment differs.");if(c.type==="personal.enroll")check(f.replicaId===ns.binding.root.replicaId,"Only the enrolled source may adopt.");prior=c.type==="personal.enroll"?baseline:empty(seed,c.payload.baseRevisionId);}
+        else {check(f.parent!==null,"Personal operation lacks replica ancestry.");prior=read(f.parent);check(frames.get(f.parent).replicaId===f.replicaId,"Replica crossed local receipt lineage.");}
+        const r=f.receipt,p=r.result.change.partitions[0];
+        check(c.expectedRepositoryRevision===prior.revision&&r.result.repositoryRevision===prior.revision+1&&r.result.operationId===c.operationId&&r.result.replayed===false&&r.result.change.type===c.type&&r.result.change.operationId===c.operationId&&r.result.change.repositoryRevision===r.result.repositoryRevision,"Personal original publication guard differs.");
+        check(r.partitionIds.length===1&&r.partitionIds[0]===seed.partition.id&&r.result.change.partitions.length===1&&p.id===seed.partition.id&&p.kind===seed.partition.kind&&same(p.owner,seed.owner)&&p.revision===prior.partitions[0].revision+1&&p.parentHead===prior.partitions[0].head,"Personal partition publication differs.");
+        if(c.taskId)check(prior.tasks.find(t=>t.id===c.taskId)?.revision===c.expectedRevision,"Original personal task guard differs.");
+        if(c.coordination)check(c.coordination.evidence.partitions[0].expectedRevision===prior.partitions[0].revision,"Original personal partition guard differs.");
+        let out=materialize(prior,f,seed);
+        if(root){check(f.packet===null,"Enrollment cannot claim a receive.");if(c.type==="personal.enroll")check(same(view(out),view(baseline)),"Enrollment changed native contents.");else check(same(view(out),view(baseline)),"Bootstrap changed enrollment contents.");out.accepted=new Set(baseline.accepted);out.taskHeads=new Map(baseline.taskHeads);}
+        else if(c.type==="personal.receive"){
+            exact(f.packet,["head","frameIds","members"]);check(Array.isArray(f.packet.frameIds)&&same(f.packet.frameIds,[...new Set(f.packet.frameIds)].sort()),"Personal packet references must be canonical and unique.");
+            const packetMembers=M.members(ns.binding,f.packet.members),incoming={...ns,head:f.packet.head,frames:f.packet.frameIds.map(x=>{check(frames.has(x)&&packetMembers.has(frames.get(x).replicaId),"Personal packet dependency/member missing.");read(x);return frames.get(x)}),members:V.clone(f.packet.members)};
+            const closure=new Set();function dependency(id){if(id===null||closure.has(id))return;check(f.packet.frameIds.includes(id),"Personal received packet omitted ancestry.");closure.add(id);const ref=frames.get(id);dependency(ref.parent);for(const x of ref.packet?.frameIds??[])dependency(x)}dependency(f.packet.head);check(closure.size===f.packet.frameIds.length,"Unreferenced received personal evidence.");
+            check(c.payload.spaceId===ns.binding.spaceId&&c.payload.authorityId===seed.authorityId&&c.payload.partitionId===seed.partition.id&&c.payload.head===f.packet.head&&hash(packet(incoming))===c.payload.packetDigest,"Personal receive packet digest/binding differs.");
+            const merged=reconcile(prior,read(f.packet.head));check(same(view(out),merged.view)&&same(r.result.personal,merged.summary),"Personal receive effects differ.");Object.assign(out,{accepted:merged.accepted,taskHeads:merged.taskHeads,conflicts:merged.conflicts});
+        }else{check(f.packet===null&&!prior.conflicts.some(x=>x.taskId===c.taskId),"Personal operation targets a conflict.");out.accepted.add(id);for(const taskId of r.result.change.taskIds)out.taskHeads.set(taskId,id);}
+        visiting.delete(id);memo.set(id,out);return out;
+    };
+    function reconcile(a,b){const nodes=new Map(frames);nodes.set(seedId,{parent:null});return __hubRequire("../../../ItacanTaskCore/src/replication-graph.js").merge(a,b,nodes,read,id=>id===seedId?seed.state.tasks.map(t=>t.id):frames.get(id).receipt.result.change.taskIds,id=>id===seedId?seed.state.retiredStepIds:frames.get(id).receipt.result.atomicTask?.retiredStepIds??[]);}
+    for(const f of ns.frames)read(f.id);const reachable=new Set();const visit=id=>{if(id===null||reachable.has(id))return;check(frames.has(id),"Missing personal head.");reachable.add(id);const f=frames.get(id);visit(f.parent);for(const ref of f.packet?.frameIds??[])visit(ref)};heads.forEach(visit);check(reachable.size===frames.size,"Unreferenced personal proof.");
+    return {seed,seedId,baseline,frames,commands,operations,read,reconcile,current:read(ns.head),memo};
+}
+function checked(state){check(state.schemaVersion===1&&!state.gitShared&&!state.recurrence&&!state.historyImport,"Personal proof v1 cannot adopt other namespaces.");const g=graph(state.personalShared);for(const k of ["storeId","revision","revisionId","parentRevisionId","partitions","receipts",...VIEW])check(same(state[k],g.current[k]),"Personal materialized state differs: "+k);return g;}
+async function validateState(state){
+    const g=checked(state);
+    let budget=0;for(const [id,after]of g.memo){if(++budget%8===0)await new Promise(resolve=>setImmediate(resolve));const f=g.frames.get(id),c=g.commands.get(id),root=PERSONAL.slice(0,2).includes(c.type),prior=root?(c.type==="personal.enroll"?g.baseline:empty(g.seed,c.payload.baseRevisionId)):g.read(f.parent),candidate=Object.fromEntries(Object.entries(prior).filter(([k])=>!["accepted","taskHeads","conflicts"].includes(k)).map(([k,v])=>[k,V.clone(v)]));
+        let at=0;const nextId=()=>{check(at<f.allocations.length,"Personal allocation proof exhausted.");return f.allocations[at++]};let effect;
+        if(root){Object.assign(candidate,view(g.baseline));effect=changes(prior,candidate,{version:1,acceptedOrigins:[g.seedId],conflicts:[]});if(c.type==="personal.enroll")effect={taskIds:[],eventIds:[],partitionIds:[g.seed.partition.id],personal:effect.personal};}
+        else if(c.type==="personal.receive"){const merged=g.reconcile(prior,g.read(f.packet.head));Object.assign(candidate,V.clone(merged.view));effect=changes(prior,candidate,merged.summary);}
+        else effect=await __hubRequire("../../../ItacanTaskCore/src/commands.js").applyCommand(candidate,c,{now:f.clock,nextId,externalReservations:f.inventory,recoveryReservedIds:[],resolvers:{location:ref=>({...ref,owner:g.seed.owner}),phase:()=>null}});
+        candidate.revision++;candidate.parentRevisionId=candidate.revisionId;candidate.revisionId=nextId();for(const p of candidate.partitions)if(effect.partitionIds.includes(p.id)){p.revision++;p.parentHead=p.head;p.head=nextId()}
+        const result=__hubRequire("../../../ItacanTaskCore/src/repository.js").publicationResult(candidate,c,effect);
+        check(at===f.allocations.length&&same(result,f.receipt.result)&&same(delta(prior,candidate,f.receipt),f.delta),"Personal native execution proof differs.");
+        __hubRequire("../../../ItacanTaskCore/writer/policy.js").candidate({scope:{partitions:[g.seed.partition]}},candidate,prior,f.inventory);
+    }
+}
+function validateRelations(state){checked(state);}
+function validateCommand(c){
+    V.revision(c.expectedRepositoryRevision);
+    if(c.type==="personal.receive"){exact(c.payload,["version","spaceId","authorityId","partitionId","packetDigest","head"]);check(c.payload.version===1,"Personal receive v1 required.");V.uuid(c.payload.spaceId);V.uuid(c.payload.authorityId);V.referenceId(c.payload.partitionId);hex(c.payload.packetDigest);if(c.payload.head!==null)hex(c.payload.head);}
+    else {exact(c.payload,["version","spaceId","seedDigest","bindingDigest","replicaId",...(c.type==="personal.bootstrap"?["baseRevisionId"]:[])]);check(c.payload.version===1,"Personal enrollment v1 required.");V.uuid(c.payload.spaceId);V.uuid(c.payload.replicaId);hex(c.payload.seedDigest);hex(c.payload.bindingDigest);if(c.type==="personal.bootstrap")V.uuid(c.payload.baseRevisionId);}
+}
+function admit(context){const o=context.personal;check(o&&o.signer&&o.pairing?.bindingDigest===hash(o.binding),"Explicit paired personal authority required.");const seed=E.validate(o.seed,o.binding),keys=M.members(o.binding,o.members);check(keys.get(o.signer.replicaId)===o.signer.publicKey,"Personal replica is not enrolled.");return {o,seed};}
+async function apply(state,c,context){
+    const {o,seed}=admit(context);check(state.storeId===seed.authorityId&&state.partitions.length===1&&state.partitions[0].id===seed.partition.id&&same(state.partitions[0].owner,seed.owner)&&state.partitions[0].kind===seed.partition.kind&&!state.gitShared,"Personal authority differs.");
+    if(c.type!=="personal.receive"){
+        check(!state.personalShared&&c.payload.replicaId===o.signer.replicaId&&c.payload.seedDigest===o.seed.digest&&c.payload.bindingDigest===hash(o.binding)&&c.payload.spaceId===o.binding.spaceId,"Personal enrollment context differs.");
+        if(c.type==="personal.enroll")check(o.signer.replicaId===o.binding.root.replicaId&&same(state,seed.state),"Enrollment source changed.");
+        else check(state.revision===0&&state.revisionId===c.payload.baseRevisionId&&state.tasks.length===0&&state.receipts.length===0&&state.history.length===0,"Bootstrap requires this exact empty local authority.");
+        const before=V.clone(state);Object.assign(state,view(seed.state));state.personalShared={format:"itacan-personal-origin-state",version:1,binding:V.clone(o.binding),seed:V.clone(o.seed),members:V.clone(o.members),head:null,frames:[]};
+        for(const t of state.tasks)if(t.deletedAt===null)await __hubRequire("../../../ItacanTaskCore/src/domain.js").validateReferences(t,context.resolvers);
+        return c.type==="personal.enroll"?{taskIds:[],eventIds:[],partitionIds:[seed.partition.id],personal:{version:1,acceptedOrigins:["seed:"+hash(seed)],conflicts:[]}}:changes(before,state,{version:1,acceptedOrigins:["seed:"+hash(seed)],conflicts:[]});
+    }
+    check(state.personalShared&&context.personalPacket,"Personal receive requires retained evidence.");const incoming=namespace(context.personalPacket);check(c.payload.spaceId===o.binding.spaceId&&c.payload.authorityId===state.storeId&&c.payload.partitionId===seed.partition.id&&c.payload.packetDigest===hash(context.personalPacket)&&c.payload.head===incoming.head,"Personal receive binding differs.");
+    const remote=graph(incoming);await validateState({...Object.fromEntries(Object.entries(remote.current).filter(([k])=>!["accepted","taskHeads","conflicts"].includes(k))),personalShared:incoming});
+    const combined=union(state.personalShared,incoming),g=graph(combined,[state.personalShared.head,incoming.head]),merged=g.reconcile(g.read(state.personalShared.head),g.read(incoming.head));
+    if(!merged.summary.acceptedOrigins.length&&same(g.read(state.personalShared.head).conflicts,merged.conflicts))fail("PERSONAL_NO_CHANGES","No new personal effects.");
+    const before=V.clone(state);Object.assign(state,V.clone(merged.view));state.personalShared=combined;
+    for(const t of state.tasks)if(t.deletedAt===null)await __hubRequire("../../../ItacanTaskCore/src/domain.js").validateReferences(t,context.resolvers);
+    return changes(before,state,merged.summary);
+}
+function record(state,prior,receipt,context,received){
+    const {o}=admit(context),ns=state.personalShared;const body={version:1,parent:prior.personalShared?.head??null,replicaId:o.signer.replicaId,clock:context.now,allocations:V.clone(context.allocations),inventory:V.clone(context.inventory),phases:V.clone(o.phases),receipt:V.clone(receipt),packet:received?{head:received.head,frameIds:received.frames.map(f=>f.id),members:V.clone(received.members)}:null,delta:delta(prior,state,receipt)};
+    const id=hash(body),f={...body,id,signature:o.signer.sign(["itacan-personal-frame-v1",o.binding.spaceId,o.seed.digest,id])};ns.frames.push(f);ns.frames.sort((a,b)=>a.id.localeCompare(b.id));ns.head=id;
+}
+function receiptEvidence(state,id){
+    const g=checked(state),f=g.operations.get(id);let receipt,origin,before,after;
+    if(f&&g.current.accepted.has(f.id)&&TYPES.includes(g.commands.get(f.id).type)){receipt=f.receipt;origin={id:f.id};before=g.read(f.parent);after=g.read(f.id)}
+    else {receipt=g.seed.state.receipts.find(r=>r.operationId===id);if(!receipt)return null;origin={id:g.seedId};before=null;after=g.seed.state;}
+    let cursor=state.personalShared.head,application=null;while(cursor!==null){const frame=g.frames.get(cursor),prev=frame.parent===null?null:g.read(frame.parent);if(g.read(cursor).accepted.has(origin.id)&&!prev?.accepted.has(origin.id))application=frame.receipt;cursor=frame.parent;}
+    const own=state.receipts.find(r=>r.operationId===id);if(own&&same(own,receipt))application=own;
+    check(application,"Personal origin has no local application.");return {receipt,origin,before,after,application};
+}
+function atomicReceipt(state,r){const e=receiptEvidence(state,r.operationId);check(e&&same(e.receipt,r),"Unaccepted personal atomic receipt.");if(e.before===null)return __hubRequire("../../../ItacanTaskCore/src/completion-effects.js").validateReceipt(e.after,r);const c=JSON.parse(r.payload),before=c.type==="task.save"?e.before.tasks.find(t=>t.id===c.taskId):null,after=r.result.task,F=__hubRequire("../../../ItacanTaskCore/src/completion-effects.js");const expected=F.describe(e.after,c,before,before?F.bindingsFor(e.before,before):[],after,F.bindingsFor(e.after,after));check(same(expected,r.result.atomicTask),"Personal atomic descriptor differs.");return expected;}
+function eventPublication(state,event){const e=receiptEvidence(state,event.operationId);check(e&&e.receipt.result.change.eventIds.includes(event.id),"Personal event origin missing.");const original=e.after.history.find(x=>x.id===event.id),immutable=x=>Object.fromEntries(Object.entries(x).filter(([k])=>!["counted","reopenedAt"].includes(k)));check(original&&same(immutable(original),immutable(event)),"Personal event attribution changed.");const origin=__hubRequire("../../../ItacanTaskCore/src/completion-effects.js").creationKind(e.receipt,original);check(origin,"Personal event is not a completion.");return {origin,receipt:{operationId:e.application.operationId,repositoryRevision:e.application.result.repositoryRevision,revisionId:e.application.result.revisionId,digest:hash(e.application),index:e.application.result.change.eventIds.indexOf(event.id)},replication:{version:1,originId:e.origin.id,operationId:e.receipt.operationId,repositoryRevision:e.receipt.result.repositoryRevision,revisionId:e.receipt.result.revisionId,receiptDigest:hash(e.receipt)}};}
+function inspectConflict(state,taskId){const g=checked(state),conflicts=g.current.conflicts.filter(c=>c.taskId===taskId);return V.clone(conflicts.map(c=>({...c,branches:c.origins.map(id=>{const s=g.read(id),task=s.tasks.find(t=>t.id===taskId);return {originId:id,receiptDigest:hash(g.frames.get(id).receipt),task:task?Object.fromEntries(["id","revision","owner","location","title","description","importance","start","due","completed","completedAt","archivedAt","deletedAt","steps"].map(k=>[k,V.clone(task[k])])):null,content:task?V.clone(__hubRequire("../../../ItacanTaskCore/src/source-content.js").contentOf(task)?.revisions.at(-1).current??null):null,history:s.history.filter(e=>e.taskId===taskId).map(e=>Object.fromEntries(["id","operationId","kind","taskId","stepId","timestamp","recordedAt","ownerAtEvent","counted","reopenedAt","snapshot"].map(k=>[k,V.clone(e[k])]))),deleted:task?.deletedAt!==null}})})));}
+function storageScope(state){
+    const ns=state.personalShared;let f=ns.frames.find(f=>f.id===ns.head);while(f.parent!==null)f=ns.frames.find(x=>x.id===f.parent);
+    const c=JSON.parse(f.receipt.payload);check(PERSONAL.slice(0,2).includes(c.type),"Personal local base missing.");
+    return {version:1,spaceId:ns.binding.spaceId,seedDigest:ns.seed.digest,bindingDigest:hash(ns.binding),replicaId:f.replicaId,rootOperationId:c.operationId,rootCommandDigest:hash(c),sourceRevisionId:c.type==="personal.enroll"?ns.seed.body.sourceRevisionId:c.payload.baseRevisionId};
+}
+function previewReceive(localPacket,incomingPacket){const local=namespace(localPacket),incoming=namespace(incomingPacket),combined=union(local,incoming),g=graph(combined,[local.head,incoming.head]),before=g.read(local.head),next=g.reconcile(before,g.read(incoming.head));return {changed:next.summary.acceptedOrigins.length>0||!same(before.conflicts,next.conflicts),tasks:V.clone(next.view.tasks)};}
+module.exports={TYPES,PERSONAL,packet,namespace,graph,checked,validateState,validateRelations,validateCommand,apply,record,receiptEvidence,atomicReceipt,eventPublication,inspectConflict,storageScope,previewReceive,hash};
+
+},
+"../../../ItacanTaskCore/src/personal-shared-v2.js": function (module, exports, __hubRequire) {
+"use strict";
+// Personal v2: immutable evidence, per-task causal frontiers and explicit resolution.
+const V=__hubRequire("../../../ItacanTaskCore/src/value.js"),M=__hubRequire("../../../ItacanTaskCore/personal/membership.js"),E=__hubRequire("../../../ItacanTaskCore/personal/enrollment.js"),P=__hubRequire("../../../ItacanTaskCore/personal/profile.js"),R=__hubRequire("../../../ItacanTaskCore/src/personal-resolution.js"),old=__hubRequire("../../../ItacanTaskCore/src/personal-shared-v1.js"),{check,fail}=__hubRequire("../../../ItacanTaskCore/src/errors.js");
+const same=(a,b)=>V.canonical(a)===V.canonical(b),hash=M.hash,exact=M.exact,sort=x=>[...new Set(x)].sort(),hex=x=>check(typeof x==="string"&&/^[a-f0-9]{64}$/.test(x),"Personal digest required.");
+const TYPES=old.TYPES,PERSONAL=["personal.enroll","personal.bootstrap","personal.receive","personal.upgrade","personal.resolve"],VIEW=["tasks","history","bindings","retiredStepIds"],NATIVE=["schemaVersion","storeId","revision","revisionId","parentRevisionId","partitions","receipts",...VIEW];
+const view=s=>Object.fromEntries(VIEW.map(k=>[k,V.clone(s[k])])),native=s=>Object.fromEntries(NATIVE.map(k=>[k,V.clone(s[k])]));
+const decision=(e,operationId=e.operationId)=>({disposition:e.counted?"counted":e.reopenedAt!==null?"reopened":"uncounted",counted:e.counted,reopenedAt:e.reopenedAt,operationId});
+function packet(ns){return{format:"itacan-personal-native",version:2,...Object.fromEntries(["binding","seed","members","head","frames"].map(k=>[k,V.clone(ns[k])]))};}
+function namespace(p){V.jsonValue(p);exact(p,["format","version","binding","seed","members","head","frames"]);check(p.format==="itacan-personal-native"&&p.version===2,"Personal packet v2 required.");return{...V.clone(p),format:"itacan-personal-origin-state"};}
+function delta(a,b,r){return{history:r.result.change.eventIds.map(id=>{const e=b.history.find(e=>e.id===id);check(e,"Personal event effect missing.");return V.clone(e)}),bindings:{remove:a.bindings.filter(x=>!b.bindings.some(y=>same(x,y))).map(x=>x.eventId),add:b.bindings.filter(x=>!a.bindings.some(y=>same(x,y))).map(V.clone)},retiredStepIds:b.retiredStepIds.filter(id=>!a.retiredStepIds.includes(id))};}
+function changes(a,b,personal){return{taskIds:b.tasks.filter(t=>!same(t,a.tasks.find(x=>x.id===t.id)??null)).map(t=>t.id),eventIds:b.history.filter(e=>!same(e,a.history.find(x=>x.id===e.id)??null)).map(e=>e.id),partitionIds:[a.partitions[0].id],personal};}
+function replace(a,b,key){check(new Set(b.map(x=>x[key])).size===b.length,"Duplicate personal effect.");const m=new Map(b.map(x=>[x[key],x]));return a.map(x=>{const v=m.get(x[key])??x;m.delete(x[key]);return V.clone(v)}).concat([...m.values()].map(V.clone));}
+function materialize(prior,f,seed){const r=f.receipt,d=f.delta;exact(d,["history","bindings","retiredStepIds"]);exact(d.bindings,["remove","add"]);for(const a of [d.history,d.bindings.remove,d.bindings.add,d.retiredStepIds])check(Array.isArray(a),"Personal delta collection required.");check(same(d.history.map(e=>e.id),r.result.change.eventIds)&&same(r.result.change.taskIds,r.result.tasks.map(t=>t.id)),"Personal effect coverage differs.");for(const t of r.result.tasks){__hubRequire("../../../ItacanTaskCore/src/domain.js").validateTask(t);check(t.partitionId===seed.partition.id&&same(t.owner,seed.owner),"Foreign personal task.");}for(const e of d.history){__hubRequire("../../../ItacanTaskCore/src/domain.js").validateHistory(e);check(e.partitionId===seed.partition.id&&same(e.ownerAtEvent,seed.owner),"Foreign personal event.");}check(new Set(d.bindings.remove).size===d.bindings.remove.length&&d.bindings.remove.every(id=>prior.bindings.some(b=>b.eventId===id)),"Unproven completion binding removal.");return{...native(prior),revision:r.result.repositoryRevision,revisionId:r.result.revisionId,parentRevisionId:prior.revisionId,partitions:V.clone(r.result.change.partitions),tasks:replace(prior.tasks,r.result.tasks,"id"),history:replace(prior.history,d.history,"id"),bindings:prior.bindings.filter(b=>!d.bindings.remove.includes(b.eventId)).concat(V.clone(d.bindings.add)),retiredStepIds:prior.retiredStepIds.concat(d.retiredStepIds),receipts:prior.receipts.concat(V.clone(r))};}
+function summary(before,after,resolution=null){return{version:2,acceptedOrigins:sort([...after.known].filter(id=>!before.known.has(id))),conflicts:V.clone(after.conflicts),resolution};}
+function graph(ns,heads=[ns.head]){
+ V.jsonValue(ns);exact(ns,["format","version","binding","seed","members","head","frames"]);check(ns.format==="itacan-personal-origin-state"&&ns.version===2,"Personal namespace v2 required.");P.validate(ns.binding);const seed=E.validate(ns.seed,ns.binding),base=ns.binding.base,keys=M.members(base,ns.members),seedId="seed:"+ns.seed.digest;
+ check(Array.isArray(ns.frames)&&ns.frames.length<=1024&&Buffer.byteLength(V.canonical(ns))<=64*1024*1024,"Personal proof capacity exceeded.");
+ const replicaRevisions=new Set(),frames=new Map(),commands=new Map(),operations=new Map(),nodes=new Map([[seedId,new Map(seed.state.tasks.map(t=>[t.id,[]]))]]),memo=new Map(),priors=new Map(),effects=new Map(),visiting=new Set(),roots=new Set(),creations=new Map(seed.state.history.map(e=>[e.id,{event:V.clone(e),originId:seedId}])),legacyGraphs=[];let last=null;
+ for(const f of ns.frames){exact(f,["version","id","parent","replicaId","clock","allocations","inventory","phases","receipt","packet","delta","signature",...(f.version===2?["profileDigest"]:[])]);const{id,signature,...body}=f;hex(id);check([1,2].includes(f.version)&&hash(body)===id&&keys.has(f.replicaId)&&(!last||last<id),"Personal frame identity/order differs.");last=id;M.verify(keys.get(f.replicaId),f.version===1?["itacan-personal-frame-v1",base.spaceId,ns.seed.digest,id]:["itacan-personal-frame-v2",base.spaceId,hash(ns.binding),ns.seed.digest,id],signature);if(f.version===2)check(f.profileDigest===ns.binding.profile.digest,"Personal profile commitment differs.");V.timestamp(f.clock);check(f.clock!==null&&Array.isArray(f.allocations),"Personal clock/allocations required.");f.allocations.forEach(V.uuid);if(f.parent!==null)hex(f.parent);__hubRequire("../../../ItacanTaskCore/shared/inventory.js").validate(f.inventory,seed.authorityId);exact(f.phases,["version","revision","values"]);check(f.phases.version===1&&Array.isArray(f.phases.values),"Personal Phase witness required.");V.text(f.phases.revision);for(const p of f.phases.values){exact(p,["projectId","phaseId"]);check(seed.owner.type==="project"&&p.projectId===seed.owner.id,"Foreign personal Phase.");V.referenceId(p.phaseId);}exact(f.receipt,["operationId","payload","result","partitionIds","coordination"]);const c=JSON.parse(f.receipt.payload);__hubRequire("../../../ItacanTaskCore/src/commands.js").validateCommand(c);check(V.canonical(c)===f.receipt.payload&&c.operationId===f.receipt.operationId&&!operations.has(c.operationId)&&!seed.state.receipts.some(r=>r.operationId===c.operationId),"Personal operation identity differs.");check((f.version===1?[...TYPES,...old.PERSONAL]:[...TYPES,...PERSONAL]).includes(c.type)&&same(c.coordination??null,f.receipt.coordination),"Personal command profile differs.");if(c.type.startsWith("personal."))check(c.payload.version===f.version,"Personal command/frame version differs.");if(c.coordination){const x=c.coordination,e=x.evidence;exact(x,["service","id","evidence"]);exact(e,["version","requestDigest","authorityId","ownerContextPin","identityPin","inventoryPin","phasePin","partitions"]);check(x.service==="itacan-native-writer-v1"&&x.id===c.operationId&&e.version===1&&e.authorityId===seed.authorityId&&e.inventoryPin===hash(f.inventory)&&e.phasePin===hash(f.phases)&&e.partitions.length===1&&e.partitions[0].id===seed.partition.id&&same(e.partitions[0].owner,seed.owner),"Personal writer witness differs.");[e.requestDigest,e.ownerContextPin,e.inventoryPin,e.phasePin].forEach(hex);if(e.identityPin!==null)hex(e.identityPin);}const revisionKey=f.replicaId+":"+f.receipt.result.repositoryRevision;check(!replicaRevisions.has(revisionKey),"Personal replica receipt fork.");replicaRevisions.add(revisionKey);frames.set(id,f);commands.set(id,c);operations.set(c.operationId,f);}
+ const catalog=s=>{const out=new Map();for(const [id,x]of creations)if(x.originId===seedId||s.known.has(x.originId))out.set(id,V.clone(x.event));return out;};
+ const retirements=s=>new Set(seed.state.retiredStepIds.concat([...s.known].filter(id=>frames.has(id)).flatMap(id=>{const r=frames.get(id).receipt.result;return[...(r.atomicTask?.retiredStepIds??[]),...(r.personal?.resolution?.retiredStepIds??[])];})));
+ const baseline={...V.clone(seed.state),known:new Set([seedId]),accepted:new Set([seedId]),frontier:new Map(seed.state.tasks.map(t=>[t.id,[seedId]])),taskHeads:new Map(seed.state.tasks.map(t=>[t.id,seedId])),conflicts:[],accounting:new Map(seed.state.history.map(e=>[e.id,decision(e)])),personalHead:null};
+ function frontier(known){const found=new Map(),ancestor=(task,a,b,seen=new Set())=>{if(a===b)return true;if(seen.has(b))return false;seen.add(b);return(nodes.get(b)?.get(task)??[]).some(p=>ancestor(task,a,p,seen));};for(const id of known)for(const task of nodes.get(id)?.keys()??[]){if(!found.has(task))found.set(task,[]);found.get(task).push(id)}for(const [task,ids]of found)found.set(task,ids.filter(id=>!ids.some(other=>other!==id&&ancestor(task,id,other))).sort());return found;}
+ function metadata(s,known,accounting,personalHead,displayHeads=new Map()){const f=frontier(known),conflicts=[];for(const [taskId,origins]of f)if(origins.length>1)conflicts.push({taskId,origins,digest:R.conflictDigest(api,taskId,origins)});return{...s,known,accepted:known,frontier:f,taskHeads:displayHeads,accounting,conflicts:conflicts.sort((a,b)=>a.digest.localeCompare(b.digest)),personalHead};}
+ function rememberEvents(f){const c=commands.get(f.id);if(!TYPES.includes(c.type))return;for(const e of f.delta.history)if(e.operationId===c.operationId){check(__hubRequire("../../../ItacanTaskCore/src/completion-effects.js").creationKind(f.receipt,e),"Unproven personal completion creation.");const x=creations.get(e.id);check(!x||x.originId===f.id&&same(x.event,e),"Personal event identity reused.");creations.set(e.id,{event:V.clone(e),originId:f.id});}}
+ const cutoff=ns.binding.profile.body.legacyCuts.find(c=>c.authorityId===seed.authorityId);check(cutoff,"Personal cutoff owner missing.");const permitted=new Set();function legacyClosure(id,set){if(id===null||set.has(id))return;const f=frames.get(id);if(!f)fail("PERSONAL_WAITING_EVIDENCE","Legacy cutoff dependency missing.");check(f.version===1,"Legacy cutoff includes v2 evidence.");set.add(id);legacyClosure(f.parent,set);for(const x of f.packet?.frameIds??[])legacyClosure(x,set)}
+ for(const h of cutoff.heads){const closure=new Set();legacyClosure(h,closure);for(const id of closure)permitted.add(id);const legacy={format:"itacan-personal-origin-state",version:1,binding:base,seed:ns.seed,members:ns.members,head:h,frames:[...closure].sort().map(id=>frames.get(id))};const g=old.graph(legacy);legacyGraphs.push({g,ns:legacy});for(const [id,s]of g.memo){const f=frames.get(id),c=commands.get(id),before=f.parent===null?(c.type==="personal.enroll"?g.baseline:null):g.read(f.parent);if(TYPES.includes(c.type)){nodes.set(id,new Map(f.receipt.result.change.taskIds.map(t=>[t,before.taskHeads.has(t)?[before.taskHeads.get(t)]:[]])));rememberEvents(f);}}}
+ for(const f of frames.values())if(f.version===1)check(permitted.has(f.id),"V1 write outside authenticated legacy cutoff.");
+ function legacyRead(id){if(memo.has(id))return memo.get(id);const entry=legacyGraphs.find(x=>x.g.frames.has(id));check(entry,"Unadmitted legacy origin.");const s=entry.g.read(id),known=new Set([seedId]),seen=new Set();function collect(x){if(x===null||seen.has(x))return;seen.add(x);const f=frames.get(x);collect(f.parent);for(const r of f.packet?.frameIds??[])collect(r);if(nodes.has(x))known.add(x)}collect(id);const accounting=new Map();for(const e of catalog({known}).values())accounting.set(e.id,s.history.some(x=>x.id===e.id)?decision(s.history.find(x=>x.id===e.id)):{disposition:"unresolved",counted:false,reopenedAt:null,operationId:null});const out=metadata(native(s),known,accounting,id,new Map(s.taskHeads));memo.set(id,out);return out;}
+ function reconcile(a,b){const known=new Set([...a.known,...b.known]),f=frontier(known),out=view(a),accounting=new Map(a.accounting),displayHeads=new Map(a.taskHeads);for(const [task,ids]of f){if(ids.length===1){const source=read(ids[0]),t=source.tasks.find(t=>t.id===task);check(t,"Personal origin task missing.");out.tasks=out.tasks.filter(t=>t.id!==task).concat(V.clone(t));out.bindings=out.bindings.filter(x=>x.taskId!==task).concat(V.clone(source.bindings.filter(x=>x.taskId===task)));displayHeads.set(task,ids[0]);for(const e of catalog({known}).values())if(e.taskId===task)accounting.set(e.id,source.accounting.has(e.id)?V.clone(source.accounting.get(e.id)):{disposition:"superseded",counted:false,reopenedAt:null,operationId:null});}else for(const e of catalog({known}).values())if(e.taskId===task&&!accounting.has(e.id))accounting.set(e.id,{disposition:"unresolved",counted:false,reopenedAt:null,operationId:null});}
+ out.history=[...catalog({known}).values()].map(e=>{const d=accounting.get(e.id)??decision(e);accounting.set(e.id,d);return{...e,counted:d.counted,reopenedAt:d.reopenedAt}}).sort((a,b)=>a.id.localeCompare(b.id));const live=new Map(out.tasks.flatMap(t=>t.steps.map(s=>[s.id,t.id]))),retired=retirements({known});for(const id of retired)if(live.has(id))check((f.get(live.get(id))??[]).length>1,"Retired Step cannot become live.");out.retiredStepIds=sort([...retired].filter(id=>!live.has(id)));out.tasks.sort((a,b)=>a.id.localeCompare(b.id));out.bindings.sort((a,b)=>(a.stepId??a.taskId).localeCompare(b.stepId??b.taskId));const result=metadata({...native(a),...out},known,accounting,a.personalHead,displayHeads);return{...result,view:out,summary:summary(a,result)};}
+ function read(id){if(id===null||id===seedId)return baseline;if(memo.has(id))return memo.get(id);check(frames.has(id)&&!visiting.has(id),"Missing/cyclic personal ancestry.");const f=frames.get(id);if(f.version===1)return legacyRead(id);visiting.add(id);const c=commands.get(id),root=["personal.enroll","personal.bootstrap"].includes(c.type);let prior;
+ if(root){check(![...frames.values()].some(x=>x.version===1&&x.replicaId===f.replicaId&&x.parent===null)&&f.parent===null&&!roots.has(f.replicaId)&&c.payload.replicaId===f.replicaId,"Duplicate personal replica root.");roots.add(f.replicaId);check(c.payload.spaceId===base.spaceId&&c.payload.seedDigest===ns.seed.digest&&c.payload.bindingDigest===hash(ns.binding)&&c.payload.profileDigest===ns.binding.profile.digest,"Personal root profile differs.");if(c.type==="personal.enroll"){check(f.replicaId===base.root.replicaId,"Only original source may enroll.");prior=baseline;}else{V.uuid(c.payload.baseRevisionId);prior={schemaVersion:1,storeId:seed.authorityId,revision:0,revisionId:c.payload.baseRevisionId,parentRevisionId:null,partitions:[{...V.clone(seed.partition),revision:0,head:null,parentHead:null}],tasks:[],history:[],bindings:[],retiredStepIds:[],receipts:[],known:new Set(),accepted:new Set(),frontier:new Map(),taskHeads:new Map(),conflicts:[],accounting:new Map(),personalHead:null};}}
+ else {check(f.parent!==null&&frames.get(f.parent)?.replicaId===f.replicaId,"Personal local receipt lineage crossed.");prior=read(f.parent);check(c.type==="personal.upgrade"?frames.get(f.parent).version===1:frames.get(f.parent).version===2,"Explicit upgrade required before v2 writes.");}
+ priors.set(id,prior);const r=f.receipt,p=r.result.change.partitions[0];check(c.expectedRepositoryRevision===prior.revision&&r.result.repositoryRevision===prior.revision+1&&r.result.operationId===c.operationId&&r.result.replayed===false&&r.result.change.type===c.type&&r.result.change.operationId===c.operationId&&r.result.change.repositoryRevision===r.result.repositoryRevision,"Personal original repository guard differs.");check(r.partitionIds.length===1&&r.partitionIds[0]===seed.partition.id&&r.result.change.partitions.length===1&&p.id===seed.partition.id&&p.kind===seed.partition.kind&&same(p.owner,seed.owner)&&p.revision===prior.partitions[0].revision+1&&p.parentHead===prior.partitions[0].head,"Personal partition publication differs.");if(c.taskId)check(prior.tasks.find(t=>t.id===c.taskId)?.revision===c.expectedRevision,"Personal original task guard differs.");if(c.coordination)check(c.coordination.evidence.partitions[0].expectedRevision===prior.partitions[0].revision,"Personal writer partition guard differs.");let out=materialize(prior,f,seed),expectedView=null,meta,descriptor=null;
+ if(root){check(f.packet===null,"Enrollment cannot receive.");expectedView=view(baseline);meta=metadata(out,new Set([seedId]),new Map(baseline.accounting),id,new Map(baseline.taskHeads));}
+ else if(c.type==="personal.upgrade"){check(f.packet===null&&c.payload.version===2&&c.payload.bindingDigest===hash(ns.binding)&&c.payload.profileDigest===ns.binding.profile.digest&&c.payload.spaceId===base.spaceId&&c.payload.predecessorHead===f.parent,"Personal upgrade differs.");const reconciled=reconcile(prior,prior);expectedView=reconciled.view;meta={...reconciled,...out,personalHead:id};}
+ else if(c.type==="personal.receive"){exact(f.packet,["version","head","frameIds","members"]);check(f.packet.version===2&&same(f.packet.frameIds,sort(f.packet.frameIds)),"Personal receive closure invalid.");const incoming={...ns,head:f.packet.head,members:f.packet.members,frames:f.packet.frameIds.map(x=>{check(frames.has(x),"Missing personal receive dependency.");read(x);return frames.get(x)})};M.members(base,incoming.members);check(c.payload.spaceId===base.spaceId&&c.payload.authorityId===seed.authorityId&&c.payload.partitionId===seed.partition.id&&c.payload.bindingDigest===hash(ns.binding)&&c.payload.profileDigest===ns.binding.profile.digest&&c.payload.head===incoming.head&&c.payload.packetDigest===hash(packet(incoming)),"Personal receive commitment differs.");const closure=new Set();function dep(x){if(x===null||closure.has(x))return;check(f.packet.frameIds.includes(x),"Personal receive omitted dependency.");closure.add(x);const frame=frames.get(x);dep(frame.parent);for(const n of frame.packet?.frameIds??[])dep(n)}dep(incoming.head);for(const x of cutoff.heads)dep(x);check(closure.size===f.packet.frameIds.length,"Unreferenced received origin.");const merged=reconcile(prior,read(incoming.head));expectedView=merged.view;meta={...merged,...out,personalHead:id};}
+ else if(c.type==="personal.resolve"){check(f.packet===null,"Resolution cannot receive an unreviewed packet.");const resolved=R.execute(api,prior,c,f.clock);expectedView=resolved.view;nodes.set(id,new Map([[c.payload.taskId,V.clone(c.payload.reviewedHeads)]]));const known=new Set([...prior.known,id]);meta=metadata(out,known,resolved.accounting,id,new Map(prior.taskHeads).set(c.payload.taskId,id));descriptor=resolved.descriptor;}
+ else {check(f.packet===null&&!prior.conflicts.some(x=>x.taskId===c.taskId),"Ordinary Save cannot resolve a conflict.");const known=new Set([...prior.known,id]);nodes.set(id,new Map(r.result.change.taskIds.map(task=>[task,V.clone(prior.frontier.get(task)??[])])));rememberEvents(f);const accounting=new Map(prior.accounting);for(const e of f.delta.history)accounting.set(e.id,decision(e,c.operationId));meta=metadata(out,known,accounting,id,new Map(prior.taskHeads));for(const t of r.result.change.taskIds)meta.taskHeads.set(t,id);}
+ if(expectedView){if(["personal.receive","personal.resolve","personal.upgrade"].includes(c.type)){out.tasks.sort((a,b)=>a.id.localeCompare(b.id));out.history.sort((a,b)=>a.id.localeCompare(b.id));out.bindings.sort((a,b)=>(a.stepId??a.taskId).localeCompare(b.stepId??b.taskId));out.retiredStepIds.sort();}check(same(view(out),expectedView),"Personal proven effects differ.");const s=summary(prior,meta,descriptor);if(c.type==="personal.resolve")s.acceptedOrigins=[];if(root)s.acceptedOrigins=[seedId];check(same(r.result.personal,s),"Personal summary differs.");let e=changes(prior,out,s);if(c.type==="personal.enroll")e.taskIds=[];effects.set(id,e);}
+ meta={...meta,...native(out),personalHead:id};memo.set(id,meta);visiting.delete(id);return meta;}
+ const api={ns,seed,seedId,frames,commands,operations,nodes,memo,priors,effects,legacyGraphs,baseline,read,reconcile,catalog,retirements};
+ for(const f of ns.frames)read(f.id);const reached=new Set();function visit(id){if(id===null||reached.has(id))return;check(frames.has(id),"Missing personal proof dependency.");reached.add(id);const f=frames.get(id);visit(f.parent);for(const x of f.packet?.frameIds??[])visit(x)}heads.forEach(visit);cutoff.heads.forEach(visit);check(reached.size===frames.size,"Unreferenced personal evidence.");api.current=read(ns.head);return api;
+}
+function checked(state){check(state.schemaVersion===1&&!state.gitShared&&!state.recurrence&&!state.historyImport,"Personal v2 profile requires private schema1.");const g=graph(state.personalShared);for(const k of NATIVE)check(same(state[k],g.current[k]),"Personal v2 materialization differs: "+k);return g;}
+function reserved(g,s){return sort([...g.retirements(s),...s.tasks.flatMap(t=>[t.id,...t.steps.map(x=>x.id)]),...g.catalog(s).keys(),...[...s.known].flatMap(id=>g.read(id).tasks.flatMap(t=>[t.id,...t.steps.map(x=>x.id)]))]);}
+async function validateState(state){const g=checked(state);for(const x of g.legacyGraphs)await old.validateState({...native(x.g.current),personalShared:x.ns});let budget=0;for(const [id,after]of g.memo){const f=g.frames.get(id);if(f.version!==2)continue;if(++budget%8===0)await new Promise(r=>setImmediate(r));const c=g.commands.get(id),prior=g.priors.get(id),candidate=native(prior);let at=0;const nextId=()=>{check(at<f.allocations.length,"Personal allocations exhausted.");return f.allocations[at++]};let effect;if(c.type.startsWith("personal.")){Object.assign(candidate,view(after));effect=g.effects.get(id);}else effect=await __hubRequire("../../../ItacanTaskCore/src/commands.js").applyCommand(candidate,c,{now:f.clock,nextId,externalReservations:f.inventory,recoveryReservedIds:reserved(g,prior),resolvers:{location:ref=>({...ref,owner:g.seed.owner}),phase:()=>null}});candidate.revision++;candidate.parentRevisionId=candidate.revisionId;candidate.revisionId=nextId();for(const p of candidate.partitions)if(effect.partitionIds.includes(p.id)){p.revision++;p.parentHead=p.head;p.head=nextId()}const result=__hubRequire("../../../ItacanTaskCore/src/repository.js").publicationResult(candidate,c,effect);check(at===f.allocations.length&&same(result,f.receipt.result)&&same(delta(prior,candidate,f.receipt),f.delta),"Personal v2 native execution proof differs.");__hubRequire("../../../ItacanTaskCore/writer/policy.js").candidate({scope:{partitions:[g.seed.partition]}},candidate,prior,f.inventory);}}
+function validateRelations(state){checked(state);}
+function admit(context){const o=context.personal;P.validate(o?.binding);__hubRequire("../../../ItacanTaskCore/personal/binding.js").confirm(o.binding,o.pairing?.bindingDigest);check(M.members(o.binding,o.members).get(o.signer?.replicaId)===o.signer?.publicKey,"Paired v2 signer required.");return{o,seed:E.validate(o.seed,o.binding)};}
+function union(a,b){check(same(a.binding,b.binding)&&same(a.seed,b.seed),"Personal profile differs.");const records=key=>{const m=new Map(a[key].map(x=>[key==="members"?x.digest:x.id,x]));for(const x of b[key]){const id=key==="members"?x.digest:x.id;check(!m.has(id)||same(m.get(id),x),"Changed immutable personal evidence.");m.set(id,x)}return[...m.values()].sort((x,y)=>(key==="members"?x.digest:x.id).localeCompare(key==="members"?y.digest:y.id))};return{...a,members:records("members"),frames:records("frames")};}
+async function apply(state,c,context){const{o,seed}=admit(context),p=c.payload;check(p.spaceId===o.binding.base.spaceId&&p.bindingDigest===hash(o.binding)&&p.profileDigest===o.binding.profile.digest&&state.storeId===seed.authorityId&&state.partitions.length===1&&same(state.partitions[0].owner,seed.owner)&&state.partitions[0].id===seed.partition.id&&!state.gitShared,"Personal v2 authority differs.");const before=V.clone(state);let effect;
+ if(["personal.enroll","personal.bootstrap"].includes(c.type)){check(!state.personalShared&&p.replicaId===o.signer.replicaId&&p.seedDigest===o.seed.digest,"Personal v2 enrollment differs.");if(c.type==="personal.enroll")check(o.signer.replicaId===o.binding.base.root.replicaId&&same(state,seed.state),"Original enrollment source changed.");else check(state.revision===0&&state.revisionId===p.baseRevisionId&&state.tasks.length===0&&state.receipts.length===0&&state.history.length===0,"Bootstrap requires exact empty local authority.");Object.assign(state,view(seed.state));state.personalShared={format:"itacan-personal-origin-state",version:2,binding:V.clone(o.binding),seed:V.clone(o.seed),members:V.clone(o.members),head:null,frames:V.clone(o.legacyFrames??[])};effect=changes(before,state,{version:2,acceptedOrigins:["seed:"+o.seed.digest],conflicts:[],resolution:null});if(c.type==="personal.enroll")effect.taskIds=[];
+ }else if(c.type==="personal.upgrade"){check(state.personalShared?.version===1&&state.personalShared.head===p.predecessorHead&&same(state.personalShared.binding,o.binding.base)&&same(state.personalShared.seed,o.seed),"Personal upgrade source differs.");state.personalShared=union({...state.personalShared,version:2,binding:V.clone(o.binding)},{...state.personalShared,version:2,binding:V.clone(o.binding),members:V.clone(o.members),frames:V.clone(o.legacyFrames??[])});const g=graph(state.personalShared),merged=g.reconcile(g.current,g.current);Object.assign(state,merged.view);effect=changes(before,state,{...merged.summary,resolution:null});
+ }else {check(state.personalShared?.version===2,"V2 enrollment/upgrade required.");if(c.type==="personal.receive"){check(context.personalPacket&&hash(context.personalPacket)===p.packetDigest&&p.head===context.personalPacket.head&&p.authorityId===state.storeId&&p.partitionId===seed.partition.id,"Retained personal packet required.");const incoming=namespace(context.personalPacket),remote=graph(incoming);await validateState({...native(remote.current),personalShared:incoming});const combined=union(state.personalShared,incoming),g=graph(combined,[state.personalShared.head,incoming.head]),merged=g.reconcile(g.read(state.personalShared.head),g.read(incoming.head));if(!merged.summary.acceptedOrigins.length&&same(g.read(state.personalShared.head).conflicts,merged.conflicts))fail("PERSONAL_NO_CHANGES","No new personal origins.");Object.assign(state,merged.view);state.personalShared=combined;effect=changes(before,state,merged.summary);
+ }else {check(c.type==="personal.resolve"&&p.authorityId===state.storeId&&p.partitionId===seed.partition.id,"Resolution authority differs.");const g=checked(state),resolved=R.execute(g,g.current,c,context.now);Object.assign(state,resolved.view);effect=changes(before,state,{version:2,acceptedOrigins:[],conflicts:g.current.conflicts.filter(x=>x.taskId!==p.taskId),resolution:resolved.descriptor});}}
+ for(const t of state.tasks)if(t.deletedAt===null)await __hubRequire("../../../ItacanTaskCore/src/domain.js").validateReferences(t,context.resolvers);return effect;
+}
+function record(state,prior,receipt,context,received){const{o}=admit(context),ns=state.personalShared;const body={version:2,profileDigest:o.binding.profile.digest,parent:prior.personalShared?.head??null,replicaId:o.signer.replicaId,clock:context.now,allocations:V.clone(context.allocations),inventory:V.clone(context.inventory),phases:V.clone(o.phases),receipt:V.clone(receipt),packet:received?{version:2,head:received.head,frameIds:received.frames.map(f=>f.id),members:V.clone(received.members)}:null,delta:delta(prior,state,receipt)},id=hash(body);ns.frames.push({...body,id,signature:o.signer.sign(["itacan-personal-frame-v2",o.binding.base.spaceId,hash(o.binding),o.seed.digest,id])});ns.frames.sort((a,b)=>a.id.localeCompare(b.id));ns.head=id;}
+function receiptEvidence(state,operationId){const g=checked(state),f=g.operations.get(operationId);let receipt,before,after,origin;if(f){receipt=f.receipt;before=g.priors.get(f.id)??(f.parent===null?null:g.read(f.parent));after=g.read(f.id);origin={id:f.id};}else{receipt=g.seed.state.receipts.find(r=>r.operationId===operationId);if(!receipt)return null;before=null;after=g.seed.state;origin={id:g.seedId};}const local=state.receipts.find(r=>r.operationId===operationId&&same(r,receipt)),application=local??state.receipts.filter(r=>r.result.change.eventIds.some(id=>receipt.result.change.eventIds.includes(id))||r.result.personal?.acceptedOrigins.includes(origin.id)).sort((a,b)=>a.result.repositoryRevision-b.result.repositoryRevision)[0];check(application,"Personal origin has no local application.");return{receipt,before,after,origin,application};}
+function atomicReceipt(state,r){const e=receiptEvidence(state,r.operationId);check(e&&same(e.receipt,r),"Personal atomic provenance differs.");if(e.before===null)return __hubRequire("../../../ItacanTaskCore/src/completion-effects.js").validateReceipt(e.after,r);const c=JSON.parse(r.payload),before=c.type==="task.save"?e.before.tasks.find(t=>t.id===c.taskId):null,F=__hubRequire("../../../ItacanTaskCore/src/completion-effects.js"),after=r.result.task,expected=F.describe(e.after,c,before,before?F.bindingsFor(e.before,before):[],after,F.bindingsFor(e.after,after));check(same(expected,r.result.atomicTask),"Personal atomic effects differ.");return expected;}
+function eventPublication(state,event){const g=checked(state),creation=g.catalog(g.current).get(event.id);check(creation,"Missing completion creation proof.");const e=receiptEvidence(state,event.operationId),immutable=x=>Object.fromEntries(Object.entries(x).filter(([k])=>!["counted","reopenedAt"].includes(k)));check(same(immutable(creation),immutable(event)),"Personal event attribution differs.");const origin=__hubRequire("../../../ItacanTaskCore/src/completion-effects.js").creationKind(e.receipt,creation);check(origin,"Unproven personal completion.");const application=state.receipts.filter(r=>r.result.change.eventIds.includes(event.id)).sort((a,b)=>a.result.repositoryRevision-b.result.repositoryRevision)[0];check(application,"Personal event lacks first local application.");return{origin,receipt:{operationId:application.operationId,repositoryRevision:application.result.repositoryRevision,revisionId:application.result.revisionId,digest:hash(application),index:application.result.change.eventIds.indexOf(event.id)},replication:{version:2,originId:e.origin.id,operationId:e.receipt.operationId,repositoryRevision:e.receipt.result.repositoryRevision,revisionId:e.receipt.result.revisionId,receiptDigest:hash(e.receipt)},accounting:V.clone(g.current.accounting.get(event.id))};}
+function branch(g,id,taskId){const s=g.read(id),task=s.tasks.find(t=>t.id===taskId);return{originId:id,receiptDigest:id===g.seedId?hash(g.seed.state.receipts):hash(g.frames.get(id).receipt),task:task?Object.fromEntries(["id","revision","owner","location","title","description","importance","start","due","completed","completedAt","archivedAt","deletedAt","steps"].map(k=>[k,V.clone(task[k])])):null,content:task?V.clone(__hubRequire("../../../ItacanTaskCore/src/source-content.js").contentOf(task)?.revisions.at(-1).current??null):null,history:[...g.catalog(s).values()].filter(e=>e.taskId===taskId).map(e=>({...e,counted:s.accounting.get(e.id)?.counted??false,reopenedAt:s.accounting.get(e.id)?.reopenedAt??null,accounting:s.accounting.get(e.id)})),deleted:task?.deletedAt!==null};}
+function inspectConflict(state,taskId){const g=checked(state);return V.clone(g.current.conflicts.filter(c=>c.taskId===taskId).map(c=>({...c,branches:c.origins.map(id=>{let eligibility;try{R.preview(g,g.current,taskId,id);eligibility={available:true,code:null}}catch(e){eligibility={available:false,code:e.code??"UNSUPPORTED_RESOLUTION"}}return{...branch(g,id,taskId),eligibility}})})));}
+function reviewResolution(state,taskId,originId){const g=checked(state),review=R.preview(g,g.current,taskId,originId);return V.clone({...review,authorityId:state.storeId,partitionId:g.seed.partition.id,spaceId:g.ns.binding.base.spaceId,bindingDigest:hash(g.ns.binding),profileDigest:g.ns.binding.profile.digest,expectedRepositoryRevision:state.revision,expectedLocalHead:g.ns.head,expectedTaskDigest:state.tasks.some(t=>t.id===taskId)?hash(state.tasks.find(t=>t.id===taskId)):null});}
+function inspectResolution(state,operationId){const g=checked(state),f=g.operations.get(operationId);check(f&&g.commands.get(f.id).type==="personal.resolve","Resolution origin unavailable.");const p=g.commands.get(f.id).payload;return V.clone({version:2,operationId,originId:f.id,receiptDigest:hash(f.receipt),resolution:f.receipt.result.personal.resolution,branches:p.reviewedHeads.map(id=>branch(g,id,p.taskId)),currentConflict:g.current.conflicts.filter(c=>c.taskId===p.taskId)});}
+function storageScope(state){const ns=state.personalShared;let root=ns.frames.find(f=>f.id===ns.head),transition=root;while(root.parent!==null)root=ns.frames.find(f=>f.id===root.parent);while(transition.parent!==null&&ns.frames.find(f=>f.id===transition.parent).version===2)transition=ns.frames.find(f=>f.id===transition.parent);const c=JSON.parse(root.receipt.payload),tc=JSON.parse(transition.receipt.payload);return{version:2,spaceId:ns.binding.base.spaceId,seedDigest:ns.seed.digest,bindingDigest:hash(ns.binding),profileDigest:ns.binding.profile.digest,replicaId:root.replicaId,rootOperationId:c.operationId,rootCommandDigest:hash(c),sourceRevisionId:c.type==="personal.enroll"?ns.seed.body.sourceRevisionId:c.payload.baseRevisionId,transition:{operationId:tc.operationId,commandDigest:hash(tc),predecessorRevisionId:transition.parent===null?(tc.type==="personal.enroll"?ns.seed.body.sourceRevisionId:tc.payload.baseRevisionId):ns.frames.find(f=>f.id===transition.parent).receipt.result.revisionId,predecessorCapability:transition.parent===null?"atomic-task-mutations-v1":"personal-sync-proofs-v1"}};}
+function previewReceive(localPacket,incomingPacket){const local=namespace(localPacket),incoming=namespace(incomingPacket),g=graph(union(local,incoming),[local.head,incoming.head]),a=g.read(local.head),next=g.reconcile(a,g.read(incoming.head));return{changed:next.summary.acceptedOrigins.length>0||!same(a.conflicts,next.conflicts),tasks:V.clone(next.tasks)};}
+function reservedIds(state){const g=checked(state);return reserved(g,g.current);}
+module.exports={TYPES,PERSONAL,packet,namespace,graph,checked,validateState,validateRelations,validateCommand,apply,record,receiptEvidence,atomicReceipt,eventPublication,inspectConflict,storageScope,previewReceive,reviewResolution,inspectResolution,reservedIds,hash};
+function validateCommand(c){V.revision(c.expectedRepositoryRevision);const p=c.payload;check(p.version===2&&PERSONAL.includes(c.type),"Personal command v2 required.");const common=["version","spaceId","bindingDigest","profileDigest"],extra=c.type==="personal.resolve"?["authorityId","partitionId","taskId","expectedLocalHead","expectedTaskDigest","conflictDigest","reviewedHeads","choice","previewDigest"]:c.type==="personal.receive"?["authorityId","partitionId","packetDigest","head"]:c.type==="personal.upgrade"?["predecessorHead"]:["seedDigest","replicaId",...(c.type==="personal.bootstrap"?["baseRevisionId"]:[])];exact(p,common.concat(extra));V.uuid(p.spaceId);hex(p.bindingDigest);hex(p.profileDigest);if(c.type==="personal.resolve"){V.uuid(p.authorityId);V.referenceId(p.partitionId);V.uuid(p.taskId);hex(p.expectedLocalHead);if(p.expectedTaskDigest!==null)hex(p.expectedTaskDigest);hex(p.conflictDigest);hex(p.previewDigest);check(Array.isArray(p.reviewedHeads)&&p.reviewedHeads.length>=2&&same(p.reviewedHeads,sort(p.reviewedHeads)),"Complete canonical conflicting origins required.");p.reviewedHeads.forEach(hex);exact(p.choice,["kind","originId"]);check(p.choice.kind==="select-origin"&&p.reviewedHeads.includes(p.choice.originId),"Explicit reviewed branch required.");}else if(c.type==="personal.receive"){V.uuid(p.authorityId);V.referenceId(p.partitionId);hex(p.packetDigest);if(p.head!==null)hex(p.head);}else if(c.type==="personal.upgrade")hex(p.predecessorHead);else{hex(p.seedDigest);V.uuid(p.replicaId);if(p.baseRevisionId)V.uuid(p.baseRevisionId);}}
+
+},
+"../../../ItacanTaskCore/src/personal-shared.js": function (module, exports, __hubRequire) {
+"use strict";
+// Version dispatch only. Original v1 proof interpretation remains frozen.
+const old=__hubRequire("../../../ItacanTaskCore/src/personal-shared-v1.js"),modern=()=>__hubRequire("../../../ItacanTaskCore/src/personal-shared-v2.js");
+const out={TYPES:old.TYPES,PERSONAL:[...old.PERSONAL,"personal.upgrade","personal.resolve"],hash:old.hash};
+for(const name of ["packet","namespace","graph"])out[name]=(...args)=>(args[0]?.version===2?modern():old)[name](...args);
+for(const name of ["checked","validateState","validateRelations","receiptEvidence","atomicReceipt","eventPublication","inspectConflict","storageScope"])out[name]=(...args)=>(args[0]?.personalShared?.version===2?modern():old)[name](...args);
+out.validateCommand=c=>(c.payload?.version===2?modern():old).validateCommand(c);
+out.apply=(s,c,x)=>(c.payload?.version===2||s.personalShared?.version===2?modern():old).apply(s,c,x);
+out.record=(s,...args)=>(s.personalShared?.version===2?modern():old).record(s,...args);
+out.previewReceive=(a,b)=>(a.version===2?modern():old).previewReceive(a,b);
+for(const name of ["reviewResolution","inspectResolution"])out[name]=(...args)=>modern()[name](...args);
+module.exports=out;
+
+},
+"../../../ItacanTaskCore/src/private-save-rejection.js": function (module, exports, __hubRequire) {
+"use strict";
+// Retrospective nonexecution is justified only by complete committed receipt
+// coverage AND a task revision that permanently invalidates the original save.
+// This is not a writer-outcome guess, a receipt, or a Git bootstrap proof.
+const V = __hubRequire("../../../ItacanTaskCore/src/value.js"), { check } = __hubRequire("../../../ItacanTaskCore/src/errors.js"), M = __hubRequire("../../../ItacanTaskCore/personal/membership.js");
+function source(state) {
+    __hubRequire("../../../ItacanTaskCore/src/domain.js").validateState(state);
+    check(!state.gitShared && !state.historyImport && !state.recurrence && state.schemaVersion === 1 && state.partitions.length === 1 && state.partitions[0].id === "private", "Private save proof requires an intact private authority.");
+    check(!state.personalShared || state.personalShared.version === 2, "Unsupported personal proof scope.");
+}
+function taskAt(receipts, taskId, revision) {
+    return receipts.filter(r => r.result.repositoryRevision <= revision).sort((a,b) => b.result.repositoryRevision-a.result.repositoryRevision).flatMap(r => r.result.tasks).find(t => t.id === taskId);
+}
+function prove(state, command, through = state.revision) {
+    source(state); __hubRequire("../../../ItacanTaskCore/src/commands.js").validateCommand(command);
+    check(command.type === "task.save" && command.expectedRepositoryRevision >= 1 && command.expectedRepositoryRevision < through && through <= state.revision, "An older original task.save is required.");
+    check(!state.receipts.some(r => r.operationId === command.operationId) && !state.personalShared?.frames.some(f => f.receipt.operationId === command.operationId), "Operation has contradictory receipt/origin evidence.");
+    const receipts = state.receipts.filter(r => r.result.repositoryRevision <= through).sort((a,b) => a.result.repositoryRevision-b.result.repositoryRevision);
+    check(receipts.length === through && receipts.every((r,i) => r.result.repositoryRevision === i+1), "Complete durable receipt coverage required.");
+    const predecessor = receipts[command.expectedRepositoryRevision-1], last = receipts.at(-1), before = taskAt(receipts, command.taskId, command.expectedRepositoryRevision), after = taskAt(receipts, command.taskId, through), current = state.tasks.find(t => t.id === command.taskId);
+    check(before && after && current && before.revision === command.expectedRevision && after.revision > command.expectedRevision && current.revision >= after.revision && before.partitionId === "private" && V.canonical(before.owner) === V.canonical(state.partitions[0].owner) && V.canonical(after.owner) === V.canonical(before.owner) && V.canonical(current.owner) === V.canonical(before.owner), "Original task guard is not conclusively superseded.");
+    return { format:"itacan-private-save-nonexecution", version:1, authorityId:state.storeId, operationId:command.operationId, commandDigest:M.hash(command), taskId:command.taskId, expectedRepositoryRevision:command.expectedRepositoryRevision, expectedTaskRevision:command.expectedRevision, predecessorRevisionId:predecessor.result.revisionId, head:{repositoryRevision:through,revisionId:last.result.revisionId}, receiptCoverageDigest:M.hash(receipts), supersedingTaskRevision:after.revision, supersedingTaskDigest:M.hash(after) };
+}
+function verify(state, command, proof) {
+    check(proof?.format === "itacan-private-save-nonexecution" && proof.version === 1 && V.canonical(prove(state,command,proof.head.repositoryRevision)) === V.canonical(proof), "Private save nonexecution evidence differs.");
+    return proof;
+}
+module.exports = { prove, verify };
+
+},
 "../../../ItacanTaskCore/src/private-storage-codec.js": function (module, exports, __hubRequire) {
 "use strict";
 // Private persistence only. The historical outer grammars deliberately remain
@@ -4488,23 +5196,25 @@ module.exports = { NodeDirectory };
 const { check, fail } = __hubRequire("../../../ItacanTaskCore/src/errors.js");
 const { canonical, clone, plain, fields, uuid, revision } = __hubRequire("../../../ItacanTaskCore/src/value.js");
 const { sha256 } = __hubRequire("../../../ItacanTaskCore/src/source-content.js");
-const BASE = "private-native-storage-v1", IMPORT = "private-history-import-v1", ATOMIC = "atomic-task-mutations-v1", GIT = "git-shared-compact-proofs-v2";
+const BASE = "private-native-storage-v1", IMPORT = "private-history-import-v1", ATOMIC = "atomic-task-mutations-v1", GIT = "git-shared-compact-proofs-v2", PERSONAL = "personal-sync-proofs-v1", PERSONAL2 = "personal-sync-proofs-v2";
 const OUTER = ["schemaVersion", "storeId", "revision", "revisionId", "parentRevisionId", "partitions", "tasks", "history", "bindings", "receipts", "retiredStepIds"];
 const MANIFEST = ["format", "schemaVersion", "storeId", "retention", "current", "ancestry"];
 function supported(version, values = [1]) { if (!values.includes(version)) fail("UNSUPPORTED_SCHEMA", "Unsupported private storage version."); }
 function parse(raw) { try { return JSON.parse(raw); } catch (_) { fail("INTEGRITY", "Invalid private storage JSON."); } }
 function authority(id, expected) { uuid(id); if (id !== expected) fail("STORAGE_AUTHORITY_MISMATCH", "Storage authority differs from the explicitly selected authority."); }
 function validateBarrier(b, expected) {
-    check(b && typeof b === "object", "Missing private authority barrier."); supported(b.version, [1, 2, 3]); supported(b.minimumLogicalSchemaVersion, [1, 2, 3, 4]);
-    const caps = [BASE, ...(b.minimumLogicalSchemaVersion === 4 ? [IMPORT] : []), ...(b.version >= 2 ? [ATOMIC] : []), ...(b.version === 3 ? [GIT] : [])];
+    check(b && typeof b === "object", "Missing private authority barrier."); supported(b.version, [1, 2, 3, 4, 5]); supported(b.minimumLogicalSchemaVersion, [1, 2, 3, 4]);
+    const caps = [BASE, ...(b.minimumLogicalSchemaVersion === 4 ? [IMPORT] : []), ...(b.version >= 2 ? [ATOMIC] : []), ...(b.version === 3 ? [GIT] : []), ...(b.version === 4 ? [PERSONAL] : b.version === 5 ? [PERSONAL2] : [])];
     if (canonical(b.requiredCapabilities ?? null) !== canonical(caps)) fail("UNSUPPORTED_SCHEMA", "Missing/unknown mandatory private storage capability.");
-    fields(b, ["version", "authorityId", "minimumLogicalSchemaVersion", "requiredCapabilities", "importRecoveryScope"], ["version", "authorityId", "minimumLogicalSchemaVersion", "requiredCapabilities", "importRecoveryScope"]);
+    fields(b, ["version", "authorityId", "minimumLogicalSchemaVersion", "requiredCapabilities", "importRecoveryScope", ...(b.version>=4?["personalScope"]:[])], ["version", "authorityId", "minimumLogicalSchemaVersion", "requiredCapabilities", "importRecoveryScope", ...(b.version>=4?["personalScope"]:[])]);
+    if(b.version>=4){const p=b.personalScope,keys=["version","spaceId","seedDigest","bindingDigest","replicaId","rootOperationId","rootCommandDigest","sourceRevisionId",...(b.version===5?["profileDigest","transition"]:[])];fields(p,keys,keys);check(p.version===(b.version===5?2:1),"Personal scope version differs.");[p.spaceId,p.replicaId,p.sourceRevisionId].forEach(uuid);for(const d of [p.seedDigest,p.bindingDigest,p.rootCommandDigest,...(b.version===5?[p.profileDigest]:[])])check(/^[a-f0-9]{64}$/.test(d),"Personal scope commitment required.");__hubRequire("../../../ItacanTaskCore/src/value.js").text(p.rootOperationId);if(b.version===5){const t=p.transition;fields(t,["operationId","commandDigest","predecessorRevisionId","predecessorCapability"],["operationId","commandDigest","predecessorRevisionId","predecessorCapability"]);__hubRequire("../../../ItacanTaskCore/src/value.js").text(t.operationId);uuid(t.predecessorRevisionId);check(/^[a-f0-9]{64}$/.test(t.commandDigest)&&["atomic-task-mutations-v1","personal-sync-proofs-v1"].includes(t.predecessorCapability),"Personal transition evidence differs.");}}
+
     authority(b.authorityId, expected);
     if (b.minimumLogicalSchemaVersion === 4) { check(b.importRecoveryScope !== null, "Import barrier lacks protected identity scope."); __hubRequire("../../../ItacanTaskCore/src/history-import.js").validateScope(b.importRecoveryScope); }
     else check(b.importRecoveryScope === null, "Unexpected import scope before schema 4.");
     return b;
 }
-function makeBarrier(id, minimum, scope, taskMutationVersion, gitSharedVersion) { check(gitSharedVersion === undefined || gitSharedVersion === 2, "Unsupported Git proof capability."); check(taskMutationVersion === undefined || taskMutationVersion === 1, "Unsupported task mutation capability."); return clone(validateBarrier({ version: gitSharedVersion === 2 ? 3 : taskMutationVersion === 1 ? 2 : 1, authorityId: id, minimumLogicalSchemaVersion: minimum, requiredCapabilities: [BASE, ...(minimum === 4 ? [IMPORT] : []), ...(taskMutationVersion === 1 ? [ATOMIC] : []), ...(gitSharedVersion === 2 ? [GIT] : [])], importRecoveryScope: scope }, id)); }
+function makeBarrier(id, minimum, scope, taskMutationVersion, gitSharedVersion, personalScope = null) { check(gitSharedVersion === undefined || gitSharedVersion === 2, "Unsupported Git proof capability."); check(taskMutationVersion === undefined || taskMutationVersion === 1, "Unsupported task mutation capability."); return clone(validateBarrier({ version: personalScope ? (personalScope.version===2?5:4) : gitSharedVersion === 2 ? 3 : taskMutationVersion === 1 ? 2 : 1, authorityId: id, minimumLogicalSchemaVersion: minimum, requiredCapabilities: [BASE, ...(minimum === 4 ? [IMPORT] : []), ...(taskMutationVersion === 1 ? [ATOMIC] : []), ...(gitSharedVersion === 2 ? [GIT] : []), ...(personalScope ? [personalScope.version===2?PERSONAL2:PERSONAL] : [])], ...(personalScope ? {personalScope} : {}), importRecoveryScope: scope }, id)); }
 function descriptor(d) {
     fields(d, ["file", "sha256", "revision", "revisionId", "parentRevisionId"], ["file", "sha256", "revision", "revisionId", "parentRevisionId"]);
     revision(d.revision); uuid(d.revisionId); if (d.parentRevisionId !== null) uuid(d.parentRevisionId);
@@ -4515,7 +5225,7 @@ function decodePrivateManifest(raw, expected) {
     check(sha256(canonical(w.payload)) === w.sha256, "Private manifest checksum mismatch.");
     const m = w.payload; fields(m, MANIFEST, MANIFEST); authority(m.storeId, expected); check(m.format === "itacan-task-manifest", "Invalid private manifest format.");
     const a = m.ancestry; if (a?.format !== "itacan-private-lineage") fail("STORAGE_PROFILE_MISMATCH", "A private root cannot use a flat or legacy manifest.");
-    supported(a.version, [1, 2, 3]); fields(a, ["format", "version", "barrier", "entries"], ["format", "version", "barrier", "entries"]); validateBarrier(a.barrier, expected);
+    supported(a.version, [1, 2, 3, 4, 5]); fields(a, ["format", "version", "barrier", "entries"], ["format", "version", "barrier", "entries"]); validateBarrier(a.barrier, expected);
     if (a.version !== a.barrier.version) fail("UNSUPPORTED_SCHEMA", "Private lineage/capability version mismatch.");
     check(Number.isInteger(m.retention) && m.retention >= 2 && m.retention <= 32 && Array.isArray(a.entries) && a.entries.length < m.retention, "Invalid private retention/ancestry.");
     const chain = [m.current, ...a.entries]; chain.forEach(descriptor);
@@ -4541,13 +5251,14 @@ function copyValidatedGeneration(state) {
 function decodePrivateGeneration(raw, expected) {
     const w = parse(raw); supported(w.schemaVersion, [4]); fields(w, OUTER, OUTER); authority(w.storeId, expected);
     const e = w.receipts; if (e?.format !== "itacan-private-state") fail("STORAGE_PROFILE_MISMATCH", "A private root cannot use a flat or legacy generation.");
-    supported(e.version, [1, 2, 3]); supported(e.logicalSchemaVersion, [1, 2, 3, 4]);
-    const keys = ["format", "version", "barrier", "logicalSchemaVersion", "records", "recurrence", "historyImport", ...(e.version === 3 ? ["gitShared"] : [])]; fields(e, keys, keys);
+    supported(e.version, [1, 2, 3, 4, 5]); supported(e.logicalSchemaVersion, [1, 2, 3, 4]);
+    const keys = ["format", "version", "barrier", "logicalSchemaVersion", "records", "recurrence", "historyImport", ...(e.version === 3 ? ["gitShared"] : []), ...(e.version >= 4 ? ["personalShared"] : [])]; fields(e, keys, keys);
     validateBarrier(e.barrier, expected); check(e.barrier.minimumLogicalSchemaVersion >= e.logicalSchemaVersion, "Private barrier regressed below logical state.");
     if (e.version !== e.barrier.version) fail("UNSUPPORTED_SCHEMA", "Private state/capability version mismatch.");
     const state = { ...w, schemaVersion: e.logicalSchemaVersion, receipts: e.records };
     if (e.recurrence !== null) state.recurrence = e.recurrence;
     if (e.historyImport !== null) state.historyImport = e.historyImport;
+    if (e.version >= 4) {check(e.personalShared !== null && e.personalShared.version===(e.version===5?2:1),"Personal capability requires matching proof evidence.");state.personalShared=e.personalShared;}
     if (e.version === 3) { check(e.gitShared !== null, "Git capability requires origin evidence."); state.gitShared = e.gitShared; }
     __hubRequire("../../../ItacanTaskCore/src/domain.js").validateState(state);
     if (e.version < 2 && state.receipts.some(r => Object.hasOwn(r.result, "atomicTask"))) fail("UNSUPPORTED_SCHEMA", "Atomic task effects require the version-2 private barrier.");
@@ -4559,9 +5270,10 @@ function decodePrivateGeneration(raw, expected) {
 }
 function encodePrivateGeneration(state, barrier) {
     __hubRequire("../../../ItacanTaskCore/src/domain.js").validateState(state); validateBarrier(barrier, state.storeId);
+    check(!!state.personalShared === (barrier.version >= 4), "Personal capability cannot be added/removed through ordinary publication.");
     check(!!state.gitShared === (barrier.version === 3), "Git capability cannot be added/removed through publication.");
     const wire = Object.fromEntries(OUTER.map(k => [k, state[k]])); wire.schemaVersion = 4;
-    wire.receipts = { format: "itacan-private-state", version: barrier.version, barrier, logicalSchemaVersion: state.schemaVersion, records: state.receipts, recurrence: state.recurrence ?? null, historyImport: state.historyImport ?? null, ...(barrier.version === 3 ? { gitShared: state.gitShared } : {}) };
+    wire.receipts = { format: "itacan-private-state", version: barrier.version, barrier, logicalSchemaVersion: state.schemaVersion, records: state.receipts, recurrence: state.recurrence ?? null, historyImport: state.historyImport ?? null, ...(barrier.version === 3 ? { gitShared: state.gitShared } : {}), ...(barrier.version >= 4 ? {personalShared:state.personalShared} : {}) };
     const raw = canonical(wire) + "\n"; decodePrivateGeneration(raw, state.storeId); return raw;
 }
 module.exports = { makeBarrier, validateBarrier, decodePrivateManifest, encodePrivateManifest, decodePrivateGeneration, encodePrivateGeneration };
@@ -4944,6 +5656,49 @@ async function applyRecurrence(state,command,ctx){
 module.exports={RECURRENCE_COMMANDS:TYPES,RECURRENCE_GENERATION_COMMANDS:GENERATION_TYPES,RECURRENCE_STATES:STATES,validateExternalReservations,validateRuleInput,validateRuleRevision,validateTemplateRevision,validateSeries,validateMembership,validateGenerationGraph,generationKey,nativeReservedIds,validateNamespace,validateSnapshot,validateRecurrenceCommand,applyRecurrence};
 
 },
+"../../../ItacanTaskCore/src/replication-graph.js": function (module, exports, __hubRequire) {
+"use strict";
+// Shared causal whole-task reconciliation. Profile wrappers validate all evidence.
+const V = __hubRequire("../../../ItacanTaskCore/src/value.js"), { check } = __hubRequire("../../../ItacanTaskCore/src/errors.js");
+const same = (a,b) => V.canonical(a) === V.canonical(b);
+const hash = v => __hubRequire("../../../ItacanTaskCore/src/source-content.js").sha256(V.canonical(v));
+const sorted = values => [...values].sort();
+const compare = (a,b) => a < b ? -1 : a > b ? 1 : 0;
+const view = state => Object.fromEntries(["tasks","history","bindings","retiredStepIds"].map(k => [k,V.clone(state[k])]));
+function merge(local, remote, frames, read, changes = id => frames.get(id).receipt.result.change.taskIds, retirements = id => frames.get(id).receipt.result.atomicTask?.retiredStepIds ?? []) {
+    // A conflicted branch is evidence even when its effects were not accepted.
+    // Propagate both heads to new replicas; acceptance alone would hide the
+    // unaccepted side and incorrectly make the target writable again.
+    const all = new Set([...local.accepted, ...remote.accepted, ...local.conflicts.flatMap(c => c.origins), ...remote.conflicts.flatMap(c => c.origins)]), accepted = new Set(local.accepted), taskHeads = new Map(local.taskHeads), conflicts = V.clone(local.conflicts), value = view(local);
+    const candidates = new Map();
+    for (const id of all) for (const taskId of changes(id)) { if (!candidates.has(taskId)) candidates.set(taskId, []); candidates.get(taskId).push(id); }
+    const conflicting = new Set();
+    for (const [taskId, ids] of candidates) {
+        const heads = ids.filter(id => !ids.some(other => id !== other && read(frames.get(other).parent).accepted.has(id))).sort();
+        if (heads.length > 1) {
+            conflicting.add(taskId); const body = { taskId, origins: heads }, conflict = { ...body, digest: hash(body) };
+            if (!conflicts.some(x => x.digest === conflict.digest)) conflicts.push(conflict);
+        } else if (heads.length === 1) taskHeads.set(taskId, heads[0]);
+    }
+    for (const id of remote.accepted) if (!changes(id).some(taskId => conflicting.has(taskId))) accepted.add(id);
+    for (const [taskId, head] of taskHeads) {
+        if (conflicting.has(taskId)) { if (local.taskHeads.has(taskId)) taskHeads.set(taskId, local.taskHeads.get(taskId)); else taskHeads.delete(taskId); continue; }
+        const source = read(head), task = source.tasks.find(t => t.id === taskId);
+        check(task, "Origin task snapshot missing.");
+        value.tasks = value.tasks.filter(t => t.id !== taskId).concat(V.clone(task));
+        value.history = value.history.filter(e => e.taskId !== taskId).concat(V.clone(source.history.filter(e => e.taskId === taskId)));
+        value.bindings = value.bindings.filter(e => e.taskId !== taskId).concat(V.clone(source.bindings.filter(e => e.taskId === taskId)));
+    }
+    // Retired identities are permanent reservations, even if their task is no
+    // longer live. Unaccepted conflict branches do not become accepted effects.
+    value.retiredStepIds = sorted(new Set([...accepted].flatMap(id => retirements(id))));
+    value.tasks.sort((a, b) => compare(a.id, b.id)); value.history.sort((a, b) => compare(a.id, b.id)); value.bindings.sort((a, b) => compare(a.stepId ?? a.taskId, b.stepId ?? b.taskId)); value.retiredStepIds.sort();
+    conflicts.sort((a, b) => compare(a.digest, b.digest));
+    return { view: value, accepted, taskHeads, conflicts, summary: { version: 1, acceptedOrigins: sorted([...accepted].filter(id => !local.accepted.has(id))), conflicts } };
+}
+module.exports = { merge };
+
+},
 "../../../ItacanTaskCore/src/repository.js": function (module, exports, __hubRequire) {
 "use strict";
 const { RepositoryError, fail, check } = __hubRequire("../../../ItacanTaskCore/src/errors.js");
@@ -4952,6 +5707,10 @@ const { validateState, validatePartition, workspace, workspaceKey, location, pha
 const { validateCommand, applyCommand } = __hubRequire("../../../ItacanTaskCore/src/commands.js");
 const { buildIndexes } = __hubRequire("../../../ItacanTaskCore/src/indexes.js");
 const Admission = __hubRequire("../../../ItacanTaskCore/src/command-admission.js");
+const resolutionErrors=new WeakMap(),resolutionProofs=new WeakMap();
+function personalResolutionRejection(error){const body=resolutionErrors.get(error);if(!body)return null;resolutionErrors.delete(error);const proof=Object.freeze({version:1});resolutionProofs.set(proof,body);return proof;}
+function consumePersonalResolutionRejection(proof){const body=resolutionProofs.get(proof);check(body,"Writer-proven personal rejection required.");resolutionProofs.delete(proof);return clone(body);}
+
 
 function publicationResult(candidate, command, changes) {
     const affectedTasks = changes.taskIds.map(id => candidate.tasks.find(task => task.id === id));
@@ -4962,6 +5721,7 @@ function publicationResult(candidate, command, changes) {
     taskIds: changes.taskIds, eventIds: changes.eventIds, partitions: candidate.partitions.filter(p => changes.partitionIds.includes(p.id)).map(clone) }, replayed: false, ...(changes.recurrence ? { recurrence: clone(changes.recurrence) } : {}), ...(changes.historyImport ? { historyImport: clone(changes.historyImport) } : {}) };
     if (changes.atomicTask) result.atomicTask = clone(changes.atomicTask);
     if (changes.gitShared) result.gitShared = clone(changes.gitShared);
+    if (changes.personal) result.personal = clone(changes.personal);
     return result;
 }
 function initialState(partitions, storeId, nextId, gitSharedVersion, sharedGenesis) {
@@ -5034,8 +5794,31 @@ class TaskRepository {
         });
         this.#queue = work.catch(() => {}); return work;
     }
+    exportPersonalPacket() {
+        this.assertOpen();
+        const work = this.#queue.then(async () => {
+            const state = await this.#storage.load(); validateState(state);
+            check(state.storeId === this.#state.storeId && state.revisionId === this.#state.revisionId && state.personalShared, "Personal authoritative capture unavailable.");
+            const observation = await this.#storage.beginReadObservation?.();
+            await this.#storage.assertAllWritable?.(state); await __hubRequire("../../../ItacanTaskCore/src/personal-shared.js").validateState(state);
+            const packet = __hubRequire("../../../ItacanTaskCore/src/personal-shared.js").packet(state.personalShared);
+            await this.#storage.assertReadObservation?.(observation); return packet;
+        }); this.#queue = work.catch(() => {}); return work;
+    }
+    proveStalePrivateSave(command, proof = null) {
+        this.assertOpen(); const detached=clone(command), held=proof===null?null:clone(proof);
+        const work=this.#queue.then(async()=>{
+            const state=await this.#storage.load(); validateState(state);
+            check(state.storeId===this.#state.storeId&&state.revisionId===this.#state.revisionId,"Private save proof generation changed.");
+            const observation=await this.#storage.beginReadObservation?.();
+            check(this.#storage.atomicTaskCapability?.()&&!this.#storage.recovery&&!this.#storage.atomicTaskRecoveryKnown?.()&&!this.#storage.recurrenceFence,"Intact atomic authority required for nonexecution proof.");
+            await this.#storage.assertAllWritable?.(state);
+            const result=held===null?__hubRequire("../../../ItacanTaskCore/src/private-save-rejection.js").prove(state,detached):__hubRequire("../../../ItacanTaskCore/src/private-save-rejection.js").verify(state,detached,held);
+            await this.#storage.assertReadObservation?.(observation); await this.#storage.assertAllWritable?.(state); return clone(result);
+        }); this.#queue=work.catch(()=>{}); return work;
+    }
     exportSharedPartition(partitionId) {
-        this.assertOpen(); const partition = this.#state.partitions.find(p => p.id === partitionId);
+        this.assertOpen(); check(!this.#state.personalShared, "Personal evidence cannot enter a Git partition export."); const partition = this.#state.partitions.find(p => p.id === partitionId);
         check(!!partition, "Unknown partition.");
         if (__hubRequire("../../../ItacanTaskCore/src/history-import.js").dependentPartitions(this.#state).includes(partitionId)) fail("UNSUPPORTED_OPERATION", "Import-dependent partition transport requires the separately reviewed N4 contract.");
         if (this.#state.recurrence?.memberships.some(o => o.partitionId === partitionId)) fail("UNSUPPORTED_OPERATION", "Recurrence partition transport requires the separately reviewed N4 shared contract.");
@@ -5100,17 +5883,22 @@ class TaskRepository {
     execute(input, admissionTicket, replicationEvidence) {
         this.assertOpen(); const command = clone(input); validateCommand(command);
         let sharedPacket = null, replicationError = null;
-        if (replicationEvidence !== undefined) { try { fields(replicationEvidence, ["version", "packet"], ["version", "packet"]); sharedPacket = clone(replicationEvidence.packet); check(replicationEvidence.version === 1 && command.type === "git.receive" && __hubRequire("../../../ItacanTaskCore/src/git-shared.js").hash(sharedPacket) === command.payload.packetDigest, "Replication evidence is receive-only and digest-bound."); } catch (error) { replicationError = error; } }
+        if (replicationEvidence !== undefined) { try { fields(replicationEvidence, ["version", "packet"], ["version", "packet"]); sharedPacket = clone(replicationEvidence.packet); check(replicationEvidence.version === 1 && ["git.receive", "personal.receive"].includes(command.type) && __hubRequire("../../../ItacanTaskCore/src/git-shared.js").hash(sharedPacket) === command.payload.packetDigest, "Replication evidence is receive-only and digest-bound."); } catch (error) { replicationError = error; } }
+        let resolutionBefore=null,publicationAttempted=false;
         const work = this.#queue.then(async () => {
             const state = await this.#storage.load(); validateState(state);
             if (state.storeId !== this.#state.storeId || state.revisionId !== this.#state.revisionId) fail("REPOSITORY_CONFLICT", "Repository generation changed outside this instance.");
             if (state.gitShared) { check(this.#storage.gitSharedCapability?.(), "Git capability required."); check([...__hubRequire("../../../ItacanTaskCore/src/git-shared.js").TYPES, "git.receive"].includes(command.type), "Unsupported Git operation."); } else check(command.type !== "git.receive", "Git receive requires explicit creation capability.");
+            if(command.type==="personal.resolve")resolutionBefore={authorityId:state.storeId,head:{repositoryRevision:state.revision,revisionId:state.revisionId},operationId:command.operationId,commandDigest:__hubRequire("../../../ItacanTaskCore/src/personal-shared.js").hash(command)};
+            if (state.personalShared) { check(this.#options.personalSync, "Personal replica context required."); check([...__hubRequire("../../../ItacanTaskCore/src/personal-shared.js").TYPES, "personal.receive", ...(this.#options.personalSync?.binding.version===2?["personal.resolve","personal.upgrade"]:[])].includes(command.type), "Unsupported personal operation."); }
+            if (command.type.startsWith("personal.")) check(this.#options.personalSync, "Explicit personal admission required.");
+            this.#storage.assertPersonalEnrollmentCommand?.(command, state);
             await this.#storage.assertAllWritable?.(state);
             if (["task.save", "task.createRich"].includes(command.type) && !this.#storage.atomicTaskCapability?.()) fail("ATOMIC_TASK_CAPABILITY_REQUIRED", "Atomic commands require capability enabled at creation.");
             if (this.#admission && this.#storage.recurrenceFence) fail("RECOVERY_REQUIRED", "Writer-hosted commands require intact ready state.");
             const admission = await Admission.begin(this.#admission, admissionTicket, command, state);
             if (replicationError) throw replicationError;
-            const payload = canonical(command), receipt = this.#indexes.receipts.get(command.operationId) ?? (state.gitShared ? __hubRequire("../../../ItacanTaskCore/src/git-shared.js").receiptEvidence(state, command.operationId)?.receipt : null);
+            const payload = canonical(command), receipt = this.#indexes.receipts.get(command.operationId) ?? (state.gitShared ? __hubRequire("../../../ItacanTaskCore/src/git-shared.js").receiptEvidence(state, command.operationId)?.receipt : state.personalShared ? __hubRequire("../../../ItacanTaskCore/src/personal-shared.js").receiptEvidence(state, command.operationId)?.receipt : null);
             const imports = __hubRequire("../../../ItacanTaskCore/src/history-import.js"), importScope = imports.mergeScope(this.#storage.importRecoveryScope ?? null, imports.scopeOf(state));
             await this.#storage.assertHistoryImportWritable?.(command, state);
             imports.assertWritable(command, state, this.#storage.recurrenceFence, importScope);
@@ -5122,7 +5910,7 @@ class TaskRepository {
             if (this.#admission && this.#storage.recurrenceFence) fail("RECOVERY_REQUIRED", "Observed recovery fence blocks writer replay.");
             if (receipt) {
                 if (receipt.payload !== payload) fail("OPERATION_CONFLICT", "Operation ID was reused with a different command.");
-                const origin = state.gitShared && !this.#indexes.receipts.has(command.operationId) ? __hubRequire("../../../ItacanTaskCore/src/git-shared.js").receiptEvidence(state, command.operationId) : null;
+                const origin = !this.#indexes.receipts.has(command.operationId) ? (state.gitShared ? __hubRequire("../../../ItacanTaskCore/src/git-shared.js") : state.personalShared ? __hubRequire("../../../ItacanTaskCore/src/personal-shared.js") : null)?.receiptEvidence(state, command.operationId) : null;
                 return { ...clone(receipt.result), replayed: true, ...(origin ? { originReplay: { version: 1, originId: origin.origin.id,
                     application: { operationId: origin.application.operationId, repositoryRevision: origin.application.result.repositoryRevision, revisionId: origin.application.result.revisionId } } } : {}) };
             }
@@ -5130,9 +5918,9 @@ class TaskRepository {
             if (command.expectedRepositoryRevision !== undefined && command.expectedRepositoryRevision !== state.revision) fail("REPOSITORY_CONFLICT", "Repository revision is stale.", { expected: command.expectedRepositoryRevision, actual: state.revision });
             const now = this.#clock(); timestamp(now); check(now !== null, "Clock must return a timestamp.");
             await this.#options.fault?.("beforeCommandValidation");
-            const recoveryReservedIds = importScope ? [...importScope.taskIds, ...importScope.stepIds, ...importScope.eventIds] : [];
-            const allocations = [], allocate = () => { const id = this.nextId(); if (state.gitShared) allocations.push(id); return id; };
-            const context = { now, sharedPacket, gitInventory: !!state.gitShared && !!this.#storage.gitSharedCapability?.(), nextId: () => { const id = allocate(); if (recoveryReservedIds.includes(id) && !__hubRequire("../../../ItacanTaskCore/src/completion-effects.js").isAtomic(command.type)) fail("IDENTITY_CONFLICT", "Identity remains protected by import recovery scope."); return id; }, resolvers: this.#resolvers, fault: this.#options.fault, externalReservations: this.#options.externalReservations, historyImportEvidence: this.#options.historyImportEvidence, recoveryReservedIds };
+            const recoveryReservedIds = importScope ? [...importScope.taskIds, ...importScope.stepIds, ...importScope.eventIds] : state.personalShared?.version===2 ? __hubRequire("../../../ItacanTaskCore/src/personal-shared-v2.js").reservedIds(state) : [];
+            const allocations = [], allocate = () => { const id = this.nextId(); if (state.gitShared || state.personalShared || command.type.startsWith("personal.")) allocations.push(id); return id; };
+            const context = { now, sharedPacket, personalPacket: command.type === "personal.receive" ? sharedPacket : null, personal: this.#options.personalSync, gitInventory: !!state.gitShared && !!this.#storage.gitSharedCapability?.(), nextId: () => { const id = allocate(); if (recoveryReservedIds.includes(id) && !__hubRequire("../../../ItacanTaskCore/src/completion-effects.js").isAtomic(command.type)) fail("IDENTITY_CONFLICT", "Identity remains protected by import recovery scope."); return id; }, resolvers: this.#resolvers, fault: this.#options.fault, externalReservations: this.#options.externalReservations, historyImportEvidence: this.#options.historyImportEvidence, recoveryReservedIds };
             const candidate = clone(state), changes = await applyCommand(candidate, command, context);
             if (candidate.historyImport) await this.#options.fault?.("history:beforeProjectionMetadata");
             imports.reconcile(candidate, state, command, changes.atomicTask ?? null);
@@ -5145,6 +5933,7 @@ class TaskRepository {
             await this.#options.fault?.("beforeReceiptPersistence");
             candidate.receipts.push({ operationId: command.operationId, payload, result: clone(result), partitionIds: changes.partitionIds, coordination: command.coordination ?? null });
             if (state.gitShared) { __hubRequire("../../../ItacanTaskCore/src/git-shared.js").record(candidate, state, candidate.receipts.at(-1), { allocations, now, replicaId: this.#options.sharedReplicaId, inventory: this.#options.externalReservations }, sharedPacket); await __hubRequire("../../../ItacanTaskCore/src/git-shared.js").validateState(candidate); }
+            if (candidate.personalShared) { __hubRequire("../../../ItacanTaskCore/src/personal-shared.js").record(candidate,state,candidate.receipts.at(-1),{personal:this.#options.personalSync,allocations,now,inventory:this.#options.externalReservations},command.type === "personal.receive" ? sharedPacket : null); await __hubRequire("../../../ItacanTaskCore/src/personal-shared.js").validateState(candidate); }
             if (changes.historyImport) await this.#options.fault?.("history:beforeCandidateValidation");
             if (command.type === "recurrence.complete") await this.#options.fault?.("beforeRecurrenceCandidateValidation");
             validateState(candidate); if (changes.atomicTask) await this.#options.fault?.("atomic:afterReceiptValidation"); await this.#options.fault?.("beforeCommit");
@@ -5154,13 +5943,13 @@ class TaskRepository {
             imports.assertWritable(command, state, this.#storage.recurrenceFence, importScope);
             if (recurrenceWrite) { await this.#storage.assertRecurrenceWritable?.(); if (this.#storage.recurrenceFence) fail("RECURRENCE_RECOVERY_FENCED", "Recurrence state requires verified reconciliation."); }
             await Admission.seal(this.#admission, admission, candidate, state);
-            try { await this.#storage.commit(candidate, state.revisionId, { command, priorState: state, admission }); }
+            try { publicationAttempted=true; await this.#storage.commit(candidate, state.revisionId, { command, priorState: state, admission }); }
             catch (error) { if (error.code === "ACKNOWLEDGEMENT_LOST") this.publish(candidate, result.change); throw error; }
             this.publish(candidate, result.change);
             try { await this.#options.fault?.("beforeAcknowledgement"); }
             catch (_) { throw new RepositoryError("ACKNOWLEDGEMENT_LOST", "Commit succeeded; retry the identical operation to retrieve its receipt.", { operationId: command.operationId, committed: true }); }
             return clone(result);
-        });
+        }).catch(error=>{if(resolutionBefore&&!publicationAttempted&&["PERSONAL_REVIEW_STALE","REPOSITORY_CONFLICT","PARTITION_CONFLICT","WRITER_EVIDENCE_CONFLICT","REFERENCE_UNRESOLVED"].includes(error.code))resolutionErrors.set(error,{...resolutionBefore,code:error.code,publication:"not-attempted"});throw error;});
         this.#queue = work.catch(() => {}); return work;
     }
     async close() {
@@ -5170,7 +5959,7 @@ class TaskRepository {
         try { await this.#closePromise; } catch (error) { this.#closing = false; throw error; }
     }
 }
-module.exports = { initialState, TaskRepository, publicationResult };
+module.exports = { initialState, TaskRepository, publicationResult, personalResolutionRejection, consumePersonalResolutionRejection };
 
 },
 "../../../ItacanTaskCore/src/serialization.js": function (module, exports, __hubRequire) {
@@ -5325,7 +6114,7 @@ function operationSnapshot(state, request, storage) {
     const partitions = state.partitions.filter(p => same(p.owner, request.owners[0]));
     check(partitions.length === 1, "Operation owner unavailable.");
     const localReceipt = state.receipts.find(r => r.operationId === request.operationId);
-    const origin = !localReceipt && state.gitShared ? __hubRequire("../../../ItacanTaskCore/src/git-shared.js").receiptEvidence(state, request.operationId) : null;
+    const origin = !localReceipt ? (state.gitShared ? __hubRequire("../../../ItacanTaskCore/src/git-shared.js") : state.personalShared ? __hubRequire("../../../ItacanTaskCore/src/personal-shared.js") : null)?.receiptEvidence(state, request.operationId) : null;
     const receipt = localReceipt ?? origin?.receipt;
     const fenced = !!storage.fenced;
     let operation = { state: "missing", code: "RECEIPT_UNAVAILABLE", operationId: request.operationId, receipt: null, taskIds: [], eventIds: [] };
@@ -5355,7 +6144,8 @@ function projectSnapshot(state, request, storage = {}) {
     const partitions = state.partitions.filter(p => request.selection === "status" || request.owners.some(o => same(o, p.owner)));
     const tasks = [], targets = [], completions = [];
     const selected = t => request.owners.some(o => same(o, t.owner));
-    if (request.selection === "tasks") for (const t of state.tasks) if (selected(t) && (request.includeArchived || t.archivedAt === null) && (request.includeDeleted || t.deletedAt === null)) tasks.push({ ...taskView(t), ...(request.includeConsumerFacts ? { consumerFacts: { version: 1, recurrenceMember: __hubRequire("../../../ItacanTaskCore/src/atomic-task.js").recurrenceGuard(state, t).kind !== "none" } } : {}) });
+    const personalConflicts=state.personalShared&&request.includeConsumerFacts?new Set(__hubRequire("../../../ItacanTaskCore/src/personal-shared.js").checked(state).current.conflicts.map(c=>c.taskId)):null;
+    if (request.selection === "tasks") for (const t of state.tasks) if (selected(t) && (request.includeArchived || t.archivedAt === null) && (request.includeDeleted || t.deletedAt === null)) tasks.push({ ...taskView(t), ...(request.includeConsumerFacts ? { consumerFacts: { version: 1, recurrenceMember: __hubRequire("../../../ItacanTaskCore/src/atomic-task.js").recurrenceGuard(state, t).kind !== "none", ...(personalConflicts?{personalConflict:personalConflicts.has(t.id)}:{}) } } : {}) });
     if (["targets", "completions"].includes(request.selection)) request.targets.forEach((target, index) => {
         const task = state.tasks.find(t => t.id === target.taskId), reservation = state.historyImport?.plan.reservations.find(r => r.id === target.taskId && r.kind === "task");
         let disposition = !task ? reservation?.purpose === "quarantined-target" ? "quarantined" : reservation?.purpose === "eligible-target" && state.historyImport.outcome === null ? "pending-native-publication" : state.retiredStepIds.includes(target.taskId) ? "retired-step" : state.tasks.some(t => t.steps.some(s => s.id === target.taskId)) ? "kind-mismatch" : "missing" : !same(task.owner, target.owner) || task.partitionId !== target.partitionId ? "owner-mismatch" : task.deletedAt !== null ? "deleted" : "resolved";
@@ -5601,7 +6391,7 @@ function compile(request) {
  const command=V.clone(request.command);command.coordination={service:"itacan-native-writer-v1",id:command.operationId,evidence:{version:1,requestDigest:P.hash(request),...V.clone(request.scope)}};return command;
 }
 function partitions(request,state,policy,grant) {
- const c=request.command, tasks=c.type==="git.receive"?[state.partitions.find(p=>p.id===c.payload.partitionId)].filter(Boolean):c.type==="task.createRich"?[c.payload.scope]:c.type==="task.create"?[c.payload.task]:c.type==="task.createMany"?c.payload.tasks:[state.tasks.find(t=>t.id===c.taskId)].filter(Boolean);
+ const c=request.command, tasks=c.type.startsWith("personal.")?state.partitions:c.type==="git.receive"?[state.partitions.find(p=>p.id===c.payload.partitionId)].filter(Boolean):c.type==="task.createRich"?[c.payload.scope]:c.type==="task.create"?[c.payload.task]:c.type==="task.createMany"?c.payload.tasks:[state.tasks.find(t=>t.id===c.taskId)].filter(Boolean);
  if(!tasks.length)fail("NOT_FOUND","Native target is missing.");
  const expected=new Map();for(const t of tasks){const p=state.partitions.find(p=>P.same(p.owner,t.owner));check(p,"Owner partition is missing.");expected.set(p.id,p);if(c.type==="task.relocate")check(P.same(c.payload.owner,t.owner),"Owner transfer is deferred.");}
  check(expected.size===request.scope.partitions.length,"Partition guard set differs.");
@@ -5615,6 +6405,76 @@ module.exports=Object.freeze({compile,partitions});
 module.exports=Object.freeze({createNativeWriterSession:__hubRequire("../../../ItacanTaskCore/host/repository-host.js").createNativeWriterSession});
 
 },
+"../../../ItacanTaskCore/writer/personal-port-v1.js": function (module, exports, __hubRequire) {
+"use strict";
+// Uses the existing participant gate and host retention; no parallel outcome log.
+const V=__hubRequire("../../../ItacanTaskCore/src/value.js"),G=__hubRequire("../../../ItacanTaskCore/src/personal-shared.js"),P=__hubRequire("../../../ItacanTaskCore/writer/policy.js"),{check,fail}=__hubRequire("../../../ItacanTaskCore/src/errors.js"),{freeze}=__hubRequire("../../../ItacanTaskCore/src/snapshot-read.js");
+function createPersonalPort({config,options,host,grant,observed,inventoryFresh,submit,inventoryPin,phasePin}){
+ const personal=options.personalSync;
+ async function state(capability){grant({capability});await inventoryFresh();const info=await host.refresh(),observation=await observed();check(info.readiness.state==="ready","Personal authority is unavailable.");return{info,observation};}
+ function request(info,o,command){const owner=o.registry.owners[0];return P.request({version:1,reason:"Explicit personal replication operation",scope:{authorityId:config.authorityId,ownerContextPin:o.ownerContextPin,identityPin:o.identityPin,inventoryPin,phasePin,partitions:[{id:owner.partitionId,owner:owner.owner,expectedRevision:info.head.repositoryRevision}]},command},"personal");}
+ async function prepare(capability,command,packet){
+  const before=await state(capability),evidence={version:1,binding:V.clone(personal.binding),seed:V.clone(personal.seed),members:V.clone(personal.members),packet:packet?V.clone(packet):null};
+  check(command.expectedRepositoryRevision===before.info.head.repositoryRevision,"Personal preparation head changed.");
+  let tasks=personal.seed.body.state.tasks,noop=false;
+  if(packet){const remote=G.graph(G.namespace(packet));await G.validateState({...Object.fromEntries(Object.entries(remote.current).filter(([k])=>!["accepted","taskHeads","conflicts"].includes(k))),personalShared:G.namespace(packet)});const current=await port.export(capability),preview=G.previewReceive(current,packet);tasks=preview.tasks;noop=!preview.changed;}
+  const owner=before.observation.registry.owners[0];for(const t of tasks)if(t.deletedAt===null&&t.location!==null&&!owner.locations.some(l=>P.same(l,t.location)))fail("PERSONAL_WAITING_LOCATION","Referenced personal location has not arrived.");
+  const r=request(before.info,before.observation,command),prepared=freeze({version:1,request:r,evidence});
+  const after=await state(capability);check(P.same(before.info.head,after.info.head)&&P.same(before.observation,after.observation),"Personal preparation observation changed.");
+  if(noop)return freeze({...prepared,noop:true});await host.retention().prepare({version:1,kind:"personal-operation",prepared});return prepared;
+ }
+ const port=Object.freeze({
+  async export(capability){const before=await state(capability),packet=await host.exportPersonalPacket(),after=await state(capability);check(P.same(before.info.head,after.info.head)&&P.same(before.observation,after.observation),"Personal export context changed.");return freeze(packet);},
+  async status(capability){const packet=await port.export(capability),g=G.graph(G.namespace(packet));return freeze({version:1,authorityId:config.authorityId,state:g.current.conflicts.length?"conflicting":"ready",head:packet.head,conflicts:V.clone(g.current.conflicts),frames:packet.frames.length,remainingFrames:1024-packet.frames.length});},
+  async inspectConflict(capability,taskId){const packet=await port.export(capability),g=G.graph(G.namespace(packet)),state={...Object.fromEntries(Object.entries(g.current).filter(([k])=>!["accepted","taskHeads","conflicts"].includes(k))),personalShared:G.namespace(packet)};return freeze(G.inspectConflict(state,taskId));},
+  async confirmAccepted(capability,packet){const current=await port.export(capability);check(P.same(current.binding,packet.binding)&&P.same(current.seed,packet.seed),"Personal acknowledgement binding differs.");const g=G.graph(G.namespace(current)),remote=G.graph(G.namespace(packet));check(!g.current.conflicts.length&&[...remote.current.accepted].every(id=>g.current.accepted.has(id)),"Personal head has not been accepted.");const receipt=g.frames.get(current.head)?.receipt;check(receipt,"Personal application receipt missing.");return freeze({operationId:receipt.operationId,repositoryRevision:receipt.result.repositoryRevision,revisionId:receipt.result.revisionId});},
+  async prepare(capability,packet,operationId){const {info}=await state(capability);return prepare(capability,{type:"personal.receive",operationId,expectedRepositoryRevision:info.head.repositoryRevision,payload:{version:1,spaceId:personal.binding.spaceId,authorityId:config.authorityId,partitionId:personal.seed.body.partition.id,packetDigest:P.hash(packet),head:packet.head}},packet);},
+  async prepareEnrollment(capability,type,operationId){check(["personal.enroll","personal.bootstrap"].includes(type),"Personal enrollment operation required.");const {info}=await state(capability);return prepare(capability,{type,operationId,expectedRepositoryRevision:info.head.repositoryRevision,payload:{version:1,spaceId:personal.binding.spaceId,seedDigest:personal.seed.digest,bindingDigest:P.hash(personal.binding),replicaId:personal.signer.replicaId,...(type==="personal.bootstrap"?{baseRevisionId:info.head.revisionId}:{})}},null);},
+  async receive(capability,prepared,signal){
+   check(prepared?.version===1&&P.same(prepared.evidence.binding,personal.binding)&&P.same(prepared.evidence.seed,personal.seed),"Exact personal evidence required.");
+   if(prepared.noop){const current=await port.export(capability);check(!G.previewReceive(current,prepared.evidence.packet).changed,"Personal no-op changed.");return freeze({version:1,status:"rejected",operationId:prepared.request.command.operationId,code:"PERSONAL_NO_CHANGES"});}
+   return submit("personal",capability,prepared.request,signal,undefined,prepared.evidence.packet?{version:1,packet:prepared.evidence.packet}:undefined);
+  }
+ });return port;
+}
+module.exports={createPersonalPort};
+
+},
+"../../../ItacanTaskCore/writer/personal-port-v2.js": function (module, exports, __hubRequire) {
+"use strict";
+const V=__hubRequire("../../../ItacanTaskCore/src/value.js"),G=__hubRequire("../../../ItacanTaskCore/src/personal-shared-v2.js"),P=__hubRequire("../../../ItacanTaskCore/writer/policy.js"),{check,fail}=__hubRequire("../../../ItacanTaskCore/src/errors.js"),{freeze}=__hubRequire("../../../ItacanTaskCore/src/snapshot-read.js");
+function createPersonalPort({config,options,host,grant,observed,inventoryFresh,submit,inventoryPin,phasePin}){
+ const personal=options.personalSync,base=personal.binding.base,common=()=>({version:2,spaceId:base.spaceId,bindingDigest:P.hash(personal.binding),profileDigest:personal.binding.profile.digest});
+ async function state(cap){grant({capability:cap});await inventoryFresh();const info=await host.refresh(),observation=await observed();check(info.readiness.state==="ready","Personal authority unavailable.");return{info,observation};}
+ const fromPacket=p=>{const ns=G.namespace(p),g=G.graph(ns);return{...Object.fromEntries(Object.entries(g.current).filter(([k])=>!["known","accepted","frontier","taskHeads","conflicts","accounting","personalHead"].includes(k))),personalShared:ns}};
+ const stable=(a,b)=>P.same(a.info.head,b.info.head)&&a.info.hostEpoch===b.info.hostEpoch&&P.same(a.observation,b.observation);
+ const context=o=>({ownerContextPin:o.ownerContextPin,identityPin:o.identityPin,inventoryPin,phasePin,observationDigest:P.hash(o)});
+ function request(x,c){const owner=x.observation.registry.owners[0];return P.request({version:1,reason:"Explicit personal v2 operation",scope:{authorityId:config.authorityId,ownerContextPin:x.observation.ownerContextPin,identityPin:x.observation.identityPin,inventoryPin,phasePin,partitions:[{id:owner.partitionId,owner:owner.owner,expectedRevision:x.info.head.repositoryRevision}]},command:c},"personal");}
+ async function legacyReady(){const frames=personal.legacyFrames??[];if(!personal.binding.profile.body.legacyCuts.find(c=>c.authorityId===config.authorityId).heads.length)return;const ns={format:"itacan-personal-native",version:2,binding:personal.binding,seed:personal.seed,members:personal.members,head:null,frames};await G.validateState(fromPacket(ns));}
+ async function prepare(cap,c,packet=null,review=null){const before=await state(cap);check(c.expectedRepositoryRevision===before.info.head.repositoryRevision,"Personal preparation head changed.");let tasks=personal.seed.body.state.tasks,noop=false;if(packet){await G.validateState(fromPacket(packet));await host.retention().assertIncomingPacket(packet);const current=await port.export(cap),preview=G.previewReceive(current,packet);tasks=preview.tasks;noop=!preview.changed;}if(review)tasks=[review.value.task];const owner=before.observation.registry.owners[0];for(const t of tasks)if(t.deletedAt===null&&t.location!==null&&!owner.locations.some(l=>P.same(l,t.location)))fail("PERSONAL_WAITING_LOCATION","Personal location missing.");const r=request(before,c),prepared=freeze({version:2,request:r,evidence:{version:2,binding:V.clone(personal.binding),seed:V.clone(personal.seed),members:V.clone(personal.members),packet:packet?V.clone(packet):null,review:review?V.clone(review):null}}),after=await state(cap);check(stable(before,after),"Personal preparation observation changed.");if(noop)return freeze({...prepared,noop:true});await host.retention().prepare({version:2,kind:"personal-operation",prepared});return prepared;}
+ const port=Object.freeze({
+ async export(cap){for(let attempt=0;attempt<3;attempt++){const before=await state(cap),packet=await host.exportPersonalPacket(),after=await state(cap);if(stable(before,after))return freeze(packet);await new Promise(resolve=>setImmediate(resolve));}fail("SNAPSHOT_UNSTABLE","Personal export changed during three observations.");},
+ async status(cap){const p=await port.export(cap),g=G.graph(G.namespace(p));return freeze({version:2,authorityId:config.authorityId,state:g.current.conflicts.length?"conflicting":"ready",head:p.head,conflicts:g.current.conflicts,frames:p.frames.length,remainingFrames:1024-p.frames.length,resolutions:p.frames.filter(f=>JSON.parse(f.receipt.payload).type==="personal.resolve").map(f=>({operationId:f.receipt.operationId,taskId:f.receipt.result.personal.resolution.taskId,originId:f.id}))});},
+ async inspectConflict(cap,id){const x=await state(cap),rows=G.inspectConflict(fromPacket(await port.export(cap)),id),locations=x.observation.registry.owners[0].locations;for(const c of rows)for(const b of c.branches)if(b.eligibility.available&&!b.deleted&&b.task.location!==null&&!locations.some(l=>P.same(l,b.task.location)))b.eligibility={available:false,code:"PERSONAL_WAITING_LOCATION"};return freeze(rows);},
+ async inspectResolution(cap,id){return freeze(G.inspectResolution(fromPacket(await port.export(cap)),id));},
+ async reviewResolution(cap,id,origin){const before=await state(cap),review=G.reviewResolution(fromPacket(await port.export(cap)),id,origin),after=await state(cap);if(review.value.task.deletedAt===null&&review.value.task.location!==null&&!after.observation.registry.owners[0].locations.some(l=>P.same(l,review.value.task.location)))fail("PERSONAL_WAITING_LOCATION","Selected personal location is unavailable.");check(stable(before,after),"Resolution review changed.");return freeze({...review,context:context(before.observation)});},
+ async prepareResolution(cap,review,operationId){const fresh=await port.reviewResolution(cap,review.taskId,review.selectedOriginId);if(!P.same(fresh,review))fail("PERSONAL_REVIEW_STALE","Conflict or authority changed; review again.");const payload={...common(),authorityId:config.authorityId,partitionId:review.partitionId,taskId:review.taskId,expectedLocalHead:review.expectedLocalHead,expectedTaskDigest:review.expectedTaskDigest,conflictDigest:review.conflictDigest,reviewedHeads:review.reviewedHeads,choice:{kind:"select-origin",originId:review.selectedOriginId},previewDigest:review.previewDigest};return prepare(cap,{type:"personal.resolve",operationId,expectedRepositoryRevision:review.expectedRepositoryRevision,payload},null,review);},
+ async resolve(cap,p,signal){check(p.request.command.type==="personal.resolve","Resolution request required.");return port.receive(cap,p,signal);},
+ async prepare(cap,p,operationId){const x=await state(cap);return prepare(cap,{type:"personal.receive",operationId,expectedRepositoryRevision:x.info.head.repositoryRevision,payload:{...common(),authorityId:config.authorityId,partitionId:personal.seed.body.partition.id,packetDigest:P.hash(p),head:p.head}},p);},
+ async prepareEnrollment(cap,type,operationId){await legacyReady();const x=await state(cap);check(["personal.enroll","personal.bootstrap"].includes(type),"Personal root operation required.");return prepare(cap,{type,operationId,expectedRepositoryRevision:x.info.head.repositoryRevision,payload:{...common(),seedDigest:personal.seed.digest,replicaId:personal.signer.replicaId,...(type==="personal.bootstrap"?{baseRevisionId:x.info.head.revisionId}:{})}});},
+ async prepareUpgrade(cap,operationId){await legacyReady();const x=await state(cap),packet=await host.exportPersonalPacket();check(packet.version===1,"Explicit v1 predecessor required.");return prepare(cap,{type:"personal.upgrade",operationId,expectedRepositoryRevision:x.info.head.repositoryRevision,payload:{...common(),predecessorHead:packet.head}});},
+ async receive(cap,p,signal){check(p.version===2&&P.same(p.evidence.binding,personal.binding)&&P.same(p.evidence.seed,personal.seed),"Exact personal v2 evidence required.");if(p.noop){check(!G.previewReceive(await port.export(cap),p.evidence.packet).changed,"Personal no-op changed.");return freeze({version:1,status:"rejected",operationId:p.request.command.operationId,code:"PERSONAL_NO_CHANGES"});}return submit("personal",cap,p.request,signal,undefined,p.evidence.packet?{version:1,packet:p.evidence.packet}:undefined);},
+ async confirmAccepted(cap,p){const current=await port.export(cap);check(P.same(current.binding,p.binding)&&P.same(current.seed,p.seed),"Personal acknowledgement binding differs.");const g=G.graph(G.namespace(current)),remote=G.graph(G.namespace(p));check(!g.current.conflicts.length&&[...remote.current.known].every(id=>g.current.known.has(id)),"Personal origins not accepted.");const r=g.frames.get(current.head).receipt;return freeze({operationId:r.operationId,repositoryRevision:r.result.repositoryRevision,revisionId:r.result.revisionId});}
+ });return port;
+}
+module.exports={createPersonalPort};
+
+},
+"../../../ItacanTaskCore/writer/personal-port.js": function (module, exports, __hubRequire) {
+"use strict";
+module.exports={createPersonalPort:options=>(options.options.personalSync.binding.version===2?__hubRequire("../../../ItacanTaskCore/writer/personal-port-v2.js"):__hubRequire("../../../ItacanTaskCore/writer/personal-port-v1.js")).createPersonalPort(options)};
+
+},
 "../../../ItacanTaskCore/writer/policy.js": function (module, exports, __hubRequire) {
 "use strict";
 const V = __hubRequire("../../../ItacanTaskCore/src/value.js"), D = __hubRequire("../../../ItacanTaskCore/src/domain.js"), { check, fail } = __hubRequire("../../../ItacanTaskCore/src/errors.js"), { sha256 } = __hubRequire("../../../ItacanTaskCore/src/source-content.js"), { freeze } = __hubRequire("../../../ItacanTaskCore/src/snapshot-read.js");
@@ -5622,12 +6482,13 @@ const task = Object.freeze(["task.create","task.createMany","task.save","task.cr
 const step = Object.freeze(["step.add","step.update","step.reorder","step.delete","step.complete"]);
 const recurrence = Object.freeze([...__hubRequire("../../../ItacanTaskCore/src/recurrence.js").RECURRENCE_COMMANDS,...__hubRequire("../../../ItacanTaskCore/src/recurrence.js").RECURRENCE_GENERATION_COMMANDS.commands]);
 const shared = Object.freeze(["git.receive"]);
+const personal = Object.freeze(["personal.enroll","personal.bootstrap","personal.receive","personal.upgrade","personal.resolve"]);
 const same = (a,b) => V.canonical(a) === V.canonical(b), hash = v => sha256(V.canonical(v));
 function policy(input) {
  V.jsonValue(input);V.fields(input,["version","owners","commands","inventory","phases"],["version","owners","commands","inventory","phases"]);check(input.version===1,"Unsupported writer policy.");
  check(Array.isArray(input.owners)&&input.owners.length>0&&Array.isArray(input.commands)&&input.commands.length>0,"Explicit writer scopes required.");
  const keys=new Set();for(const p of input.owners){V.fields(p,["owner","partitionId"],["owner","partitionId"]);D.workspace(p.owner);V.referenceId(p.partitionId);check(!keys.has(V.canonical(p.owner)),"Duplicate policy owner.");keys.add(V.canonical(p.owner));}
- check(new Set(input.commands).size===input.commands.length&&input.commands.every(c=>[...task,...step,...recurrence,...shared].includes(c)),"Unsupported policy command.");
+ check(new Set(input.commands).size===input.commands.length&&input.commands.every(c=>[...task,...step,...recurrence,...shared,...personal].includes(c)),"Unsupported policy command.");
  if(input.inventory.version===2)__hubRequire("../../../ItacanTaskCore/shared/inventory.js").validate(input.inventory);else __hubRequire("../../../ItacanTaskCore/src/recurrence.js").validateExternalReservations(input.inventory);
  V.fields(input.phases,["version","revision","values"],["version","revision","values"]);check(input.phases.version===1&&Array.isArray(input.phases.values),"Explicit Phase snapshot required.");V.text(input.phases.revision);for(const p of input.phases.values){V.fields(p,["projectId","phaseId"],["projectId","phaseId"]);V.referenceId(p.projectId);V.referenceId(p.phaseId);}
  return freeze(V.clone(input));
@@ -5636,7 +6497,7 @@ function request(input,family) {
  V.jsonValue(input);V.fields(input,["version","reason","scope","command"],["version","reason","scope","command"]);check(input.version===1,"Unsupported writer request.");V.text(input.reason);const s=input.scope;
  V.fields(s,["authorityId","ownerContextPin","identityPin","inventoryPin","phasePin","partitions"],["authorityId","ownerContextPin","identityPin","inventoryPin","phasePin","partitions"]);V.uuid(s.authorityId);for(const k of ["ownerContextPin","inventoryPin","phasePin"])V.text(s[k]);if(s.identityPin!==null)V.text(s.identityPin);check(Array.isArray(s.partitions)&&s.partitions.length>0,"Explicit partition guards required.");
  for(const p of s.partitions){V.fields(p,["id","owner","expectedRevision"],["id","owner","expectedRevision"]);V.referenceId(p.id);D.workspace(p.owner);V.revision(p.expectedRevision);}
- const c=input.command;check(({task,step,recurrence,shared})[family].includes(c.type),"Wrong writer command family.");check(c.coordination===undefined,"Coordination is reserved for writer admission.");V.revision(c.expectedRepositoryRevision);__hubRequire("../../../ItacanTaskCore/src/commands.js").validateCommand(c);
+ const c=input.command;check(({task,step,recurrence,shared,personal})[family].includes(c.type),"Wrong writer command family.");check(c.coordination===undefined,"Coordination is reserved for writer admission.");V.revision(c.expectedRepositoryRevision);__hubRequire("../../../ItacanTaskCore/src/commands.js").validateCommand(c);
  const clean=t=>{check(!Object.hasOwn(t,"migration")&&!Object.hasOwn(t,"captureSource")&&!Object.hasOwn(t,"createdAt")&&!Object.hasOwn(t,"modifiedAt")&&!Object.hasOwn(t,"archivedAt")&&!Object.hasOwn(t,"deletedAt"),"Creation/provenance fields are reserved.");for(const s of t.steps??[])check(!Object.hasOwn(s,"createdAt")&&!Object.hasOwn(s,"modifiedAt"),"Source Step clocks are reserved.");};
  if(c.type==="task.create")clean(c.payload.task);if(c.type==="task.createMany")c.payload.tasks.forEach(clean);if(c.type==="step.add")clean(c.payload.step);
  if(c.type==="task.update")check(!Object.hasOwn(c.payload.patch,"captureSource"),"Capture provenance is reserved.");
@@ -5648,7 +6509,7 @@ function candidate(p,state,prior,inventory) {
  const used=new Set();for(const id of state.tasks.flatMap(t=>[t.id,...t.steps.map(s=>s.id)]).concat(state.retiredStepIds,state.history.map(e=>e.id))){if(used.has(id))fail("IDENTITY_CONFLICT","Native identity namespaces overlap.");used.add(id);if(__hubRequire("../../../ItacanTaskCore/shared/inventory.js").contains(inventory,id)&&!__hubRequire("../../../ItacanTaskCore/src/history-import.js").claimedExternal(state,id))fail("IDENTITY_CONFLICT","External identity remains reserved.");if(!old.has(id)&&__hubRequire("../../../ItacanTaskCore/src/recurrence.js").nativeReservedIds(prior).has(id))fail("IDENTITY_CONFLICT","Native identity remains reserved.");}
  const guards=p.scope.partitions;for(const t of state.tasks){const before=prior.tasks.find(x=>x.id===t.id);if(!before||!same(before,t)){check(guards.some(g=>g.id===t.partitionId&&same(g.owner,t.owner)),"Candidate exceeds admitted partition scope.");if(before)check(same(before.owner,t.owner),"Owner transfer is deferred.");}}
 }
-module.exports=Object.freeze({task,step,recurrence,shared,same,hash,policy,request,candidate});
+module.exports=Object.freeze({task,step,recurrence,shared,personal,same,hash,policy,request,candidate});
 
 },
 "../../../ItacanTaskCore/writer/repository-writer.js": function (module, exports, __hubRequire) {
@@ -5660,31 +6521,33 @@ function createParticipant(config,options,host) {
  const hashedInventory=policy.inventory.version===2;
  if(hashedInventory){check(options.gitSharing&&typeof options.inventoryEvidence?.read==="function","Git inventory requires authoritative local evidence.");__hubRequire("../../../ItacanTaskCore/shared/inventory.js").validate(policy.inventory,config.authorityId);check(policy.inventory.phasePin===phasePin,"Phase inventory commitment differs.");}
  if(options.gitSharing)check(policy.owners.length===1&&policy.owners[0].owner.type==="project"&&policy.phases.values.every(p=>p.projectId===policy.owners[0].owner.id)&&policy.commands.every(c=>[...__hubRequire("../../../ItacanTaskCore/src/git-shared.js").TYPES,"git.receive"].includes(c))&&(hashedInventory||policy.inventory.ids.length===0&&policy.phases.values.length===0),"Explicit single Git owner and portable operation policy required.");
- async function inventoryFresh(){if(!hashedInventory)return;const e=V.clone(await options.inventoryEvidence.read());V.fields(e,["version","authorityId","owner","inventory","phases"],["version","authorityId","owner","inventory","phases"]);if(e.version!==1||e.authorityId!==config.authorityId||!P.same(e.owner,policy.owners[0].owner)||!P.same(e.phases,policy.phases)||!P.same(__hubRequire("../../../ItacanTaskCore/shared/inventory.js").capture(config.authorityId,e.inventory,e.phases),policy.inventory))fail("WRITER_EVIDENCE_CONFLICT","Authoritative reservation or Phase evidence changed.");}
+ async function inventoryFresh(){if(options.personalSync){check(typeof options.inventoryEvidence?.read==="function","Personal inventory requires authoritative evidence.");const e=await options.inventoryEvidence.read();check(e.version===1&&e.authorityId===config.authorityId&&P.same(e.owner,policy.owners[0].owner)&&P.same(e.inventory,policy.inventory)&&P.same(e.phases,policy.phases),"Personal reservation or Phase evidence changed.");}if(!hashedInventory)return;const e=V.clone(await options.inventoryEvidence.read());V.fields(e,["version","authorityId","owner","inventory","phases"],["version","authorityId","owner","inventory","phases"]);if(e.version!==1||e.authorityId!==config.authorityId||!P.same(e.owner,policy.owners[0].owner)||!P.same(e.phases,policy.phases)||!P.same(__hubRequire("../../../ItacanTaskCore/shared/inventory.js").capture(config.authorityId,e.inventory,e.phases),policy.inventory))fail("WRITER_EVIDENCE_CONFLICT","Authoritative reservation or Phase evidence changed.");}
  const cancelled=a=>{if(a.signal?.aborted)fail("WRITE_CANCELLED","Request cancelled before publication.");};
  function grant(a){const g=grants.get(a.capability);if(!g||g.revoked||g.generation!==generation)fail("WRITER_CAPABILITY_REVOKED","Writer capability is unavailable.");return g;}
  async function observed(){const o=await host.observe();last=o;return o;}
  const pair=Gate.createGate({authorityId:config.authorityId,
   async admit(r,a,state){if(options.requestRetention){if(!host.retention())fail("WRITER_ADMISSION_REQUIRED","Retention unavailable.");await host.retention().verify(r,state,a.recovery,host.info());}if(pending&&!state.receipts.some(x=>x.operationId===pending.operationId)&&!(state.revision===pending.head.repositoryRevision&&state.revisionId===pending.head.revisionId))fail("OUTCOME_RECONCILIATION_REQUIRED","Prior publication requires reconciliation.");cancelled(a);const g=grant(a),i=host.info();if(!["open","closing"].includes(i.phase)||i.phase==="closing"&&!a.accepted)fail("HOST_NOT_OPEN","Host is not admitting writes.");if(r.scope.authorityId!==config.authorityId||state.storeId!==config.authorityId)fail("STORAGE_AUTHORITY_MISMATCH","Writer authority mismatch.");if(!g.commands.includes(r.command.type))fail("WRITER_SCOPE","Command is outside writer capability.");for(const p of r.scope.partitions)if(!g.owners.some(x=>x.partitionId===p.id&&P.same(x.owner,p.owner)))fail("WRITER_SCOPE","Owner is outside writer capability.");
-   await inventoryFresh();const o=await observed();if(options.gitSharing&&(o.ownerContextPin!==r.scope.ownerContextPin||o.identityPin!==r.scope.identityPin||r.scope.inventoryPin!==inventoryPin||r.scope.phasePin!==phasePin))fail("WRITER_EVIDENCE_CONFLICT","Shared replay context changed.");if(a.recovery)host.retention().assertReplayContext(a.recovery,o,host.info());for(const p of r.scope.partitions)check(o.registry.owners.some(x=>x.available&&x.dashboard!==null&&x.partitionId===p.id&&P.same(x.owner,p.owner)),"Owner is unavailable.");
+   await inventoryFresh();const o=await observed();if((options.gitSharing||options.personalSync)&&(o.ownerContextPin!==r.scope.ownerContextPin||o.identityPin!==r.scope.identityPin||r.scope.inventoryPin!==inventoryPin||r.scope.phasePin!==phasePin))fail("WRITER_EVIDENCE_CONFLICT","Shared replay context changed.");if(a.recovery)host.retention().assertReplayContext(a.recovery,o,host.info());for(const p of r.scope.partitions)check(o.registry.owners.some(x=>x.available&&x.dashboard!==null&&x.partitionId===p.id&&P.same(x.owner,p.owner)),"Owner is unavailable.");
   },
   async fresh(r,a,state){cancelled(a);grant(a);await inventoryFresh();const o=await observed();if(o.ownerContextPin!==r.scope.ownerContextPin||o.identityPin!==r.scope.identityPin||r.scope.inventoryPin!==inventoryPin||r.scope.phasePin!==phasePin)fail("WRITER_EVIDENCE_CONFLICT","Writer evidence changed.");A.partitions(r,state,policy,grant(a));},
-  candidate(r,state,prior){P.candidate(r,state,prior,policy.inventory);}
+  async candidate(r,state,prior){P.candidate(r,state,prior,policy.inventory);if(options.requestRetention?.version===4)await host.retention().assertRejectedCandidate(state);}
  });
  const resolvers={location:ref=>{for(const x of last?.registry.owners??[])if(x.available&&x.locations.some(l=>P.same(l,ref)))return {...V.clone(ref),owner:V.clone(x.owner)};return null;},phase:ref=>policy.phases.values.find(p=>P.same(p,ref))??null};
- function outcome(result){return freeze({version:1,privacy:"local-private",status:"committed",operationId:result.operationId,receipt:result.originReplay?.application??{operationId:result.operationId,repositoryRevision:result.repositoryRevision,revisionId:result.revisionId},...(result.originReplay?{originReplay:V.clone(result.originReplay)}:{}),replayed:result.replayed,tasks:result.tasks.map(t=>({id:t.id,revision:t.revision,partitionId:t.partitionId})),eventIds:V.clone(result.change.eventIds),...(result.gitShared?{gitShared:V.clone(result.gitShared)}:{}),...(result.atomicTask?{atomicTask:__hubRequire("../../../ItacanTaskCore/src/completion-effects.js").summary(result.task,result.atomicTask)}:{}),...(result.recurrence?{recurrence:{seriesId:result.recurrence.series.id,completionEventId:result.recurrence.completion?.completionEventId??null,successorId:result.recurrence.completion?.outcome.result.taskId??null,reused:result.recurrence.completion?.reused??false,originalGenerationOperationId:result.recurrence.completion?.outcome.operationId??null}}:{})});}
- const bounded=new Set(["ATOMIC_TASK_CAPABILITY_REQUIRED","ATOMIC_TASK_RECOVERY_FENCED","OPERATION_CONFLICT","REVISION_CONFLICT","REPOSITORY_CONFLICT","PARTITION_CONFLICT","WRITER_EVIDENCE_CONFLICT","WRITER_CAPABILITY_REVOKED","WRITER_SCOPE","HOST_NOT_OPEN","HOST_CLOSING","LOCK_LOST","ROOT_IDENTITY_CHANGED","STORAGE_AUTHORITY_MISMATCH","WRITER_ADMISSION_REQUIRED","RECURRENCE_RECOVERY_FENCED","HISTORY_IMPORT_RECOVERY_FENCED","RECOVERY_REQUIRED","IDENTITY_CONFLICT","IDENTITY_EXHAUSTED","NOT_FOUND","TASK_DELETED","RECURRENCE_COMMAND_REQUIRED","UNSUPPORTED_OPERATION","UNSUPPORTED_SCHEMA","REFERENCE_UNRESOLVED","CONTENT_REVISION_CONFLICT","VALIDATION","IO_ERROR","SHARED_NO_CHANGES","SHARED_RETENTION_ADOPTION_REQUIRED"]);
+ function outcome(result){return freeze({version:1,privacy:"local-private",status:"committed",operationId:result.operationId,receipt:result.originReplay?.application??{operationId:result.operationId,repositoryRevision:result.repositoryRevision,revisionId:result.revisionId},...(result.originReplay?{originReplay:V.clone(result.originReplay)}:{}),replayed:result.replayed,tasks:result.tasks.map(t=>({id:t.id,revision:t.revision,partitionId:t.partitionId})),eventIds:V.clone(result.change.eventIds),...(result.gitShared?{gitShared:V.clone(result.gitShared)}:{}),...(result.personal?{personal:V.clone(result.personal)}:{}),...(result.atomicTask?{atomicTask:__hubRequire("../../../ItacanTaskCore/src/completion-effects.js").summary(result.task,result.atomicTask)}:{}),...(result.recurrence?{recurrence:{seriesId:result.recurrence.series.id,completionEventId:result.recurrence.completion?.completionEventId??null,successorId:result.recurrence.completion?.outcome.result.taskId??null,reused:result.recurrence.completion?.reused??false,originalGenerationOperationId:result.recurrence.completion?.outcome.operationId??null}}:{})});}
+ const bounded=new Set(["PERSONAL_REVIEW_STALE","PERSONAL_RESURRECTION_UNSUPPORTED","PERSONAL_RETIRED_STEP","ATOMIC_TASK_CAPABILITY_REQUIRED","ATOMIC_TASK_RECOVERY_FENCED","OPERATION_CONFLICT","REVISION_CONFLICT","REPOSITORY_CONFLICT","PARTITION_CONFLICT","WRITER_EVIDENCE_CONFLICT","WRITER_CAPABILITY_REVOKED","WRITER_SCOPE","HOST_NOT_OPEN","HOST_CLOSING","LOCK_LOST","ROOT_IDENTITY_CHANGED","STORAGE_AUTHORITY_MISMATCH","WRITER_ADMISSION_REQUIRED","RECURRENCE_RECOVERY_FENCED","HISTORY_IMPORT_RECOVERY_FENCED","RECOVERY_REQUIRED","IDENTITY_CONFLICT","IDENTITY_EXHAUSTED","NOT_FOUND","TASK_DELETED","RECURRENCE_COMMAND_REQUIRED","UNSUPPORTED_OPERATION","UNSUPPORTED_SCHEMA","REFERENCE_UNRESOLVED","CONTENT_REVISION_CONFLICT","VALIDATION","IO_ERROR","SHARED_NO_CHANGES","SHARED_RETENTION_ADOPTION_REQUIRED","PERSONAL_NO_CHANGES","PERSONAL_WAITING_LOCATION"]);
  async function submit(family,capability,input,signal,recovery,replicationEvidence){const r=P.request(input,family);let queued=false,head=null,published=false;try{
    if(pending&&pending.digest!==P.hash(r))fail(pending.operationId===r.command.operationId?"OPERATION_CONFLICT":"OUTCOME_RECONCILIATION_REQUIRED","Retry the exact uncertain operation first.");
    if(closing||host.info().phase!=="open")fail("HOST_NOT_OPEN","Writer host is not open.");const a={capability,signal,accepted:false,recovery};grant(a);cancelled(a);
    const i=await host.refresh();if(i.readiness.state!=="ready")fail("RECOVERY_REQUIRED","Only ready writer admission is supported.");if(closing||host.info().phase!=="open")fail("HOST_CLOSING","Writer is closing.");
    head=i.head;const command=A.compile(r);a.accepted=true;const ticket=pair.issue(command,r,a);queued=true;const result=await host.execute(command,ticket,replicationEvidence);published=true;const answer=outcome(result);pending=null;return answer;
-  }catch(error){const code=published?"ACKNOWLEDGEMENT_LOST":error?.code;if(["ACKNOWLEDGEMENT_LOST","PUBLICATION_UNCERTAIN","OUTCOME_RECONCILIATION_REQUIRED"].includes(code)||pending&&code==="OPERATION_CONFLICT"){if(!pending)pending={operationId:r.command.operationId,digest:P.hash(r),head};return freeze({version:1,privacy:"local-private",status:"uncertain",operationId:pending.operationId,code,retry:"identical-operation-after-authoritative-reconciliation"});}if(pending)return freeze({version:1,privacy:"local-private",status:"uncertain",operationId:pending.operationId,code:"OUTCOME_RECONCILIATION_REQUIRED",retry:"identical-operation-after-authoritative-reconciliation"});if(code==="WRITE_CANCELLED")return freeze({version:1,privacy:"local-private",status:"cancelled",operationId:r.command.operationId,boundary:queued?"before-publication":"before-admission",priorOutcome:"not-checked"});return freeze({version:1,privacy:"local-private",status:"rejected",operationId:r.command.operationId,code:bounded.has(code)?code:"WRITER_UNAVAILABLE",attempt:queued?"not-published":"not-started",priorOutcome:"not-checked",retry:["LOCK_LOST","ROOT_IDENTITY_CHANGED","REPOSITORY_CONFLICT"].includes(code)?"explicit-reopen":"review-or-refresh"});}}
+  }catch(error){const proof=r.command.type==="personal.resolve"?__hubRequire("../../../ItacanTaskCore/src/repository.js").personalResolutionRejection(error):null;if(proof)await host.retention().concludePersonalResolutionRejection(proof);const code=published?"ACKNOWLEDGEMENT_LOST":error?.code;if(["ACKNOWLEDGEMENT_LOST","PUBLICATION_UNCERTAIN","OUTCOME_RECONCILIATION_REQUIRED"].includes(code)||pending&&code==="OPERATION_CONFLICT"){if(!pending)pending={operationId:r.command.operationId,digest:P.hash(r),head};return freeze({version:1,privacy:"local-private",status:"uncertain",operationId:pending.operationId,code,retry:"identical-operation-after-authoritative-reconciliation"});}if(pending)return freeze({version:1,privacy:"local-private",status:"uncertain",operationId:pending.operationId,code:"OUTCOME_RECONCILIATION_REQUIRED",retry:"identical-operation-after-authoritative-reconciliation"});if(code==="WRITE_CANCELLED")return freeze({version:1,privacy:"local-private",status:"cancelled",operationId:r.command.operationId,boundary:queued?"before-publication":"before-admission",priorOutcome:"not-checked"});return freeze({version:1,privacy:"local-private",status:"rejected",operationId:r.command.operationId,code:bounded.has(code)?code:"WRITER_UNAVAILABLE",attempt:queued?"not-published":"not-started",priorOutcome:"not-checked",retry:["LOCK_LOST","ROOT_IDENTITY_CHANGED","REPOSITORY_CONFLICT"].includes(code)?"explicit-reopen":"review-or-refresh"});}}
  const writer=Object.freeze({task:(c,r,s)=>submit("task",c,r,s),step:(c,r,s)=>submit("step",c,r,s),recurrence:(c,r,s)=>submit("recurrence",c,r,s)});
  return Object.freeze({gate:pair.gate,inventory:policy.inventory,resolvers,
   start:creating=>pair.start(creating),finish:()=>pair.finish(),invalidate(){generation++;},closing(){closing=true;},
   session(readHost){
    const retainedPort=options.requestRetention?Object.freeze({
+    reviewPrivateSaveRejection:async(capability,id)=>{const g=grant({capability}),r=await host.retention().get(id);check(g.commands.includes("task.save")&&g.owners.some(o=>o.partitionId===r.partitionId&&P.same(o.owner,r.owner)),"Private save recovery exceeds grant.");await inventoryFresh();return host.retention().reviewPrivateSaveRejection(id);},
+    concludePrivateSaveRejection:async(capability,review)=>{const g=grant({capability}),r=await host.retention().get(review.operationId);check(g.commands.includes("task.save")&&g.owners.some(o=>o.partitionId===r.partitionId&&P.same(o.owner,r.owner)),"Private save recovery exceeds grant.");await inventoryFresh();return host.retention().concludePrivateSaveRejection(review);},
     reviewBootstrapRejection:async(capability,id)=>{grant({capability});await inventoryFresh();return host.retention().reviewBootstrapRejection(id);},
     concludeBootstrapRejection:async(capability,review)=>{grant({capability});await inventoryFresh();return host.retention().concludeBootstrapRejection(review);},
     prepare:async(capability,intent)=>{const g=grant({capability}),c=__hubRequire("../../../ItacanTaskCore/application/intents.js").compile(intent);check(c.request&&g.commands.includes(c.request.command.type)&&c.request.scope.partitions.every(p=>g.owners.some(o=>o.partitionId===p.id&&P.same(o.owner,p.owner))),"Retained request exceeds grant.");await inventoryFresh();return host.retention().prepare(c.intent);},
@@ -5693,7 +6556,7 @@ function createParticipant(config,options,host) {
     get:async(capability,id)=>{const g=grant({capability}),r=await host.retention().get(id);check(g.owners.some(p=>p.partitionId===r.partitionId&&P.same(p.owner,r.owner)),"Retained request exceeds grant.");return r;},
     reconcile:async(capability,id)=>{const g=grant({capability}),r=await host.retention().get(id);check(g.owners.some(p=>p.partitionId===r.partitionId&&P.same(p.owner,r.owner)),"Retained request exceeds grant.");const out=await host.retention().reconcile(id);if(out.state==="committed"&&pending?.operationId===id&&pending.digest===r.writerRequestDigest)pending=null;return out;},
     inspect:async(capability,id)=>{const g=grant({capability}),out=await host.retention().inspect(id);check(out.owner===null||g.owners.some(p=>p.partitionId===out.partitionId&&P.same(p.owner,out.owner)),"Recovery inspection exceeds grant.");return out;},
-    replay:async(capability,review,signal)=>{const g=grant({capability}),r=await host.retention().get(review.operationId);check(g.commands.includes(r.writerRequest.command.type)&&g.owners.some(p=>p.partitionId===r.partitionId&&P.same(p.owner,r.owner)),"Recovery replay exceeds grant.");const permission=await host.retention().permit(review);try{const shared=r.intent.kind==="git-receive",family=shared?"shared":r.writerRequest.command.type.startsWith("step.")?"step":"task";return await submit(family,capability,r.writerRequest,signal,permission,shared?{version:1,packet:r.intent.prepared.packet}:undefined);}finally{host.retention().finishReplay(permission);}}
+    replay:async(capability,review,signal)=>{const g=grant({capability}),r=await host.retention().get(review.operationId);check(g.commands.includes(r.writerRequest.command.type)&&g.owners.some(p=>p.partitionId===r.partitionId&&P.same(p.owner,r.owner)),"Recovery replay exceeds grant.");const permission=await host.retention().permit(review);try{const personal=r.intent.kind==="personal-operation",shared=r.intent.kind==="git-receive",family=personal?"personal":shared?"shared":r.writerRequest.command.type.startsWith("step.")?"step":"task";return await submit(family,capability,r.writerRequest,signal,permission,personal&&r.intent.prepared.evidence.packet?{version:1,packet:r.intent.prepared.evidence.packet}:shared?{version:1,packet:r.intent.prepared.packet}:undefined);}finally{host.retention().finishReplay(permission);}}
    }):undefined;
    const sharedPort=options.gitSharing?Object.freeze({
     async status(capability){const p=await sharedPort.export(capability),current=__hubRequire("../../../ItacanTaskCore/src/git-shared.js").graph(__hubRequire("../../../ItacanTaskCore/src/git-shared.js").namespace(p)).current;return freeze({version:1,authorityId:config.authorityId,head:p.head,state:current.conflicts.length?"conflicting":"ready",acceptedOriginCount:current.accepted.size,conflicts:V.clone(current.conflicts)});},
@@ -5711,7 +6574,8 @@ function createParticipant(config,options,host) {
     async receive(capability,prepared,signal){check(prepared?.version===1&&P.hash(prepared.packet)===prepared.request.command.payload.packetDigest,"Exact prepared packet required.");if(prepared.noop){grant({capability});const r=P.request(prepared.request,"shared"),o=await observed();check(o.ownerContextPin===r.scope.ownerContextPin&&o.identityPin===r.scope.identityPin,"Shared context changed.");await __hubRequire("../../../ItacanTaskCore/src/serialization.js").deserializeSharedPacketV3(V.canonical(prepared.packet));const current=await host.exportSharedPacket();check(!__hubRequire("../../../ItacanTaskCore/src/git-shared.js").previewReceive(current,prepared.packet).changed,"Shared state changed; review the original request.");return freeze({version:1,privacy:"local-private",status:"rejected",operationId:r.command.operationId,code:"SHARED_NO_CHANGES",attempt:"not-started",priorOutcome:"not-checked",retry:"review-or-refresh"});}return submit("shared",capability,prepared.request,signal,undefined,{version:1,packet:prepared.packet});},
     async reconcile(capability,prepared){grant({capability});const o=await observed(),r=prepared.request;const result=await readHost.readOperation({version:3,authorityId:config.authorityId,selection:"operation",owners:r.scope.partitions.map(p=>p.owner),operationId:r.command.operationId,commandDigest:P.hash(A.compile(r)),ownerContextPin:o.ownerContextPin,identityPin:o.identityPin});const out=result.status==="ok"?result.snapshot.operation:{state:"unavailable",code:result.code};if(out.state==="committed"&&pending?.operationId===r.command.operationId&&pending.digest===P.hash(r))pending=null;return freeze(V.clone(out));}
    }):undefined;
-   return Object.freeze({host:readHost,writer,...(retainedPort?{requests:retainedPort}:{}),...(sharedPort?{shared:sharedPort}:{}),
+   const personalPort=options.personalSync?__hubRequire("../../../ItacanTaskCore/writer/personal-port.js").createPersonalPort({config,options,host,grant,observed,inventoryFresh,submit,inventoryPin,phasePin}):undefined;
+   return Object.freeze({host:readHost,writer,...(personalPort?{personal:personalPort}:{}),...(retainedPort?{requests:retainedPort}:{}),...(sharedPort?{shared:sharedPort}:{}),
    async authorize(scope){V.jsonValue(scope);V.fields(scope,["version","owners","commands"],["version","owners","commands"]);check(scope.version===1&&Array.isArray(scope.owners)&&scope.owners.length>0&&Array.isArray(scope.commands)&&scope.commands.length>0,"Explicit grant required.");const i=await host.refresh();if(i.phase!=="open"||i.readiness.state!=="ready")fail("RECOVERY_REQUIRED","Ready authority required.");check(scope.commands.every(c=>policy.commands.includes(c))&&scope.owners.every(x=>policy.owners.some(p=>P.same(p,x))),"Grant exceeds policy.");closing=false;const capability=Object.freeze({version:1,privacy:"local-private"});grants.set(capability,{...V.clone(scope),generation,revoked:false});return capability;},
    revoke(c){const g=grants.get(c);if(g)g.revoked=true;},close:()=>readHost.close(),dispose:()=>readHost.dispose()});}
  });
@@ -18819,6 +19683,71 @@ async function submit(service, values, captureId, attempt = {}) {
 module.exports={workspaces,ownerOf,sourceDestination,draft,payload,sameValues,submit};
 
 },
+"lib/services/native-personal-activation.js": function (module, exports, __hubRequire) {
+"use strict";
+// Read-only dormant activation. No pairing, key creation or authority creation on import.
+const fs=require("node:fs/promises"),path=require("node:path"),A=__hubRequire("../../../ItacanTaskCore/host/private-authority.js"),V=__hubRequire("../../../ItacanTaskCore/src/value.js"),B=__hubRequire("../../../ItacanTaskCore/personal/binding.js"),E=__hubRequire("../../../ItacanTaskCore/personal/enrollment.js"),{check}=__hubRequire("../../../ItacanTaskCore/src/errors.js");
+function base(local,vaultId){return path.join(local,"Itacan/PersonalSync/v1",A.digest(vaultId).slice(0,24),"owners");}
+async function load(plugin,ordinary,onlyOwner=null){
+ const vault=await fs.realpath(plugin.app.vault.adapter.getBasePath()),result=ordinary.slice();let vaultId;
+ try{vaultId=await A.registration(vault)}catch(_){
+  // A changed vault registration cannot hide earlier personal ownership.
+  let spaces=[];const parent=path.join(process.env.LOCALAPPDATA,"Itacan/PersonalSync/v1");try{spaces=await fs.readdir(parent)}catch(e){if(e.code!=="ENOENT")throw e}
+  for(const space of spaces){let owners=[];try{owners=await fs.readdir(path.join(parent,space,"owners"))}catch(_){continue}
+   for(const name of owners)try{const record=JSON.parse(await fs.readFile(path.join(parent,space,"owners",name,"ACTIVATION-v1.json"),"utf8"));if(record.options?.config?.binding?.vaultRoot && await fs.realpath(record.options.config.binding.vaultRoot)===vault){const owner=record.owner;if(onlyOwner&&V.canonical(owner)!==V.canonical(onlyOwner))continue;const i=result.findIndex(o=>V.canonical(o.owner)===V.canonical(owner)),blocked={owner,projectRoot:record.options.projectRoot,dashboard:record.options.dashboard,partitionId:"private",config:{},blocked:true};if(i<0)result.push(blocked);else result[i]=blocked;}}catch(_){}
+  }return result;
+ }
+ const root=base(process.env.LOCALAPPDATA,vaultId);let names;
+ try{names=await fs.readdir(root)}catch(e){if(e.code==="ENOENT")return result;throw e}
+ for(const name of names){const match=/^(project|resource)-(.+)$/.exec(name);check(match,"Unknown personal activation owner.");const owner={type:match[1],id:match[2]};if(onlyOwner&&(onlyOwner.type!==owner.type||onlyOwner.id!==owner.id))continue;
+  const previous=result.findIndex(o=>V.canonical(o.owner)===V.canonical(owner)),current=owner.type==="resource"?plugin.projectWizard.getResourceById(owner.id):plugin.projectWizard.getProjectById(owner.id),reserved={...(previous<0?{}:result[previous]),owner,projectRoot:current?.root??result[previous]?.projectRoot,dashboard:current?.path??result[previous]?.dashboard,partitionId:"private",config:{},blocked:true};
+  try{
+   const file=path.join(root,name,"ACTIVATION-v1.json");check(await A.ordinaryPath(file)===await fs.realpath(file),"Personal activation link rejected.");const raw=await fs.readFile(file,"utf8"),record=__hubRequire("lib/services/native-task-activation.js").verify(JSON.parse(raw));
+   V.fields(record,["format","version","vaultId","deviceId","owner","authorityId","binding","seed","members","bindingDigest","keyFile","options",...(record.version===2?["legacyFrames"]:[])],["format","version","vaultId","deviceId","owner","authorityId","binding","seed","members","bindingDigest","keyFile","options",...(record.version===2?["legacyFrames"]:[])]);
+   check(record.format==="itacan-personal-local-activation"&&[1,2].includes(record.version)&&record.version===record.binding.version&&record.vaultId===vaultId&&record.deviceId===plugin.dataStore.deviceId&&V.canonical(record.owner)===V.canonical(owner),"Personal activation device/owner differs.");B.confirm(record.binding,record.bindingDigest);const seed=E.validate(record.seed,record.binding),bound=(record.binding.base??record.binding).owners.find(o=>o.authorityId===record.authorityId),options=record.options;
+   check(bound&&seed.authorityId===record.authorityId&&V.canonical(seed.owner)===V.canonical(owner),"Personal signed owner differs.");
+   // Retain only a verified signed path hint while metadata is not ready.
+   // This remains blocked; the later admission still verifies physical ownership.
+   reserved.projectRoot=bound.root;reserved.dashboard=bound.dashboard;
+   check(current&&current.root===bound.root&&current.path===bound.dashboard&&!current.shared&&(!current.status||["active","future","shelved"].includes(current.status)),"Personal physical owner differs.");
+   check(options.config.scope==="device-private-project"&&options.config.authorityId===record.authorityId&&options.partitionId==="private"&&V.canonical(options.owner)===V.canonical(owner)&&options.projectRoot===bound.root&&options.dashboard===bound.dashboard&&options.config.binding.vaultId===vaultId&&options.config.binding.deviceId===record.deviceId,"Personal authority configuration differs.");
+   await A.validateBinding(options.config.binding,options.config.directory);
+   const key=await A.ordinaryPath(record.keyFile),local=await fs.realpath(process.env.LOCALAPPDATA);check(A.inside(path.join(local,"Itacan/PersonalSync/v1"),key)&&!A.inside(vault,key),"Personal key is outside private storage.");
+   const protector=plugin.personalKeyProtector??require("@electron/remote").safeStorage,signer=await __hubRequire("../../../ItacanTaskCore/personal/local-identity.js").loadIdentity(key,protector);
+   check(__hubRequire("../../../ItacanTaskCore/personal/membership.js").members(record.binding,record.members).get(signer.replicaId)===signer.publicKey,"Personal replica membership differs.");
+   let creating=false;try{await fs.lstat(path.join(options.config.directory,"CURRENT.json"))}catch(e){if(e.code!=="ENOENT")throw e;check(options.personalEnrollment==="join"&&(await fs.readdir(options.config.directory)).length===0,"Missing personal authority is not an empty reviewed join.");creating=true}
+   const stat=await fs.stat(vault,{bigint:true});reserved.config=options.config;
+   const admitted={...options,creating,blocked:false,vaultPin:{real:vault,dev:String(stat.dev),ino:String(stat.ino)},personalSync:{binding:record.binding,seed:record.seed,members:record.members,...(record.version===2?{legacyFrames:record.legacyFrames}:{}),pairing:B.confirm(record.binding,record.bindingDigest),signer},assertActivation:async()=>{check(await fs.readFile(file,"utf8")===raw,"Personal activation changed.");await A.validateBinding(options.config.binding,options.config.directory)}};
+   if(previous<0)result.push(admitted);else result[previous]=admitted;
+  }catch(_){if(previous<0)result.push(reserved);else result[previous]=reserved}
+ }
+ return result;
+}
+module.exports={base,load};
+
+},
+"lib/services/native-personal-sync.js": function (module, exports, __hubRequire) {
+"use strict";
+// Explicitly injected personal profile only. Importing this module opens no authority.
+const createSync=__hubRequire("../../../ItacanTaskCore/personal/runtime-sync.js").createPersonalSync;
+const createTransport=__hubRequire("../../../ItacanTaskCore/personal/onedrive-transport.js").createOneDriveTransport;
+async function connect(plugin,runtime,options,changed){
+ const p=options.personalSync;if(!p||!runtime.personal)throw Error("Explicit personal runtime required.");
+ const transport=await createTransport({vaultRoot:options.vaultPin.real,binding:p.binding,seed:p.seed,members:p.members,pairing:p.pairing,signer:p.signer});
+ const watches=new Map();let request;
+ const watchEvidence=()=>{for(const dir of [transport.paths.owner+"/heads",transport.paths.owner+"/objects",transport.paths.owner+"/seeds",transport.paths.space+"/members"])if(!watches.has(dir))try{const watch=require("node:fs").watch(dir,()=>request?.());watch.on("error",()=>{watch.close();watches.delete(dir)});watches.set(dir,watch)}catch(e){if(e.code!=="ENOENT")throw e}};
+ const sync=createSync({runtime,transport,assertBinding:async()=>{await options.assertActivation?.();await transport.assertPrivacy()},changed:status=>{watchEvidence();changed(status)}});
+ let stopped=false,dirty=false,active=null;request=()=>{if(stopped)return;dirty=true;if(active)return;active=(async()=>{while(dirty&&!stopped){dirty=false;await new Promise(resolve=>setTimeout(resolve,0));await sync.sync().catch(()=>{})}})().finally(()=>{active=null;if(dirty&&!stopped)request()})};
+ const stops=[runtime.personal.subscribe(change=>{if(change.reason==="repository")request()})];
+ // Watch the known transport prefix, never scan unrelated vault contents.
+ const cache=plugin.app.metadataCache;if(cache?.on){const ref=cache.on("resolved",request);stops.push(()=>cache.offref(ref))}
+ const vault=plugin.app.vault;for(const event of ["create","modify","delete","rename"])if(vault?.on){const ref=vault.on(event,file=>{if(file?.path?.startsWith(".itacan-personal-sync/")||event!=="modify")request()});stops.push(()=>vault.offref(ref))}
+ const timer=setInterval(request,30000);timer.unref?.();stops.push(()=>clearInterval(timer));
+ return Object.freeze({start:request,sync:()=>sync.sync(),status:()=>sync.status(),async close(){stopped=true;for(const watch of watches.values())watch.close();watches.clear();stops.reverse().forEach(stop=>stop());await sync.close();await active}});
+}
+module.exports={connect};
+
+},
 "lib/services/native-task-activation.js": function (module, exports, __hubRequire) {
 "use strict";
 // Owner-specific startup admission. No setting, source writer or repository creation.
@@ -19046,9 +19975,17 @@ async function authorizeNativeTaskRehearsal(plugin, input) {
     const vaultStat = await fs.stat(vault, { bigint: true });
     approvals.set(plugin, { ...options, vaultPin: { real: vault, dev: String(vaultStat.dev), ino: String(vaultStat.ino) } });
 }
+async function authorizePersonalRehearsal(plugin,input,personal){
+    await authorizeNativeTaskRehearsal(plugin,input);
+    const checked=approvals.get(plugin);__hubRequire("../../../ItacanTaskCore/personal/binding.js").confirm(personal.binding,personal.pairing.bindingDigest);
+    const seed=__hubRequire("../../../ItacanTaskCore/personal/enrollment.js").validate(personal.seed,personal.binding);
+    if(seed.authorityId!==checked.config.authorityId||__hubRequire("../../../ItacanTaskCore/src/value.js").canonical(seed.owner)!==__hubRequire("../../../ItacanTaskCore/src/value.js").canonical(checked.owner))throw Error("Personal rehearsal identity differs.");
+    approvals.set(plugin,{...checked,personalSync:personal});
+}
 async function authorizeNativeTaskActivation(plugin) {
     if (approvals.has(plugin)) return; // Synthetic approval cannot select permanent scope.
-    const options = await __hubRequire("lib/services/native-task-activation.js").loadActivations(plugin);
+    const base = await __hubRequire("lib/services/native-task-activation.js").loadActivations(plugin);
+    const options = await __hubRequire("lib/services/native-personal-activation.js").load(plugin,base);
     if (options?.length) approvals.set(plugin, options);
 }
 function createOwnerHost(plugin, options, coordinated = false) {
@@ -19061,6 +19998,7 @@ function createOwnerHost(plugin, options, coordinated = false) {
     let config = options.config, cancelReadiness = null;
     let locationSource;
     const taskLocations = () => locationSource ??= __hubRequire("lib/services/native-task-locations.js").createNativeTaskLocations(plugin);
+    let personalSyncFailure=null,personalRecovery=null,personalRecoveryOpening=null;
     let runtime = null, feed = null, synchronization = null, stopped = false, closing = null, state = "opening", ready, joinRecovery = null, joinRecoveryOpening = null;
     let refreshing = null, inventorySignature = null; const runtimeStops = [];
     const matches = ref => ref?.type === owner.type && ref.id === owner.id;
@@ -19199,6 +20137,18 @@ function createOwnerHost(plugin, options, coordinated = false) {
         owner, historyEvidence: { read: () => host.runtime().historyEvidence.read(), subscribe(fn) { let stop = null, bound = null; const bind = () => { if (bound !== runtime || state !== "ready") { stop?.(); stop = null; bound = runtime; } if (!stop && state === "ready") stop = runtime.historyEvidence.subscribe(fn); fn({ reason: "registry" }); }; stateListeners.add(bind); if (state === "ready") { bound = runtime; stop = runtime.historyEvidence.subscribe(fn); } return () => { stateListeners.delete(bind); stop?.(); }; } },
         status: () => ({ mode: "native-project", state, owner: copy(owner), ...(synchronization ? {sharing:synchronization.status()} : {}) }),
         synchronization: () => synchronization,
+        async openPersonalRecovery() {
+            await ready;if(stopped||!options.personalSync||state!=="unavailable")return null;
+            if(personalRecovery)return personalRecovery;if(personalRecoveryOpening)return personalRecoveryOpening;
+            personalRecoveryOpening=(async()=>{await options.assertActivation?.();const inventoryEvidence=__hubRequire("lib/services/native-git-inventory.js").createInventoryEvidence(plugin,owner,config.authorityId),observed=await inventoryEvidence.read();
+                return personalRecovery=await __hubRequire("../../../ItacanTaskCore/personal/recovery.js").openPersonalRecovery(config,{registry,personalSync:options.personalSync,inventoryEvidence,writerPolicy:policy({version:1,owners:[{owner,partitionId:options.partitionId}],commands:["task.createRich","task.save","task.complete","step.complete","task.delete","personal.enroll","personal.bootstrap","personal.receive",...(options.personalSync?.binding.version===2?["personal.resolve","personal.upgrade"]:[])],inventory:observed.inventory,phases:observed.phases}),requestRetention:{version:options.personalSync.binding.version===2?4:3,rehearsalId:options.rehearsalId}});
+            })();try{return await personalRecoveryOpening}finally{personalRecoveryOpening=null}
+        },
+        async resumePersonal() {
+            await ready;if(stopped||!options.personalSync||state!=="unavailable")unavailable();
+            await personalRecoveryOpening;await personalRecovery?.close();personalRecovery=null;await options.assertActivation?.();state="opening";changedState();
+            try{await openCurrentRuntime(false)}catch(error){state="unavailable";await runtime?.close().catch(()=>{});changedState();throw error}
+        },
         async openJoinRecovery() {
             await ready; if (stopped || state !== "unavailable" || !options.joinExisting || joinRecoveryOpening) unavailable();
             const opening = (async () => { await joinRecovery?.close(); if (stopped) unavailable(); return joinRecovery = await __hubRequire("lib/services/native-git-transition.js").openJoinRecovery(plugin, owner); })();
@@ -19208,7 +20158,7 @@ function createOwnerHost(plugin, options, coordinated = false) {
         create(options = {}) { const r = host.runtime(); return __hubRequire("lib/ui/task-editor.js").openTaskCreator(__hubRequire("lib/services/native-task-locations.js").locationService(r.formService(plugin.app), plugin, owner), options); },
         async close() {
             if (closing) return closing; stopped = true; state = "closing"; cancelReadiness?.(); changedState();
-            closing = (async () => { await ready; await joinRecoveryOpening?.catch(() => {}); await joinRecovery?.close(); await refreshing?.catch(() => {}); runtimeStops.splice(0).reverse().forEach(stop => stop()); await synchronization?.close(); await runtime?.close(); if (!coordinated) release(); state = "closed"; })();
+            closing = (async () => { await ready; await personalRecoveryOpening?.catch(()=>{});await personalRecovery?.close();await joinRecoveryOpening?.catch(() => {}); await joinRecovery?.close(); await refreshing?.catch(() => {}); runtimeStops.splice(0).reverse().forEach(stop => stop()); await synchronization?.close(); await runtime?.close(); if (!coordinated) release(); state = "closed"; })();
             return closing;
         }
     };
@@ -19217,10 +20167,10 @@ function createOwnerHost(plugin, options, coordinated = false) {
     // a saved command, guard, receipt, witness or recovery fence in place.
     async function openCurrentRuntime(creating) {
             let inventory={version:1,revision:"synthetic-empty",ids:[]},phases={version:1,revision:"no-phases",values:[]},inventoryEvidence;
-            if(options.gitSharing){inventoryEvidence=__hubRequire("lib/services/native-git-inventory.js").createInventoryEvidence(plugin,owner,config.authorityId);const observed=await inventoryEvidence.read();phases=observed.phases;inventory=__hubRequire("../../../ItacanTaskCore/shared/inventory.js").capture(config.authorityId,observed.inventory,phases);}
+            if(options.gitSharing||options.personalSync){inventoryEvidence=__hubRequire("lib/services/native-git-inventory.js").createInventoryEvidence(plugin,owner,config.authorityId);const observed=await inventoryEvidence.read();phases=observed.phases;inventory=options.personalSync?observed.inventory:__hubRequire("../../../ItacanTaskCore/shared/inventory.js").capture(config.authorityId,observed.inventory,phases);}
             inventorySignature = hash({inventory,phases});
-            runtime = await openProjectRuntime(config, { owner, registry, writerPolicy: policy({version:1,owners:[{owner,partitionId:options.partitionId}],commands:["task.createRich","task.save","task.complete","step.complete","task.delete",...(options.gitSharing?["git.receive"]:[])],inventory,phases}),
-                inventoryEvidence,gitSharing:options.gitSharing,sharedGenesis:options.sharedGenesis,
+            runtime = await openProjectRuntime(config, { owner, registry, writerPolicy: policy({version:1,owners:[{owner,partitionId:options.partitionId}],commands:["task.createRich","task.save","task.complete","step.complete","task.delete",...(options.gitSharing?["git.receive"]:[]),...(options.personalSync?["personal.enroll","personal.bootstrap","personal.receive",...(options.personalSync?.binding.version===2?["personal.resolve","personal.upgrade"]:[])]:[])],inventory,phases}),
+                inventoryEvidence,gitSharing:options.gitSharing,sharedGenesis:options.sharedGenesis,personalSync:options.personalSync,personalEnrollment:options.personalEnrollment,personalEnrollmentOperationId:options.personalEnrollmentOperationId,
                 locationLabel: ref => taskLocations().resolve(owner, ref)?.path ?? "Location unavailable", describeLocation: ref => taskLocations().describe(owner, ref), rehearsalId: options.rehearsalId, creating, consumerUiV1: true, historyUiV1: true });
             if(options.gitSharing){
                 const project=await __hubRequire("../../../ItacanTaskCore/shared/project-binding.js").admitProject({vaultRoot:options.vaultPin.real,projectId:owner.id,projectRoot:options.projectRoot,dashboard:options.dashboard});
@@ -19233,18 +20183,20 @@ function createOwnerHost(plugin, options, coordinated = false) {
                 await synchronization.sync().catch(()=>{});
                 const watch=require("node:fs").watch(path.join(project.gitRoot,".itacan-native/v3",config.authorityId,"heads"),(_event,name)=>{if(!name||String(name).endsWith(".json"))requestSync();});watch.on("error",()=>{});runtimeStops.push(()=>watch.close());
             }
-            if (!stopped) { feed = runtime.completionFeed({ legacy, app: plugin.app }); await runtime.list(); await feed.read();
-                if (!stopped) { for (const l of feedListeners.values()) l.stop = feed.subscribe(l.fn); state = "ready"; changedState(); for (const l of feedListeners.values()) { try { Promise.resolve(l.fn()).catch(() => {}); } catch (_) {} } }
+            if (!stopped) { feed = runtime.completionFeed({ legacy, app: plugin.app }); await runtime.list(); if(!(options.personalSync?.binding.version===2&&(await runtime.personal.status()).state==="conflicting"))await feed.read();
+                if (!stopped) { for (const l of feedListeners.values()) l.stop = feed.subscribe(l.fn); state = "ready"; changedState();
+                    if(options.personalSync){let inner=null,personalClosed=false;const work=Promise.resolve().then(async()=>{if(stopped||personalClosed)return;try{inner=await __hubRequire("lib/services/native-personal-sync.js").connect(plugin,runtime,options,()=>{});if(stopped||personalClosed)await inner.close();else inner.start();}catch(error){personalSyncFailure=error.code??"PERSONAL_SYNC_UNAVAILABLE";}});synchronization={status:()=>inner?.status()??{version:1,state:personalSyncFailure?"unavailable":"checking",code:personalSyncFailure},sync:async()=>{await work;if(!inner)throw Error("Personal synchronization unavailable");return inner.sync();},close:async()=>{personalClosed=true;await work;await inner?.close()}};}
+                    for (const l of feedListeners.values()) { try { Promise.resolve(l.fn()).catch(() => {}); } catch (_) {} } }
             }
     }
     host.refreshInventory = () => {
-        if (!options.gitSharing) return Promise.resolve();
+        if (!options.gitSharing && !options.personalSync) return Promise.resolve();
         if (refreshing) return refreshing.then(() => host.refreshInventory());
         refreshing = (async () => {
             await ready; if (stopped) return;
             if (state !== "ready") throw Error("Native shared authority is unavailable.");
             const observed = await __hubRequire("lib/services/native-git-inventory.js").createInventoryEvidence(plugin,owner,config.authorityId).read();
-            const inventory = __hubRequire("../../../ItacanTaskCore/shared/inventory.js").capture(config.authorityId,observed.inventory,observed.phases);
+            const inventory = options.personalSync?observed.inventory:__hubRequire("../../../ItacanTaskCore/shared/inventory.js").capture(config.authorityId,observed.inventory,observed.phases);
             if (inventorySignature === hash({inventory,phases:observed.phases})) return;
             // An unresolved original request must be recovered, not replaced by
             // a fresh session that could hide uncertainty or stale replay guards.
@@ -19268,7 +20220,7 @@ function createOwnerHost(plugin, options, coordinated = false) {
             await waitForMetadata(); if (stopped) return;
             if (options.joinExisting) await __hubRequire("lib/services/native-git-transition.js").join(plugin, owner);
             if (options.blocked || config.scope !== "inactive-disposable") {
-                const admitted = (await __hubRequire("lib/services/native-task-activation.js").loadActivations(plugin, owner)).find(p => matches(p.owner));
+                const admitted = (await __hubRequire("lib/services/native-personal-activation.js").load(plugin,await __hubRequire("lib/services/native-task-activation.js").loadActivations(plugin, owner),owner)).find(p => matches(p.owner));
                 if (!admitted || admitted.blocked || !matches(admitted.owner) || admitted.projectRoot !== options.projectRoot || admitted.dashboard !== options.dashboard ||
                     !options.blocked && JSON.stringify(admitted.config) !== JSON.stringify(config)) throw Error("Cutover requires explicit recovery review.");
                 Object.assign(options, admitted, { blocked: false }); config = options.config;
@@ -19295,7 +20247,7 @@ function createNativeTaskHost(plugin) {
     if (options.length === 1) return createOwnerHost(plugin, options[0]);
     return __hubRequire("lib/services/native-task-host-multi.js").composeNativeHosts(plugin, options.map(o => createOwnerHost(plugin, o, true)));
 }
-module.exports = { authorizeNativeTaskRehearsal, authorizeNativeTaskActivation, createNativeTaskHost };
+module.exports = { authorizePersonalRehearsal, authorizeNativeTaskRehearsal, authorizeNativeTaskActivation, createNativeTaskHost };
 
 },
 "lib/services/native-task-locations.js": function (module, exports, __hubRequire) {
@@ -27279,6 +28231,27 @@ function mountNativeCaptureTask({host,service,draft={},captureId=()=>null,onChan
 module.exports={mountNativeCaptureTask};
 
 },
+"lib/ui/native-personal-resolution.js": function (module, exports, __hubRequire) {
+"use strict";
+// Bounded branch choice inside the existing recovery modal.
+async function renderPersonalResolution(root,runtime,refresh,plugin){
+ if(!runtime.personal?.reviewResolution)return;
+ const locations=plugin?__hubRequire("lib/services/native-task-locations.js").createNativeTaskLocations(plugin):null;
+ const port=runtime.personal,status=await port.status(),area=root.createDiv();area.createEl("h3",{text:"Conflicted tasks"});
+ if(!status.conflicts.length)area.createEl("p",{text:"No personal task conflicts."});
+ for(const conflict of status.conflicts){const rows=await port.inspectConflict(conflict.taskId),item=area.createDiv({attr:{"data-personal-task":conflict.taskId}});item.createEl("h4",{text:rows[0]?.branches[0]?.task?.title??conflict.taskId});const reviewArea=item.createDiv();
+  for(const branch of rows.flatMap(c=>c.branches)){const card=item.createEl("details"),task=branch.task;card.createEl("summary",{text:(branch.deleted?"Deleted: ":"")+(task?.title??"Task unavailable")});card.createEl("p",{text:task?.description??""});card.createEl("p",{text:"Necessity: "+(task?.importance??"None")+" ? Start: "+(task?.start?.date??"None")+" ? Due: "+(task?.due?.date??"None")});let label="Location unavailable";try{const d=locations?.describe(task.owner,task.location);label=d?(d.workspaceName+(d.segments.length?" / "+d.segments.join(" / "):"")+(d.available?"":" (unavailable)")):"Workspace location";}catch(_){}card.createEl("p",{text:"Task: "+(task.completed?"completed":"open")+" ? "+label});if(branch.content?.continuation){const body=card.createDiv({text:branch.content.continuation});body.style.whiteSpace="pre-wrap";}const steps=card.createEl("ul");for(const s of task?.steps??[]){const li=steps.createEl("li",{text:(s.completed?"Completed: ":"Open: ")+s.title}),body=branch.content?.stepBodies.find(b=>b.id===s.id)?.body;if(body){const text=li.createDiv({text:body});text.style.whiteSpace="pre-wrap";}}for(const e of branch.history)card.createEl("p",{text:"Completion "+e.id+": "+(e.counted?"counted":"not counted")+" ? "+(e.timestamp===null?"time not recorded":new Date(e.timestamp).toLocaleString())});
+   const select=card.createEl("button",{text:"Review this version",attr:{"data-personal-origin":branch.originId}});select.disabled=!branch.eligibility.available;if(select.disabled)card.createEl("p",{text:"Unavailable: "+branch.eligibility.code});
+   select.onclick=async()=>{select.disabled=true;reviewArea.replaceChildren();try{const review=await port.reviewResolution(conflict.taskId,branch.originId),v=review.value;reviewArea.createEl("p",{text:"Selected version: "+(v.task.deletedAt!==null?"deleted task ? ":"")+v.task.title});reviewArea.createEl("p",{text:"Counted completions: "+v.accounting.filter(e=>e.counted).length+". Superseded audit events: "+v.accounting.filter(e=>e.disposition==="superseded").length+". Earlier History and Statistics totals may increase or decrease."});reviewArea.createEl("p",{text:"Relative to this device's last accepted task view: "+v.accountingChanges.filter(e=>e.before.counted).length+" counted before; "+v.accountingChanges.filter(e=>e.after.counted).length+" counted after."});for(const e of v.accountingChanges)reviewArea.createEl("p",{text:e.eventId+": "+(e.before.counted?"counted":"not counted")+" ? "+e.after.disposition});reviewArea.createEl("p",{text:"Step IDs permanently retired by this resolution: "+v.newlyRetiredStepIds.length+". Retired Steps removed from tombstone: "+v.removedTombstoneSteps.length+". Original branch evidence is preserved."});
+    const confirm=reviewArea.createEl("button",{text:"Confirm selected version",attr:{"data-personal-confirm":conflict.taskId}}),message=reviewArea.createEl("p",{attr:{role:"status"}});confirm.onclick=async()=>{confirm.disabled=true;try{const operationId=require("node:crypto").randomUUID(),prepared=await port.prepareResolution(review,operationId),out=await port.resolve(prepared);if(out.status==="committed"){message.textContent="Resolution saved locally. Personal exchange may still be pending.";confirm.remove();await refresh();}else message.textContent=out.status==="uncertain"?"Resolution outcome uncertain. Inspect the retained request; do not submit another operation.":"Resolution was not committed: "+out.code;}catch(e){message.textContent="Resolution remains blocked: "+(e.code??"Unavailable")+". Refresh and review the current conflict."}};
+   }catch(e){reviewArea.createEl("p",{text:"Review unavailable: "+(e.code??"Unavailable")});}finally{select.disabled=!branch.eligibility.available}};
+  }
+ }
+ const recent=area.createEl("details");recent.createEl("summary",{text:"Recent resolution evidence"});for(const r of (status.resolutions??[]).slice(-20)){const button=recent.createEl("button",{text:r.operationId});button.onclick=async()=>{const evidence=await port.inspectResolution(r.operationId),d=recent.createDiv();d.createEl("p",{text:"Selected origin: "+evidence.resolution.selectedOriginId+" ? Receipt: "+evidence.receiptDigest});for(const e of evidence.resolution.accounting)d.createEl("p",{text:e.eventId+": "+e.disposition+". Original completion evidence retained."});};}
+}
+module.exports={renderPersonalResolution};
+
+},
 "lib/ui/native-task-recovery.js": function (module, exports, __hubRequire) {
 "use strict";
 const { Modal } = require("obsidian");
@@ -27298,18 +28271,20 @@ function openNativeTaskRecovery(plugin) {
             this.body.createEl("p", { text: "Checking retained requests…" });
             try {
                 const owners = host.ownerHosts ? host.ownerHosts() : [host];
-                const collections = await Promise.all(owners.map(async h => { try { const runtime = h.runtime(); return { host:h, owner: h.owner, runtime, requests: await runtime.retained() }; } catch (_) { return { owner: h.owner, runtime: null, requests: [] }; } }));
+                const collections = await Promise.all(owners.map(async h => { try { const runtime = h.runtime(); return { host:h, owner: h.owner, runtime, requests: await runtime.retained() }; } catch (_) { try{const runtime=await h.openPersonalRecovery?.();if(runtime)return{host:h,owner:h.owner,runtime,requests:await runtime.retained(),personalRecovery:true}}catch(_){}return { owner: h.owner, runtime: null, requests: [] }; } }));
                 if (ticket !== this.generation) return;
                 this.body.replaceChildren();
-                for (const { host:ownerHost, owner, runtime, requests } of collections) {
+                for (const { host:ownerHost, owner, runtime, requests,personalRecovery } of collections) {
                 this.body.createEl("p", { text: owner.type + ": " + owner.id });
                 if (!runtime) { this.body.createEl("p", { text: "Native authority unavailable. Evidence preserved.", attr: { role: "alert" } }); continue; }
+                if(personalRecovery){const reopen=this.body.createEl("button",{text:"Reopen personal authority"});reopen.onclick=async()=>{reopen.disabled=true;try{await ownerHost.resumePersonal();await this.refresh()}catch(_){reopen.disabled=false;this.body.createEl("p",{text:"Personal authority remains blocked. Original evidence preserved."})}};}
                 const sharing=ownerHost?.synchronization?.();
                 if(sharing){
-                    const describe=()=>{const s=sharing.status(),c=s.capacity;return "Git tasks: "+s.state+(c?". Remaining: "+c.remainingFrames+"/"+c.frameLimit+" frames"+(c.transport?", "+Math.max(0,c.transport.objectLimit-c.transport.objects)+" objects, "+Math.max(0,c.transport.headLimit-c.transport.heads)+" heads":""):"")+". Local publication does not confirm exchange with another client.";};
-                    const status=this.body.createEl("p",{text:describe()}),retry=this.body.createEl("button",{text:"Process Git task changes"});
+                    const describe=()=>{const s=sharing.status(),c=s.capacity;return (runtime.personal?"Personal tasks: ":"Git tasks: ")+s.state+(c?". Remaining: "+c.remainingFrames+"/"+c.frameLimit+" frames"+(c.transport?", "+Math.max(0,c.transport.objectLimit-c.transport.objects)+" objects, "+Math.max(0,c.transport.headLimit-c.transport.heads)+" heads":""):"")+". Local publication does not confirm exchange with another client.";};
+                    const status=this.body.createEl("p",{text:describe()}),retry=this.body.createEl("button",{text:runtime.personal?"Process personal task changes":"Process Git task changes"});
                     retry.onclick=async()=>{retry.disabled=true;try{await sharing.sync();status.textContent=describe();}catch(_){status.textContent=describe()+" Synchronization unavailable; preserve retained requests and shared evidence.";}finally{retry.disabled=false;}};
                 }
+                await __hubRequire("lib/ui/native-personal-resolution.js").renderPersonalResolution(this.body,runtime,()=>this.refresh(),plugin);
                 if (!requests.length) this.body.createEl("p", { text: "No retained requests." });
                 for (const request of requests) {
                     const id = request.operationId;
@@ -45206,6 +46181,9 @@ class HubWorkspaceModeService {
 
 module.exports = class HubProjectMenu extends Plugin {
     // Ephemeral authorization admits synthetic Temp vaults only.
+    static authorizePersonalRehearsal(plugin, configuration, personal) {
+        return __hubRequire("lib/services/native-task-host.js").authorizePersonalRehearsal(plugin, configuration, personal);
+    }
     static authorizeNativeTaskRehearsal(plugin, configuration) {
         return __hubRequire("lib/services/native-task-host.js").authorizeNativeTaskRehearsal(plugin, configuration);
     }

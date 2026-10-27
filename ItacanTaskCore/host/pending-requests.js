@@ -4,10 +4,11 @@ const V = require("../src/value"), P = require("../writer/policy"), A = require(
 const { check, fail } = require("../src/errors"), { freeze } = require("../src/snapshot-read");
 const markerName = "REQUEST-RETENTION-v1.json", prefix = "REQUEST-v1-";
 const fields = (v, keys) => V.fields(v, keys, keys);
-function createPendingRequests(port, config, settings, inspect, inspectCommitted, proveBootstrapRejection) {
-    fields(settings, ["version", "rehearsalId"]); check([1,2].includes(settings.version), "Unsupported retention version."); V.uuid(settings.rehearsalId);
+function createPendingRequests(port, config, settings, inspect, inspectCommitted, proveBootstrapRejection, personalContext, provePrivateSaveRejection) {
+    fields(settings, ["version", "rehearsalId"]); check([1,2,3,4].includes(settings.version), "Unsupported retention version."); V.uuid(settings.rehearsalId);
+    let observedMarkerVersion=settings.version;
     const markerBody = { format: "itacan-native-request-retention", version: settings.version, authorityId: config.authorityId, applicationContextId: config.applicationContextId, rehearsalId: settings.rehearsalId };
-    let stopped = false, ready = false, reviews = new WeakMap(), permits = new WeakMap(); const rejectionReviews = new WeakMap(), inflight = new Set(), preparing = new Map(), prior = new Set();
+    let stopped = false, ready = false, reviews = new WeakMap(), permits = new WeakMap(); const privateSaveReviews = new WeakMap(), rejectionReviews = new WeakMap(), inflight = new Set(), preparing = new Map(), prior = new Set();
     const sealed = body => ({ ...body, checksum: P.hash(body) });
     const name = id => prefix + P.hash(id) + ".json";
     const rejectionName = id => "REQUEST-REJECTED-v1-" + P.hash(id) + ".json";
@@ -16,6 +17,19 @@ function createPendingRequests(port, config, settings, inspect, inspectCommitted
         check(ready && !stopped, "Retention is closed."); const job = work().catch(error => { const code = ["OPERATION_CONFLICT", "OUTCOME_RECONCILIATION_REQUIRED", "WRITER_ADMISSION_REQUIRED", "LOCK_LOST", "ROOT_IDENTITY_CHANGED", "ENOENT", "VALIDATION", "RECOVERY_REVIEW_REQUIRED", "RECOVERY_REVIEW_STALE", "ORIGINAL_GUARDS_STALE", "EXACT_REPLAY_SAFETY_UNPROVEN"].includes(error?.code) ? error.code : "REQUEST_RETENTION_INVALID"; fail(code, "Retained request evidence is unavailable."); }); inflight.add(job); job.finally(() => inflight.delete(job)).catch(() => {}); return job;
     }
     function record(intent) {
+        if(intent?.kind==="personal-operation"&&intent.version===2){
+            check(settings.version===4,"Personal v2 requires retention v4.");fields(intent,["version","kind","prepared"]);const p=intent.prepared;fields(p,["version","request","evidence"]);check(p.version===2,"Personal preparation v2 required.");fields(p.evidence,["version","binding","seed","members","packet","review"]);check(p.evidence.version===2&&p.evidence.binding.version===2,"Personal v2 evidence required.");const r=P.request(p.request,"personal"),seed=require("../personal/enrollment").validate(p.evidence.seed,p.evidence.binding);require("../personal/membership").members(p.evidence.binding,p.evidence.members);check(r.scope.authorityId===config.authorityId&&seed.authorityId===config.authorityId&&r.scope.partitions.length===1&&P.same(r.scope.partitions[0].owner,seed.owner)&&r.scope.partitions[0].id===seed.partition.id&&r.command.payload.bindingDigest===P.hash(p.evidence.binding)&&r.command.payload.profileDigest===p.evidence.binding.profile.digest,"Personal v2 retained scope differs.");
+            if(r.command.type==="personal.receive"){check(p.evidence.packet!==null&&P.hash(p.evidence.packet)===r.command.payload.packetDigest&&P.same(p.evidence.packet.binding,p.evidence.binding)&&P.same(p.evidence.packet.seed,p.evidence.seed),"Personal v2 retained packet differs.");require("../src/personal-shared-v2").namespace(p.evidence.packet);}else check(p.evidence.packet===null,"Non-receive cannot retain an incoming packet.");
+            if(r.command.type==="personal.resolve")check(p.evidence.review&&p.evidence.review.previewDigest===r.command.payload.previewDigest&&p.evidence.review.conflictDigest===r.command.payload.conflictDigest&&p.evidence.review.selectedOriginId===r.command.payload.choice.originId&&P.same(p.evidence.review.reviewedHeads,r.command.payload.reviewedHeads),"Original resolution review required.");else check(p.evidence.review===null,"Foreign resolution review.");
+            return sealed({format:"itacan-native-personal-request",version:4,authorityId:config.authorityId,applicationContextId:config.applicationContextId,rehearsalId:settings.rehearsalId,owner:V.clone(seed.owner),partitionId:seed.partition.id,operationId:r.command.operationId,intent:V.clone(intent),intentDigest:P.hash(intent),writerRequest:V.clone(r),writerRequestDigest:P.hash(r),commandDigest:P.hash(A.compile(r))});
+        }
+        if(intent?.kind==="personal-operation") {
+            check([3,4].includes(settings.version),"Personal operations require retention v3/v4.");fields(intent,["version","kind","prepared"]);check(intent.version===1,"Personal intent v1 required.");const p=intent.prepared;fields(p,["version","request","evidence"]);check(p.version===1,"Personal preparation v1 required.");fields(p.evidence,["version","binding","seed","members","packet"]);check(p.evidence.version===1,"Personal retained evidence v1 required.");
+            const r=P.request(p.request,"personal"),E=require("../personal/enrollment"),G=require("../src/personal-shared"),seed=E.validate(p.evidence.seed,p.evidence.binding);require("../personal/membership").members(p.evidence.binding,p.evidence.members);
+            check(r.scope.authorityId===config.authorityId&&seed.authorityId===config.authorityId&&r.scope.partitions.length===1&&P.same(r.scope.partitions[0].owner,seed.owner)&&r.scope.partitions[0].id===seed.partition.id,"Personal retained scope differs.");
+            if(r.command.type==="personal.receive"){check(p.evidence.packet!==null&&G.hash(p.evidence.packet)===r.command.payload.packetDigest&&P.same(p.evidence.packet.binding,p.evidence.binding)&&P.same(p.evidence.packet.seed,p.evidence.seed),"Personal retained packet differs.");G.namespace(p.evidence.packet);}else check(p.evidence.packet===null&&r.command.payload.bindingDigest===P.hash(p.evidence.binding)&&r.command.payload.seedDigest===p.evidence.seed.digest,"Personal retained enrollment differs.");
+            return sealed({format:"itacan-native-personal-request",version:3,authorityId:config.authorityId,applicationContextId:config.applicationContextId,rehearsalId:settings.rehearsalId,owner:V.clone(seed.owner),partitionId:seed.partition.id,operationId:r.command.operationId,intent:V.clone(intent),intentDigest:P.hash(intent),writerRequest:V.clone(r),writerRequestDigest:P.hash(r),commandDigest:P.hash(A.compile(r))});
+        }
         if (intent?.kind === "git-receive") {
             check(settings.version === 2, "Git receive requires explicit retention version 2.");
             fields(intent,["version","kind","prepared"]); check(intent.version === 1,"Unsupported retained shared intent.");
@@ -39,11 +53,24 @@ function createPendingRequests(port, config, settings, inspect, inspectCommitted
     }
     async function names() {
         const all = await port.list();
-        check(all.filter(n => n.startsWith("REQUEST-")).every(n => n === markerName || /^REQUEST-v1-[a-f0-9]{64}\.json$/.test(n) || settings.version === 2 && /^REQUEST-REJECTED-v1-[a-f0-9]{64}\.json$/.test(n)), "Unsupported request evidence.");
+        check(all.filter(n => n.startsWith("REQUEST-")).every(n => n === markerName || /^REQUEST-v1-[a-f0-9]{64}\.json$/.test(n) || [1,2,4].includes(settings.version) && /^REQUEST-REJECTED-v1-[a-f0-9]{64}\.json$/.test(n)), "Unsupported request evidence.");
         return all.filter(n => n.startsWith(prefix));
     }
     async function rejection(r, state = null) {
         let value; try { value = JSON.parse(await port.read(rejectionName(r.operationId))); } catch (e) { if (e.code === "ENOENT") return null; throw e; }
+        if(value.format==="itacan-native-rejected-private-save"){
+            const {checksum,...body}=value;fields(body,["format","version","authorityId","applicationContextId","rehearsalId","operationId","recordChecksum","commandDigest","proof"]);
+            check([1,4].includes(settings.version)&&checksum===P.hash(body)&&body.version===1&&body.authorityId===config.authorityId&&body.applicationContextId===config.applicationContextId&&body.rehearsalId===settings.rehearsalId&&body.operationId===r.operationId&&body.recordChecksum===r.checksum&&body.commandDigest===r.commandDigest&&r.format==="itacan-native-ui-request"&&r.writerRequest.command.type==="task.save","Private save rejection identity differs.");
+            if(state)require("../src/private-save-rejection").verify(state,A.compile(r.writerRequest),body.proof);
+            else{check(typeof provePrivateSaveRejection==="function","Private save proof unavailable.");check(P.same(await provePrivateSaveRejection(r,body.proof),body.proof),"Private save rejection evidence differs.");}
+            return freeze(value);
+        }
+        if(value.format==="itacan-native-rejected-personal-resolution"){
+            const {checksum,...body}=value;fields(body,["format","version","authorityId","operationId","recordChecksum","commandDigest","proof"]);const p=require("../personal/membership").open(body.proof,personalContext?.signer.publicKey,personalContext?.signer.replicaId);
+            fields(p,["authorityId","head","operationId","commandDigest","code","publication","bindingDigest","replicaId"]);check(p.bindingDigest===P.hash(personalContext.binding)&&p.replicaId===personalContext.signer.replicaId&&["PERSONAL_REVIEW_STALE","REPOSITORY_CONFLICT","PARTITION_CONFLICT","WRITER_EVIDENCE_CONFLICT","REFERENCE_UNRESOLVED"].includes(p.code),"Personal rejection attestation differs.");
+            check(settings.version===4&&checksum===P.hash(body)&&body.version===1&&body.authorityId===config.authorityId&&body.operationId===r.operationId&&r.writerRequest.command.type==="personal.resolve"&&body.recordChecksum===r.checksum&&body.commandDigest===r.commandDigest&&p.publication==="not-attempted"&&p.authorityId===config.authorityId&&p.operationId===r.operationId&&p.commandDigest===r.commandDigest,"Personal terminal rejection differs.");
+            if(state)check(state.revision>=p.head.repositoryRevision&&!(state.receipts.some(x=>x.operationId===r.operationId))&&!state.personalShared?.frames.some(f=>f.receipt.operationId===r.operationId),"Rejected resolution has contradictory evidence.");else{const o=await observation(r);check(o.ready&&o.operation.state==="missing"&&o.stamp.head.repositoryRevision>=p.head.repositoryRevision,"Rejected resolution outcome contradicts authoritative observation.");}return freeze(value);
+        }
         const { checksum, ...body } = value;
         fields(body, ["format", "version", "authorityId", "applicationContextId", "rehearsalId", "operationId", "recordChecksum", "proof"]);
         check(checksum === P.hash(body) && body.format === "itacan-native-rejected-bootstrap" && body.version === 1 && body.authorityId === config.authorityId && body.applicationContextId === config.applicationContextId && body.rehearsalId === settings.rehearsalId && body.operationId === r.operationId && body.recordChecksum === r.checksum && r.intent.kind === "git-receive", "Rejected bootstrap integrity differs.");
@@ -55,7 +82,7 @@ function createPendingRequests(port, config, settings, inspect, inspectCommitted
         else { const o = await observation(r); check(o.ready && o.operation.state === "missing", "Rejected bootstrap outcome conflicts."); }
         return freeze(value);
     }
-    async function marker() { check(P.same(JSON.parse(await port.read(markerName)), sealed(markerBody)), "Retention marker differs."); }
+    async function marker() { check(P.same(JSON.parse(await port.read(markerName)), sealed({...markerBody,version:observedMarkerVersion})), "Retention marker differs."); }
     async function getRaw(id) { await owned(); await marker(); const n = name(id), raw = await port.read(n), value = validate(raw, n); await owned(); return value; }
     async function all() { await owned(); await marker(); const records = []; for (const n of await names()) records.push(validate(await port.read(n), n));
         for (const n of (await port.list()).filter(n => n.startsWith("REQUEST-REJECTED-"))) check(records.some(r => rejectionName(r.operationId) === n), "Orphan rejected bootstrap evidence.");
@@ -101,6 +128,17 @@ function createPendingRequests(port, config, settings, inspect, inspectCommitted
         return p;
     }
     return Object.freeze({
+        reviewPrivateSaveRejection(id){return tracked(async()=>{
+            check([1,4].includes(settings.version)&&typeof provePrivateSaveRejection==="function","Private save recovery is unavailable.");
+            const r=await getRaw(id),existing=await rejection(r);if(existing)return freeze({operationId:id,state:"proven-not-executed",proof:existing.proof});
+            check(r.format==="itacan-native-ui-request"&&r.writerRequest.command.type==="task.save","Only original private saves may be reviewed.");
+            const proof=await provePrivateSaveRejection(r),report=freeze({operationId:id,state:"reviewable-nonexecution",recordChecksum:r.checksum,proof});privateSaveReviews.set(report,{record:r,proof});return report;
+        });},
+        concludePrivateSaveRejection(review){return tracked(async()=>{
+            const selected=privateSaveReviews.get(review);check(selected,"Original private save nonexecution review required.");privateSaveReviews.delete(review);
+            const r=await getRaw(selected.record.operationId);check(r.checksum===selected.record.checksum&&P.same(await provePrivateSaveRejection(r),selected.proof),"Private save recovery review is stale.");
+            await write(rejectionName(r.operationId),sealed({format:"itacan-native-rejected-private-save",version:1,authorityId:config.authorityId,applicationContextId:config.applicationContextId,rehearsalId:settings.rehearsalId,operationId:r.operationId,recordChecksum:r.checksum,commandDigest:r.commandDigest,proof:selected.proof}));await rejection(r);return freeze({operationId:r.operationId,state:"proven-not-executed"});
+        });},
         reviewBootstrapRejection(id) { return tracked(async () => {
             const r = await getRaw(id), existing = await rejection(r);
             if (existing) return freeze({ operationId: id, state: "rejected-before-commit", proof: existing.proof });
@@ -116,10 +154,11 @@ function createPendingRequests(port, config, settings, inspect, inspectCommitted
             await rejection(r); return freeze({ operationId: r.operationId, state: "rejected-before-commit" });
         }); },
         isRejected(id) { return tracked(async () => !!(await rejection(await getRaw(id)))); },
+        concludePersonalResolutionRejection(proof){return tracked(async()=>{check(settings.version===4,"Personal retention v4 required.");const p=require("../src/repository").consumePersonalResolutionRejection(proof),r=await getRaw(p.operationId),o=await observation(r);check(r.writerRequest.command.type==="personal.resolve"&&r.commandDigest===p.commandDigest&&p.authorityId===config.authorityId&&o.ready&&o.operation.state==="missing"&&P.same(o.stamp.head,{authorityId:config.authorityId,...p.head}),"Personal rejection observation changed.");await write(rejectionName(r.operationId),sealed({format:"itacan-native-rejected-personal-resolution",version:1,authorityId:config.authorityId,operationId:r.operationId,recordChecksum:r.checksum,commandDigest:r.commandDigest,proof:require("../personal/membership").seal({...p,bindingDigest:P.hash(personalContext.binding),replicaId:personalContext.signer.replicaId},personalContext.signer)}));return freeze({operationId:r.operationId,state:"rejected",code:"REJECTED_BEFORE_COMMIT"});});},
         async start(creating) {
             stopped = false; ready = false; prior.clear(); await owned();
             if (creating) await write(markerName, sealed(markerBody));
-            else check(P.same(JSON.parse(await port.read(markerName)), sealed(markerBody)), "Retention marker differs.");
+            else {const value=JSON.parse(await port.read(markerName));if((settings.version===3&&value.version===1)||(settings.version===4&&[1,3].includes(value.version)))observedMarkerVersion=value.version;check(P.same(value,sealed({...markerBody,version:observedMarkerVersion})),"Retention marker differs.");}
             for (const r of await all()) prior.add(r.operationId); ready = true;
         },
         prepare(input) {
@@ -130,15 +169,18 @@ function createPendingRequests(port, config, settings, inspect, inspectCommitted
                 const records = await all(), old = records.find(x => x.operationId === id);
                 if (old) { if (!P.same(old, r)) fail("OPERATION_CONFLICT", "Retained operation conflicts."); check(!(await rejection(old)), "Rejected bootstrap cannot be prepared again."); return old; }
                 await requireResolved(records);
-                if(settings.version===2){const o=await observation(r);check(o.ready&&o.stamp&&r.writerRequest.command.expectedRepositoryRevision===o.stamp.head.repositoryRevision&&r.writerRequest.scope.ownerContextPin===o.stamp.ownerContextPin&&r.writerRequest.scope.identityPin===o.stamp.identityPin,"Preparation context changed before retention.");}
+                if((settings.version===3&&observedMarkerVersion===1)||(settings.version===4&&[1,3].includes(observedMarkerVersion))){await owned();await marker();const temp="retention-personal-"+require("node:crypto").randomUUID()+".tmp";await port.writeNew(temp,V.canonical(sealed(markerBody))+"\n");await port.replace(temp,markerName);observedMarkerVersion=settings.version;await marker();await port.syncDirectory();}
+                if([2,3,4].includes(settings.version)){const o=await observation(r);check(o.ready&&o.stamp&&r.writerRequest.command.expectedRepositoryRevision===o.stamp.head.repositoryRevision&&r.writerRequest.scope.ownerContextPin===o.stamp.ownerContextPin&&r.writerRequest.scope.identityPin===o.stamp.identityPin,"Preparation context changed before retention.");}
                 await write(name(id), r); return freeze(V.clone(r));
             });
             preparing.set(id, { digest: r.checksum, promise }); promise.finally(() => preparing.delete(id)).catch(() => {}); return promise;
         },
         assertResolved() { return tracked(async () => { await requireResolved(await all()); }); },
+        assertRejectedCandidate(state){return tracked(async()=>{check(settings.version===4,"Personal v4 candidate check required.");for(const r of await all())await rejection(r,state);});},
+        assertIncomingPacket(packet){return tracked(async()=>{check(settings.version===4,"Personal v4 packet check required.");for(const r of await all())if(await rejection(r))check(!packet.frames.some(f=>f.receipt.operationId===r.operationId),"Incoming origin contradicts terminal nonexecution evidence.");});},
         list() { return tracked(async () => freeze((await all()).map(r => ({ operationId: r.operationId, intentDigest: r.intentDigest, owner: r.owner, partitionId: r.partitionId })))); },
         get(id) { V.text(id); return tracked(() => getRaw(id)); },
-        reconcile(id) { V.text(id); return tracked(async () => { const r = await getRaw(id); return await rejection(r) ? freeze({state:"rejected",code:"REJECTED_BEFORE_COMMIT",operationId:id,receipt:null,taskIds:[],eventIds:[]}) : reconcileRecord(r); }); },
+        reconcile(id) { V.text(id); return tracked(async () => { const r = await getRaw(id); const terminal=await rejection(r);return terminal ? freeze({state:"rejected",code:terminal.format==="itacan-native-rejected-private-save"?"PROVEN_NOT_EXECUTED":"REJECTED_BEFORE_COMMIT",operationId:id,receipt:null,taskIds:[],eventIds:[]}) : reconcileRecord(r); }); },
         inspect(id) { V.text(id); return tracked(async () => {
             let r = null, o, damaged = false;
             try { r = await getRaw(id); o = await observation(r); await all(); }
@@ -149,7 +191,7 @@ function createPendingRequests(port, config, settings, inspect, inspectCommitted
             const terminal = r && !damaged ? await rejection(r) : null;
             const op = o.operation, classification = !o.ready ? "authority-unavailable" : damaged ? "damaged" : terminal ? "confirmed-rejected" : op.state === "committed" ? "confirmed-committed" : op.state === "missing" ? "execution-uncertain" : op.state === "conflict" ? "conflict" : "authority-unavailable";
             let code = !o.ready ? "AUTHORITY_UNAVAILABLE" : damaged ? "REQUEST_RETENTION_INVALID" : op.code, replay = damaged ? "REQUEST_RETENTION_INVALID" : replayCode(r, o);
-            if (terminal) { code = "REJECTED_BEFORE_COMMIT"; replay = "TERMINAL_REJECTION"; }
+            if (terminal) { code = terminal.format==="itacan-native-rejected-private-save"?"PROVEN_NOT_EXECUTED":"REJECTED_BEFORE_COMMIT"; replay = "TERMINAL_REJECTION"; }
             if (["EXACT_COMMITTED_REPLAY", "EXACT_ORIGINAL_HEAD_REPLAY"].includes(replay)) {
                 try { await requireResolved((await all()).filter(x => x.operationId !== id)); } catch (_) { replay = "OTHER_REQUEST_UNRESOLVED"; }
             }

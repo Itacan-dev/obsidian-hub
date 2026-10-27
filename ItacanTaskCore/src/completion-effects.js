@@ -47,6 +47,7 @@ function describe(state,command,before,beforeBindings,after,afterBindings) {
 function transitionMatches(before,after,intent,clock) { check(before&&after,"Missing retained completion target.");if(intent.kind==="keep")check(before.completed===after.completed&&before.completedAt===after.completedAt,"Keep changed completion evidence.");else if(intent.kind==="complete")check(!before.completed&&after.completed&&after.completedAt===(intent.completedAt===undefined?clock:intent.completedAt),"Invalid genuine completion transition.");else check(intent.kind==="reopen"&&before.completed&&!after.completed&&after.completedAt===null,"Invalid reopening transition."); }
 function initialMatches(target,initial,clock) { check(target.completed===initial.completed&&target.completedAt===(initial.completed?(initial.completedAt===undefined?clock:initial.completedAt):null),"Invalid initial completion state."); }
 function validateReceipt(state,receipt) {
+ if(state.personalShared)return require("./personal-shared").atomicReceipt(state,receipt);
  if(state.gitShared)return require("./git-shared").atomicReceipt(state,receipt);
  const command=JSON.parse(receipt.payload),d=receipt.result.atomicTask;check(isAtomic(command.type),"Atomic descriptor on an unrelated command.");require("./atomic-task").validateCommand(command);
  const after=receipt.result.task;check(after&&after.id===d?.taskId,"Missing atomic result task.");const before=command.type==="task.save"?priorTask(state,command.taskId,receipt.result.repositoryRevision):null;

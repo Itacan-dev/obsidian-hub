@@ -11019,6 +11019,9 @@ class HubWorkspaceModeService {
 
 module.exports = class HubProjectMenu extends Plugin {
     // Ephemeral authorization admits synthetic Temp vaults only.
+    static authorizePersonalRehearsal(plugin, configuration, personal) {
+        return require("./lib/services/native-task-host").authorizePersonalRehearsal(plugin, configuration, personal);
+    }
     static authorizeNativeTaskRehearsal(plugin, configuration) {
         return require("./lib/services/native-task-host").authorizeNativeTaskRehearsal(plugin, configuration);
     }

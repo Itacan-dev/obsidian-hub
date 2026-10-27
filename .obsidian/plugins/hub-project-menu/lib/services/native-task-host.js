@@ -31,9 +31,17 @@ async function authorizeNativeTaskRehearsal(plugin, input) {
     const vaultStat = await fs.stat(vault, { bigint: true });
     approvals.set(plugin, { ...options, vaultPin: { real: vault, dev: String(vaultStat.dev), ino: String(vaultStat.ino) } });
 }
+async function authorizePersonalRehearsal(plugin,input,personal){
+    await authorizeNativeTaskRehearsal(plugin,input);
+    const checked=approvals.get(plugin);require("../../../../../ItacanTaskCore/personal/binding").confirm(personal.binding,personal.pairing.bindingDigest);
+    const seed=require("../../../../../ItacanTaskCore/personal/enrollment").validate(personal.seed,personal.binding);
+    if(seed.authorityId!==checked.config.authorityId||require("../../../../../ItacanTaskCore/src/value").canonical(seed.owner)!==require("../../../../../ItacanTaskCore/src/value").canonical(checked.owner))throw Error("Personal rehearsal identity differs.");
+    approvals.set(plugin,{...checked,personalSync:personal});
+}
 async function authorizeNativeTaskActivation(plugin) {
     if (approvals.has(plugin)) return; // Synthetic approval cannot select permanent scope.
-    const options = await require("./native-task-activation").loadActivations(plugin);
+    const base = await require("./native-task-activation").loadActivations(plugin);
+    const options = await require("./native-personal-activation").load(plugin,base);
     if (options?.length) approvals.set(plugin, options);
 }
 function createOwnerHost(plugin, options, coordinated = false) {
@@ -46,6 +54,7 @@ function createOwnerHost(plugin, options, coordinated = false) {
     let config = options.config, cancelReadiness = null;
     let locationSource;
     const taskLocations = () => locationSource ??= require("./native-task-locations").createNativeTaskLocations(plugin);
+    let personalSyncFailure=null,personalRecovery=null,personalRecoveryOpening=null;
     let runtime = null, feed = null, synchronization = null, stopped = false, closing = null, state = "opening", ready, joinRecovery = null, joinRecoveryOpening = null;
     let refreshing = null, inventorySignature = null; const runtimeStops = [];
     const matches = ref => ref?.type === owner.type && ref.id === owner.id;
@@ -184,6 +193,18 @@ function createOwnerHost(plugin, options, coordinated = false) {
         owner, historyEvidence: { read: () => host.runtime().historyEvidence.read(), subscribe(fn) { let stop = null, bound = null; const bind = () => { if (bound !== runtime || state !== "ready") { stop?.(); stop = null; bound = runtime; } if (!stop && state === "ready") stop = runtime.historyEvidence.subscribe(fn); fn({ reason: "registry" }); }; stateListeners.add(bind); if (state === "ready") { bound = runtime; stop = runtime.historyEvidence.subscribe(fn); } return () => { stateListeners.delete(bind); stop?.(); }; } },
         status: () => ({ mode: "native-project", state, owner: copy(owner), ...(synchronization ? {sharing:synchronization.status()} : {}) }),
         synchronization: () => synchronization,
+        async openPersonalRecovery() {
+            await ready;if(stopped||!options.personalSync||state!=="unavailable")return null;
+            if(personalRecovery)return personalRecovery;if(personalRecoveryOpening)return personalRecoveryOpening;
+            personalRecoveryOpening=(async()=>{await options.assertActivation?.();const inventoryEvidence=require("./native-git-inventory").createInventoryEvidence(plugin,owner,config.authorityId),observed=await inventoryEvidence.read();
+                return personalRecovery=await require("../../../../../ItacanTaskCore/personal/recovery").openPersonalRecovery(config,{registry,personalSync:options.personalSync,inventoryEvidence,writerPolicy:policy({version:1,owners:[{owner,partitionId:options.partitionId}],commands:["task.createRich","task.save","task.complete","step.complete","task.delete","personal.enroll","personal.bootstrap","personal.receive",...(options.personalSync?.binding.version===2?["personal.resolve","personal.upgrade"]:[])],inventory:observed.inventory,phases:observed.phases}),requestRetention:{version:options.personalSync.binding.version===2?4:3,rehearsalId:options.rehearsalId}});
+            })();try{return await personalRecoveryOpening}finally{personalRecoveryOpening=null}
+        },
+        async resumePersonal() {
+            await ready;if(stopped||!options.personalSync||state!=="unavailable")unavailable();
+            await personalRecoveryOpening;await personalRecovery?.close();personalRecovery=null;await options.assertActivation?.();state="opening";changedState();
+            try{await openCurrentRuntime(false)}catch(error){state="unavailable";await runtime?.close().catch(()=>{});changedState();throw error}
+        },
         async openJoinRecovery() {
             await ready; if (stopped || state !== "unavailable" || !options.joinExisting || joinRecoveryOpening) unavailable();
             const opening = (async () => { await joinRecovery?.close(); if (stopped) unavailable(); return joinRecovery = await require("./native-git-transition").openJoinRecovery(plugin, owner); })();
@@ -193,7 +214,7 @@ function createOwnerHost(plugin, options, coordinated = false) {
         create(options = {}) { const r = host.runtime(); return require("../ui/task-editor").openTaskCreator(require("./native-task-locations").locationService(r.formService(plugin.app), plugin, owner), options); },
         async close() {
             if (closing) return closing; stopped = true; state = "closing"; cancelReadiness?.(); changedState();
-            closing = (async () => { await ready; await joinRecoveryOpening?.catch(() => {}); await joinRecovery?.close(); await refreshing?.catch(() => {}); runtimeStops.splice(0).reverse().forEach(stop => stop()); await synchronization?.close(); await runtime?.close(); if (!coordinated) release(); state = "closed"; })();
+            closing = (async () => { await ready; await personalRecoveryOpening?.catch(()=>{});await personalRecovery?.close();await joinRecoveryOpening?.catch(() => {}); await joinRecovery?.close(); await refreshing?.catch(() => {}); runtimeStops.splice(0).reverse().forEach(stop => stop()); await synchronization?.close(); await runtime?.close(); if (!coordinated) release(); state = "closed"; })();
             return closing;
         }
     };
@@ -202,10 +223,10 @@ function createOwnerHost(plugin, options, coordinated = false) {
     // a saved command, guard, receipt, witness or recovery fence in place.
     async function openCurrentRuntime(creating) {
             let inventory={version:1,revision:"synthetic-empty",ids:[]},phases={version:1,revision:"no-phases",values:[]},inventoryEvidence;
-            if(options.gitSharing){inventoryEvidence=require("./native-git-inventory").createInventoryEvidence(plugin,owner,config.authorityId);const observed=await inventoryEvidence.read();phases=observed.phases;inventory=require("../../../../../ItacanTaskCore/shared/inventory").capture(config.authorityId,observed.inventory,phases);}
+            if(options.gitSharing||options.personalSync){inventoryEvidence=require("./native-git-inventory").createInventoryEvidence(plugin,owner,config.authorityId);const observed=await inventoryEvidence.read();phases=observed.phases;inventory=options.personalSync?observed.inventory:require("../../../../../ItacanTaskCore/shared/inventory").capture(config.authorityId,observed.inventory,phases);}
             inventorySignature = hash({inventory,phases});
-            runtime = await openProjectRuntime(config, { owner, registry, writerPolicy: policy({version:1,owners:[{owner,partitionId:options.partitionId}],commands:["task.createRich","task.save","task.complete","step.complete","task.delete",...(options.gitSharing?["git.receive"]:[])],inventory,phases}),
-                inventoryEvidence,gitSharing:options.gitSharing,sharedGenesis:options.sharedGenesis,
+            runtime = await openProjectRuntime(config, { owner, registry, writerPolicy: policy({version:1,owners:[{owner,partitionId:options.partitionId}],commands:["task.createRich","task.save","task.complete","step.complete","task.delete",...(options.gitSharing?["git.receive"]:[]),...(options.personalSync?["personal.enroll","personal.bootstrap","personal.receive",...(options.personalSync?.binding.version===2?["personal.resolve","personal.upgrade"]:[])]:[])],inventory,phases}),
+                inventoryEvidence,gitSharing:options.gitSharing,sharedGenesis:options.sharedGenesis,personalSync:options.personalSync,personalEnrollment:options.personalEnrollment,personalEnrollmentOperationId:options.personalEnrollmentOperationId,
                 locationLabel: ref => taskLocations().resolve(owner, ref)?.path ?? "Location unavailable", describeLocation: ref => taskLocations().describe(owner, ref), rehearsalId: options.rehearsalId, creating, consumerUiV1: true, historyUiV1: true });
             if(options.gitSharing){
                 const project=await require("../../../../../ItacanTaskCore/shared/project-binding").admitProject({vaultRoot:options.vaultPin.real,projectId:owner.id,projectRoot:options.projectRoot,dashboard:options.dashboard});
@@ -218,18 +239,20 @@ function createOwnerHost(plugin, options, coordinated = false) {
                 await synchronization.sync().catch(()=>{});
                 const watch=require("node:fs").watch(path.join(project.gitRoot,".itacan-native/v3",config.authorityId,"heads"),(_event,name)=>{if(!name||String(name).endsWith(".json"))requestSync();});watch.on("error",()=>{});runtimeStops.push(()=>watch.close());
             }
-            if (!stopped) { feed = runtime.completionFeed({ legacy, app: plugin.app }); await runtime.list(); await feed.read();
-                if (!stopped) { for (const l of feedListeners.values()) l.stop = feed.subscribe(l.fn); state = "ready"; changedState(); for (const l of feedListeners.values()) { try { Promise.resolve(l.fn()).catch(() => {}); } catch (_) {} } }
+            if (!stopped) { feed = runtime.completionFeed({ legacy, app: plugin.app }); await runtime.list(); if(!(options.personalSync?.binding.version===2&&(await runtime.personal.status()).state==="conflicting"))await feed.read();
+                if (!stopped) { for (const l of feedListeners.values()) l.stop = feed.subscribe(l.fn); state = "ready"; changedState();
+                    if(options.personalSync){let inner=null,personalClosed=false;const work=Promise.resolve().then(async()=>{if(stopped||personalClosed)return;try{inner=await require("./native-personal-sync").connect(plugin,runtime,options,()=>{});if(stopped||personalClosed)await inner.close();else inner.start();}catch(error){personalSyncFailure=error.code??"PERSONAL_SYNC_UNAVAILABLE";}});synchronization={status:()=>inner?.status()??{version:1,state:personalSyncFailure?"unavailable":"checking",code:personalSyncFailure},sync:async()=>{await work;if(!inner)throw Error("Personal synchronization unavailable");return inner.sync();},close:async()=>{personalClosed=true;await work;await inner?.close()}};}
+                    for (const l of feedListeners.values()) { try { Promise.resolve(l.fn()).catch(() => {}); } catch (_) {} } }
             }
     }
     host.refreshInventory = () => {
-        if (!options.gitSharing) return Promise.resolve();
+        if (!options.gitSharing && !options.personalSync) return Promise.resolve();
         if (refreshing) return refreshing.then(() => host.refreshInventory());
         refreshing = (async () => {
             await ready; if (stopped) return;
             if (state !== "ready") throw Error("Native shared authority is unavailable.");
             const observed = await require("./native-git-inventory").createInventoryEvidence(plugin,owner,config.authorityId).read();
-            const inventory = require("../../../../../ItacanTaskCore/shared/inventory").capture(config.authorityId,observed.inventory,observed.phases);
+            const inventory = options.personalSync?observed.inventory:require("../../../../../ItacanTaskCore/shared/inventory").capture(config.authorityId,observed.inventory,observed.phases);
             if (inventorySignature === hash({inventory,phases:observed.phases})) return;
             // An unresolved original request must be recovered, not replaced by
             // a fresh session that could hide uncertainty or stale replay guards.
@@ -253,7 +276,7 @@ function createOwnerHost(plugin, options, coordinated = false) {
             await waitForMetadata(); if (stopped) return;
             if (options.joinExisting) await require("./native-git-transition").join(plugin, owner);
             if (options.blocked || config.scope !== "inactive-disposable") {
-                const admitted = (await require("./native-task-activation").loadActivations(plugin, owner)).find(p => matches(p.owner));
+                const admitted = (await require("./native-personal-activation").load(plugin,await require("./native-task-activation").loadActivations(plugin, owner),owner)).find(p => matches(p.owner));
                 if (!admitted || admitted.blocked || !matches(admitted.owner) || admitted.projectRoot !== options.projectRoot || admitted.dashboard !== options.dashboard ||
                     !options.blocked && JSON.stringify(admitted.config) !== JSON.stringify(config)) throw Error("Cutover requires explicit recovery review.");
                 Object.assign(options, admitted, { blocked: false }); config = options.config;
@@ -280,4 +303,4 @@ function createNativeTaskHost(plugin) {
     if (options.length === 1) return createOwnerHost(plugin, options[0]);
     return require("./native-task-host-multi").composeNativeHosts(plugin, options.map(o => createOwnerHost(plugin, o, true)));
 }
-module.exports = { authorizeNativeTaskRehearsal, authorizeNativeTaskActivation, createNativeTaskHost };
+module.exports = { authorizePersonalRehearsal, authorizeNativeTaskRehearsal, authorizeNativeTaskActivation, createNativeTaskHost };

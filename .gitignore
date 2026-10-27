@@ -136,6 +136,7 @@
 # Portable native Git task evidence only; runtime state remains device-local.
 !/.itacan-native/
 /.itacan-native/**
+/.itacan-personal-sync/
 !/.itacan-native/.gitattributes
 !/.itacan-native/projects/
 !/.itacan-native/projects/*.json

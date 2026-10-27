@@ -51,6 +51,8 @@ export interface CommandBase {
 type ExistingTask = { taskId: string; expectedRevision: number };
 export type Command = CommandBase & (
     | import("./git-shared").GitReceiveCommandV2
+    | import("../personal/contracts").PersonalCommandV1
+    | import("../personal/contracts-v2").PersonalCommandV2
     | AtomicTaskCommandV1
     | HistoryImportCommand
     | RecurrenceCommand
@@ -80,6 +82,7 @@ export interface CommandResult {
     historyImport?: HistoryImportResult;
     atomicTask?: AtomicTaskEffectsV1;
     gitShared?: import("./git-shared").GitApplicationSummaryV1;
+    personal?: import("../personal/contracts").PersonalSummaryV1|import("../personal/contracts-v2").PersonalSummaryV2;
     /** Only a returned replay, never a stored local receipt. */
     originReplay?: import("./git-shared").GitOriginReplayV1;
 }
@@ -88,7 +91,7 @@ export interface RepositoryInfo {
     taskMutationVersion?: 1;
     schemaVersion: 1 | 2 | 3 | 4; storeId: string; revision: number; revisionId: string; parentRevisionId: string | null; partitions: Partition[];
     recovery: null | { recoveredRevision: number; recoveredRevisionId: string; failures: { file: string; reason: string }[]; source: string; requestedRevision: number | null };
-    storage?: { format: "private-v4"; wireVersion: 4; authorityId: string; minimumLogicalSchemaVersion: 1 | 2 | 3 | 4; fenced: boolean; taskMutationVersion?: 1; gitSharedVersion?: 2 };
+    storage?: { format: "private-v4"; wireVersion: 4; authorityId: string; minimumLogicalSchemaVersion: 1 | 2 | 3 | 4; fenced: boolean; taskMutationVersion?: 1; gitSharedVersion?: 2; personalSyncVersion?:1|2; personalTransitionPending?:true };
 }
 export interface TaskQuery {
     owner?: WorkspaceRef; completed?: boolean; location?: LocationRef | null; phase?: PhaseRef;
@@ -110,6 +113,7 @@ export interface RepositoryOptions {
     externalReservations?: ExternalReservations;
     /** Required for explicit Git-capable roots; never enables an existing private root. */
     sharedReplicaId?: string;
+    personalSync?: import("../personal/contracts").PersonalContextV1|import("../personal/contracts-v2").PersonalContextV2;
     idFactory: () => string; clock?: () => number; resolvers?: ReferenceResolvers;
     onSubscriberError?: (error: unknown) => void;
     /** Explicit fault injection for disposable tests only. */
@@ -132,11 +136,13 @@ export interface TaskRepository {
     getReceipt(operationId: string): Receipt | null;
     queryTasks(query?: TaskQuery): NativeTask[];
     queryHistory(query?: HistoryQuery): HistoryRecord[];
-    execute(command: Command, admissionTicket?: CommandAdmissionTicketV1, replicationEvidence?: import("./git-shared").GitReplicationEvidenceV1): Promise<CommandResult>;
+    execute(command: Command, admissionTicket?: CommandAdmissionTicketV1, replicationEvidence?: import("./git-shared").GitReplicationEvidenceV1|{version:1;packet:import("../personal/contracts").PersonalPacketV1|import("../personal/contracts-v2").PersonalPacketV2}): Promise<CommandResult>;
     subscribe(listener: (change: Change) => void | Promise<void>): () => void;
     exportSharedPartition(partitionId: string): string;
     /** Queued, validated Git-only export; v1 snapshot exports retain their old grammar. */
     exportSharedPacket(): Promise<import("./git-shared").GitPacketV3>;
+    proveStalePrivateSave(command:Command,proof?:import("../host/pending-requests").PrivateSaveNonexecutionProofV1|null):Promise<import("../host/pending-requests").PrivateSaveNonexecutionProofV1>;
+    exportPersonalPacket(): Promise<import("../personal/contracts").PersonalPacketV1|import("../personal/contracts-v2").PersonalPacketV2>;
     close(): Promise<void>;
 }
 export class RepositoryError extends Error { constructor(code: string, message: string, details?: Record<string, unknown>); code: string; details: Record<string, unknown> }
