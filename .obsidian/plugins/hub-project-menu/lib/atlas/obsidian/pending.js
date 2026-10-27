@@ -4,6 +4,11 @@ function presentationNow(state, now = Date.now()) {
     const s = state.snapshot;
     return Math.max(now, s?.accessState.lastObservedAt ?? 0, s?.vaultState.lastObservedAt ?? 0, s?.journeyState.lastObservedAt ?? 0);
 }
+function temporaryGrantUsable(state, grant, now = presentationNow(state)) {
+    return state.status === "READY" && state.enabled !== false && now < grant.expiresAt && grant.policyRevision === state.snapshot?.policyRevision &&
+        (state.temporaryDestinations ?? []).some(g => g.requestId === grant.requestId && g.hostname === grant.hostname &&
+            g.decision?.outcome === "ALLOW" && g.decision.reason === "ACTIVE_GRANT");
+}
 const phaseAt = (p, now) => now < p.readyAt ? "WAITING" : now < p.confirmBy ? "READY" : "EXPIRED";
 const labels = { WAITING: "Waiting", READY: "Ready for explicit confirmation", EXPIRED: "Expired", STALE: "Review required", UNRESOLVED: "Outcome unresolved" };
 function pendingActions(state, wallNow = Date.now(), session = null) {
@@ -29,4 +34,4 @@ function pendingActions(state, wallNow = Date.now(), session = null) {
     return items;
 }
 function pendingForBridge(bridge, now = Date.now()) { return pendingActions(bridge.view(), now, require("./session").getAtlasSession(bridge)); }
-module.exports = { pendingActions, pendingForBridge, phaseAt, presentationNow };
+module.exports = { pendingActions, pendingForBridge, phaseAt, presentationNow, temporaryGrantUsable };

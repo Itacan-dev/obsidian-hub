@@ -1,0 +1,51 @@
+<!doctype html><meta charset="utf-8"><title>Atlas browser lifecycle and grant status</title>
+<link rel="stylesheet" href="../../styles.css">
+<main id="settings"></main><main id="home" class="hub-atlas-home"></main><section id="blocked"></section><pre id="result">RUNNING</pre>
+<script type="module">
+const sources=new Map(),cache=new Map(),resolve=(name,request)=>{const p=name.split('/').slice(0,-1);for(const v of request.split('/')){if(v==='..')p.pop();else if(v!=='.')p.push(v)}return p.join('/').replace(/\.js$/,'')};
+async function collect(name){if(sources.has(name))return;sources.set(name,null);const r=await fetch('../'+name+'.js');if(!r.ok)throw Error('Missing '+name);const s=await r.text();sources.set(name,s);await Promise.all([...s.matchAll(/require\(\s*['"](\.\.?\/[^'"]+)['"]\s*\)/g)].map(m=>collect(resolve(name,m[1]))))}
+function load(name){if(cache.has(name))return cache.get(name).exports;const m={exports:{}};cache.set(name,m);new Function('module','exports','require',sources.get(name))(m,m.exports,r=>load(resolve(name,r)));return m.exports}
+const assert=(v,m)=>{if(!v)throw Error(m)},button=(p,t)=>[...p.querySelectorAll('button')].find(n=>n.textContent===t),tick=()=>new Promise(r=>setTimeout(r,0));
+const originalNow=Date.now,originalInterval=window.setInterval,originalClear=window.clearInterval;
+let disposeSettings=()=>{},disposeHome=()=>{};const timers=new Map();let nextTimer=0;
+try{
+ await Promise.all(['atlas/obsidian/settings-ui','atlas/obsidian/home-ui','atlas/obsidian/presentation','atlas/core/index','atlas/obsidian/application'].map(collect));
+ const Core=load('atlas/core/index'),App=load('atlas/obsidian/application'),{createPresentation}=load('atlas/obsidian/presentation'),{mountAtlasSettings}=load('atlas/obsidian/settings-ui'),{mountAtlasHome}=load('atlas/obsidian/home-ui'),{renderNavigation}=load('atlas/obsidian/ui');
+ let now=1000;Date.now=()=>now;window.setInterval=fn=>{const id=++nextTimer;timers.set(id,fn);return id};window.clearInterval=id=>timers.delete(id);
+ const cfg={accessTiming:{waitMs:10,confirmationWindowMs:1000,grantDurationMs:100},vaultTiming:{waitMs:30,confirmationWindowMs:1000},journeyLimits:{lifetimeMs:300000,maxHops:12}};
+ const policy={whitelist:['chatgpt.com'],blacklist:['blocked.test']},started=Core.startAccess('www.chatgpt.com',{policy,policyRevision:0,state:Core.createAccessState(),now},cfg.accessTiming);now+=10;
+ const confirmed=Core.confirmAccess(started.request.id,{policy,policyRevision:0,state:started.nextState,now});
+ const snapshot=Core.validateAtlasSnapshot({policy,policyRevision:0,configuration:cfg,configurationRevision:0,accessState:confirmed.nextState,vaultState:Core.createVaultState(),journeyState:Core.createJourneyState()}).snapshot;
+ const grant=snapshot.accessState.grants[0],originalGrant=JSON.stringify(grant),state={status:'READY',enabled:true,snapshot,application:App.initialApplication(policy),contexts:[],storageVersion:'lifecycle',starter:{policy}};
+ const describe=createPresentation(),listeners=new Set(),commands=[];let cached;
+ const compute=()=>{cached={...state,...describe(state,state.application,true,now,undefined,false)}};
+ compute();const bridge={view:()=>cached,subscribe:fn=>{listeners.add(fn);return()=>listeners.delete(fn)},open:()=>true,canActOnContext:()=>true,command:async c=>{commands.push(c);return {type:'OPEN_REQUESTED'}}};
+ const settings=document.getElementById('settings'),home=document.getElementById('home');disposeSettings=mountAtlasSettings(settings,bridge);disposeHome=mountAtlasHome(home,bridge,()=>{});
+ button(settings,'Temporary Access').click();await tick();const savedRow=settings.querySelector('[data-atlas-page=temporary] .hub-atlas-site-row');
+ assert(savedRow.textContent.includes('usable now')&&home.querySelector('.hub-atlas-temporary-row'),'Actual current grant initially usable');
+ // No native publication and cached ALLOW remains: the existing local UI timers
+ // must independently stop describing expired authority as usable.
+ now=grant.expiresAt;for(const fn of [...timers.values()])fn();await tick();
+ assert(!savedRow.textContent.includes('usable now')&&savedRow.textContent.includes('expired'),'Expired cached grant never claims usable at zero');
+ assert(!home.querySelector('.hub-atlas-temporary-row'),'Expired Home row retires without native publication');
+ assert(JSON.stringify(grant)===originalGrant&&commands.length===0,'Display expiry neither renews nor submits authority');
+ state.snapshot={...snapshot,policy:{whitelist:['chatgpt.com','www.chatgpt.com'],blacklist:['blocked.test']},policyRevision:1};compute();for(const fn of listeners)fn();await tick();
+ assert(savedRow.isConnected&&savedRow.textContent.includes('This host is Whitelisted.')&&!savedRow.textContent.includes('usable now'),'Existing expired grant explains independent Whitelist access');
+ assert(savedRow.querySelector('[data-atlas-deadline]').hidden,'Whitelist access is not represented by an expired temporary countdown');
+ assert(!home.querySelector('.hub-atlas-temporary-row'),'Whitelist access never counts as a temporary grant');
+ const context={id:'fault-context',nativeId:99,generation:3,closed:true,phase:'BLOCKED',origin:'https://chatgpt.com/',response:{type:'BLOCKED',reason:'UNEXPECTED_URL_CHANGE'}};
+ state.contexts=[context];compute();const blocked=document.getElementById('blocked');renderNavigation(blocked,cached,context,bridge);
+ assert(blocked.textContent.includes('browser connection')&&!blocked.textContent.includes('blocked by the current access rules'),'Native failure does not pretend Whitelist denied access');
+ assert(blocked.querySelector('details code').textContent==='UNEXPECTED_URL_CHANGE','Safe native reason remains reviewable');
+ button(blocked,'Open homepage again').click();await tick();
+ assert(commands.length===1&&commands[0].kind==='OPEN_HOME'&&Object.keys(commands[0]).sort().join(',')==='contextId,generation,kind','Explicit retry sends no URL/body or permission operation');
+ const denied={...context,id:'denied',response:{type:'ASSESSMENT',decision:{outcome:'DENY',reason:'BLACKLISTED',target:{hostname:'blocked.test'}}}};
+ renderNavigation(blocked,{...cached,contexts:[denied]},denied,bridge);assert(blocked.textContent.includes('blocked by your Blacklist')&&!button(blocked,'Open homepage again'),'Blacklist explanation remains an actual denial');
+ bridge.canActOnContext=()=>false;const allowed={...context,response:{type:'ASSESSMENT',decision:{outcome:'ALLOW',reason:'WHITELISTED'}}};
+ renderNavigation(blocked,{...cached,contexts:[allowed]},allowed,bridge);assert(blocked.textContent.includes('Access is available')&&!blocked.textContent.includes('has not granted access'),'An unavailable Note control does not claim Whitelist requires a grant');
+ assert(JSON.stringify(grant)===originalGrant,'All visible transitions preserve original grant terms');
+ disposeSettings();disposeHome();disposeSettings=()=>{};disposeHome=()=>{};assert(timers.size===0&&listeners.size===0,'All local timer/subscription owners disposed');
+ document.getElementById('result').textContent='PASS: cached expiry, independent Whitelist access, no renewal, stable grant row, safe browser reason, explicit fresh retry, Blacklist and ownership explanations.';
+}catch(error){document.getElementById('result').textContent='FAIL: '+error.stack}
+finally{disposeSettings();disposeHome();Date.now=originalNow;window.setInterval=originalInterval;window.clearInterval=originalClear}
+</script>

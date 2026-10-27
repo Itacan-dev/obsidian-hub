@@ -367,7 +367,7 @@ module.exports = async function runRendererFixture({ directory, pluginDirectory,
     assert.equal(again.view().storageVersion, version); assert.equal(again.view().snapshot.policyRevision, 1);
     await again.open();
     const originalElectron = window.electron; let legacySuspended = false;
-    window.electron = { remote: { require: () => ({ getAtlasHost: () => ({ apiVersion: 5, unsubscribe() { legacySuspended = true; } }) }) } };
+    window.electron = { remote: { require: () => ({ getAtlasHost: () => ({ apiVersion: 6, unsubscribe() { legacySuspended = true; } }) }) } };
     const oldAdapter = install(plugin);
     assert.equal(oldAdapter.view().status, "UNAVAILABLE"); assert.equal(oldAdapter.view().reason, "NATIVE_ADAPTER_UPGRADE_REQUIRED"); assert.equal(legacySuspended, true);
     assert.equal(await oldAdapter.openFromNote(note), false); oldAdapter.destroy(); window.electron = originalElectron;

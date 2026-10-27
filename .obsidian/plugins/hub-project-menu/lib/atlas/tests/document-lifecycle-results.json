@@ -1,0 +1,54 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-10-27",
+  "baselineCommit": "f2eeb0c",
+  "newApiVersion": 7,
+  "localPolicyRead": {
+    "chatgptWhitelisted": true,
+    "wwwChatgptWhitelisted": true,
+    "neitherBlacklisted": true,
+    "policyModified": false
+  },
+  "reproduction": {
+    "plainResizeBefore": "DISPLAYED",
+    "responsiveWithHeldArrivalBefore": "BLOCKED / UNEXPECTED_URL_CHANGE",
+    "responsiveWithHeldArrivalAfter": "DISPLAYED",
+    "nativeDividerInputDuringHeldAcknowledgement": "passed",
+    "liveAuthenticatedProviderInstrumented": false
+  },
+  "verification": {
+    "adapter": {
+      "passed": 152,
+      "failed": 0,
+      "newDocumentTests": 6
+    },
+    "browser": {
+      "passed": 9,
+      "failed": 0
+    },
+    "native": {
+      "passed": 26,
+      "failed": 0
+    },
+    "adapterTypecheck": "passed",
+    "coreTypecheck": "passed",
+    "independentBuildsEqual": true,
+    "bundleParity": "Runnable plugin bundles match current source.",
+    "committed": false,
+    "pushed": false
+  },
+  "output": [
+    "Built main.js with 274 modules.\nBuilt atlas-native.cjs with 27 modules.",
+    "Built main.js with 274 modules.\nBuilt atlas-native.cjs with 27 modules."
+  ],
+  "bundles": {
+    "main.js": {
+      "sha256": "81509be27177ca9c1b8cb661788ab3ab466d2d6e87ae89a3fe504a619320f92c",
+      "installedBefore": "78c7f88c7065d12424afc391b16992bd1feebb290a9b05562e553ef911bd680f"
+    },
+    "atlas-native.cjs": {
+      "sha256": "f85bcd223f2ef6f618552ab4f9744a1cc82bd480d6778c89cee1a3a8fa1c5f66",
+      "installedBefore": "d10065ca73b5d468cb1893fd8c43c29dda901d3cfdff1e18f693caa19b8ac085"
+    }
+  }
+}

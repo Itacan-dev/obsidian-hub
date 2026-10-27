@@ -3,7 +3,7 @@ const { el, button, countdown, updateCountdowns, configurationInput, formatMilli
 const { getAtlasSession, createDestinationDraft, draftBase } = require("./session");
 const { describeOutcome, describeAuthorityFailure, storageSummary } = require("./feedback");
 const { normalizeTarget } = require("../core/target");
-const { pendingActions, phaseAt, presentationNow } = require("./pending");
+const { pendingActions, phaseAt, presentationNow, temporaryGrantUsable } = require("./pending");
 const { keyed, phaseAnnouncer, text: setText } = require("./dom");
 let settingsInstance = 0;
 const pages = [["sites", "Sites & Access"], ["temporary", "Temporary Access"], ["timings", "Timings / Behaviour"],
@@ -421,8 +421,10 @@ function mountAtlasSettings(parent, bridge) {
                 const node = el(grantList, "article", undefined, "hub-atlas-site-row");
                 const r = { node, host: el(node, "strong"), status: el(node, "span") }; countdown(node, "Grant expires in", grant.expiresAt); r.count = node.querySelector("[data-atlas-deadline]"); return r;
             }, (r, grant) => {
-                setText(r.host, grant.hostname); const current = bridge.view(), usable = current.temporaryDestinations?.some(g => g.hostname === grant.hostname && g.decision.outcome === "ALLOW");
-                setText(r.status, usable ? "Temporary grant — usable now" : "Saved grant — not currently usable"); r.node.dataset.state = usable ? "ACTIVE_GRANT" : "EXPIRED"; r.count.dataset.atlasDeadline = String(grant.expiresAt);
+                setText(r.host, grant.hostname); const current = bridge.view(), now = presentationNow(current), usable = temporaryGrantUsable(current, grant, now);
+                const whitelisted = current.temporaryDestinations?.some(g => g.hostname === grant.hostname && g.decision?.reason === "WHITELISTED"), expired = now >= grant.expiresAt;
+                setText(r.status, whitelisted ? expired ? "Temporary grant expired. This host is Whitelisted." : "Whitelisted — this temporary grant is not needed." : usable ? "Temporary grant — usable now" : expired ? "Temporary grant expired." : "Saved grant — not currently usable");
+                r.node.dataset.state = usable ? "ACTIVE_GRANT" : expired ? "EXPIRED" : "SAVED"; r.count.hidden = whitelisted || expired; r.count.dataset.atlasDeadline = String(grant.expiresAt);
             }, grant => grant.requestId);
             el(temporary, "h4", "Pending requests"); const requestList = el(temporary, "div"), otherContexts = el(temporary, "div");
             const syncRequests = keyed(requestList, request => {
@@ -648,7 +650,7 @@ function mountAtlasSettings(parent, bridge) {
                     "Policy revision " + s.policyRevision + " · configuration revision " + s.configurationRevision,
                     "Storage envelope schema 2 · application schema " + (app?.schemaVersion ?? "unavailable"),
                     "Whitelist " + s.policy.whitelist.length + " · manual Blacklist " + s.policy.blacklist.length + " · managed " + (current.managed?.count ?? "unavailable"),
-                    "Active grants " + (current.temporaryDestinations ?? []).filter(g => g.decision.outcome === "ALLOW").length + " · saved grants " + s.accessState.grants.length + " · pending requests " + s.accessState.pendingRequests.length + " · Vault proposal " + (s.vaultState.pendingProposal?.id ?? "none"),
+                    "Active grants " + (current.temporaryDestinations ?? []).filter(g => temporaryGrantUsable(current, g)).length + " · saved grants " + s.accessState.grants.length + " · pending requests " + s.accessState.pendingRequests.length + " · Vault proposal " + (s.vaultState.pendingProposal?.id ?? "none"),
                     "Managed sync " + (current.managed?.status ?? "unavailable") + " · last success " + timestamp(current.managed?.lastSuccessfulSync)];
                 values.forEach((value, i) => setText(lines[i], value)); setText(version, "Storage version: " + current.storageVersion);
                 setText(issue, current.repositoryIssue ? "Storage issue: " + current.repositoryIssue : ""); const storageText = storageSummary(current); storageLines.forEach((node, i) => setText(node, storageText[i] ?? "")); syncJourneys(s.journeyState.journeys);
@@ -666,7 +668,7 @@ function mountAtlasSettings(parent, bridge) {
     paint(message, session.feedback);
     const unsubscribe = bridge.subscribe(refresh); refresh(); for (const [id, node] of sections) { const top = session.scrolls.get(id); if (top) node.scrollTop = top; } if (session.settingsScroll) parent.scrollTop = session.settingsScroll; if (session.route.context) focusRoute();
     const timer = setInterval(() => {
-        const state = bridge.view(), next = JSON.stringify([pendingActions(state, Date.now(), session), state.contexts.map(c => [c.id, !bridge.canActOnContext || bridge.canActOnContext(c)])]);
+        const state = bridge.view(), next = JSON.stringify([pendingActions(state, Date.now(), session), state.contexts.map(c => [c.id, !bridge.canActOnContext || bridge.canActOnContext(c)]), state.snapshot?.accessState.grants.map(g => presentationNow(state) < g.expiresAt)]);
         if (next !== temporalSignature) { temporalSignature = next; refresh(); } else { vaultTick?.(); updateCountdowns(parent, presentationNow(state)); }
     }, 250);
     return () => { captureDraft?.(); captureTimings?.(); captureSetup?.(); for (const [id, node] of sections) session.scrolls.set(id, node.scrollTop); session.settingsScroll = parent.scrollTop; disposed = true; clearInterval(timer); unsubscribe(); unsubscribeRoute(); for (const dispose of mounts.values()) dispose(); parent.classList.remove("hub-atlas-overview"); };

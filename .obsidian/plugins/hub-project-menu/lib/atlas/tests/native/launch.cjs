@@ -8,7 +8,7 @@ const env = { ...process.env, ATLAS_NATIVE_TEST_ROOT: directory, ATLAS_NATIVE_TE
 delete env.ELECTRON_RUN_AS_NODE;
 const child = spawn(require("electron"), [path.join(__dirname, "runner.cjs")], { env, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
 let output = "", completed = false;
-child.stdout.on("data", data => { process.stdout.write(data); output = (output + data.toString()).slice(-1000); completed ||= /Native Atlas tests: 25 passed/.test(output); });
+child.stdout.on("data", data => { process.stdout.write(data); output = (output + data.toString()).slice(-1000); completed ||= /Native Atlas tests: 26 passed/.test(output); });
 child.stderr.on("data", data => process.stderr.write(data));
 child.on("error", error => { console.error(error); process.exitCode = 1; });
 child.on("close", code => {

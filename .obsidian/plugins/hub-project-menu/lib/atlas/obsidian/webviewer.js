@@ -17,14 +17,21 @@ function createWebviewerEnforcement({ electron, runtime, partition, onOpenHome }
         const originalLoad = contents.loadURL.bind(contents);
         const guard = { contents, ready: false, closing: false, frameId: null, userLoads: 0,
             provenance: null, network: new Map(), deadlineTimer: null, setupTimer: null,
-            requestTimers: new Map(), lastArrival: null };
+            requestTimers: new Map(), lastArrival: null, document: null, initialOrigin: null };
         guards.set(contents.id, guard);
         const context = guard.context = runtime.attach(contents.id, {
             block() { closeGuest(guard); },
             lease(response) { setLease(guard, response); },
             openHome(origin) { onOpenHome({ nativeId: contents.id, contextId: context.id, origin }); }
         });
-        const crashClosed = reason => { runtime.block(context, reason); closeGuest(guard); };
+        const crashClosed = reason => {
+            // Preserve a sanitized destination for an explicit fresh-home retry.
+            // This is display/routing data, never navigation provenance.
+            let origin = guard.initialOrigin;
+            try { origin = homeOrigin(contents.isDestroyed() ? "" : contents.getURL()) ?? origin; } catch (_) { /* routing data cannot prevent closure */ }
+            context.origin ??= origin;
+            runtime.block(context, reason); closeGuest(guard);
+        };
         guard.crashClosed = crashClosed;
         contents.stop();
         const attached = new Promise(resolve => { guard.attached = resolve; });
@@ -91,15 +98,8 @@ function createWebviewerEnforcement({ electron, runtime, partition, onOpenHome }
             try { contents.navigationHistory.clear(); }
             catch (_) { crashClosed("HISTORY_FENCE_FAILED"); }
         });
-        contents.on("did-navigate-in-page", (_event, url, isMainFrame) => {
-            if (!isMainFrame) return;
-            const target = webTarget(url), loaded = context.displayed;
-            if (!target || !loaded || webTarget(loaded.url)?.hostname !== target.hostname) {
-                if (!blank(url)) crashClosed("UNEXPECTED_URL_CHANGE"); return;
-            }
-            loaded.url = url; // browser document data only, never Core state
-            void runtime.observe();
-        });
+        // Same-document changes use the ordered Page protocol stream below.
+        // Electron's separate in-page event may precede Core's ARRIVAL receipt.
         contents.on("render-process-gone", () => crashClosed("RENDERER_GONE"));
         contents.on("did-stop-loading", () => { guard.provenance = null; });
         contents.on("destroyed", () => {
@@ -119,10 +119,16 @@ function createWebviewerEnforcement({ electron, runtime, partition, onOpenHome }
                 void paused(guard, params);
             } else if (method === "Page.frameNavigated" && !params.frame.parentId) {
                 guard.frameId = params.frame.id;
+                guard.document = { loaderId: params.frame.loaderId, url: params.frame.url };
                 const arrivalKey = `${params.frame.loaderId}:${params.frame.url}`;
                 if (guard.lastArrival === arrivalKey) return;
                 guard.lastArrival = arrivalKey;
                 void runtime.arrive(context, { url: params.frame.url, loaderId: params.frame.loaderId });
+            } else if (method === "Page.navigatedWithinDocument" && params.frameId === guard.frameId) {
+                if (!guard.document || !runtime.sameDocument(context, { url: params.url, loaderId: guard.document.loaderId })) {
+                    if (!blank(params.url)) crashClosed("UNEXPECTED_URL_CHANGE"); return;
+                }
+                guard.document.url = params.url; void runtime.observe();
             }
         });
         guard.setupTimer = setTimeout(() => crashClosed("INTERCEPTION_SETUP_TIMEOUT"), 10_000);
@@ -235,6 +241,7 @@ function createWebviewerEnforcement({ electron, runtime, partition, onOpenHome }
         const didAttach = (_event, guest) => {
             if (guest.session !== browserSession) return;
             const initial = pending.shift(), guard = protectGuest(guest);
+            guard.initialOrigin = homeOrigin(initial);
             guard.attached();
             if (initial && !blank(initial)) guard.setup.then(() => {
                 if (!guard.closing && guard.userLoads === 0) void guest.loadURL(initial).catch(() => {});

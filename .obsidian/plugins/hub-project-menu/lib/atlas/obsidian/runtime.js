@@ -234,10 +234,25 @@ function createAtlasRuntime({ repository, clock, configuration = DEVELOPMENT_CON
             if (context.closed || !enabled) return blocked("CONTEXT_CLOSED");
             if (!allowed(response)) { if (context.flight === captured) failContext(context, response); return response; }
             if (context.flight !== captured) return response; // completion saved; newer request still held
-            context.displayed = { url, loaderId, response };
+            context.displayed = { url: captured.documentURL ?? url, loaderId, response };
             context.flight = null; context.response = response; context.origin = homeOrigin(url);
             context.phase = "DISPLAYED"; context.effects.lease(response); publish(); return response;
         });
+    }
+    function sameDocument(context, { url, loaderId }) {
+        if (!enabled || context.closed || contexts.get(context.id) !== context) return false;
+        const target = webTarget(url), flight = context.flight, loaded = context.displayed;
+        if (!target || !loaderId) return false;
+        // Native Page events identify the committed browser document. A SPA may
+        // update its URL before Core acknowledges ARRIVAL. Keep its native URL
+        // with that exact released flight; do not adopt it or create authority.
+        if (flight?.released && flight.loaderId === loaderId && webTarget(flight.url)?.hostname === target.hostname) {
+            flight.documentURL = url; return true;
+        }
+        if (loaded?.loaderId === loaderId && webTarget(loaded.url)?.hostname === target.hostname) {
+            loaded.url = url; return true;
+        }
+        return false;
     }
     async function recheck(context) {
         if (context.closed && context.phase !== "BLOCKED") return;
@@ -495,7 +510,7 @@ function createAtlasRuntime({ repository, clock, configuration = DEVELOPMENT_CON
         await core({ kind: "OBSERVE_TIME" }); publish();
         return controller.getView().status === "READY" ? { type: "COMMITTED", operation: "PRESENTATION" } : blocked(reason);
     }
-    return Object.freeze({ controller, attach, navigate, arrive,
+    return Object.freeze({ controller, attach, navigate, arrive, sameDocument,
         updateManaged: work => enqueue(async () => { const result = await work(); if (result && controller.getView().status === "READY") await observe(); else publish(); return result; }),
         open: () => enqueue(open), command: input => {
             let copy; try { copy = structuredClone(input); } catch (_) { copy = null; }

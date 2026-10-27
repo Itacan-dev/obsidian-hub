@@ -44,7 +44,7 @@ function getAtlasHost({ directory, partition }) {
     timer.unref?.();
     const refreshTimer = setInterval(() => { void managed.refresh(); }, 3_600_000); refreshTimer.unref?.();
     const api = Object.freeze({
-        apiVersion: 6,
+        apiVersion: 7,
         // Remote object proxies make every nested property read synchronous IPC.
         // Strings cross once; UI descriptions/results are ordinary local data.
         viewJSON: createViewJSON(() => api.view()),

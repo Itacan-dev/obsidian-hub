@@ -7,7 +7,7 @@ app.on("window-all-closed", () => {}); // each fixture owns a fresh hidden windo
 const directory = path.resolve(process.env.ATLAS_BROWSER_FIXTURE_DIR ?? path.resolve(__dirname, "../../../tests")), args = process.argv.slice(2);
 // These two pages compare personal artwork visually; they have no PASS marker.
 const visualOnly = new Set(["card-image-detail.html", "card-images.html"]);
-const names = args.includes("--all") ? fs.readdirSync(directory).filter(name => name.endsWith(".html") && !visualOnly.has(name) && /id=["']result["']/.test(fs.readFileSync(path.join(directory, name), "utf8"))).map(name => name.slice(0, -5)) : args.length ? args : ["settings", "workspace-navigation", "workspace-explorer", "workspace-covers", "atlas-product", "atlas-workflow", "atlas-rendering", "atlas-initialization"];
+const names = args.includes("--all") ? fs.readdirSync(directory).filter(name => name.endsWith(".html") && !visualOnly.has(name) && /id=["']result["']/.test(fs.readFileSync(path.join(directory, name), "utf8"))).map(name => name.slice(0, -5)) : args.length ? args : ["settings", "workspace-navigation", "workspace-explorer", "workspace-covers", "atlas-product", "atlas-workflow", "atlas-rendering", "atlas-initialization", "atlas-lifecycle"];
 if (!names.length || names.some(name => !/^[a-z-]+$/.test(name))) throw Error("Invalid fixture selection");
 app.whenReady().then(async () => {
     let baselineRequests = 0;

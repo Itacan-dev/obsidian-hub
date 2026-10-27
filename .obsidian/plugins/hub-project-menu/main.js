@@ -10587,7 +10587,7 @@ module.exports = { describeOutcome, describeAuthorityFailure, storageSummary };
 "lib/atlas/obsidian/home-ui.js": function (module, exports, __hubRequire) {
 "use strict";
 const { el, button, countdown, updateCountdowns } = __hubRequire("lib/atlas/obsidian/ui.js");
-const { pendingForBridge, presentationNow } = __hubRequire("lib/atlas/obsidian/pending.js");
+const { pendingForBridge, presentationNow, temporaryGrantUsable } = __hubRequire("lib/atlas/obsidian/pending.js");
 const { text, place, keyed, phaseAnnouncer } = __hubRequire("lib/atlas/obsidian/dom.js");
 
 function mountAtlasHome(parent, bridge, navigate) {
@@ -10656,14 +10656,18 @@ function mountAtlasHome(parent, bridge, navigate) {
         const record = { node, title: el(heading, "h2"), count: el(heading, "small") }; record.cards = cards(el(node, "div", undefined, "hub-atlas-grid")); return record;
     }, (r, category) => { text(r.title, category.name); const count = category.entries.filter(matches).length; text(r.count, count + " destination" + (count === 1 ? "" : "s")); r.node.hidden = !count; r.cards(category.entries); }, category => category.name);
     const matches = d => (d.label + " " + d.category + " " + d.hostname + " " + d.aliases.join(" ") + " " + d.destinations.join(" ")).toLowerCase().includes(search.value.trim().toLowerCase());
+    function refreshGrants(state, now) {
+        const grants = (state.temporaryDestinations ?? []).filter(g => temporaryGrantUsable(state, g, now));
+        noGrants.hidden = !!grants.length; syncGrants(grants); updateCountdowns(temporary, now);
+    }
     function refresh() {
         if (disposed) return;
         const state = bridge.view(), now = presentationNow(state); refreshPending();
         const available = state.status === "READY" && state.enabled;
         const destinations = available ? (state.destinations ?? []).filter(d => d.decision?.outcome === "ALLOW" && d.decision.reason === "WHITELISTED") : [];
-        const grants = (state.temporaryDestinations ?? []).filter(g => g.expiresAt > now && g.policyRevision === state.snapshot?.policyRevision && g.decision.outcome === "ALLOW");
+
         text(status, available ? "" : state.status === "UNINITIALIZED" ? "Initialize Atlas to begin with " + (state.starter?.serviceCount ?? "curated") + " destinations." : "Atlas is unavailable. External browsing stays blocked.");
-        noGrants.hidden = !!grants.length; syncGrants(grants); updateCountdowns(temporary, now);
+        refreshGrants(state, now);
         const favorites = destinations.filter(d => d.pinned); pinned.hidden = !favorites.some(matches); syncPinned(favorites);
         const categories = [...new Set(destinations.map(d => d.category))].map(name => ({ name, entries: destinations.filter(d => d.category === name) })); syncGroups(categories);
         const visible = destinations.some(matches); empty.hidden = visible || !available;
@@ -10675,7 +10679,7 @@ function mountAtlasHome(parent, bridge, navigate) {
     const key = event => { if (event.key === "/" && !["INPUT", "TEXTAREA", "SELECT"].includes(event.target.tagName) && !event.target.isContentEditable) { event.preventDefault(); search.focus(); } };
     parent.addEventListener("keydown", key);
     const unsubscribe = bridge.subscribe(refresh); refresh();
-    const timer = setInterval(() => { refreshPending(); updateCountdowns(temporary, presentationNow(bridge.view())); }, 1000);
+    const timer = setInterval(() => { refreshPending(); const state = bridge.view(); refreshGrants(state, presentationNow(state)); }, 1000);
     return () => { disposed = true; unsubscribe(); clearInterval(timer); parent.removeEventListener("keydown", key); search.removeEventListener("input", refresh); };
 }
 module.exports = { mountAtlasHome };
@@ -10945,7 +10949,7 @@ function installAtlasIntegration(plugin) {
         const directory = path.resolve(base, plugin.manifest.dir);
         const candidate = window.electron.remote.require(path.join(directory, "atlas-native.cjs"))
             .getAtlasHost({ directory, partition: app.getWebviewPartition() });
-        if (candidate.apiVersion !== 6) {
+        if (candidate.apiVersion !== 7) {
             // Never hot-swap an old controller or its uncertain-write guards.
             try { candidate.unsubscribe(null); } catch (_) { /* quarantine below */ }
             throw new Error("NATIVE_ADAPTER_UPGRADE_REQUIRED");
@@ -11086,6 +11090,11 @@ function presentationNow(state, now = Date.now()) {
     const s = state.snapshot;
     return Math.max(now, s?.accessState.lastObservedAt ?? 0, s?.vaultState.lastObservedAt ?? 0, s?.journeyState.lastObservedAt ?? 0);
 }
+function temporaryGrantUsable(state, grant, now = presentationNow(state)) {
+    return state.status === "READY" && state.enabled !== false && now < grant.expiresAt && grant.policyRevision === state.snapshot?.policyRevision &&
+        (state.temporaryDestinations ?? []).some(g => g.requestId === grant.requestId && g.hostname === grant.hostname &&
+            g.decision?.outcome === "ALLOW" && g.decision.reason === "ACTIVE_GRANT");
+}
 const phaseAt = (p, now) => now < p.readyAt ? "WAITING" : now < p.confirmBy ? "READY" : "EXPIRED";
 const labels = { WAITING: "Waiting", READY: "Ready for explicit confirmation", EXPIRED: "Expired", STALE: "Review required", UNRESOLVED: "Outcome unresolved" };
 function pendingActions(state, wallNow = Date.now(), session = null) {
@@ -11111,7 +11120,7 @@ function pendingActions(state, wallNow = Date.now(), session = null) {
     return items;
 }
 function pendingForBridge(bridge, now = Date.now()) { return pendingActions(bridge.view(), now, __hubRequire("lib/atlas/obsidian/session.js").getAtlasSession(bridge)); }
-module.exports = { pendingActions, pendingForBridge, phaseAt, presentationNow };
+module.exports = { pendingActions, pendingForBridge, phaseAt, presentationNow, temporaryGrantUsable };
 
 },
 "lib/atlas/obsidian/session.js": function (module, exports, __hubRequire) {
@@ -11168,7 +11177,7 @@ const { el, button, countdown, updateCountdowns, configurationInput, formatMilli
 const { getAtlasSession, createDestinationDraft, draftBase } = __hubRequire("lib/atlas/obsidian/session.js");
 const { describeOutcome, describeAuthorityFailure, storageSummary } = __hubRequire("lib/atlas/obsidian/feedback.js");
 const { normalizeTarget } = __hubRequire("lib/atlas/core/target.js");
-const { pendingActions, phaseAt, presentationNow } = __hubRequire("lib/atlas/obsidian/pending.js");
+const { pendingActions, phaseAt, presentationNow, temporaryGrantUsable } = __hubRequire("lib/atlas/obsidian/pending.js");
 const { keyed, phaseAnnouncer, text: setText } = __hubRequire("lib/atlas/obsidian/dom.js");
 let settingsInstance = 0;
 const pages = [["sites", "Sites & Access"], ["temporary", "Temporary Access"], ["timings", "Timings / Behaviour"],
@@ -11586,8 +11595,10 @@ function mountAtlasSettings(parent, bridge) {
                 const node = el(grantList, "article", undefined, "hub-atlas-site-row");
                 const r = { node, host: el(node, "strong"), status: el(node, "span") }; countdown(node, "Grant expires in", grant.expiresAt); r.count = node.querySelector("[data-atlas-deadline]"); return r;
             }, (r, grant) => {
-                setText(r.host, grant.hostname); const current = bridge.view(), usable = current.temporaryDestinations?.some(g => g.hostname === grant.hostname && g.decision.outcome === "ALLOW");
-                setText(r.status, usable ? "Temporary grant — usable now" : "Saved grant — not currently usable"); r.node.dataset.state = usable ? "ACTIVE_GRANT" : "EXPIRED"; r.count.dataset.atlasDeadline = String(grant.expiresAt);
+                setText(r.host, grant.hostname); const current = bridge.view(), now = presentationNow(current), usable = temporaryGrantUsable(current, grant, now);
+                const whitelisted = current.temporaryDestinations?.some(g => g.hostname === grant.hostname && g.decision?.reason === "WHITELISTED"), expired = now >= grant.expiresAt;
+                setText(r.status, whitelisted ? expired ? "Temporary grant expired. This host is Whitelisted." : "Whitelisted — this temporary grant is not needed." : usable ? "Temporary grant — usable now" : expired ? "Temporary grant expired." : "Saved grant — not currently usable");
+                r.node.dataset.state = usable ? "ACTIVE_GRANT" : expired ? "EXPIRED" : "SAVED"; r.count.hidden = whitelisted || expired; r.count.dataset.atlasDeadline = String(grant.expiresAt);
             }, grant => grant.requestId);
             el(temporary, "h4", "Pending requests"); const requestList = el(temporary, "div"), otherContexts = el(temporary, "div");
             const syncRequests = keyed(requestList, request => {
@@ -11813,7 +11824,7 @@ function mountAtlasSettings(parent, bridge) {
                     "Policy revision " + s.policyRevision + " · configuration revision " + s.configurationRevision,
                     "Storage envelope schema 2 · application schema " + (app?.schemaVersion ?? "unavailable"),
                     "Whitelist " + s.policy.whitelist.length + " · manual Blacklist " + s.policy.blacklist.length + " · managed " + (current.managed?.count ?? "unavailable"),
-                    "Active grants " + (current.temporaryDestinations ?? []).filter(g => g.decision.outcome === "ALLOW").length + " · saved grants " + s.accessState.grants.length + " · pending requests " + s.accessState.pendingRequests.length + " · Vault proposal " + (s.vaultState.pendingProposal?.id ?? "none"),
+                    "Active grants " + (current.temporaryDestinations ?? []).filter(g => temporaryGrantUsable(current, g)).length + " · saved grants " + s.accessState.grants.length + " · pending requests " + s.accessState.pendingRequests.length + " · Vault proposal " + (s.vaultState.pendingProposal?.id ?? "none"),
                     "Managed sync " + (current.managed?.status ?? "unavailable") + " · last success " + timestamp(current.managed?.lastSuccessfulSync)];
                 values.forEach((value, i) => setText(lines[i], value)); setText(version, "Storage version: " + current.storageVersion);
                 setText(issue, current.repositoryIssue ? "Storage issue: " + current.repositoryIssue : ""); const storageText = storageSummary(current); storageLines.forEach((node, i) => setText(node, storageText[i] ?? "")); syncJourneys(s.journeyState.journeys);
@@ -11831,7 +11842,7 @@ function mountAtlasSettings(parent, bridge) {
     paint(message, session.feedback);
     const unsubscribe = bridge.subscribe(refresh); refresh(); for (const [id, node] of sections) { const top = session.scrolls.get(id); if (top) node.scrollTop = top; } if (session.settingsScroll) parent.scrollTop = session.settingsScroll; if (session.route.context) focusRoute();
     const timer = setInterval(() => {
-        const state = bridge.view(), next = JSON.stringify([pendingActions(state, Date.now(), session), state.contexts.map(c => [c.id, !bridge.canActOnContext || bridge.canActOnContext(c)])]);
+        const state = bridge.view(), next = JSON.stringify([pendingActions(state, Date.now(), session), state.contexts.map(c => [c.id, !bridge.canActOnContext || bridge.canActOnContext(c)]), state.snapshot?.accessState.grants.map(g => presentationNow(state) < g.expiresAt)]);
         if (next !== temporalSignature) { temporalSignature = next; refresh(); } else { vaultTick?.(); updateCountdowns(parent, presentationNow(state)); }
     }, 250);
     return () => { captureDraft?.(); captureTimings?.(); captureSetup?.(); for (const [id, node] of sections) session.scrolls.set(id, node.scrollTop); session.settingsScroll = parent.scrollTop; disposed = true; clearInterval(timer); unsubscribe(); unsubscribeRoute(); for (const dispose of mounts.values()) dispose(); parent.classList.remove("hub-atlas-overview"); };
@@ -11887,6 +11898,7 @@ function updateCountdowns(parent, now = Date.now()) {
         if (node.textContent !== value) node.textContent = value;
     }
 }
+const browserFailures = new Set(["INTERCEPTION_LOST", "INTERCEPTION_UNAVAILABLE", "INTERCEPTION_SETUP_TIMEOUT", "INTERCEPTION_NOT_READY", "MISSING_NAVIGATION_CORRELATION", "UNCORRELATED_ARRIVAL", "UNEXPECTED_URL_CHANGE", "RENDERER_GONE", "RELEASE_FAILED", "NAVIGATION_CHECK_FAILED", "NAVIGATION_CHECK_TIMEOUT", "HISTORY_FENCE_FAILED"]);
 const navigationMounts = new WeakMap();
 function renderNavigation(parent, state, context, bridge) {
     const { getAtlasSession } = __hubRequire("lib/atlas/obsidian/session.js"), { describeOutcome } = __hubRequire("lib/atlas/obsidian/feedback.js"), { keyed, text } = __hubRequire("lib/atlas/obsidian/dom.js");
@@ -11898,12 +11910,15 @@ function renderNavigation(parent, state, context, bridge) {
         mount.feedbackText = el(mount.feedback, "p"); mount.feedbackAction = button(mount.feedback, "Review saved state", () => { const value = getAtlasSession(bridge).contextFeedback.get(mount.context?.id); if (value?.section) bridge.open?.({ section: value.section }); });
         mount.copy = el(parent, "p"); mount.copy.setAttribute("role", "status");
         countdown(parent, "", 0); mount.count = parent.querySelector("[data-atlas-deadline]");
+        mount.reason = el(parent, "details"); el(mount.reason, "summary", "Why this tab stopped"); mount.reasonCode = el(mount.reason, "code");
         mount.journey = el(parent, "p"); const actions = el(parent, "div", undefined, "hub-atlas-context-actions");
         mount.actions = keyed(actions, item => { const r = { node: null, value: item }; r.node = button(actions, item.label, () => r.value.run()); return r; },
             (r, item) => { text(r.node, item.label); r.node.dataset.atlasNotReady = item.disabled ? "true" : "false"; r.node.disabled = !!item.disabled || r.node.dataset.atlasBusy === "true"; }, item => item.key);
         navigationMounts.set(parent, mount);
     }
     mount.context = context; parent.dataset.atlasContextId = context?.id ?? "";
+    const reason = context?.response?.type === "BLOCKED" && /^[A-Z_]{1,64}$/.test(context.response.reason) ? context.response.reason : null;
+    mount.reason.hidden = !reason; text(mount.reasonCode, reason);
     const decision = context?.response?.decision, expired = ["WAIT", "REQUIRE_CONFIRMATION"].includes(decision?.outcome) && now >= decision.confirmBy;
     const usable = !bridge.canActOnContext || !!context && bridge.canActOnContext(context), feedback = session.contextFeedback.get(context?.id);
     parent.dataset.state = state.status !== "READY" ? "UNRESOLVED" : expired ? "EXPIRED" : decision?.reason ?? decision?.outcome ?? "BLOCKED";
@@ -11929,8 +11944,12 @@ function renderNavigation(parent, state, context, bridge) {
         copy = state.status === "UNINITIALIZED" ? "Set up Atlas before browsing." : "Saved authority is unavailable. Browsing stays blocked; reconcile saved state to continue.";
         route("Open Atlas", state.status === "UNINITIALIZED" ? "sites" : "diagnostics");
     } else if (!context) copy = "This browsing context is no longer available. Return to a destination in a Note tab to continue.";
-    else if (!usable) {
-        copy = "Access controls are available from an owned Note workspace. This request has not granted access."; route("Review Temporary Access", "temporary");
+    else if (browserFailures.has(reason)) {
+        copy = "The browser connection for this tab was interrupted. Your saved access rules are unchanged. Open a fresh homepage to check access again.";
+        if (usable && context.origin) action("Open homepage again", "OPEN_HOME");
+        route("Diagnostics / Recovery", "diagnostics");
+    } else if (!usable) {
+        copy = decision?.outcome === "ALLOW" ? "Access is available for this destination. Return to its Note tab to reopen it." : "Access controls are available from an owned Note workspace. This request has not granted access."; route("Review Temporary Access", "temporary");
     } else if (expired) {
         copy = "This access request expired without granting access. Request again for a full new wait.";
         action("Request access again", "START_ACCESS"); route("Review Temporary Access", "temporary", { contextId: context.id });

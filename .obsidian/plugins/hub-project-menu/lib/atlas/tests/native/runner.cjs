@@ -64,6 +64,10 @@ app.whenReady().then(async () => {
                 response.setHeader("Content-Type", "application/javascript");
                 response.end("self.addEventListener('install', e => self.skipWaiting()); self.addEventListener('activate', e => e.waitUntil(self.clients.claim())); self.addEventListener('fetch', e => { if(e.request.mode === 'navigate') e.respondWith(new Response('<title>cached worker document</title>', {headers:{'Content-Type':'text/html'}})); });"); return;
             }
+            if (pathname.startsWith("/responsive-layout")) {
+                response.setHeader("Content-Type", "text/html");
+                response.end("<!doctype html><title>Responsive fixture</title><script>history.replaceState({},'', '/responsive-layout?initial=1');new ResizeObserver(()=>history.replaceState({},'', '/responsive-layout?width='+innerWidth)).observe(document.documentElement)</script><p>Responsive document</p>"); return;
+            }
             response.setHeader("Content-Type", "text/html");
             response.end(`<!doctype html><title>${host}</title><p>${host}</p><a id="leave" href="${url("idp.test", "/login")}">Sign in</a><form id="form" method="post" action="${url("account.test", "/submit")}"><input name="token" value="retained-original-body"></form>`);
         });
@@ -193,6 +197,34 @@ app.whenReady().then(async () => {
         await until(() => item.context.displayed?.url === url("trusted.test", "/same-document#two"), "same document update");
         await runtime.observe(); assert.equal(item.context.phase, "DISPLAYED");
     });
+    await caseTest("a responsive document survives divider dragging before its arrival acknowledgement", async () => {
+        const originalCommit = repository.commit.bind(repository); let release, entered, held = false;
+        const acknowledgement = new Promise(resolve => { release = resolve; }), reached = new Promise(resolve => { entered = resolve; });
+        repository.commit = async request => {
+            const receipt = await originalCommit(request), last = request.next.snapshot.journeyState.journeys.at(-1);
+            if (!held && last?.phase === "ENDED" && last.endReason === "REACHED") { held = true; entered(last.contextId); await acknowledgement; }
+            return receipt;
+        };
+        try {
+            const loading = createGuest(url("trusted.test", "/responsive-layout"));
+            const contextId = await Promise.race([reached, delay(6000).then(() => { throw Error("Responsive arrival did not reach persistence"); })]);
+            const context = runtime.view().contexts.find(c => c.id === contextId), guard = enforcement.getGuard(context.nativeId), guest = guard.contents;
+            await until(() => guard.context.flight?.documentURL?.includes("/responsive-layout?"), "same-document URL captured before receipt");
+            assert.equal(guard.context.displayed, null); assert.equal(guest.isDestroyed(), false);
+            await window.webContents.executeJavaScript("(()=>{document.body.style.cssText='margin:0;display:flex;height:100vh';const aside=document.createElement('aside'),divider=document.createElement('div');aside.style.cssText='width:150px;flex:none';divider.style.cssText='width:8px;flex:none;background:gray';document.body.prepend(aside,divider);let dragging=false;divider.onpointerdown=()=>dragging=true;document.onpointerup=()=>dragging=false;document.onpointermove=e=>{if(dragging)aside.style.width=Math.max(20,e.clientX)+'px'};document.querySelector('webview').style.cssText='flex:1;min-width:0;width:0;height:100%';})()");
+            window.webContents.sendInputEvent({ type: "mouseDown", x: 154, y: 100, button: "left", clickCount: 1 });
+            for (const x of [300, 80, 350, 120, 400, 200, 100, 300]) { window.webContents.sendInputEvent({ type: "mouseMove", x, y: 100 }); await delay(20); }
+            window.webContents.sendInputEvent({ type: "mouseUp", x: 300, y: 100, button: "left", clickCount: 1 });
+            assert.equal(guest.isDestroyed(), false); assert.equal(guard.context.displayed, null);
+            release(); const item = await loading;
+            await until(() => item.context.displayed?.url === guest.getURL(), "final responsive URL uses acknowledged loader");
+            assert.equal(item.context.phase, "DISPLAYED"); assert.equal(item.context.response.decision.reason, "WHITELISTED");
+            await runtime.observe(); assert.equal(item.guest.isDestroyed(), false);
+        } finally {
+            release(); repository.commit = originalCommit;
+            await window.webContents.executeJavaScript("document.body.style.cssText='';document.onpointermove=null;document.onpointerup=null;void 0").catch(() => {});
+        }
+    });
     await caseTest("debugger detachment and unsupported programmatic protocols fail closed", async () => {
         const item = await createGuest(); item.guest.debugger.detach(); await until(() => item.guest.isDestroyed(), "detach closure");
         const second = await createGuest(); await blockedAfter(second, () => second.guest.loadURL("file:///does-not-exist"));
@@ -303,7 +335,7 @@ app.whenReady().then(async () => {
         assert.match(result, /^PASS/); console.log(result);
         await uiWindow.webContents.executeJavaScript("document.body.replaceChildren()"); uiWindow.close();
     });
-    assert.equal(passed, 25); console.log(`Native Atlas tests: ${passed} passed`);
+    assert.equal(passed, 26); console.log(`Native Atlas tests: ${passed} passed`);
     cleanup(0);
 }).catch(error => { console.error(error.stack); console.error(JSON.stringify(trace.slice(-8))); if (runtime) console.error(JSON.stringify(runtime.view().contexts.slice(-2))); cleanup(1); });
 async function cleanup(code) {

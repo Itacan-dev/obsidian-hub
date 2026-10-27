@@ -1,6 +1,6 @@
 "use strict";
 const { el, button, countdown, updateCountdowns } = require("./ui");
-const { pendingForBridge, presentationNow } = require("./pending");
+const { pendingForBridge, presentationNow, temporaryGrantUsable } = require("./pending");
 const { text, place, keyed, phaseAnnouncer } = require("./dom");
 
 function mountAtlasHome(parent, bridge, navigate) {
@@ -69,14 +69,18 @@ function mountAtlasHome(parent, bridge, navigate) {
         const record = { node, title: el(heading, "h2"), count: el(heading, "small") }; record.cards = cards(el(node, "div", undefined, "hub-atlas-grid")); return record;
     }, (r, category) => { text(r.title, category.name); const count = category.entries.filter(matches).length; text(r.count, count + " destination" + (count === 1 ? "" : "s")); r.node.hidden = !count; r.cards(category.entries); }, category => category.name);
     const matches = d => (d.label + " " + d.category + " " + d.hostname + " " + d.aliases.join(" ") + " " + d.destinations.join(" ")).toLowerCase().includes(search.value.trim().toLowerCase());
+    function refreshGrants(state, now) {
+        const grants = (state.temporaryDestinations ?? []).filter(g => temporaryGrantUsable(state, g, now));
+        noGrants.hidden = !!grants.length; syncGrants(grants); updateCountdowns(temporary, now);
+    }
     function refresh() {
         if (disposed) return;
         const state = bridge.view(), now = presentationNow(state); refreshPending();
         const available = state.status === "READY" && state.enabled;
         const destinations = available ? (state.destinations ?? []).filter(d => d.decision?.outcome === "ALLOW" && d.decision.reason === "WHITELISTED") : [];
-        const grants = (state.temporaryDestinations ?? []).filter(g => g.expiresAt > now && g.policyRevision === state.snapshot?.policyRevision && g.decision.outcome === "ALLOW");
+
         text(status, available ? "" : state.status === "UNINITIALIZED" ? "Initialize Atlas to begin with " + (state.starter?.serviceCount ?? "curated") + " destinations." : "Atlas is unavailable. External browsing stays blocked.");
-        noGrants.hidden = !!grants.length; syncGrants(grants); updateCountdowns(temporary, now);
+        refreshGrants(state, now);
         const favorites = destinations.filter(d => d.pinned); pinned.hidden = !favorites.some(matches); syncPinned(favorites);
         const categories = [...new Set(destinations.map(d => d.category))].map(name => ({ name, entries: destinations.filter(d => d.category === name) })); syncGroups(categories);
         const visible = destinations.some(matches); empty.hidden = visible || !available;
@@ -88,7 +92,7 @@ function mountAtlasHome(parent, bridge, navigate) {
     const key = event => { if (event.key === "/" && !["INPUT", "TEXTAREA", "SELECT"].includes(event.target.tagName) && !event.target.isContentEditable) { event.preventDefault(); search.focus(); } };
     parent.addEventListener("keydown", key);
     const unsubscribe = bridge.subscribe(refresh); refresh();
-    const timer = setInterval(() => { refreshPending(); updateCountdowns(temporary, presentationNow(bridge.view())); }, 1000);
+    const timer = setInterval(() => { refreshPending(); const state = bridge.view(); refreshGrants(state, presentationNow(state)); }, 1000);
     return () => { disposed = true; unsubscribe(); clearInterval(timer); parent.removeEventListener("keydown", key); search.removeEventListener("input", refresh); };
 }
 module.exports = { mountAtlasHome };

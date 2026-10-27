@@ -45,6 +45,7 @@ function updateCountdowns(parent, now = Date.now()) {
         if (node.textContent !== value) node.textContent = value;
     }
 }
+const browserFailures = new Set(["INTERCEPTION_LOST", "INTERCEPTION_UNAVAILABLE", "INTERCEPTION_SETUP_TIMEOUT", "INTERCEPTION_NOT_READY", "MISSING_NAVIGATION_CORRELATION", "UNCORRELATED_ARRIVAL", "UNEXPECTED_URL_CHANGE", "RENDERER_GONE", "RELEASE_FAILED", "NAVIGATION_CHECK_FAILED", "NAVIGATION_CHECK_TIMEOUT", "HISTORY_FENCE_FAILED"]);
 const navigationMounts = new WeakMap();
 function renderNavigation(parent, state, context, bridge) {
     const { getAtlasSession } = require("./session"), { describeOutcome } = require("./feedback"), { keyed, text } = require("./dom");
@@ -56,12 +57,15 @@ function renderNavigation(parent, state, context, bridge) {
         mount.feedbackText = el(mount.feedback, "p"); mount.feedbackAction = button(mount.feedback, "Review saved state", () => { const value = getAtlasSession(bridge).contextFeedback.get(mount.context?.id); if (value?.section) bridge.open?.({ section: value.section }); });
         mount.copy = el(parent, "p"); mount.copy.setAttribute("role", "status");
         countdown(parent, "", 0); mount.count = parent.querySelector("[data-atlas-deadline]");
+        mount.reason = el(parent, "details"); el(mount.reason, "summary", "Why this tab stopped"); mount.reasonCode = el(mount.reason, "code");
         mount.journey = el(parent, "p"); const actions = el(parent, "div", undefined, "hub-atlas-context-actions");
         mount.actions = keyed(actions, item => { const r = { node: null, value: item }; r.node = button(actions, item.label, () => r.value.run()); return r; },
             (r, item) => { text(r.node, item.label); r.node.dataset.atlasNotReady = item.disabled ? "true" : "false"; r.node.disabled = !!item.disabled || r.node.dataset.atlasBusy === "true"; }, item => item.key);
         navigationMounts.set(parent, mount);
     }
     mount.context = context; parent.dataset.atlasContextId = context?.id ?? "";
+    const reason = context?.response?.type === "BLOCKED" && /^[A-Z_]{1,64}$/.test(context.response.reason) ? context.response.reason : null;
+    mount.reason.hidden = !reason; text(mount.reasonCode, reason);
     const decision = context?.response?.decision, expired = ["WAIT", "REQUIRE_CONFIRMATION"].includes(decision?.outcome) && now >= decision.confirmBy;
     const usable = !bridge.canActOnContext || !!context && bridge.canActOnContext(context), feedback = session.contextFeedback.get(context?.id);
     parent.dataset.state = state.status !== "READY" ? "UNRESOLVED" : expired ? "EXPIRED" : decision?.reason ?? decision?.outcome ?? "BLOCKED";
@@ -87,8 +91,12 @@ function renderNavigation(parent, state, context, bridge) {
         copy = state.status === "UNINITIALIZED" ? "Set up Atlas before browsing." : "Saved authority is unavailable. Browsing stays blocked; reconcile saved state to continue.";
         route("Open Atlas", state.status === "UNINITIALIZED" ? "sites" : "diagnostics");
     } else if (!context) copy = "This browsing context is no longer available. Return to a destination in a Note tab to continue.";
-    else if (!usable) {
-        copy = "Access controls are available from an owned Note workspace. This request has not granted access."; route("Review Temporary Access", "temporary");
+    else if (browserFailures.has(reason)) {
+        copy = "The browser connection for this tab was interrupted. Your saved access rules are unchanged. Open a fresh homepage to check access again.";
+        if (usable && context.origin) action("Open homepage again", "OPEN_HOME");
+        route("Diagnostics / Recovery", "diagnostics");
+    } else if (!usable) {
+        copy = decision?.outcome === "ALLOW" ? "Access is available for this destination. Return to its Note tab to reopen it." : "Access controls are available from an owned Note workspace. This request has not granted access."; route("Review Temporary Access", "temporary");
     } else if (expired) {
         copy = "This access request expired without granting access. Request again for a full new wait.";
         action("Request access again", "START_ACCESS"); route("Review Temporary Access", "temporary", { contextId: context.id });

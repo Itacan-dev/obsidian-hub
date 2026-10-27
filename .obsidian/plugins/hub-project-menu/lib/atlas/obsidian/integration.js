@@ -261,7 +261,7 @@ function installAtlasIntegration(plugin) {
         const directory = path.resolve(base, plugin.manifest.dir);
         const candidate = window.electron.remote.require(path.join(directory, "atlas-native.cjs"))
             .getAtlasHost({ directory, partition: app.getWebviewPartition() });
-        if (candidate.apiVersion !== 6) {
+        if (candidate.apiVersion !== 7) {
             // Never hot-swap an old controller or its uncertain-write guards.
             try { candidate.unsubscribe(null); } catch (_) { /* quarantine below */ }
             throw new Error("NATIVE_ADAPTER_UPGRADE_REQUIRED");
