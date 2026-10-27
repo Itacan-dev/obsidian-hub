@@ -1,6 +1,6 @@
 "use strict";
 // Private fixed projection of an already validated authoritative generation.
-const V = require("./value"), F = require("./completion-effects"), I = require("./history-import"), { check } = require("./errors");
+const V = require("./value"), F = require("./completion-effects"), I = require("./history-import"), { check, fail } = require("./errors");
 const hash = I.hash, same = F.same;
 function validateRequest(r) {
     V.jsonValue(r); V.fields(r, ["version", "authorityId", "owners", "selection"], ["version", "authorityId", "owners", "selection"]);
@@ -9,6 +9,7 @@ function validateRequest(r) {
     r.owners.forEach(require("./domain").workspace); return V.clone(r);
 }
 function publication(state, e) {
+    if (state.personalShared) return require("./personal-shared").eventPublication(state, e);
     if (state.gitShared) return require("./git-shared").eventPublication(state, e);
     const r = state.receipts.find(r => r.operationId === e.operationId), c = r && JSON.parse(r.payload);
     check(r && r.result.change.eventIds.filter(id => id === e.id).length === 1 && r.partitionIds.includes(e.partitionId), "History creation receipt mismatch.");
@@ -35,6 +36,7 @@ function publication(state, e) {
     return { origin, receipt: { operationId: r.operationId, repositoryRevision: r.result.repositoryRevision, revisionId: r.result.revisionId, digest: hash(r), index: r.result.change.eventIds.indexOf(e.id) } };
 }
 function projectHistory(state, request, storage) {
+    if(state.personalShared){const conflicts=require("./personal-shared").checked(state).current.conflicts;if(state.personalShared.version===2&&conflicts.length)fail("PERSONAL_HISTORY_CONFLICT","Personal History has unresolved conflicts.");check(conflicts.length===0,"Personal History has unresolved conflicts.");}
     const selected = owner => request.owners.some(o => same(o, owner));
     const base = require("./snapshot-read").projectSnapshot(state, { version: 1, authorityId: request.authorityId, owners: request.owners, selection: "targets", targets: [] }, storage);
     check(base.partitions.length === request.owners.length, "History owner partition missing.");

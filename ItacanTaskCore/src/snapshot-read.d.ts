@@ -5,7 +5,7 @@ export type SnapshotRequestV1 = {version:1;authorityId:string;owners:readonly Wo
  {selection:"tasks";includeArchived?:boolean;includeDeleted?:boolean;includeConsumerFacts?:boolean;targets?:never} |
  {selection:"status";includeArchived?:boolean;includeDeleted?:boolean;includeConsumerFacts?:never;targets?:never} |
  {selection:"targets"|"completions";targets:readonly SnapshotTargetV1[];includeArchived?:never;includeDeleted?:never});
-export type CanonicalTaskSnapshotV1 = Pick<NativeTask,"id"|"revision"|"partitionId"|"owner"|"location"|"title"|"description"|"completed"|"completedAt"|"importance"|"start"|"due"|"phase"|"steps"|"archivedAt"|"deletedAt"> & {kind:"native-task-snapshot";consumerFacts?:{version:1;recurrenceMember:boolean}};
+export type CanonicalTaskSnapshotV1 = Pick<NativeTask,"id"|"revision"|"partitionId"|"owner"|"location"|"title"|"description"|"completed"|"completedAt"|"importance"|"start"|"due"|"phase"|"steps"|"archivedAt"|"deletedAt"> & {kind:"native-task-snapshot";consumerFacts?:{version:1;recurrenceMember:boolean;personalConflict?:boolean}};
 export interface TargetSnapshotV1 {index:number;taskId:string;disposition:"resolved"|"missing"|"deleted"|"owner-mismatch"|"quarantined"|"pending-native-publication"|"retired-step"|"kind-mismatch"|"missing-step";task:CanonicalTaskSnapshotV1|null;preparation:null|{repositoryRevision:number;revisionId:string;taskRevision:number;open:true}}
 export interface CompletionSnapshotV1 {index:number;binding:{taskId:string;stepId:string|null;eventId:string}|null;event:CompletionEventEvidenceV1|null;creation:CompletionReceiptEvidenceV1|null}
 export interface CoherentSnapshotV1 {

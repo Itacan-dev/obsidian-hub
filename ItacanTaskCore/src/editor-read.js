@@ -11,6 +11,7 @@ function projectEditor(state, target, { fenced = false } = {}) {
     }
     if (task.partitionId !== target.partitionId || V.canonical(task.owner) !== V.canonical(target.owner)) return unavailable("OWNER_MISMATCH");
     if (task.deletedAt !== null) return unavailable("TASK_DELETED");
+    if(state.personalShared&&require("./personal-shared").checked(state).current.conflicts.some(c=>c.taskId===task.id))return unavailable("PERSONAL_CONFLICT");
     const partition = state.partitions.find(p => p.id === task.partitionId), current = C.contentOf(task)?.revisions.at(-1).current;
     const steps = F.ordered(task.steps);
     return {

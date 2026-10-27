@@ -70,7 +70,7 @@ function operationSnapshot(state, request, storage) {
     const partitions = state.partitions.filter(p => same(p.owner, request.owners[0]));
     check(partitions.length === 1, "Operation owner unavailable.");
     const localReceipt = state.receipts.find(r => r.operationId === request.operationId);
-    const origin = !localReceipt && state.gitShared ? require("./git-shared").receiptEvidence(state, request.operationId) : null;
+    const origin = !localReceipt ? (state.gitShared ? require("./git-shared") : state.personalShared ? require("./personal-shared") : null)?.receiptEvidence(state, request.operationId) : null;
     const receipt = localReceipt ?? origin?.receipt;
     const fenced = !!storage.fenced;
     let operation = { state: "missing", code: "RECEIPT_UNAVAILABLE", operationId: request.operationId, receipt: null, taskIds: [], eventIds: [] };
@@ -100,7 +100,8 @@ function projectSnapshot(state, request, storage = {}) {
     const partitions = state.partitions.filter(p => request.selection === "status" || request.owners.some(o => same(o, p.owner)));
     const tasks = [], targets = [], completions = [];
     const selected = t => request.owners.some(o => same(o, t.owner));
-    if (request.selection === "tasks") for (const t of state.tasks) if (selected(t) && (request.includeArchived || t.archivedAt === null) && (request.includeDeleted || t.deletedAt === null)) tasks.push({ ...taskView(t), ...(request.includeConsumerFacts ? { consumerFacts: { version: 1, recurrenceMember: require("./atomic-task").recurrenceGuard(state, t).kind !== "none" } } : {}) });
+    const personalConflicts=state.personalShared&&request.includeConsumerFacts?new Set(require("./personal-shared").checked(state).current.conflicts.map(c=>c.taskId)):null;
+    if (request.selection === "tasks") for (const t of state.tasks) if (selected(t) && (request.includeArchived || t.archivedAt === null) && (request.includeDeleted || t.deletedAt === null)) tasks.push({ ...taskView(t), ...(request.includeConsumerFacts ? { consumerFacts: { version: 1, recurrenceMember: require("./atomic-task").recurrenceGuard(state, t).kind !== "none", ...(personalConflicts?{personalConflict:personalConflicts.has(t.id)}:{}) } } : {}) });
     if (["targets", "completions"].includes(request.selection)) request.targets.forEach((target, index) => {
         const task = state.tasks.find(t => t.id === target.taskId), reservation = state.historyImport?.plan.reservations.find(r => r.id === target.taskId && r.kind === "task");
         let disposition = !task ? reservation?.purpose === "quarantined-target" ? "quarantined" : reservation?.purpose === "eligible-target" && state.historyImport.outcome === null ? "pending-native-publication" : state.retiredStepIds.includes(target.taskId) ? "retired-step" : state.tasks.some(t => t.steps.some(s => s.id === target.taskId)) ? "kind-mismatch" : "missing" : !same(task.owner, target.owner) || task.partitionId !== target.partitionId ? "owner-mismatch" : task.deletedAt !== null ? "deleted" : "resolved";

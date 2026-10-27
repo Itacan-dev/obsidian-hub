@@ -5,6 +5,10 @@ const { validateState, validatePartition, workspace, workspaceKey, location, pha
 const { validateCommand, applyCommand } = require("./commands");
 const { buildIndexes } = require("./indexes");
 const Admission = require("./command-admission");
+const resolutionErrors=new WeakMap(),resolutionProofs=new WeakMap();
+function personalResolutionRejection(error){const body=resolutionErrors.get(error);if(!body)return null;resolutionErrors.delete(error);const proof=Object.freeze({version:1});resolutionProofs.set(proof,body);return proof;}
+function consumePersonalResolutionRejection(proof){const body=resolutionProofs.get(proof);check(body,"Writer-proven personal rejection required.");resolutionProofs.delete(proof);return clone(body);}
+
 
 function publicationResult(candidate, command, changes) {
     const affectedTasks = changes.taskIds.map(id => candidate.tasks.find(task => task.id === id));
@@ -15,6 +19,7 @@ function publicationResult(candidate, command, changes) {
     taskIds: changes.taskIds, eventIds: changes.eventIds, partitions: candidate.partitions.filter(p => changes.partitionIds.includes(p.id)).map(clone) }, replayed: false, ...(changes.recurrence ? { recurrence: clone(changes.recurrence) } : {}), ...(changes.historyImport ? { historyImport: clone(changes.historyImport) } : {}) };
     if (changes.atomicTask) result.atomicTask = clone(changes.atomicTask);
     if (changes.gitShared) result.gitShared = clone(changes.gitShared);
+    if (changes.personal) result.personal = clone(changes.personal);
     return result;
 }
 function initialState(partitions, storeId, nextId, gitSharedVersion, sharedGenesis) {
@@ -87,8 +92,31 @@ class TaskRepository {
         });
         this.#queue = work.catch(() => {}); return work;
     }
+    exportPersonalPacket() {
+        this.assertOpen();
+        const work = this.#queue.then(async () => {
+            const state = await this.#storage.load(); validateState(state);
+            check(state.storeId === this.#state.storeId && state.revisionId === this.#state.revisionId && state.personalShared, "Personal authoritative capture unavailable.");
+            const observation = await this.#storage.beginReadObservation?.();
+            await this.#storage.assertAllWritable?.(state); await require("./personal-shared").validateState(state);
+            const packet = require("./personal-shared").packet(state.personalShared);
+            await this.#storage.assertReadObservation?.(observation); return packet;
+        }); this.#queue = work.catch(() => {}); return work;
+    }
+    proveStalePrivateSave(command, proof = null) {
+        this.assertOpen(); const detached=clone(command), held=proof===null?null:clone(proof);
+        const work=this.#queue.then(async()=>{
+            const state=await this.#storage.load(); validateState(state);
+            check(state.storeId===this.#state.storeId&&state.revisionId===this.#state.revisionId,"Private save proof generation changed.");
+            const observation=await this.#storage.beginReadObservation?.();
+            check(this.#storage.atomicTaskCapability?.()&&!this.#storage.recovery&&!this.#storage.atomicTaskRecoveryKnown?.()&&!this.#storage.recurrenceFence,"Intact atomic authority required for nonexecution proof.");
+            await this.#storage.assertAllWritable?.(state);
+            const result=held===null?require("./private-save-rejection").prove(state,detached):require("./private-save-rejection").verify(state,detached,held);
+            await this.#storage.assertReadObservation?.(observation); await this.#storage.assertAllWritable?.(state); return clone(result);
+        }); this.#queue=work.catch(()=>{}); return work;
+    }
     exportSharedPartition(partitionId) {
-        this.assertOpen(); const partition = this.#state.partitions.find(p => p.id === partitionId);
+        this.assertOpen(); check(!this.#state.personalShared, "Personal evidence cannot enter a Git partition export."); const partition = this.#state.partitions.find(p => p.id === partitionId);
         check(!!partition, "Unknown partition.");
         if (require("./history-import").dependentPartitions(this.#state).includes(partitionId)) fail("UNSUPPORTED_OPERATION", "Import-dependent partition transport requires the separately reviewed N4 contract.");
         if (this.#state.recurrence?.memberships.some(o => o.partitionId === partitionId)) fail("UNSUPPORTED_OPERATION", "Recurrence partition transport requires the separately reviewed N4 shared contract.");
@@ -153,17 +181,22 @@ class TaskRepository {
     execute(input, admissionTicket, replicationEvidence) {
         this.assertOpen(); const command = clone(input); validateCommand(command);
         let sharedPacket = null, replicationError = null;
-        if (replicationEvidence !== undefined) { try { fields(replicationEvidence, ["version", "packet"], ["version", "packet"]); sharedPacket = clone(replicationEvidence.packet); check(replicationEvidence.version === 1 && command.type === "git.receive" && require("./git-shared").hash(sharedPacket) === command.payload.packetDigest, "Replication evidence is receive-only and digest-bound."); } catch (error) { replicationError = error; } }
+        if (replicationEvidence !== undefined) { try { fields(replicationEvidence, ["version", "packet"], ["version", "packet"]); sharedPacket = clone(replicationEvidence.packet); check(replicationEvidence.version === 1 && ["git.receive", "personal.receive"].includes(command.type) && require("./git-shared").hash(sharedPacket) === command.payload.packetDigest, "Replication evidence is receive-only and digest-bound."); } catch (error) { replicationError = error; } }
+        let resolutionBefore=null,publicationAttempted=false;
         const work = this.#queue.then(async () => {
             const state = await this.#storage.load(); validateState(state);
             if (state.storeId !== this.#state.storeId || state.revisionId !== this.#state.revisionId) fail("REPOSITORY_CONFLICT", "Repository generation changed outside this instance.");
             if (state.gitShared) { check(this.#storage.gitSharedCapability?.(), "Git capability required."); check([...require("./git-shared").TYPES, "git.receive"].includes(command.type), "Unsupported Git operation."); } else check(command.type !== "git.receive", "Git receive requires explicit creation capability.");
+            if(command.type==="personal.resolve")resolutionBefore={authorityId:state.storeId,head:{repositoryRevision:state.revision,revisionId:state.revisionId},operationId:command.operationId,commandDigest:require("./personal-shared").hash(command)};
+            if (state.personalShared) { check(this.#options.personalSync, "Personal replica context required."); check([...require("./personal-shared").TYPES, "personal.receive", ...(this.#options.personalSync?.binding.version===2?["personal.resolve","personal.upgrade"]:[])].includes(command.type), "Unsupported personal operation."); }
+            if (command.type.startsWith("personal.")) check(this.#options.personalSync, "Explicit personal admission required.");
+            this.#storage.assertPersonalEnrollmentCommand?.(command, state);
             await this.#storage.assertAllWritable?.(state);
             if (["task.save", "task.createRich"].includes(command.type) && !this.#storage.atomicTaskCapability?.()) fail("ATOMIC_TASK_CAPABILITY_REQUIRED", "Atomic commands require capability enabled at creation.");
             if (this.#admission && this.#storage.recurrenceFence) fail("RECOVERY_REQUIRED", "Writer-hosted commands require intact ready state.");
             const admission = await Admission.begin(this.#admission, admissionTicket, command, state);
             if (replicationError) throw replicationError;
-            const payload = canonical(command), receipt = this.#indexes.receipts.get(command.operationId) ?? (state.gitShared ? require("./git-shared").receiptEvidence(state, command.operationId)?.receipt : null);
+            const payload = canonical(command), receipt = this.#indexes.receipts.get(command.operationId) ?? (state.gitShared ? require("./git-shared").receiptEvidence(state, command.operationId)?.receipt : state.personalShared ? require("./personal-shared").receiptEvidence(state, command.operationId)?.receipt : null);
             const imports = require("./history-import"), importScope = imports.mergeScope(this.#storage.importRecoveryScope ?? null, imports.scopeOf(state));
             await this.#storage.assertHistoryImportWritable?.(command, state);
             imports.assertWritable(command, state, this.#storage.recurrenceFence, importScope);
@@ -175,7 +208,7 @@ class TaskRepository {
             if (this.#admission && this.#storage.recurrenceFence) fail("RECOVERY_REQUIRED", "Observed recovery fence blocks writer replay.");
             if (receipt) {
                 if (receipt.payload !== payload) fail("OPERATION_CONFLICT", "Operation ID was reused with a different command.");
-                const origin = state.gitShared && !this.#indexes.receipts.has(command.operationId) ? require("./git-shared").receiptEvidence(state, command.operationId) : null;
+                const origin = !this.#indexes.receipts.has(command.operationId) ? (state.gitShared ? require("./git-shared") : state.personalShared ? require("./personal-shared") : null)?.receiptEvidence(state, command.operationId) : null;
                 return { ...clone(receipt.result), replayed: true, ...(origin ? { originReplay: { version: 1, originId: origin.origin.id,
                     application: { operationId: origin.application.operationId, repositoryRevision: origin.application.result.repositoryRevision, revisionId: origin.application.result.revisionId } } } : {}) };
             }
@@ -183,9 +216,9 @@ class TaskRepository {
             if (command.expectedRepositoryRevision !== undefined && command.expectedRepositoryRevision !== state.revision) fail("REPOSITORY_CONFLICT", "Repository revision is stale.", { expected: command.expectedRepositoryRevision, actual: state.revision });
             const now = this.#clock(); timestamp(now); check(now !== null, "Clock must return a timestamp.");
             await this.#options.fault?.("beforeCommandValidation");
-            const recoveryReservedIds = importScope ? [...importScope.taskIds, ...importScope.stepIds, ...importScope.eventIds] : [];
-            const allocations = [], allocate = () => { const id = this.nextId(); if (state.gitShared) allocations.push(id); return id; };
-            const context = { now, sharedPacket, gitInventory: !!state.gitShared && !!this.#storage.gitSharedCapability?.(), nextId: () => { const id = allocate(); if (recoveryReservedIds.includes(id) && !require("./completion-effects").isAtomic(command.type)) fail("IDENTITY_CONFLICT", "Identity remains protected by import recovery scope."); return id; }, resolvers: this.#resolvers, fault: this.#options.fault, externalReservations: this.#options.externalReservations, historyImportEvidence: this.#options.historyImportEvidence, recoveryReservedIds };
+            const recoveryReservedIds = importScope ? [...importScope.taskIds, ...importScope.stepIds, ...importScope.eventIds] : state.personalShared?.version===2 ? require("./personal-shared-v2").reservedIds(state) : [];
+            const allocations = [], allocate = () => { const id = this.nextId(); if (state.gitShared || state.personalShared || command.type.startsWith("personal.")) allocations.push(id); return id; };
+            const context = { now, sharedPacket, personalPacket: command.type === "personal.receive" ? sharedPacket : null, personal: this.#options.personalSync, gitInventory: !!state.gitShared && !!this.#storage.gitSharedCapability?.(), nextId: () => { const id = allocate(); if (recoveryReservedIds.includes(id) && !require("./completion-effects").isAtomic(command.type)) fail("IDENTITY_CONFLICT", "Identity remains protected by import recovery scope."); return id; }, resolvers: this.#resolvers, fault: this.#options.fault, externalReservations: this.#options.externalReservations, historyImportEvidence: this.#options.historyImportEvidence, recoveryReservedIds };
             const candidate = clone(state), changes = await applyCommand(candidate, command, context);
             if (candidate.historyImport) await this.#options.fault?.("history:beforeProjectionMetadata");
             imports.reconcile(candidate, state, command, changes.atomicTask ?? null);
@@ -198,6 +231,7 @@ class TaskRepository {
             await this.#options.fault?.("beforeReceiptPersistence");
             candidate.receipts.push({ operationId: command.operationId, payload, result: clone(result), partitionIds: changes.partitionIds, coordination: command.coordination ?? null });
             if (state.gitShared) { require("./git-shared").record(candidate, state, candidate.receipts.at(-1), { allocations, now, replicaId: this.#options.sharedReplicaId, inventory: this.#options.externalReservations }, sharedPacket); await require("./git-shared").validateState(candidate); }
+            if (candidate.personalShared) { require("./personal-shared").record(candidate,state,candidate.receipts.at(-1),{personal:this.#options.personalSync,allocations,now,inventory:this.#options.externalReservations},command.type === "personal.receive" ? sharedPacket : null); await require("./personal-shared").validateState(candidate); }
             if (changes.historyImport) await this.#options.fault?.("history:beforeCandidateValidation");
             if (command.type === "recurrence.complete") await this.#options.fault?.("beforeRecurrenceCandidateValidation");
             validateState(candidate); if (changes.atomicTask) await this.#options.fault?.("atomic:afterReceiptValidation"); await this.#options.fault?.("beforeCommit");
@@ -207,13 +241,13 @@ class TaskRepository {
             imports.assertWritable(command, state, this.#storage.recurrenceFence, importScope);
             if (recurrenceWrite) { await this.#storage.assertRecurrenceWritable?.(); if (this.#storage.recurrenceFence) fail("RECURRENCE_RECOVERY_FENCED", "Recurrence state requires verified reconciliation."); }
             await Admission.seal(this.#admission, admission, candidate, state);
-            try { await this.#storage.commit(candidate, state.revisionId, { command, priorState: state, admission }); }
+            try { publicationAttempted=true; await this.#storage.commit(candidate, state.revisionId, { command, priorState: state, admission }); }
             catch (error) { if (error.code === "ACKNOWLEDGEMENT_LOST") this.publish(candidate, result.change); throw error; }
             this.publish(candidate, result.change);
             try { await this.#options.fault?.("beforeAcknowledgement"); }
             catch (_) { throw new RepositoryError("ACKNOWLEDGEMENT_LOST", "Commit succeeded; retry the identical operation to retrieve its receipt.", { operationId: command.operationId, committed: true }); }
             return clone(result);
-        });
+        }).catch(error=>{if(resolutionBefore&&!publicationAttempted&&["PERSONAL_REVIEW_STALE","REPOSITORY_CONFLICT","PARTITION_CONFLICT","WRITER_EVIDENCE_CONFLICT","REFERENCE_UNRESOLVED"].includes(error.code))resolutionErrors.set(error,{...resolutionBefore,code:error.code,publication:"not-attempted"});throw error;});
         this.#queue = work.catch(() => {}); return work;
     }
     async close() {
@@ -223,4 +257,4 @@ class TaskRepository {
         try { await this.#closePromise; } catch (error) { this.#closing = false; throw error; }
     }
 }
-module.exports = { initialState, TaskRepository, publicationResult };
+module.exports = { initialState, TaskRepository, publicationResult, personalResolutionRejection, consumePersonalResolutionRejection };

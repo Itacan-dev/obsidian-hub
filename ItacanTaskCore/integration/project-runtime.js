@@ -11,15 +11,16 @@ function view(t, authorityId) {
         location: V.clone(t.location), text: t.title, description: t.description, completed: t.completed, necessity: t.importance,
         fromDate: t.start?.date ?? null, fromTime: t.start?.time ?? null, dueDate: t.due?.date ?? null, dueTime: t.due?.time ?? null,
         steps: t.steps.map(s => ({ id: s.id, taskId: t.id, text: s.title, completed: s.completed, parentStepId: s.parentStepId })),
-        nativeReadOnly: !!t.phase || t.steps.some(s => s.parentStepId !== null) || t.consumerFacts?.recurrenceMember === true };
+        nativeReadOnly: !!t.phase || t.steps.some(s => s.parentStepId !== null) || t.consumerFacts?.recurrenceMember === true || t.consumerFacts?.personalConflict === true };
 }
 async function openProjectRuntime(config, options) {
     check(options.consumerUiV1 === undefined || options.consumerUiV1 === true, "Explicit consumer rehearsal option required.");
     config = freeze(V.clone(config)); options = { ...options, writerPolicy: freeze(V.clone(options.writerPolicy)) };
     check(["project", "resource"].includes(options.owner?.type) && options.writerPolicy.owners.length === 1 && same(options.owner, options.writerPolicy.owners[0].owner), "One private Project required.");
-    const shared = !!options.gitSharing;
+    const shared = !!options.gitSharing, personal = !!options.personalSync;
+    check(!(shared && personal),"Personal/Git replication profiles are exclusive.");
     const owner = freeze(V.clone(options.owner)), session = createNativeWriterSession(config, { registry: options.registry, identity: options.identity,
-        writerPolicy: options.writerPolicy, inventoryEvidence: options.inventoryEvidence, gitSharing: options.gitSharing, repositoryOptions: options.repositoryOptions, requestRetention: { version: shared ? 2 : 1, rehearsalId: options.rehearsalId } });
+        writerPolicy: options.writerPolicy, inventoryEvidence: options.inventoryEvidence, gitSharing: options.gitSharing, personalSync:options.personalSync, repositoryOptions: options.repositoryOptions, requestRetention: { version: personal ? (options.personalSync.binding.version===2?4:3) : shared ? 2 : 1, rehearsalId: options.rehearsalId } });
     let closed = false, lastOutcome = null, refreshedOperation = null, resourceLocations = [];
     const authority = { backend: "native", authorityId: config.authorityId, applicationContextId: config.applicationContextId };
     try {
@@ -28,6 +29,17 @@ async function openProjectRuntime(config, options) {
         if (options.creating) await session.host.create({ version: shared ? 3 : 2, authorityId: config.authorityId, partitions: [{ id: o.partitionId, owner, kind: shared ? "git-project" : owner.type === "resource" ? "resource" : "private-project" }], reason: "Explicit owner-scoped authority creation", ...authorization, taskMutationVersion: 1, ...(shared ? {gitSharedVersion:2,genesis:options.sharedGenesis}: {}) });
         else await session.host.open({ version: 1, expectedAuthorityId: config.authorityId, ...authorization });
     } catch (error) { await session.dispose().catch(() => {}); throw error; }
+    if(personal&&session.host.info().storage?.personalTransitionPending){await session.dispose();throw Error("Personal transition requires original-operation recovery.");}
+    if(personal && !session.host.info().storage?.personalSyncVersion){
+        check(["source","join"].includes(options.personalEnrollment),"Personal enrollment needs an explicit disposition.");
+        try { const cap=await session.authorize({version:1,owners:options.writerPolicy.owners,commands:options.writerPolicy.commands});
+            try {const type=options.personalEnrollment==="source"?"personal.enroll":"personal.bootstrap",prepared=await session.personal.prepareEnrollment(cap,type,options.personalEnrollmentOperationId);const result=await session.personal.receive(cap,prepared);check(result.status==="committed","Personal enrollment requires recovery.");}
+            finally{session.revoke(cap)}
+        }catch(e){await session.dispose();throw e}
+    }
+    if(personal&&options.personalSync.binding.version===2&&session.host.info().storage?.personalSyncVersion===1){
+        try{check(options.personalEnrollment==="upgrade","Explicit v1 personal upgrade disposition required.");const cap=await session.authorize({version:1,owners:options.writerPolicy.owners,commands:options.writerPolicy.commands});try{const p=await session.personal.prepareUpgrade(cap,options.personalEnrollmentOperationId),out=await session.personal.receive(cap,p);check(out.status==="committed","Personal upgrade requires authoritative recovery.");}finally{session.revoke(cap)}}catch(e){await session.dispose();throw e}
+    }
     const taskService = new TaskService(createNativeReadAdapter(session.host)), editorPort = createNativeEditorReadPort(session.host, { writerPolicy: options.writerPolicy, ...(options.consumerUiV1 ? { allowUnavailableLocations: true } : {}) });
     const grant = () => session.authorize({ version: 1, owners: options.writerPolicy.owners, commands: options.writerPolicy.commands });
     async function withGrant(fn) { const cap = await grant(); try { return await fn(cap); } finally { session.revoke(cap); } }
@@ -79,6 +91,8 @@ async function openProjectRuntime(config, options) {
         if (raw.canReplay) recoveryReviews.set(report, raw); return report;
     }
     const recovery = Object.freeze({
+        reviewPrivateSaveRejection: id => withGrant(cap => session.requests.reviewPrivateSaveRejection(cap,id)),
+        concludePrivateSaveRejection: review => withGrant(cap => session.requests.concludePrivateSaveRejection(cap,review)),
         reviewBootstrapRejection: id => withGrant(cap => session.requests.reviewBootstrapRejection(cap, id)),
         concludeBootstrapRejection: review => withGrant(cap => session.requests.concludeBootstrapRejection(cap, review)),
         async inspect(id) { V.text(id); if (closed) return recoveryUnavailable(id); try { return await withGrant(async cap => recoveryReview(await session.requests.inspect(cap, id))); } catch (_) { return recoveryUnavailable(id); } },
@@ -156,7 +170,8 @@ async function openProjectRuntime(config, options) {
         return controller;
     }
     const historyFeeds = new Set();
-    const historyEvidence = options.historyUiV1 ? require("../host/history-read").createHistoryReadPort(session.host, { authorityId: config.authorityId, owners: [owner] }) : null;
+    const rawHistoryEvidence = options.historyUiV1 ? require("../host/history-read").createHistoryReadPort(session.host, { authorityId: config.authorityId, owners: [owner] }) : null;
+    const historyEvidence = rawHistoryEvidence;
     function completionFeed({ legacy, app, navigate }) {
         alive(); check(options.historyUiV1 === true, "Explicit History rehearsal option required.");
         const port = historyEvidence;
@@ -170,6 +185,7 @@ async function openProjectRuntime(config, options) {
     }
     const nativeTasks = Object.freeze({ owner, createPanelRead, ...(options.consumerUiV1 ? { consumerUiV1: true, mergeHome: consumers.mergeHome, taskKey: consumers.taskKey } : {}) });
     return Object.freeze({ nativeTasks, owner, list, editor, creationContext, mutate, formService, completionFeed, historyEvidence, recovery,
+        ...(personal ? {personal:Object.freeze({replicaId:options.personalSync.signer.replicaId,subscribe:fn=>session.host.subscribe(fn),export:()=>withGrant(c=>session.personal.export(c)),status:()=>withGrant(c=>session.personal.status(c)),prepare:(packet,operationId)=>withGrant(c=>session.personal.prepare(c,packet,operationId)),receive:prepared=>withGrant(c=>session.personal.receive(c,prepared)),inspectConflict:taskId=>withGrant(c=>session.personal.inspectConflict(c,taskId)),...(options.personalSync.binding.version===2?{reviewResolution:(id,origin)=>withGrant(c=>session.personal.reviewResolution(c,id,origin)),prepareResolution:(review,id)=>withGrant(c=>session.personal.prepareResolution(c,review,id)),resolve:prepared=>withGrant(c=>session.personal.resolve(c,prepared)),inspectResolution:id=>withGrant(c=>session.personal.inspectResolution(c,id))}:{}),confirmAccepted:packet=>withGrant(c=>session.personal.confirmAccepted(c,packet))})}:{}),
         ...(shared ? {sharing:Object.freeze({subscribe:fn=>session.host.subscribe(fn),export:()=>withGrant(c=>session.shared.export(c)),status:()=>withGrant(c=>session.shared.status(c)),prepare:(packet,operationId)=>withGrant(c=>session.shared.prepare(c,packet,operationId)),receive:prepared=>withGrant(c=>session.shared.receive(c,prepared))})}:{}),
         info: () => freeze({ authority, owner, scope: config.scope, lastOutcome, history: options.historyUiV1 ? "rehearsal" : "unavailable", statistics: options.historyUiV1 ? "rehearsal" : "unavailable", home: options.consumerUiV1 ? "rehearsal" : "unavailable", schedule: options.consumerUiV1 ? "rehearsal" : "unavailable" }),
         assertRetainedResolved: () => withGrant(cap => session.requests.assertResolved(cap)),

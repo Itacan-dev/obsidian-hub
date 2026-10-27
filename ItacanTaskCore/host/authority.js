@@ -30,10 +30,13 @@ async function pinRoot(directory, config = null) {
     for (const value of [process.env.OneDrive, process.env.OneDriveConsumer, process.env.OneDriveCommercial].filter(Boolean)) check(!within(path.resolve(value), real) && path.resolve(value) !== real, "Cloud root is not admitted.");
     return pin;
 }
-async function admit(config, creating = false, gitReplicaId = null) {
+async function admit(config, creating = false, gitReplicaId = null, personal = null) {
     if (gitReplicaId !== null) { V.uuid(gitReplicaId); check(["inactive-disposable","device-private-git-project"].includes(config.scope), "Explicit Git replica admission required."); }
     check(config.scope!=="device-private-git-project"||gitReplicaId!==null,"Git runtime requires a replica identity.");
-    const key = gitReplicaId === null ? config.authorityId : config.authorityId + ":git-replica:" + gitReplicaId;
+    if(personal){check(gitReplicaId===null && ["inactive-disposable","device-private-project"].includes(config.scope),"Personal/Git admission profiles are exclusive.");const seed=require("../personal/enrollment").validate(personal.seed,personal.binding);require("../personal/binding").confirm(personal.binding,personal.pairing?.bindingDigest);check(seed.authorityId===config.authorityId && require("../personal/membership").members(personal.binding,personal.members).get(personal.signer?.replicaId)===personal.signer?.publicKey,"Personal replica authority differs.");}
+    const key = personal ? config.authorityId+":personal-replica:"+(personal.binding.base??personal.binding).spaceId+":"+personal.signer.replicaId : gitReplicaId === null ? config.authorityId : config.authorityId + ":git-replica:" + gitReplicaId;
+    check(!personal || ![...admissions.keys()].some(k=>k.startsWith(config.authorityId+":git-replica:")),"Git authority cannot enroll privately.");
+    check(gitReplicaId===null || ![...admissions.keys()].some(k=>k.startsWith(config.authorityId+":personal-replica:")),"Personal authority cannot become Git.");
     if (gitReplicaId !== null && admissions.has(config.authorityId) || gitReplicaId === null && [...admissions.keys()].some(k => k.startsWith(config.authorityId + ":git-replica:"))) fail("STORAGE_AUTHORITY_MISMATCH", "Private and Git authority profiles cannot share an admitted identity.");
     const pin = await pinRoot(config.directory, config), previous = admissions.get(key);
     if (previous && (previous.dev !== pin.dev || previous.ino !== pin.ino)) fail("STORAGE_AUTHORITY_MISMATCH", "Authority already names another physical root.");
