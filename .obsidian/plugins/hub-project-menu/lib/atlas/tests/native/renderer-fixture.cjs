@@ -50,6 +50,11 @@ module.exports = async function runRendererFixture({ directory, pluginDirectory,
     try { install = require(path.join(pluginDirectory, "lib/atlas/obsidian/integration.js")).installAtlasIntegration; }
     finally { Module._load = originalLoad; }
     window.electron = { remote: require("@electron/remote") };
+    // Reproduce the friend's startup failure with only a foreign copied lock.
+    // Neither ordinary recovery nor Git updates may silently discard it.
+    const stateDirectory = path.join(directory, "atlas-state"); fs.mkdirSync(stateDirectory);
+    const copiedLock = JSON.stringify({ machine: "atlas-other-test-computer", pid: 123, id: "copied-owner" });
+    fs.writeFileSync(path.join(stateDirectory, "owner.lock"), copiedLock);
     const nativeHost = window.electron.remote.require(path.join(directory, "atlas-native.cjs"))
         .getAtlasHost({ directory, partition: "persist:vault-atlas-ui" });
     const host = { view: () => JSON.parse(nativeHost.viewJSON()) };
@@ -60,7 +65,7 @@ module.exports = async function runRendererFixture({ directory, pluginDirectory,
     const readExact = require(path.join(pluginDirectory, "lib/atlas/obsidian/ui.js")).configurationInput(scratch,
         { ...configuration, accessTiming: { ...configuration.accessTiming, grantDurationMs: Number.MAX_SAFE_INTEGER } });
     assert.equal(readExact().accessTiming.grantDurationMs, Number.MAX_SAFE_INTEGER);
-    await until(() => host.view().status === "UNINITIALIZED", "fresh host");
+    await until(() => host.view().repositoryIssue === "FOREIGN_OWNER", "copied foreign lock blocks host");
     const events = new Map(), leaves = [];
     const workspace = { getLeavesOfType: () => leaves.filter(l => l.view?.getViewType?.() === "webviewer"), iterateAllLeaves: callback => leaves.forEach(callback),
         on: (name, fn) => { events.set(name, fn); return {}; }, onLayoutReady: callback => callback(),
@@ -117,6 +122,20 @@ module.exports = async function runRendererFixture({ directory, pluginDirectory,
         assert.ok(button, `Button ${label}`); assert.equal(button.disabled, false); button.click();
     };
     bridge.open();
+    await until(() => document.querySelector(".hub-atlas-startup-diagnostics")?.textContent.includes("FOREIGN_OWNER"), "actual startup ownership diagnostic");
+    const startup = document.querySelector(".hub-atlas-startup-diagnostics");
+    assert.equal(fs.readFileSync(path.join(stateDirectory, "owner.lock"), "utf8"), copiedLock);
+    click(startup, "Review storage ownership");
+    await until(() => startup.querySelector('[aria-label="Storage ownership review"]')?.hidden === false, "explicit ownership review");
+    const repairButton = [...startup.querySelectorAll("button")].find(node => node.textContent === "Use saved state on this computer");
+    assert.equal(repairButton.disabled, true, "Review cannot implicitly approve ownership repair");
+    const ownershipAcknowledgement = startup.querySelector('input[type="checkbox"]');
+    assert.ok(ownershipAcknowledgement); ownershipAcknowledgement.checked = true; ownershipAcknowledgement.dispatchEvent(new Event("change"));
+    click(startup, "Use saved state on this computer");
+    await until(() => host.view().status === "UNINITIALIZED", "copied unused lock repaired without initializing policy");
+    const copies = fs.readdirSync(path.join(stateDirectory, "ownership-backups")); assert.equal(copies.length, 1);
+    assert.equal(fs.readFileSync(path.join(stateDirectory, "ownership-backups", copies[0], "owner.lock"), "utf8"), copiedLock);
+    assert.equal(fs.existsSync(path.join(stateDirectory, "authority.json")), false, "Repair never silently initializes policy");
     await until(() => document.querySelector(".hub-atlas-overview textarea"), "setup UI");
     // Exercise explicit first setup via the actual UI, not a repository shortcut.
     const overview = document.querySelector(".hub-atlas-overview");
@@ -125,7 +144,7 @@ module.exports = async function runRendererFixture({ directory, pluginDirectory,
     [configuration.accessTiming.waitMs / 1000, configuration.accessTiming.confirmationWindowMs / 1000, configuration.accessTiming.grantDurationMs / 1000, configuration.vaultTiming.waitMs / 1000, configuration.vaultTiming.confirmationWindowMs / 1000, configuration.journeyLimits.lifetimeMs / 1000, configuration.journeyLimits.maxHops].forEach((value, index) => { inputs[index].value = String(value); });
     click(overview, "Initialize Atlas");
     await until(() => host.view().status === "READY", "committed first setup");
-    await until(() => leaf.view.contentEl.querySelector(".hub-atlas-panel")?.textContent.includes("Request access"), "restored blocked explanation").catch(error => {
+    await until(() => leaf.view.contentEl.querySelector(".hub-atlas-panel")?.textContent.includes("Atlas"), "closed original guest remains blocked without replay").catch(error => {
         error.message += `; panel=${leaf.view.contentEl.textContent}; contexts=${JSON.stringify(host.view().contexts)}`; throw error;
     });
     // Typed/app navigation recreates a guest that was blocked during setup.
@@ -348,7 +367,7 @@ module.exports = async function runRendererFixture({ directory, pluginDirectory,
     assert.equal(again.view().storageVersion, version); assert.equal(again.view().snapshot.policyRevision, 1);
     await again.open();
     const originalElectron = window.electron; let legacySuspended = false;
-    window.electron = { remote: { require: () => ({ getAtlasHost: () => ({ apiVersion: 4, unsubscribe() { legacySuspended = true; } }) }) } };
+    window.electron = { remote: { require: () => ({ getAtlasHost: () => ({ apiVersion: 5, unsubscribe() { legacySuspended = true; } }) }) } };
     const oldAdapter = install(plugin);
     assert.equal(oldAdapter.view().status, "UNAVAILABLE"); assert.equal(oldAdapter.view().reason, "NATIVE_ADAPTER_UPGRADE_REQUIRED"); assert.equal(legacySuspended, true);
     assert.equal(await oldAdapter.openFromNote(note), false); oldAdapter.destroy(); window.electron = originalElectron;

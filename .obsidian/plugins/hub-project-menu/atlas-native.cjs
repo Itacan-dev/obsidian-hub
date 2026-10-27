@@ -2464,7 +2464,7 @@ function getAtlasHost({ directory, partition }) {
     timer.unref?.();
     const refreshTimer = setInterval(() => { void managed.refresh(); }, 3_600_000); refreshTimer.unref?.();
     const api = Object.freeze({
-        apiVersion: 4,
+        apiVersion: 6,
         // Remote object proxies make every nested property read synchronous IPC.
         // Strings cross once; UI descriptions/results are ordinary local data.
         viewJSON: createViewJSON(() => api.view()),
@@ -2502,6 +2502,157 @@ function getAtlasHost({ directory, partition }) {
 module.exports = { getAtlasHost };
 
 },
+"lib/atlas/obsidian/ownership-recovery.js": function (module, exports, __hubRequire) {
+"use strict";
+// Explicit recovery for an independent local copy or a stopped former owner.
+// This is never called by ordinary RECOVER or automatic storage recovery.
+const os = require("os"), path = require("path"), { randomUUID, createHash } = require("crypto");
+const { validateAtlasSnapshot, migrateAtlasSnapshotV1 } = __hubRequire("lib/atlas/core/index.js");
+const { coded } = __hubRequire("lib/atlas/obsidian/storage-diagnostics.js");
+const { validateApplication } = __hubRequire("lib/atlas/obsidian/application.js");
+const names = ["owner.lock", "initialized", "authority.json", "pending.json"];
+const hash = value => createHash("sha256").update(value).digest("hex");
+const exact = (value, keys) => value && typeof value === "object" && !Array.isArray(value) &&
+    Object.keys(value).length === keys.length && keys.every(key => Object.hasOwn(value, key));
+const token = value => typeof value === "string" && /^[A-Za-z0-9_.:-]{1,256}$/.test(value);
+const rejected = reason => ({ type: "REJECTED", reason: "STORAGE_REPAIR_" + reason });
+function createOwnershipRepair(repository) {
+    let review = null, pendingCleanup = null;
+    function readExact(name) {
+        let bytes;
+        try { bytes = repository.io.readFileSync(repository.file(name)); }
+        catch (error) { if (error.code === "ENOENT") return null; throw error; }
+        const text = bytes.toString("utf8");
+        if (!Buffer.from(text, "utf8").equals(bytes)) throw coded("STORAGE_REPAIR_INVALID_STATE");
+        return text;
+    }
+    const capture = () => Object.fromEntries(names.map(name => [name, readExact(name)]));
+    const same = (a, b) => names.every(name => a[name] === b[name]);
+    function inspect() {
+        if (repository.locked || repository.lastBytes !== null || repository.issue !== "FOREIGN_OWNER") throw coded("STORAGE_REPAIR_NOT_AVAILABLE");
+        if (repository.read("reclaim.lock") !== null) throw coded("STORAGE_REPAIR_BUSY");
+        const records = capture(), owner = JSON.parse(records["owner.lock"]);
+        if (!exact(owner, ["machine", "pid", "id"]) || typeof owner.machine !== "string" || !owner.machine.trim() ||
+            owner.machine.length > 255 || !Number.isSafeInteger(owner.pid) || owner.pid <= 0 || !token(owner.id)) throw coded("STORAGE_REPAIR_INVALID_STATE");
+        if (owner.machine === os.hostname()) throw coded("STORAGE_REPAIR_NOT_FOREIGN");
+        const text = records["authority.json"], initialized = records.initialized;
+        let snapshot = null, application = null;
+        const journal = repository.journal();
+        if (text === null && initialized === null && journal === null) {
+            // A copied lock can exist before first setup. Repair ownership only;
+            // Core still requires the user's explicit initial policy selection.
+        } else {
+            if (text === null || initialized === null) throw coded("STORAGE_REPAIR_INVALID_STATE");
+            const envelope = repository.envelope(text);
+            const validated = envelope.schemaVersion === 1 ? migrateAtlasSnapshotV1(envelope.snapshot, repository.configuration) : validateAtlasSnapshot(envelope.snapshot);
+            if (!validated.ok) throw coded("STORAGE_REPAIR_INVALID_STATE");
+            snapshot = validated.snapshot;
+            application = envelope.application === undefined ? null : validateApplication(envelope.application, snapshot);
+            if (envelope.application !== undefined && !application) throw coded("STORAGE_REPAIR_INVALID_STATE");
+            if (journal && !(hash(text) === journal.beforeHash || hash(text) === journal.afterHash &&
+                envelope.lastCommitId === journal.commitId && envelope.storageVersion === journal.storageVersion)) throw coded("STORAGE_REPAIR_INVALID_STATE");
+        }
+        if (!same(records, capture()) || repository.read("reclaim.lock") !== null) throw coded("STORAGE_REPAIR_CHANGED");
+        return { records, snapshot, application, journal };
+    }
+    const failure = error => {
+        const reason = typeof error?.code === "string" && /^STORAGE_REPAIR_(NOT_AVAILABLE|NOT_FOREIGN|BUSY|INVALID_STATE|CHANGED|EXPIRED|STALE)$/.test(error.code)
+            ? error.code.slice("STORAGE_REPAIR_".length) : error instanceof SyntaxError || error?.code === "ATLAS_INVALID_DATA" ? "INVALID_STATE" : "FAILED";
+        repository.diagnostics.fail("OWNERSHIP_REPAIR", "REVIEW_OR_REPAIR", error, "UNAVAILABLE");
+        return rejected(reason);
+    };
+    function preview() {
+        review = null;
+        try {
+            const state = inspect(), createdAt = Date.now();
+            if (!Number.isSafeInteger(createdAt) || createdAt < 0 || !Number.isSafeInteger(createdAt + 300000)) return rejected("NOT_AVAILABLE");
+            review = { id: randomUUID(), records: state.records, createdAt, expiresAt: createdAt + 300000 };
+            return { type: "STORAGE_OWNERSHIP_REVIEW", repairId: review.id, expiresAt: review.expiresAt,
+                authorityPresent: state.snapshot !== null, policyRevision: state.snapshot?.policyRevision ?? null,
+                configurationRevision: state.snapshot?.configurationRevision ?? null,
+                destinationCount: state.application?.destinations?.length ?? 0, journalPending: state.journal !== null };
+        } catch (error) { return failure(error); }
+    }
+    function flushAbsolute(file, bytes) {
+        const fd = repository.io.openSync(file, "wx", 0o600);
+        try { repository.io.writeFileSync(fd, bytes, "utf8"); repository.io.fsyncSync(fd); }
+        finally { repository.io.closeSync(fd); }
+    }
+    function flushAbsoluteDirectory(directory) {
+        if (process.platform === "win32") return;
+        const fd = repository.io.openSync(directory, "r");
+        try { repository.io.fsyncSync(fd); } finally { repository.io.closeSync(fd); }
+    }
+    function repair(input) {
+        if (input?.localCopyConfirmed !== true) return rejected("CONFIRMATION_REQUIRED");
+        if (!review || input.repairId !== review.id) return rejected("STALE");
+        const selected = review; review = null; // one explicit attempt, including a failed attempt
+        const now = Date.now();
+        if (!Number.isSafeInteger(now) || now < selected.createdAt || now >= selected.expiresAt) return rejected("EXPIRED");
+        let reclaim = null, temporary = null, repaired = false, caught = null;
+        try {
+            const current = inspect();
+            if (!same(current.records, selected.records)) throw coded("STORAGE_REPAIR_CHANGED");
+            // Serialize with all existing cooperative ownership reclamation.
+            // A foreign machine cannot be probed: the user's attestation is
+            // mandatory and does not establish distributed-lock guarantees.
+            reclaim = JSON.stringify({ machine: os.hostname(), pid: process.pid, id: repository.lockId });
+            repository.flushFile("reclaim.lock", reclaim); repository.flushDirectory();
+            if (!same(capture(), selected.records)) throw coded("STORAGE_REPAIR_CHANGED");
+            const backups = repository.file("ownership-backups"), backup = path.join(backups, selected.id);
+            repository.io.mkdirSync(backups, { recursive: true }); repository.io.mkdirSync(backup);
+            for (const name of names) if (selected.records[name] !== null) flushAbsolute(path.join(backup, name), selected.records[name]);
+            flushAbsoluteDirectory(backup); flushAbsoluteDirectory(backups); repository.flushDirectory();
+            // Backups must themselves be read back before touching ownership.
+            for (const name of names) if (selected.records[name] !== null &&
+                repository.io.readFileSync(path.join(backup, name), "utf8") !== selected.records[name]) throw coded("STORAGE_REPAIR_INVALID_STATE");
+            if (repository.read("reclaim.lock") !== reclaim || !same(capture(), selected.records)) throw coded("STORAGE_REPAIR_CHANGED");
+            const own = JSON.stringify({ machine: os.hostname(), pid: process.pid, id: repository.lockId });
+            temporary = ".owner-" + selected.id + ".tmp";
+            repository.flushFile(temporary, own);
+            if (repository.read("reclaim.lock") !== reclaim || !same(capture(), selected.records)) throw coded("STORAGE_REPAIR_CHANGED");
+            repository.io.renameSync(repository.file(temporary), repository.file("owner.lock")); temporary = null;
+            repository.flushDirectory();
+            // Complete the same instance's lock acknowledgement, then let Core
+            // validate/reconcile the unchanged authority and journal.
+            if (!repository.acquire()) throw coded("STORAGE_REPAIR_FAILED");
+            repository.assertOwner(); repaired = true;
+        } catch (error) { caught = error; }
+        finally {
+            if (temporary) { try { repository.io.unlinkSync(repository.file(temporary)); } catch (_) { /* never delete another record */ } }
+            if (reclaim !== null) {
+                try {
+                    if (repository.read("reclaim.lock") === reclaim) { repository.io.unlinkSync(repository.file("reclaim.lock")); repository.flushDirectory(); }
+                    else if (repaired) { pendingCleanup = reclaim; caught = coded("STORAGE_REPAIR_CHANGED"); repaired = false; }
+                } catch (error) { pendingCleanup = reclaim; caught = error; repaired = false; }
+            }
+        }
+        if (!repaired) {
+            // A lost acknowledgement after owner replacement is still a failure;
+            // ordinary explicit recovery may complete this instance's own lock.
+            try { if (JSON.parse(repository.read("owner.lock"))?.id === repository.lockId) repository.issue = "STORAGE_UNAVAILABLE"; } catch (_) { /* retain current diagnosis */ }
+            return failure(caught);
+        }
+        repository.issue = null;
+        return { type: "STORAGE_OWNERSHIP_REPAIRED" };
+    }
+    function completeCleanup() {
+        if (pendingCleanup === null) return true;
+        try {
+            const current = repository.read("reclaim.lock");
+            if (current !== null && current !== pendingCleanup) { repository.issue = "STORAGE_LOCKED"; return false; }
+            if (current !== null) repository.io.unlinkSync(repository.file("reclaim.lock"));
+            repository.flushDirectory(); pendingCleanup = null; return true;
+        } catch (error) {
+            repository.issue = "STORAGE_LOCKED";
+            repository.diagnostics.fail("OWNERSHIP_REPAIR", "RECLAIM_CLEANUP", error, "UNAVAILABLE"); return false;
+        }
+    }
+    return { preview, repair, completeCleanup };
+}
+module.exports = { createOwnershipRepair };
+
+},
 "lib/atlas/obsidian/persistence.js": function (module, exports, __hubRequire) {
 "use strict";
 
@@ -2512,6 +2663,8 @@ const { randomUUID, createHash } = require("crypto");
 const { validateAtlasSnapshot, migrateAtlasSnapshotV1 } = __hubRequire("lib/atlas/core/index.js");
 const { initialApplication, validateApplication, transitionApplication, validateDestinations } = __hubRequire("lib/atlas/obsidian/application.js");
 
+const { coded, createStorageDiagnostics } = __hubRequire("lib/atlas/obsidian/storage-diagnostics.js");
+const { createOwnershipRepair } = __hubRequire("lib/atlas/obsidian/ownership-recovery.js");
 const digest = text => createHash("sha256").update(text).digest("hex");
 const token = value => typeof value === "string" && /^[A-Za-z0-9_.:-]{1,256}$/.test(value);
 const exact = (value, keys) => value && typeof value === "object" && !Array.isArray(value) &&
@@ -2533,7 +2686,12 @@ class AtlasFileRepository {
         this.issue = null;
         this.lastBytes = null;
         this.pending = null;
+        this.diagnostics = createStorageDiagnostics();
+        this.ownershipRepair = createOwnershipRepair(this);
     }
+    getDiagnostics() { return this.diagnostics.view(); }
+    reviewOwnershipRepair() { return this.ownershipRepair.preview(); }
+    repairOwnership(input) { return this.ownershipRepair.repair(input); }
     file(name) { return path.join(this.directory, name); }
     read(name) {
         try { return this.io.readFileSync(this.file(name), "utf8"); }
@@ -2552,12 +2710,22 @@ class AtlasFileRepository {
         try { this.io.fsyncSync(fd); } finally { this.io.closeSync(fd); }
     }
     acquire() {
+        if (!this.ownershipRepair.completeCleanup()) return false;
         if (this.locked) return true;
         this.io.mkdirSync(this.directory, { recursive: true });
         const lock = { machine: os.hostname(), pid: process.pid, id: this.lockId };
         try { this.flushFile("owner.lock", JSON.stringify(lock)); }
         catch (error) {
             if (error.code !== "EEXIST") throw error;
+            const own = JSON.stringify({ machine: os.hostname(), pid: process.pid, id: this.lockId });
+            if (this.read("owner.lock") === own) {
+                // Complete an interrupted acknowledgement of THIS instance's
+                // own lock. Never adopt or remove a different owner.
+                const fd = this.io.openSync(this.file("owner.lock"), "r+");
+                try { this.io.fsyncSync(fd); } finally { this.io.closeSync(fd); }
+                if (this.read("owner.lock") !== own) throw coded("ATLAS_OWNER_LOST");
+                this.flushDirectory(); this.locked = true; return true;
+            }
             // Serialize stale-owner reclamation too. Two new processes must
             // never both remove an owner that the other just established.
             try { this.flushFile("reclaim.lock", JSON.stringify(lock)); }
@@ -2584,7 +2752,7 @@ class AtlasFileRepository {
     assertOwner() {
         const owner = JSON.parse(this.read("owner.lock"));
         if (!this.locked || owner?.id !== this.lockId || owner.pid !== process.pid || owner.machine !== os.hostname()) {
-            throw new Error("Atlas owner lost");
+            throw coded("ATLAS_OWNER_LOST");
         }
     }
     envelope(text) {
@@ -2592,11 +2760,11 @@ class AtlasFileRepository {
         if (!(exact(data, ["schemaVersion", "storageVersion", "lastCommitId", "snapshot"]) ||
             exact(data, ["schemaVersion", "storageVersion", "lastCommitId", "snapshot", "application"])) ||
             ![1, 2].includes(data.schemaVersion) || !token(data.storageVersion) ||
-            !(data.lastCommitId === null || token(data.lastCommitId))) throw new Error("Invalid Atlas envelope");
+            !(data.lastCommitId === null || token(data.lastCommitId))) throw coded("ATLAS_INVALID_DATA");
         if (data.schemaVersion === 2) {
             const validated = validateAtlasSnapshot(data.snapshot);
-            if (!validated.ok) throw new Error("Invalid Atlas snapshot");
-            if (Object.hasOwn(data, "application") && !validateApplication(data.application, validated.snapshot)) throw new Error("Invalid Atlas application metadata");
+            if (!validated.ok) throw coded("ATLAS_INVALID_DATA");
+            if (Object.hasOwn(data, "application") && !validateApplication(data.application, validated.snapshot)) throw coded("ATLAS_INVALID_DATA");
             return { ...data, snapshot: validated.snapshot };
         }
         return data;
@@ -2608,42 +2776,50 @@ class AtlasFileRepository {
         if (!exact(data, ["commitId", "beforeHash", "afterHash", "storageVersion"]) ||
             !token(data.commitId) || !token(data.storageVersion) ||
             !/^[a-f0-9]{64}$/.test(data.beforeHash) || !/^[a-f0-9]{64}$/.test(data.afterHash)) {
-            throw new Error("Invalid Atlas journal");
+            throw coded("ATLAS_INVALID_DATA");
         }
         return data;
     }
-    /** @returns {import('../core/index').AtlasCommitResolution} */
-    settled(journal) {
+    inspectSettlement(journal) {
         this.assertOwner();
-        const text = this.read("authority.json");
-        if (text === null) return { type: "UNKNOWN", commitId: journal.commitId };
-        const value = this.envelope(text), hash = digest(text);
-        if (hash === journal.afterHash && value.lastCommitId === journal.commitId &&
-            value.storageVersion === journal.storageVersion) {
-            return { type: "COMMITTED", commitId: journal.commitId, storageVersion: value.storageVersion };
-        }
-        if (hash === journal.beforeHash) return { type: "NOT_WRITTEN", commitId: journal.commitId };
-        this.issue = "JOURNAL_AUTHORITY_MISMATCH";
-        return { type: "UNKNOWN", commitId: journal.commitId };
+        const bytes = this.read("authority.json");
+        /** @type {{result: import("../core/index").AtlasCommitResolution, bytes: string | null, envelope: any}} */
+        const unknown = { result: { type: "UNKNOWN", commitId: journal.commitId }, bytes: null, envelope: null };
+        if (bytes === null) return unknown;
+        const envelope = this.envelope(bytes), hash = digest(bytes);
+        /** @type {import("../core/index").AtlasCommitResolution} */
+        let result;
+        if (hash === journal.afterHash && envelope.lastCommitId === journal.commitId && envelope.storageVersion === journal.storageVersion)
+            result = { type: "COMMITTED", commitId: journal.commitId, storageVersion: envelope.storageVersion };
+        else if (hash === journal.beforeHash) result = { type: "NOT_WRITTEN", commitId: journal.commitId };
+        else { this.issue = "JOURNAL_AUTHORITY_MISMATCH"; return unknown; }
+        return { result, bytes, envelope };
     }
-    clearJournal() {
-        if (this.read("pending.json") !== null) this.io.unlinkSync(this.file("pending.json"));
+    /** @returns {import("../core/index").AtlasCommitResolution} */
+    settled(journal) { return this.inspectSettlement(journal).result; }
+    clearJournal(expected = this.pending) {
+        const current = this.journal();
+        if (current !== null) {
+            if (!expected || ["commitId", "beforeHash", "afterHash", "storageVersion"].some(k => current[k] !== expected[k])) throw coded("ATLAS_JOURNAL_CHANGED");
+            this.io.unlinkSync(this.file("pending.json"));
+        }
         this.flushDirectory(); this.pending = null;
     }
     /** @returns {Promise<import('../core/index').AtlasLoadResult>} */
     async load() {
+        this.diagnostics.bump("loadAttempts"); let stage = "OWNER";
         try {
             if (!this.acquire()) return { type: "UNAVAILABLE" };
             this.assertOwner();
-            const journal = this.journal();
+            stage = "JOURNAL_READ"; const journal = this.journal();
             if (journal !== null) { this.pending = journal; this.issue = "COMMIT_UNRESOLVED"; return { type: "UNRESOLVED", commitId: journal.commitId }; }
-            const text = this.read("authority.json");
+            stage = "AUTHORITY_READ"; let text = this.read("authority.json");
             if (text === null) {
-                return this.read("initialized") === null ? { type: "UNINITIALIZED" }
-                    : { type: "READY", envelope: null }; // Core reports corruption; never setup.
+                if (this.read("initialized") === null) { this.issue = null; return { type: "UNINITIALIZED" }; }
+                return { type: "READY", envelope: null }; // Core reports corruption; never setup.
             }
             if (this.read("initialized") === null) return { type: "READY", envelope: null };
-            let value = this.envelope(text);
+            stage = "VALIDATE"; let value = this.envelope(text);
             // Core retains revision/time guards. Also reject any unexpected disk
             // edit in this repository lifetime, even if a writer forges a version.
             if (this.lastBytes !== null && text !== this.lastBytes) {
@@ -2654,19 +2830,24 @@ class AtlasFileRepository {
                 if (!converted.ok) return { type: "READY", envelope: null };
                 const next = { schemaVersion: 2, snapshot: converted.snapshot, application: value.application ? validateApplication(value.application, converted.snapshot) : initialApplication(converted.snapshot.policy) };
                 this.lastBytes = text;
-                const receipt = await this.replace(value.storageVersion, `migration:${randomUUID()}`, next);
+                stage = "MIGRATE"; this.diagnostics.bump("migrations"); const commitId = `migration:${randomUUID()}`;
+                const receipt = await this.replace(value.storageVersion, commitId, next, "MIGRATE");
+                if (receipt.type === "UNKNOWN") return { type: "UNRESOLVED", commitId };
                 if (receipt.type !== "COMMITTED") return { type: "UNAVAILABLE" };
-                value = this.envelope(this.lastBytes);
+                text = this.lastBytes; value = this.envelope(text);
             }
-            this.lastBytes = this.read("authority.json");
+            // Cache exactly the bytes we validated. A second read could hide
+            // an external change and defeat the next write's CAS byte fence.
+            this.lastBytes = text;
             // Core's closed envelope stays unchanged. Application data never
             // enters its schema or its permission-changing operations.
             const { application: _application, ...envelope } = value;
-            this.issue = null;
+            this.issue = null; this.diagnostics.bump("verifiedLoads");
             return { type: "READY", envelope };
-        } catch (_) { this.issue = "STORAGE_UNAVAILABLE"; return { type: "UNAVAILABLE" }; }
+        } catch (error) { this.diagnostics.fail("LOAD", stage, error, "UNAVAILABLE"); this.issue = "STORAGE_UNAVAILABLE"; return { type: "UNAVAILABLE" }; }
     }
     async initialize(snapshot, application = initialApplication(snapshot.policy)) {
+        this.diagnostics.bump("initializeAttempts");
         const validated = validateAtlasSnapshot(snapshot);
         if (!validated.ok || !validateApplication(application, validated.snapshot)) return false;
         const loaded = await this.load();
@@ -2683,55 +2864,63 @@ class AtlasFileRepository {
             this.flushFile(temporary, bytes);
             this.io.renameSync(this.file(temporary), this.file("authority.json"));
             this.flushDirectory();
-            this.lastBytes = bytes;
+            this.lastBytes = bytes; this.diagnostics.bump("initialized");
             return true;
-        } catch (_) { this.issue = "INITIALIZATION_FAILED"; return false; }
+        } catch (error) { this.diagnostics.fail("INITIALIZE", "INITIAL_WRITE", error, "UNAVAILABLE"); this.issue = "INITIALIZATION_FAILED"; return false; }
     }
     /** @returns {Promise<import('../core/index').AtlasCommitResult>} */
-    async replace(expectedStorageVersion, commitId, next) {
+    async replace(expectedStorageVersion, commitId, next, operation = "PRESENTATION") {
+        this.diagnostics.bump("writeAttempts"); let stage = "OWNER", temporary = null;
         /** @param {'UNKNOWN' | 'CONFLICT' | 'NOT_WRITTEN'} type */
-        const receipt = type => ({ type, commitId });
+        const receipt = (type, error = null) => {
+            this.diagnostics.bump("failedWrites"); this.diagnostics.bump(type === "NOT_WRITTEN" ? "notWrittenWrites" : type === "UNKNOWN" ? "unknownWrites" : "conflicts");
+            this.diagnostics.fail(operation, stage, error, type); return { type, commitId };
+        };
         try {
             this.assertOwner();
             if (this.journal() !== null) return receipt("UNKNOWN");
-            const before = this.read("authority.json"), current = this.envelope(before);
-            if (current.storageVersion !== expectedStorageVersion || before !== this.lastBytes) return receipt("CONFLICT");
-            const validated = validateAtlasSnapshot(next.snapshot);
-            if (next.schemaVersion !== 2 || !validated.ok || !token(commitId)) return receipt("NOT_WRITTEN");
+            stage = "AUTHORITY_READ"; const before = this.read("authority.json"), current = this.envelope(before);
+            if (current.storageVersion !== expectedStorageVersion || before !== this.lastBytes) return receipt("CONFLICT", coded("ATLAS_EXTERNAL_WRITE"));
+            stage = "VALIDATE"; const validated = validateAtlasSnapshot(next.snapshot);
+            if (next.schemaVersion !== 2 || !validated.ok || !token(commitId)) return receipt("NOT_WRITTEN", coded("ATLAS_INVALID_DATA"));
             const storageVersion = randomUUID();
             const application = next.application ?? transitionApplication(current.application ?? initialApplication(current.snapshot.policy),
                 current.snapshot, validated.snapshot, this.stagedApplication);
-            if (!validateApplication(application, validated.snapshot)) return receipt("NOT_WRITTEN");
+            if (!validateApplication(application, validated.snapshot)) return receipt("NOT_WRITTEN", coded("ATLAS_INVALID_DATA"));
             const after = JSON.stringify({ schemaVersion: 2, storageVersion, lastCommitId: commitId, snapshot: validated.snapshot, application });
             const journal = { commitId, beforeHash: digest(before), afterHash: digest(after), storageVersion };
-            const temporary = `.authority-${randomUUID()}.tmp`;
-            this.flushFile(temporary, after);
-            this.flushFile("pending.json", JSON.stringify(journal));
+            temporary = `.authority-${randomUUID()}.tmp`;
+            stage = "CANDIDATE_WRITE"; this.flushFile(temporary, after);
+            stage = "JOURNAL_WRITE"; this.flushFile("pending.json", JSON.stringify(journal));
             this.pending = journal; this.flushDirectory();
             this.assertOwner();
             if (this.read("authority.json") !== before) return receipt("UNKNOWN");
-            this.io.renameSync(this.file(temporary), this.file("authority.json"));
+            stage = "RENAME"; this.io.renameSync(this.file(temporary), this.file("authority.json"));
             this.flushDirectory();
-            const result = this.settled(journal);
+            stage = "VERIFY"; const result = this.settled(journal);
             if (result.type !== "COMMITTED") return receipt("UNKNOWN");
             this.previousEnvelope = current;
             this.lastBytes = after;
-            this.clearJournal();
-            this.issue = null;
+            stage = "CLEANUP"; this.clearJournal(journal);
+            this.issue = null; this.diagnostics.bump("committedWrites");
             return result;
-        } catch (_) {
+        } catch (error) {
             // A journal keeps acknowledgement-loss conservative. No automatic
             // rollback or confirmation retry occurs, even after an applied write.
             try {
-                if (this.pending || this.journal()) return receipt("UNKNOWN");
+                if (this.pending || this.journal()) return receipt("UNKNOWN", error);
                 this.assertOwner();
-                if (this.read("authority.json") === this.lastBytes) return receipt("NOT_WRITTEN");
+                if (this.read("authority.json") === this.lastBytes) {
+                    // Only this attempt's unjournaled candidate is disposable.
+                    if (temporary) { try { this.io.unlinkSync(this.file(temporary)); } catch (cleanup) { if (cleanup.code !== "ENOENT") this.diagnostics.bump("cleanupFailures"); } }
+                    return receipt("NOT_WRITTEN", error);
+                }
             } catch (_) { /* unavailable storage proves no outcome */ }
-            return receipt("UNKNOWN");
+            return receipt("UNKNOWN", error);
         }
     }
     /** @param {import('../core/index').AtlasCommitRequest} request */
-    commit(request) { return this.replace(request.expectedStorageVersion, request.commitId, request.next); }
+    commit(request) { return this.replace(request.expectedStorageVersion, request.commitId, request.next, "COMMIT"); }
     application(storageVersion = undefined) {
         if (!this.lastBytes) return null;
         const envelope = this.envelope(this.lastBytes);
@@ -2755,19 +2944,20 @@ class AtlasFileRepository {
     }
     /** @returns {Promise<import('../core/index').AtlasCommitResolution>} */
     async resolveCommit(commitId) {
+        this.diagnostics.bump("resolveAttempts");
         try {
             this.assertOwner();
             const journal = this.journal() ?? this.pending;
             if (!journal || journal.commitId !== commitId) return { type: "UNKNOWN", commitId };
-            const result = this.settled(journal);
+            const proof = this.inspectSettlement(journal), result = proof.result;
             if (result.type !== "UNKNOWN") {
                 if (this.lastBytes) this.previousEnvelope = this.envelope(this.lastBytes);
-                this.lastBytes = this.read("authority.json");
-                this.clearJournal();
+                this.lastBytes = proof.bytes;
+                this.clearJournal(journal); this.diagnostics.bump("resolvedCommits");
                 this.issue = null;
             }
             return result;
-        } catch (_) { return { type: "UNKNOWN", commitId }; }
+        } catch (error) { this.diagnostics.fail("RESOLVE", "VERIFY_OR_CLEANUP", error, "UNKNOWN"); return { type: "UNKNOWN", commitId }; }
     }
     close() {
         if (!this.locked) return;
@@ -2835,7 +3025,7 @@ function createPresentation() {
 // recovery, grants, requests, Journey/context changes and phase boundaries notify.
 function presentationKey(view, now) {
     const s = view.snapshot;
-    return JSON.stringify([view.status, view.reason, view.enabled, view.pendingCommitId, view.repositoryIssue, view.application,
+    return JSON.stringify([view.status, view.reason, view.enabled, view.pendingCommitId, view.repositoryIssue, view.storage?.lastFailure, view.recovery, view.application,
         s?.policy, s?.policyRevision, s?.configuration, s?.configurationRevision, s?.accessState.pendingRequests, s?.accessState.grants,
         s?.vaultState.pendingProposal, s?.vaultState.pendingProposal && phase(s.vaultState.pendingProposal, now), s?.journeyState.journeys,
         view.destinations, view.temporaryDestinations, view.contexts.map(c => [c.id, c.nativeId, c.generation, c.closed, c.phase, c.origin,
@@ -2845,7 +3035,7 @@ function createViewJSON(read, encode = JSON.stringify) {
     let key, destinations, temporary, encoded;
     return () => {
         const view = read(), next = JSON.stringify([view.status, view.reason, view.enabled, view.storageVersion, view.pendingCommitId,
-            view.repositoryIssue, view.contexts, view.managed]);
+            view.repositoryIssue, view.storage, view.recovery, view.contexts, view.managed]);
         if (next !== key || destinations !== view.destinations || temporary !== view.temporaryDestinations) {
             encoded = encode(view); key = next; destinations = view.destinations; temporary = view.temporaryDestinations;
         }
@@ -2859,6 +3049,7 @@ module.exports = { createPresentation, presentationKey, createViewJSON, starter,
 "use strict";
 
 const { randomUUID } = require("crypto");
+const { increment } = __hubRequire("lib/atlas/obsidian/storage-diagnostics.js");
 const Core = __hubRequire("lib/atlas/core/index.js");
 const { compileCuratedWhitelist, curatedWhitelist, serviceHostnames } = __hubRequire("lib/atlas/presets/curated-whitelist.js");
 const { initialApplication, buildDestinationChange, validateDestinations, mergeCuratedDestinations, replacementMatches, samePolicy } = __hubRequire("lib/atlas/obsidian/application.js");
@@ -2890,10 +3081,12 @@ function createAtlasRuntime({ repository, clock, configuration = DEVELOPMENT_CON
         ownerId: randomUUID(), ...(managedBlacklist === undefined ? {} : { managedBlacklist }) });
     const contexts = new Map(), subscribers = new Set();
     let queue = Promise.resolve(), enabled = true, batchDepth = 0, pendingPublication = false, lastPublication = null;
+    let epoch = 0, recoveryEpoch = -1, recoveryUsed = false, recovering = false, opening = 0;
+    const recovery = { automaticAttempts: 0, automaticSucceeded: 0, automaticFailed: 0, manualAttempts: 0, manualSucceeded: 0, manualFailed: 0, status: "IDLE" };
     const describe = createPresentation(); let applicationVersion, cachedApplication;
     const presentationTime = () => { try { return clock.now(); } catch (_) { return NaN; } };
     const enqueue = work => {
-        const task = queue.then(async () => { batchDepth++; try { return await work(); }
+        const task = queue.then(async () => { batchDepth++; epoch++; try { return await work(); }
             catch (_) { failAll("ADAPTER_FAILURE"); return blocked("ADAPTER_FAILURE"); }
             finally { batchDepth--; if (pendingPublication) { pendingPublication = false; publish(); } } });
         queue = task.then(() => undefined, () => undefined); return task;
@@ -2921,9 +3114,48 @@ function createAtlasRuntime({ repository, clock, configuration = DEVELOPMENT_CON
         publish();
     }
     function failAll(reason) { for (const context of contexts.values()) failContext(context, blocked(reason)); }
+    function storageView() { try { return repository.getDiagnostics?.() ?? null; } catch (_) { return null; } }
+    async function recoverTransientStorage() {
+        const state = controller.getView(), failure = storageView()?.lastFailure;
+        if (!enabled || opening || recovering || recoveryUsed || state.status !== "UNAVAILABLE" || state.reason !== "WRITE_FAILED" ||
+            state.pendingCommitId !== null || failure?.operation !== "COMMIT" || failure.outcome !== "NOT_WRITTEN" ||
+            !["BUSY", "INTERRUPTED", "IO_ERROR"].includes(failure.cause)) return false;
+        recoveryUsed = true; recovering = true; recoveryEpoch = epoch;
+        recovery.automaticAttempts = increment(recovery.automaticAttempts); recovery.status = "ATTEMPTING";
+        try {
+            // A released/loading request cannot retain correlation through a
+            // controller reload. Never replay its request, body or confirmation.
+            for (const context of contexts.values()) {
+                context.rootOrigin = null;
+                if (context.flight) failContext(context, blocked("RECOVERY_REQUIRED"));
+            }
+            await controller.open(); // same owner, repository and clock floor
+            if (controller.getView().status === "READY") {
+                // Core ends old Journeys. Only fresh checks may retain a loaded
+                // page; an intermediate without independent access is closed.
+                for (const context of contexts.values()) if (context.displayed && !context.closed) await recheck(context);
+            }
+        } catch (_) { /* A recovery error cannot create authority. */ }
+        finally { recovering = false; }
+        const ready = controller.getView().status === "READY";
+        recovery[ready ? "automaticSucceeded" : "automaticFailed"] = increment(recovery[ready ? "automaticSucceeded" : "automaticFailed"]);
+        recovery.status = ready ? "RECOVERED" : "BLOCKED"; publish(); return ready;
+    }
     async function core(operation) {
-        const response = await controller.handle(operation);
-        if (response.type === "BLOCKED") failAll(response.reason);
+        let response = await controller.handle(operation), recovered = false, reassessed = false;
+        if (response.type === "BLOCKED") {
+            recovered = await recoverTransientStorage();
+            // Repeat only a pure assessment/clock observation after verified
+            // recovery. BEGIN, grants, proposals and confirmations never replay.
+            if (recovered && ["CHECK_NAVIGATION", "OBSERVE_TIME"].includes(operation.kind)) {
+                const context = operation.kind === "CHECK_NAVIGATION" ? contexts.get(operation.context.contextId) : null;
+                reassessed = true; response = await controller.handle(context ? { ...operation, context: binding(context) } : operation);
+            }
+            if (response.type === "BLOCKED" && (reassessed || !recovered || controller.getView().status !== "READY")) failAll(response.reason);
+        } else if (!recovering && !opening && recoveryEpoch !== epoch && controller.getView().status === "READY") {
+            // A separate healthy operation establishes a new failure episode.
+            recoveryUsed = false;
+        }
         return response;
     }
     function attach(nativeId, effects) {
@@ -2931,7 +3163,9 @@ function createAtlasRuntime({ repository, clock, configuration = DEVELOPMENT_CON
             phase: "BLANK", response: null, origin: null, flight: null, displayed: null, rootOrigin: null };
         contexts.set(context.id, context); publish(); return context;
     }
-    async function open() {
+    async function open(manual = false) {
+        opening++; if (manual) { recovery.manualAttempts = increment(recovery.manualAttempts); }
+        try {
         enabled = true;
         // Recovery invalidates all browser provenance before Core closes old
         // Journey bindings. It never resumes an old held request/confirmation.
@@ -2946,7 +3180,10 @@ function createAtlasRuntime({ repository, clock, configuration = DEVELOPMENT_CON
                 }
             }
         }
-        const view = await controller.open(); publish(); return view;
+        const view = await controller.open();
+        if (manual) { const ready = view.status === "READY"; recoveryUsed = !ready; recovery[ready ? "manualSucceeded" : "manualFailed"] = increment(recovery[ready ? "manualSucceeded" : "manualFailed"]); recovery.status = ready ? "RECOVERED" : "BLOCKED"; }
+        publish(); return view;
+        } finally { opening--; }
     }
     async function initialize(policy, terms = configuration) {
         if (controller.getView().status !== "UNINITIALIZED") return blocked("ALREADY_INITIALIZED");
@@ -3042,7 +3279,8 @@ function createAtlasRuntime({ repository, clock, configuration = DEVELOPMENT_CON
             } else {
                 response = await core({ kind: "CHECK_NAVIGATION", target: webTarget(url), context: binding(context) });
             }
-            if (!allowed(response)) { failContext(context, response); return response; }
+            if (context.closed || !enabled) return blocked("CONTEXT_CLOSED");
+            if (!allowed(response)) { if (context.flight === captured) failContext(context, response); return response; }
             if (context.flight !== captured) return response; // completion saved; newer request still held
             context.displayed = { url, loaderId, response };
             context.flight = null; context.response = response; context.origin = homeOrigin(url);
@@ -3051,10 +3289,11 @@ function createAtlasRuntime({ repository, clock, configuration = DEVELOPMENT_CON
     }
     async function recheck(context) {
         if (context.closed && context.phase !== "BLOCKED") return;
-        const loaded = context.displayed;
+        const loaded = context.displayed, generation = context.generation;
         if (!loaded) {
             if (context.phase === "BLOCKED" && context.origin) {
-                context.response = await core({ kind: "CHECK_NAVIGATION", target: webTarget(context.origin), context: binding(context) });
+                const origin = context.origin, response = await core({ kind: "CHECK_NAVIGATION", target: webTarget(origin), context: binding(context) });
+                if (enabled && contexts.get(context.id) === context && context.generation === generation && context.phase === "BLOCKED" && context.origin === origin) context.response = response;
             }
             return;
         }
@@ -3069,6 +3308,7 @@ function createAtlasRuntime({ repository, clock, configuration = DEVELOPMENT_CON
         const current = journey(context);
         const response = await core({ kind: "CHECK_NAVIGATION", target: webTarget(loaded.url),
             context: binding(context, current ? { kind: "RETAINED", sourceHostname: current.currentHostname } : undefined) });
+        if (!valid(context, generation) || context.displayed !== loaded) return;
         if (!allowed(response)) failContext(context, response);
         else {
             context.response = response; loaded.response = response;
@@ -3076,7 +3316,8 @@ function createAtlasRuntime({ repository, clock, configuration = DEVELOPMENT_CON
         }
     }
     async function observe() {
-        if (!enabled || controller.getView().status !== "READY") return;
+        if (!enabled) return;
+        if (controller.getView().status !== "READY") { await recoverTransientStorage(); if (controller.getView().status !== "READY") { publish(); return; } }
         await core({ kind: "OBSERVE_TIME" });
         for (const context of contexts.values()) await recheck(context);
         publish();
@@ -3110,6 +3351,7 @@ function createAtlasRuntime({ repository, clock, configuration = DEVELOPMENT_CON
         const display = describe(state, cachedApplication, enabled, presentationTime(), managed, managedBlacklist !== undefined);
         return { ...state, enabled, application: cachedApplication, ...display, starter,
             initialConfiguration: state.snapshot ? null : configuration, repositoryIssue: repository.issue ?? null,
+            storage: storageView(), recovery: { ...recovery },
             contexts: [...contexts.values()].map(context => ({ id: context.id, nativeId: context.nativeId,
                 generation: context.generation, closed: context.closed, phase: context.phase,
                 response: context.response, origin: context.origin, journey: snapshot()?.journeyState.journeys.find(j => j.contextId === context.id) ?? null })) };
@@ -3194,7 +3436,20 @@ function createAtlasRuntime({ repository, clock, configuration = DEVELOPMENT_CON
                 finally { repository.clearApplicationStage(); }
             } catch (error) { return { type: "REJECTED", reason: error.message }; }
         }
-        if (kind === "RECOVER" && Object.keys(input).length === 1) return open();
+        if (kind === "REVIEW_STORAGE_OWNERSHIP" && Object.keys(input).length === 1) {
+            if (controller.getView().status !== "UNAVAILABLE" || snapshot() !== null) return { type: "REJECTED", reason: "STORAGE_REPAIR_NOT_AVAILABLE" };
+            return repository.reviewOwnershipRepair();
+        }
+        if (kind === "REPAIR_STORAGE_OWNERSHIP" && Object.keys(input).length === 3 && Object.hasOwn(input, "repairId") && Object.hasOwn(input, "localCopyConfirmed")) {
+            if (controller.getView().status !== "UNAVAILABLE" || snapshot() !== null) return { type: "REJECTED", reason: "STORAGE_REPAIR_NOT_AVAILABLE" };
+            const result = repository.repairOwnership(input);
+            if (result.type !== "STORAGE_OWNERSHIP_REPAIRED") { publish(); return result; }
+            const state = await open(true);
+            // Explicit repair includes reconciliation of a discovered exact
+            // pending journal. No operation/confirmation is executed again.
+            return state.status === "RECONCILING" ? open(true) : state;
+        }
+        if (kind === "RECOVER" && Object.keys(input).length === 1) return open(true);
         if (kind === "INITIALIZE" && Object.keys(input).length === 3) return initialize(input.policy, input.configuration);
         if (["PROPOSE_POLICY", "PROPOSE_SETTINGS", "REVIEW_POLICY", "CONFIRM_POLICY", "CANCEL_POLICY"].includes(kind)) {
             const oldRevision = snapshot()?.policyRevision;
@@ -3278,7 +3533,13 @@ function createAtlasRuntime({ repository, clock, configuration = DEVELOPMENT_CON
         const prior = controller.getView();
         const receipt = await repository.replace(prior.storageVersion, `presentation:${randomUUID()}`,
             { schemaVersion: 2, snapshot: prior.snapshot, application });
-        if (receipt.type !== "COMMITTED") { failAll(reason); await core({ kind: "OBSERVE_TIME" }); publish(); return blocked(reason); }
+        if (receipt.type !== "COMMITTED") {
+            // A proven aborted metadata save cannot revoke otherwise-valid
+            // browsing. Unknown outcomes still close content before reconciling.
+            if (receipt.type !== "NOT_WRITTEN") failAll(reason);
+            await core({ kind: "OBSERVE_TIME" }); publish();
+            return blocked(receipt.type === "NOT_WRITTEN" && controller.getView().status === "READY" ? "PRESENTATION_NOT_WRITTEN" : reason);
+        }
         await core({ kind: "OBSERVE_TIME" }); publish();
         return controller.getView().status === "READY" ? { type: "COMMITTED", operation: "PRESENTATION" } : blocked(reason);
     }
@@ -3286,7 +3547,7 @@ function createAtlasRuntime({ repository, clock, configuration = DEVELOPMENT_CON
         updateManaged: work => enqueue(async () => { const result = await work(); if (result && controller.getView().status === "READY") await observe(); else publish(); return result; }),
         open: () => enqueue(open), command: input => {
             let copy; try { copy = structuredClone(input); } catch (_) { copy = null; }
-            return enqueue(() => command(copy));
+            return enqueue(() => enabled ? command(copy) : blocked("INTEGRATION_SUSPENDED"));
         }, observe: () => enqueue(observe), close, retireDocument, view, now: () => clock.now(),
         block: (context, reason) => failContext(context, blocked(reason)),
         subscribe(callback) { if (!subscribers.size) lastPublication = presentationKey(view(), presentationTime()); subscribers.add(callback); return () => subscribers.delete(callback); },
@@ -3298,6 +3559,36 @@ function createAtlasRuntime({ repository, clock, configuration = DEVELOPMENT_CON
 }
 
 module.exports = { createAtlasRuntime, DEVELOPMENT_CONFIGURATION, webTarget, homeOrigin, blank, allowed };
+
+},
+"lib/atlas/obsidian/storage-diagnostics.js": function (module, exports, __hubRequire) {
+"use strict";
+// Memory-only, closed codes and scalar counts. Never copy messages, paths,
+// URLs, tokens, exceptions or saved authority into diagnostics.
+const causes = Object.freeze({ EBUSY: "BUSY", EAGAIN: "BUSY", EINTR: "INTERRUPTED", EIO: "IO_ERROR",
+    ENOSPC: "CAPACITY", EDQUOT: "CAPACITY", EACCES: "ACCESS_DENIED", EPERM: "ACCESS_DENIED", EROFS: "READ_ONLY",
+    EMFILE: "RESOURCE_LIMIT", ENFILE: "RESOURCE_LIMIT", ENOENT: "MISSING_DATA",
+    ATLAS_OWNER_LOST: "OWNERSHIP", ATLAS_INVALID_DATA: "INVALID_DATA", ATLAS_EXTERNAL_WRITE: "EXTERNAL_WRITE",
+    ATLAS_JOURNAL_CHANGED: "JOURNAL_CHANGED", ATLAS_AUTHORITY_MISMATCH: "AUTHORITY_MISMATCH" });
+function cause(error) {
+    try { const code = error?.code; return Object.hasOwn(causes, code) ? causes[code] : error instanceof SyntaxError ? "INVALID_DATA" : "OTHER"; }
+    catch (_) { return "OTHER"; }
+}
+const coded = code => Object.assign(new Error(code), { code });
+const increment = value => Math.min(Number.MAX_SAFE_INTEGER, value + 1);
+function createStorageDiagnostics() {
+    const counts = { initializeAttempts: 0, initialized: 0, loadAttempts: 0, verifiedLoads: 0, writeAttempts: 0, committedWrites: 0, failedWrites: 0,
+        notWrittenWrites: 0, unknownWrites: 0, conflicts: 0, resolveAttempts: 0, resolvedCommits: 0, migrations: 0, cleanupFailures: 0 };
+    let sequence = 0, lastFailure = null;
+    return {
+        bump(key) { if (Object.hasOwn(counts, key)) counts[key] = increment(counts[key]); },
+        fail(operation, stage, error, outcome) {
+            sequence = increment(sequence); lastFailure = Object.freeze({ sequence, operation, stage, cause: cause(error), outcome });
+        },
+        view() { return Object.freeze({ ...counts, lastFailure }); }
+    };
+}
+module.exports = { cause, coded, increment, createStorageDiagnostics };
 
 },
 "lib/atlas/obsidian/webviewer.js": function (module, exports, __hubRequire) {

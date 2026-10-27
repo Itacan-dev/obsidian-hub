@@ -2,11 +2,34 @@
 function describeOutcome(command, result, state = {}) {
     const kind = command.kind, reason = result?.reason;
     const info = (text, tone = "info", section = null) => ({ text, tone, section, detail: reason ?? null });
+    if (kind === "REVIEW_STORAGE_OWNERSHIP" && result?.type === "STORAGE_OWNERSHIP_REVIEW")
+        return info("Saved files are ready for ownership review. No lock or policy has changed. Review the confirmation below.");
+    if (reason?.startsWith("STORAGE_REPAIR_")) {
+        const explanations = {
+            STORAGE_REPAIR_NOT_FOREIGN: "Saved storage no longer has the reviewed foreign lock. Review its current diagnostics before another action.",
+            STORAGE_REPAIR_NOT_AVAILABLE: "Ownership repair is unavailable in this state. Review the current diagnostics; saved policy has not been reset.",
+            STORAGE_REPAIR_INVALID_STATE: "The saved files could not be validated for ownership repair. Preserve the records and review their diagnostics before proceeding.",
+            STORAGE_REPAIR_BUSY: "Another owner or storage repair is active. Stop competing Atlas instances before reviewing ownership again.",
+            STORAGE_REPAIR_CHANGED: "Saved files changed after this ownership review. Review ownership again before attempting a repair.",
+            STORAGE_REPAIR_EXPIRED: "This ownership review expired. Review ownership again; no new confirmation was applied.",
+            STORAGE_REPAIR_CONFIRMATION_REQUIRED: "Confirm that this is an independent local copy or all other Atlas instances using these saved files are stopped.",
+            STORAGE_REPAIR_FAILED: "Storage ownership repair could not finish. Browsing stays blocked. Review the saved-state diagnostics before trying again.",
+            STORAGE_REPAIR_STALE: "This ownership review was used or no longer applies. Review the current saved files again."
+        };
+        return info(explanations[reason] ?? "Ownership repair was not verified. Review the saved-state diagnostics before another action.", "error", "diagnostics");
+    }
+    if (kind === "REPAIR_STORAGE_OWNERSHIP" && result?.status === "READY")
+        return info("Storage ownership repaired and saved state reconciled. Original files were backed up; policy and timing values were preserved. No confirmation or browser request was replayed.", "success");
+    if (kind === "REPAIR_STORAGE_OWNERSHIP" && result?.status === "UNINITIALIZED")
+        return info("Storage ownership repaired. No saved policy was found in this copy; setup remains an explicit separate action.", "success");
+    if (kind === "REPAIR_STORAGE_OWNERSHIP" && result?.status === "RECONCILING")
+        return info("Storage ownership repaired, but a saved transaction still needs reconciliation. Its journal is preserved and browsing stays blocked.", "unresolved", "diagnostics");
     if (reason?.startsWith("NATIVE_") || reason === "NOT_READY" && state.status === "UNINITIALIZED")
         return info("Atlas is not ready to start this operation. Your draft is kept; open setup or recovery to continue.", "warning", state.status === "UNINITIALIZED" ? "sites" : "diagnostics");
     if (!result || reason === "TRANSPORT_UNRESOLVED" || state.status === "RECONCILING" && result.type === "BLOCKED" ||
         ["COMMIT_UNKNOWN", "RECOVERY_SAVE_UNRESOLVED"].includes(reason))
         return info("The save outcome is unresolved. Your draft is kept. Reconcile saved state before retrying; nothing will be confirmed automatically.", "unresolved", "diagnostics");
+    if (state.status === "UNAVAILABLE" && state.repositoryIssue === "FOREIGN_OWNER") return info("Another computer's storage lock still prevents access. Repeated recovery cannot remove it. Open recovery to review storage ownership; your saved policy is preserved.", "error", "diagnostics");
     if (state.status === "UNAVAILABLE") return info("Saved authority is unavailable. Your draft is kept and no new change was verified. Open recovery to reconcile saved state.", "error", "diagnostics");
     if (reason === "PRESENTATION_NOT_WRITTEN") return ["RECREATE_POLICY", "RESTORE_RECOVERY", "DISCARD_RECOVERY"].includes(kind)
         ? info("A recovery metadata save did not complete. Saved copies are kept; review the current Vault and recovery state before retrying.", "warning", "vault")
@@ -56,7 +79,7 @@ function describeAuthorityFailure(state) {
     if (state.storage?.lastFailure?.cause === "CAPACITY") return "Storage is full or its quota is exhausted. Free space and explicitly recover saved state. Existing policy files are preserved; do not reset Atlas.";
     if (["ACCESS_DENIED", "READ_ONLY"].includes(state.storage?.lastFailure?.cause)) return "Atlas cannot write to its saved-state directory. Check storage access and explicitly recover saved state. Existing files are preserved.";
     const explanations = {
-        FOREIGN_OWNER: "Saved state is locked by another computer. Recovery cannot establish whether that owner is still running. Stop Atlas on the other computer and review the saved state before authorizing a lock repair.",
+        FOREIGN_OWNER: "Saved state has another computer's lock. Atlas cannot determine whether that owner is still running. Review storage ownership below only for an independent local copy or after stopping all other Atlas instances using these saved files.",
         STORAGE_LOCKED: "Another owner or an interrupted lock recovery prevents access to saved state. Recovery will retry ownership; it never removes an owner whose shutdown cannot be verified.",
         COMMIT_UNRESOLVED: "A saved transaction is awaiting reconciliation. Recover saved state to check whether its exact write completed; no confirmation will be replayed.",
         JOURNAL_AUTHORITY_MISMATCH: "The transaction journal matches neither the saved state before its write nor the state after it. Recovery cannot choose the correct authority. Preserve both records and review them before authorizing a repair.",

@@ -9617,12 +9617,40 @@ module.exports = { text, place, keyed, phaseAnnouncer };
 function describeOutcome(command, result, state = {}) {
     const kind = command.kind, reason = result?.reason;
     const info = (text, tone = "info", section = null) => ({ text, tone, section, detail: reason ?? null });
+    if (kind === "REVIEW_STORAGE_OWNERSHIP" && result?.type === "STORAGE_OWNERSHIP_REVIEW")
+        return info("Saved files are ready for ownership review. No lock or policy has changed. Review the confirmation below.");
+    if (reason?.startsWith("STORAGE_REPAIR_")) {
+        const explanations = {
+            STORAGE_REPAIR_NOT_FOREIGN: "Saved storage no longer has the reviewed foreign lock. Review its current diagnostics before another action.",
+            STORAGE_REPAIR_NOT_AVAILABLE: "Ownership repair is unavailable in this state. Review the current diagnostics; saved policy has not been reset.",
+            STORAGE_REPAIR_INVALID_STATE: "The saved files could not be validated for ownership repair. Preserve the records and review their diagnostics before proceeding.",
+            STORAGE_REPAIR_BUSY: "Another owner or storage repair is active. Stop competing Atlas instances before reviewing ownership again.",
+            STORAGE_REPAIR_CHANGED: "Saved files changed after this ownership review. Review ownership again before attempting a repair.",
+            STORAGE_REPAIR_EXPIRED: "This ownership review expired. Review ownership again; no new confirmation was applied.",
+            STORAGE_REPAIR_CONFIRMATION_REQUIRED: "Confirm that this is an independent local copy or all other Atlas instances using these saved files are stopped.",
+            STORAGE_REPAIR_FAILED: "Storage ownership repair could not finish. Browsing stays blocked. Review the saved-state diagnostics before trying again.",
+            STORAGE_REPAIR_STALE: "This ownership review was used or no longer applies. Review the current saved files again."
+        };
+        return info(explanations[reason] ?? "Ownership repair was not verified. Review the saved-state diagnostics before another action.", "error", "diagnostics");
+    }
+    if (kind === "REPAIR_STORAGE_OWNERSHIP" && result?.status === "READY")
+        return info("Storage ownership repaired and saved state reconciled. Original files were backed up; policy and timing values were preserved. No confirmation or browser request was replayed.", "success");
+    if (kind === "REPAIR_STORAGE_OWNERSHIP" && result?.status === "UNINITIALIZED")
+        return info("Storage ownership repaired. No saved policy was found in this copy; setup remains an explicit separate action.", "success");
+    if (kind === "REPAIR_STORAGE_OWNERSHIP" && result?.status === "RECONCILING")
+        return info("Storage ownership repaired, but a saved transaction still needs reconciliation. Its journal is preserved and browsing stays blocked.", "unresolved", "diagnostics");
     if (reason?.startsWith("NATIVE_") || reason === "NOT_READY" && state.status === "UNINITIALIZED")
         return info("Atlas is not ready to start this operation. Your draft is kept; open setup or recovery to continue.", "warning", state.status === "UNINITIALIZED" ? "sites" : "diagnostics");
     if (!result || reason === "TRANSPORT_UNRESOLVED" || state.status === "RECONCILING" && result.type === "BLOCKED" ||
         ["COMMIT_UNKNOWN", "RECOVERY_SAVE_UNRESOLVED"].includes(reason))
         return info("The save outcome is unresolved. Your draft is kept. Reconcile saved state before retrying; nothing will be confirmed automatically.", "unresolved", "diagnostics");
+    if (state.status === "UNAVAILABLE" && state.repositoryIssue === "FOREIGN_OWNER") return info("Another computer's storage lock still prevents access. Repeated recovery cannot remove it. Open recovery to review storage ownership; your saved policy is preserved.", "error", "diagnostics");
     if (state.status === "UNAVAILABLE") return info("Saved authority is unavailable. Your draft is kept and no new change was verified. Open recovery to reconcile saved state.", "error", "diagnostics");
+    if (reason === "PRESENTATION_NOT_WRITTEN") return ["RECREATE_POLICY", "RESTORE_RECOVERY", "DISCARD_RECOVERY"].includes(kind)
+        ? info("A recovery metadata save did not complete. Saved copies are kept; review the current Vault and recovery state before retrying.", "warning", "vault")
+        : info("Display changes were not saved. Your input is kept; retry explicitly when storage is available. Host access is unchanged.", "error");
+    if (reason === "WRITE_FAILED" && state.status === "READY") return info("This change was not saved. Saved authority recovered; your input is kept. Try again explicitly within the original confirmation window when applicable.", "warning");
+    if (reason === "INTEGRATION_CLOSED" || reason === "INTEGRATION_SUSPENDED") return info("This Atlas session is closed. Reopen Atlas to review saved state before another action.", "warning", "diagnostics");
     if (kind === "RECOVER" && result.status === "READY")
         return info("Saved state reconciled. Review any pending operation; nothing was automatically confirmed.", "success");
     if (result.type === "COMMITTED") {
@@ -9663,18 +9691,33 @@ function describeOutcome(command, result, state = {}) {
 }
 function describeAuthorityFailure(state) {
     const issue = state.repositoryIssue ?? state.reason;
+    if (state.storage?.lastFailure?.cause === "CAPACITY") return "Storage is full or its quota is exhausted. Free space and explicitly recover saved state. Existing policy files are preserved; do not reset Atlas.";
+    if (["ACCESS_DENIED", "READ_ONLY"].includes(state.storage?.lastFailure?.cause)) return "Atlas cannot write to its saved-state directory. Check storage access and explicitly recover saved state. Existing files are preserved.";
     const explanations = {
-        FOREIGN_OWNER: "Saved state is locked by another computer. Recovery cannot establish whether that owner is still running. Stop Atlas on the other computer and review the saved state before authorizing a lock repair.",
+        FOREIGN_OWNER: "Saved state has another computer's lock. Atlas cannot determine whether that owner is still running. Review storage ownership below only for an independent local copy or after stopping all other Atlas instances using these saved files.",
         STORAGE_LOCKED: "Another owner or an interrupted lock recovery prevents access to saved state. Recovery will retry ownership; it never removes an owner whose shutdown cannot be verified.",
         COMMIT_UNRESOLVED: "A saved transaction is awaiting reconciliation. Recover saved state to check whether its exact write completed; no confirmation will be replayed.",
         JOURNAL_AUTHORITY_MISMATCH: "The transaction journal matches neither the saved state before its write nor the state after it. Recovery cannot choose the correct authority. Preserve both records and review them before authorizing a repair.",
+        EXTERNAL_WRITE: "Saved state changed outside the current owner. Preserve the existing records and review the external change before repairing ownership or authority.",
         CORRUPT_STATE: "Saved authority is missing or invalid. Preserve the existing files and review a verified backup; initialization cannot replace previously initialized state.",
         CLOCK_ROLLBACK: "The current clock is earlier than a saved authority checkpoint. Check the system time before recovering saved state.",
         MANAGED_BLACKLIST_UNAVAILABLE: "The managed blacklist could not be validated. Browsing remains blocked until a verified bundle or cache is available."
     };
     return explanations[issue] ?? "Saved authority could not be verified. Review the diagnostic codes and storage access before retrying recovery. Existing state is preserved.";
 }
-module.exports = { describeOutcome, describeAuthorityFailure };
+function storageSummary(state) {
+    const d = state.storage, r = state.recovery;
+    if (!d) return ["Storage diagnostics are unavailable in this host."];
+    return [
+        "Filesystem loads: " + d.loadAttempts + " · verified: " + d.verifiedLoads + " · initialization: " + d.initialized + "/" + d.initializeAttempts,
+        "Journaled write attempts: " + d.writeAttempts + " · committed: " + d.committedWrites + " · confirmed not written: " + d.notWrittenWrites + " · unknown: " + d.unknownWrites + " · conflicts: " + d.conflicts,
+        "Reconciliation attempts: " + d.resolveAttempts + " · resolved: " + d.resolvedCommits + " · legacy migration attempts: " + d.migrations,
+        d.lastFailure ? "Latest storage failure: " + [d.lastFailure.operation, d.lastFailure.stage, d.lastFailure.cause, d.lastFailure.outcome].join(" · ") : "No storage failure recorded in this process.",
+        r ? "Automatic recovery: " + r.automaticAttempts + " attempted · " + r.automaticSucceeded + " succeeded · " + r.automaticFailed + " failed. Manual recovery: " + r.manualAttempts + " attempted · " + r.manualSucceeded + " succeeded · " + r.manualFailed + " failed. Last recovery outcome: " + r.status.toLowerCase() + "." : "",
+        "These counters are local diagnostics. Recovery never repeats a confirmation, renews a deadline or resets policy."
+    ];
+}
+module.exports = { describeOutcome, describeAuthorityFailure, storageSummary };
 
 },
 "lib/atlas/obsidian/home-ui.js": function (module, exports, __hubRequire) {
@@ -9797,14 +9840,14 @@ function installAtlasIntegration(plugin) {
     const bridge = {
         view() { return description ?? { status: "UNAVAILABLE", reason: issue, snapshot: null, contexts: [] }; },
         async command(input) {
-            if (!host) return { type: "BLOCKED", reason: issue };
+            if (stopped || !host) return { type: "BLOCKED", reason: stopped ? "INTEGRATION_CLOSED" : issue };
             if (["START_ACCESS", "CONFIRM_ACCESS_AND_OPEN", "CANCEL_ACCESS", "OPEN_HOME", "RETRY_JOURNEY", "CANCEL_JOURNEY"].includes(input?.kind)) {
                 const context = bridge.view().contexts.find(c => c.id === input.contextId && c.generation === input.generation);
                 if (!context || !bridge.canActOnContext(context)) return { type: "BLOCKED", reason: "STALE_CONTEXT" };
             }
-            const result = JSON.parse(await host.commandJSON(JSON.stringify(input))); if (readDescription()) { refresh(); publish(); } return result;
+            const result = JSON.parse(await host.commandJSON(JSON.stringify(input))); if (stopped) return { type: "BLOCKED", reason: "TRANSPORT_UNRESOLVED" }; if (readDescription()) { refresh(); publish(); } return result;
         },
-        subscribe(callback) { listeners.add(callback); return () => listeners.delete(callback); },
+        subscribe(callback) { if (stopped) return () => {}; listeners.add(callback); return () => listeners.delete(callback); },
         isSettingsOpen: () => getSettingsOwner(plugin).isOpen(),
         canActOnContext(context) {
             if (stopped || !host) return false;
@@ -9812,8 +9855,9 @@ function installAtlasIntegration(plugin) {
             const leaf = record && app.workspace.getLeavesOfType("webviewer").find(l => l.view === record.view);
             return !!leaf && canUseAtlasContext(plugin, leaf);
         },
-        forget(nativeId) { host?.forget(nativeId); },
+        forget(nativeId) { if (!stopped) host?.forget(nativeId); },
         open(route) {
+            if (stopped) return false;
             const session = getAtlasSession(bridge), target = normalizeRoute(route, session.route);
             if (stopped || !target) return false;
             session.route = target;
@@ -10037,7 +10081,7 @@ function installAtlasIntegration(plugin) {
         const directory = path.resolve(base, plugin.manifest.dir);
         const candidate = window.electron.remote.require(path.join(directory, "atlas-native.cjs"))
             .getAtlasHost({ directory, partition: app.getWebviewPartition() });
-        if (candidate.apiVersion !== 4) {
+        if (candidate.apiVersion !== 6) {
             // Never hot-swap an old controller or its uncertain-write guards.
             try { candidate.unsubscribe(null); } catch (_) { /* quarantine below */ }
             throw new Error("NATIVE_ADAPTER_UPGRADE_REQUIRED");
@@ -10069,12 +10113,12 @@ function installAtlasIntegration(plugin) {
                 const state = leaf.getViewState?.();
                 return state?.type === "webviewer" && state.state?.url === "about:blank" && (!leaf.view?.url || leaf.view.url === "about:blank");
             });
-            if (existing) { await app.workspace.revealLeaf(existing); scan(); const eligible = canOpenAtlas(plugin, existing, expectedMode); if (eligible) existing.view.contentEl.querySelector(".hub-atlas-home input[type=search]")?.focus({ preventScroll: true }); return eligible; }
+            if (existing) { await app.workspace.revealLeaf(existing); scan(); const eligible = !stopped && canOpenAtlas(plugin, existing, expectedMode); if (eligible) existing.view.contentEl.querySelector(".hub-atlas-home input[type=search]")?.focus({ preventScroll: true }); return eligible; }
             const preferred = modes.pickContentLeaf() ?? source, anchor = canOpenAtlas(plugin, preferred, expectedMode) ? preferred : source;
             if (!canOpenAtlas(plugin, source, expectedMode)) return false;
             const leaf = modes.createTabLeaf(anchor);
             await leaf.setViewState({ type: "webviewer", state: { url: "about:blank", atlasHome: true, title: "Atlas" }, active: true });
-            if (!canOpenAtlas(plugin, leaf, expectedMode)) { leaf.detach?.(); return false; }
+            if (stopped || !canOpenAtlas(plugin, leaf, expectedMode)) { leaf.detach?.(); return false; }
             leaf.view.__atlasHome = true; scan(); modes.captureNoteLayout(); leaf.view.contentEl.querySelector(".hub-atlas-home input[type=search]")?.focus({ preventScroll: true }); return true;
         };
         const pending = work().finally(() => { if (launchingHome === pending) launchingHome = null; });
@@ -10232,6 +10276,7 @@ function getAtlasSession(bridge) {
         changed() { for (const fn of listeners) fn(session.route, { navigation: false }); },
         subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); },
         clearDraft(token) { if (session.draft?.token !== token) return false; session.draft = null; session.changed(); return true; },
+        clearTimings(model) { if (session.timings !== model) return false; session.timings = null; session.changed(); return true; },
         dispose() { listeners.clear(); session.draft = null; session.timings = null; session.setup = null; session.feedback = null; session.contextFeedback.clear(); session.scrolls.clear(); sessions.delete(bridge); }
     };
     sessions.set(bridge, session); return session;
@@ -10257,7 +10302,7 @@ module.exports = { getAtlasSession, normalizeRoute, createDestinationDraft, draf
 "use strict";
 const { el, button, countdown, updateCountdowns, configurationInput, formatMilliseconds, renderNavigation } = __hubRequire("lib/atlas/obsidian/ui.js");
 const { getAtlasSession, createDestinationDraft, draftBase } = __hubRequire("lib/atlas/obsidian/session.js");
-const { describeOutcome, describeAuthorityFailure } = __hubRequire("lib/atlas/obsidian/feedback.js");
+const { describeOutcome, describeAuthorityFailure, storageSummary } = __hubRequire("lib/atlas/obsidian/feedback.js");
 const { normalizeTarget } = __hubRequire("lib/atlas/core/target.js");
 const { pendingActions, phaseAt, presentationNow } = __hubRequire("lib/atlas/obsidian/pending.js");
 const { keyed, phaseAnnouncer, text: setText } = __hubRequire("lib/atlas/obsidian/dom.js");
@@ -10281,13 +10326,14 @@ function mountAtlasSettings(parent, bridge) {
     // Startup failures have no verified snapshot, so the ordinary settings
     // shell cannot render. Keep their diagnostics outside that shell.
     const startupDiagnostics = el(parent, "section", undefined, "hub-atlas-startup-diagnostics");
-    startupDiagnostics.setAttribute("aria-label", "Diagnostics / Recovery");
+    startupDiagnostics.setAttribute("aria-label", "Diagnostics / Recovery"); startupDiagnostics.tabIndex = -1;
     el(startupDiagnostics, "h3", "Diagnostics / Recovery");
     const startupCause = el(startupDiagnostics, "p"), startupCodes = el(startupDiagnostics, "p");
     const shell = el(parent, "div", undefined, "hub-atlas-settings-shell");
     const navigation = el(shell, "nav"); navigation.setAttribute("aria-label", "Atlas settings sections");
     const sections = new Map(), navButtons = new Map(), signatures = new Map(), mounts = new Map();
     let selected = session.route.section, mode = null, review = null, disposed = false, reviewKey = null, vaultTick = null, reviewRetryAt = 0;
+    let ownershipReview = null, ownershipBusy = false;
     const show = id => { const changed = selected !== id; selected = id; session.route = { section: id, context: session.route.section === id ? session.route.context : null }; for (const [key, node] of sections) {
         if (node.hidden !== (key !== id)) node.hidden = key !== id;
     } for (const [key, node] of navButtons) { const value = key === id ? "page" : "false"; if (node.getAttribute("aria-current") !== value) node.setAttribute("aria-current", value); node.setAttribute("aria-selected", String(key === id)); node.tabIndex = key === id ? 0 : -1; } if (changed) navButtons.get(id)?.scrollIntoView({ block: "nearest", inline: "nearest" }); };
@@ -10304,6 +10350,9 @@ function mountAtlasSettings(parent, bridge) {
     const protectedButton = (parent, label, action) => { const node = button(parent, label, action); node.dataset.atlasProtected = ""; return node; };
     const navigate = route => { if (bridge.open) bridge.open(route); else session.navigate(route); };
     function focusRoute() {
+        if (!bridge.view().snapshot && !startupDiagnostics.hidden && selected === "diagnostics") {
+            startupDiagnostics.focus({ preventScroll: true }); startupDiagnostics.scrollIntoView({ block: "nearest" }); return;
+        }
         const context = session.route.context;
         const section = sections.get(selected);
         if (!context) { section.focus({ preventScroll: true }); return; }
@@ -10341,6 +10390,50 @@ function mountAtlasSettings(parent, bridge) {
         session.feedback = describeOutcome(command, result, bridge.view()); paint(message, session.feedback);
         if (proposed) { session.navigate({ section: "vault", context: { proposalId: bridge.view().snapshot.vaultState.pendingProposal.id } }); }
         refresh(); return result;
+    }
+    const ownership = el(startupDiagnostics, "div", undefined, "hub-atlas-storage-ownership");
+    el(ownership, "p", "This copy contains another computer's storage lock. Repeated recovery cannot remove it. Review ownership only if this is an independent local copy or Atlas is stopped on every other computer using these saved files.");
+    const reviewOwnership = button(ownership, "Review storage ownership", async () => {
+        if (ownershipBusy || disposed) return;
+        ownershipBusy = true; ownershipReview = null; syncOwnership(bridge.view());
+        try {
+            const result = await send({ kind: "REVIEW_STORAGE_OWNERSHIP" });
+            if (!disposed && result.type === "STORAGE_OWNERSHIP_REVIEW") { ownershipReview = result; ownershipConfirmed.checked = false; }
+        } finally { ownershipBusy = false; if (!disposed) syncOwnership(bridge.view()); }
+    });
+    const ownershipForm = el(ownership, "div"); ownershipForm.setAttribute("role", "group"); ownershipForm.setAttribute("aria-label", "Storage ownership review");
+    const ownershipSummary = el(ownershipForm, "p"), ownershipJournal = el(ownershipForm, "p");
+    el(ownershipForm, "p", "Atlas saves a backup of the original saved files and lock before changing ownership. Your policy, timing values and pending transaction records are preserved. This does not reset Atlas or grant access.");
+    el(ownershipForm, "p", "Do not proceed while another computer is using the same synced Atlas state.");
+    const confirmationLabel = el(ownershipForm, "label", undefined, "hub-atlas-check"), ownershipConfirmed = el(confirmationLabel, "input"); ownershipConfirmed.type = "checkbox";
+    ownershipConfirmed.setAttribute("aria-label", "Confirm local storage ownership");
+    el(confirmationLabel, "span", "This is an independent local copy, or Atlas is stopped on every other computer using these saved files.");
+    const repairOwnership = button(ownershipForm, "Use saved state on this computer", async () => {
+        if (disposed || ownershipBusy || !ownershipReview || !ownershipConfirmed.checked) return;
+        const repairId = ownershipReview.repairId; ownershipBusy = true; syncOwnership(bridge.view());
+        try { await send({ kind: "REPAIR_STORAGE_OWNERSHIP", repairId, localCopyConfirmed: true }); }
+        finally { ownershipReview = null; ownershipConfirmed.checked = false; ownershipBusy = false; if (!disposed) syncOwnership(bridge.view()); }
+    });
+    const cancelOwnership = button(ownershipForm, "Cancel ownership review", () => {
+        if (ownershipBusy) return;
+        ownershipReview = null; ownershipConfirmed.checked = false;
+        session.feedback = { text: "Ownership review cancelled. Saved state and its lock are unchanged.", tone: "info" }; paint(message, session.feedback); syncOwnership(bridge.view());
+    });
+    ownershipConfirmed.addEventListener("change", () => syncOwnership(bridge.view()));
+    function syncOwnership(state) {
+        const foreign = !state.snapshot && state.status === "UNAVAILABLE" && state.repositoryIssue === "FOREIGN_OWNER";
+        ownership.hidden = !foreign;
+        if (!foreign && !ownershipBusy) { ownershipReview = null; ownershipConfirmed.checked = false; }
+        reviewOwnership.hidden = !!ownershipReview; reviewOwnership.disabled = ownershipBusy; reviewOwnership.dataset.atlasNotReady = String(ownershipBusy);
+        ownershipForm.hidden = !ownershipReview; ownershipConfirmed.disabled = ownershipBusy;
+        repairOwnership.disabled = ownershipBusy || !ownershipReview || !ownershipConfirmed.checked; repairOwnership.dataset.atlasNotReady = String(repairOwnership.disabled);
+        cancelOwnership.disabled = ownershipBusy; cancelOwnership.dataset.atlasNotReady = String(ownershipBusy);
+        if (ownershipReview) {
+            setText(ownershipSummary, ownershipReview.authorityPresent ? "Saved policy revision " + ownershipReview.policyRevision + " · timing revision " + ownershipReview.configurationRevision + " · " + ownershipReview.destinationCount + " destinations. Review valid until " + timestamp(ownershipReview.expiresAt) + "." : "No saved authority file is present in this copy. Ownership repair will not initialize Atlas or choose rules.");
+            setText(ownershipJournal, ownershipReview.journalPending ? "A saved transaction is pending. Its journal is kept; Atlas must reconcile that exact write before browsing." : "No pending transaction was found in the reviewed copy.");
+        }
+        const retry = onboarding.querySelector("[data-atlas-startup-recover]");
+        if (retry) { retry.disabled = foreign || retry.dataset.atlasBusy === "true"; retry.dataset.atlasNotReady = String(foreign); retry.title = foreign ? "Review storage ownership below; retrying alone cannot remove another computer's lock." : ""; }
     }
     function beginEditor(parent, destination, state) {
         captureDraft?.();
@@ -10546,7 +10639,7 @@ function mountAtlasSettings(parent, bridge) {
             setText(startupCause, describeAuthorityFailure(state));
             setText(startupCodes, ["Authority: " + state.status, "Reason: " + (state.reason ?? "unavailable"),
                 "Storage issue: " + (state.repositoryIssue ?? "none reported"),
-                ...(state.pendingCommitId ? ["Pending transaction: " + state.pendingCommitId] : [])].join(" · "));
+                ...(state.pendingCommitId ? ["A transaction awaits explicit reconciliation."] : []), ...storageSummary(state)].join(" · "));
         }
         const nextMode = state.status === "UNINITIALIZED" ? "setup" : snapshot ? "ready" : "unavailable";
         if (nextMode !== mode) {
@@ -10566,10 +10659,10 @@ function mountAtlasSettings(parent, bridge) {
                 captureSetup = () => { if (bridge.view().status === "UNINITIALIZED") session.setup = { values: numbers.map(input => input.value), whitelist: whitelist.value, blacklist: blacklist.value, termsOpen: terms.open, advancedOpen: advanced.open }; };
                 onboarding.addEventListener("input", () => captureSetup?.()); captureSetup();
             } else if (mode === "unavailable") {
-                el(onboarding, "p", "Saved authority could not be established. Browsing stays blocked. Recovery reconciles saved state and never resets it."); button(onboarding, "Recover saved state", () => send({ kind: "RECOVER" }));
+                el(onboarding, "p", "Saved authority could not be established. Browsing stays blocked. Recovery reconciles saved state and never resets it."); const retry = button(onboarding, "Recover saved state", () => send({ kind: "RECOVER" })); retry.dataset.atlasStartupRecover = "";
             }
         }
-        shell.hidden = !snapshot;
+        shell.hidden = !snapshot; syncOwnership(state);
         if (!snapshot) { show(selected); return; }
         // Sites list and draft have independent lifetimes. Core housekeeping and
         // countdowns cannot destroy focused controls or partially entered text.
@@ -10662,8 +10755,9 @@ function mountAtlasSettings(parent, bridge) {
                 if (model.values) inputs.forEach((input, i) => { input.value = model.values[i]; });
                 const capture = () => { model.values = inputs.map(input => input.value); model.original ??= JSON.stringify(model.values); model.dirty = JSON.stringify(model.values) !== model.original; updateSessionSummary(); };
                 captureTimings = capture; for (const input of inputs) input.addEventListener("input", capture); capture();
-                if (model.feedback) paint(feedback, model.feedback);
-                protectedButton(form, "Review timing change in Vault", async () => {
+                let feedbackSignature = JSON.stringify(model.feedback); paint(feedback, model.feedback);
+                const submitTiming = protectedButton(form, "Review timing change in Vault", async () => {
+                    if (disposed || session.timings !== model || model.busy) return;
                     capture();
                     if (model.unresolved) { paint(feedback, { text: "The timing submission outcome is unresolved. Your values are kept; review saved state before retrying.", tone: "unresolved", section: "diagnostics" }); return; }
                     const latest = bridge.view();
@@ -10679,15 +10773,25 @@ function mountAtlasSettings(parent, bridge) {
                         }); return;
                     }
                     try {
-                        const command = { kind: "PROPOSE_SETTINGS", candidateConfiguration: read() }; model.busy = true; inputs.forEach(input => { input.disabled = true; });
-                        const result = await send(command); model.busy = false; inputs.forEach(input => { input.disabled = false; });
-                        if (result?.type === "COMMITTED") { if (session.timings === model) { session.timings = null; reset(); } }
-                        else { model.feedback = describeOutcome(command, result, bridge.view()); model.unresolved = model.feedback.tone === "unresolved"; paint(feedback, model.feedback); }
-                    } catch (error) { model.feedback = { text: error.message + " Your timing draft is kept.", tone: "error" }; paint(feedback, model.feedback); }
+                        const command = { kind: "PROPOSE_SETTINGS", candidateConfiguration: read() }; model.busy = true; session.changed();
+                        const result = await send(command); model.busy = false;
+                        if (result?.type === "COMMITTED") session.clearTimings(model);
+                        else { model.feedback = describeOutcome(command, result, bridge.view()); model.unresolved = model.feedback.tone === "unresolved"; }
+                    } catch (error) { model.feedback = { text: error.message + " Your timing draft is kept.", tone: "error" }; }
+                    finally { model.busy = false; if (session.timings === model) session.changed(); }
                 });
+                section.syncTimings = () => {
+                    if (session.timings !== model) { reset(); return; }
+                    for (const input of inputs) input.disabled = !!model.busy;
+                    submitTiming.dataset.atlasNotReady = model.busy || model.unresolved ? "true" : "false";
+                    submitTiming.disabled = !!model.busy || !!model.unresolved || submitTiming.dataset.atlasBusy === "true" || bridge.view().status !== "READY";
+                    const next = JSON.stringify(model.feedback); if (next !== feedbackSignature) { feedbackSignature = next; paint(feedback, model.feedback); }
+                };
+                section.syncTimings();
             };
-            reset(); button(section, "Reload committed timings (discard edits)", () => { if (session.timings?.busy) return; session.timings = null; feedback.replaceChildren(); reset(); });
+            reset(); button(section, "Reload committed timings (discard edits)", () => { if (session.timings?.busy) return; feedback.replaceChildren(); session.clearTimings(session.timings); });
         }
+        sections.get("timings").syncTimings?.();
         const pending = snapshot.vaultState.pendingProposal;
         if (review?.proposalId !== pending?.id) review = null;
         rebuild("vault", JSON.stringify([pending && [pending.id, pending.basePolicyRevision, pending.baseConfigurationRevision, pending.createdAt, pending.readyAt, pending.confirmBy, pending.candidatePolicy, pending.candidateConfiguration], snapshot.policyRevision, snapshot.configurationRevision, application?.recovery ? application.revision : null, application?.pending, application?.recovery, state.status]), section => {
@@ -10835,7 +10939,7 @@ function mountAtlasSettings(parent, bridge) {
             el(diagnostics, "h3", "Diagnostics / Recovery"); const lines = Array.from({ length: 6 }, () => el(diagnostics, "p"));
             const details = el(diagnostics, "details"); el(details, "summary", "Technical details");
             const version = el(details, "p", undefined, "hub-atlas-source"); version.dataset.atlasStorageVersion = "";
-            const issue = el(details, "p"), journeyList = el(details, "div");
+            const issue = el(details, "p"), storageLines = Array.from({ length: 6 }, () => el(details, "p")), journeyList = el(details, "div");
             const syncJourneys = keyed(journeyList, () => ({ node: el(journeyList, "p") }), (r, j) => setText(r.node, j.rootHostname + " → " + j.currentHostname + " · " + j.phase.toLowerCase() + (j.endReason ? " · " + j.endReason.toLowerCase() : "")));
             el(diagnostics, "p", "Recovery reloads and reconciles authority. It never clears your policy, confirms a proposal or replays a browser request.");
             button(diagnostics, "Recover saved state", () => send({ kind: "RECOVER" }));
@@ -10848,7 +10952,7 @@ function mountAtlasSettings(parent, bridge) {
                     "Active grants " + (current.temporaryDestinations ?? []).filter(g => g.decision.outcome === "ALLOW").length + " · saved grants " + s.accessState.grants.length + " · pending requests " + s.accessState.pendingRequests.length + " · Vault proposal " + (s.vaultState.pendingProposal?.id ?? "none"),
                     "Managed sync " + (current.managed?.status ?? "unavailable") + " · last success " + timestamp(current.managed?.lastSuccessfulSync)];
                 values.forEach((value, i) => setText(lines[i], value)); setText(version, "Storage version: " + current.storageVersion);
-                setText(issue, current.repositoryIssue ? "Storage issue: " + current.repositoryIssue : ""); syncJourneys(s.journeyState.journeys);
+                setText(issue, current.repositoryIssue ? "Storage issue: " + current.repositoryIssue : ""); const storageText = storageSummary(current); storageLines.forEach((node, i) => setText(node, storageText[i] ?? "")); syncJourneys(s.journeyState.journeys);
             };
         }
         diagnostics.updateDiagnostics(state);

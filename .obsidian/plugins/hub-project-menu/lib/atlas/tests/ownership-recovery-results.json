@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-10-27",
+  "baselineCommit": "7ef6bd2",
+  "reportedDiagnostic": "UNAVAILABLE / STORAGE_UNAVAILABLE / FOREIGN_OWNER",
+  "reportedSetup": "Separate Git clone; Obsidian fully restarted",
+  "previousRunnableApi": 4,
+  "previousSourceApi": 5,
+  "newApi": 6,
+  "verification": {
+    "adapter": {
+      "passed": 146,
+      "failed": 0,
+      "skipped": 0,
+      "newOwnershipTests": 26
+    },
+    "browser": {
+      "passed": 8,
+      "failed": 0
+    },
+    "native": {
+      "passed": 25,
+      "failed": 0,
+      "expandedStartupRepair": true
+    },
+    "adapterTypecheck": "passed",
+    "coreTypecheck": "passed",
+    "independentBuildsEqual": true,
+    "originalBundleParityCheck": "failed as expected: main.js and atlas-native.cjs stale",
+    "bundleReplacement": "completed with explicit user approval on 2026-10-27",
+    "liveAtlasDataAccessed": false,
+    "finalBundleParityCheck": "passed"
+  },
+  "bundles": {
+    "main.js": {
+      "sha256": "537b4df645d957d21990803c3bcf9d919436e497411d5978aedd212306d93a09",
+      "installedBefore": "1803388fc661b5560492ffeb7080f53c5be01d93c2caf00bf530389f5991dd5b",
+      "installedAfter": "537b4df645d957d21990803c3bcf9d919436e497411d5978aedd212306d93a09"
+    },
+    "atlas-native.cjs": {
+      "sha256": "d10065ca73b5d468cb1893fd8c43c29dda901d3cfdff1e18f693caa19b8ac085",
+      "installedBefore": "df51003cd21e58269240ee14085dd6a47155ef7e0c726dc199388ebbb427c6f1",
+      "installedAfter": "d10065ca73b5d468cb1893fd8c43c29dda901d3cfdff1e18f693caa19b8ac085"
+    }
+  }
+}

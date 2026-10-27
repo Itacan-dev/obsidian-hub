@@ -8,6 +8,7 @@ const { validateAtlasSnapshot, migrateAtlasSnapshotV1 } = require("../core/index
 const { initialApplication, validateApplication, transitionApplication, validateDestinations } = require("./application");
 
 const { coded, createStorageDiagnostics } = require("./storage-diagnostics");
+const { createOwnershipRepair } = require("./ownership-recovery");
 const digest = text => createHash("sha256").update(text).digest("hex");
 const token = value => typeof value === "string" && /^[A-Za-z0-9_.:-]{1,256}$/.test(value);
 const exact = (value, keys) => value && typeof value === "object" && !Array.isArray(value) &&
@@ -30,8 +31,11 @@ class AtlasFileRepository {
         this.lastBytes = null;
         this.pending = null;
         this.diagnostics = createStorageDiagnostics();
+        this.ownershipRepair = createOwnershipRepair(this);
     }
     getDiagnostics() { return this.diagnostics.view(); }
+    reviewOwnershipRepair() { return this.ownershipRepair.preview(); }
+    repairOwnership(input) { return this.ownershipRepair.repair(input); }
     file(name) { return path.join(this.directory, name); }
     read(name) {
         try { return this.io.readFileSync(this.file(name), "utf8"); }
@@ -50,6 +54,7 @@ class AtlasFileRepository {
         try { this.io.fsyncSync(fd); } finally { this.io.closeSync(fd); }
     }
     acquire() {
+        if (!this.ownershipRepair.completeCleanup()) return false;
         if (this.locked) return true;
         this.io.mkdirSync(this.directory, { recursive: true });
         const lock = { machine: os.hostname(), pid: process.pid, id: this.lockId };

@@ -1,4 +1,4 @@
-<!doctype html><meta charset="utf-8"><title>Atlas startup diagnostics</title>
+<!doctype html><meta charset="utf-8"><title>Atlas startup diagnostics and ownership recovery</title>
 <link rel="stylesheet" href="../../styles.css">
 <main id="settings"></main><pre id="result">RUNNING</pre>
 <script type="module">
@@ -6,29 +6,78 @@ const sources=new Map(),cache=new Map();
 const resolve=(name,request)=>{const parts=name.split('/').slice(0,-1);for(const part of request.split('/')){if(part==='..')parts.pop();else if(part!=='.')parts.push(part)}return parts.join('/').replace(/\.js$/,'')};
 async function collect(name){if(sources.has(name))return;sources.set(name,null);const response=await fetch('../'+name+'.js');if(!response.ok)throw Error('Missing fixture module '+name);const source=await response.text();sources.set(name,source);await Promise.all([...source.matchAll(/require\(\s*['"](\.\.?\/[^'"]+)['"]\s*\)/g)].map(match=>collect(resolve(name,match[1]))))}
 function load(name){if(cache.has(name))return cache.get(name).exports;const module={exports:{}};cache.set(name,module);new Function('module','exports','require',sources.get(name))(module,module.exports,request=>load(resolve(name,request)));return module.exports}
-const assert=(value,message)=>{if(!value)throw Error(message)};
+const assert=(value,message)=>{if(!value)throw Error(message)},tick=()=>new Promise(resolve=>setTimeout(resolve,10)),button=(parent,label)=>[...parent.querySelectorAll('button')].find(node=>node.textContent===label);
+async function click(parent,label){const node=button(parent,label);assert(node&&!node.disabled,'Available action: '+label);node.click();await tick();return node}
 try{
- await collect('atlas/obsidian/settings-ui');
- const {mountAtlasSettings}=load('atlas/obsidian/settings-ui'),commands=[],listeners=new Set();
- let state={status:'UNAVAILABLE',reason:'STORAGE_UNAVAILABLE',repositoryIssue:'FOREIGN_OWNER',snapshot:null,contexts:[]};
- const bridge={view:()=>state,subscribe:fn=>{listeners.add(fn);return()=>listeners.delete(fn)},command:async input=>{commands.push(input);return state}};
- const parent=document.getElementById('settings'),dispose=mountAtlasSettings(parent,bridge);
- const diagnostics=parent.querySelector('.hub-atlas-startup-diagnostics');
+ await Promise.all(['atlas/obsidian/settings-ui','atlas/core/index','atlas/obsidian/application'].map(collect));
+ const {mountAtlasSettings}=load('atlas/obsidian/settings-ui'),Core=load('atlas/core/index'),Application=load('atlas/obsidian/application');
+ const {getAtlasSession,createDestinationDraft}=load('atlas/obsidian/session'),commands=[],listeners=new Set();
+ const cfg={accessTiming:{waitMs:10,confirmationWindowMs:60,grantDurationMs:60},vaultTiming:{waitMs:30,confirmationWindowMs:60},journeyLimits:{lifetimeMs:300,maxHops:3}};
+ const policy={whitelist:['trusted.test'],blacklist:['blocked.test']},starter={serviceCount:1,hostCount:1,groups:[],policy};
+ const ready=()=>({status:'READY',enabled:true,reason:null,repositoryIssue:null,snapshot:{policy,policyRevision:4,configuration:cfg,configurationRevision:2,accessState:Core.createAccessState(),vaultState:Core.createVaultState(),journeyState:Core.createJourneyState()},application:Application.initialApplication(policy),storageVersion:'ownership-fixture',contexts:[],destinations:[],temporaryDestinations:[],starter});
+ let state={status:'UNAVAILABLE',enabled:true,reason:'STORAGE_UNAVAILABLE',repositoryIssue:'FOREIGN_OWNER',snapshot:null,contexts:[],starter};
+ let reviewNumber=0,reviewFault=null,repairFault=null,repairGate=null;
+ const publish=()=>{for(const listener of listeners)listener()};
+ const bridge={view:()=>state,subscribe:fn=>{listeners.add(fn);return()=>listeners.delete(fn)},command:async input=>{
+  commands.push(input);
+  if(input.kind==='REVIEW_STORAGE_OWNERSHIP'){
+   if(reviewFault){const reason=reviewFault;reviewFault=null;return {type:'REJECTED',reason}}
+   return {type:'STORAGE_OWNERSHIP_REVIEW',repairId:'review-'+(++reviewNumber),expiresAt:Date.now()+60000,authorityPresent:true,policyRevision:4,configurationRevision:2,destinationCount:6,journalPending:false};
+  }
+  if(input.kind==='REPAIR_STORAGE_OWNERSHIP'){
+   if(repairGate)await repairGate;
+   if(repairFault){const reason=repairFault;repairFault=null;return {type:'REJECTED',reason}}
+   state=ready();publish();return state;
+  }
+  return state;
+ }};
+ const session=getAtlasSession(bridge),savedDraft=createDestinationDraft(ready(),null);
+ savedDraft.fields={name:'Kept before ownership repair',hostname:'kept.test',access:'WHITELIST',category:'My destinations',www:false,others:'',allHosts:false,pinned:false,previousPrimary:'kept.test'};savedDraft.reviewed=true;savedDraft.dirty=true;session.draft=savedDraft;
+ const parent=document.getElementById('settings'),dispose=mountAtlasSettings(parent,bridge),diagnostics=parent.querySelector('.hub-atlas-startup-diagnostics');
  assert(diagnostics&&!diagnostics.hidden,'Diagnostics visible without verified snapshot');
  assert(diagnostics.textContent.includes('FOREIGN_OWNER')&&diagnostics.textContent.includes('another computer'),'Foreign ownership has code and useful explanation');
- assert(![...parent.querySelectorAll('button')].some(b=>b.textContent==='Initialize Atlas'),'Unavailable initialized state cannot offer setup');
- const recover=[...parent.querySelectorAll('button')].find(b=>b.textContent==='Recover saved state');
- recover.click();await new Promise(resolve=>setTimeout(resolve,0));
- assert(commands.length===1&&commands[0].kind==='RECOVER','Recovery sends only existing reconciliation command');
- state={...state,status:'RECONCILING',reason:'COMMIT_UNKNOWN',repositoryIssue:'JOURNAL_AUTHORITY_MISMATCH',pendingCommitId:'unresolved-test'};
- for(const listener of listeners)listener();
+ assert(!button(parent,'Initialize Atlas'),'Unavailable initialized state cannot offer setup');
+ assert(commands.length===0,'Mounting and diagnostics never start repair or reconciliation');
+ assert(button(parent,'Recover saved state').disabled,'Foreign ownership does not offer a repeated generic recovery dead end');
+ session.navigate({section:'diagnostics'});assert(document.activeElement===diagnostics&&diagnostics.getClientRects().length,'Recovery route focuses visible startup diagnostics');
+ await click(diagnostics,'Review storage ownership');
+ const form=diagnostics.querySelector('[aria-label="Storage ownership review"]'),ack=form.querySelector('input[type=checkbox]');
+ assert(commands.length===1&&commands[0].kind==='REVIEW_STORAGE_OWNERSHIP','Review is read-only until explicit repair');
+ assert(!form.hidden&&!ack.checked&&button(form,'Use saved state on this computer').disabled,'Acknowledgement starts unchecked and gates repair');
+ assert(form.textContent.includes('revision 4')&&form.textContent.includes('6 destinations')&&form.textContent.includes('backup'),'Review explains saved state and backup');
+ publish();assert(form.querySelector('input')===ack&&!ack.checked,'Background refresh retains review controls without confirming');
+ await click(form,'Cancel ownership review');
+ assert(form.hidden&&commands.length===1&&session.draft===savedDraft,'Cancellation sends no repair and keeps unrelated draft');
+ assert(parent.querySelector('.hub-atlas-message').textContent.includes('unchanged'),'Cancellation explains no state change');
+ await click(diagnostics,'Review storage ownership');ack.checked=true;ack.dispatchEvent(new Event('change'));repairFault='STORAGE_REPAIR_CHANGED';
+ await click(form,'Use saved state on this computer');
+ const attempted=commands.at(-1);assert(attempted.kind==='REPAIR_STORAGE_OWNERSHIP'&&attempted.repairId==='review-2'&&attempted.localCopyConfirmed===true&&Object.keys(attempted).length===3,'Repair submits only exact reviewed identity and deliberate acknowledgement');
+ assert(form.hidden&&state.status==='UNAVAILABLE'&&parent.querySelector('.hub-atlas-message').textContent.includes('changed after this ownership review'),'Changed review cannot claim success or silently retry');
+ await click(parent.querySelector('.hub-atlas-message'),'Open recovery');assert(document.activeElement===diagnostics,'Error recovery link remains visible and actionable');
+ reviewFault='STORAGE_REPAIR_BUSY';await click(diagnostics,'Review storage ownership');
+ assert(form.hidden&&parent.querySelector('.hub-atlas-message').textContent.includes('Another owner'),'Competing ownership has actionable feedback');
+ await click(diagnostics,'Review storage ownership');ack.checked=true;ack.dispatchEvent(new Event('change'));repairFault='STORAGE_REPAIR_EXPIRED';
+ await click(form,'Use saved state on this computer');assert(form.hidden&&parent.querySelector('.hub-atlas-message').textContent.includes('expired'),'Expired review requires another explicit review');
+ await click(diagnostics,'Review storage ownership');ack.checked=true;ack.dispatchEvent(new Event('change'));repairFault='STORAGE_REPAIR_STALE';
+ await click(form,'Use saved state on this computer');assert(form.hidden&&parent.querySelector('.hub-atlas-message').textContent.includes('no longer applies'),'Used review cannot be replayed from the form');
+ await click(diagnostics,'Review storage ownership');ack.checked=true;ack.dispatchEvent(new Event('change'));
+ let release;repairGate=new Promise(resolve=>{release=resolve});const count=commands.filter(c=>c.kind==='REPAIR_STORAGE_OWNERSHIP').length,confirm=button(form,'Use saved state on this computer');
+ confirm.click();confirm.click();await tick();assert(ack.disabled&&button(form,'Cancel ownership review').disabled,'In-flight repair cannot be edited or cancelled into an unknown result');
+ assert(commands.filter(c=>c.kind==='REPAIR_STORAGE_OWNERSHIP').length===count+1,'Double-click sends one repair only');
+ release();await tick();repairGate=null;
+ assert(state.status==='READY'&&diagnostics.hidden&&parent.querySelector('.hub-atlas-message').textContent.includes('reconciled'),'Successful repair is based on native READY acknowledgement');
+ assert(session.draft===savedDraft&&parent.querySelector('[aria-label="Name"]').value==='Kept before ownership repair','Ownership recovery preserves the existing draft');
+ assert(state.snapshot.policy===policy&&state.snapshot.configuration===cfg,'Mocked verified result preserves authority rather than selecting new policy');
+ state={status:'RECONCILING',enabled:true,reason:'COMMIT_UNKNOWN',repositoryIssue:'JOURNAL_AUTHORITY_MISMATCH',pendingCommitId:'unresolved-test',snapshot:null,contexts:[],starter};publish();
  assert(diagnostics===parent.querySelector('.hub-atlas-startup-diagnostics'),'Diagnostic updates preserve mounted controls');
- assert(diagnostics.textContent.includes('JOURNAL_AUTHORITY_MISMATCH')&&diagnostics.textContent.includes('cannot choose')&&diagnostics.textContent.includes('unresolved-test'),'Journal ambiguity is explained without claiming repair');
- state={...state,status:'UNINITIALIZED',reason:'UNINITIALIZED',repositoryIssue:null,starter:{serviceCount:0,hostCount:0,groups:[],policy:{whitelist:[],blacklist:[]}},initialConfiguration:{accessTiming:{waitMs:10,confirmationWindowMs:60,grantDurationMs:60},vaultTiming:{waitMs:30,confirmationWindowMs:60},journeyLimits:{lifetimeMs:300,maxHops:3}}};
- for(const listener of listeners)listener();
- assert(diagnostics.hidden,'Fresh setup hides failure diagnostics');
- assert([...parent.querySelectorAll('button')].some(b=>b.textContent==='Initialize Atlas'),'Genuinely missing state retains explicit setup');
- assert(commands.length===1,'Status changes never initialize or grant access');
- dispose();document.getElementById('result').textContent='PASS: startup diagnostics, foreign lock, ambiguous journal, recovery command and explicit setup.';
+ assert(diagnostics.textContent.includes('JOURNAL_AUTHORITY_MISMATCH')&&diagnostics.textContent.includes('cannot choose')&&diagnostics.textContent.includes('awaits explicit reconciliation')&&!diagnostics.textContent.includes('unresolved-test'),'Journal ambiguity is explained without exposing raw transaction identity');
+ assert(diagnostics.querySelector('.hub-atlas-storage-ownership').hidden,'Ownership takeover is absent for unrelated failure types');
+ const recoveryCount=commands.filter(c=>c.kind==='RECOVER').length;await click(parent,'Recover saved state');
+ assert(commands.filter(c=>c.kind==='RECOVER').length===recoveryCount+1,'Ordinary reconciliation remains available for other failures');
+ state={status:'UNINITIALIZED',enabled:true,reason:'UNINITIALIZED',repositoryIssue:null,snapshot:null,contexts:[],starter,initialConfiguration:cfg};publish();
+ assert(diagnostics.hidden&&button(parent,'Initialize Atlas'),'Genuinely fresh setup retains an explicit separate action');
+ assert(!commands.some(c=>c.kind==='INITIALIZE'||c.kind==='INITIALIZE_CURATED'||c.kind==='CONFIRM_POLICY'||c.kind==='CONFIRM_ACCESS'),'Routing, review and recovery never initialize or confirm authority');
+ dispose();assert(listeners.size===0,'Startup recovery disposes its subscriptions');
+ document.getElementById('result').textContent='PASS: visible startup recovery, foreign ownership review, unchecked acknowledgement, cancellation, changed/busy/expired review, single in-flight repair, verified acknowledgement, draft preservation, journal diagnostics and explicit setup.';
 }catch(error){document.getElementById('result').textContent='FAIL: '+error.stack}
 </script>

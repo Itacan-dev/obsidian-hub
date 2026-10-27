@@ -388,6 +388,19 @@ function createAtlasRuntime({ repository, clock, configuration = DEVELOPMENT_CON
                 finally { repository.clearApplicationStage(); }
             } catch (error) { return { type: "REJECTED", reason: error.message }; }
         }
+        if (kind === "REVIEW_STORAGE_OWNERSHIP" && Object.keys(input).length === 1) {
+            if (controller.getView().status !== "UNAVAILABLE" || snapshot() !== null) return { type: "REJECTED", reason: "STORAGE_REPAIR_NOT_AVAILABLE" };
+            return repository.reviewOwnershipRepair();
+        }
+        if (kind === "REPAIR_STORAGE_OWNERSHIP" && Object.keys(input).length === 3 && Object.hasOwn(input, "repairId") && Object.hasOwn(input, "localCopyConfirmed")) {
+            if (controller.getView().status !== "UNAVAILABLE" || snapshot() !== null) return { type: "REJECTED", reason: "STORAGE_REPAIR_NOT_AVAILABLE" };
+            const result = repository.repairOwnership(input);
+            if (result.type !== "STORAGE_OWNERSHIP_REPAIRED") { publish(); return result; }
+            const state = await open(true);
+            // Explicit repair includes reconciliation of a discovered exact
+            // pending journal. No operation/confirmation is executed again.
+            return state.status === "RECONCILING" ? open(true) : state;
+        }
         if (kind === "RECOVER" && Object.keys(input).length === 1) return open(true);
         if (kind === "INITIALIZE" && Object.keys(input).length === 3) return initialize(input.policy, input.configuration);
         if (["PROPOSE_POLICY", "PROPOSE_SETTINGS", "REVIEW_POLICY", "CONFIRM_POLICY", "CANCEL_POLICY"].includes(kind)) {

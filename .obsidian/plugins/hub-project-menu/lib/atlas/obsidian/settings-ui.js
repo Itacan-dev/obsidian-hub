@@ -25,13 +25,14 @@ function mountAtlasSettings(parent, bridge) {
     // Startup failures have no verified snapshot, so the ordinary settings
     // shell cannot render. Keep their diagnostics outside that shell.
     const startupDiagnostics = el(parent, "section", undefined, "hub-atlas-startup-diagnostics");
-    startupDiagnostics.setAttribute("aria-label", "Diagnostics / Recovery");
+    startupDiagnostics.setAttribute("aria-label", "Diagnostics / Recovery"); startupDiagnostics.tabIndex = -1;
     el(startupDiagnostics, "h3", "Diagnostics / Recovery");
     const startupCause = el(startupDiagnostics, "p"), startupCodes = el(startupDiagnostics, "p");
     const shell = el(parent, "div", undefined, "hub-atlas-settings-shell");
     const navigation = el(shell, "nav"); navigation.setAttribute("aria-label", "Atlas settings sections");
     const sections = new Map(), navButtons = new Map(), signatures = new Map(), mounts = new Map();
     let selected = session.route.section, mode = null, review = null, disposed = false, reviewKey = null, vaultTick = null, reviewRetryAt = 0;
+    let ownershipReview = null, ownershipBusy = false;
     const show = id => { const changed = selected !== id; selected = id; session.route = { section: id, context: session.route.section === id ? session.route.context : null }; for (const [key, node] of sections) {
         if (node.hidden !== (key !== id)) node.hidden = key !== id;
     } for (const [key, node] of navButtons) { const value = key === id ? "page" : "false"; if (node.getAttribute("aria-current") !== value) node.setAttribute("aria-current", value); node.setAttribute("aria-selected", String(key === id)); node.tabIndex = key === id ? 0 : -1; } if (changed) navButtons.get(id)?.scrollIntoView({ block: "nearest", inline: "nearest" }); };
@@ -48,6 +49,9 @@ function mountAtlasSettings(parent, bridge) {
     const protectedButton = (parent, label, action) => { const node = button(parent, label, action); node.dataset.atlasProtected = ""; return node; };
     const navigate = route => { if (bridge.open) bridge.open(route); else session.navigate(route); };
     function focusRoute() {
+        if (!bridge.view().snapshot && !startupDiagnostics.hidden && selected === "diagnostics") {
+            startupDiagnostics.focus({ preventScroll: true }); startupDiagnostics.scrollIntoView({ block: "nearest" }); return;
+        }
         const context = session.route.context;
         const section = sections.get(selected);
         if (!context) { section.focus({ preventScroll: true }); return; }
@@ -85,6 +89,50 @@ function mountAtlasSettings(parent, bridge) {
         session.feedback = describeOutcome(command, result, bridge.view()); paint(message, session.feedback);
         if (proposed) { session.navigate({ section: "vault", context: { proposalId: bridge.view().snapshot.vaultState.pendingProposal.id } }); }
         refresh(); return result;
+    }
+    const ownership = el(startupDiagnostics, "div", undefined, "hub-atlas-storage-ownership");
+    el(ownership, "p", "This copy contains another computer's storage lock. Repeated recovery cannot remove it. Review ownership only if this is an independent local copy or Atlas is stopped on every other computer using these saved files.");
+    const reviewOwnership = button(ownership, "Review storage ownership", async () => {
+        if (ownershipBusy || disposed) return;
+        ownershipBusy = true; ownershipReview = null; syncOwnership(bridge.view());
+        try {
+            const result = await send({ kind: "REVIEW_STORAGE_OWNERSHIP" });
+            if (!disposed && result.type === "STORAGE_OWNERSHIP_REVIEW") { ownershipReview = result; ownershipConfirmed.checked = false; }
+        } finally { ownershipBusy = false; if (!disposed) syncOwnership(bridge.view()); }
+    });
+    const ownershipForm = el(ownership, "div"); ownershipForm.setAttribute("role", "group"); ownershipForm.setAttribute("aria-label", "Storage ownership review");
+    const ownershipSummary = el(ownershipForm, "p"), ownershipJournal = el(ownershipForm, "p");
+    el(ownershipForm, "p", "Atlas saves a backup of the original saved files and lock before changing ownership. Your policy, timing values and pending transaction records are preserved. This does not reset Atlas or grant access.");
+    el(ownershipForm, "p", "Do not proceed while another computer is using the same synced Atlas state.");
+    const confirmationLabel = el(ownershipForm, "label", undefined, "hub-atlas-check"), ownershipConfirmed = el(confirmationLabel, "input"); ownershipConfirmed.type = "checkbox";
+    ownershipConfirmed.setAttribute("aria-label", "Confirm local storage ownership");
+    el(confirmationLabel, "span", "This is an independent local copy, or Atlas is stopped on every other computer using these saved files.");
+    const repairOwnership = button(ownershipForm, "Use saved state on this computer", async () => {
+        if (disposed || ownershipBusy || !ownershipReview || !ownershipConfirmed.checked) return;
+        const repairId = ownershipReview.repairId; ownershipBusy = true; syncOwnership(bridge.view());
+        try { await send({ kind: "REPAIR_STORAGE_OWNERSHIP", repairId, localCopyConfirmed: true }); }
+        finally { ownershipReview = null; ownershipConfirmed.checked = false; ownershipBusy = false; if (!disposed) syncOwnership(bridge.view()); }
+    });
+    const cancelOwnership = button(ownershipForm, "Cancel ownership review", () => {
+        if (ownershipBusy) return;
+        ownershipReview = null; ownershipConfirmed.checked = false;
+        session.feedback = { text: "Ownership review cancelled. Saved state and its lock are unchanged.", tone: "info" }; paint(message, session.feedback); syncOwnership(bridge.view());
+    });
+    ownershipConfirmed.addEventListener("change", () => syncOwnership(bridge.view()));
+    function syncOwnership(state) {
+        const foreign = !state.snapshot && state.status === "UNAVAILABLE" && state.repositoryIssue === "FOREIGN_OWNER";
+        ownership.hidden = !foreign;
+        if (!foreign && !ownershipBusy) { ownershipReview = null; ownershipConfirmed.checked = false; }
+        reviewOwnership.hidden = !!ownershipReview; reviewOwnership.disabled = ownershipBusy; reviewOwnership.dataset.atlasNotReady = String(ownershipBusy);
+        ownershipForm.hidden = !ownershipReview; ownershipConfirmed.disabled = ownershipBusy;
+        repairOwnership.disabled = ownershipBusy || !ownershipReview || !ownershipConfirmed.checked; repairOwnership.dataset.atlasNotReady = String(repairOwnership.disabled);
+        cancelOwnership.disabled = ownershipBusy; cancelOwnership.dataset.atlasNotReady = String(ownershipBusy);
+        if (ownershipReview) {
+            setText(ownershipSummary, ownershipReview.authorityPresent ? "Saved policy revision " + ownershipReview.policyRevision + " · timing revision " + ownershipReview.configurationRevision + " · " + ownershipReview.destinationCount + " destinations. Review valid until " + timestamp(ownershipReview.expiresAt) + "." : "No saved authority file is present in this copy. Ownership repair will not initialize Atlas or choose rules.");
+            setText(ownershipJournal, ownershipReview.journalPending ? "A saved transaction is pending. Its journal is kept; Atlas must reconcile that exact write before browsing." : "No pending transaction was found in the reviewed copy.");
+        }
+        const retry = onboarding.querySelector("[data-atlas-startup-recover]");
+        if (retry) { retry.disabled = foreign || retry.dataset.atlasBusy === "true"; retry.dataset.atlasNotReady = String(foreign); retry.title = foreign ? "Review storage ownership below; retrying alone cannot remove another computer's lock." : ""; }
     }
     function beginEditor(parent, destination, state) {
         captureDraft?.();
@@ -310,10 +358,10 @@ function mountAtlasSettings(parent, bridge) {
                 captureSetup = () => { if (bridge.view().status === "UNINITIALIZED") session.setup = { values: numbers.map(input => input.value), whitelist: whitelist.value, blacklist: blacklist.value, termsOpen: terms.open, advancedOpen: advanced.open }; };
                 onboarding.addEventListener("input", () => captureSetup?.()); captureSetup();
             } else if (mode === "unavailable") {
-                el(onboarding, "p", "Saved authority could not be established. Browsing stays blocked. Recovery reconciles saved state and never resets it."); button(onboarding, "Recover saved state", () => send({ kind: "RECOVER" }));
+                el(onboarding, "p", "Saved authority could not be established. Browsing stays blocked. Recovery reconciles saved state and never resets it."); const retry = button(onboarding, "Recover saved state", () => send({ kind: "RECOVER" })); retry.dataset.atlasStartupRecover = "";
             }
         }
-        shell.hidden = !snapshot;
+        shell.hidden = !snapshot; syncOwnership(state);
         if (!snapshot) { show(selected); return; }
         // Sites list and draft have independent lifetimes. Core housekeeping and
         // countdowns cannot destroy focused controls or partially entered text.
