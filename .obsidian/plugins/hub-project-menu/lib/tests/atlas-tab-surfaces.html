@@ -1,0 +1,142 @@
+<!doctype html><meta charset="utf-8"><title>Atlas stable guest surface checks</title>
+<link rel="stylesheet" href="../../styles.css">
+<style>
+html,body{margin:0;min-height:100%;background:#20221f;color:#ddd;font:13px Arial}
+#result{position:fixed;left:0;top:0;z-index:20000;background:#20221f;pointer-events:none}
+.surface-fixture-pane{position:fixed;top:52px;width:380px;height:300px;overflow:hidden}
+.surface-fixture-pane .webviewer-content{position:absolute;inset:0;display:flex;flex-direction:column;width:100%;height:100%;padding:0;border:0;margin:0;overflow:hidden}
+.surface-fixture-pane webview{display:block;background:#31543b}
+</style>
+<div id="first" class="surface-fixture-pane" style="left:24px"></div>
+<div id="second" class="surface-fixture-pane" style="left:450px;width:420px;height:340px;top:80px"></div>
+<pre id="result">RUNNING</pre>
+<script type="module">
+const sources=new Map(),cache=new Map(),resolve=(name,request)=>{const p=name.split('/').slice(0,-1);for(const v of request.split('/')){if(v==='..')p.pop();else if(v!=='.')p.push(v)}return p.join('/').replace(/\.js$/,'')};
+async function collect(name){if(sources.has(name))return;sources.set(name,null);const r=await fetch('../'+name+'.js');if(!r.ok)throw Error('Missing '+name);const s=await r.text();sources.set(name,s);await Promise.all([...s.matchAll(/require\(\s*['"](\.\.?\/[^'"]+)['"]\s*\)/g)].map(m=>collect(resolve(name,m[1]))))}
+function load(name){if(cache.has(name))return cache.get(name).exports;const m={exports:{}};cache.set(name,m);new Function('module','exports','require',sources.get(name))(m,m.exports,r=>load(resolve(name,r)));return m.exports}
+const assert=(value,message)=>{if(!value)throw Error(message)},delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+async function until(predicate,message,timeout=1500){const end=Date.now()+timeout;while(Date.now()<end){if(predicate())return;await delay(20)}throw Error('Timeout: '+message)}
+const bounds=node=>{const r=node.getBoundingClientRect();return {left:r.left,top:r.top,width:r.width,height:r.height,bottom:r.bottom}};
+const first=document.getElementById('first'),second=document.getElementById('second'),partition='persist:vault-surface-fixture';
+const originalAppend=Node.prototype.appendChild,originalInsert=Node.prototype.insertBefore;
+let surfaces=null,modal=null,frame=null,content=null;
+try{
+ await collect('atlas/obsidian/guest-surfaces');
+ const {installGuestSurfaces}=load('atlas/obsidian/guest-surfaces');
+ surfaces=installGuestSurfaces(document,{partition});
+ assert(Node.prototype.appendChild!==originalAppend&&Node.prototype.insertBefore!==originalInsert,'Only installed owner-realm methods are wrapped');
+ assert(installGuestSurfaces(document,{partition})===surfaces,'One surface owner per document');
+ let conflict=false;try{installGuestSurfaces(document,{partition:partition+'-other'})}catch(_){conflict=true}assert(conflict,'Different partitions cannot replace an existing owner');
+ const makeContent=()=>{const node=document.createElement('div');node.className='webviewer-content';return node};
+ const makeGuest=p=>{const node=document.createElement('webview');node.setAttribute('partition',p);return node};
+ // Exact scope: other partitions, ordinary elements and non-webviewer parents
+ // retain standard DOM behavior and never acquire a native-surface record.
+ const unrelated=makeContent();first.appendChild(unrelated);
+ const other=makeGuest(partition+'-other');unrelated.appendChild(other);
+ assert(other.parentNode===unrelated&&surfaces.get(unrelated)===null,'Other guest partitions remain untouched');
+ const ordinary=document.createElement('span');ordinary.setAttribute('partition',partition);unrelated.insertBefore(ordinary,other);
+ assert(ordinary.parentNode===unrelated&&unrelated.firstChild===ordinary,'Ordinary insertBefore is unchanged');
+ const normalParent=document.createElement('div'),unowned=makeGuest(partition);normalParent.appendChild(unowned);unrelated.appendChild(normalParent);
+ assert(unowned.parentNode===normalParent&&surfaces.get(normalParent)===null,'Matching partition outside webviewer content is untouched');
+ unrelated.remove();
+ content=makeContent();first.appendChild(content);
+ const marker=document.createElement('span');marker.hidden=true;content.appendChild(marker);
+ const guest=makeGuest(partition);assert(!guest.isConnected,'Guest begins unconnected before its first mount');
+ assert(content.insertBefore(guest,marker)===guest,'Redirect preserves insertBefore return value');
+ const record=surfaces.get(content);assert(record&&record.guest===guest,'Exact partition creates one record');
+ assert(content.firstChild===record.slot&&record.slot.nextSibling===marker,'Flex slot occupies the requested insertion position');
+ assert(guest.parentNode===record.surface&&record.surface.parentNode===document.body,'Guest attaches directly to the stable document surface');
+ assert(!content.contains(guest)&&guest.isConnected,'Movable leaf no longer owns the actual guest DOM');
+ const surface=record.surface,slot=record.slot;
+ const status=document.createElement('div');status.className='hub-atlas-navigation-status';status.textContent='Atlas status';
+ status.style.cssText='flex:0 0 32px;height:32px;min-height:32px';content.appendChild(status);
+ surfaces.sync();
+ await until(()=>!surface.hidden,'Initial surface shown');
+ const aligned=message=>{
+  const a=bounds(surface),b=bounds(content),footer=bounds(status);
+  assert(Math.abs(a.left-b.left)<2&&Math.abs(a.top-b.top)<2&&Math.abs(a.width-b.width)<2,message+': location and width follow content');
+  assert(a.height>100&&a.bottom<=footer.top+2,message+': surface reserves the status strip');
+  const hit=document.elementFromPoint(a.left+a.width/2,a.top+a.height/2);assert(hit===guest||surface.contains(hit),message+': guest gets pane hits');
+ };
+ aligned('Initial geometry');
+ const guestParent=guest.parentNode;
+ content.appendChild(guest);content.insertBefore(guest,marker);
+ assert(surfaces.get(content)===record&&guest.parentNode===guestParent,'Repeated mount calls do not reconnect or replace the guest');
+ assert(document.querySelectorAll('.hub-atlas-guest-surface').length===1,'Repeated mounts never create duplicate surfaces');
+ for(let i=0;i<6;i++){
+  content.remove();(i%2?first:second).appendChild(content);
+  await delay(40);surfaces.sync();
+  assert(surfaces.get(content)===record&&record.slot===slot&&guest.parentNode===guestParent&&guest.isConnected,'Reparent '+i+' preserves slot and native guest connection');
+  aligned('Reparent '+i);
+ }
+ // Existing per-view display/reader/blocked behavior still hides the portal.
+ guest.style.display='none';await until(()=>surface.hidden,'Reader mode guest display:none hides surface');
+ guest.style.display='block';await until(()=>!surface.hidden,'Restoring webview display restores surface');
+ guest.hidden=true;await until(()=>surface.hidden,'Hidden guest cannot float above the pane');
+ guest.hidden=false;await until(()=>!surface.hidden,'Hidden guest flag clears');
+ content.classList.add('hub-atlas-blocked');await until(()=>surface.hidden,'Blocked content hides immediately');
+ content.classList.remove('hub-atlas-blocked');await until(()=>!surface.hidden,'Restored content shows again');
+ content.classList.add('hub-atlas-internal-home');await until(()=>surface.hidden,'Internal Home hides native surface');
+ content.classList.remove('hub-atlas-internal-home');await until(()=>!surface.hidden,'Leaving internal Home restores existing guest');
+ const parent=content.parentNode;parent.style.display='none';await until(()=>surface.hidden,'Inactive ancestor hides native surface');
+ parent.style.display='block';await until(()=>!surface.hidden,'Active ancestor restores existing surface');
+ content.remove();await until(()=>surface.hidden,'Disconnected content cannot overlay other tabs');
+ assert(guest.isConnected&&surfaces.get(content)===record,'Temporary pane disconnection preserves actual guest');
+ first.appendChild(content);await until(()=>!surface.hidden,'Reinserting disconnected pane restores surface');aligned('Reconnected geometry');
+ // A stable guest outside a leaf must not eat host divider/tab drag events.
+ first.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,clientX:25,clientY:60}));
+ assert(surface.style.pointerEvents==='none'&&guest.style.pointerEvents==='none','Host pointerdown suppresses native pointer target');
+ document.dispatchEvent(new PointerEvent('pointerup',{bubbles:true}));
+ assert(surface.style.pointerEvents==='auto'&&guest.style.pointerEvents==='auto','Pointerup restores browser hit testing');
+ first.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,buttons:1}));
+ document.dispatchEvent(new PointerEvent('pointermove',{bubbles:true,buttons:0}));
+ assert(surface.style.pointerEvents==='auto','Returning after a release outside the window restores browser interaction');
+ guest.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true}));
+ assert(surface.style.pointerEvents==='auto','Guest pointer activity does not suppress itself');
+ first.dispatchEvent(new Event('dragstart',{bubbles:true}));assert(surface.style.pointerEvents==='none','Host drag suppresses guest pointer events');
+ document.dispatchEvent(new Event('dragend',{bubbles:true}));assert(surface.style.pointerEvents==='auto','Drag end restores browser interaction');
+ content.style.pointerEvents='none';surfaces.sync();assert(surface.style.pointerEvents==='none','Explicit host pointer policy remains effective');
+ content.style.pointerEvents='auto';surfaces.sync();assert(surface.style.pointerEvents==='auto','Clearing host pointer policy restores surface');
+ modal=document.createElement('div');modal.className='modal-container';modal.style.cssText='position:fixed;inset:0;z-index:10000;background:#0004;pointer-events:auto';document.body.appendChild(modal);
+ const a=bounds(surface),modalHit=document.elementFromPoint(a.left+a.width/2,a.top+a.height/2);
+ assert(modalHit===modal||modal.contains(modalHit),'Settings/modal layer remains above native surface');modal.remove();modal=null;
+ // Background windows can pause RAF. Hiding a common ancestor must hide all
+ // guest surfaces in the mutation delivery, before any geometry frame runs.
+ const common=document.createElement('div');document.body.appendChild(common);
+ common.appendChild(first);common.appendChild(second);
+ const extraContent=makeContent();second.appendChild(extraContent);
+ const extraGuest=makeGuest(partition);extraContent.appendChild(extraGuest);
+ const extraRecord=surfaces.get(extraContent);surfaces.sync();
+ assert(!surface.hidden&&!extraRecord.surface.hidden,'Both pane surfaces start visible');
+ const requestFrame=window.requestAnimationFrame;
+ try{
+  window.requestAnimationFrame=()=>987654321;
+  common.hidden=true;await delay(30);
+  assert(surface.hidden&&extraRecord.surface.hidden,'All surfaces hide without RAF when their common ancestor hides');
+ }finally{window.requestAnimationFrame=requestFrame}
+ common.hidden=false;surfaces.sync();
+ assert(!surface.hidden&&!extraRecord.surface.hidden,'All surfaces restore after common ancestor returns');
+ surfaces.release(extraContent);extraContent.remove();
+ document.body.appendChild(first);document.body.appendChild(second);common.remove();
+ // Releasing a real close removes both presentation nodes; a later mount gets
+ // an independent record rather than borrowing the disposed guest.
+ surfaces.release(content);assert(surfaces.get(content)===null&&!surface.isConnected&&!slot.isConnected&&!guest.isConnected,'Explicit release disposes native surface and slot');
+ const replacement=makeGuest(partition);content.appendChild(replacement);const fresh=surfaces.get(content);
+ assert(fresh&&fresh!==record&&fresh.guest===replacement,'New guest has a fresh surface record');
+ frame=document.createElement('iframe');frame.style.display='none';document.body.appendChild(frame);
+ await until(()=>!!frame.contentDocument?.body,'Independent owner document available');
+ const foreignDocument=frame.contentDocument;foreignDocument.body.appendChild(foreignDocument.adoptNode(content));surfaces.sync();
+ assert(surfaces.get(content)===null&&!fresh.surface.isConnected&&!replacement.isConnected,'Cross-document adoption releases old surface');
+ assert(replacement.ownerDocument===document,'Cross-document content never borrows the old guest into another document');
+ frame.remove();frame=null;content=null;
+ const finalContent=makeContent();first.appendChild(finalContent);const finalGuest=makeGuest(partition);finalContent.appendChild(finalGuest);
+ assert(surfaces.get(finalContent),'Final active record exists before disposal');
+ surfaces.destroy();surfaces=null;
+ assert(Node.prototype.appendChild===originalAppend&&Node.prototype.insertBefore===originalInsert,'Destroy restores exactly its own prototype wrappers');
+ assert(!document.querySelector('.hub-atlas-guest-surface,.hub-atlas-guest-slot')&&!finalGuest.isConnected,'Destroy removes surfaces and slots');
+ const normalGuest=makeGuest(partition);finalContent.appendChild(normalGuest);await delay(50);
+ assert(normalGuest.parentNode===finalContent&&!document.querySelector('.hub-atlas-guest-surface'),'Disposed observers and wrappers cannot redirect future mounts');
+ document.getElementById('result').textContent='PASS: scoped pre-attach surfaces, stable guest/slot moves, hidden/blocked/inactive state, geometry/status/modal/pointer behavior, real release, cross-document isolation and complete disposal.';
+}catch(error){document.getElementById('result').textContent='FAIL: '+error.stack}
+finally{surfaces?.destroy();modal?.remove();frame?.remove()}
+</script>

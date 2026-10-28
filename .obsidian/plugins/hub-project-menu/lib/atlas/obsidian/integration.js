@@ -7,6 +7,7 @@ const { getSettingsOwner } = require("../../ui/settings");
 const { getAtlasSession, normalizeRoute } = require("./session");
 const { pendingForBridge } = require("./pending");
 const { mountAtlasHome } = require("./home-ui");
+const { installGuestSurfaces } = require("./guest-surfaces");
 const { registerNoteAtlasAction, canOpenAtlas, canUseAtlasContext } = require("./note-context");
 
 // Renderer bridge: holds descriptions, DOM identities and subscriptions only.
@@ -62,7 +63,7 @@ function installAtlasIntegration(plugin) {
     };
 
     function remember(record) {
-        try { record.nativeId = record.webview.getWebContentsId(); } catch (_) { /* guest not attached yet */ }
+        try { const id = record.webview.getWebContentsId(); if (id !== record.nativeId) { record.nativeId = id; record.context = null; } } catch (_) { /* guest not attached yet */ }
     }
     function watch(view) {
         if (!view?.webview || !view.contentEl) return;
@@ -111,9 +112,16 @@ function installAtlasIntegration(plugin) {
         action?.sync();
         watchDocument(window.document);
         app.workspace.iterateAllLeaves?.(leaf => watchDocument(leaf.view?.containerEl?.ownerDocument ?? leaf.view?.contentEl?.ownerDocument));
-        for (const leaf of app.workspace.getLeavesOfType("webviewer")) watch(leaf.view);
+        const leaves = app.workspace.getLeavesOfType("webviewer"), present = new Set(leaves.map(leaf => leaf.view));
+        for (const leaf of leaves) watch(leaf.view);
         for (const [view, record] of records) {
-            if (!view.contentEl.isConnected) { record.disposeHome?.(); record.home?.remove(); record.panel?.remove(); record.status?.remove(); if (record.nativeId) host?.forget(record.nativeId); records.delete(view); }
+            // Layout moves temporarily disconnect a leaf. Only actual workspace
+            // removal retires its stable browser surface and association.
+            if (!present.has(view)) {
+                record.disposeHome?.(); record.home?.remove(); record.panel?.remove(); record.status?.remove();
+                for (const observer of documents.values()) observer.surfaces?.release(view.contentEl);
+                if (record.nativeId) host?.forget(record.nativeId); records.delete(view);
+            }
         }
         refresh();
     }
@@ -123,7 +131,7 @@ function installAtlasIntegration(plugin) {
         for (const observer of documents.values()) observer.inspectClosed();
         for (const record of records.values()) {
             remember(record);
-            const context = state.contexts.find(item => item.nativeId === record.nativeId) ?? record.context;
+            const context = state.contexts.find(item => item.nativeId === record.nativeId) ?? (record.context?.nativeId === record.nativeId ? record.context : null);
             record.context = context;
             const internalHome = !record.view.url || record.view.url === "about:blank";
             if (internalHome && !record.home) {
@@ -183,6 +191,7 @@ function installAtlasIntegration(plugin) {
             record.pendingButton.hidden = !pending.length; record.pendingButton.title = pending.map(item => item.label + ": " + item.detail).join("\n");
             record.status.hidden = internalHome;
         }
+        for (const observer of documents.values()) observer.surfaces?.sync();
     }
     function watchDocument(document) {
         action?.watchDocument(document);
@@ -194,6 +203,7 @@ function installAtlasIntegration(plugin) {
             if (document.createElementNS === saved.createNSWrapper) document.createElementNS = saved.createNS;
             delete document.__hubAtlasQuarantine;
         }
+        const surfaces = host ? installGuestSurfaces(document, { partition: app.getWebviewPartition() }) : null;
         const guests = new Map();
         const unwatch = guest => { const record = guests.get(guest); if (!record) return; guest.removeEventListener("did-attach", record.remember); guest.removeEventListener("destroyed", record.destroyed); guests.delete(guest); };
         const check = guest => {
@@ -216,7 +226,7 @@ function installAtlasIntegration(plugin) {
                 for (const node of mutation.removedNodes) if (node.nodeType === 1 && (node.matches("webview") || node.querySelector("webview"))) for (const guest of guests.keys()) if (!guest.isConnected) unwatch(guest); }
         });
         observer.observe(document.documentElement, { childList: true, subtree: true });
-        documents.set(document, { inspectClosed: () => { for (const guest of guests.keys()) check(guest); }, disconnect() { observer.disconnect(); for (const [guest, record] of guests) { guest.removeEventListener("did-attach", record.remember); guest.removeEventListener("destroyed", record.destroyed); } guests.clear(); } });
+        documents.set(document, { surfaces, inspectClosed: () => { for (const guest of guests.keys()) check(guest); }, disconnect() { observer.disconnect(); surfaces?.destroy(); for (const [guest, record] of guests) { guest.removeEventListener("did-attach", record.remember); guest.removeEventListener("destroyed", record.destroyed); } guests.clear(); } });
         inspectTree(document.documentElement);
     }
 
