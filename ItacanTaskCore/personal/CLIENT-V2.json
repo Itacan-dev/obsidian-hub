@@ -22,7 +22,7 @@
   },
   "assets": {
     "atlas-native.cjs": "f85bcd223f2ef6f618552ab4f9744a1cc82bd480d6778c89cee1a3a8fa1c5f66",
-    "main.js": "a12f27f619f74b9c63a38666ce3b6d5e09087c8a7881bf60554713c97b1a88df",
+    "main.js": "b09764f2c28eb9ef7dc6dbe030ff38adcd95b1773851119691a1a8a4dbf8e167",
     "strict-oath-assets.json": "92b854b916604d138738caf40d5fd5a266d5c2948a386cdfe30238dd6a614450",
     "lib/athena/THIRD_PARTY_NOTICES.md": "ea3607ab43481115e047ae31f562fb0bf325e67029b91d2fcc119038a3ef6811",
     "lib/athena/assets/pdf-worker.js": "2941c8ea001f5e8bce13079e63d6305d52684a32aaae5c02ac5f07da73d8a0b4",
@@ -48,7 +48,7 @@
     "System/Dashboards/Project/view.css": "a3ebdf2c831e781362a3da9e780b19dbef532ebd0e7d26928bccfbf5fe47f162",
     "System/Dashboards/Project/view.js": "9374375c3d32a4eedc8c1f26991d46eb29bc77cdbaaf51b603d7e1a57ecb7631"
   },
-  "mainSha256": "a12f27f619f74b9c63a38666ce3b6d5e09087c8a7881bf60554713c97b1a88df",
+  "mainSha256": "b09764f2c28eb9ef7dc6dbe030ff38adcd95b1773851119691a1a8a4dbf8e167",
   "onboardingSources": {
     "ItacanTaskCore/src/atomic-task.js": "c82fd36e09ebc7ebf41c7a39a14be1caa880c960c11268440a2338e02b9044a8",
     "ItacanTaskCore/src/command-admission.js": "242d09d19e51684c80d3f63abfd03d12417abb4db81f2725fa4e5bbfb46d1e16",
