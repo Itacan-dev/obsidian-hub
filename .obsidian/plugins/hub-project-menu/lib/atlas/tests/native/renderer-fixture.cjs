@@ -354,6 +354,11 @@ module.exports = async function runRendererFixture({ directory, pluginDirectory,
     assert.equal(await bridge.openFromNote(empty), true); assert.equal(leaves.length, homesBefore + 2, "Empty Note tab reuses the existing Home");
     emptyContainer.remove(); workspace.activeLeaf = empty; assert.equal(await bridge.openFromNote(empty), false, "Detached source cannot launch");
     workspace.activeLeaf = note; await delay(100);
+    assert.match(await require("./tab-movement-authority-renderer.cjs")({ bridge, plugin, nativeLeaf, baseUrl, host,
+        removeLeaf: item => { const index = leaves.indexOf(item); if (index >= 0) leaves.splice(index, 1); item.view.containerEl.remove(); events.get("layout-change")?.(); }
+    }), /^PASS/);
+    assert.match(await require("./tab-movement-renderer.cjs")({ bridge, plugin, nativeLeaf, baseUrl, host, root, note,
+        removeLeaf: item => { const index = leaves.indexOf(item); if (index >= 0) leaves.splice(index, 1); item.view.containerEl.remove(); events.get("layout-change")?.(); } }), /^PASS/);
     // Native identity is shared by clients and retained across UI plugin reload.
     const version = host.view().storageVersion;
     const lateLookup = bridge.command({ kind: "LOOKUP_MANAGED", hostname: "trusted.test" });
