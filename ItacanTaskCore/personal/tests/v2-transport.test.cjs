@@ -6,3 +6,16 @@ test("v2 separate vault mirrors tolerate heads before objects, duplicate arrival
 test("v2 corrupt and foreign transport bytes never replace accepted local state; stable malformed JSON becomes invalid",async t=>{const f=await fixture(t);await f.enroll();const m=await mirrors(t,f);await m.transports[0].publish(await f.repos[0].exportPersonalPacket());await m.transfer(0,1);const dir=path.join(m.transports[1].paths.owner,"objects"),names=await fs.readdir(dir);await fs.writeFile(path.join(dir,names[0]),"{");const before=await f.state(1);assert((await m.transports[1].read()).waiting.length);await m.transports[1].read();assert((await m.transports[1].read()).invalid.length);assert.deepEqual(await f.state(1),before);});
 test("v2 tracked personal evidence blocks publication without untracking or altering Git",async t=>{const f=await fixture(t);await f.enroll();const m=await mirrors(t,f,true),v=m.vaults[0],dir=path.join(v,".itacan-personal-sync");await fs.mkdir(dir);await fs.writeFile(path.join(dir,"private.json"),"{}\n");const added=spawnSync("git",["-C",v,"add","-f",".itacan-personal-sync/private.json"],{windowsHide:true});assert.equal(added.status,0);const before=await fs.readFile(path.join(v,".git/index"));await assert.rejects(m.transports[0].publish(await f.repos[0].exportPersonalPacket()),/tracked by Git/);assert.deepEqual(await fs.readFile(path.join(v,".git/index")),before);});
 module.exports={mirrors};
+
+test("v2 unchanged-file publication and acknowledgement still reject newly tracked evidence",async t=>{
+ const f=await fixture(t);await f.enroll();const m=await mirrors(t,f,true),transport=m.transports[0],packet=await f.repos[0].exportPersonalPacket();await transport.publish(packet);
+ await fs.copyFile(path.join(transport.paths.space,"bindings",require("../membership").hash(packet.binding)+".json"),path.join(transport.paths.root,"privacy-test.json"));
+ assert.equal(spawnSync("git",["-C",m.vaults[0],"add","-f",".itacan-personal-sync/privacy-test.json"],{windowsHide:true}).status,0);
+ await assert.rejects(transport.publish(packet),/tracked/);await assert.rejects(transport.acknowledge(packet.head,{operationId:crypto.randomUUID(),repositoryRevision:1,revisionId:crypto.randomUUID()}),/tracked/);
+});
+
+test("v2 loss of Git exclusion during existing readback prevents the next new object",async t=>{
+ const f=await fixture(t);await f.enroll();const m=await mirrors(t,f,true),transport=m.transports[0];await transport.publish(await f.repos[0].exportPersonalPacket());await f.repos[0].execute(S.rich(f.ctx(0),{metadata:S.metadata({title:"Not published after privacy changes"})},f.owner,crypto.randomUUID()));const packet=await f.repos[0].exportPersonalPacket(),read=fs.readFile;let changed=false;
+ fs.readFile=async function(file,...args){const raw=await read.call(this,file,...args);if(!changed&&String(file)===path.join(transport.paths.space,"profiles",f.binding.profile.digest+".json")){changed=true;await fs.writeFile(path.join(m.vaults[0],".gitignore"),"");}return raw;};
+ try{await assert.rejects(transport.publish(packet));assert(changed);assert(!await fs.stat(path.join(transport.paths.owner,"objects",packet.head+".json")).then(()=>true,()=>false));}finally{fs.readFile=read;}
+});

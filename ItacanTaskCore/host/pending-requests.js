@@ -96,7 +96,7 @@ function createPendingRequests(port, config, settings, inspect, inspectCommitted
     async function observation(r) { await owned(); const value = await inspect(r); await owned(); return value; }
     async function reconcileRecord(r) { return (await observation(r)).operation; }
     async function requireResolved(records, currentId = null, state = null, recovery = false) {
-        const batch = !state && settings.version === 2 && inspectCommitted ? await inspectCommitted(records) : null;
+        const batch = !state && (settings.version === 2 || settings.version === 4 && personalContext?.binding.version === 2) && inspectCommitted ? await inspectCommitted(records) : null;
         for (const r of records) {
             if (await rejection(r, state)) continue;
             if (r.operationId === currentId && (!prior.has(r.operationId) || recovery)) continue;

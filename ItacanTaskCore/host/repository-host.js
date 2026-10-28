@@ -148,20 +148,33 @@ function constructHost(input, options, makeWriter) {
                 if (repo.info().storage?.gitSharedVersion === 2 || options.gitSharing) check(repo.info().storage?.gitSharedVersion === 2 && !!options.gitSharing, "Git capability requires explicit matching host admission.");
                 if (makeWriter && !options.requestRetention && (await port.list()).some(n => n.startsWith("REQUEST-"))) throw safeError("REQUEST_RETENTION_REQUIRED");
                 if (options.requestRetention) {
-                    // Git-only bounded bulk receipt inspection. Both accepted captures
+                    // Bounded replicated receipt inspection. Both accepted captures
                     // and export revalidate the current native authority/lease/fences.
                     // No cache, persistent outcome or arbitrary receipt query is added.
-                    const inspectCommitted = options.gitSharing ? async records => {
+                    const inspectCommitted = options.gitSharing || options.personalSync?.binding.version === 2 ? async records => {
                         if(!records.length)return new Set();
+                        if(options.personalSync && repo.info().storage?.personalSyncVersion!==2)return null;
                         const before=(await capture({selection:"status"},undefined,true)).value;
                         check(before?.status==="ok"&&before.snapshot.readiness.state==="ready"&&before.snapshot.recovery.state==="intact","Retained observation unavailable.");
-                        const packet=await repo.exportSharedPacket(),afterCapture=await capture({selection:"status"},undefined,true),after=afterCapture.value;
+                        const personal=options.personalSync?.binding.version === 2;
+                        const packet=await (personal ? repo.exportPersonalPacket() : repo.exportSharedPacket()),afterCapture=await capture({selection:"status"},undefined,true),after=afterCapture.value;
                         check(after?.status==="ok"&&after.snapshot.readiness.state==="ready"&&after.snapshot.recovery.state==="intact"&&same(before.stamp.head,after.stamp.head)&&before.stamp.hostEpoch===after.stamp.hostEpoch&&before.stamp.ownerContextPin===after.stamp.ownerContextPin&&before.stamp.identityPin===after.stamp.identityPin,"Retained observation changed.");
                         const frames=new Map(packet.frames.map(f=>[f.id,f])),head=packet.head===null?null:frames.get(packet.head),receipts=new Map();
-                        check(packet.genesis.authorityId===config.authorityId&&(head?.receipt.result.revisionId??packet.genesis.revisionId)===after.stamp.head.revisionId,"Retained export head differs.");
-                        for(let id=packet.head;id!==null;){const f=frames.get(id);check(f,"Retained receipt ancestry missing.");receipts.set(f.receipt.operationId,f.receipt);id=f.parent;}
+                        let partition;
+                        if(personal){
+                            const g=require("../src/personal-shared-v2").graph(require("../src/personal-shared-v2").namespace(packet));
+                            partition=g.seed.partition;
+                            check(g.seed.authorityId===config.authorityId&&head?.replicaId===options.personalSync.signer.replicaId&&g.current.revisionId===after.stamp.head.revisionId&&g.current.revision===after.stamp.head.repositoryRevision,"Retained personal export head differs.");
+                            // This replica's local chain only. Bootstrap does not turn
+                            // enrollment receipts or foreign origins into local receipts.
+                            for(const receipt of g.current.receipts)receipts.set(receipt.operationId,receipt);
+                        }else{
+                            partition=packet.genesis.partition;
+                            check(packet.genesis.authorityId===config.authorityId&&(head?.receipt.result.revisionId??packet.genesis.revisionId)===after.stamp.head.revisionId,"Retained export head differs.");
+                            for(let id=packet.head;id!==null;){const f=frames.get(id);check(f,"Retained receipt ancestry missing.");receipts.set(f.receipt.operationId,f.receipt);id=f.parent;}
+                        }
                         const committed=new Set();for(const r of records){const receipt=receipts.get(r.operationId);
-                            if(same(r.owner,packet.genesis.partition.owner)&&r.partitionId===packet.genesis.partition.id&&(r.writerRequest.scope.ownerContextPin===after.stamp.ownerContextPin||boundReceiptOwner(r,afterCapture.context))&&r.writerRequest.scope.identityPin===after.stamp.identityPin&&receipt?.partitionIds.includes(r.partitionId)&&require("../src/git-shared").hash(JSON.parse(receipt.payload))===r.commandDigest)committed.add(r.operationId);
+                            if(same(r.owner,partition.owner)&&r.partitionId===partition.id&&(r.writerRequest.scope.ownerContextPin===after.stamp.ownerContextPin||boundReceiptOwner(r,afterCapture.context))&&r.writerRequest.scope.identityPin===after.stamp.identityPin&&receipt?.partitionIds.includes(r.partitionId)&&require("../src/git-shared").hash(JSON.parse(receipt.payload))===r.commandDigest)committed.add(r.operationId);
                         }return committed;
                     } : undefined;
                     retained = require("./pending-requests").createPendingRequests(port, config, options.requestRetention, async record => {

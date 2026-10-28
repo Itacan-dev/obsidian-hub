@@ -19,8 +19,12 @@ async function createOneDriveTransport(input){
  async function directory(p,create){const rel=path.relative(root,p);check(rel&&!rel.startsWith("..")&&!path.isAbsolute(rel),"Personal transport escaped vault.");let part=root;for(const n of rel.split(path.sep)){part=path.join(part,n);if(create)await fs.mkdir(part).catch(e=>{if(e.code!=="EEXIST")throw e});try{await ordinary(part,"directory")}catch(e){if(!create&&e.code==="ENOENT")return false;throw e}}return true;}
  async function readFile(file){const stat=await ordinary(file,"file");check(stat.size<=LIMIT,"Personal file exceeds capacity.");const raw=await fs.readFile(file,"utf8");check(Buffer.byteLength(raw)<=LIMIT,"Personal file grew beyond capacity.");let value;try{value=JSON.parse(raw)}catch(e){e.evidenceDigest=crypto.createHash("sha256").update(raw).digest("hex");throw e}check(raw===V.canonical(value)+"\n","Canonical personal file required.");return{value,raw,bytes:Buffer.byteLength(raw)};}
  async function publishFile(dir,id,value){
-  await privacy();await directory(dir,true);const target=path.join(dir,id+".json"),raw=V.canonical(value)+"\n";check(Buffer.byteLength(raw)<=LIMIT,"Personal record exceeds capacity.");
-  try{check((await readFile(target)).raw===raw,"Changed immutable personal file.");return}catch(e){if(e.code!=="ENOENT")throw e}
+  const target=path.join(dir,id+".json"),raw=V.canonical(value)+"\n";check(Buffer.byteLength(raw)<=LIMIT,"Personal record exceeds capacity.");
+  // Existing immutable bytes are read back, never republished. The enclosing
+  // publication checks Git privacy at both ends; each actual new write still
+  // checks it here and immediately before exclusive final-file creation.
+  try{if(await directory(dir,false)){check((await readFile(target)).raw===raw,"Changed immutable personal file.");return}}catch(e){if(e.code!=="ENOENT")throw e}
+  await privacy();await directory(dir,true);
   const staging=path.join(transportRoot,".staging");await directory(staging,true);const temp=path.join(staging,crypto.randomUUID()+".tmp");let handle;
   try{handle=await fs.open(temp,"wx");await handle.writeFile(raw,"utf8");await handle.sync();await handle.close();handle=null;await privacy();await ordinary(dir,"directory");try{await fs.link(temp,target)}catch(e){if(e.code!=="EEXIST")throw e}check((await readFile(target)).raw===raw,"Personal publication readback differs.");}
   finally{await handle?.close();await fs.unlink(temp).catch(e=>{if(e.code!=="ENOENT")throw e})}
@@ -32,7 +36,7 @@ async function createOneDriveTransport(input){
   await publishFile(path.join(space,"profiles"),binding.profile.digest,binding.profile);await publishFile(path.join(space,"bindings"),M.hash(binding),binding);for(const r of packet.members)await publishFile(path.join(space,"members"),r.digest,r);
   await publishFile(path.join(base,"seeds"),seed.digest,seed);for(const f of packet.frames)await publishFile(path.join(base,"objects"),f.id,f);
   const head=M.seal({format:"itacan-personal-head",version:2,profileDigest:binding.profile.digest,spaceId:binding.base.spaceId,bindingDigest:M.hash(binding),authorityId:owner.authorityId,seedDigest:seed.digest,head:packet.head},signer);
-  await publishFile(path.join(base,"heads"),head.digest,head);return{version:1,state:"locally-published",head:packet.head,declaration:head.digest};
+  await publishFile(path.join(base,"heads"),head.digest,head);await privacy();return{version:1,state:"locally-published",head:packet.head,declaration:head.digest};
  }
  async function read(){
   const result={version:1,packets:[],waiting:[],invalid:[],aliases:[],acknowledgements:[]};await privacy();let bytes=0;
@@ -48,7 +52,7 @@ async function createOneDriveTransport(input){
   for(const r of await records(path.join(base,"acknowledgements"),r=>{check(keys.has(r.signer),"Unknown acknowledgement signer.");const b=M.open(r,keys.get(r.signer),r.signer);M.exact(b,["format","version","profileDigest","spaceId","authorityId","bindingDigest","head","application"]);check(b.format==="itacan-personal-ack"&&b.version===2&&b.profileDigest===binding.profile.digest&&b.spaceId===binding.base.spaceId&&b.authorityId===owner.authorityId&&b.bindingDigest===M.hash(binding),"Foreign acknowledgement.");return r.digest}))result.acknowledgements.push(r);
   return result;
  }
- async function acknowledge(head,application){check(application&&Number.isSafeInteger(application.repositoryRevision)&&typeof application.operationId==="string","Authoritative application receipt required.");const record=M.seal({format:"itacan-personal-ack",version:2,profileDigest:binding.profile.digest,spaceId:binding.base.spaceId,authorityId:owner.authorityId,bindingDigest:M.hash(binding),head,application:V.clone(application)},signer);await publishFile(path.join(base,"acknowledgements"),record.digest,record);return record.digest;}
+ async function acknowledge(head,application){await privacy();check(application&&Number.isSafeInteger(application.repositoryRevision)&&typeof application.operationId==="string","Authoritative application receipt required.");const record=M.seal({format:"itacan-personal-ack",version:2,profileDigest:binding.profile.digest,spaceId:binding.base.spaceId,authorityId:owner.authorityId,bindingDigest:M.hash(binding),head,application:V.clone(application)},signer);await publishFile(path.join(base,"acknowledgements"),record.digest,record);await privacy();return record.digest;}
  async function capacity(){const counts={objects:0,heads:0,acknowledgements:0,bytes:0,recordLimit:1024,byteLimit:LIMIT};for(const kind of ["objects","heads","acknowledgements"]){const names=await entries(path.join(base,kind));counts[kind]=names.length;for(const name of names){const stat=await ordinary(path.join(base,kind,name),"file");counts.bytes+=stat.size;}}return Object.freeze(counts);}
  return Object.freeze({publish,read,acknowledge,capacity,assertPrivacy:privacy,paths:Object.freeze({root:transportRoot,space,owner:base})});
 }

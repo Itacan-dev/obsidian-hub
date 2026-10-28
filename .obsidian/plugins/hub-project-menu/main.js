@@ -1064,7 +1064,7 @@ function createPendingRequests(port, config, settings, inspect, inspectCommitted
     async function observation(r) { await owned(); const value = await inspect(r); await owned(); return value; }
     async function reconcileRecord(r) { return (await observation(r)).operation; }
     async function requireResolved(records, currentId = null, state = null, recovery = false) {
-        const batch = !state && settings.version === 2 && inspectCommitted ? await inspectCommitted(records) : null;
+        const batch = !state && (settings.version === 2 || settings.version === 4 && personalContext?.binding.version === 2) && inspectCommitted ? await inspectCommitted(records) : null;
         for (const r of records) {
             if (await rejection(r, state)) continue;
             if (r.operationId === currentId && (!prior.has(r.operationId) || recovery)) continue;
@@ -1462,20 +1462,33 @@ function constructHost(input, options, makeWriter) {
                 if (repo.info().storage?.gitSharedVersion === 2 || options.gitSharing) check(repo.info().storage?.gitSharedVersion === 2 && !!options.gitSharing, "Git capability requires explicit matching host admission.");
                 if (makeWriter && !options.requestRetention && (await port.list()).some(n => n.startsWith("REQUEST-"))) throw safeError("REQUEST_RETENTION_REQUIRED");
                 if (options.requestRetention) {
-                    // Git-only bounded bulk receipt inspection. Both accepted captures
+                    // Bounded replicated receipt inspection. Both accepted captures
                     // and export revalidate the current native authority/lease/fences.
                     // No cache, persistent outcome or arbitrary receipt query is added.
-                    const inspectCommitted = options.gitSharing ? async records => {
+                    const inspectCommitted = options.gitSharing || options.personalSync?.binding.version === 2 ? async records => {
                         if(!records.length)return new Set();
+                        if(options.personalSync && repo.info().storage?.personalSyncVersion!==2)return null;
                         const before=(await capture({selection:"status"},undefined,true)).value;
                         check(before?.status==="ok"&&before.snapshot.readiness.state==="ready"&&before.snapshot.recovery.state==="intact","Retained observation unavailable.");
-                        const packet=await repo.exportSharedPacket(),afterCapture=await capture({selection:"status"},undefined,true),after=afterCapture.value;
+                        const personal=options.personalSync?.binding.version === 2;
+                        const packet=await (personal ? repo.exportPersonalPacket() : repo.exportSharedPacket()),afterCapture=await capture({selection:"status"},undefined,true),after=afterCapture.value;
                         check(after?.status==="ok"&&after.snapshot.readiness.state==="ready"&&after.snapshot.recovery.state==="intact"&&same(before.stamp.head,after.stamp.head)&&before.stamp.hostEpoch===after.stamp.hostEpoch&&before.stamp.ownerContextPin===after.stamp.ownerContextPin&&before.stamp.identityPin===after.stamp.identityPin,"Retained observation changed.");
                         const frames=new Map(packet.frames.map(f=>[f.id,f])),head=packet.head===null?null:frames.get(packet.head),receipts=new Map();
-                        check(packet.genesis.authorityId===config.authorityId&&(head?.receipt.result.revisionId??packet.genesis.revisionId)===after.stamp.head.revisionId,"Retained export head differs.");
-                        for(let id=packet.head;id!==null;){const f=frames.get(id);check(f,"Retained receipt ancestry missing.");receipts.set(f.receipt.operationId,f.receipt);id=f.parent;}
+                        let partition;
+                        if(personal){
+                            const g=__hubRequire("../../../ItacanTaskCore/src/personal-shared-v2.js").graph(__hubRequire("../../../ItacanTaskCore/src/personal-shared-v2.js").namespace(packet));
+                            partition=g.seed.partition;
+                            check(g.seed.authorityId===config.authorityId&&head?.replicaId===options.personalSync.signer.replicaId&&g.current.revisionId===after.stamp.head.revisionId&&g.current.revision===after.stamp.head.repositoryRevision,"Retained personal export head differs.");
+                            // This replica's local chain only. Bootstrap does not turn
+                            // enrollment receipts or foreign origins into local receipts.
+                            for(const receipt of g.current.receipts)receipts.set(receipt.operationId,receipt);
+                        }else{
+                            partition=packet.genesis.partition;
+                            check(packet.genesis.authorityId===config.authorityId&&(head?.receipt.result.revisionId??packet.genesis.revisionId)===after.stamp.head.revisionId,"Retained export head differs.");
+                            for(let id=packet.head;id!==null;){const f=frames.get(id);check(f,"Retained receipt ancestry missing.");receipts.set(f.receipt.operationId,f.receipt);id=f.parent;}
+                        }
                         const committed=new Set();for(const r of records){const receipt=receipts.get(r.operationId);
-                            if(same(r.owner,packet.genesis.partition.owner)&&r.partitionId===packet.genesis.partition.id&&(r.writerRequest.scope.ownerContextPin===after.stamp.ownerContextPin||boundReceiptOwner(r,afterCapture.context))&&r.writerRequest.scope.identityPin===after.stamp.identityPin&&receipt?.partitionIds.includes(r.partitionId)&&__hubRequire("../../../ItacanTaskCore/src/git-shared.js").hash(JSON.parse(receipt.payload))===r.commandDigest)committed.add(r.operationId);
+                            if(same(r.owner,partition.owner)&&r.partitionId===partition.id&&(r.writerRequest.scope.ownerContextPin===after.stamp.ownerContextPin||boundReceiptOwner(r,afterCapture.context))&&r.writerRequest.scope.identityPin===after.stamp.identityPin&&receipt?.partitionIds.includes(r.partitionId)&&__hubRequire("../../../ItacanTaskCore/src/git-shared.js").hash(JSON.parse(receipt.payload))===r.commandDigest)committed.add(r.operationId);
                         }return committed;
                     } : undefined;
                     retained = __hubRequire("../../../ItacanTaskCore/host/pending-requests.js").createPendingRequests(port, config, options.requestRetention, async record => {
@@ -2643,8 +2656,12 @@ async function createOneDriveTransport(input){
  async function directory(p,create){const rel=path.relative(root,p);check(rel&&!rel.startsWith("..")&&!path.isAbsolute(rel),"Personal transport escaped vault.");let part=root;for(const n of rel.split(path.sep)){part=path.join(part,n);if(create)await fs.mkdir(part).catch(e=>{if(e.code!=="EEXIST")throw e});try{await ordinary(part,"directory")}catch(e){if(!create&&e.code==="ENOENT")return false;throw e}}return true;}
  async function readFile(file){const stat=await ordinary(file,"file");check(stat.size<=LIMIT,"Personal file exceeds capacity.");const raw=await fs.readFile(file,"utf8");check(Buffer.byteLength(raw)<=LIMIT,"Personal file grew beyond capacity.");let value;try{value=JSON.parse(raw)}catch(e){e.evidenceDigest=crypto.createHash("sha256").update(raw).digest("hex");throw e}check(raw===V.canonical(value)+"\n","Canonical personal file required.");return{value,raw,bytes:Buffer.byteLength(raw)};}
  async function publishFile(dir,id,value){
-  await privacy();await directory(dir,true);const target=path.join(dir,id+".json"),raw=V.canonical(value)+"\n";check(Buffer.byteLength(raw)<=LIMIT,"Personal record exceeds capacity.");
-  try{check((await readFile(target)).raw===raw,"Changed immutable personal file.");return}catch(e){if(e.code!=="ENOENT")throw e}
+  const target=path.join(dir,id+".json"),raw=V.canonical(value)+"\n";check(Buffer.byteLength(raw)<=LIMIT,"Personal record exceeds capacity.");
+  // Existing immutable bytes are read back, never republished. The enclosing
+  // publication checks Git privacy at both ends; each actual new write still
+  // checks it here and immediately before exclusive final-file creation.
+  try{if(await directory(dir,false)){check((await readFile(target)).raw===raw,"Changed immutable personal file.");return}}catch(e){if(e.code!=="ENOENT")throw e}
+  await privacy();await directory(dir,true);
   const staging=path.join(transportRoot,".staging");await directory(staging,true);const temp=path.join(staging,crypto.randomUUID()+".tmp");let handle;
   try{handle=await fs.open(temp,"wx");await handle.writeFile(raw,"utf8");await handle.sync();await handle.close();handle=null;await privacy();await ordinary(dir,"directory");try{await fs.link(temp,target)}catch(e){if(e.code!=="EEXIST")throw e}check((await readFile(target)).raw===raw,"Personal publication readback differs.");}
   finally{await handle?.close();await fs.unlink(temp).catch(e=>{if(e.code!=="ENOENT")throw e})}
@@ -2656,7 +2673,7 @@ async function createOneDriveTransport(input){
   await publishFile(path.join(space,"profiles"),binding.profile.digest,binding.profile);await publishFile(path.join(space,"bindings"),M.hash(binding),binding);for(const r of packet.members)await publishFile(path.join(space,"members"),r.digest,r);
   await publishFile(path.join(base,"seeds"),seed.digest,seed);for(const f of packet.frames)await publishFile(path.join(base,"objects"),f.id,f);
   const head=M.seal({format:"itacan-personal-head",version:2,profileDigest:binding.profile.digest,spaceId:binding.base.spaceId,bindingDigest:M.hash(binding),authorityId:owner.authorityId,seedDigest:seed.digest,head:packet.head},signer);
-  await publishFile(path.join(base,"heads"),head.digest,head);return{version:1,state:"locally-published",head:packet.head,declaration:head.digest};
+  await publishFile(path.join(base,"heads"),head.digest,head);await privacy();return{version:1,state:"locally-published",head:packet.head,declaration:head.digest};
  }
  async function read(){
   const result={version:1,packets:[],waiting:[],invalid:[],aliases:[],acknowledgements:[]};await privacy();let bytes=0;
@@ -2672,7 +2689,7 @@ async function createOneDriveTransport(input){
   for(const r of await records(path.join(base,"acknowledgements"),r=>{check(keys.has(r.signer),"Unknown acknowledgement signer.");const b=M.open(r,keys.get(r.signer),r.signer);M.exact(b,["format","version","profileDigest","spaceId","authorityId","bindingDigest","head","application"]);check(b.format==="itacan-personal-ack"&&b.version===2&&b.profileDigest===binding.profile.digest&&b.spaceId===binding.base.spaceId&&b.authorityId===owner.authorityId&&b.bindingDigest===M.hash(binding),"Foreign acknowledgement.");return r.digest}))result.acknowledgements.push(r);
   return result;
  }
- async function acknowledge(head,application){check(application&&Number.isSafeInteger(application.repositoryRevision)&&typeof application.operationId==="string","Authoritative application receipt required.");const record=M.seal({format:"itacan-personal-ack",version:2,profileDigest:binding.profile.digest,spaceId:binding.base.spaceId,authorityId:owner.authorityId,bindingDigest:M.hash(binding),head,application:V.clone(application)},signer);await publishFile(path.join(base,"acknowledgements"),record.digest,record);return record.digest;}
+ async function acknowledge(head,application){await privacy();check(application&&Number.isSafeInteger(application.repositoryRevision)&&typeof application.operationId==="string","Authoritative application receipt required.");const record=M.seal({format:"itacan-personal-ack",version:2,profileDigest:binding.profile.digest,spaceId:binding.base.spaceId,authorityId:owner.authorityId,bindingDigest:M.hash(binding),head,application:V.clone(application)},signer);await publishFile(path.join(base,"acknowledgements"),record.digest,record);await privacy();return record.digest;}
  async function capacity(){const counts={objects:0,heads:0,acknowledgements:0,bytes:0,recordLimit:1024,byteLimit:LIMIT};for(const kind of ["objects","heads","acknowledgements"]){const names=await entries(path.join(base,kind));counts[kind]=names.length;for(const name of names){const stat=await ordinary(path.join(base,kind,name),"file");counts.bytes+=stat.size;}}return Object.freeze(counts);}
  return Object.freeze({publish,read,acknowledge,capacity,assertPrivacy:privacy,paths:Object.freeze({root:transportRoot,space,owner:base})});
 }
@@ -2721,27 +2738,56 @@ module.exports={openPersonalRecovery};
 const {randomUUID}=require("node:crypto"),V=__hubRequire("../../../ItacanTaskCore/src/value.js"),{check}=__hubRequire("../../../ItacanTaskCore/src/errors.js");
 const G=__hubRequire("../../../ItacanTaskCore/src/personal-shared.js");
 let background=Promise.resolve();
-function createPersonalSync({runtime,transport,assertBinding=async()=>{},changed=()=>{}}){
+function createPersonalSync({runtime,transport,assertBinding=async()=>{},changed=()=>{},diagnostic=null}){
  let stopped=false,queue=Promise.resolve(),status={version:1,state:"idle",publishedHead:null,accepted:0,conflicts:0,waiting:0,invalid:0,code:null};
  const snapshot=()=>Object.freeze(V.clone(status)),announce=next=>{status={...status,...next};if(!stopped)changed(snapshot())};
+ const now=()=>performance.now(),report=value=>{try{diagnostic?.({version:1,...value})}catch(_){/* Diagnostics cannot affect admission. */}};
+ const measured=async(phase,work)=>{const start=now();try{return await work()}finally{report({phase,elapsedMs:now()-start})}};
  async function run(){check(!stopped,"Personal synchronization closed.");announce({state:"checking",code:null});
   try{
-   await assertBinding();await runtime.assertRetainedResolved();const initial=await runtime.personal.export();await transport.publish(initial);check(!stopped,"Personal synchronization closing.");
-   const incoming=await transport.read();let accepted=0,waitingLocation=false;
+   await measured("binding",assertBinding);await measured("retained",()=>runtime.assertRetainedResolved());const initial=V.clone(await measured("initial-export",()=>runtime.personal.export()));await measured("initial-publication",()=>transport.publish(initial));check(!stopped,"Personal synchronization closing.");
+   const incoming=V.clone(await measured("discovery",()=>transport.read()));let accepted=0,waitingLocation=false;const acceptedPackets=[];
+   // Run-local, detached evidence only. No filesystem result or graph survives
+   // this scan; a new scan re-reads and validates the transport and local head.
+   const proofs=new Map(),proof=packet=>{if(!proofs.has(packet))proofs.set(packet,G.graph(G.namespace(packet)));return proofs.get(packet)};
+   const known=async packet=>{
+    if(initial.version!==2||packet.version!==2||V.canonical(initial.binding)!==V.canonical(packet.binding)||V.canonical(initial.seed)!==V.canonical(packet.seed))return false;
+    const frames=new Map(initial.frames.map(f=>[f.id,f]));
+    const local=proof(initial),remote=proof(packet);
+    if(![...remote.current.known].every(id=>local.current.known.has(id)))return false;
+    if(packet.frames.every(f=>frames.has(f.id)&&V.canonical(f)===V.canonical(frames.get(f.id))))return true;
+    // A peer may have a different bootstrap/receive-only local receipt chain.
+    // Validate every unfamiliar execution proof, then prove the union has no
+    // task/conflict effect. Never promote those receipts to this local chain.
+    const ns=G.namespace(packet);
+    await G.validateState({...Object.fromEntries(Object.entries(remote.current).filter(([k])=>!["known","accepted","frontier","taskHeads","conflicts","accounting","personalHead"].includes(k))),personalShared:ns});
+    return !G.previewReceive(initial,packet).changed;
+   };
+   const hasOwnAcknowledgement=(packet,current)=>{
+    if(current?.version!==2)return false;
+    const g=proof(current),remote=proof(packet);
+    return incoming.acknowledgements.some(ack=>ack.signer===runtime.personal.replicaId&&ack.body.head===packet.head&&g.current.receipts.some(r=>r.operationId===ack.body.application.operationId&&r.result.repositoryRevision===ack.body.application.repositoryRevision&&r.result.revisionId===ack.body.application.revisionId)&&[...remote.current.known].every(id=>g.current.known.has(id)));
+   };
    for(const packet of incoming.packets){check(!stopped,"Personal synchronization closing.");await assertBinding();
-    let prepared;try{prepared=await runtime.personal.prepare(packet,randomUUID())}catch(e){if(e.code==="PERSONAL_WAITING_LOCATION"){waitingLocation=true;continue}throw e}
-    const outcome=await runtime.personal.receive(prepared);check(outcome.status==="committed"||outcome.code==="PERSONAL_NO_CHANGES","Personal request requires authoritative recovery.");
-    if(outcome.status==="committed")accepted+=outcome.personal?.acceptedOrigins.length??0;
-    const current=await runtime.personal.status();if(!stopped&&!current.conflicts.length)await transport.acknowledge(packet.head,await runtime.personal.confirmAccepted(packet));
+    const alreadyKnown=await measured("known-proof",async()=>known(packet));
+    if(!alreadyKnown){
+     let prepared;try{prepared=await measured("prepare",()=>runtime.personal.prepare(packet,randomUUID()))}catch(e){if(e.code==="PERSONAL_WAITING_LOCATION"){waitingLocation=true;continue}throw e}
+     const outcome=await measured("receive",()=>runtime.personal.receive(prepared));check(outcome.status==="committed"||outcome.code==="PERSONAL_NO_CHANGES","Personal request requires authoritative recovery.");
+     if(outcome.status==="committed")accepted+=outcome.personal?.acceptedOrigins.length??0;
+    }
+    if(initial.version===2)acceptedPackets.push(packet);
+    else{const current=await runtime.personal.status();if(!stopped&&!current.conflicts.length)await transport.acknowledge(packet.head,await runtime.personal.confirmAccepted(packet));}
    }
-   const final=await runtime.personal.export(),native=await runtime.personal.status();await transport.publish(final);await assertBinding();
+   const final=V.clone(await measured("final-export",()=>runtime.personal.export())),native=final.version===2?proof(final).current:await runtime.personal.status();
+   if(final.version===2&&!native.conflicts.length)for(const packet of acceptedPackets)if(!stopped&&!hasOwnAcknowledgement(packet,final))await measured("acknowledgement",async()=>transport.acknowledge(packet.head,await runtime.personal.confirmAccepted(packet)));
+   await measured("final-publication",()=>transport.publish(final));await assertBinding();
    let acknowledged=false;
-   for(const ack of incoming.acknowledgements)if(ack.signer!==runtime.personal.replicaId&&ack.body.head===final.head)for(const proof of incoming.packets){const ns=G.namespace(proof),g=G.graph(ns),frame=proof.frames.find(f=>f.replicaId===ack.signer&&f.receipt.operationId===ack.body.application.operationId&&f.receipt.result.repositoryRevision===ack.body.application.repositoryRevision&&f.receipt.result.revisionId===ack.body.application.revisionId);if(frame&&g.frames.has(ack.body.head)&&[...g.read(ack.body.head).accepted].every(id=>g.read(frame.id).accepted.has(id)))acknowledged=true;}
+   for(const ack of incoming.acknowledgements)if(ack.signer!==runtime.personal.replicaId&&ack.body.head===final.head)for(const packet of incoming.packets){const g=proof(packet),frame=packet.frames.find(f=>f.replicaId===ack.signer&&f.receipt.operationId===ack.body.application.operationId&&f.receipt.result.repositoryRevision===ack.body.application.repositoryRevision&&f.receipt.result.revisionId===ack.body.application.revisionId);if(frame&&g.frames.has(ack.body.head)&&[...g.read(ack.body.head).accepted].every(id=>g.read(frame.id).accepted.has(id)))acknowledged=true;}
    const capacity=transport.capacity?await transport.capacity():null,near=final.frames.length>=960||capacity&&(Math.max(capacity.objects,capacity.heads,capacity.acknowledgements)>=960||capacity.bytes>=capacity.byteLimit*0.9);
    announce({state:native.conflicts.length?"conflicting":incoming.invalid.length?"invalid":waitingLocation?"waiting-for-location":incoming.waiting.length?"waiting-for-evidence":near?"near-capacity":acknowledged?"peer-acknowledged":"locally-published",publishedHead:final.head,accepted,conflicts:native.conflicts.length,waiting:incoming.waiting.length,invalid:incoming.invalid.length,capacity,code:near?"PERSONAL_CAPACITY_NEAR_LIMIT":null});return snapshot();
   }catch(e){announce({state:["ENOENT","EACCES","EBUSY","EIO"].includes(e.code)?"waiting-for-evidence":"unavailable",code:e.code??"PERSONAL_SYNC_UNAVAILABLE"});throw e;}
  }
- return Object.freeze({status:snapshot,sync(){const work=queue.then(()=>{const job=background.then(async()=>{await new Promise(resolve=>setImmediate(resolve));return run()});background=job.catch(()=>{});return job});queue=work.catch(()=>{});return work;},async close(){stopped=true;await queue}});
+ return Object.freeze({status:snapshot,sync(){const requested=now();const work=queue.then(()=>{const local=now();const job=background.then(async()=>{report({phase:"queue",localWaitMs:local-requested,globalWaitMs:now()-local});await new Promise(resolve=>setImmediate(resolve));return measured("cycle",run)});background=job.catch(()=>{});return job});queue=work.catch(()=>{});return work;},async close(){stopped=true;await queue}});
 }
 module.exports={createPersonalSync};
 
@@ -6446,6 +6492,11 @@ const V=__hubRequire("../../../ItacanTaskCore/src/value.js"),G=__hubRequire("../
 function createPersonalPort({config,options,host,grant,observed,inventoryFresh,submit,inventoryPin,phasePin}){
  const personal=options.personalSync,base=personal.binding.base,common=()=>({version:2,spaceId:base.spaceId,bindingDigest:P.hash(personal.binding),profileDigest:personal.binding.profile.digest});
  async function state(cap){grant({capability:cap});await inventoryFresh();const info=await host.refresh(),observation=await observed();check(info.readiness.state==="ready","Personal authority unavailable.");return{info,observation};}
+ // Export itself queues a fresh, fully validated native generation capture,
+ // including the live lease, CURRENT/RECOVERY fences and admission context.
+ // Bracket it with fresh physical/inventory observations and internal headers,
+ // rather than loading that same generation twice more for status alone.
+ async function exportObservation(cap){grant({capability:cap});await inventoryFresh();const observation=await observed(),info=host.info();check(info.readiness.state==="ready","Personal authority unavailable.");return{info,observation};}
  const fromPacket=p=>{const ns=G.namespace(p),g=G.graph(ns);return{...Object.fromEntries(Object.entries(g.current).filter(([k])=>!["known","accepted","frontier","taskHeads","conflicts","accounting","personalHead"].includes(k))),personalShared:ns}};
  const stable=(a,b)=>P.same(a.info.head,b.info.head)&&a.info.hostEpoch===b.info.hostEpoch&&P.same(a.observation,b.observation);
  const context=o=>({ownerContextPin:o.ownerContextPin,identityPin:o.identityPin,inventoryPin,phasePin,observationDigest:P.hash(o)});
@@ -6453,7 +6504,10 @@ function createPersonalPort({config,options,host,grant,observed,inventoryFresh,s
  async function legacyReady(){const frames=personal.legacyFrames??[];if(!personal.binding.profile.body.legacyCuts.find(c=>c.authorityId===config.authorityId).heads.length)return;const ns={format:"itacan-personal-native",version:2,binding:personal.binding,seed:personal.seed,members:personal.members,head:null,frames};await G.validateState(fromPacket(ns));}
  async function prepare(cap,c,packet=null,review=null){const before=await state(cap);check(c.expectedRepositoryRevision===before.info.head.repositoryRevision,"Personal preparation head changed.");let tasks=personal.seed.body.state.tasks,noop=false;if(packet){await G.validateState(fromPacket(packet));await host.retention().assertIncomingPacket(packet);const current=await port.export(cap),preview=G.previewReceive(current,packet);tasks=preview.tasks;noop=!preview.changed;}if(review)tasks=[review.value.task];const owner=before.observation.registry.owners[0];for(const t of tasks)if(t.deletedAt===null&&t.location!==null&&!owner.locations.some(l=>P.same(l,t.location)))fail("PERSONAL_WAITING_LOCATION","Personal location missing.");const r=request(before,c),prepared=freeze({version:2,request:r,evidence:{version:2,binding:V.clone(personal.binding),seed:V.clone(personal.seed),members:V.clone(personal.members),packet:packet?V.clone(packet):null,review:review?V.clone(review):null}}),after=await state(cap);check(stable(before,after),"Personal preparation observation changed.");if(noop)return freeze({...prepared,noop:true});await host.retention().prepare({version:2,kind:"personal-operation",prepared});return prepared;}
  const port=Object.freeze({
- async export(cap){for(let attempt=0;attempt<3;attempt++){const before=await state(cap),packet=await host.exportPersonalPacket(),after=await state(cap);if(stable(before,after))return freeze(packet);await new Promise(resolve=>setImmediate(resolve));}fail("SNAPSHOT_UNSTABLE","Personal export changed during three observations.");},
+ async export(cap){for(let attempt=0;attempt<3;attempt++){const before=await exportObservation(cap),packet=await host.exportPersonalPacket(),after=await exportObservation(cap),receipt=packet.frames.find(f=>f.id===packet.head)?.receipt;const head=after.info.head;if(stable(before,after)&&head?.authorityId===config.authorityId&&receipt?.result.repositoryRevision===head.repositoryRevision&&receipt.result.revisionId===head.revisionId)return freeze(packet);
+  // A committed receive can advance the repository before any presentation
+  // read refreshes the host header. Re-capture it, then retry the full export.
+  await host.refresh();await new Promise(resolve=>setImmediate(resolve));}fail("SNAPSHOT_UNSTABLE","Personal export changed during three observations.");},
  async status(cap){const p=await port.export(cap),g=G.graph(G.namespace(p));return freeze({version:2,authorityId:config.authorityId,state:g.current.conflicts.length?"conflicting":"ready",head:p.head,conflicts:g.current.conflicts,frames:p.frames.length,remainingFrames:1024-p.frames.length,resolutions:p.frames.filter(f=>JSON.parse(f.receipt.payload).type==="personal.resolve").map(f=>({operationId:f.receipt.operationId,taskId:f.receipt.result.personal.resolution.taskId,originId:f.id}))});},
  async inspectConflict(cap,id){const x=await state(cap),rows=G.inspectConflict(fromPacket(await port.export(cap)),id),locations=x.observation.registry.owners[0].locations;for(const c of rows)for(const b of c.branches)if(b.eligibility.available&&!b.deleted&&b.task.location!==null&&!locations.some(l=>P.same(l,b.task.location)))b.eligibility={available:false,code:"PERSONAL_WAITING_LOCATION"};return freeze(rows);},
  async inspectResolution(cap,id){return freeze(G.inspectResolution(fromPacket(await port.export(cap)),id));},
@@ -19755,13 +19809,17 @@ async function connect(plugin,runtime,options,changed){
  const transport=await createTransport({vaultRoot:options.vaultPin.real,binding:p.binding,seed:p.seed,members:p.members,pairing:p.pairing,signer:p.signer});
  const watches=new Map();let request;
  const watchEvidence=()=>{for(const dir of [transport.paths.owner+"/heads",transport.paths.owner+"/objects",transport.paths.owner+"/seeds",transport.paths.space+"/members"])if(!watches.has(dir))try{const watch=require("node:fs").watch(dir,()=>request?.());watch.on("error",()=>{watch.close();watches.delete(dir)});watches.set(dir,watch)}catch(e){if(e.code!=="ENOENT")throw e}};
- const sync=createSync({runtime,transport,assertBinding:async()=>{await options.assertActivation?.();await transport.assertPrivacy()},changed:status=>{watchEvidence();changed(status)}});
- let stopped=false,dirty=false,active=null;request=()=>{if(stopped)return;dirty=true;if(active)return;active=(async()=>{while(dirty&&!stopped){dirty=false;await new Promise(resolve=>setTimeout(resolve,0));await sync.sync().catch(()=>{})}})().finally(()=>{active=null;if(dirty&&!stopped)request()})};
+ const sync=createSync({runtime,transport,assertBinding:async()=>{await options.assertActivation?.();await transport.assertPrivacy()},changed:status=>{watchEvidence();changed(status)},diagnostic:value=>plugin.personalSyncDiagnostic?.({owner:options.owner,...value})});
+ let stopped=false,dirty=false,active=null,timer=null;
+ const schedule=()=>{clearTimeout(timer);if(!stopped){timer=setTimeout(request,30000);timer.unref?.()}};
+ request=()=>{if(stopped)return;clearTimeout(timer);timer=null;dirty=true;if(active)return;active=(async()=>{while(dirty&&!stopped){dirty=false;await new Promise(resolve=>setTimeout(resolve,0));await sync.sync().catch(()=>{})}})().finally(()=>{active=null;if(dirty&&!stopped)request();else schedule()})};
  const stops=[runtime.personal.subscribe(change=>{if(change.reason==="repository")request()})];
  // Watch the known transport prefix, never scan unrelated vault contents.
  const cache=plugin.app.metadataCache;if(cache?.on){const ref=cache.on("resolved",request);stops.push(()=>cache.offref(ref))}
  const vault=plugin.app.vault;for(const event of ["create","modify","delete","rename"])if(vault?.on){const ref=vault.on(event,file=>{if(file?.path?.startsWith(".itacan-personal-sync/")||event!=="modify")request()});stops.push(()=>vault.offref(ref))}
- const timer=setInterval(request,30000);timer.unref?.();stops.push(()=>clearInterval(timer));
+ // A slow scan must not make its own polling interval enqueue another scan.
+ // Real filesystem/native changes still request a coalesced follow-up promptly.
+ stops.push(()=>clearTimeout(timer));
  return Object.freeze({start:request,sync:()=>sync.sync(),status:()=>sync.status(),async close(){stopped=true;for(const watch of watches.values())watch.close();watches.clear();stops.reverse().forEach(stop=>stop());await sync.close();await active}});
 }
 module.exports={connect};
