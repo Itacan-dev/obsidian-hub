@@ -1,13 +1,36 @@
 "use strict";
 module.exports=async function({app,api,plugin},root){
  const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict');
- const checks=[],timings={},wait=async(fn,label)=>{const start=performance.now();while(performance.now()-start<20000){const v=await fn();if(v)return v;await new Promise(r=>setTimeout(r,10))}throw Error('Production UI timeout: '+label)};
+ window.__syncUiErrors=[];window.addEventListener('unhandledrejection',event=>window.__syncUiErrors.push(String(event.reason?.stack??event.reason)));
+ const checks=[],timings={},wait=async(fn,label)=>{const start=performance.now();while(performance.now()-start<20000){const v=await fn();if(v)return v;await new Promise(r=>setTimeout(r,10))}fs.writeFileSync(path.join(root,'timeout-ui.json'),JSON.stringify({label,modal:document.querySelector('.modal-container')?.outerHTML,errors:window.__syncUiErrors,modalObject:plugin.taskSyncModal?{connected:plugin.taskSyncModal.containerEl.isConnected,html:plugin.taskSyncModal.containerEl.outerHTML,open:api.Modal.prototype.open.toString()}:null,commands:Object.keys(app.commands.commands).filter(k=>k.includes('personal-task-sync'))},null,2));throw Error('Production UI timeout: '+label)};
  const frames=()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r))),input=(element,value)=>{assert(element,'Input must be rendered');element.value=value;element.dispatchEvent(new Event('input',{bubbles:true}));element.dispatchEvent(new Event('change',{bubbles:true}))};
  const click=(modal,text)=>{const button=[...modal.contentEl.querySelectorAll('button')].find(b=>b.textContent.trim()===text);assert(button,'Rendered button '+text);button.click()};
  assert(plugin,'The complete production plugin must load');await wait(()=>plugin.nativeTaskHost,'production plugin onload');await plugin.nativeTaskHost.ready;const host=plugin.nativeTaskHost;
- assert.equal(host.status().mode,'sqlite');assert.equal(host.status().synchronization,'unavailable');assert(plugin.oath.strictSupported,'Existing installed Strict Oath coordinator must remain available');
+ assert.equal(host.status().mode,'sqlite');await wait(()=>['current','syncing'].includes(host.status().synchronization),'automatic task synchronization starts');assert(plugin.oath.strictSupported,'Existing installed Strict Oath coordinator must remain available');
  const owner={type:'project',id:'82b767fe-682b-4184-8918-3a5c47b45a25'},resource={type:'resource',id:'references'},runtime=host.runtime(owner),form=runtime.formService();
  assert.equal((await runtime.list()).tasks.length,0);checks.push('Complete installed Obsidian plugin starts one SQLite-only task host with actual Project/Resource metadata and unchanged Strict Oath host');
+
+ // A second utility owns a distinct database/device and exchanges only files.
+ const peerApi=window.electron.remote.require(path.resolve(__dirname,'sync-ui-peer.cjs')),authorityId=runtime.info().authority.authorityId;
+ const peer=await peerApi.open({file:path.join(root,'peer/tasks.sqlite'),vault:app.vault.adapter.getBasePath(),authorityId,entry:path.join(app.vault.adapter.getBasePath(),plugin.manifest.dir,'lib/sqlite-taskcore/service.cjs')});
+ try{
+  const {randomUUID}=require('node:crypto'),{stableId}=require('../application.cjs'),dbOwner=stableId([authorityId,owner.type,owner.id]);
+  await peerApi.call(peer,'execute',{type:'owner.put',operationId:randomUUID(),owner:{id:dbOwner,kind:'project',externalId:owner.id,label:'Fixture',available:true}});
+  let remoteTask=(await peerApi.call(peer,'execute',{type:'task.create',operationId:randomUUID(),task:{ownerId:dbOwner,title:'Remote OneDrive Task',steps:[{text:'Remote Step'}]}})).task;
+  await peerApi.call(peer,'syncNow');await wait(async()=> (await runtime.list()).tasks.find(t=>t.id===remoteTask.id),'automatic remote task notification');
+  const syncComponent=new api.Component();syncComponent.load();const syncHome=window.hubCreateHomeTaskRead({component:syncComponent,resolveNativeOwner:ref=>plugin.projectWizard.getProjectById(ref.id),changed(){}});assert((await syncHome.read()).items.some(i=>i.task.id===remoteTask.id));
+  remoteTask=(await peerApi.call(peer,'execute',{type:'task.setCompleted',operationId:randomUUID(),taskId:remoteTask.id,expectedRevision:remoteTask.revision,completed:true})).task;await peerApi.call(peer,'syncNow');
+  await wait(async()=> (await host.completionFeed.read()).records.some(r=>r.nativeHistory.taskId===remoteTask.id),'remote counted History reaches actual completion feed');
+  remoteTask=(await peerApi.call(peer,'execute',{type:'task.setCompleted',operationId:randomUUID(),taskId:remoteTask.id,expectedRevision:remoteTask.revision,completed:false})).task;await peerApi.call(peer,'syncNow');await wait(async()=> !(await runtime.list()).tasks.find(t=>t.id===remoteTask.id)?.completed,'remote reopening reaches UI');
+  // Keep B offline while both devices edit the same native Task.
+  let original=await form.read((await runtime.list()).tasks.find(t=>t.id===remoteTask.id));await form.save(original,{...original,text:'This device conflict choice'});
+  remoteTask=(await peerApi.call(peer,'execute',{type:'task.edit',operationId:randomUUID(),taskId:remoteTask.id,expectedRevision:remoteTask.revision,patch:{title:'Incoming conflict choice'}})).task;await peerApi.call(peer,'syncNow');
+  await wait(async()=>{const stream=path.join(app.vault.adapter.getBasePath(),'.itacan-task-sync/streams');return fs.readdirSync(stream).length===2},'distinct device streams');
+  await wait(()=>host.status().synchronization==='conflict','automatic conflict status');document.querySelector('[data-task-sync-status]').click();await wait(()=>plugin.taskSyncModal?.contentEl.querySelector('[data-sync-choice=local]'),'actual synchronization conflict interaction');
+  const choose=plugin.taskSyncModal?.contentEl.querySelector('[data-sync-choice=local]');assert(plugin.taskSyncModal.modalEl.getClientRects().length,'Conflict dialog must be rendered');choose.click();await wait(async()=>{await peerApi.call(peer,'syncNow');return (await peerApi.call(peer,'getTask',remoteTask.id)).task.title==='This device conflict choice'},'UI conflict choice converges to peer');plugin.taskSyncModal.close();
+  remoteTask=(await peerApi.call(peer,'getTask',remoteTask.id)).task;await peerApi.call(peer,'execute',{type:'task.delete',operationId:randomUUID(),taskId:remoteTask.id,expectedRevision:remoteTask.revision});await peerApi.call(peer,'syncNow');await wait(async()=>!(await runtime.list()).tasks.some(t=>t.id===remoteTask.id),'remote tombstone removes actual UI Task');syncHome.close();syncComponent.unload();
+  checks.push('Second independent utility/device delivers remote Task, Home, History, reopen and deletion notifications automatically; actual conflict modal resolves both devices without synchronizing Oath sessions');
+ }finally{await peerApi.close(peer);}
  const helper=app.plugins.plugins['sqlite-acceptance'];
  class AcceptanceView extends api.ItemView{getViewType(){return'itacan-production-acceptance'}getDisplayText(){return'Itacan SQLite acceptance'}}
  helper.registerView('itacan-production-acceptance',leaf=>new AcceptanceView(leaf));const leaf=app.workspace.getLeaf(true);await leaf.setViewState({type:'itacan-production-acceptance',active:true});const body=leaf.view.contentEl.createDiv({cls:'project-dashboard'});body.style.padding='20px';body.createEl('h2',{text:'Itacan SQLite acceptance'});

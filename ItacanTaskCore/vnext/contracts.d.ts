@@ -28,3 +28,12 @@ export interface TaskService {
 }
 export class TaskEngine implements TaskService {constructor(file:string,options?:{busyTimeout?:number;clock?:()=>number;diagnostic?:(event:object)=>void;readOnly?:boolean});execute:TaskService['execute'];listOwners:TaskService['listOwners'];getTask:TaskService['getTask'];listTasks:TaskService['listTasks'];readHistory:TaskService['readHistory'];readStatistics:TaskService['readStatistics'];getOperation:TaskService['getOperation'];readOutbox:TaskService['readOutbox'];getCursor:TaskService['getCursor'];checkpoint:TaskService['checkpoint'];subscribe:TaskService['subscribe'];close:TaskService['close']}
 export class TaskError extends Error {code:string}
+export interface TaskSyncStatus {state:'disabled'|'starting'|'syncing'|'current'|'waiting'|'conflict'|'enrollment-required'|'error';authorityId?:string;workspaceId?:string;deviceId?:string;error?:string|null;code?:string|null;conflicts?:number;pending?:number;lastSuccess?:number}
+/** The installed utility adds personal synchronization; the SQLite engine stays transport-independent. */
+export interface SynchronizedTaskService extends TaskService {
+ syncStatus():Promise<TaskSyncStatus>;
+ syncNow():Promise<TaskSyncStatus>;
+ syncConflicts():Promise<Array<{operationId:string;deviceId:string;number:number;units:string[];local:Array<Partial<Task>>;incoming:Array<Partial<Task>>}>>;
+ syncResolve(input:{operationId:string;choice:'local'|'incoming'}):Promise<TaskSyncStatus>;
+ syncEnroll(choice:'merge'):Promise<TaskSyncStatus>;
+}

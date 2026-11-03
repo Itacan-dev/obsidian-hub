@@ -1,6 +1,6 @@
 # SQLite TaskCore for Itacan
 
-Installed in ordinary Work on 2026-11-02. See [INSTALLATION.md](INSTALLATION.md) for acceptance, actual Work performance, exact installed hashes and the source-cleanup approval boundary. [HANDOFF.md](HANDOFF.md) is the preserved historical experiment handoff.
+Installed in ordinary Work on 2026-11-02; automatic OneDrive personal task synchronization installed on 2026-11-03. See [SYNCHRONIZATION.md](SYNCHRONIZATION.md) for the current architecture, acceptance and laptop enrollment. [INSTALLATION.md](INSTALLATION.md) preserves the original SQLite installation evidence. [HANDOFF.md](HANDOFF.md) is the historical experiment handoff.
 
 ## Runtime
 
@@ -10,13 +10,14 @@ One device-local SQLite database contains every owner. One Electron utility proc
 | --- | --- |
 | `engine.cjs`, `validation.cjs`, `schema.sql` | Transactional commands, bounded input, indexed queries, revisions, History, operations and outbox |
 | `recurrence.cjs`, `recurrence.sql` | Daily/weekly fixed-origin civil dates, series/templates and unique occurrences |
+| `sync-data.cjs`, `sync.sql`, `sync-transport.cjs` | Transactional ancestry/receive progress, explicit conflicts and asynchronous immutable OneDrive files |
 | `service.cjs`, `client.cjs` | Explicit asynchronous RPC and original-operation handling |
 | `host/main.cjs`, `host/electron.cjs`, `host/renderer.cjs` | Installed Electron utility startup, trusted IPC, automatic reconnect and drainage |
 | `application.cjs`, `ui/model.cjs` | Itacan owner metadata, forms, current snapshots, durable catch-up and targeted notifications |
 | `production/` | Production source inputs for existing task editors, Home, Project/Resource, History, Inbox and row reuse |
 | `contracts.d.ts` | Direct Task/Step/History API |
 
-Tables are `owners`, `tasks`, `steps`, `history`, `operations`, `outbox`, `consumer_cursors`, `recurrence_series` and `occurrences`. Schema version 2 adds recurrence to the verified SQLite experiment; it does not import the discarded engine. WAL, FULL synchronization, foreign keys and bounded busy handling remain enabled.
+Task tables are `owners`, `tasks`, `steps`, `history`, `operations`, `outbox`, `consumer_cursors`, `recurrence_series` and `occurrences`. Schema version 3 adds device-local synchronization settings, entity versions, receive receipts/progress and temporary baseline staging. WAL, FULL synchronization, foreign keys and bounded busy handling remain enabled.
 
 ## Commands and presentation
 
@@ -50,6 +51,6 @@ Database files belong outside the vault and OneDrive. The engine rejects cloud r
 
 ## Limits
 
-Task synchronization is unavailable: the outbox is durable local change storage, not Personal Sync v2, Git/N4 or a peer-authenticated protocol. Existing unrelated Git-shared project files and ordinary file synchronization are preserved. Physical laptop and hardware power-loss testing remain deferred. Operation/outbox retention has no production pruning policy in this prototype.
+Personal synchronization uses `.itacan-task-sync` at the Work vault root. Each device keeps SQLite outside OneDrive and writes only its immutable change stream. Task/series ancestry detects concurrent edits; the status bar opens explicit version selection. This is separate from retired Personal Sync v2 and Git/N4. Existing Git-shared project files and ordinary file synchronization are preserved. Physical laptop, real remote OneDrive propagation and hardware power-loss acceptance remain deferred. Retained operations, transport files and conflict evidence have no automatic pruning policy.
 
 The empty-database cutover imported no old Task or History data. Live acceptance creates audit records; its temporary Tasks are deleted and all counted completions reopened, leaving no active acceptance Tasks or counted acceptance completions. Broad deletion of inactive legacy source/tests awaits explicit approval after automatic review rejected that scope.

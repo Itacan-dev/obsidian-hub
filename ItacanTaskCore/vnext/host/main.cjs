@@ -3,7 +3,7 @@
 const {ipcMain,utilityProcess,BrowserWindow,app}=require('electron'),path=require('node:path'),{openTaskService}=require('./electron.cjs');
 const workspaces=new Map();let serial=0,quitting=false;
 app.on('before-quit',()=>{quitting=true});
-function attach(windowId,file){
+function attach(windowId,file,syncOptions=null){
  const window=BrowserWindow.fromId(windowId);if(!window||window.isDestroyed())throw Error('Owning window required');
  file=path.resolve(file);let workspace=workspaces.get(file);
  if(!workspace||workspace.closing){workspace={file,service:null,opening:null,closing:null,previousDrain:workspace?.closing,connections:new Map()};workspaces.set(file,workspace);}
@@ -13,14 +13,14 @@ function attach(windowId,file){
   if(workspace.closing)throw Object.assign(Error('Tasks are closing'),{code:'CLOSED'});
   if(workspace.service&&!workspace.service.client.exited)return workspace.service;
   if(!workspace.opening)workspace.opening=(async()=>{
-   await workspace.previousDrain;const s=openTaskService({utilityProcess,file});workspace.service=s;
+   await workspace.previousDrain;const s=openTaskService({utilityProcess,file,syncOptions});workspace.service=s;
    s.client.subscribe({},change=>notify({event:'change',change}));
    s.child.once('exit',()=>{if(workspace.service===s){workspace.service=null;notify({event:'service-exited'})}});
    await s.client.ready;return s;
   })().finally(()=>{workspace.opening=null});
   return workspace.opening;
  }
- const methods=new Set(['execute','getTask','listOwners','listTasks','readHistory','readStatistics','getOperation','readOutbox','getCursor','checkpoint']);
+ const methods=new Set(['execute','getTask','listOwners','listTasks','readHistory','readStatistics','getOperation','readOutbox','getCursor','checkpoint','syncStatus','syncConflicts','syncResolve','syncEnroll','syncNow']);
  ipcMain.handle(channel,async(event,message)=>{
   if(event.sender!==window.webContents||connection.closed)return{error:{code:'CLOSED',message:'Task channel unavailable'}};
   try{

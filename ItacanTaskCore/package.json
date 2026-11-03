@@ -2,16 +2,21 @@
   "name": "@itacan/taskcore-sqlite",
   "version": "1.0.0",
   "private": true,
-  "description": "Itacan local SQLite task engine. Task synchronization is unavailable.",
+  "description": "Itacan device-local SQLite tasks with asynchronous OneDrive change transport.",
   "type": "commonjs",
   "main": "vnext/engine.cjs",
   "types": "vnext/contracts.d.ts",
   "exports": {
-    ".": { "types": "./vnext/contracts.d.ts", "require": "./vnext/engine.cjs" }
+    ".": {
+      "types": "./vnext/contracts.d.ts",
+      "require": "./vnext/engine.cjs"
+    }
   },
-  "engines": { "node": ">=24" },
+  "engines": {
+    "node": ">=24"
+  },
   "scripts": {
-    "test": "node --test vnext/tests/engine.test.cjs vnext/tests/process.test.cjs vnext/tests/presentation.test.cjs vnext/tests/outbox.test.cjs vnext/tests/recurrence.test.cjs vnext/tests/application.test.cjs"
+    "test": "node --test vnext/tests/engine.test.cjs vnext/tests/process.test.cjs vnext/tests/presentation.test.cjs vnext/tests/outbox.test.cjs vnext/tests/recurrence.test.cjs vnext/tests/application.test.cjs vnext/tests/sync.test.cjs"
   },
   "license": "UNLICENSED"
 }

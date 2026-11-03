@@ -194,7 +194,7 @@ fs.writeFileSync(path.join(outputDirectory, "strict-oath-assets.json"), JSON.str
 
 // SQLite and its close lifecycle execute outside the renderer bundle. Ordinary
 // builds must ship this explicit utility closure alongside the existing assets.
-for (const relative of ["engine.cjs", "validation.cjs", "recurrence.cjs", "schema.sql", "recurrence.sql",
+for (const relative of ["engine.cjs", "validation.cjs", "recurrence.cjs", "schema.sql", "recurrence.sql", "sync.sql", "sync-data.cjs", "sync-transport.cjs",
     "service.cjs", "client.cjs", "host/main.cjs", "host/electron.cjs"]) {
     const target = path.join(outputDirectory, "lib/sqlite-taskcore", relative);
     fs.mkdirSync(path.dirname(target), { recursive: true });

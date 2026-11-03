@@ -15,7 +15,7 @@ const V={check(yes,message,code='INVALID_COMMAND'){if(!yes)throw Object.assign(E
 const key=owner=>JSON.stringify([owner.type,owner.id]),same=(a,b)=>!!a&&!!b&&a.type===b.type&&a.id===b.id;
 function stableId(value){const h=createHash('sha256').update(JSON.stringify(value)).digest('hex');return h.slice(0,8)+'-'+h.slice(8,12)+'-5'+h.slice(13,16)+'-a'+h.slice(17,20)+'-'+h.slice(20,32);}
 function createApplication({plugin,service,authorityId,locations,openEditor,openCreator,pendingStore=null,metadataReady=Promise.resolve(),onError=console.error}){
- const wizard=plugin.projectWizard,listeners=new Set(),historyListeners=new Set(),records=new Map(),dbOwners=new Map(),runtimes=new Map();let state='opening',closed=false,closing=null,notification=null,metadataWork=Promise.resolve();
+ const wizard=plugin.projectWizard,listeners=new Set(),historyListeners=new Set(),records=new Map(),dbOwners=new Map(),runtimes=new Map();let syncState={state:'disabled'},state='opening',closed=false,closing=null,notification=null,metadataWork=Promise.resolve();
  let stopStartup;const startupStopped=new Promise(resolve=>{stopStartup=resolve});
  const ownerId=owner=>stableId([authorityId,owner.type,owner.id]);
  const refOf=w=>w.contextKind==='resource'?{type:'resource',id:w.resourceType??w.id}:{type:'project',id:w.projectId};
@@ -71,7 +71,7 @@ function createApplication({plugin,service,authorityId,locations,openEditor,open
   };
  }
  function runtime(owner){record(owner);const k=key(owner);if(runtimes.has(k))return runtimes.get(k);
-  const r={owner,info:()=>({authority:{backend:'native',authorityId},owner,engine:'sqlite',synchronization:'unavailable'}),async list(){await ready;return snapshot(owner)},formService:()=>formService(owner),execute,
+  const r={owner,info:()=>({authority:{backend:'native',authorityId},owner,engine:'sqlite',synchronization:syncState.state}),async list(){await ready;return snapshot(owner)},formService:()=>formService(owner),execute,
    async setRecurrence(input,rule){const t=currentTask(input),c={operationId:randomUUID(),taskId:t.id,expectedRevision:t.revision};return edit(await execute(t.recurrence?{...c,type:'recurrence.edit',expectedSeriesRevision:t.recurrence.seriesRevision,...(rule?{rule}:{updateTemplate:true})}:{...c,type:'recurrence.define',rule}),owner);},
    async stopRecurrence(input){const t=currentTask(input);return edit(await execute({type:'recurrence.stop',operationId:randomUUID(),taskId:t.id,expectedRevision:t.revision,expectedSeriesRevision:t.recurrence.seriesRevision}),owner)},
    async createTask(values,operationId=randomUUID(),taskId=randomUUID()){const repeat=recurrence(values);return execute({type:'task.create',operationId,task:{...validateValues(owner,values),id:taskId,ownerId:ownerId(owner),steps:steps(values),completed:!!values.completed,...(repeat?{recurrence:repeat}:{})}})},
@@ -84,8 +84,9 @@ function createApplication({plugin,service,authorityId,locations,openEditor,open
  async function history(){await ready;let after=null,events=[];do{const page=await service.readHistory({after,limit:1000});events.push(...page.events);after=page.next;}while(after);const rows=events.filter(e=>e.counted).map(e=>{const r=ownerRecord(e.ownerId),owner=r?.owner??{type:'project',id:'unavailable'};return{id:e.id,kind:e.stepId?'step':'task',text:e.title,...(e.stepId?{parentText:e.parentTitle}:{}),timestamp:e.completedAt,projectId:owner.type==='resource'?'resource:'+owner.id:owner.id,contextKind:owner.type,resourceType:owner.type==='resource'?owner.id:null,projectName:r?.name??r?.label,projectStatus:r?.status??'active',historyReadKey:JSON.stringify(['sqlite-history',authorityId,e.id]),nativeHistory:{authorityId,eventId:e.id,taskId:e.taskId,stepId:e.stepId,owner,navigation:{state:model.tasks.has(e.taskId)?'available':'unavailable'}}}}).sort((a,b)=>b.timestamp-a.timestamp||a.id.localeCompare(b.id));return{records:rows,completions:rows.map(({nativeHistory,historyReadKey,...r})=>r),diagnostics:[]};}
  const completionFeed={read:history,subscribe(fn){historyListeners.add(fn);return()=>historyListeners.delete(fn)},async reveal(row){const ref=row.nativeHistory,t=model.tasks.get(ref.taskId);if(!t)throw Error('Completed task was deleted');return openEditor(formService(view(t).owner),view(t),()=>{})}};
  const nativeTasks={get owners(){return[...records.values()].filter(r=>r.available).map(r=>r.owner)},availability:()=>state==='ready'?'current':state==='opening'?'loading':'unavailable',availabilityFor:owner=>records.get(key(owner))?.available?nativeTasks.availability():'unavailable',createPanelRead,taskKey:t=>JSON.stringify([authorityId,t.id]),mergeHome(accepted,tasks,owner,c,resolve){const w=resolve(owner);if(!w||w.root!==c.root||w.path!==c.dashboard)throw Error('Task owner context changed');return[...accepted.filter(i=>!same(i.task.nativeReference.owner,owner)),...tasks.map(task=>({task,owner:w,phaseLabel:null}))]}};
- const ready=(async()=>{await Promise.race([service.ready,startupStopped]);if(closed)return;await Promise.race([metadataReady,startupStopped]);if(closed)return;await registerOwners();for(const command of pendingStore?.list()??[]){await service.execute(command);pendingStore.remove(command.operationId)}await model.start();if(closed)return;state='ready';notify();})().catch(error=>{state='unavailable';notify();onError(error);throw error});ready.catch(()=>{});
- const host={ready,nativeTasks,completionFeed,runtime,matches:owner=>!!records.get(key(owner))?.available,status:()=>({mode:'sqlite',synchronization:'unavailable',owners:[...records.values()].map(r=>({owner:r.owner,state:state==='ready'&&r.available?'ready':state}))}),
+ const ready=(async()=>{await Promise.race([service.ready,startupStopped]);if(closed)return;await Promise.race([metadataReady,startupStopped]);if(closed)return;if(service.syncStatus){syncState=await service.syncStatus();if(syncState.workspaceId&&syncState.state!=='enrollment-required')authorityId=syncState.authorityId;}await registerOwners();for(const command of pendingStore?.list()??[]){await service.execute(command);pendingStore.remove(command.operationId)}await model.start();if(closed)return;state='ready';notify();})().catch(error=>{state='unavailable';notify();onError(error);throw error});ready.catch(()=>{});
+ const host={ready,nativeTasks,completionFeed,runtime,matches:owner=>!!records.get(key(owner))?.available,status:()=>({mode:'sqlite',synchronization:syncState.state,owners:[...records.values()].map(r=>({owner:r.owner,state:state==='ready'&&r.available?'ready':state}))}),
+  async setSyncStatus(value){const changed=value.authorityId!==authorityId&&value.workspaceId&&value.state!=='enrollment-required';syncState=value;if(changed){authorityId=value.authorityId;await host.refreshInventory();await model.refresh();}return syncState;},
   refreshInventory(){metadataWork=metadataWork.catch(()=>{}).then(async()=>{await ready;await registerOwners();notify();});return metadataWork;},
   create(options={}){V.check(state==='ready','Tasks are still loading. Try again shortly.','TASKS_LOADING');const owner=options.owner??refOf(wizard.getContextForPath(options.location??options.path??options.root??plugin.app.workspace.getActiveFile?.()?.path)??wizard.getResourceById('references'));record(owner);return openCreator(formService(owner),options)},
   retryOriginal:execute,
@@ -105,6 +106,7 @@ class TaskClient {
  async call(method,...args){if(this.closing&&method!=='close')throw Object.assign(Error('Client is closing'),{code:'CLOSED'});await this.ready;if(this.exited)throw Object.assign(Error('Service exited'),{code:'SERVICE_EXITED'});if(this.requests.size>=256)throw Object.assign(Error('Client queue full'),{code:'BUSY'});return new Promise((resolve,reject)=>{const requestId=++this.counter,timer=setTimeout(()=>{this.requests.delete(requestId);reject(Object.assign(Error('Response unavailable; retain original operation ID'),{code:'OUTCOME_UNKNOWN'}))},this.timeout);this.requests.set(requestId,{resolve,reject,timer});try{this.send({requestId,method,args})}catch(e){clearTimeout(timer);this.requests.delete(requestId);reject(Object.assign(e,{code:'SERVICE_EXITED'}))}});}
  subscribe(filter,listener){const entry={filter:filter??{},listener};this.listeners.add(entry);return()=>this.listeners.delete(entry);}
  execute(c){return this.call('execute',c)}listOwners(...a){return this.call('listOwners',...a)}getTask(...a){return this.call('getTask',...a)}listTasks(...a){return this.call('listTasks',...a)}readHistory(...a){return this.call('readHistory',...a)}readStatistics(...a){return this.call('readStatistics',...a)}getOperation(...a){return this.call('getOperation',...a)}readOutbox(...a){return this.call('readOutbox',...a)}getCursor(...a){return this.call('getCursor',...a)}checkpoint(...a){return this.call('checkpoint',...a)}
+ syncStatus(){return this.call('syncStatus')}syncConflicts(){return this.call('syncConflicts')}syncResolve(input){return this.call('syncResolve',input)}syncEnroll(choice){return this.call('syncEnroll',choice)}syncNow(){return this.call('syncNow')}
  close(){if(this.closePromise)return this.closePromise;this.closing=true;this.closePromise=this.call('close').finally(()=>this.listeners.clear());return this.closePromise;}
 }
 module.exports={TaskClient};
@@ -113,9 +115,9 @@ module.exports={TaskClient};
 "../../../ItacanTaskCore/vnext/host/renderer.cjs": function (module, exports, __hubRequire) {
 "use strict";
 const {TaskClient}=__hubRequire("../../../ItacanTaskCore/vnext/client.cjs");
-function connect({remote,ipcRenderer,mainEntry,file,onState=()=>{}}){
+function connect({remote,ipcRenderer,mainEntry,file,syncOptions=null,onState=()=>{}}){
  let state='opening';const setState=value=>{if(value!==state){state=value;onState(value)}};
- const {channel}=remote.require(mainEntry).attach(remote.getCurrentWindow().id,file);let receive;
+ const {channel}=remote.require(mainEntry).attach(remote.getCurrentWindow().id,file,syncOptions);let receive;
  const listener=(_event,message)=>{if(message.event==='service-exited')setState('reconnecting');receive(message)};
  const client=new TaskClient({send:message=>{ipcRenderer.invoke(channel,{method:message.method,args:message.args}).then(reply=>receive({...reply,requestId:message.requestId}),e=>receive({requestId:message.requestId,error:{code:'SERVICE_EXITED',message:e.message}}))},onMessage:fn=>{receive=fn;ipcRenderer.on(channel,listener)},onExit:()=>{}});
  ipcRenderer.invoke(channel,{method:'versions',args:[]}).then(reply=>{if(reply.error)throw Object.assign(Error(reply.error.message),reply.error);receive({event:'ready',versions:reply.result});setState('ready')}).catch(error=>{client.rejectReady(error);setState('unavailable')});
@@ -12361,7 +12363,7 @@ function createNativeTaskHost(plugin){
  const mainEntry=path.join(vault,plugin.manifest.dir,'lib/sqlite-taskcore/host/main.cjs');
  const storage=window.localStorage,prefix='itacan-sqlite-pending:'+workspaceId+':';
  const pendingStore={put:c=>storage.setItem(prefix+c.operationId,JSON.stringify(c)),remove:id=>storage.removeItem(prefix+id),list:()=>Object.keys(storage).filter(k=>k.startsWith(prefix)).map(k=>JSON.parse(storage.getItem(k)))};
- const started=performance.now();let host;const service=connect({remote,ipcRenderer,mainEntry,file,onState:state=>host?.setState(state)});
+ const started=performance.now();let host;const service=connect({remote,ipcRenderer,mainEntry,file,syncOptions:{vault,authorityId:stableId(['itacan-sqlite-workspace',workspaceId])},onState:state=>host?.setState(state)});
  const locations=__hubRequire("lib/services/native-task-locations.js").createNativeTaskLocations(plugin),ui=__hubRequire("lib/ui/task-editor.js");
  const metadataReady=new Promise(resolve=>{const cache=plugin.app.metadataCache;if(cache.initialized){resolve();return;}let done=false;const finish=()=>{if(done)return;done=true;cache.offref(ref);resolve()};const ref=cache.on('resolved',finish);plugin.register(finish);if(cache.initialized)finish();});
  host=createApplication({plugin,service,authorityId:stableId(['itacan-sqlite-workspace',workspaceId]),locations,openEditor:ui.openTaskEditor,openCreator:ui.openTaskCreator,pendingStore,metadataReady});
@@ -12372,6 +12374,7 @@ function createNativeTaskHost(plugin){
  plugin.registerEvent(plugin.app.metadataCache.on('changed',refresh));
  plugin.registerEvent(plugin.app.workspace.on('quit',tasks=>tasks.add(()=>host.close())));
  plugin.register(()=>{clearTimeout(timer);void host.close().catch(console.error)});
+ __hubRequire("lib/services/task-sync.js").mountTaskSync(plugin,host,service);
  return host;
 }
 // Product activation is one SQLite host; obsolete repository admission is retired.
@@ -14523,6 +14526,44 @@ function taskLocations(plugin, root) {
         .sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true }));
 }
 module.exports = { taskWorkspaces, taskLocations };
+
+},
+"lib/services/task-sync.js": function (module, exports, __hubRequire) {
+"use strict";
+const {Modal,Notice}=require('obsidian');
+function mountTaskSync(plugin,host,service){
+ const item=plugin.addStatusBarItem();item.style.cursor='pointer';item.dataset.taskSyncStatus='';let closed=false,loading=false,status={state:'starting'};
+ const labels={starting:'starting',syncing:'working',current:'ready',waiting:'waiting for earlier changes',conflict:'review conflicts','enrollment-required':'review enrollment',error:'needs attention',disabled:'off'};
+ async function refresh(){if(closed||loading)return;loading=true;try{status=await service.syncStatus();await host.setSyncStatus(status);item.setText('Task sync: '+(labels[status.state]??status.state));item.title=status.error??'Personal task changes travel through the Work OneDrive folder. Click for details.';}catch{item.setText('Task sync: reconnecting');}finally{loading=false;}}
+ class SyncModal extends Modal{
+  async onOpen(){const body=this.contentEl;body.empty();body.createEl('h2',{text:'Personal task synchronization'});body.createEl('p',{text:'Task databases stay on each computer. OneDrive carries committed task changes through Work/.itacan-task-sync. Ready means this device has reconciled the files currently available here.'});
+   body.createEl('p',{text:'Status: '+(labels[status.state]??status.state)});if(status.error)body.createEl('p',{text:status.error});
+   if(status.state==='enrollment-required'){
+    body.createEl('p',{text:'This computer already has independent tasks. Merge preserves their Task identities and History in this database, adds the shared baseline, and publishes these tasks to your other devices. Task identities overlapping the baseline stop enrollment for manual review. Conflicting later changes are preserved for review.'});
+    const button=body.createEl('button',{text:'Merge this computer’s tasks and join'});button.onclick=async()=>{button.disabled=true;try{await service.syncEnroll('merge');await refresh();await this.onOpen();}catch(e){new Notice(e.message);button.disabled=false;}};
+   }
+   const conflicts=await service.syncConflicts();for(const conflict of conflicts){
+    const section=body.createDiv();section.createEl('h3',{text:'Conflicting task changes'});section.createEl('p',{text:'Both versions are preserved. Choose the version to use for the affected task or recurring series. The rejected completion events remain as uncounted audit History. Later unseen offline edits can require another review.'});
+    section.createEl('p',{text:'Incoming device: '+conflict.deviceId});
+    for(const[label,values]of [['This computer',conflict.local],['Incoming changes',conflict.incoming]]){section.createEl('h4',{text:label});const version=section.createDiv();version.style.maxHeight='300px';version.style.overflow='auto';for(const task of values){
+     version.createEl('strong',{text:task.title});version.createEl('p',{text:[task.deletedAt!==null?'Deleted':task.completed?'Completed':'Open',task.ownerLabel,task.importance==='must'?'Must do':task.importance==='should'?'Should do':null].filter(Boolean).join(' · ')});
+     if(task.description)version.createEl('p',{text:task.description});for(const[label,date,time]of [['Start',task.startDate,task.startTime],['Due',task.dueDate,task.dueTime]])if(date)version.createEl('p',{text:label+': '+date+(time?' '+time:'')});
+     if(task.context)version.createEl('p',{text:'Saved '+task.context.kind+' context: '+task.context.reference});if(task.phaseId)version.createEl('p',{text:'Project Phase: '+task.phaseId});
+     if(task.steps.length){const list=version.createEl('ol');for(const step of task.steps)list.createEl('li',{text:(step.completed?'Completed: ':'')+step.text});}
+     if(task.recurrence){const r=task.recurrence;version.createEl('p',{text:(r.active?'Repeats':'Stopped recurrence')+': every '+r.rule.interval+' '+(r.rule.frequency==='daily'?'day(s)':'week(s)')+', occurrence '+r.ordinal+', '+r.rule.zone});if(task.futureTemplate)version.createEl('p',{text:'Future template: '+task.futureTemplate.title+(task.futureTemplate.description?' — '+task.futureTemplate.description:'')+'; Steps: '+task.futureTemplate.steps.map(s=>s.text).join(', ')});}
+    }}
+    const buttons=[];for(const[choice,label]of [['local','Use this computer’s version'],['incoming','Use incoming version']]){const button=section.createEl('button',{text:label});button.dataset.syncChoice=choice;buttons.push(button);button.onclick=async()=>{buttons.forEach(b=>b.disabled=true);try{await service.syncResolve({operationId:conflict.operationId,choice});await service.syncNow();await refresh();await this.onOpen();}catch(e){new Notice(e.message);buttons.forEach(b=>b.disabled=false);}};}
+   }
+   const retry=body.createEl('button',{text:'Check available files now'});retry.onclick=async()=>{retry.disabled=true;try{await service.syncNow();await refresh();await this.onOpen();}catch(e){new Notice(e.message);retry.disabled=false;}};
+  }
+ }
+ const show=()=>{plugin.taskSyncModal?.close();plugin.taskSyncModal=new SyncModal(plugin.app);plugin.taskSyncModal.open();};
+ item.onclick=()=>{void refresh().then(show);};
+ plugin.addCommand({id:'personal-task-sync',name:'Review personal task synchronization',callback:show});
+ const timer=setInterval(()=>void refresh(),5000);void host.ready.then(refresh,()=>{});
+ plugin.register(()=>{closed=true;clearInterval(timer);plugin.taskSyncModal?.close();item.remove();});
+}
+module.exports={mountTaskSync};
 
 },
 "lib/services/transition-service.js": function (module, exports, __hubRequire) {

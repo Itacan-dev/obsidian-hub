@@ -1,5 +1,7 @@
 # SQLite TaskCore installation report
 
+Current update: [OneDrive synchronization was installed and enabled on 2026-11-03](SYNCHRONIZATION.md). The report below preserves the original 2026-11-02 installation and its then-current limitations; its statements that task synchronization was unavailable are historical.
+
 2026-11-02. Ordinary Work is open on one SQLite task engine, with all 11 owners ready. Essential product and installed-host acceptance passed. Physical deletion of inactive legacy source remains pending approval; it is excluded from the running application and public package.
 
 **1. Completed architecture.** The implementation extends the verified vNext foundation. One device-local SQLite database and one Electron utility process serve all Projects and Resources. Built-in `node:sqlite` runs SQL, transactions, recovery and database close in the utility. Electron main owns sender-bound IPC and process/window lifecycle. The renderer uses the asynchronous client and a small Itacan application boundary; it contains neither SQL nor a database binding.
