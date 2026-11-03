@@ -115,18 +115,93 @@ module.exports={TaskClient};
 "../../../ItacanTaskCore/vnext/host/renderer.cjs": function (module, exports, __hubRequire) {
 "use strict";
 const {TaskClient}=__hubRequire("../../../ItacanTaskCore/vnext/client.cjs");
-function connect({remote,ipcRenderer,mainEntry,file,syncOptions=null,onState=()=>{}}){
- let state='opening';const setState=value=>{if(value!==state){state=value;onState(value)}};
- const {channel}=remote.require(mainEntry).attach(remote.getCurrentWindow().id,file,syncOptions);let receive;
- const listener=(_event,message)=>{if(message.event==='service-exited')setState('reconnecting');receive(message)};
- const client=new TaskClient({send:message=>{ipcRenderer.invoke(channel,{method:message.method,args:message.args}).then(reply=>receive({...reply,requestId:message.requestId}),e=>receive({requestId:message.requestId,error:{code:'SERVICE_EXITED',message:e.message}}))},onMessage:fn=>{receive=fn;ipcRenderer.on(channel,listener)},onExit:()=>{}});
- ipcRenderer.invoke(channel,{method:'versions',args:[]}).then(reply=>{if(reply.error)throw Object.assign(Error(reply.error.message),reply.error);receive({event:'ready',versions:reply.result});setState('ready')}).catch(error=>{client.rejectReady(error);setState('unavailable')});
+const failure=(code,message)=>Object.assign(Error(message),{code});
+function unavailable(error) {
+ const client=new TaskClient({send(){},onMessage(){},onExit(){}});
+ client.ready.catch(()=>{});client.rejectReady(error);client.close=()=>Promise.resolve();return client;
+}
+function connect({remote,ipcRenderer,mainEntry,file,syncOptions=null,onState=()=>{},onDiagnostic=()=>{}}){
+ let state='opening',channel,receive,attached=false,ready=false,closing;
+ const setState=value=>{if(value!==state){state=value;onState(value)}};
+ const report=diagnostic=>onDiagnostic(diagnostic);
+ const listener=(_event,message)=>{
+  if(message.event==='diagnostic'){report(message.diagnostic);return;}
+  if(message.event==='service-exited')setState('reconnecting');receive(message);
+ };
+ const dispose=()=>{if(attached){ipcRenderer.removeListener(channel,listener);attached=false;}};
+ const client=new TaskClient({send:message=>{ipcRenderer.invoke(channel,{method:message.method,args:message.args}).then(reply=>receive({...reply,requestId:message.requestId}),e=>receive({requestId:message.requestId,error:{code:'SERVICE_EXITED',message:e.message}}))},onMessage:fn=>{receive=fn;},onExit:()=>{}});
+ // Return an unavailable client when attachment fails, allowing the rest of
+ // the plugin to initialize without inventing a second task backend.
+ try {
+  if(typeof remote?.require!=='function'||typeof remote?.getCurrentWindow!=='function')throw failure('TASK_BRIDGE_UNAVAILABLE','Obsidian does not expose the required main-process bridge.');
+  if(!['invoke','on','removeListener'].every(key=>typeof ipcRenderer?.[key]==='function'))throw failure('TASK_IPC_UNAVAILABLE','Obsidian does not expose the required task IPC methods.');
+  const window=remote.getCurrentWindow();
+  if(!Number.isInteger(window?.id))throw failure('TASK_WINDOW_UNAVAILABLE','The owning Obsidian window is unavailable.');
+  const main=remote.require(mainEntry);
+  if(typeof main?.attach!=='function')throw failure('TASK_HOST_UNAVAILABLE','The packaged task main-process entry is missing or incompatible.');
+  const binding=main.attach(window.id,file,syncOptions);channel=binding.channel;
+  if(typeof channel!=='string'||!channel)throw failure('TASK_HOST_UNAVAILABLE','The task host returned no IPC channel.');
+  ipcRenderer.on(channel,listener);attached=true;
+  report({stage:'utility-starting',mainVersions:binding.versions});
+  ipcRenderer.invoke(channel,{method:'versions',args:[]}).then(reply=>{
+   if(reply.error)throw Object.assign(Error(reply.error.message),reply.error);
+   ready=true;receive({event:'ready',versions:reply.result});setState('ready');report({stage:'ready',versions:reply.result});
+  }).catch(fail);
+ } catch(error) { fail(error); }
+ function fail(error){
+  report({stage:'failed',error:{code:error.code??'TASK_HOST_UNAVAILABLE',message:error.message}});
+  client.rejectReady(error);setState('unavailable');
+  if(attached)void ipcRenderer.invoke(channel,{method:'close',args:[]}).catch(()=>{}).finally(dispose);
+ }
+ client.ready.catch(()=>{});
  const rawCall=client.call.bind(client);
  client.call=async(method,...args)=>{try{const result=await rawCall(method,...args);if(method!=='close')setState('ready');return result}catch(error){if(!['SERVICE_EXITED','OUTCOME_UNKNOWN'].includes(error.code)||method==='close')throw error;setState('reconnecting');const r=await rawCall(method,...args);setState('ready');return r;}};
- const close=client.close.bind(client);client.close=()=>close().finally(()=>ipcRenderer.removeListener(channel,listener));
+ const close=client.close.bind(client);
+ client.close=()=>closing??=(ready?close():channel?ipcRenderer.invoke(channel,{method:'close',args:[]}).then(()=>{}):Promise.resolve()).finally(dispose);
  return client;
 }
-module.exports={connect};
+module.exports={connect,unavailable};
+
+},
+"../../../ItacanTaskCore/vnext/host/storage.cjs": function (module, exports, __hubRequire) {
+"use strict";
+const path = require('node:path'), fs = require('node:fs'), os = require('node:os');
+const { createHash } = require('node:crypto');
+
+function workspaceIdentity(vault, platform = process.platform) {
+ const paths = platform === 'win32' ? path.win32 : path.posix;
+ const resolved = paths.resolve(vault);
+ return createHash('sha256').update(platform === 'win32' ? resolved.toLowerCase() : resolved).digest('hex').slice(0, 24);
+}
+function canonicalPath(file, paths) {
+ let ancestor = file; const missing = [];
+ for (;;) {
+  try { return paths.join(fs.realpathSync(ancestor), ...missing); }
+  catch (error) {
+   if (error.code !== 'ENOENT' || paths.dirname(ancestor) === ancestor) throw error;
+   missing.unshift(paths.basename(ancestor)); ancestor = paths.dirname(ancestor);
+  }
+ }
+}
+function storageLocation(vault, { platform = process.platform, env = process.env, home = os.homedir(), canonicalize = canonicalPath } = {}) {
+ const paths = platform === 'win32' ? path.win32 : path.posix, workspaceId = workspaceIdentity(vault, platform);
+ let root;
+ if (platform === 'win32') {
+  if (!env.LOCALAPPDATA) throw Object.assign(Error('LOCALAPPDATA is unavailable; local task storage cannot be located.'), { code: 'TASK_STORAGE_UNAVAILABLE' });
+  // Keep the existing Windows location and identity byte-for-byte compatible.
+  root = paths.join(env.LOCALAPPDATA, 'Itacan/TaskCore');
+ } else if (platform === 'darwin') root = paths.join(home, 'Library', 'Application Support', 'Itacan', 'TaskCore');
+ else throw Object.assign(Error('Task storage supports Windows and macOS desktop hosts.'), { code: 'TASK_PLATFORM_UNSUPPORTED' });
+ const file = paths.join(root, workspaceId, 'tasks.sqlite');
+ if (platform === 'darwin') {
+  const actual = canonicalize(file, paths), base = canonicalize(paths.resolve(vault), paths), relative = paths.relative(base, actual);
+  if (!relative || relative !== '..' && !relative.startsWith('..' + paths.sep) && !paths.isAbsolute(relative)) {
+   throw Object.assign(Error('Task storage resolves inside the vault. Restore a device-local Application Support directory.'), { code: 'TASK_STORAGE_IN_VAULT' });
+  }
+ }
+ return { workspaceId, file, pendingPrefix: 'itacan-sqlite-pending:' + workspaceId + ':' };
+}
+module.exports = { workspaceIdentity, storageLocation };
 
 },
 "../../../ItacanTaskCore/vnext/ui/model.cjs": function (module, exports, __hubRequire) {
@@ -11904,6 +11979,25 @@ class HubInboxService {
 module.exports = { HubInboxService };
 
 },
+"lib/services/mac-shortcuts.js": function (module, exports, __hubRequire) {
+"use strict";
+// Small macOS launch boundary; Windows keeps its existing executable policy.
+async function openMacShortcut(shortcut, { shell = globalThis.window?.electron?.shell ?? require('electron').shell, execFile = require('child_process').execFile } = {}) {
+    if (shortcut.type === 'website') {
+        if (typeof shell?.openExternal !== 'function') throw Error('External browser launching is unavailable in this Obsidian host.');
+        return shell.openExternal(shortcut.url);
+    }
+    if (shortcut.id !== 'zotero' || shortcut.type !== 'application') throw Error('This application shortcut is unavailable on macOS.');
+    return new Promise((resolve, reject) => {
+        execFile('/usr/bin/open', ['-a', 'Zotero'], { timeout: 10000 }, error => {
+            if (error) reject(Error('Could not open Zotero. Install Zotero in Applications and try again.'));
+            else resolve();
+        });
+    });
+}
+module.exports = { openMacShortcut };
+
+},
 "lib/services/music-controller.js": function (module, exports, __hubRequire) {
 "use strict";
 
@@ -12353,21 +12447,37 @@ module.exports={workspaces,ownerOf,sourceDestination,draft,payload,sameValues,su
 },
 "lib/services/native-task-host.js": function (module, exports, __hubRequire) {
 "use strict";
-const path=require('node:path'),{createHash}=require('node:crypto');
+const path=require('node:path');
 const {createApplication,stableId}=__hubRequire("../../../ItacanTaskCore/vnext/application.cjs");
-const {connect}=__hubRequire("../../../ItacanTaskCore/vnext/host/renderer.cjs");
+const {connect,unavailable}=__hubRequire("../../../ItacanTaskCore/vnext/host/renderer.cjs");
+const {storageLocation,workspaceIdentity}=__hubRequire("../../../ItacanTaskCore/vnext/host/storage.cjs");
 function createNativeTaskHost(plugin){
- const remote=window.electron?.remote??require('@electron/remote'),ipcRenderer=require('electron').ipcRenderer;
- const vault=plugin.app.vault.adapter.getBasePath(),workspaceId=createHash('sha256').update(path.resolve(vault).toLowerCase()).digest('hex').slice(0,24);
- const file=path.join(process.env.LOCALAPPDATA,'Itacan/TaskCore',workspaceId,'tasks.sqlite');
+ const vault=plugin.app.vault.adapter.getBasePath(),workspaceId=workspaceIdentity(vault);
+ const diagnostics={stage:'initializing',platform:process.platform,arch:process.arch,rendererVersions:{...process.versions},versions:null,error:null};
+ const diagnostic=value=>{const {stage,versions,mainVersions,error,stderr,exitCode}=value;if(stage&&stage!=='utility-stderr')diagnostics.stage=stage;if(versions)diagnostics.versions={...versions};if(mainVersions)diagnostics.mainVersions={...mainVersions};if(error)diagnostics.error={code:error.code,message:String(error.message).slice(0,2000)};if(stderr)diagnostics.stderr=String(stderr).slice(-2000);if(exitCode!==undefined)diagnostics.exitCode=exitCode;};
  const mainEntry=path.join(vault,plugin.manifest.dir,'lib/sqlite-taskcore/host/main.cjs');
  const storage=window.localStorage,prefix='itacan-sqlite-pending:'+workspaceId+':';
  const pendingStore={put:c=>storage.setItem(prefix+c.operationId,JSON.stringify(c)),remove:id=>storage.removeItem(prefix+id),list:()=>Object.keys(storage).filter(k=>k.startsWith(prefix)).map(k=>JSON.parse(storage.getItem(k)))};
- const started=performance.now();let host;const service=connect({remote,ipcRenderer,mainEntry,file,syncOptions:{vault,authorityId:stableId(['itacan-sqlite-workspace',workspaceId])},onState:state=>host?.setState(state)});
+ const started=performance.now();let host,service;
+ try{
+  const {file}=storageLocation(vault);diagnostics.database=file;
+  let remote=window.electron?.remote;
+  if(!remote){try{remote=require('@electron/remote')}catch{throw Object.assign(Error('Obsidian does not expose the required main-process bridge.'),{code:'TASK_BRIDGE_UNAVAILABLE'});}}
+  service=connect({remote,ipcRenderer:require('electron').ipcRenderer,mainEntry,file,syncOptions:{vault,authorityId:stableId(['itacan-sqlite-workspace',workspaceId])},onState:state=>host?.setState(state),onDiagnostic:diagnostic});
+ }catch(error){diagnostic({stage:'failed',error:{code:error.code??'TASK_HOST_UNAVAILABLE',message:error.message}});service=unavailable(error);}
  const locations=__hubRequire("lib/services/native-task-locations.js").createNativeTaskLocations(plugin),ui=__hubRequire("lib/ui/task-editor.js");
  const metadataReady=new Promise(resolve=>{const cache=plugin.app.metadataCache;if(cache.initialized){resolve();return;}let done=false;const finish=()=>{if(done)return;done=true;cache.offref(ref);resolve()};const ref=cache.on('resolved',finish);plugin.register(finish);if(cache.initialized)finish();});
  host=createApplication({plugin,service,authorityId:stableId(['itacan-sqlite-workspace',workspaceId]),locations,openEditor:ui.openTaskEditor,openCreator:ui.openTaskCreator,pendingStore,metadataReady});
- host.ready.then(()=>{host.startupMs=performance.now()-started;host.startupFromPluginMs=plugin.taskStartupClock===undefined?null:performance.now()-plugin.taskStartupClock},()=>{});
+ host.diagnostics=()=>JSON.parse(JSON.stringify(diagnostics));
+ host.ready.then(()=>{host.startupMs=performance.now()-started;host.startupFromPluginMs=plugin.taskStartupClock===undefined?null:performance.now()-plugin.taskStartupClock},error=>{
+  diagnostic({stage:'failed',error:{code:error.code??'TASK_START_FAILED',message:error.message}});
+  console.error('Itacan task startup failed',host.diagnostics(),error);
+  new (require('obsidian').Notice)('Tasks could not start ('+(error.code??'TASK_START_FAILED')+'). '+error.message+' Run Task runtime diagnostics for details.',0);
+ });
+ plugin.addCommand({id:'task-runtime-diagnostics',name:'Task runtime diagnostics',callback:()=>{
+  console.info('Itacan task runtime diagnostics',host.diagnostics());
+  new (require('obsidian').Notice)('Task runtime: '+diagnostics.stage+(diagnostics.error?' — '+diagnostics.error.code+': '+diagnostics.error.message:'')+'. Details are in the developer console.',10000);
+ }});
  host.pendingOperations=()=>pendingStore.list();host.retryPending=async()=>{for(const c of pendingStore.list()){await host.retryOriginal(c)}await host.refreshInventory();};
  let timer;const refresh=()=>{clearTimeout(timer);timer=setTimeout(()=>void host.refreshInventory().catch(console.error),50)};
  for(const event of ['create','delete','rename'])plugin.registerEvent(plugin.app.vault.on(event,refresh));
@@ -12780,9 +12890,10 @@ const isExitKey = event => event.key === "Escape" || event.key === "F11" ||
 // On desktop this function runs IN ELECTRON'S MAIN PROCESS via remote.require.
 // Remote event callbacks cannot synchronously cancel native events; the guard
 // must prevent keyboard/menu/window exits here, before notifying the renderer.
-function createNativeOathGuard(native, requestExit) {
+function createNativeOathGuard(native, requestExit, { platform = process.platform, transitionTimeout = 10000 } = {}) {
     const savedKey = "__hubOathFullscreenGuard";
     if (native[savedKey]) { native[savedKey].onExitRequest(requestExit); return native[savedKey]; }
+    if (platform === "darwin") return createMacOathGuard(native, requestExit, transitionTimeout);
     let owned = false, enforced = false, previous = null;
     const fullMethod = native.setFullScreen, kioskMethod = native.setKiosk;
     const setFull = value => fullMethod.call(native, value);
@@ -12831,6 +12942,92 @@ function createNativeOathGuard(native, requestExit) {
     return api;
 }
 
+// macOS enters/leaves native fullscreen asynchronously. Keep cancellation in
+// main, and let the existing asynchronous Oath service await settled geometry.
+function createMacOathGuard(native, requestExit, timeout) {
+    const fullMethod = native.setFullScreen, kioskMethod = native.setKiosk;
+    const setFull = value => fullMethod.call(native, value), setKiosk = value => kioskMethod.call(native, value);
+    let owned = false, enforced = false, previous = null, tail = Promise.resolve(), lastAction = null, lastPromise = null;
+    const request = () => { try { requestExit?.(); } catch (_) {} };
+    const close = event => { if (enforced) { event.preventDefault(); request(); } };
+    const input = (event, key) => {
+        if (!enforced || !isExitKey(key)) return;
+        event.preventDefault();
+        if (key.type === "keyDown" && !key.isAutoRepeat) request();
+    };
+    const left = () => {
+        if (enforced) void api.enter().catch(error => console.error("Oath fullscreen could not be restored", error));
+    };
+    function disarm() {
+        native.setFullScreen = fullMethod; native.setKiosk = kioskMethod;
+        native.removeListener("close", close); native.removeListener("leave-full-screen", left);
+        native.webContents?.removeListener("before-input-event", input);
+    }
+    function transition(full, kiosk) {
+        if (native.isDestroyed()) return Promise.reject(Error("Oath window was destroyed during fullscreen transition."));
+        if (native.isFullScreen() === full) {
+            try { setKiosk(kiosk); setFull(full); return Promise.resolve(); }
+            catch (error) { return Promise.reject(error); }
+        }
+        return new Promise((resolve, reject) => {
+            const event = full ? "enter-full-screen" : "leave-full-screen";
+            const finish = error => {
+                clearTimeout(timer); native.removeListener(event, settled); native.removeListener("closed", destroyed);
+                error ? reject(error) : resolve();
+            };
+            const settled = () => { if (native.isFullScreen() === full) finish(); };
+            const destroyed = () => finish(Error("Oath window was destroyed during fullscreen transition."));
+            const timer = setTimeout(() => finish(Object.assign(Error("Oath fullscreen transition timed out. Window guards have been released; retry restoration before another Oath."), { code: "OATH_FULLSCREEN_TIMEOUT" })), timeout);
+            native.on(event, settled); native.on("closed", destroyed);
+            try { setKiosk(kiosk); setFull(full); } catch (error) { finish(error); }
+        });
+    }
+    async function restore() {
+        enforced = false; disarm(); owned = false;
+        if (!previous) return;
+        if (native.isDestroyed()) { previous = null; return; }
+        // Retain the snapshot if restoration fails, so a retry can finish it.
+        await transition(previous.full, previous.kiosk); previous = null;
+    }
+    function schedule(action, work) {
+        if (lastAction === action && lastPromise) return lastPromise;
+        const pending = tail.catch(() => {}).then(work);
+        tail = pending; lastAction = action; lastPromise = pending;
+        void pending.finally(() => { if (lastPromise === pending) { lastAction = null; lastPromise = null; } }).catch(() => {});
+        return pending;
+    }
+    const api = {
+        get owned() { return owned; }, get enforced() { return enforced; },
+        isFull: () => !native.isDestroyed() && native.isFullScreen(),
+        restore(value) { if (!enforced) owned = !!value; },
+        onExitRequest(callback) { requestExit = callback; },
+        enter() { return schedule("enter", async () => {
+            if (enforced) {
+                try { await transition(true, true); return owned; }
+                catch (error) {
+                    try { await restore(); } catch (restoration) { error.message += " Restoration: " + restoration.message; }
+                    throw error;
+                }
+            }
+            if (previous) await restore();
+            previous = { full: owned ? false : native.isFullScreen(), kiosk: native.isKiosk() };
+            native.setFullScreen = value => { if (enforced && !value) request(); else setFull(value); };
+            native.setKiosk = value => { if (enforced && !value) request(); else setKiosk(value); };
+            native.on("close", close); native.on("leave-full-screen", left);
+            native.webContents?.on("before-input-event", input);
+            enforced = true; owned = !previous.full;
+            try { await transition(true, true); return owned; }
+            catch (error) {
+                try { await restore(); } catch (restoration) { error.message += " Restoration: " + restoration.message; }
+                throw error;
+            }
+        }); },
+        exit() { return schedule("exit", restore); }
+    };
+    native.__hubOathFullscreenGuard = api;
+    return api;
+}
+
 // Oath alone uses native kiosk fullscreen. HTML fullscreen is not a fallback:
 // Chromium may release it on Escape before any renderer handler runs.
 function createOathFullscreen(win = window, nativeModulePath = null) {
@@ -12859,8 +13056,8 @@ function createOathFullscreen(win = window, nativeModulePath = null) {
         restore(value) { guard?.restore(value); },
         onChange(callback) { changed = callback; },
         onExitRequest(callback) { requestExit = callback; },
-        async enter() { const owned = guard?.enter() ?? false; changed(owned); return owned; },
-        async exit() { guard?.exit(); changed(false); },
+        async enter() { const owned = await (guard?.enter() ?? false); changed(owned); return owned; },
+        async exit() { await guard?.exit(); changed(false); },
         destroy() {
             win.removeEventListener("keydown", keydown, { capture: true });
             requestExit = () => {}; guard?.onExitRequest(null);
@@ -18655,6 +18852,10 @@ function mountOathSettings(parent, service) {
         finally { if (!disposed) { toggle.checked = !!service.strictEnabled; toggle.disabled = !service.strictSupported; } }
     });
     const apps = section(parent, "Permitted desktop applications");
+    if (!service.strictSupported) {
+        apps.createEl("p", { text: "Application restrictions are unavailable on this device. Ordinary Oath remains available.", cls: "hub-settings-description" });
+        return () => { disposed = true; stopHealth?.(); };
+    }
     apps.createEl("p", { text: "Choose executable files for this device. Changes apply to future reviews. Each Oath can replace this default list; existing commitments keep their confirmed applications.", cls: "hub-settings-description" });
     const stop = mountOathApplications(apps, service, service.strictApplications, values => service.setStrictApplications(values));
     return () => { disposed = true; stop(); stopHealth?.(); };
@@ -37463,7 +37664,7 @@ module.exports = class HubProjectMenu extends Plugin {
 
         const oathNativeModule = this.app.vault.adapter.getBasePath?.();
         let strictOath = null;
-        if (oathNativeModule && window.electron?.remote && window.electronWindow) {
+        if (process.platform === "win32" && oathNativeModule && window.electron?.remote && window.electronWindow) {
             try {
                 // Default-disabled main-process coordinator; reuse ownership on plugin reload.
                 strictOath = window.electron.remote.require(require("path").join(oathNativeModule,
@@ -41780,6 +41981,10 @@ module.exports = class HubProjectMenu extends Plugin {
         }
 
         // ---------- WEBSITE ----------
+
+        if (process.platform === "darwin") {
+            return __hubRequire("lib/services/mac-shortcuts.js").openMacShortcut(shortcut);
+        }
 
         if (
             shortcut.type === "website"

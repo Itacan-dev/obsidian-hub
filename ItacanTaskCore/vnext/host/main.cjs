@@ -4,6 +4,8 @@ const {ipcMain,utilityProcess,BrowserWindow,app}=require('electron'),path=requir
 const workspaces=new Map();let serial=0,quitting=false;
 app.on('before-quit',()=>{quitting=true});
 function attach(windowId,file,syncOptions=null){
+ if(!app.isReady())throw Object.assign(Error('Obsidian main process is not ready.'),{code:'TASK_MAIN_NOT_READY'});
+ if(typeof utilityProcess?.fork!=='function')throw Object.assign(Error('This Obsidian runtime does not expose Electron utilityProcess.fork.'),{code:'TASK_UTILITY_UNAVAILABLE'});
  const window=BrowserWindow.fromId(windowId);if(!window||window.isDestroyed())throw Error('Owning window required');
  file=path.resolve(file);let workspace=workspaces.get(file);
  if(!workspace||workspace.closing){workspace={file,service:null,opening:null,closing:null,previousDrain:workspace?.closing,connections:new Map()};workspaces.set(file,workspace);}
@@ -13,10 +15,10 @@ function attach(windowId,file,syncOptions=null){
   if(workspace.closing)throw Object.assign(Error('Tasks are closing'),{code:'CLOSED'});
   if(workspace.service&&!workspace.service.client.exited)return workspace.service;
   if(!workspace.opening)workspace.opening=(async()=>{
-   await workspace.previousDrain;const s=openTaskService({utilityProcess,file,syncOptions});workspace.service=s;
+   await workspace.previousDrain;const s=openTaskService({utilityProcess,file,syncOptions,onDiagnostic:diagnostic=>notify({event:'diagnostic',diagnostic})});workspace.service=s;
    s.client.subscribe({},change=>notify({event:'change',change}));
    s.child.once('exit',()=>{if(workspace.service===s){workspace.service=null;notify({event:'service-exited'})}});
-   await s.client.ready;return s;
+   try{await s.client.ready;return s;}catch(error){if(workspace.service===s)workspace.service=null;try{s.child.kill()}catch{}throw error;}
   })().finally(()=>{workspace.opening=null});
   return workspace.opening;
  }
@@ -51,6 +53,6 @@ function attach(windowId,file,syncOptions=null){
  }
  window.on('close',onClose);
  window.webContents.once('destroyed',()=>{void release().catch(e=>console.error('Task renderer disposal failed',e))});
- return{channel};
+ return{channel,versions:{...process.versions}};
 }
 module.exports={attach};

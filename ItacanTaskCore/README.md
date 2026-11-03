@@ -1,6 +1,6 @@
 # Itacan SQLite TaskCore
 
-Ordinary Work uses the SQLite engine in `vnext/`. The public package entry point and type contract expose this engine only. Task synchronization is unavailable.
+Ordinary Work uses the SQLite engine in `vnext/`. The public package entry point and type contract expose this engine only. Personal OneDrive task synchronization exchanges committed changes while databases and device identities stay local; see [synchronization](vnext/SYNCHRONIZATION.md).
 
 One device-local database and one Electron utility process serve all Project and Resource owners. SQL, transactions and database close run in that process. The renderer receives committed Tasks, revisions, completion events and targeted changes.
 

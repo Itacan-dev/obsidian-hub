@@ -82,6 +82,9 @@ an unverified development candidate. See [architecture, setup and release gates]
 
 ## Development
 
+For macOS installation, personal OneDrive enrollment and the pending physical
+acceptance checks, see [Itacan on macOS](System/Hub-macos.md).
+
 - `.obsidian/plugins/hub-project-menu/plugin.js` and `lib/` are the plugin source.
 - `System/Dashboards/` holds Dataview views; `.obsidian/snippets/` holds CSS.
 - `System/Templates/`, built-in `System/Project Templates/`, and `Assets/` contain

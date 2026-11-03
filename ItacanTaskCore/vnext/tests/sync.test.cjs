@@ -12,6 +12,32 @@ async function device(root,name,vault,extraEnv={}){
 async function setup(t){const root=fs.mkdtempSync(path.join(os.tmpdir(),'itacan-sync-')),vault=path.join(root,'vault');fs.mkdirSync(vault);const a=await device(root,'a',vault);await a.now();await a.c.execute(op('owner.put',{owner}));await a.c.execute(op('owner.put',{owner:resource}));const b=await device(root,'b',vault);await b.now();await b.c.execute(op('owner.put',{owner}));await b.c.execute(op('owner.put',{owner:resource}));const devices=[a,b];t.after(async()=>{for(const d of devices)await d.close()});return{root,vault,a,b,devices,async sync(){for(let i=0;i<3;i++){await a.now();await b.now();}},async task(c,title='Task',extra={}){return(await c.execute(op('task.create',{task:{ownerId:owner.id,title,...extra}}))).task;}};}
 const read=async(c,id)=>(await c.getTask(id,{includeDeleted:true})).task;
 const change=async(c,t,type,data)=>(await c.execute(op(type,{taskId:t.id,expectedRevision:t.revision,...data}))).task;
+
+test('different Windows/Mac vault identities join one manifest with independent device identities',async t=>{
+ const {workspaceIdentity}=require('../host/storage.cjs'),{stableId}=require('../application.cjs');
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'itacan-cross-platform-sync-')),firstVault=path.join(root,'windows-vault'),macVault=path.join(root,'mac-vault');
+ fs.mkdirSync(firstVault);fs.mkdirSync(macVault);
+ const firstAuthority=stableId(['itacan-sqlite-workspace',workspaceIdentity('C:\\Users\\One\\OneDrive\\Work','win32')]);
+ const macAuthority=stableId(['itacan-sqlite-workspace',workspaceIdentity('/Users/jinhao/Library/CloudStorage/OneDrive/Work','darwin')]);
+ assert.notEqual(firstAuthority,macAuthority);
+ const options=(vault,authorityId)=>({ITACAN_TASKSYNC_OPTIONS:JSON.stringify({vault,authorityId,automatic:false})});
+ const a=await device(root,'first-db',firstVault,options(firstVault,firstAuthority));t.after(()=>a.close());
+ await a.now();await a.c.execute(op('owner.put',{owner}));
+ let task=(await a.c.execute(op('task.create',{task:{ownerId:owner.id,title:'Portable task',steps:[{text:'Same identity'}]}}))).task;
+ task=await change(a.c,task,'task.setCompleted',{completed:true});await a.now();
+ const transport=vault=>path.join(vault,'.itacan-task-sync');fs.cpSync(transport(firstVault),transport(macVault),{recursive:true});
+ const b=await device(root,'mac-db',macVault,options(macVault,macAuthority));t.after(()=>b.close());await b.now();
+ // Owner availability is local metadata, not synchronized task state.
+ await b.c.execute(op('owner.put',{owner}));
+ const first=await a.c.syncStatus(),second=await b.c.syncStatus();
+ assert.equal(second.workspaceId,first.workspaceId);assert.equal(second.authorityId,firstAuthority);assert.notEqual(first.deviceId,second.deviceId);
+ assert.deepEqual(await read(b.c,task.id),task);assert.deepEqual((await a.c.readHistory()).events,(await b.c.readHistory()).events);
+ const identities=[a,b].map(d=>JSON.parse(fs.readFileSync(path.join(path.dirname(d.file),'task-sync-device.json'))).deviceId);
+ assert.deepEqual(identities,[first.deviceId,second.deviceId]);
+ task=await change(b.c,task,'task.edit',{patch:{description:'Edited on joining device'}});await b.now();
+ fs.cpSync(transport(macVault),transport(firstVault),{recursive:true});await a.now();assert.deepEqual(await read(a.c,task.id),task);
+ assert(!fs.existsSync(path.join(macVault,'task-sync-device.json')));
+});
 test('two independent service processes exchange complete tasks, Steps, History, ownership and deletion without echo',async t=>{
  const x=await setup(t),{a,b}=x;let task=await x.task(a.c,'Full',{description:'Description',startDate:'2026-11-01',startTime:'10:00',dueDate:'2026-11-03',dueTime:'12:00',importance:'must',context:{kind:'note',reference:'unavailable-note-id'},phaseId:'phase-one',steps:[{text:'First'},{text:'Second'}]});await x.sync();let remote=await read(b.c,task.id);assert.equal(remote.title,task.title);assert.equal(remote.context.reference,'unavailable-note-id');assert.deepEqual(remote.steps,task.steps);
  remote=await change(b.c,remote,'step.reorder',{stepIds:remote.steps.map(s=>s.id).reverse()});remote=await change(b.c,remote,'step.setCompleted',{stepId:remote.steps[0].id,completed:true});remote=await change(b.c,remote,'task.edit',{patch:{description:'B edit'}});remote=await change(b.c,remote,'task.setCompleted',{completed:true});await x.sync();task=await read(a.c,task.id);assert.deepEqual(task.steps,remote.steps);assert.equal(task.description,'B edit');assert.equal((await a.c.readStatistics()).totalCompletions,2);assert.deepEqual((await a.c.readHistory()).events,(await b.c.readHistory()).events);

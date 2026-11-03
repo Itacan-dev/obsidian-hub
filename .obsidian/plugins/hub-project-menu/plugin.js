@@ -12442,7 +12442,7 @@ module.exports = class HubProjectMenu extends Plugin {
 
         const oathNativeModule = this.app.vault.adapter.getBasePath?.();
         let strictOath = null;
-        if (oathNativeModule && window.electron?.remote && window.electronWindow) {
+        if (process.platform === "win32" && oathNativeModule && window.electron?.remote && window.electronWindow) {
             try {
                 // Default-disabled main-process coordinator; reuse ownership on plugin reload.
                 strictOath = window.electron.remote.require(require("path").join(oathNativeModule,
@@ -16759,6 +16759,10 @@ module.exports = class HubProjectMenu extends Plugin {
         }
 
         // ---------- WEBSITE ----------
+
+        if (process.platform === "darwin") {
+            return require("./lib/services/mac-shortcuts").openMacShortcut(shortcut);
+        }
 
         if (
             shortcut.type === "website"

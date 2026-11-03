@@ -30,6 +30,10 @@ function mountOathSettings(parent, service) {
         finally { if (!disposed) { toggle.checked = !!service.strictEnabled; toggle.disabled = !service.strictSupported; } }
     });
     const apps = section(parent, "Permitted desktop applications");
+    if (!service.strictSupported) {
+        apps.createEl("p", { text: "Application restrictions are unavailable on this device. Ordinary Oath remains available.", cls: "hub-settings-description" });
+        return () => { disposed = true; stopHealth?.(); };
+    }
     apps.createEl("p", { text: "Choose executable files for this device. Changes apply to future reviews. Each Oath can replace this default list; existing commitments keep their confirmed applications.", cls: "hub-settings-description" });
     const stop = mountOathApplications(apps, service, service.strictApplications, values => service.setStrictApplications(values));
     return () => { disposed = true; stop(); stopHealth?.(); };
