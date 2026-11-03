@@ -2,10 +2,7 @@
 const { hasKeyboardFocus, focusAfterRowRemoval } = require("./focus-restoration");
 const { setHubIcon } = require("./icons");
 const { bindCompletionSound, playStepCompletionSound } = require("./completion-audio");
-const { mountTaskDateTime } = require("./date-time");
-const { createCapturePickerTrigger } = require("./capture-picker-trigger");
-const { TASK_FORM_ORDER, TASK_FIELD_LABELS: labels } = require("../domain/task-form");
-const { appendTask } = require("../domain/task-planning");
+const { TASK_FIELD_LABELS:labels, validateTaskTitle } = require("../domain/task-form");
 
 function taskSection(host, title, help) {
     const section = host.createEl("section", { cls: "hub-task-section" });
@@ -59,43 +56,9 @@ function mountWrappingTaskInput(input) {
     return { resize, destroy() { observer.disconnect(); input.removeEventListener("input", resize); if (frame !== undefined) view.cancelAnimationFrame(frame); } };
 }
 
-function mountTaskFields({ app, host, state, onChange = () => {}, section = (title, help) => taskSection(host, title, help) }) {
-    const necessity = section(labels.necessity);
-    const heading = necessity.createDiv({ cls: "hub-task-necessity-heading" });
-    const title = necessity.querySelector("h3"); if (title) heading.appendChild(title);
-    const choices = necessity.createDiv({ cls: "hub-task-necessity-choices hub-option-group", attr: { role: "group", "aria-label": labels.necessity } });
-    const buttons = ["should", "must"].map(value => {
-        const button = choices.createEl("button", {
-            cls: `hub-task-necessity-choice is-${value}`, attr: { type: "button" } });
-        const group = button.createSpan({ cls: "hub-task-necessity-label" });
-        group.createSpan({ cls: `hub-task-necessity-bar is-${value}`, attr: { "aria-hidden": "true" } });
-        group.createSpan({ text: labels[value] });
-        button.addEventListener("click", () => { state.necessity = state.necessity === value ? null : value; syncNecessity(); onChange({ necessity: state.necessity }); });
-        return { button, value };
-    });
-    const clear = heading.createEl("button", { text: "Clear", cls: "hub-button-plain hub-task-clear-necessity", attr: { type: "button" } });
-    const syncNecessity = () => {
-        for (const { button, value } of buttons) button.setAttribute("aria-pressed", String(state.necessity === value));
-        clear.disabled = !state.necessity;
-    };
-    clear.addEventListener("click", () => { state.necessity = null; syncNecessity(); onChange({ necessity: null }); }); syncNecessity();
 
-    const dates = section();
-    const fields = dates.createDiv({ cls: "hub-task-date-fields" });
-    const from = mountTaskDateTime({ app, host: fields, label: labels.fromDate, state, dateKey: "fromDate", timeKey: "fromTime", onChange: patch => {
-        due.setMin(state.fromDate); onChange(patch);
-    } });
-    const due = mountTaskDateTime({ app, host: fields, label: labels.dueDate, state, dateKey: "dueDate", timeKey: "dueTime", onChange });
-    due.setMin(state.fromDate);
 
-    const steps = mountTaskSteps({ host: section(labels.steps), state, onChange });
-    return {
-        refresh() { syncNecessity(); from.refresh(); due.refresh(); due.setMin(state.fromDate); steps.refresh(); },
-        destroy() { from.destroy(); due.destroy(); }
-    };
-}
-
-// Both form layouts edit the same draft Step objects and Markdown line anchors.
+// Both form layouts edit the same flat native Step draft.
 function mountTaskSteps({ host: steps, state, onChange = () => {}, emptyPrompt = false, inlineAdd = false, checklist = null, markdown = null, getPath = () => state.path, actionLabel = "Add step", pendingPlaceholder = "Add a step...", focusFallback = null, canAdd = null, onBeforeAdd = () => {} }) {
     const list = checklist?.rowsHost ?? steps.createDiv({ cls: "hub-task-step-list" });
     const editors = new Set(), sizes = new Map();
@@ -105,7 +68,7 @@ function mountTaskSteps({ host: steps, state, onChange = () => {}, emptyPrompt =
         if (checklist) {
             input.classList.add("hub-task-card-edit-input");
             input.addEventListener("input", () => {
-                // Soft wrapping never becomes extra Markdown task lines.
+                // A Step title remains a single line.
                 if (/[\r\n]/.test(input.value)) {
                     const value = input.value, start = input.selectionStart, end = input.selectionEnd, direction = input.selectionDirection;
                     input.value = value.replace(/[\r\n]/g, "");
@@ -145,7 +108,7 @@ function mountTaskSteps({ host: steps, state, onChange = () => {}, emptyPrompt =
                 parts.text.tabIndex = 0; parts.text.setAttribute("role", "button"); parts.text.setAttribute("aria-label", "Edit Step: " + step.text);
                 const show = () => { if (input.disabled) return; parts.text.removeAttribute("role"); parts.text.tabIndex = -1; parts.text.replaceChildren(input); sizes.get(input)?.resize(); input.focus(); };
                 const preview = () => {
-                    try { appendTask("", input.value); }
+                    try { validateTaskTitle(input.value); }
                     catch (error) { input.setCustomValidity(error.message); return; }
                     input.remove();
                     parts.text.textContent = step.text;
@@ -160,7 +123,7 @@ function mountTaskSteps({ host: steps, state, onChange = () => {}, emptyPrompt =
             }
             if (inlineAdd) {
                 const confirm = () => {
-                    try { appendTask("", input.value); }
+                    try { validateTaskTitle(input.value); }
                     catch (error) { input.setCustomValidity(error.message); input.reportValidity(); return; }
                     input.blur(); add.focus({ preventScroll: true });
                 };
@@ -178,12 +141,15 @@ function mountTaskSteps({ host: steps, state, onChange = () => {}, emptyPrompt =
                     if (!event.isComposing && ["insertLineBreak", "insertParagraph"].includes(event.inputType)) { event.preventDefault(); confirm(); }
                 });
             }
+            for (const [offset, label, icon] of [[-1, "Move step up", "chevron-up"], [1, "Move step down", "chevron-down"]]) {
+                const move = row.createEl("button", { cls: "hub-task-step-order", attr: { type: "button", "aria-label": label } }); setHubIcon(move, icon);
+                move.disabled = index + offset < 0 || index + offset >= state.steps.length;
+                move.onclick = () => { const next = index + offset; [state.steps[index], state.steps[next]] = [state.steps[next], state.steps[index]]; renderSteps(); onChange({ steps: state.steps }); };
+            }
             const remove = row.createEl("button", { attr: { type: "button", "aria-label": "Remove step " + (index + 1) } }); setHubIcon(remove, "x");
             remove.addEventListener("click", event => {
                 const restoreFocus = hasKeyboardFocus(remove, event);
-                // Removing an existing Markdown Step also removes its nested
-                // descendants, exactly as in the ordinary editor.
-                state.steps = state.steps.filter(child => child !== step && !(step.line != null && child.line > step.line && child.line < step.end));
+                state.steps = state.steps.filter(item => item !== step);
                 renderSteps(); onChange({ steps: state.steps });
                 if (restoreFocus) focusAfterRowRemoval([...list.querySelectorAll(".hub-task-step > button, .hub-task-step-item > button")], index, draft && !draft.hidden ? draftInput : (add.getClientRects().length ? add : focusFallback ?? add));
             });
@@ -211,7 +177,7 @@ function mountTaskSteps({ host: steps, state, onChange = () => {}, emptyPrompt =
     setHubIcon(add.createSpan(), inlineAdd ? "circle-plus" : "plus"); add.createSpan({ text: actionLabel });
     const meaningfulPending = () => {
         if (!draft || draft.hidden || !draftInput.value.trim()) return false;
-        try { appendTask("", draftInput.value); return true; } catch (_) { return false; }
+        try { validateTaskTitle(draftInput.value); return true; } catch (_) { return false; }
     };
     // Editor opt-in; generic forms retain their existing creation conventions.
     const refreshReadiness = () => { if (canAdd) add.disabled = !canAdd() || !!draft && !draft.hidden && !meaningfulPending(); };
@@ -231,7 +197,7 @@ function mountTaskSteps({ host: steps, state, onChange = () => {}, emptyPrompt =
         if (!draft || draft.hidden) return true;
         if (composing) return false;
         if (!draftInput.value.trim() && !focus) { closeDraft(); return true; }
-        try { appendTask("", draftInput.value); }
+        try { validateTaskTitle(draftInput.value); }
         catch (error) { draftInput.setCustomValidity(error.message); draftInput.reportValidity(); return false; }
         state.steps.push({ text: draftInput.value.trim(), completed: !!draftCheckbox.checked,
             ...(draftCompletedAt ? { completedAt: draftCompletedAt } : {}) });
@@ -313,66 +279,13 @@ function mountTaskSteps({ host: steps, state, onChange = () => {}, emptyPrompt =
         focusNew() { if (inlineAdd || !state.steps.length && !emptyPrompt) add.click(); else list.querySelector("input[type=text]")?.focus(); } };
 }
 
-function mountTaskPhase({ host, state, service, location, onChange = () => {}, section = (title, help) => taskSection(host, title, help) }) {
-    const phaseSection = section(labels.phase);
-    const control = phaseSection.createDiv({ cls: "hub-task-select-control hub-task-picker-control" });
-    const phase = control.createEl("select", { attr: { "aria-label": labels.phase } });
-    for (const [state, icon] of [["closed", "chevron-down"], ["open", "chevron-up"]]) {
-        setHubIcon(control.createSpan({ cls: "hub-capture-icon is-" + state, attr: { "aria-hidden": "true" } }), icon);
-    }
-    const options = (select, items, selected, placeholder) => {
-        select.replaceChildren(); select.createEl("option", { text: placeholder, attr: { value: "" } });
-        for (const item of items) select.createEl("option", { text: item.name, attr: { value: item.id } });
-        if (selected && !items.some(item => item.id === selected)) select.createEl("option", { text: "Unavailable selection", attr: { value: selected } });
-        select.value = selected ?? "";
-    };
-    let initialized = false, previousOwner;
-    const refresh = () => {
-        const path = location(); const owner = path ? service.context?.(path) : null;
-        const ownerKey = owner ? `${owner.contextKind}:${owner.projectId ?? owner.root}` : null;
-        // Read state, never an old DOM selection. A different owning Project
-        // cannot inherit the previous Project's phase, even if IDs collide.
-        if (initialized && ownerKey !== previousOwner) state.phaseId = "";
-        phaseSection.hidden = owner?.contextKind !== "project";
-        options(phase, !phaseSection.hidden ? service.phases?.(path) ?? [] : [], state.phaseId, labels.noPhase);
-        previousOwner = ownerKey; initialized = true;
-    };
-    phase.addEventListener("change", () => { state.phaseId = phase.value; onChange({ phaseId: state.phaseId }); });
-    refresh(); return { refresh, value: () => ({ phaseId: phaseSection.hidden ? null : phase.value }) };
-}
 
-function mountTaskDestinationFields({ host, workspace, location }) {
-    const controls = {};
-    for (const [key, options] of [["workspace", workspace], ["location", location]]) {
-        if (!options) continue;
-        const section = taskSection(host, labels[key]);
-        section.dataset.taskField = key;
-        section.dataset.captureField = key === "workspace" ? "Workspace" : "Location";
-        controls[key] = createCapturePickerTrigger(section, { ...options, label: labels[key] });
-    }
-    return controls;
-}
+
+
 
 // Workflow adapters provide routing and save behavior. Field order, markup,
 // labels and controls live here for Quick Add, Inbox and the ordinary editor.
 // Capture owns its primary text above Type; it uses mountTaskText there too.
-function mountTaskForm({ app, host, state, service, location, destination, text, onChange = () => {} }) {
-    const element = host.createDiv({ cls: "hub-task-fields" });
-    const sections = {};
-    for (const key of TASK_FORM_ORDER) {
-        if (key === "text" && !text) continue;
-        const section = key === "destination" ? element.createDiv({ cls: "hub-task-destination-fields" }) : taskSection(element, labels[key]);
-        section.dataset.taskField = key; sections[key] = section;
-    }
-    if (sections.text) sections.text.dataset.captureField = "Content";
-    const input = text ? mountTaskText(sections.text, state, onChange, text) : null;
-    const destinations = mountTaskDestinationFields({ host: sections.destination, ...destination });
-    const fields = mountTaskFields({ app, host: element, state, onChange,
-        section: title => sections[title === labels.necessity ? "necessity" : title === labels.steps ? "steps" : "dates"] });
-    const phase = mountTaskPhase({ host: element, state, service, location, onChange, section: () => sections.phase });
-    return { element, input, destinations, phase,
-        refresh() { fields.refresh(); phase.refresh(); },
-        destroy() { fields.destroy(); element.remove(); } };
-}
 
-module.exports = { taskSection, mountTaskText, mountWrappingTaskInput, mountTaskSteps, mountTaskFields, mountTaskPhase, mountTaskDestinationFields, mountTaskForm };
+
+module.exports={taskSection,mountTaskText,mountWrappingTaskInput,mountTaskSteps};

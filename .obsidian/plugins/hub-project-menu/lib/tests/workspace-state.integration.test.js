@@ -60,7 +60,7 @@ async function run() {
         assert.equal(plugin.workspaceModes.state.lastWorkspaceId, null);
         assert.deepEqual(plugin.workspaceState.folders("missing"), {});
         assert.deepEqual(plugin.projectWizard.activityLog, []);
-        assert.deepEqual(plugin.projectWizard.completedTaskHistory, []);
+        assert.deepEqual(plugin.projectWizard.getCompletedTaskHistory(), []);
         assert.deepEqual(plugin.projectWizard.workRatings, {});
         assert.deepEqual(plugin.projectWizard.projectWorkLogs, {});
         assert.deepEqual(plugin.projectWizard.resourceWorkLogs, {});

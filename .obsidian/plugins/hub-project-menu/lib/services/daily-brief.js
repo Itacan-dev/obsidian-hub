@@ -6,14 +6,12 @@ const { DailyBriefModal } = require("../ui/daily-brief");
 const { DailyReportModal } = require("../ui/daily-report");
 const { reportDay } = require("../domain/report-context");
 const { taskIsFuture } = require("../domain/task-planning");
-const { TaskReadSession } = require("./task-read-session");
-const { legacyReadTask } = require("./task-service-legacy-bridge");
 
 class DailyBriefService {
     constructor(plugin, { provider = new RulesRecommendationProvider(), now = () => new Date() } = {}) {
         this.plugin = plugin; this.app = plugin.app; this.provider = provider; this.now = now; this.disposed = false;
         this.listeners = new Set(); this.manualOpening = false; this.resolving = null;
-        this.availabilityGeneration = 0; this.readSession = null;
+        this.availabilityGeneration = 0;
         this.trigger = new DailyBriefTrigger({ now, ready: () => this.ready(), blocked: () => this.manualOpening || this.blocked(),
             shownDay: () => plugin.projectWizard.data.lastDailyBriefAutoShownDay,
             load: date => this.load(date), open: brief => this.open(brief), persist: day => this.persistShown(day) });
@@ -29,12 +27,6 @@ class DailyBriefService {
         try { Promise.resolve(callback()).catch(error => console.error("Daily Brief listener failed", error)); }
         catch (error) { console.error("Daily Brief listener failed", error); }
     } }
-    reader() {
-        if (!this.readSession) this.readSession = new TaskReadSession(this.plugin.taskService, () => {
-            if (!this.disposed && this.started) { void this.refreshAvailability(); void this.trigger.resume(); }
-        });
-        return this.readSession;
-    }
     snapshot(now = this.now()) {
         const value = this.plugin.projectWizard.data.dailyBriefSnapshot;
         return value?.version === 1 && value.dayKey === dailyBriefDay(now) && Array.isArray(value.days) ? value : null;
@@ -114,10 +106,9 @@ class DailyBriefService {
         this.plugin.registerDomEvent(window, "focus", foreground);
         this.plugin.registerDomEvent(window, "blur", () => this.trigger.background());
         this.plugin.registerDomEvent(document, "visibilitychange", foreground);
-        this.reader();
         this.stopNative = this.plugin.nativeTaskHost?.completionFeed.subscribe(() => { if (!this.disposed) { void this.refreshAvailability(); void this.trigger.resume(); } });
         this.stopOath = this.plugin.oath.onChange(() => {
-            this.readSession?.invalidate(); this.availabilityGeneration++;
+            this.availabilityGeneration++;
             if (this.oathBlocked()) this.modal?.close();
             this.refreshAvailability();
         });
@@ -126,7 +117,7 @@ class DailyBriefService {
     }
     resolvePath(path) {
         if (!path) return null;
-        const current = this.plugin.taskData.currentPath(path);
+        const current = path;
         return this.app.vault.getAbstractFileByPath(current)?.extension === "md" ? current : null;
     }
     workspace(id) {
@@ -139,25 +130,15 @@ class DailyBriefService {
     }
     async context(now = this.now()) {
         if (this.disposed) return null;
-        const query = await this.reader().read({ validation: "source" }, () => this.disposed);
-        if (!query || this.disposed) return null;
-        if (query.diagnostics.length) console.warn("Daily Brief task-read diagnostics", query.diagnostics);
         const { projectWizard: wizard, oath } = this.plugin;
         const workspaceId = workspace => workspace?.contextKind === "resource" ? `resource:${workspace.resourceType}` : workspace?.projectId;
         const workspaces = [...wizard.getProjectRecords(), ...wizard.getResourceTypes()].map(workspace => ({
             workspaceId: workspaceId(workspace), name: workspace.name ?? workspace.label, path: workspace.path,
             type: workspace.contextKind, status: workspace.status, available: this.eligible(workspace) }));
-        const tasks = query.rows.filter(row => row.view?.legacy)
-            .map(row => ({ ...legacyReadTask(row.view), identityConflict: row.state !== "validated" || row.view.validation !== "source-checked",
-                workspaceId: row.view.owner?.type === "resource" ? `resource:${row.view.owner.id}` : row.view.owner?.id }));
-        let evidenceWizard = wizard;
-        if (this.plugin.nativeTaskHost) {
-            const host = this.plugin.nativeTaskHost, completion = await host.completionFeed.read();
-            evidenceWizard = { ...wizard, completedTaskHistory: completion.records, taskProgressEvidence: undefined, getProgressReports: wizard.getProgressReports.bind(wizard) };
-            for (const owner of host.nativeTasks.owners ?? [host.nativeTasks.owner]) {
-                const runtime = host.runtime(owner), current = await runtime.list();
-                tasks.push(...current.tasks.map(task => ({ ...task, workspaceId: owner.type === "resource" ? "resource:" + owner.id : owner.id })));
-            }
+        const host=this.plugin.nativeTaskHost,completion=await host.completionFeed.read(),tasks=[];
+        const evidenceWizard={...wizard,taskProgressEvidence:()=>({availability:"current",records:completion.records}),getProgressReports:wizard.getProgressReports.bind(wizard)};
+        for(const owner of host.nativeTasks.owners??[host.nativeTasks.owner]) {
+            const current=await host.runtime(owner).list();tasks.push(...current.tasks.map(task=>({...task,workspaceId:owner.type==="resource"?"resource:"+owner.id:owner.id})));
         }
         const workingConfigurations = workspaces.map(workspace => this.plugin.workspaceModes?.navigationHistory?.configurationAt(
             workspace.workspaceId, dailyBriefStart(now).getTime())).filter(Boolean);
@@ -177,10 +158,10 @@ class DailyBriefService {
         this.resolving = (async () => {
             const activation = this.trigger.activation;
             while (!this.disposed) {
-                const generation = this.reader().generation;
+                const generation = this.availabilityGeneration;
                 const context = await this.context(now);
                 if (!context) return null;
-                if (generation !== this.reader().generation) continue;
+                if (generation !== this.availabilityGeneration) continue;
                 if (!context.lastWorkDate) return null;
                 let recommendation = await this.provider.getRecommendation(context);
                 if (recommendation?.continuation) {
@@ -189,14 +170,14 @@ class DailyBriefService {
                     if (configuration) recommendation = { ...recommendation, target: {
                         kind: "configuration", workspaceId: workspace.workspaceId, configuration
                     } };
-                    else if (recommendation.target.taskId || recommendation.target.taskText) {
+                    else if (recommendation.target.kind === "native-task") {
                         // Progress knows the task storage location, not where work took place.
                         recommendation = { ...recommendation, target: { kind: "workspace", workspaceId: recommendation.target.workspaceId } };
                     }
                 }
-                if (generation !== this.reader().generation) continue;
+                if (generation !== this.availabilityGeneration) continue;
                 const current = () => !this.disposed && this.ready() && !this.oathBlocked() &&
-                    activation === this.trigger.activation && generation === this.reader().generation && dailyBriefDay(this.now()) === context.briefDate;
+                    activation === this.trigger.activation && generation === this.availabilityGeneration && dailyBriefDay(this.now()) === context.briefDate;
                 if (!current()) return null;
                 const snapshot = dailyBriefSnapshot(context, recommendation);
                 if (await this.persistSnapshot(snapshot, current) === false) return null;
@@ -238,15 +219,6 @@ class DailyBriefService {
             } catch (_) { return null; }
         }
         let path = this.resolvePath(target.path);
-        if (target.taskId || target.taskText) {
-            if (!this.plugin.oath.ready()) return null;
-            try {
-                const current = await this.plugin.taskService.resolveSavedTarget({ ...target, path: path ?? target.path });
-                if (this.disposed || current.validation !== "source-checked" || current.legacy?.kind !== "legacy-task-read") return null;
-                path = this.resolvePath(current.legacy.path);
-                if (!path || current.completed || taskIsFuture({ fromDate: current.start?.date, fromTime: current.start?.time }, this.now())) return null;
-            } catch (_) { return null; }
-        }
         if (!path || !this.plugin.oath.canOpen(path, false)) return null;
         const owner = this.plugin.projectWizard.getContextForPath(path);
         if (!this.eligible(owner)) return null;
@@ -254,12 +226,12 @@ class DailyBriefService {
     }
     historicalPath(path, since) {
         if (!path) return path;
-        // Existing rename activity survives restarts; taskData handles in-session renames.
+        // Generic note rename activity survives restarts.
         for (const event of [...(this.plugin.projectWizard.activityLog ?? [])].sort((a, b) => a.timestamp - b.timestamp)) {
             if (event.timestamp < (since ?? 0) || !["renamed", "project-renamed"].includes(event.action) || !event.oldPath || !event.path) continue;
             if (path === event.oldPath || path.startsWith(event.oldPath + "/")) path = event.path + path.slice(event.oldPath.length);
         }
-        return this.plugin.taskData.currentPath(path);
+        return path;
     }
     async navigateConfiguration(target) {
         const workspace = this.workspace(target.workspaceId), modes = this.plugin.workspaceModes;
@@ -314,6 +286,6 @@ class DailyBriefService {
         if (target.kind === "home") document.querySelector(".home-dashboard .home-upcoming")?.scrollIntoView({ block: "center" });
         return true;
     }
-    destroy() { this.disposed = true; this.availabilityGeneration++; this.readSession?.close(); this.trigger.destroy(); this.stopOath?.(); this.stopNative?.(); this.modal?.close(); this.listeners.clear(); }
+    destroy() { this.disposed = true; this.availabilityGeneration++; this.trigger.destroy(); this.stopOath?.(); this.stopNative?.(); this.modal?.close(); this.listeners.clear(); }
 }
 module.exports = { DailyBriefService };

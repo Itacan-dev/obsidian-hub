@@ -1,5 +1,5 @@
 "use strict";
-const { mountTaskText, mountWrappingTaskInput, mountTaskSteps, mountTaskDestinationFields, taskSection } = require("./task-form");
+const { mountTaskText, mountWrappingTaskInput, mountTaskSteps, taskSection } = require("./task-form");
 const { openTaskPopover } = require("./task-popover");
 const { setHubIcon } = require("./icons");
 const { createTaskDatePopoverInput } = require("./date-time");
@@ -165,7 +165,7 @@ function mountTaskPhaseButton({ host, state, service, location, notice, onChange
     const picker = bind(control, { title: "Phase", heading, avoidFooter: persistent, maxHeight: persistent ? 360 : Infinity, className: "hub-task-phase-popover" + (persistent ? " hub-task-phase-live" : ""), width: 300, render({ body, close }) {
         if (body.classList.contains("hub-task-config-section")) body.style.setProperty("--hub-task-phase-scrollbar", (body.offsetWidth - body.clientWidth) + "px");
         selectionKeys(body);
-        for (const item of [{ id: "", name: unassignedLabel }, ...(service.phases?.(location()) ?? [])]) {
+        for (const item of [{ id: "", name: unassignedLabel }, ...(service.phases?.(location(), state.nativeOwner) ?? [])]) {
             selectionOption(body, { value: item.id, label: item.name, selected: (state.phaseId || "") === item.id,
                 onSelect: () => { state.phaseId = item.id || null; notice.textContent = ""; refresh(); onChange({ phaseId: state.phaseId });
                     for (const option of body.querySelectorAll('[role="menuitemradio"]')) option.setAttribute("aria-checked", String(option.dataset.value === (state.phaseId ?? "")));
@@ -173,9 +173,9 @@ function mountTaskPhaseButton({ host, state, service, location, notice, onChange
         }
     } });
     function refresh() {
-        const path = location(), owner = path ? service.context?.(path) : null;
+        const path = location(), owner = state.nativeOwner && service.workspaceContext ? service.workspaceContext(state.nativeOwner) : path ? service.context?.(path) : null;
         const key = owner ? owner.contextKind + ":" + (owner.projectId ?? owner.root) : null;
-        const phases = owner?.contextKind === "project" ? service.phases?.(path) ?? [] : [];
+        const phases = owner?.contextKind === "project" ? service.phases?.(path, state.nativeOwner) ?? [] : [];
         if (initialized && key !== previousOwner && state.phaseId) {
             state.phaseId = null; notice.textContent = "Phase cleared because the task's workspace changed. Choose a phase in the new project if needed.";
             onChange({ phaseId: null }); picker.close(false);
@@ -211,34 +211,6 @@ function mountWrappingTaskTitle(host, state, onChange, options) {
     return { input, ...sizing };
 }
 
-function mountCompactTaskForm({ host, state, service, location, destination, text, onChange = () => {} }) {
-    const element = host.createDiv({ cls: "hub-task-fields hub-task-compact-fields" });
-    const task = taskSection(element); task.dataset.taskField = "task"; task.classList.add("hub-task-content");
-    const title = task.createDiv({ cls: "hub-task-title-row has-completion", attr: { "data-task-field": "text" } });
-    const completion = title.createEl("input", { type: "checkbox", attr: { "aria-label": "Task complete" } });
-    const refreshCompletion = () => { title.classList.toggle("is-completed", !!state.completed); if (completion) completion.checked = !!state.completed; };
-    if (completion) {
-        completion.checked = !!state.completed; bindCompletionSound(completion, playTaskCompletionSound);
-        completion.addEventListener("change", () => { state.completed = completion.checked; state.completedAt = completion.checked ? Date.now() : null;
-            refreshCompletion();
-            onChange({ completed: state.completed, completedAt: state.completedAt }); });
-    }
-    const wrappingTitle = mountWrappingTaskTitle(title, state, onChange, text), input = wrappingTitle.input;
-    refreshCompletion();
-    const stepsSection = taskSection(task); stepsSection.dataset.taskField = "steps";
-    const steps = mountTaskSteps({ host: stepsSection, state, inlineAdd: true, onChange });
-    const description = mountTaskDescription(task, state, onChange);
-    const target = element.createDiv({ cls: "hub-task-destination-fields" }); target.dataset.taskField = "destination";
-    const destinations = mountTaskDestinationFields({ host: target, ...destination });
-    const planning = taskSection(element, "Planning"); planning.dataset.taskField = "properties";
-    const row = planning.createDiv({ cls: "hub-task-properties", attr: { role: "group", "aria-label": "Task planning" } });
-    const dates = mountTaskDates(row, state, onChange), necessity = mountTaskNecessity(row, state, onChange);
-    const notice = element.createDiv({ cls: "hub-task-location-notice", attr: { role: "status" } });
-    const phase = mountTaskPhaseButton({ host: row, state, service, location, notice, onChange });
-    return { element, input, completion, destinations, phase, commitPending: steps.commitPending,
-        closePopovers() { dates.close(false); necessity.close(false); phase.close(false); },
-        refresh() { dates.refresh(); necessity.refresh(); steps.refresh(); phase.refresh(); refreshCompletion(); },
-        destroy() { dates.destroy(); necessity.destroy(); phase.destroy(); steps.destroy(); description.destroy(); wrappingTitle.destroy(); element.remove(); } };
-}
 
-module.exports = { mountCompactTaskForm, mountTaskDescription, mountTaskDates, mountTaskNecessity, mountTaskPhaseButton, mountWrappingTaskTitle, bindPropertyPopover };
+
+module.exports = { mountTaskDescription, mountTaskDates, mountTaskNecessity, mountTaskPhaseButton, mountWrappingTaskTitle, bindPropertyPopover };

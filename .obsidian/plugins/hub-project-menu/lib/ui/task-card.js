@@ -52,6 +52,7 @@ function mountTaskCardPresentation(row, textEl, task, getPath, { now = new Date(
     const { taskDatePresentation, taskIsFuture, taskIsOverdue } = require("../domain/task-planning");
     row.classList.add("hub-planned-task-row");
     const info = textEl.parentElement, checkbox = row.querySelector('input[type="checkbox"]');
+    if (task.nativeOperationStatus) row.createSpan({ cls: "hub-task-operation-status", text: task.nativeOperationStatus, attr: { role: "status", "data-operation-id": task.nativeOperationId } });
     const source = info.querySelector(".home-task-location, .project-task-location");
     const description = options.selection || options.description === false ? null : mountDescriptionIndicator(row, info);
     let indicator, dates, dateSpan, dateValue, phase, sourceControl, sourceText;

@@ -18,7 +18,7 @@ function portablePath(value) {
 
 // The boundary is explicit: never discover Projects outside the Git allowlist.
 async function sharedOwnership(vaultRoot) {
-    const projects = {}, taskIds = new Set();
+    const projects = {};
     for (const root of SHARED_PROJECT_ROOTS) {
         const walk = async relative => {
             let entries;
@@ -27,10 +27,8 @@ async function sharedOwnership(vaultRoot) {
             for (const entry of entries) {
                 if (entry.name.startsWith(".") || entry.name === "node_modules") continue;
                 const file = `${relative}/${entry.name}`;
-                if (entry.isDirectory()) await walk(file);
-                else if (entry.isFile() && entry.name.endsWith(".md")) {
+                if (entry.isFile() && entry.name.endsWith(".md")) {
                     const text = await fs.promises.readFile(path.join(vaultRoot, file), "utf8");
-                    for (const match of text.matchAll(/<!--\s*hub-task:([\w-]+)\s*-->/g)) taskIds.add(match[1]);
                     // Only the root dashboard defines a Project, not copied examples in Meta.
                     if (relative === root) {
                         const fm = text.replace(/^\uFEFF/, "").match(/^---\r?\n([\s\S]*?)\r?\n---/);
@@ -43,7 +41,7 @@ async function sharedOwnership(vaultRoot) {
         };
         await walk(root);
     }
-    return { projects, taskIds };
+    return { projects };
 }
 
 function ownsPlacement(key, projects) {
@@ -52,7 +50,7 @@ function ownsPlacement(key, projects) {
 }
 
 function selectShared(data, ownership) {
-    const { projects, taskIds } = ownership;
+    const { projects } = ownership;
     const categoryIds = new Set(Object.values(projects).map(project => project.categoryId).filter(Boolean));
     const categories = (data.categories ?? []).filter(category => categoryIds.has(category.id)).map(category => {
         // Share category behavior, not arbitrary legacy/plugin fields or personal Resource links.
@@ -79,7 +77,6 @@ function selectShared(data, ownership) {
         projects,
         categories,
         projectPlanning: select(data.projectPlanning, id => Object.hasOwn(projects, id)),
-        taskMetadata: select(data.taskMetadata, id => taskIds.has(id)),
         headerImagePlacements
     });
 }
@@ -102,7 +99,7 @@ class SharedProjectStore {
         if (this.lastText === null) return data; // Existing installations without a shared manifest retain their store.
         const shared = JSON.parse(this.lastText);
         if (shared.schemaVersion !== 1 || !Array.isArray(shared.categories) ||
-            ["projects", "projectPlanning", "taskMetadata", "headerImagePlacements"].some(key =>
+            ["projects", "projectPlanning", "headerImagePlacements"].some(key =>
                 !shared[key] || typeof shared[key] !== "object" || Array.isArray(shared[key]))) {
             throw Error("Invalid shared Project state. Restore the Git file before loading Hub.");
         }
@@ -114,7 +111,6 @@ class SharedProjectStore {
             data[key] = { ...Object.fromEntries(Object.entries(data[key] ?? {}).filter(([id]) => !owned(id))), ...clone(shared[key]) };
         };
         mergeMap("projectPlanning", id => Object.hasOwn(projects, id));
-        mergeMap("taskMetadata", id => ownership.taskIds.has(id) || Object.hasOwn(shared.taskMetadata, id));
         mergeMap("headerImagePlacements", key => ownsPlacement(key, projects));
         return data;
     }
@@ -163,13 +159,12 @@ class SharedProjectStore {
         const local = clone(data);
         const categoryIds = new Set(shared.categories.map(category => category.id));
         local.categories = (local.categories ?? []).filter(category => !categoryIds.has(category.id));
-        for (const key of ["projectPlanning", "taskMetadata", "headerImagePlacements"]) {
+        for (const key of ["projectPlanning", "headerImagePlacements"]) {
             local[key] = Object.fromEntries(Object.entries(local[key] ?? {}).filter(([id]) => !Object.hasOwn(shared[key], id)));
         }
         // Empty/deleted planning or placement values are still owned by shared Projects.
         local.projectPlanning = Object.fromEntries(Object.entries(local.projectPlanning).filter(([id]) => !Object.hasOwn(ownership.projects, id)));
         local.headerImagePlacements = Object.fromEntries(Object.entries(local.headerImagePlacements).filter(([key]) => !ownsPlacement(key, ownership.projects)));
-        local.taskMetadata = Object.fromEntries(Object.entries(local.taskMetadata).filter(([id]) => !ownership.taskIds.has(id)));
         return { local, shared, text: serialize(shared) };
     }
 }

@@ -196,6 +196,8 @@ function mountLiveTaskForm({ host, state, service, location, text, initialStepsO
     const necessityControl = configurationAction(actions, "Set importance", "flag", "necessity");
     const descriptionControl = configurationAction(actions, "Add description", "text-align-start", "description");
     const phaseControl = configurationAction(actions, "Assign to Phase", "layers", "phase");
+    const recurrenceControl = configurationAction(actions, "Repeat task", "repeat", "recurrence");
+    const recurrence = require("./task-recurrence").mountTaskRecurrence(recurrenceControl, state, changed, accordion.bind);
     specifications = [fromControl, dueControl, necessityControl, descriptionControl, phaseControl];
     steps = mountTaskSteps({ host: checklist.list, state, checklist, markdown, getPath: cardPath, inlineAdd: true, actionLabel: "Add step", pendingPlaceholder: "Describe this step...", focusFallback: checklist.toggle, onChange: changed,
         canAdd: () => !!state.text?.trim(), onBeforeAdd() { accordion.close(); openSteps = true; } });
@@ -205,7 +207,8 @@ function mountLiveTaskForm({ host, state, service, location, text, initialStepsO
     const description = mountTaskDescriptionPopover(descriptionControl, state, changed, () => pulse(presentation.descriptionIndicator), accordion.bind);
     const notice = element.createDiv({ cls: "hub-task-location-notice", attr: { role: "status" } });
     phase = mountTaskPhaseButton({ host: actions, state, service, location, notice, onChange: changed, control: phaseControl, keepLabel: true, persistent: true, unassignedLabel: "Unassigned", bind: accordion.bind });
-    configurationPickers = [start, due, necessity, description, phase];
+    configurationPickers = [start, due, necessity, description, phase, recurrence];
+    specificationControls.push(recurrenceControl.button);
     checklist.toggle.addEventListener("click", () => {
         if (checklist.toggle.disabled) return;
         if (!state.steps.length && !steps.hasPending) { steps.focusNew(); return; }
@@ -218,12 +221,11 @@ function mountLiveTaskForm({ host, state, service, location, text, initialStepsO
         refresh();
     };
     for (const event of ["rename", "delete"]) if (service.app.vault.on) component.registerEvent(service.app.vault.on(event, refreshContext));
-    service.plugin?.taskData?.subscribe?.(component, refreshContext, () => [location()]);
     initialized = true;
     return { element, input, completion: parts.checkbox, phase, card: parts, presentation, checklist, steps, state,
         commitPending: steps.commitPending, refresh, resizeTitle: title.resize,
-        closePopovers() { start.close(false); due.close(false); necessity.close(false); description.close(false); phase.close(false); },
-        destroy() { start.destroy(); due.destroy(); necessity.destroy(); description.destroy(); phase.destroy(); steps.destroy(); title.destroy();
+        closePopovers() { recurrence.close(false); start.close(false); due.close(false); necessity.close(false); description.close(false); phase.close(false); },
+        destroy() { recurrence.destroy(); start.destroy(); due.destroy(); necessity.destroy(); description.destroy(); phase.destroy(); steps.destroy(); title.destroy();
             accordion.destroy(); presentation.destroy(); effects.destroy(); component.unload(); element.remove(); } };
 }
 

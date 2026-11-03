@@ -10,5 +10,5 @@ function validWorkspace(ref) {
     return !!ref && ["project", "resource"].includes(ref.type) && typeof ref.id === "string" && !!ref.id.trim();
 }
 function sameWorkspace(a, b) { return validWorkspace(a) && validWorkspace(b) && a.type === b.type && a.id === b.id; }
-function taskKey(task) { return task.hubTaskId ?? `${task.path}:${task.line}:${task.text}`; }
+function taskKey(task) { const ref = task.nativeReference ?? task; return JSON.stringify([ref.authorityId, ref.taskId ?? ref.id]); }
 module.exports = { workspaceRef, validWorkspace, sameWorkspace, taskKey };

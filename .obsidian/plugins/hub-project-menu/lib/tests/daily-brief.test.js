@@ -12,14 +12,14 @@ const report = (id, summary = "", score = 0, date = day) => ({ projectId: id, pr
     targetKind: id.startsWith("resource:") ? "resource" : "project", timestamp: at });
 function source({ reports = [], history = [], focus = {}, activity = [], oaths = {} } = {}) {
     return { getProgressReports: scope => reports.filter(report => scope?.kind === "resource" ? report.targetKind === "resource" : report.targetKind !== "resource"),
-        completedTaskHistory: history, activityLog: activity, data: { reportFocusByDate: focus, oathsByDevice: oaths }, dailyFocus: {} };
+        taskProgressEvidence:()=>({availability:"current",records:history}), activityLog: activity, data: { reportFocusByDate: focus, oathsByDevice: oaths }, dailyFocus: {} };
 }
-const build = (service, options = {}) => buildDailyBriefContext(service, { now, workspaces, resolvePath: path => path || null, ...options });
+const build = (service, options = {}) => buildDailyBriefContext(service, { now, workspaces, resolvePath: path => path || null, canOpenNative:()=>true, ...options });
 const event = (kind = "step", id = "a", timestamp = at) => ({ id: "event-" + timestamp, kind, projectId: id, projectName: id,
-    hubTaskId: kind === "step" ? "s1" : "parent", parentTaskId: "parent", parentText: "Assignment 5", text: kind === "step" ? "1a" : "Assignment 5",
+    nativeHistory:{authorityId:"authority-"+id,taskId:"parent",stepId:kind==="step"?"s1":null}, parentTaskId: "parent", parentText: "Assignment 5", text: kind === "step" ? "1a" : "Assignment 5",
     path: id + "/Assignment.md", timestamp });
-const task = { workspaceId: "a", path: "a/Assignment.md", line: 0, text: "Assignment 5", hubTaskId: "parent", completed: false,
-    steps: [{ text: "1a", completed: true, hubTaskId: "s1" }, { text: "2b", completed: false, hubTaskId: "s2" }] };
+const task = { workspaceId: "a", path: "a/Assignment.md", text: "Assignment 5", id: "parent", nativeReference:{authorityId:"authority-a",owner:{type:"project",id:"a"}}, completed: false,
+    steps: [{ text: "1a", completed: true, id: "s1" }, { text: "2b", completed: false, id: "s2" }] };
 
 async function run() {
     assert.equal(dailyBriefDay(new Date(2026, 8, 26, 5, 59, 59)), "2026-09-25");
@@ -42,7 +42,7 @@ async function run() {
 
     const ranked = build(source({ reports: [report("a", "", 1), report("b", "", 3), report("c", "", 1), report("d", "", 1), report("e", "", 1)],
         history: [event("step", "c")], focus: { [day]: { items: [{ projectId: "d", text: "Recorded" }] } } }),
-        { tasks: [{ ...task, workspaceId: "c", path: "c/Assignment.md" }] });
+        { tasks: [{ ...task, workspaceId: "c", nativeReference:{authorityId:"authority-c",owner:{type:"project",id:"c"}}, path: "c/Assignment.md" }] });
     assert.equal(ranked.workspaces.length, 5);
     assert.deepEqual(ranked.workspaces.slice(0, 3).map(workspace => workspace.workspaceId), ["b", "d", "c"], "Significance, explicit focus, then resumable progress");
 
@@ -51,7 +51,7 @@ async function run() {
     assert.equal(next.reason, "unfinished-progress");
     assert.ok(next.explanation.includes("2b is the next remaining step"));
     assert.equal(next.target.stepId, "s2");
-    assert.equal(next.target.path, task.path);
+    assert.equal(next.target.kind, "native-task"); assert.equal(next.target.taskId,task.id);
     const explicit = build(source({ history: [event()], focus: { [day]: { items: [{ projectId: "a", text: "2b" }] } } }), { tasks: [task] });
     assert.equal(provider.getRecommendation(explicit).reason, "recorded-focus");
     assert.equal(provider.getRecommendation(explicit).target.stepId, "s2");
@@ -73,10 +73,10 @@ async function run() {
     assert.equal(provider.getRecommendation(shelved).reason, "no-clear-action");
     const missing = build(source({ history: [event()] }), { tasks: [task], resolvePath: () => null });
     assert.equal(missing.workspaces[0].lastRelevantFile, null);
-    assert.equal(provider.getRecommendation(missing).reason, "no-clear-action");
+    assert.equal(provider.getRecommendation(missing).target.kind, "native-task", "A native continuation does not require a Markdown task source");
     const missingLink = build(source({ focus: { [day]: { items: [{ projectId: "a", text: "Read [[Deleted]]" }] } } }));
     assert.equal(provider.getRecommendation(missingLink).reason, "no-clear-action");
-    const restricted = build(source({ history: [event()], focus }), { tasks: [task], canOpen: path => path.startsWith("b/"), oathState: { active: true, workspaceId: "b" } });
+    const restricted = build(source({ history: [event()], focus }), { tasks: [task], canOpen: path => path.startsWith("b/"), canOpenNative:owner=>owner.id==="b", oathState: { active: true, workspaceId: "b" } });
     assert.equal(provider.getRecommendation(restricted).target.workspaceId, "b");
     assert.equal(provider.getRecommendation(restricted).actionLabel, "View Oath tasks");
 

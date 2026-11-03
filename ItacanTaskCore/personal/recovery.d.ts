@@ -1,4 +1,0 @@
-import type {NativeAuthorityConfigV1,HostOptionsV1} from "../host";
-import type {WriterPolicyV1,WriterOutcomeV1} from "../writer";
-import type {RequestRecoveryInspectionV1} from "../host/pending-requests";
-export function openPersonalRecovery(config:NativeAuthorityConfigV1,options:HostOptionsV1 & {writerPolicy:WriterPolicyV1;requestRetention:{version:3|4;rehearsalId:string}}):Promise<{personal:{recoveryOnly:true};retained():Promise<readonly {operationId:string;intentDigest:string;owner:import("../src/contracts").WorkspaceRef;partitionId:string}[]>;recovery:{inspect(id:string):Promise<RequestRecoveryInspectionV1>;reconcile(id:string):Promise<{inspection:RequestRecoveryInspectionV1;presentation:{state:"not-requested";code:string}}>;replay(review:RequestRecoveryInspectionV1):Promise<WriterOutcomeV1>};close():Promise<void>}>;

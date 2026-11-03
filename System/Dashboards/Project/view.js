@@ -2768,8 +2768,8 @@ const tasksBody =
 
 
 let currentProjectTasks = [];
-let visibleCompletedTasks = [];
-let clearingCompletedTasks = false;
+
+
 let taskPanelLoading = true, taskPanelDisposed = false;
 let taskPanelGeneration = 0;
 const taskPanelRead = window.hubCreateTaskPanelRead?.({
@@ -2796,7 +2796,7 @@ function taskLocation(
 
     if (
         path ===
-        (window.hubTaskData?.currentPath(current.file.path) ?? current.file.path)
+        (current.file.path)
     ) {
         return isResourceContext ? "Resource Hub" : "Project Hub";
     }
@@ -2805,7 +2805,7 @@ function taskLocation(
     const relative =
         String(path)
             .slice(
-                (window.hubTaskData?.currentPath(projectRoot) ?? projectRoot).length + 1
+                (projectRoot).length + 1
             )
             .replace(
                 /\.md$/i,
@@ -2853,8 +2853,7 @@ function renderTaskRows() {
         );
 
 
-    visibleCompletedTasks =
-        completedTasks;
+    
 
 
     const openTaskCount =
@@ -2882,72 +2881,18 @@ function renderTaskRows() {
         target = tasksBody
     ) {
 
+        if (tasksBody.hubTaskUi?.reuseRow(target, task)) return;
         const { row, checkbox, textEl } = window.hubCreateTaskRow(target, task, completed);
-        tasksBody.hubTaskUi?.bind(row, textEl, task, () => window.hubTaskData?.currentPath(task.path) ?? task.path, { locationWorkspace: isResourceContext ? { type: "resource", id: current.resourceType } : { type: "project", id: current.projectId } });
+        tasksBody.hubTaskUi?.bind(row, textEl, task, () => task.path, { locationWorkspace: isResourceContext ? { type: "resource", id: current.resourceType } : { type: "project", id: current.projectId } });
 
 
-        if (completed) {
-
-            const deleteButton =
-                row.createEl(
-                    "button",
-                    {
-                        cls:
-                            "project-task-delete"
-                    }
-                );
-
-
-            window.hubSetIcon?.(
-                deleteButton,
-                "trash-2"
-            );
-
-
-            deleteButton.setAttribute(
-                "aria-label",
-                `Clear completed task: ${task.text}`
-            );
-
-
-            deleteButton.addEventListener(
-                "click",
-                async event => {
-
-                    event.stopPropagation();
-                    deleteButton.disabled =
-                        true;
-
-
-                    try {
-                        await clearCompletedProjectTasks(
-                            [task]
-                        );
-                    } catch (error) {
-
-                        console.error(
-                            "Could not clear completed project task:",
-                            error
-                        );
-
-                    } finally {
-
-                        if (
-                            deleteButton.isConnected
-                        ) {
-                            deleteButton.disabled =
-                                false;
-                        }
-                    }
-                }
-            );
-        }
+        
 
 
         /*
          * Clicking the checkbox should
          * toggle the task, not open the
-         * source note.
+         * task editor.
          */
         checkbox.addEventListener(
             "click",
@@ -2962,85 +2907,7 @@ function renderTaskRows() {
             "change",
             async () => {
 
-                const previousState =
-                    task.completed;
-                const requestedState = checkbox.checked;
-                if (task.nativeLocationUnavailable) { checkbox.checked = previousState; return; }
-
-                checkbox.disabled =
-                    true;
-
-
-                try {
-
-                    if (
-                        !window
-                            .hubToggleTask
-                    ) {
-
-                        throw new Error(
-                            "Task toggle bridge is unavailable."
-                        );
-                    }
-
-
-                    const edit = await taskPanelRead.toggle(task, requestedState);
-
-
-                    /*
-                     * Update this dashboard
-                     * immediately instead of
-                     * waiting for Dataview to
-                     * re-index the file.
-                     */
-                    applyPanelTaskEdit(edit);
-
-
-                } catch (error) {
-
-                    console.error(
-                        "Could not toggle project task:",
-                        error
-                    );
-
-
-                    task.completed =
-                        previousState;
-
-                    checkbox.checked =
-                        previousState;
-
-                    checkbox.disabled =
-                        !!task.nativeLocationUnavailable;
-                }
-            }
-        );
-
-
-        /*
-         * Clicking anywhere else opens
-         * the note containing the task.
-         */
-        row.addEventListener(
-            "click",
-            async () => {
-
-                try {
-                const target = await taskPanelRead.reveal(task);
-                const file =
-                    app.vault
-                        .getAbstractFileByPath(
-                            target.path
-                        );
-
-
-                if (file) {
-
-                    await openProjectNote(
-                        file
-                    );
-                }
-                } catch (error) { console.error("Task panel source unavailable", error); }
+                return window.hubRunNativeTaskToggle({checkbox,task,completed:checkbox.checked,run:completed=>taskPanelRead.toggle(task,completed),onEdit:applyPanelTaskEdit});
             }
         );
     }
@@ -3064,10 +2931,7 @@ function renderTaskRows() {
 
     if (tasksBody.hubTaskUi?.group) {
         tasksBody.hubTaskUi.group("future", futureTasks, task => renderTask(task, false));
-        tasksBody.hubTaskUi.group("completed", completedTasks, task => renderTask(task, true), {
-            clear: () => clearVisibleCompletedTasks(),
-            canClear: () => !clearingCompletedTasks
-        });
+        tasksBody.hubTaskUi.group("completed", completedTasks, task => renderTask(task, true));
         return;
     }
 
@@ -3126,72 +2990,6 @@ async function renderCurrentTasks() {
         if (!tasksBody.querySelector("[data-task-read-status]")) tasksBody.createDiv({ cls: "project-empty",
             text: "Tasks are temporarily unavailable. They will refresh when the index is ready.", attr: { "data-task-read-status": "", role: "status" } });
         console.error("Task panel read failed", error);
-    }
-}
-
-
-function completedProjectTaskRequest(
-    task
-) {
-
-    return {
-        hubTaskId: task.hubTaskId,
-        path:
-            task.path,
-
-        line:
-            task.line,
-
-        text:
-            task.text,
-
-        projectId:
-            isResourceContext ? null : current.projectId,
-
-        projectName:
-            current.file.name,
-
-        projectStatus:
-            current.status,
-
-        projectPath:
-            window.hubTaskData?.currentPath(current.file.path) ?? current.file.path,
-
-        projectRoot: window.hubTaskData?.currentPath(projectRoot) ?? projectRoot,
-
-        contextKind:
-            isResourceContext ? "resource" : "project",
-
-        resourceType:
-            isResourceContext ? current.resourceType : null
-    };
-}
-
-
-async function clearCompletedProjectTasks(
-    tasks,
-    confirmMany = false
-) {
-
-    if (!window.hubClearCompletedTasks) {
-        throw new Error(
-            "Completed-task archive bridge is unavailable."
-        );
-    }
-
-
-    return taskPanelRead.clear(tasks.map(task => ({ ...task, ...completedProjectTaskRequest(task) })), confirmMany);
-}
-
-
-async function clearVisibleCompletedTasks() {
-    if (clearingCompletedTasks || visibleCompletedTasks.length === 0) return;
-    clearingCompletedTasks = true;
-    try {
-        // Keep the former header Clear scope and its native confirmation.
-        await clearCompletedProjectTasks([...visibleCompletedTasks], true);
-    } finally {
-        clearingCompletedTasks = false;
     }
 }
 
@@ -5069,73 +4867,7 @@ root.addEventListener(
 );
 
 
-root.addEventListener(
-    "hub-completed-tasks-changed",
-    event => {
-        if (event.detail?.deleted?.length) {
 
-            const linesByPath =
-                new Map();
-
-
-            for (
-                const item
-                of event.detail?.deleted ?? []
-            ) {
-
-                if (!linesByPath.has(item.path)) {
-                    linesByPath.set(
-                        item.path,
-                        []
-                    );
-                }
-
-
-                linesByPath.get(item.path)
-                    .push(item.line);
-            }
-
-
-            currentProjectTasks =
-                currentProjectTasks.filter(
-                    task => {
-
-                        const deletedLines =
-                            linesByPath.get(
-                                task.path
-                            ) ?? [];
-
-
-                        if (
-                            deletedLines.includes(
-                                task.line
-                            )
-                        ) {
-                            return false;
-                        }
-
-
-                        task.line -=
-                            deletedLines.filter(
-                                line =>
-                                    line < task.line
-                            ).length;
-
-
-                        return true;
-                    }
-                );
-
-
-            renderTaskRows();
-        }
-        completedHistoryRead?.invalidate();
-
-        if (progressView === "tasks") {
-            void refreshProjectTaskHistory();
-        }
-    }
-);
 
 
 taskWorkspace = window.hubMountTaskWorkspace?.({

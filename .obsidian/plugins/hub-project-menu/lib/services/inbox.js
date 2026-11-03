@@ -4,8 +4,7 @@ const { randomUUID, createHash } = require("crypto");
 const nodePath = require("path");
 const { createFileDomain, projectItemPath, isFolderLike } = require("../domain/files");
 const { validLocation, locationLabel } = require("../domain/task-views");
-const { taskWorkspaces } = require("./task-locations");
-const { taskFormValues } = require("../domain/task-form");
+const { taskWorkspaces, taskLocations } = require("./task-locations");
 const { NoteLocationError, noteLocation, parseNotePositions, resolveNoteLocation, insertNoteText } = require("../domain/note-insertion");
 const { INBOX_VERSION, INBOX_ATTACHMENT_ROOT, captureKind, sourceMetadata, attachmentReference,
     isInboxOwned, sortedCaptures, taskTitle, captureIntent, captureDraft, captureNoteTitle, inboxSort } = require("../domain/inbox");
@@ -91,10 +90,7 @@ class HubInboxService {
                 throw Error("Retry this item's saved operation before editing its content or attachments.");
             }
             if (previous.operation.kind === "native-task") { require("./native-inbox-task").sameValues(previous.operation,values); }
-            else if (previous.operation.kind === "task") {
-                this.assertTaskValues(previous.operation, values);
-                if (values.workspaceId && values.workspaceId !== previous.operation.workspaceId) throw Error("Retry this task's original workspace.");
-            } else if (previous.operation.kind === "note-insertion") {
+            else if (previous.operation.kind === "note-insertion") {            } else if (previous.operation.kind === "note-insertion") {
                 this.assertNoteInsertionValues(previous.operation, values);
             } else if (previous.operation.state === "ready" && this.changedFileDestination(previous.operation, values)) {
                 throw Error("This item was already saved to its selected destination. Retry to finish removing it from Inbox.");
@@ -105,9 +101,7 @@ class HubInboxService {
         if (String(text).trim() && attachments.length && !(String(previous.text).trim() && previous.attachments.length)) {
             throw Error("Write something or add a file. Clear the text or remove the file first.");
         }
-        const legacyRemainder = !this.plugin.nativeTaskHost && !previous.intent && !values.intent && (String(previous.text).trim() && previous.attachments.length ||
-            values.type === "task" && (taskTitle(text) !== text.trim() || values.taskTitle !== undefined && String(values.taskTitle).trim() !== text.trim()));
-        const intent = legacyRemainder ? null : captureIntent({ ...previous.intent, ...values }, attachments);
+        const intent = captureIntent({ ...previous.intent, ...values }, attachments);
         const actionDrafts = {...previous.actionDrafts};
         if(previous.intent?.type && previous.intent.type !== intent?.type) actionDrafts[previous.intent.type] = clone(previous.intent);
         if(Object.keys(actionDrafts).length && intent?.type) actionDrafts[intent.type] = clone(intent);
@@ -132,25 +126,6 @@ class HubInboxService {
             (values.folder !== undefined && values.folder && values.folder !== operation.folder) ||
             (values.title !== undefined && String(values.title) !== operation.title);
     }
-    assertTaskValues(operation, values) {
-        const canonical = taskFormValues({ ...operation.values, ...values, text: values.taskTitle ?? values.text ?? operation.text });
-        if (values.location !== undefined && values.location !== operation.location ||
-            canonical.text !== operation.text) {
-            throw Error("Retry this task's original title and location. Its saved action keeps the task from being created twice.");
-        }
-        for (const key of ["necessity", "fromDate", "dueDate", "fromTime", "dueTime", "steps", "phaseId", "milestoneId"]) {
-            if (values[key] !== undefined && JSON.stringify(canonical[key]) !== JSON.stringify(operation.values[key])) {
-                throw Error("Retry this task's original details. Its saved action keeps the task from being created twice.");
-            }
-        }
-    }
-    assertNoteInsertionValues(operation, values) {
-        if (values.noteAction !== undefined && values.noteAction !== "existing" ||
-            values.workspaceId !== undefined && values.workspaceId !== operation.workspaceId ||
-            values.noteLocation !== undefined && JSON.stringify(noteLocation(values.noteLocation)) !== JSON.stringify(noteLocation(operation.noteLocation))) {
-            throw Error("Retry this item's original note position. Its saved action keeps the text from being inserted twice.");
-        }
-    }
     async prepareCapture(capture, values) {
         const text = String(values.text ?? capture.text), refs = (values.attachments ?? capture.attachments).map(attachmentReference);
         if (capture.attachments.some(ref => !refs.some(item => item.id === ref.id && item.path === ref.path))) {
@@ -159,9 +134,7 @@ class HubInboxService {
         if (text.trim() && refs.length && !(capture.text.trim() && capture.attachments.length)) {
             throw Error("Write something or add a file. Clear the text or remove the file first.");
         }
-        const legacyRemainder = !this.plugin.nativeTaskHost && !capture.intent && (capture.text.trim() && capture.attachments.length ||
-            values.type === "task" && (taskTitle(text) !== text.trim() || values.taskTitle !== undefined && String(values.taskTitle).trim() !== text.trim()));
-        const intent = legacyRemainder ? null : captureIntent({ ...capture.intent, ...values }, refs);
+        const intent = captureIntent({ ...capture.intent, ...values }, refs);
         if (text !== capture.text || JSON.stringify(refs) !== JSON.stringify(capture.attachments) ||
             JSON.stringify(intent) !== JSON.stringify(capture.intent ?? null)) {
             for (const ref of refs) if (!this.attachmentExists(ref)) throw Error(`\"${ref.name}\" is no longer available.`);
@@ -172,7 +145,7 @@ class HubInboxService {
         return capture;
     }
     completion(values = {}, captureId) {
-        if(values.type === "task" && this.plugin.nativeTaskHost) { try { require("./native-inbox-task").payload(this,values,this.get(captureId)??{}); return {complete:true,ready:true,error:null,ratio:1,missing:[],completedRequired:1,totalRequired:1}; } catch(error) { return {complete:false,ready:false,error:error.message,ratio:0,missing:[],completedRequired:0,totalRequired:1}; } }
+        if(values.type === "task") { try { require("./native-inbox-task").payload(this,values,this.get(captureId)??{}); return {complete:true,ready:true,error:null,ratio:1,missing:[],completedRequired:1,totalRequired:1}; } catch(error) { return {complete:false,ready:false,error:error.message,ratio:0,missing:[],completedRequired:0,totalRequired:1}; } }
         const type = values.type, requirements = [];
         const requireValue = (valid, message) => { if (!valid) throw Error(message); };
         const check = (label, validate, progress = true) => {
@@ -180,12 +153,11 @@ class HubInboxService {
             catch (error) { requirements.push({ label, complete: false, progress, error: error.message }); }
         };
         let validationError = null;
-        if (!["task", "note", "file"].includes(type)) validationError = "Choose Task or Note.";
+        if (!["note", "file"].includes(type)) validationError = "Choose Task or Note.";
         else {
             // Payload validity still gates creation and guides corrections, but
             // its mere existence never earns an organisational progress step.
-            if (type === "task") check("Content", () => taskFormValues({ text: values.taskTitle ?? values.text }), false);
-            else if (type === "note") check("Content", () => requireValue(String(values.text ?? "").trim(), "Write the note content."), false);
+            if (type === "note") check("Content", () => requireValue(String(values.text ?? "").trim(), "Write the note content."), false);
             else check("File", () => {
                 requireValue(values.attachments?.length, "Add a file first.");
                 requireValue(values.attachments.every(ref => this.attachmentExists(ref)), "A file is no longer available.");
@@ -198,8 +170,7 @@ class HubInboxService {
                 requireValue(workspace, "This Project or Resource is no longer available. Choose a destination.");
                 requireValue(this.plugin.oath?.canOpen(workspace) !== false, "This destination is locked during your Oath.");
             });
-            if (type === "task") check("Location", () => this.taskDestination(values));
-            else if (type === "note" && values.noteAction === "existing") check("Location", () => {
+            if (type === "note" && values.noteAction === "existing") check("Location", () => {
                 const operation = this.get(captureId)?.operation;
                 const retry = operation?.kind === "note-insertion" && operation.state !== "done";
                 if (retry) this.assertNoteInsertionValues(operation, values);
@@ -212,10 +183,7 @@ class HubInboxService {
             // Optional details never add progress steps. Their existing validity
             // checks still block submission (for example, an unfinished Step).
             try {
-                if (type === "task") {
-                    taskFormValues({ ...values, text: values.taskTitle ?? values.text });
-                    this.plugin.taskEditor.checkedMetadata(values, this.workspace(values.workspaceId));
-                } else if (type === "note" && values.noteAction === "existing" && values.attachments?.length) {
+                if (type === "note" && values.noteAction === "existing" && values.attachments?.length) {
                     throw Error("Use New note to keep this item's files.");
                 }
             } catch (error) { validationError = error.message; }
@@ -240,18 +208,14 @@ class HubInboxService {
     workspace(id) { return this.destinations().find(workspace => workspace.id === id || workspace.root === id) ?? null; }
     workspacePath(path, workspace) {
         if (typeof path !== "string" || !path || !validLocation(path, workspace)) return false;
-        if(path === workspace.root) return !!this.plugin.nativeTaskHost || workspace.contextKind === "resource";
-        if (workspace.contextKind === "resource" || this.plugin.nativeTaskHost && path.slice(0,path.lastIndexOf("/")) === workspace.root) return true;
+        if(path === workspace.root) return true;
+        if (workspace.contextKind === "resource" || path.slice(0,path.lastIndexOf("/")) === workspace.root) return true;
         // Files renders direct child folders as real Project workspaces. The
         // synthetic root group exists only to display older loose root files.
         const relative = path.slice(workspace.root.length + 1), name = relative.split("/")[0];
         return !!name && isFolderLike(this.app.vault.getAbstractFileByPath(workspace.root + "/" + name));
     }
-    taskLocations(id) {
-        const workspace = this.workspace(id); if (!workspace) return [];
-        return this.plugin.taskEditor.locations(workspace.root).filter(location => this.workspacePath(location.path, workspace) && (workspace.contextKind === "resource" || location.path !== workspace.root));
-    }
-    noteLocations(id) { const workspace=this.workspace(id);return workspace?this.plugin.taskEditor.locations(workspace.root).filter(location=>this.workspacePath(location.path,workspace)):[]; }
+    noteLocations(id) { const workspace=this.workspace(id);return workspace?taskLocations(this.plugin, workspace.root).filter(location=>this.workspacePath(location.path,workspace)):[]; }
     noteDestination(values, structural = true) {
         const workspace = this.workspace(values.workspaceId), location = noteLocation(values.noteLocation);
         if (!workspace || this.plugin.oath?.canOpen(workspace) === false) throw Error("Choose an available note workspace.");
@@ -279,7 +243,7 @@ class HubInboxService {
             .sort((a, b) => a.path === workspace.root ? -1 : b.path === workspace.root ? 1 : a.label.localeCompare(b.label, undefined, { numeric: true }));
     }
     destination(values) {
-        const workspace = this.workspace(values.workspaceId), folder = values.folder || (this.plugin.nativeTaskHost || workspace?.contextKind === "resource" ? workspace?.root : "");
+        const workspace = this.workspace(values.workspaceId), folder = values.folder || workspace?.root;
         if (!workspace) throw Error("This Project or Resource is no longer available. Choose a destination.");
 
         if (!this.workspacePath(folder, workspace) || !isFolderLike(this.app.vault.getAbstractFileByPath(folder))) {
@@ -288,26 +252,11 @@ class HubInboxService {
         if (this.plugin.oath?.canOpen(workspace) === false) throw Error("This destination is locked during your Oath.");
         return { workspace, folder };
     }
-    taskDestination(values) {
-        if (!values.location) throw Error("Choose a task location.");
-        const owner = this.plugin.taskEditor.context(values.location);
-        const workspace = values.workspaceId ? this.workspace(values.workspaceId) : this.workspace(owner?.projectId);
-        if (!workspace || owner?.projectId !== workspace.id || this.plugin.oath?.canOpen(workspace) === false) {
-            throw Error("Choose an available task workspace.");
-        }
-        if (!this.taskLocations(workspace.id).some(location => location.path === values.location)) {
-            throw Error(workspace.contextKind === "project" ?
-                "Choose a note or folder inside a Project workspace folder. The Project root is not a destination." :
-                "Choose an available note or folder inside this Resource.");
-        }
-        return workspace;
-    }
     fileOperationStructure(operation) {
         const workspace = taskWorkspaces(this.plugin).find(item => item.projectId === operation.workspaceId);
         if (!workspace) throw Error("This Project or Resource is no longer available. Choose a destination.");
         const folder = operation.folder;
 
-        if (!this.plugin.nativeTaskHost && workspace.contextKind === "project" && (!folder || folder === workspace.root)) throw Error("Choose a workspace folder inside this Project. The Project root is not a destination.");
         const paths = [...(operation.moves ?? []).map(move => move.to), ...(operation.note ? [operation.note.path] : [])];
         if (typeof folder !== "string" || !validLocation(folder, workspace) || paths.some(path => typeof path !== "string" ||
             path.slice(0, path.lastIndexOf("/")) !== folder || !validLocation(path, workspace))) {
@@ -651,42 +600,7 @@ class HubInboxService {
             return kind === "note" ? { file, attachments: files } : { files, note: file };
         } catch (error) { error.captureId = capture.id; throw error; }
     }
-    makeTask(values, captureId, attempt) {
-        if(this.plugin.nativeTaskHost) return this.enqueue(()=>require("./native-inbox-task").submit(this,values,captureId,attempt));
-        return this.enqueue(async () => {
-        let capture = captureId ? this.required(captureId) : await this.createCapture({ ...values, type: "task" });
-        values = { ...capture.intent, ...values, type: "task" };
-        try {
-            if (capture.intent?.type === "task" && !capture.operation && !values.workspaceId) throw Error("Choose a Project or Resource.");
-            let operation = capture.operation;
-            if (operation && operation.kind !== "task") throw Error("Retry the saved action before choosing another action for this item.");
-            if (operation) { this.assertInput(capture, values); this.assertTaskValues(operation, values); }
-            if (!operation) {
-                capture = await this.prepareCapture(capture, values);
-                const title = values.taskTitle ?? values.text ?? (capture.intent?.type === "task" ? capture.text : taskTitle(capture.text));
-                const taskValues = taskFormValues({ ...values, text: title });
-                const workspace = this.taskDestination(values);
-                this.plugin.taskEditor.checkedMetadata(taskValues, workspace);
-                const metadata = {};
-                for (const key of ["necessity", "fromDate", "dueDate", "fromTime", "dueTime", "steps", "phaseId"]) {
-                    if (taskValues[key] !== undefined) metadata[key] = clone(taskValues[key]);
-                }
-                operation = { id: randomUUID(), kind: "task", state: "prepared", workspaceId: workspace.id, location: values.location,
-                    text: taskValues.text, taskId: randomUUID(), values: { ...metadata, text: taskValues.text, captureSource: sourceMetadata(capture.source) },
-                    input: this.input(capture, values) };
-                capture = await this.replace({ ...capture, operation });
-            }
-            const workspace = this.taskDestination(operation);
-            const file = await this.plugin.taskEditor.create(operation.location, operation.text,
-                { ...operation.values, hubTaskId: operation.taskId });
-            this.taskDestination({ workspaceId: workspace.id, location: file.path });
-            const retained = !!capture.attachments.length || capture.text.trim() !== operation.text.trim();
-            capture = await this.replace({ ...capture, operation: { ...operation, state: retained ? "done" : "ready", path: file.path } });
-            if (!retained) await this.finish(capture);
-            return { file, retained, captureId: retained ? capture.id : null,
-                ...(retained ? { message: "Task added. The item remains in Inbox so its content, files and source can be organised as a note." } : {}) };
-        } catch (error) { error.captureId = capture.id; throw error; }
-    }); }
+    makeTask(values, captureId, attempt) { return this.enqueue(()=>require("./native-inbox-task").submit(this,values,captureId,attempt)); }
 }
 
 module.exports = { HubInboxService };

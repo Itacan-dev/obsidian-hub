@@ -1,42 +1,14 @@
-# N1-C Step structure and private task content
+# Flat Step structure and private task content
 
-2026-10-17. D05/D06 are approved for **inactive, synthetic/disposable implementation only**. No host, live migration, renderer, production Search, authority switch or new storage service is supplied. [Verification](../.obsidian/plugins/hub-project-menu/lib/tests/native-step-content-verification.md), [declarations](src/step-content.d.ts), [N1-D handoff](../.obsidian/plugins/hub-project-menu/lib/services/TASK-SERVICE-PHASE-N1-D.md).
+See [the active flat-Step model](FLAT-STEPS.md). Every Step belongs directly to one Task.
 
-## Existing core and the narrow extension
+`task.editStructure` accepts a complete ordered draft with `state`, `id`, `order`, `title`, `body`, and `completed`, explicit `{stepId}` deletions, a Task title/description patch and guarded current content. Existing Steps retain identity and completion; new structural Steps start open. Full-draft order must be exactly zero through n−1. Reordering and deletion never traverse descendants. Completion uses the existing completion command or atomic Save intention.
 
-The existing core already supports explicit Step ancestry/order, single-Step add/update/reorder/delete, independent completion, parent task revisions, global live/retired UUID reservations, receipts, candidate validation and atomic complete-state publication. These mechanisms remain authoritative. Sequential updates cannot safely insert between siblings or move multiple Steps when intermediate orders/cycles would be invalid. `task.editStructure` adds one full-tree operation inside the existing dispatcher and transaction. It introduces no second command bus, database or cross-store transaction.
+The Task revision, identity reservations, exactly-once receipts, source preservation and crash recovery guarantees are unchanged. The persisted v1 ancestry slot is retained only for historical evidence; new records store null. No ancestry field is required by the active draft type.
 
-The existing native task/Step/state schema remains version 1. Previously valid schema-1 tasks without this private extension remain valid; old sparse sibling orders retain their old semantics. Strict contiguous ordering applies to the new full-tree draft contract only. Original commands remain available and preserve the new private content linkage when operating on an opted-in task.
+## Historical evidence and private content
 
-## Structural edit contract
-
-The command has the ordinary `operationId`, `taskId` and `expectedRevision`, plus `type: "task.editStructure"`. Payload fields are all required:
-
-| Field | Meaning |
-|---|---|
-| `version: 1` | Independent structural command contract |
-| `draft` | `{version:1, taskId, expectedRevision, steps}`; parent identity/revision must equal the command |
-| `deletions` | Explicit `{stepId, cascade, descendantIds}` requests |
-| `taskPatch` | Optional properties `title` and `description` only; dates/recurrence/completion are excluded |
-| `content` | Null where no private content exists and all bodies are empty, or guarded content intent |
-
-Each draft Step requires `state`, `id`, `parentStepId`, `order`, `title`, `body` and `completed`. `state` is `existing` or `new`; there is no ID/title/position inference. IDs are explicit canonical UUIDs. Existing IDs must belong to this parent task; new IDs must be globally unreserved, including retired IDs. Rejection publishes neither reservations nor receipts, so an uncommitted proposed ID can be retried safely. This does not consume or coordinate N1-B identity plans.
-
-`parentStepId: null` means a direct child of the task; another UUID must identify a Step in the same final tree. Self-parenting, missing/foreign parents and cycles fail. Every sibling group must have the exact sequence of order values `0..n-1`, with no duplicate, negative or gapped order. Input array order does not define ancestry/order. The committed array is deterministic preorder with siblings sorted by `order`; body rows follow that order.
-
-Include every existing Step exactly once, or explicitly delete it. Omission is never implicit deletion. Inserting first/between/last updates all affected sibling orders in one draft. Reparenting a subtree changes its root's parent/order and any affected siblings; unchanged descendants retain their IDs/parents/order. Moving between groups uses the same full-tree validation. All affected records publish together.
-
-Existing completion and `completedAt` are preserved. Draft `completed` must match the existing value; a new Step must be open. Use existing completion commands for actual transitions. Structural edits generate no completion events, infer no timestamps and do not complete the parent. Existing created timestamps survive; changed Steps get the injected modification time. Whole-task revision advances once, rather than once per Step.
-
-## Deletion and retained evidence
-
-Deleting a leaf needs an explicit deletion request and an empty `descendantIds`. Deleting an ancestor fails unless `cascade:true` and `descendantIds` exactly confirm its **current** descendants, excluding the root. Parent revision guards this confirmation. Duplicate/overlapping requests fail; no survivor is silently reparented.
-
-Removed IDs enter the existing global `retiredStepIds`; current completion bindings for removed Steps are detached, while historical event records/snapshots/counting remain unchanged. No duplicate completion or compensating event is created. The command receipt retains the canonical requested full draft/deletions; earlier task receipts retain prior complete Step structures. Private content revisions retain previous bodies and removed IDs, and original captures remain immutable. This is review/recovery evidence, **not** a comprehensive Step tombstone format or an undo/restore command. Prior structure retention currently depends on unpruned repository receipts; no receipt compaction or long-term archival policy is introduced.
-
-## Content intent and single-state storage
-
-The guarded intent is `{version:1, expectedRevision, appendOriginals, continuation}`. Its expected revision is the current private content revision count, or zero before opt-in. Each Step's explicit `body` comes from the full draft. A task with private content requires an explicit content guard for this command. Title, explicit description, current continuation and current Step title/body are independent choices; source capture never automatically populates them.
+The following source-envelope interpretation exists to validate original retained evidence. It does not discover Markdown tasks or enable nested native Steps.
 
 Private content uses the existing private `task.migration.evidence` JSON carrier under reserved `format:"itacan-private-task-content"`, version 1, decision revision `N1-C-D05-D06-r1` and exact required capability `private-source-content-v1`. It contains:
 

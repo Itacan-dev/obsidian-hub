@@ -4027,3 +4027,9 @@ body.hub-project-note-mode
 .hub-inbox-dialog .hub-inbox-row-copy { min-width: 0; }
 .hub-inbox-dialog .hub-inbox-row-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .hub-quick-add-dialog.is-expanded:has(.hub-native-capture-task) { width: 560px; }
+.hub-task-operation-status {
+    color: var(--text-muted);
+    font-size: var(--font-ui-smaller);
+    margin-inline-start: 0.5em;
+    overflow-wrap: anywhere;
+}

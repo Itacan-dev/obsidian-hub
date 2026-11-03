@@ -3,7 +3,6 @@ const { dispose: disposeCompletionAudio } = require("./lib/ui/completion-audio")
 const { mountMusicControl } = require("./lib/ui/music");
 const { mountSettingsControl } = require("./lib/ui/settings");
 const { installAtlasIntegration } = require("./lib/atlas/obsidian/integration");
-const { processTaskWrite, isTaskWrite } = require("./lib/services/task-writes");
 const { DailyBriefService } = require("./lib/services/daily-brief");
 const { mountDailyBriefControl } = require("./lib/ui/daily-brief-control");
 const { HubInboxService } = require("./lib/services/inbox");
@@ -30,7 +29,6 @@ const {
     TFolder
 } = require("obsidian");
 
-const { taskProgressMutation } = require("./lib/domain/task-progress");
 const { queryHistory } = require("./lib/domain/history");
 const { savedReportContext, reportDay } = require("./lib/domain/report-context");
 const { mountTransientEffects } = require("./lib/ui/attention");
@@ -44,9 +42,7 @@ const { ProjectDeletionModal } = require("./lib/ui/project-deletion");
 const { createPreparedNoteRails, NOTE_RAIL_VIEW } = require("./lib/ui/prepared-note-rail");
 const { progressRatingOptions } = require('./lib/config');
 const { createImmediateHubTooltip } = require('./lib/ui/tooltips');
-const { HubTaskEditor } = require('./lib/services/task-editor');
-const { openTaskEditor, openTaskCreator } = require('./lib/ui/task-editor');
-const { taskGroups, taskBlockEnd, insertTaskAtCursor, toggleTaskStep } = require('./lib/domain/task-planning');
+const { taskGroups } = require('./lib/domain/task-planning');
 const { HubOathService } = require('./lib/services/oath');
 const { createOathFullscreen } = require('./lib/services/oath-fullscreen');
 const { mountOathControl } = require('./lib/ui/oath');
@@ -69,10 +65,6 @@ const {
 
 const {
     APP_SHORTCUTS,
-    applyTaskEdit,
-    editTaskContent,
-    mutateTaskContent,
-    normalizedTaskText,
     CATEGORY_IMAGE_ROOT,
     DEFAULT_CATEGORIES,
     DEFAULT_SHORTCUT_IDS,
@@ -80,7 +72,6 @@ const {
     HUB_BACKUP_ROOT,
     HUB_BACKUP_VERSION,
     HubDataStore,
-    HubTaskDataService,
     HubPresets,
     HomeCovers,
     homeTimePeriod,
@@ -98,7 +89,6 @@ const {
     auditHubData,
     auditWorkspaceState,
     calculateHomeMomentum,
-    completedTaskText,
     createFileDomain,
     createDashboardUi,
     selectNavigation,
@@ -113,7 +103,6 @@ const {
     findResourceByReference,
     findResourceForPath,
     isProvisionalNoteTitle,
-    isCompletedTaskLine,
     localISODate,
     normalizeFocusItems,
     normalizeShortcutIds,
@@ -132,9 +121,6 @@ const {
     watchHubTooltips,
     mountHeaderImage,
     slugify,
-    taskLineMatchesText,
-    taskIdentity,
-    locateTaskLine,
     validVaultName,
     validateFocusItems
 } = require("./lib");
@@ -1118,7 +1104,7 @@ class ProjectAdvancementModal
                 this.evidenceRows.set(id, evidence);
             }
         };
-        if (this.getReportContexts) { document.addEventListener("hub-completed-tasks-changed", this.refreshEvidence); document.addEventListener("hub-task-progress-evidence-changed", this.refreshEvidence); }
+        if (this.getReportContexts) { document.addEventListener("hub-task-progress-evidence-changed", this.refreshEvidence); }
 
 
         this.contentEl.addClass(
@@ -1699,7 +1685,7 @@ class ProjectAdvancementModal
         this.focusEditor?.destroy();
         this.evidenceComponents?.forEach(component => component.unload());
         this.evidenceComponents?.clear();
-        if (this.refreshEvidence) document.removeEventListener("hub-completed-tasks-changed", this.refreshEvidence); document.removeEventListener("hub-task-progress-evidence-changed", this.refreshEvidence);
+        if (this.refreshEvidence) document.removeEventListener("hub-task-progress-evidence-changed", this.refreshEvidence);
 
         this.ratingTooltips?.dispose();
         this.ratingEffects?.destroy();
@@ -3729,8 +3715,6 @@ class ProjectWizardService {
         this.dailyFocus = {};
         this.pendingFocus = null;
         this.activityLog = [];
-        this.completedTaskHistory = [];
-        this.completedTaskChecks = [];
         this.projectCardOrder = {
             active: [],
             future: [],
@@ -3853,36 +3837,6 @@ class ProjectWizardService {
                     ? this.data.activityLog
                     : [];
 
-            this.completedTaskHistory =
-                Array.isArray(
-                    this.data.completedTaskHistory
-                )
-                    ? this.data.completedTaskHistory
-                        .filter(
-                            item =>
-                                item &&
-                                typeof item === "object" &&
-                                typeof item.text === "string" &&
-                                typeof item.path === "string"
-                        )
-                    : [];
-
-            this.completedTaskChecks =
-                Array.isArray(
-                    this.data.completedTaskChecks
-                )
-                    ? this.data.completedTaskChecks
-                        .filter(
-                            item =>
-                                item &&
-                                typeof item === "object" &&
-                                typeof item.path === "string" &&
-                                typeof item.text === "string" &&
-                                Number.isInteger(item.line) &&
-                                Number.isFinite(item.timestamp)
-                        )
-                    : [];
-
             const savedProjectCardOrder =
                 this.data.projectCardOrder;
 
@@ -3915,12 +3869,6 @@ class ProjectWizardService {
 
             this.data.activityLog =
                 this.activityLog;        
-
-            this.data.completedTaskHistory =
-                this.completedTaskHistory;
-
-            this.data.completedTaskChecks =
-                this.completedTaskChecks;
 
             this.data.projectCardOrder =
                 this.projectCardOrder;
@@ -4702,9 +4650,7 @@ class ProjectWizardService {
         }
 
         for (const collection of [
-            this.activityLog,
-            this.completedTaskHistory,
-            this.completedTaskChecks
+            this.activityLog
         ]) {
             for (const item of collection) {
                 if (!item || typeof item !== "object") continue;
@@ -5668,234 +5614,9 @@ class ProjectWizardService {
 
 
     getCompletedTaskHistory(projectId = null) {
-        return queryHistory(this.completedTaskHistory, { workspaceId: projectId });
-    }
-
-
-    getCompletedTaskCheck(path, line, text, hubTaskId) {
-        const checks = this.completedTaskChecks.filter(item => item.kind !== "step");
-        const identified = hubTaskId ? checks.filter(item => item.hubTaskId === hubTaskId) : [];
-        if (identified.length) return identified.length === 1 ? identified[0] : null;
-        const matches = checks.filter(item => item.path === path && normalizedTaskText(item.text) === normalizedTaskText(text));
-        return matches.find(item => item.line === line) ?? (matches.length === 1 ? matches[0] : null);
-    }
-
-    getCompletedTaskTimestamp(path, line, text, hubTaskId) {
-        return this.getCompletedTaskCheck(path, line, text, hubTaskId)?.timestamp ?? null;
-    }
-
-    async recordTaskMutation(edit, context, timestamp = Date.now()) {
-        if (!edit.changed && !edit.progressTransitions?.length) return false;
-        const previousChecks = this.completedTaskChecks;
-        const previousHistory = this.completedTaskHistory;
-        const next = taskProgressMutation(previousChecks, previousHistory, edit, context, timestamp, randomUUID);
-        this.completedTaskChecks = this.data.completedTaskChecks = next.checks;
-        this.completedTaskHistory = this.data.completedTaskHistory = next.history;
-        try { await this.store.save(this.data); }
-        catch (error) {
-            this.completedTaskChecks = this.data.completedTaskChecks = previousChecks;
-            this.completedTaskHistory = this.data.completedTaskHistory = previousHistory;
-            throw error;
-        }
-        return next.changed;
-    }
-
-    getCompletedTaskHistoryId(path, line, text, hubTaskId) {
-        const check = this.getCompletedTaskCheck(path, line, text, hubTaskId);
-        return check?.historyId && this.completedTaskHistory.some(record => record.id === check.historyId)
-            ? check.historyId : null;
-    }
-
-
-    async removeClearedTaskChecks(
-        clearedTasks
-    ) {
-
-        const previous =
-            this.completedTaskChecks;
-
-        const clearedByPath =
-            new Map();
-
-
-        for (const task of clearedTasks) {
-
-            if (!clearedByPath.has(task.path)) {
-                clearedByPath.set(
-                    task.path,
-                    []
-                );
-            }
-
-
-            clearedByPath.get(task.path)
-                .push(task);
-        }
-
-
-        const checksToRemove =
-            new Set();
-
-
-        for (const task of clearedTasks) {
-
-            const exact =
-                previous.find(
-                    item =>
-                        item.path === task.path &&
-                        item.line === task.line &&
-                        item.text === task.text
-                );
-
-
-            if (exact) {
-                checksToRemove.add(exact);
-                continue;
-            }
-
-
-            const matches =
-                previous.filter(
-                    item =>
-                        item.path === task.path &&
-                        item.text === task.text
-                );
-
-
-            if (matches.length === 1) {
-                checksToRemove.add(
-                    matches[0]
-                );
-            }
-        }
-
-
-        this.completedTaskChecks =
-            previous
-                .filter(
-                    item =>
-                        !checksToRemove.has(item) && !clearedTasks.some(task => task.hubTaskId && (item.hubTaskId === task.hubTaskId || item.parentTaskId === task.hubTaskId)) && !(clearedByPath.get(item.path) ?? []).some(task =>
-                            item.line >= task.line && item.line < task.line + (task.removedLines ?? 1))
-                )
-                .map(item => {
-
-                    const cleared =
-                        clearedByPath.get(
-                            item.path
-                        ) ?? [];
-
-                    const shift =
-                        cleared.filter(
-                            task =>
-                                task.line < item.line
-                        ).reduce((count, task) => count + (task.removedLines ?? 1), 0);
-
-
-                    return shift > 0
-                        ? {
-                            ...item,
-                            line:
-                                item.line - shift
-                        }
-                        : item;
-                });
-
-
-        this.data.completedTaskChecks =
-            this.completedTaskChecks;
-
-
-        try {
-
-            await this.store.save(
-                this.data
-            );
-
-        } catch (error) {
-
-            this.completedTaskChecks =
-                previous;
-
-            this.data.completedTaskChecks =
-                this.completedTaskChecks;
-
-            throw error;
-        }
-    }
-
-
-    async addCompletedTaskRecords(
-        records
-    ) {
-
-        this.completedTaskHistory.unshift(
-            ...records
-        );
-
-        this.data.completedTaskHistory =
-            this.completedTaskHistory;
-
-        try {
-
-            await this.store.save(
-                this.data
-            );
-
-        } catch (error) {
-
-            const addedIds =
-                new Set(
-                    records.map(
-                        record => record.id
-                    )
-                );
-
-            this.completedTaskHistory =
-                this.completedTaskHistory.filter(
-                    item =>
-                        !addedIds.has(item.id)
-                );
-
-            this.data.completedTaskHistory =
-                this.completedTaskHistory;
-
-            throw error;
-        }
-    }
-
-
-    async removeCompletedTaskRecords(
-        recordIds
-    ) {
-
-        const ids = new Set(recordIds);
-        const previous =
-            this.completedTaskHistory;
-
-        this.completedTaskHistory =
-            this.completedTaskHistory.filter(
-                item => !ids.has(item.id)
-            );
-
-        this.data.completedTaskHistory =
-            this.completedTaskHistory;
-
-        try {
-
-            await this.store.save(
-                this.data
-            );
-
-        } catch (error) {
-
-            this.completedTaskHistory =
-                previous;
-
-            this.data.completedTaskHistory =
-                this.completedTaskHistory;
-
-            throw error;
-        }
+        const observation = this.taskProgressEvidence?.();
+        if (observation?.availability !== "current") return [];
+        return queryHistory(observation.records, { workspaceId: projectId });
     }
 
 
@@ -12021,6 +11742,7 @@ module.exports = class HubProjectMenu extends Plugin {
 
 
     async onload() {
+        this.taskStartupClock = performance.now();
 
         this.register(installWindowMinimum(window));
 
@@ -12718,21 +12440,6 @@ module.exports = class HubProjectMenu extends Plugin {
         window.hubCreateFileDomain =
             createFileDomain;
 
-        window.hubToggleTask = (
-            path,
-            line,
-            text,
-            completed,
-            hubTaskId
-        ) => this.toggleTask(
-            path,
-            line,
-            text,
-            completed,
-            hubTaskId
-        );
-        window.hubApplyTaskEdit = applyTaskEdit;
-        this.taskEditor = new HubTaskEditor(this);
         const oathNativeModule = this.app.vault.adapter.getBasePath?.();
         let strictOath = null;
         if (oathNativeModule && window.electron?.remote && window.electronWindow) {
@@ -12748,20 +12455,17 @@ module.exports = class HubProjectMenu extends Plugin {
         window.hubCreateWorkspaceCards = (root, component, renderImage, categories) =>
             createWorkspaceCards({ app: this.app, root, component, renderImage, categories, oath: this.oath });
         window.hubCreateTaskRow = require("./lib/ui/tasks").createTaskRow;
+        window.hubRunNativeTaskToggle = require("./lib/ui/task-operation").runNativeTaskToggle;
         window.hubTaskGroups = taskGroups;
         window.hubTaskOwner = path => this.projectWizard.getContextForPath(path);
         window.hubCreateTaskUi = (component, body, onEdit, actions = {}) => createTaskUi({
-            app: this.app, component, body, onEdit, oath: this.oath, phaseLabel: task => this.planning?.phaseFor(task)?.name, mutate: actions.mutate ?? (request => this.mutateTask(request)),
-            editTask: actions.editTask ?? ((task, saved) => openTaskEditor(this.taskEditor, task, saved)),
+            app: this.app, component, body, onEdit, oath: this.oath, phaseLabel: task => this.planning?.phaseFor(task)?.name, mutate: actions.mutate,
+            editTask: actions.editTask,
             createTask: options => this.openTaskCreator(options)
         });
         window.hubCreateMarkdown = component => createHubMarkdown({ app: this.app, component });
-        this.taskData = new HubTaskDataService(this.app, { metadata: id => this.taskEditor.metadata(id) });
-        window.hubTaskData = this.taskData;
         this.planning = new (require("./lib/services/project-planning").ProjectPlanningService)(this);
         window.hubMountFullViewLayout = (root, component) => require("./lib/ui/full-view-layout").mountFullViewLayout({ root, component, app: this.app });
-        this.taskService = require("./lib/services/task-service-host").createLegacyTaskService(this);
-        this.contextSearch = new (require("./lib/services/context-search").ContextSearchService)(this);
         try { this.athena = require("./lib/athena/runtime.cjs").installAthena(this, {
             openSettings: () => require("./lib/ui/settings").getSettingsOwner(this).open("athena")
         }); }
@@ -12775,7 +12479,6 @@ module.exports = class HubProjectMenu extends Plugin {
         this.nativeTaskHost = require("./lib/services/native-task-host").createNativeTaskHost(this);
         if (this.nativeTaskHost) {
             require("./lib/services/native-task-report-evidence").attachNativeReportEvidence(this, this.nativeTaskHost);
-            this.nativeTaskHost.guardUnsupported();
             // Initial native admission waits for layout/metadata readiness.
             // Obsidian must finish plugin onload before that event can arrive.
             // Owner admission stays asynchronous on layout-ready loads too.
@@ -12783,12 +12486,13 @@ module.exports = class HubProjectMenu extends Plugin {
             this.addCommand({ id: "native-task-recovery", name: "Native task recovery",
                 callback: () => { this.nativeTaskRecoveryModal?.close(); this.nativeTaskRecoveryModal = require("./lib/ui/native-task-recovery").openNativeTaskRecovery(this); } });
         }
+        this.contextSearch = new (require("./lib/services/context-search").ContextSearchService)(this);
         window.hubMountTaskWorkspace = options => require("./lib/ui/task-workspace").mountTaskWorkspace({ plugin: this, ...options, nativeTasks: this.nativeTaskHost?.nativeTasks });
-        window.hubCreateTaskPanelRead = options => require("./lib/services/task-panel-read").createTaskPanelRead({
-            plugin: this, ...options, nativeTasks: this.nativeTaskHost?.nativeTasks, editTask: (task, saved) => openTaskEditor(this.taskEditor, task, saved)
+        window.hubCreateTaskPanelRead = options => this.nativeTaskHost.nativeTasks.createPanelRead({
+            plugin: this, ...options
         });
         window.hubCreateHomeTaskRead = options => require("./lib/services/home-task-read").createHomeTaskRead({
-            plugin: this, ...options, nativeTasks: this.nativeTaskHost?.nativeTasks, editTask: (task, saved) => openTaskEditor(this.taskEditor, task, saved)
+            plugin: this, ...options, nativeTasks: this.nativeTaskHost?.nativeTasks
         });
         window.hubCreateTaskHistoryRead = options => require("./lib/services/task-history-read").createTaskHistoryRead({ plugin: this, ...options, completionFeed: this.nativeTaskHost?.completionFeed });
         this.spotifyConnect = new (require("./lib/services/spotify-connect").SpotifyConnectBackend)(this);
@@ -12810,16 +12514,7 @@ module.exports = class HubProjectMenu extends Plugin {
         this.addCommand({ id: "inbox", name: "Inbox", callback: () => this.captureControls?.openInbox() });
         if (ITACAN_DEVELOPMENT) this.addCommand({ id: "daily-brief", name: "Daily brief (development)", callback: () => this.dailyBrief.openManual() });
         this.addCommand({ id: "the-oath", name: "The Oath", callback: () => this.oathControl?.open() });
-        this.addCommand({ id: "insert-markdown-task", name: "Insert task at cursor", editorCallback: (editor, view) => { this.nativeTaskHost?.rejectLegacy(view?.file?.path ?? this.app.workspace.getActiveFile()?.path); return insertTaskAtCursor(editor, view); } });
         this.addCommand({ id: "add-hub-task", name: "Add task", callback: () => this.openTaskCreator() });
-
-        window.hubClearCompletedTasks = (
-            tasks,
-            confirmMany = false
-        ) => this.clearCompletedTasks(
-            tasks,
-            confirmMany
-        );
 
         window.hubShowProjectFileMenu =
             (
@@ -12968,10 +12663,9 @@ module.exports = class HubProjectMenu extends Plugin {
         this.oathNavigation?.destroy();
         delete window.hubCreateWorkspaceCards;
         delete window.hubCreateTaskRow;
-        this.taskData?.destroy();
+        delete window.hubRunNativeTaskToggle;
         this.projectDeletion?.destroy();
         this.projectDeletionModal?.close();
-        delete window.hubTaskData;
 
         for (
             const timer
@@ -12997,8 +12691,6 @@ module.exports = class HubProjectMenu extends Plugin {
         delete window.hubMountHomeCover;
         delete window.hubMountWorkspaceExplorer;
         delete window.hubCreateFileDomain;
-        delete window.hubToggleTask;
-        delete window.hubApplyTaskEdit;
         delete window.hubCreateTaskUi;
         delete window.hubCreateTaskPanelRead;
         delete window.hubCreateHomeTaskRead;
@@ -13006,7 +12698,6 @@ module.exports = class HubProjectMenu extends Plugin {
         delete window.hubTaskGroups;
         delete window.hubTaskOwner;
         delete window.hubCreateMarkdown;
-        delete window.hubClearCompletedTasks;
         delete window.hubOpenProjectWizard;
         delete window.hubGetHomeProjects;
         delete window.hubGetProjectCategories;
@@ -13801,7 +13492,6 @@ module.exports = class HubProjectMenu extends Plugin {
 
 
     recordEditorActivity(file, editor) {
-        if (isTaskWrite(this, file, editor)) return;
         if (this.workspaceModes?.mode && this.app.workspace.getActiveFile() === file) this.workspaceModes.captureNoteLayout(true);
         this.scheduleEditedActivity(file);
     }
@@ -14128,444 +13818,9 @@ module.exports = class HubProjectMenu extends Plugin {
     }
 
     openTaskCreator(options = {}) {
-        if (!this.nativeTaskHost) return openTaskCreator(this.taskEditor, options);
         const owner = require("./lib/services/native-task-locations").nativeCreationOwner(this, options);
-        if (owner) return this.nativeTaskHost.create({ ...options, owner });
-        return openTaskCreator(this.taskEditor, options);
-    }
-
-    async toggleTask(path, lineNumber, taskText, completed, hubTaskId) {
-        return this.mutateTask({ path, line: lineNumber, text: taskText, completed, hubTaskId });
-    }
-
-    enqueueTaskMutation(work) {
-        const result = (this.taskMutationQueue ?? Promise.resolve()).then(work);
-        this.taskMutationQueue = result.catch(() => {});
-        return result;
-    }
-
-    mutateTask(request) {
-        const actionTimestamp = Date.now();
-        return this.enqueueTaskMutation(async () => {
-            const path = this.taskData?.currentPath(request.path) ?? request.path;
-            const file = this.app.vault.getAbstractFileByPath(path);
-            if (!file) throw new Error(`Task file not found: ${path}`);
-            const tasksApi = this.app.plugins.plugins["obsidian-tasks-plugin"]?.apiV1;
-            let edit;
-            await processTaskWrite(this, file, data => {
-                const args = { ...request, path };
-                const result = request.operation === "step" ? toggleTaskStep(data, args, randomUUID) : request.operation ? mutateTaskContent(data, args)
-                    : editTaskContent(data, args, (line, taskPath) => tasksApi?.executeToggleTaskDoneCommand
-                        ? tasksApi.executeToggleTaskDoneCommand(line, taskPath)
-                        : line.replace(/^(\s*(?:[-*+]|\d+[.)])\s+\[)([^\]])(\])/, (_all, prefix, mark, end) => prefix + (/^[xX]$/.test(mark) ? " " : "x") + end));
-                edit = result.edit;
-                return result.content;
-            });
-            try {
-                const context = this.projectWizard.getContextForPath(path);
-                if (await this.projectWizard.recordTaskMutation(edit, context, actionTimestamp)) this.notifyCompletedTasksChanged();
-            } catch (error) {
-                console.error("Could not save task History:", error);
-                new Notice("The task changed, but its History could not be saved.");
-            }
-            this.markProjectChangedByPath(path);
-            this.oath?.changed(edit);
-            return edit;
-        });
-    }
-
-
-    clearCompletedTasks(taskRequests, confirmMany = false) {
-        return this.enqueueTaskMutation(() => this.performClearCompletedTasks(taskRequests, confirmMany));
-    }
-
-    async performClearCompletedTasks(
-        taskRequests,
-        confirmMany = false
-    ) {
-
-        const requests =
-            Array.isArray(taskRequests)
-                ? taskRequests
-                    .map(item => ({
-                        hubTaskId: item?.hubTaskId ?? null,
-                        path:
-                            String(item?.path ?? ""),
-
-                        line:
-                            Number(item?.line),
-
-                        text:
-                            String(item?.text ?? ""),
-
-                        projectId:
-                            item?.projectId ?? null,
-
-                        projectName:
-                            String(
-                                item?.projectName ?? ""
-                            ),
-
-                        projectStatus:
-                            item?.projectStatus ?? null,
-
-                        projectPath:
-                            String(
-                                item?.projectPath ?? ""
-                            ),
-
-                        projectRoot:
-                            String(
-                                item?.projectRoot ?? ""
-                            ),
-
-                        contextKind:
-                            item?.contextKind ?? "project",
-
-                        resourceType:
-                            item?.resourceType ?? null
-                    }))
-                    .filter(
-                        item =>
-                            item.path &&
-                            Number.isInteger(
-                                item.line
-                            ) &&
-                            item.line >= 0 &&
-                            item.text
-                    )
-                : [];
-
-
-        if (requests.length === 0) {
-            return {
-                deleted: [],
-                cancelled: false
-            };
-        }
-
-
-        if (confirmMany) {
-
-            const confirmed =
-                await confirmAction(
-                    this.app,
-                    "Clear completed tasks?",
-                    requests.length === 1
-                        ? "Remove this completed task from its note? It will remain available in Tasks history."
-                        : `Remove these ${requests.length} completed tasks from their notes? They will remain available in Tasks history.`
-                );
-
-
-            if (!confirmed) {
-                return {
-                    deleted: [],
-                    cancelled: true
-                };
-            }
-        }
-
-
-        const requestsByPath =
-            new Map();
-
-
-        for (const request of requests) {
-
-            if (
-                !requestsByPath.has(
-                    request.path
-                )
-            ) {
-                requestsByPath.set(
-                    request.path,
-                    []
-                );
-            }
-
-
-            requestsByPath.get(
-                request.path
-            ).push(request);
-        }
-
-
-        const deleted = [];
-        const failures = [];
-
-
-        for (
-            const [path, pathRequests]
-            of requestsByPath
-        ) {
-
-            const file =
-                this.app.vault
-                    .getAbstractFileByPath(
-                        path
-                    );
-
-
-            if (!(file instanceof TFile)) {
-                failures.push(path);
-                continue;
-            }
-
-
-            try {
-
-                const original =
-                    await this.app.vault
-                        .read(file);
-
-                const lines =
-                    original.split("\n");
-
-                const usedLines =
-                    new Set();
-
-
-                const resolved =
-                    pathRequests.map(
-                        request => {
-
-                            let index = request.hubTaskId
-                                ? locateTaskLine(lines, request.line, request.text, request.hubTaskId)
-                                : request.line;
-
-
-                            if (
-                                usedLines.has(index) ||
-                                !isCompletedTaskLine(lines[index]) ||
-                                !taskLineMatchesText(lines[index], request.text)
-                            ) {
-
-                                const matches = [];
-
-
-                                for (
-                                    let i = 0;
-                                    i < lines.length;
-                                    i++
-                                ) {
-
-                                    if (
-                                        !usedLines.has(i) &&
-                                        isCompletedTaskLine(lines[i]) &&
-                                        taskLineMatchesText(lines[i], request.text)
-                                    ) {
-                                        matches.push(i);
-                                    }
-                                }
-
-
-                                if (matches.length !== 1) {
-                                    throw new Error(
-                                        "A completed task moved or changed while the dashboard was open."
-                                    );
-                                }
-
-
-                                index = matches[0];
-                            }
-
-
-                            usedLines.add(index);
-
-
-                            return {
-                                ...request,
-                                line: index,
-                                removedLines: taskBlockEnd(lines, index) - index,
-                                hubTaskId: taskIdentity(lines[index])
-                            };
-                        }
-                    );
-
-
-                const archivedAt =
-                    Date.now();
-
-                const records =
-                    resolved.filter(request => !this.projectWizard.getCompletedTaskHistoryId(
-                        request.path, request.line, request.text, request.hubTaskId
-                    )).map(
-                        (request, index) => ({
-                            id:
-                                globalThis.crypto
-                                    ?.randomUUID?.() ??
-                                `${archivedAt}-${index}-${Math.random().toString(36).slice(2)}`,
-
-                            text:
-                                request.text,
-
-                            path:
-                                request.path,
-
-                            line:
-                                request.line,
-
-                            projectId:
-                                request.projectId,
-
-                            projectName:
-                                request.projectName,
-
-                            projectStatus:
-                                request.projectStatus,
-
-                            projectPath:
-                                request.projectPath,
-
-                            projectRoot:
-                                request.projectRoot,
-
-                            contextKind:
-                                request.contextKind,
-
-                            resourceType:
-                                request.resourceType,
-
-                            timestamp:
-                                this.projectWizard
-                                    .getCompletedTaskTimestamp(
-                                        request.path,
-                                        request.line,
-                                        request.text, request.hubTaskId
-                                    ) ?? archivedAt,
-
-                            archivedAt
-                        })
-                    );
-
-
-                await this.projectWizard
-                    .addCompletedTaskRecords(
-                        records
-                    );
-
-
-                try {
-
-                    await processTaskWrite(this,
-                            file,
-                            currentData => {
-
-                                if (
-                                    currentData !==
-                                    original
-                                ) {
-                                    throw new Error(
-                                        "The task note changed while completed tasks were being cleared."
-                                    );
-                                }
-
-
-                                const updatedLines =
-                                    [...lines];
-
-
-                                resolved
-                                    .map(item => item.line)
-                                    .sort((a, b) => b - a)
-                                    .forEach(
-                                        line => {
-                                            updatedLines.splice(
-                                                line,
-                                                taskBlockEnd(updatedLines, line) - line
-                                            );
-                                        }
-                                    );
-
-
-                                return updatedLines
-                                    .join("\n");
-                            }
-                        );
-
-                } catch (error) {
-
-                    await this.projectWizard
-                        .removeCompletedTaskRecords(
-                            records.map(
-                                record =>
-                                    record.id
-                            )
-                        );
-
-                    throw error;
-                }
-
-
-                try {
-
-                    await this.taskEditor?.forget(resolved.map(task => task.hubTaskId));
-                    await this.projectWizard
-                        .removeClearedTaskChecks(
-                            resolved
-                        );
-
-                } catch (error) {
-
-                    console.error(
-                        "Could not tidy cleared task timestamps:",
-                        error
-                    );
-                }
-
-
-                deleted.push(
-                    ...resolved.map(
-                        item => ({
-                            path:
-                                item.path,
-
-                            line:
-                                item.line,
-
-                            text:
-                                item.text
-                        })
-                    )
-                );
-
-
-                this.markProjectChangedByPath(
-                    path
-                );
-
-            } catch (error) {
-
-                failures.push(path);
-
-                console.error(
-                    `Could not clear completed tasks from ${path}:`,
-                    error
-                );
-            }
-        }
-
-
-        if (deleted.length > 0) {
-            this.notifyCompletedTasksChanged({
-                deleted
-            });
-        }
-
-
-        if (failures.length > 0) {
-            new Notice(
-                failures.length === 1
-                    ? "Could not clear a completed task. The source note may have changed."
-                    : `Could not clear completed tasks from ${failures.length} notes.`
-            );
-        }
-
-
-        return {
-            deleted,
-            cancelled: false
-        };
+        if (!owner) throw Error("Choose an available native task workspace.");
+        return this.nativeTaskHost.create({ ...options, owner });
     }
 
     showProjectCoverMenu(
@@ -15736,27 +14991,7 @@ module.exports = class HubProjectMenu extends Plugin {
     }
 
 
-    notifyCompletedTasksChanged(
-        detail = {}
-    ) {
-
-        document
-            .querySelectorAll(
-                ".home-dashboard, .project-dashboard"
-            )
-            .forEach(dashboard => {
-
-                dashboard.dispatchEvent(
-                    new CustomEvent(
-                        "hub-completed-tasks-changed",
-                        {
-                            detail
-                        }
-                    )
-                );
-            });
-        document.dispatchEvent(new CustomEvent("hub-completed-tasks-changed", { detail }));
-    }
+    
 
 
     notifyFocusChanged(

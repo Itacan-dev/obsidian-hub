@@ -1,19 +1,17 @@
 {
-  "name": "@itacan/native-tasks",
-  "version": "0.1.0",
+  "name": "@itacan/taskcore-sqlite",
+  "version": "1.0.0",
   "private": true,
-  "description": "Inactive, portable native task repository foundation. No application integration.",
+  "description": "Itacan local SQLite task engine. Task synchronization is unavailable.",
   "type": "commonjs",
-  "main": "src/index.js",
-  "types": "src/contracts.d.ts",
+  "main": "vnext/engine.cjs",
+  "types": "vnext/contracts.d.ts",
   "exports": {
-    ".": { "types": "./src/contracts.d.ts", "require": "./src/index.js" },
-    "./json": { "types": "./src/json-repository.d.ts", "require": "./src/json-repository.js" }
+    ".": { "types": "./vnext/contracts.d.ts", "require": "./vnext/engine.cjs" }
   },
-  "engines": { "node": ">=20" },
+  "engines": { "node": ">=24" },
   "scripts": {
-    "test": "node --test tests/contract.test.cjs tests/persistence.test.cjs",
-    "benchmark": "node tests/benchmark.cjs"
+    "test": "node --test vnext/tests/engine.test.cjs vnext/tests/process.test.cjs vnext/tests/presentation.test.cjs vnext/tests/outbox.test.cjs vnext/tests/recurrence.test.cjs vnext/tests/application.test.cjs"
   },
   "license": "UNLICENSED"
 }

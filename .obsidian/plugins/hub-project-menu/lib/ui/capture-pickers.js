@@ -70,7 +70,6 @@ function openCaptureWorkspacePicker(service, { selectedId, onSelect, restoreFocu
                 if (!all.length) body.createEl("p", { cls: "hub-oath-muted", text: "No matching projects or resources." });
             };
             search.addEventListener("input", render);
-            service.plugin.taskData?.subscribe?.(this.owner, render);
             for (const event of ["create", "delete", "rename"]) listen(this.owner, service.app.vault, event, render);
             cancelAction(this); render(); search.focus();
         }

@@ -1,22 +1,19 @@
 "use strict";
 const { parseLocalISODate, validLocalTime, localDateTime, taskDateLabel, taskDateRangeLabel } = require("./dates");
-const { taskLineDetails, taskDisplayText, taskIdentity, locateTaskLine, normalizedTaskText } = require("./tasks");
-
 function taskCaptureSource(value) {
-    if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+    if (!value || typeof value !== "object" || Array.isArray(value))
+        return null;
     const source = {};
     for (const key of ["origin", "workspaceId", "workspaceName", "path", "title", "url"]) {
         const text = value[key] ?? (key === "title" ? value.pageTitle : key === "url" ? value.pageUrl : key === "workspaceName" ? value.name : null);
-        if (typeof text === "string" && text.trim()) source[key] = text.trim().slice(0, key === "url" || key === "path" ? 4096 : 512);
+        if (typeof text === "string" && text.trim())
+            source[key] = text.trim().slice(0, key === "url" || key === "path" ? 4096 : 512);
     }
     return Object.keys(source).length ? source : null;
 }
-
 function taskMetadata(value = {}) {
     const captureSource = taskCaptureSource(value?.captureSource);
     return {
-        // Optional plain Markdown text, kept in the existing identity-keyed
-        // metadata store. Never interpret note continuations as descriptions.
         ...(typeof value?.description === "string" && value.description.length ? { description: value.description } : {}),
         ...(typeof value?.phaseId === "string" && value.phaseId.trim() ? { phaseId: value.phaseId.trim() } : {}),
         necessity: ["should", "must"].includes(value?.necessity) ? value.necessity : null,
@@ -27,10 +24,10 @@ function taskMetadata(value = {}) {
         ...(captureSource ? { captureSource } : {})
     };
 }
-
 function validateTaskMetadata(value) {
     for (const key of ["fromDate", "dueDate"]) {
-        if (value[key] && !parseLocalISODate(value[key])) throw Error("Choose a valid date.");
+        if (value[key] && !parseLocalISODate(value[key]))
+            throw Error("Choose a valid date.");
     }
     for (const prefix of ["from", "due"]) {
         if (value[prefix + "Time"] && (!validLocalTime(value[prefix + "Time"]) || !value[prefix + "Date"])) {
@@ -43,36 +40,34 @@ function validateTaskMetadata(value) {
     }
     return metadata;
 }
-
 function taskIsOverdue(task, now = new Date()) {
     const due = localDateTime(task.dueDate, task.dueTime);
     return !!due && due < now;
 }
-
 // An untimed start is reached at local midnight; untimed due dates remain end-of-day.
 function taskStartDate(task) {
     return localDateTime(task.fromDate, task.fromTime || "00:00");
 }
-
 function taskIsFuture(task, now = new Date()) {
     const start = taskStartDate(task);
     return !task.completed && !!start && start > now;
 }
-
 function taskDatePresentation(task, now = new Date()) {
     if (taskIsFuture(task, now)) {
-        if (task.dueDate) return { label: taskDateRangeLabel(task.fromDate, task.fromTime, task.dueDate, task.dueTime, now) };
+        if (task.dueDate)
+            return { label: taskDateRangeLabel(task.fromDate, task.fromTime, task.dueDate, task.dueTime, now) };
         return { label: "Starts " + taskDateLabel(task.fromDate, task.fromTime, false, now) };
     }
-    if (!task.dueDate) return null;
+    if (!task.dueDate)
+        return null;
     const prefix = !task.completed && taskIsOverdue(task, now) ? "Overdue " : "Due ";
     return { label: prefix + taskDateLabel(task.dueDate, task.dueTime, true, now),
         dateTime: task.dueDate + (validLocalTime(task.dueTime) ? "T" + task.dueTime : "") };
 }
-
 function taskGroups(items, now = new Date()) {
     // Preserve the date-string argument used by existing callers.
-    if (typeof now === "string") now = parseLocalISODate(now);
+    if (typeof now === "string")
+        now = parseLocalISODate(now);
     const taskOf = item => item.task && typeof item.task === "object" ? item.task : item;
     const rank = task => ({ must: 0, should: 1 }[task.necessity] ?? 2);
     const active = [], future = [], completed = [];
@@ -92,198 +87,4 @@ function taskGroups(items, now = new Date()) {
     future.sort((a, b) => a.task.fromDate.localeCompare(b.task.fromDate) || compare(a, b));
     return { active: active.map(x => x.item), future: future.map(x => x.item), completed: completed.map(x => x.item) };
 }
-
-const indent = line => (line.match(/^[ \t]*/)?.[0] ?? "").replace(/\t/g, "    ").length;
-
-// End of this Markdown list item, including indented prose and subordinate
-// lists. Blank separators are consumed only when more indented content follows.
-function taskBlockEnd(lines, start) {
-    const level = indent(lines[start]);
-    let end = start + 1;
-    while (end < lines.length) {
-        if (!lines[end].trim()) {
-            let next = end + 1;
-            while (next < lines.length && !lines[next].trim()) next++;
-            if (next >= lines.length || indent(lines[next]) <= level) break;
-            end = next;
-        }
-        if (indent(lines[end]) <= level) break;
-        end++;
-    }
-    return end;
-}
-
-function readTaskSnapshot(data, request) {
-    const lines = data.split(/\r?\n/);
-    const line = locateTaskLine(lines, request.line, request.text, request.hubTaskId);
-    const end = taskBlockEnd(lines, line);
-    const details = taskLineDetails(lines[line]);
-    const steps = [];
-    let fence = null;
-    for (let i = line + 1; i < end; i++) {
-        const token = lines[i].trim().match(/^(`{3,}|~{3,})/);
-        if (token) { if (!fence) fence = token[1][0]; else if (fence === token[1][0]) fence = null; continue; }
-        const child = !fence && taskLineDetails(lines[i]);
-        if (child) steps.push({ line: i, text: taskDisplayText(child.text), hubTaskId: taskIdentity(child.text), completed: /^[xX]$/.test(child.marker),
-            status: child.marker, indent: indent(lines[i]), end: taskBlockEnd(lines, i) });
-    }
-    return { path: request.path, line, end, text: taskDisplayText(details.text),
-        hubTaskId: taskIdentity(details.text), completed: /^[xX]$/.test(details.marker),
-        status: details.marker, steps, block: lines.slice(line, end).join("\n") };
-}
-
-function singleTaskText(value) {
-    const text = String(value ?? "").trim();
-    if (!text || /[\r\n]/.test(text)) throw Error("Enter task text on one line.");
-    if (taskIdentity(text)) throw Error("Task text cannot contain a Hub identity marker.");
-    return text;
-}
-
-// Retain native block IDs at the end of the Markdown line.
-function withIdentity(line, id) {
-    if (taskIdentity(line)) return line;
-    const nativeId = line.match(/\s+\^[a-zA-Z0-9-]+$/)?.[0] ?? "";
-    return line.slice(0, line.length - nativeId.length) + " <!-- hub-task:" + id + " -->" + nativeId;
-}
-// Resolve only inside the current parent block. Step progress never completes the parent.
-function toggleTaskStep(data, request, createId = () => globalThis.crypto.randomUUID()) {
-    const parent = readTaskSnapshot(data, request);
-    const matches = parent.steps.filter(step => (!request.step.hubTaskId || step.hubTaskId === request.step.hubTaskId) &&
-        normalizedTaskText(step.text) === normalizedTaskText(request.step.text));
-    const expectedLine = parent.line + request.step.line - request.line;
-    const step = matches.find(step => step.line === expectedLine) ?? (matches.length === 1 ? matches[0] : null);
-    if (!step) throw Error("This Step moved or changed. Refresh the task before checking it.");
-    if (step.hubTaskId && parent.steps.filter(item => item.hubTaskId === step.hubTaskId).length !== 1) {
-        throw Error("This Step was copied with its Hub ID. Resolve the copied identity before checking it.");
-    }
-    const eol = data.includes("\r\n") ? "\r\n" : "\n";
-    const lines = data.split(/\r?\n/);
-    if (step.completed !== request.stepCompleted) {
-        lines[step.line] = lines[step.line].replace(/^(\s*(?:[-*+]|\d+[.)])\s+\[)[^\]](\])/, (_all, prefix, suffix) =>
-            prefix + (request.stepCompleted ? "x" : " ") + suffix);
-        if (request.stepCompleted) {
-            lines[parent.line] = withIdentity(lines[parent.line], parent.hubTaskId ?? createId());
-            lines[step.line] = withIdentity(lines[step.line], step.hubTaskId ?? createId());
-        }
-    }
-    const content = lines.join(eol);
-    const saved = readTaskSnapshot(content, { ...request, line: parent.line });
-    return { content, edit: { operation: "step", path: request.path, line: parent.line,
-        requestLine: request.line, oldText: request.text, hubTaskId: parent.hubTaskId,
-        tasks: [{ line: saved.line, text: saved.text, hubTaskId: saved.hubTaskId, status: saved.status, completed: saved.completed, steps: saved.steps }],
-        progressTransitions: step.completed === request.stepCompleted ? [] : [{ kind: "step",
-            hubTaskId: saved.steps.find(item => item.line === step.line).hubTaskId,
-            parentTaskId: saved.hubTaskId, parentText: parent.text, text: step.text,
-            line: step.line, completed: request.stepCompleted }],
-        lineDelta: 0, changed: content !== data, wasCompleted: parent.completed, completed: saved.completed } };
-}
-
-function saveTaskSnapshot(data, snapshot, values, id = snapshot.hubTaskId, createId = () => globalThis.crypto.randomUUID()) {
-    const current = readTaskSnapshot(data, snapshot);
-    if (current.block !== snapshot.block) throw Error("This task or its Steps changed in the note. Reopen the task before saving.");
-    const eol = data.includes("\r\n") ? "\r\n" : "\n";
-    const lines = data.split(/\r?\n/);
-    const block = lines.slice(current.line, current.end);
-    const deleting = values.operation === "delete";
-    let replacement = [];
-    if (!deleting) {
-        const text = singleTaskText(values.text);
-        const completed = typeof values.completed === "boolean" ? values.completed : current.completed;
-        if (completed && !current.completed) id ??= createId();
-        const requested = (values.steps ?? snapshot.steps).map(step => ({ ...step }));
-        const existing = new Map(snapshot.steps.map(step => [step.line, step]));
-        for (const step of requested) {
-            if (step.completed && (!existing.get(step.line)?.completed || step.completedAt)) {
-                id ??= createId();
-                step.hubTaskId = existing.get(step.line)?.hubTaskId ?? createId();
-            }
-        }
-        const seen = new Set();
-        for (const step of requested) {
-            singleTaskText(step.text);
-            if (step.line != null && (!existing.has(step.line) || seen.has(step.line))) throw Error("A Step changed. Reopen this task.");
-            seen.add(step.line);
-        }
-        const removed = snapshot.steps.filter(step => !seen.has(step.line));
-        const updates = new Map(requested.filter(step => step.line != null).map(step => [step.line, step]));
-        replacement = block.flatMap((value, offset) => {
-            const originalLine = snapshot.line + offset;
-            if (!offset) {
-                let prefix = value.match(/^([ \t]*(?:[-*+]|\d+[.)])\s+\[[^\]]\][ \t]*)/)[1];
-                if (completed !== current.completed) prefix = prefix.replace(/\[[^\]]\]/, completed ? "[x]" : "[ ]");
-                // Put our comment before an existing native block ID.
-                const nativeId = text.match(/\s+\^[a-zA-Z0-9-]+$/)?.[0] ?? "";
-                const title = nativeId ? text.slice(0, -nativeId.length) : text;
-                return [prefix + title + (id ? ` <!-- hub-task:${id} -->` : "") + nativeId];
-            }
-            if (removed.some(step => originalLine >= step.line && originalLine < step.end)) return [];
-            const update = updates.get(originalLine);
-            if (!update) return [value];
-            const before = existing.get(originalLine);
-            if (update.completed === before.completed && update.text === before.text && !update.completedAt) return [value];
-            const marker = update.completed === before.completed ? before.status : update.completed ? "x" : " ";
-            const stepId = taskIdentity(value) ?? update.hubTaskId;
-            const stepText = singleTaskText(update.text);
-            const nativeId = stepText.match(/\s+\^[a-zA-Z0-9-]+$/)?.[0] ?? "";
-            const title = nativeId ? stepText.slice(0, -nativeId.length) : stepText;
-            return [value.replace(/^(\s*(?:[-*+]|\d+[.)])\s+)\[[^\]]\].*$/, `$1[${marker}] `) + title +
-                (stepId ? ` <!-- hub-task:${stepId} -->` : "") + nativeId];
-        });
-        const whitespace = block[0].match(/^[ \t]*/)[0] + "    ";
-        replacement.push(...requested.filter(step => step.line == null).map(step =>
-            `${whitespace}- [${step.completed ? "x" : " "}] ${singleTaskText(step.text)}${step.hubTaskId ? ` <!-- hub-task:${step.hubTaskId} -->` : ""}`));
-    }
-    lines.splice(current.line, current.end - current.line, ...replacement);
-    const content = lines.join(eol);
-    const saved = deleting ? null : readTaskSnapshot(content, { path: snapshot.path, line: current.line, text: values.text, hubTaskId: id });
-    const progressTransitions = [];
-    if (saved) {
-        if (saved.completed !== current.completed) {
-            progressTransitions.push({ kind: "task", hubTaskId: saved.hubTaskId,
-                text: saved.text, oldText: current.text, line: saved.line, lookupLine: current.line,
-                completed: saved.completed, ...(values.completedAt ? { timestamp: values.completedAt } : {}) });
-        }
-        // Editor checkbox changes commit on Save, with the time of the action.
-        for (const [index, step] of [...(values.steps ?? snapshot.steps)].sort((a, b) => (a.line ?? Infinity) - (b.line ?? Infinity)).entries()) {
-            const before = snapshot.steps.find(item => item.line === step.line);
-            if (!!before?.completed === !!step.completed && !step.completedAt) continue;
-            const after = saved.steps[index];
-            progressTransitions.push({ kind: "step", hubTaskId: after.hubTaskId,
-                parentTaskId: saved.hubTaskId, parentText: saved.text, text: after.text,
-                line: after.line, completed: after.completed, ...(step.completedAt ? { timestamp: step.completedAt } : {}) });
-        }
-    }
-    return { content, edit: { operation: deleting ? "delete" : "edit", path: snapshot.path,
-        line: current.line, requestLine: snapshot.line, oldText: snapshot.text, hubTaskId: snapshot.hubTaskId,
-        tasks: saved ? [{ ...saved, ...taskMetadata(values), lineCount: saved.end - saved.line }] : [],
-        lineDelta: replacement.length - (current.end - current.line), removedLines: current.end - current.line,
-        changed: content !== data, progressTransitions, wasCompleted: current.completed, completed: !!saved?.completed,
-        preserveContinuation: false } };
-}
-
-function appendTask(data, text) {
-    let fence = null, frontmatter = /^---\s*\r?\n/.test(data);
-    for (const [index, line] of data.split(/\r?\n/).entries()) {
-        if (frontmatter) { if (index && /^(---|\.\.\.)\s*$/.test(line)) frontmatter = false; continue; }
-        const match = line.match(/^\s*(`{3,}|~{3,})(.*)$/);
-        if (!match) continue;
-        if (!fence) fence = match[1];
-        else if (match[1][0] === fence[0] && match[1].length >= fence.length && !match[2].trim()) fence = null;
-    }
-    if (fence || frontmatter) throw Error("Close the open code fence or Properties block in this note before adding a task.");
-    const eol = data.includes("\r\n") ? "\r\n" : "\n";
-    return data + (data.endsWith("\n") || !data ? "" : eol) + `${eol}- [ ] ${singleTaskText(text)}${eol}`;
-}
-
-function insertTaskAtCursor(editor) {
-    const cursor = editor.getCursor();
-    const line = editor.getLine(cursor.line);
-    if (taskLineDetails(line)) { editor.setCursor({ line: cursor.line, ch: line.length }); return; }
-    const prefix = line.match(/^[ \t]*(?:(?:[-*+]|\d+[.)])\s+)?/)[0];
-    const indentation = line.match(/^[ \t]*/)[0];
-    const marker = /(?:[-*+]|\d+[.)])\s+$/.test(prefix) ? prefix : indentation + "- ";
-    editor.replaceRange(marker + "[ ] ", { line: cursor.line, ch: 0 }, { line: cursor.line, ch: prefix.length });
-    editor.setCursor({ line: cursor.line, ch: Math.max(marker.length + 4, cursor.ch + marker.length + 4 - prefix.length) });
-}
-
-module.exports = { withIdentity, taskStartDate, taskIsFuture, taskDatePresentation, taskIsOverdue, taskMetadata, validateTaskMetadata, taskGroups, taskBlockEnd, readTaskSnapshot, saveTaskSnapshot, appendTask, insertTaskAtCursor, toggleTaskStep };
+module.exports = { taskCaptureSource, taskStartDate, taskIsFuture, taskDatePresentation, taskIsOverdue, taskMetadata, validateTaskMetadata, taskGroups };

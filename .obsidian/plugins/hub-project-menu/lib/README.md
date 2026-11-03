@@ -352,34 +352,11 @@ real Progress action, all seven sections, global workspace/range persistence, gr
 category colors, period notes, global comparison, chart keyboard
 details, native close/Escape, long names/lists and 310–1000px modal widths.
 
-Workspace Tasks uses `ui/task-workspace.js` with separate Upcoming, Calendar,
-Timeline, All tasks and Resource hierarchy renderers. View state lives with the
-Dataview container and survives warm frame rebuilds. The Files tree and sidebar
-stay mounted; task navigation is hidden in the existing note rail. Searches,
-filters, calendar ranges and sort order never write task metadata.
+﻿Native tasks use TaskCore application commands and validated reads throughout Home, Projects, Resources, Schedule, Search, Inbox, Oath, History and Statistics. There is no Markdown task service, Dataview task query, source-line identity, task note writer or backend fallback. Task edits retain native operation IDs and use native receipts and recovery. See [the native-only architecture and product constraints](../../../../ItacanTaskCore/integration/NATIVE-ONLY.md).
 
-`domain/task-views.js` defines deterministic Project/Resource views and shared
-date buckets. `task-data.readWorkspace` adds Resource tasks whose optional
-`linkedProjectId` matches the Project without copying tasks or changing panel
-queries. This optional metadata field preserves legacy task records. Project
-selection permits active Projects; existing shelved links remain readable.
+Markdown files remain ordinary notes. Native locations can reference workspace files without reading their checkboxes as tasks. Dataview still renders generic dashboards; native task state and operations do not depend on its index.
 
-The shared Add/Edit form scopes Location to real workspace notes/folders.
-Folder destinations create Tasks.md only when saving. Moves preserve the whole
-Markdown task block and stable parent/Step IDs, rebind live completion checks,
-and leave historical snapshots/timestamps untouched. Writes roll back only
-while their exact content is still current. Search/filter rendering uses one
-indexed task snapshot per refresh, not repeated Markdown parsing.
-
-`ui/app-shortcuts.js` mounts existing launchers in the bottom shell and retains
-Home/category shortcut selection and ordering. The group contracts within the
-free span between the global controls and native status items.
-
-Run `node lib/tests/task-workspace.test.js` for query/date/link/move/rollback
-coverage and `node lib/tests/run-browser-test.js task-workspace` for the full
-Project/Resource navigation, shared editor and checkbox flows, shortcut behavior,
-and 1040/760/420px layouts. The browser fixture uses isolated in-memory notes;
-it does not modify the live vault.
+The Schedule retains view state with its dashboard container. Native Phase assignments use TaskCore commands; planning data stores Phase and milestone definitions only. The existing app shortcuts, Files tree and note rail retain their independent behavior.
 
 Workspace Files uses `ui/workspace-explorer.js` in both Full-view and the native
 Note-view rail. `domain/workspace-explorer.js` projects existing vault objects

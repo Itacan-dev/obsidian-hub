@@ -20,13 +20,12 @@ async function run() {
     };
     try {
         const note = path.join(root, "Projects/Itacan/Itacan.md");
-        await write(note, "---\ntype: project\nprojectId: itacan\ncategory: application\n---\n- [ ] Shared task <!-- hub-task:shared-task -->\n");
-        await write(path.join(root, "Projects/Personal/Personal.md"), "---\nprojectId: private-project\ncategory: private-category\n---\n- [ ] Private task <!-- hub-task:private-task -->\n");
+        await write(note, "---\ntype: project\nprojectId: itacan\ncategory: application\n---\n- [ ] Ordinary note checkbox\n");
+        await write(path.join(root, "Projects/Personal/Personal.md"), "---\nprojectId: private-project\ncategory: private-category\n---\n# Private note\n");
         const shared = {
             schemaVersion: 1, projects: { itacan: { root: "Projects/Itacan", categoryId: "application" } },
             categories: [{ id: "application", image: "Assets/ProjectCards/wip.jpg" }],
             projectPlanning: { itacan: { version: 1, revision: 1, phases: [{ id: "phase", name: "Phase", start: "2026-10-01", end: "2026-10-31" }], milestones: [{ id: "release", date: "2026-10-31" }] } },
-            taskMetadata: { "shared-task": { necessity: "must", dueDate: "2026-10-31", phaseId: "phase" } },
             headerImagePlacements: { "card:project:itacan::Assets/ProjectCards/wip.jpg": { x: 50, y: 40, zoom: 2 } }
         };
         await write(sharedFile, shared);
@@ -34,53 +33,44 @@ async function run() {
         const store = new HubDataStore(plugin);
         const loaded = await store.load();
         assert.deepEqual(loaded.projectPlanning, shared.projectPlanning);
-        assert.deepEqual(loaded.taskMetadata, shared.taskMetadata);
         assert(loaded.categories.some(category => category.id === "physics-research"), "Built-in categories remain available");
-        assert.deepEqual(read(dataFile).taskMetadata, {});
 
         loaded.workspaceMode = { privatePreset: "keep local" };
         loaded.oathsByDevice = { privateDevice: { current: "keep local" } };
         loaded.inbox = { text: "private capture" };
-        loaded.taskMetadata["private-task"] = { necessity: "should" };
         loaded.projectPlanning["private-project"] = { private: true };
         loaded.categories.push({ id: "private-category", image: "private/path.jpg" });
         loaded.headerImagePlacements["home::Assets/Covers/day.jpeg"] = { y: 30 };
         loaded.projectPlanning.itacan.phases[0].name = "Changed phase";
-        loaded.taskMetadata["shared-task"].dueDate = "2026-11-01";
         await store.save(loaded);
         const local = read(dataFile), published = read(sharedFile);
         assert.deepEqual(local.workspaceMode, loaded.workspaceMode);
         assert.deepEqual(local.oathsByDevice, loaded.oathsByDevice);
-        assert.deepEqual(local.taskMetadata, { "private-task": { necessity: "should" } });
         assert.deepEqual(local.projectPlanning, { "private-project": { private: true } });
         assert.equal(published.projectPlanning.itacan.phases[0].name, "Changed phase");
-        assert.equal(published.taskMetadata["shared-task"].dueDate, "2026-11-01");
         assert(!JSON.stringify(published).includes("private"), "No private state is exported");
         const before = fs.readFileSync(sharedFile, "utf8");
         loaded.workspaceMode.privatePreset = "local edit";
         await store.save(loaded);
         assert.equal(fs.readFileSync(sharedFile, "utf8"), before, "Personal edits do not churn the shared file");
 
-        // New task identities are discovered from Markdown, without an external Git export step.
-        await fs.promises.appendFile(note, "- [ ] New task <!-- hub-task:new-task -->\n");
-        loaded.taskMetadata["new-task"] = { necessity: "should", phaseId: "phase" };
-        delete loaded.taskMetadata["shared-task"].dueDate;
+        // Checkboxes remain note content and never alter shared task state.
+        await fs.promises.appendFile(note, "- [ ] Ordinary checkbox\n");
         await store.save(loaded);
-        assert.deepEqual(read(sharedFile).taskMetadata["new-task"], loaded.taskMetadata["new-task"]);
-        assert(!Object.hasOwn(read(sharedFile).taskMetadata["shared-task"], "dueDate"));
+        assert.equal(fs.readFileSync(sharedFile, "utf8"), before);
 
         const external = read(sharedFile);
-        delete external.taskMetadata["shared-task"];
+        external.projectPlanning.itacan.phases[0].name = "External phase";
         await write(sharedFile, external);
         const localBeforeConflict = fs.readFileSync(dataFile, "utf8");
         await assert.rejects(store.save(loaded), error => error.code === "HUB_STATE_CONFLICT");
         assert.equal(fs.readFileSync(dataFile, "utf8"), localBeforeConflict);
         const reloaded = await new HubDataStore(plugin).load();
-        assert(!Object.hasOwn(reloaded.taskMetadata, "shared-task"), "Git deletion overrides stale local metadata");
         assert.equal(reloaded.workspaceMode.privatePreset, "local edit");
+        assert.equal(reloaded.projectPlanning.itacan.phases[0].name,"External phase");
 
         const retryStore = new HubDataStore(plugin), retryData = await retryStore.load();
-        retryData.taskMetadata["new-task"].necessity = "must";
+        retryData.projectPlanning.itacan.phases[0].name = "Retry phase";
         const atomic = retryStore.atomicWrite.bind(retryStore);
         retryStore.atomicWrite = async (data, file) => {
             if (file === sharedFile) throw Error("Simulated shared disk failure");
@@ -90,7 +80,8 @@ async function run() {
         assert.equal(fs.readFileSync(dataFile, "utf8"), localBeforeConflict, "Local write rolls back if shared persistence fails");
         retryStore.atomicWrite = atomic;
         await retryStore.save(retryData);
-        assert.equal(read(sharedFile).taskMetadata["new-task"].necessity, "must");
+
+        assert.equal(read(sharedFile).projectPlanning.itacan.phases[0].name,"Retry phase");
 
         // Publishing a newly assigned private category selects its image/template only.
         await write(path.join(root, "Assets/ProjectCards/Categories/application.jpg"), "image bytes");
@@ -111,9 +102,11 @@ async function run() {
         assert.throws(() => selectShared(retryData, ownership), /non-portable/);
         await write(sharedFile, "{broken");
         await assert.rejects(new HubDataStore(plugin).load(), SyntaxError);
-        console.log("PASS: fresh clone, live shared edits, task discovery/deletion, private isolation, Git conflicts, failed-write rollback/retry, selected image/template publication, path validation and malformed-state protection.");
+        console.log("PASS: fresh clone, live shared edits, ordinary checkbox isolation and shared planning, private isolation, Git conflicts, failed-write rollback/retry, selected image/template publication, path validation and malformed-state protection.");
     } finally {
-        await fs.promises.rm(root, { recursive: true, force: true });
+        const target=path.resolve(root),temp=path.resolve(os.tmpdir());
+        assert(target.startsWith(temp+path.sep)&&path.basename(target).startsWith("itacan-shared-"));
+        await fs.promises.rm(target, { recursive: true, force: true });
     }
 }
 run().catch(error => { console.error(error); process.exitCode = 1; });

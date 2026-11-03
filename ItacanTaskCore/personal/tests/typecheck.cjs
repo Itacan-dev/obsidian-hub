@@ -1,3 +1,0 @@
-"use strict";
-const path=require("node:path"),assert=require("node:assert/strict"),ts=require(process.env.ITACAN_TYPESCRIPT||path.join(require("node:os").tmpdir(),"itacan-int-20261021/AtlasCore/packages/core/node_modules/typescript/lib/typescript.js"));
-const program=ts.createProgram([path.join(__dirname,"types.fixture.ts")],{strict:true,noEmit:true,target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS,moduleResolution:ts.ModuleResolutionKind.Node10,ignoreDeprecations:"6.0",skipLibCheck:false,lib:["lib.es2022.d.ts","lib.dom.d.ts"]}),diagnostics=ts.getPreEmitDiagnostics(program);for(const d of diagnostics)console.error(ts.flattenDiagnosticMessageText(d.messageText,"\n"));assert.equal(diagnostics.length,0);console.log("PASS personal declarations",ts.version);

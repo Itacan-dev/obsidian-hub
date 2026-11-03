@@ -102,7 +102,7 @@ function captureIntent(values = {}, attachments = []) {
     const type = attachments.length ? (["task", "note", "file"].includes(input.type) || input.workspaceId || input.folder ? "file" : null) : ["task", "note"].includes(input.type) ? input.type : null;
     if (!type) return null;
     const intent = { inputPath: attachments.length ? "file" : "text", type };
-    const keys = type === "task" ? ["workspaceId", "location", "nativeLocation", "taskTitle", "description", "necessity", "fromDate", "dueDate", "fromTime", "dueTime", "phaseId"] :
+    const keys = type === "task" ? ["workspaceId", "nativeLocation", "taskTitle", "description", "necessity", "fromDate", "dueDate", "fromTime", "dueTime", "phaseId"] :
         type === "note" ? ["workspaceId", "folder", "title"] : ["workspaceId", "folder"];
     for (const key of keys) {
         if (typeof input[key] === "string" || input[key] === null) intent[key] = input[key];
@@ -116,7 +116,7 @@ function captureIntent(values = {}, attachments = []) {
     if (type === "task" && Array.isArray(input.steps)) {
         intent.steps = input.steps.map(step => {
             const result = {};
-            for (const key of ["text", "completed", "completedAt", "hubTaskId", "line", "path", "status", "indent", "end"]) {
+            for (const key of ["id", "text", "completed", "completedAt"]) {
                 if (["string", "number", "boolean"].includes(typeof step?.[key]) || step?.[key] === null) result[key] = step[key];
             }
             return result;
@@ -131,11 +131,11 @@ function captureDraft(capture = {}, type = null) {
         source: sourceMetadata(capture.source), ...(capture.intent ?? {}) };
     if(type && !operation) Object.assign(draft,capture.actionDrafts?.[type]??(capture.intent?.type===type?capture.intent:{}),{type});
     if (operation) {
-        const insertion = operation.kind === "note-insertion", task = ["task","native-task"].includes(operation.kind);
+        const insertion = operation.kind === "note-insertion", task = operation.kind === "native-task";
         Object.assign(draft, task ? operation.values : insertion ? {} : { folder: operation.folder, title: operation.title },
             { type: operation.kind === "files" ? "file" : insertion ? "note" : task ? "task" : operation.kind, workspaceId: operation.workspaceId },
             insertion ? { noteAction: "existing", noteLocation: noteLocation(operation.noteLocation) } : {});
-        if (task) Object.assign(draft, { text: operation.input?.text ?? operation.text, ...(operation.kind === "native-task" ? {taskTitle:operation.values.text,nativeLocation:operation.location?.id??""} : {location:operation.location}) });
+        if (task) Object.assign(draft, { text: operation.input?.text ?? operation.text, taskTitle:operation.values.text,nativeLocation:operation.location?.id??"" });
         else if (operation.input?.text !== undefined) draft.text = operation.input.text;
         // A rolled-back file/note attempt may retain an edited destination.
         // Ready receipts always retain their already-created destination.

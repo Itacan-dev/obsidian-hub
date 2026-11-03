@@ -1,3 +1,0 @@
-"use strict";
-const fs=require("node:fs/promises"),M=require("../membership"),J=require("../../src/json-repository");
-(async()=>{const input=JSON.parse(await fs.readFile(process.argv[2],"utf8")),signer=M.restore(input.replicaId,Buffer.from(input.privateKey,"base64")),personalSync={...input.personal,signer};const repo=await J.openJsonRepository({...input.options,idFactory:require("node:crypto").randomUUID,personalSync,fault:stage=>{if(stage===input.stage)process.exit(73)}});await repo.execute(input.command,undefined,input.packet?{version:1,packet:input.packet}:undefined);await repo.close();process.exit(0)})().catch(e=>{process.stderr.write(String(e.stack));process.exit(1)});

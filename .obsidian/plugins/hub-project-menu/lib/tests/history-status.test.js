@@ -17,12 +17,12 @@ const snapshot = {
  projectWorkLogs:Object.fromEntries(projects.map(p=>[p.projectId,{"2026-09-14":{projectName:p.name,summary:"Report",timestamp:100}}])),
  resourceWorkRatings:{study:{"2026-09-14":2}},
  resourceWorkLogs:{study:{"2026-09-14":{resourceName:"Knowledge",summary:"Study",timestamp:101}}},
- completedTaskHistory:[...projects.map(p=>({projectId:p.projectId,projectName:p.name,path:p.name+".md",text:"Done",timestamp:102})),{projectId:"resource:study",contextKind:"resource",text:"Resource task",path:"Resources/Knowledge/Note.md"}],
+ nativeRecords:[...projects.map(p=>({projectId:p.projectId,projectName:p.name,path:p.name+".md",text:"Done",timestamp:102})),{projectId:"resource:study",contextKind:"resource",text:"Resource task",path:"Resources/Knowledge/Note.md"}],
  activityLog:[...projects.map(p=>({projectId:p.projectId,project:p.name,action:"edited",path:p.name+".md",timestamp:102})),{projectId:"resource:study",contextKind:"resource",action:"edited",path:"Resources/Knowledge/Note.md"}]
 };
 function reload(data=snapshot) {
  const wizard=Object.assign(Object.create(compiled.exports.Wizard.prototype),JSON.parse(JSON.stringify(data)));
- wizard.getProjectRecords=()=>projects;wizard.getResourceById=id=>resources.find(r=>r.resourceType===id);
+ wizard.taskProgressEvidence=()=>({availability:"current",records:wizard.nativeRecords});wizard.getProjectRecords=()=>projects;wizard.getResourceById=id=>resources.find(r=>r.resourceType===id);
  return wizard;
 }
 for(const state of ["active","future","shelved","active","deleted"]){

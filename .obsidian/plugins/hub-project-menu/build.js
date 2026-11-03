@@ -5,7 +5,7 @@ const path = require("path");
 
 const pluginRoot = __dirname;
 const entryPath = path.join(pluginRoot, "plugin.js");
-const nativeRoot = path.resolve(pluginRoot, "../../../ItacanTaskCore");
+const nativeRoot = path.resolve(pluginRoot, "../../../ItacanTaskCore/vnext");
 const inside = (root, file) => { const r = path.relative(root, file); return r !== ".." && !r.startsWith(".." + path.sep) && !path.isAbsolute(r); };
 // Build current sources into a disposable profile without replacing installed bundles.
 const outputFlag = process.argv.indexOf("--output-dir");
@@ -93,12 +93,7 @@ function collectModule(filePath) {
 
     modules.set(id, null);
 
-    let source = fs.readFileSync(filePath, "utf8");
-    // Resolve only the two reviewed sibling-import closures at build time.
-    if (["integration/project-runtime.js", "integration/completion-feed.js"].some(name => filePath === path.join(nativeRoot, name))) {
-        source = source.replace(/require\((?:pluginRoot|lib) \+ (["'])([^"']+)\1\)/g,
-            (_match, _quote, suffix) => `require(${JSON.stringify("../../.obsidian/plugins/hub-project-menu/lib/" + suffix)})`);
-    }
+    const source = fs.readFileSync(filePath, "utf8");
     const transformed = source.replace(
         /require\(\s*(["'])(\.\.?\/[^"']+)\1\s*\)/g,
         (_match, _quote, request) => {
@@ -168,10 +163,7 @@ module.exports = __hubRequire(${JSON.stringify(entryId)});
 `;
 
 // Keep the existing distributed bundles' CRLF convention across source checkouts.
-const output = path.basename(outputPath) === "main.js"
-    ? `if (typeof process !== "undefined" && process.type === "browser") {\n${fs.readFileSync(path.join(pluginRoot, "lib/services/native-task-shutdown.cjs"), "utf8")}\n} else {\n${bundle}\n}\n`
-    : bundle;
-fs.writeFileSync(outputPath, output.replace(/\r?\n/g, "\r\n"), "utf8");
+fs.writeFileSync(outputPath, bundle.replace(/\r?\n/g, "\r\n"), "utf8");
 
 console.log(
     `Built ${path.basename(outputPath)} with ${modules.size} modules.`
@@ -199,3 +191,17 @@ for (const relative of strictAssets) {
     strictManifest[relative] = require("crypto").createHash("sha256").update(content).digest("hex");
 }
 fs.writeFileSync(path.join(outputDirectory, "strict-oath-assets.json"), JSON.stringify({ schemaVersion: 1, files: strictManifest }, null, 2));
+
+// SQLite and its close lifecycle execute outside the renderer bundle. Ordinary
+// builds must ship this explicit utility closure alongside the existing assets.
+for (const relative of ["engine.cjs", "validation.cjs", "recurrence.cjs", "schema.sql", "recurrence.sql",
+    "service.cjs", "client.cjs", "host/main.cjs", "host/electron.cjs"]) {
+    const target = path.join(outputDirectory, "lib/sqlite-taskcore", relative);
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.copyFileSync(path.join(nativeRoot, relative), target);
+}
+if (outputDirectory !== pluginRoot) {
+    const relative = "lib/services/oath-fullscreen.js", target = path.join(outputDirectory, relative);
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.copyFileSync(path.join(pluginRoot, relative), target);
+}

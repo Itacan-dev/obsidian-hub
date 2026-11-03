@@ -2,9 +2,8 @@
 const { localISODate, parseLocalISODate, itacanDay } = require("./dates");
 const { reportDay, captureReportContext } = require("./report-context");
 const { taskIsFuture, taskIsOverdue } = require("./task-planning");
-const { normalizedTaskText } = require("./tasks");
 
-/** @typedef {{kind: 'home'|'workspace'|'file'|'configuration', workspaceId?: string, path?: string, taskId?: string, stepId?: string, taskText?: string, taskLine?: number, stepText?: string}} BriefTarget */
+/** @typedef {{kind: 'home'|'workspace'|'file'|'configuration'|'native-task', workspaceId?: string, path?: string, taskId?: string, stepId?: string, authorityId?:string, owner?:Object}} BriefTarget */
 /**
  * @typedef {Object} DailyBriefContext
  * @property {string} briefDate Local 06:00 day key; report dates keep their existing midnight boundary.
@@ -41,7 +40,7 @@ function briefFromSnapshot(snapshot) {
         days, workspaces: days[0]?.workspaces ?? [] }, recommendation };
 }
 const identity = value => value.projectId ?? (value.resourceType ? `resource:${value.resourceType}` : null);
-const titleKey = text => normalizedTaskText(text).trim().toLocaleLowerCase();
+const titleKey = text => String(text??"").trim().toLocaleLowerCase();
 const dateOf = value => Number(value) > 0 && Number.isFinite(new Date(Number(value)).getTime())
     ? localISODate(new Date(Number(value))) : null;
 const byTime = (a, b) => Number(a.timestamp || 0) - Number(b.timestamp || 0);
@@ -58,23 +57,17 @@ function rankWorkspaces(workspaces) {
 function mergeProgress(records) {
     const result = new Map();
     for (const record of records) {
-        const key = `${record.kind ?? "task"}:${record.hubTaskId ?? record.id ??
+        const key = `${record.kind ?? "task"}:${record.id ??
             JSON.stringify([record.timestamp, record.path, record.parentText, record.text])}`;
         if (!result.has(key) || byTime(result.get(key), record) <= 0) result.set(key, { ...record });
     }
     return [...result.values()].sort(byTime);
 }
 function matchesProgress(task, event) {
-    if (task.nativeReference) return event.nativeHistory?.authorityId === task.nativeReference.authorityId && event.nativeHistory?.taskId === task.nativeReference.taskId;
-    const id = event.kind === "step" ? event.parentTaskId : event.hubTaskId;
-    return id ? task.hubTaskId === id : task.path === event.path &&
-        titleKey(task.text) === titleKey(event.kind === "step" ? event.parentText : event.text);
+    return event.nativeHistory?.authorityId===task.nativeReference?.authorityId&&event.nativeHistory?.taskId===task.id;
 }
 function fileTarget(task, step) {
-    if (task.nativeReference) return { kind: "native-task", workspaceId: task.workspaceId, authorityId: task.nativeReference.authorityId, owner: task.nativeReference.owner, taskId: task.id, stepId: step?.id ?? null };
-    return { kind: "file", workspaceId: task.workspaceId, path: task.path, taskText: task.text, taskLine: task.line,
-        ...(step ? { stepText: step.text } : {}),
-        ...(task.hubTaskId ? { taskId: task.hubTaskId } : {}), ...(step?.hubTaskId ? { stepId: step.hubTaskId } : {}) };
+    return { kind:"native-task",workspaceId:task.workspaceId,authorityId:task.nativeReference.authorityId,owner:task.nativeReference.owner,taskId:task.id,stepId:step?.id??null };
 }
 
 // Inputs are existing services/selectors; the output is structured factual data.
@@ -85,14 +78,12 @@ function buildDailyBriefContext(service, {
 } = {}) {
     const briefDate = dailyBriefDay(now), live = new Map(workspaces.map(workspace => [workspace.workspaceId, workspace]));
     const boundary = dailyBriefStart(now), cutoff = boundary.getTime();
-    const history = service.completedTaskHistory ?? [];
+    const history = service.taskProgressEvidence?.().records ?? [];
     const beforeStart = record => Number(record.timestamp) > 0 && Number(record.timestamp) < cutoff;
     // A recorded completion after 06:00 must not erase the unfinished continuation
     // when the first brief is opened late. Untimestamped edits cannot be reconstructed.
     const completedAtBoundary = (item, parent = null) => {
-        const records = history.filter(event => parent?.nativeReference ? matchesProgress(parent, event) && event.nativeHistory?.stepId === item.id : item.nativeReference ? matchesProgress(item, event) && event.kind !== "step" : parent ? event.kind === "step" && (item.hubTaskId
-            ? event.hubTaskId === item.hubTaskId : matchesProgress(parent, event) && titleKey(event.text) === titleKey(item.text))
-            : event.kind !== "step" && matchesProgress(item, event));
+        const records = history.filter(event=>matchesProgress(parent??item,event)&&(parent?event.nativeHistory?.stepId===item.id:event.kind!=="step"));
         return records.some(event => Number(event.timestamp) >= cutoff && Number(event.timestamp) <= now.getTime())
             ? records.some(beforeStart) : item.completed;
     };
@@ -101,7 +92,7 @@ function buildDailyBriefContext(service, {
             steps: (original.steps ?? []).map(step => ({ ...step, completed: completedAtBoundary(step, original) })) };
         const workspace = live.get(task.workspaceId), path = resolvePath(task.path);
         return { ...task, path: path ?? task.path, steps: (task.steps ?? []).map(step => ({ ...step })),
-            available: !!workspace?.available && !task.completed && !task.identityConflict && !task.nativeReadOnly && !taskIsFuture(task, boundary) && (task.nativeReference ? canOpenNative(task.nativeReference.owner) : !!path && canOpen(path)),
+            available: !!workspace?.available && !task.completed && !task.identityConflict && !task.nativeReadOnly && !taskIsFuture(task, boundary) && canOpenNative(task.nativeReference.owner),
             future: taskIsFuture(task, boundary) };
     });
     const reports = [...service.getProgressReports(), ...service.getProgressReports({ kind: "resource" })];
@@ -138,7 +129,7 @@ function buildDailyBriefContext(service, {
         const dayReports = reports.filter(report => report.date === date &&
             (date < briefDate ? !Number(report.timestamp) || beforeStart(report) : beforeStart(report) && dateOf(report.timestamp) === date));
         const dayHistory = history.filter(event => dateOf(event.timestamp) === date && beforeStart(event));
-        const source = { ...service, getProgressReports: () => dayReports, completedTaskHistory: dayHistory };
+        const source = { ...service, getProgressReports: () => dayReports, taskProgressEvidence:()=>({availability:"current",records:dayHistory}) };
         const day = reportDay(source, date);
         const focusRecord = service.data?.reportFocusByDate?.[date] ??
             (service.pendingFocus?.sourceDate === date ? service.pendingFocus : null);

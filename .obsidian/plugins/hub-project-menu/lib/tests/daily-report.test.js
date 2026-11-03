@@ -15,8 +15,8 @@ const today = localISODate(), date = "2026-09-14", timestamp = new Date(2026, 8,
 const clone = value => JSON.parse(JSON.stringify(value));
 let projects = [{ projectId: "p", name: "Project A" }, { projectId: "q", name: "Project B" }];
 const wizard = Object.assign(Object.create(compiled.exports.Wizard.prototype), {
-    data: {}, projectWorkRatings: {}, projectWorkLogs: {}, resourceWorkRatings: {}, resourceWorkLogs: {},
-    completedTaskHistory: [{ id: "task", projectId: "p", text: "Original task", timestamp, dueDate: "2020-01-01" },
+    taskProgressEvidence(){return {availability:"current",records:this.nativeRecords}}, data: {}, projectWorkRatings: {}, projectWorkLogs: {}, resourceWorkRatings: {}, resourceWorkLogs: {},
+    nativeRecords: [{ id: "task", projectId: "p", text: "Original task", timestamp, dueDate: "2020-01-01" },
         { projectId: "resource:study", text: "Read paper", timestamp },
         { projectId: "p", text: "Other date", timestamp: timestamp - 86400000 }],
     activityLog: [{ projectId: "p", action: "created", title: "Original file", timestamp },
@@ -48,13 +48,13 @@ async function run() {
 
     // Source mutations and pending-focus consumption cannot rewrite saved evidence.
     projects = [{ projectId: "p", name: "Renamed workspace" }];
-    wizard.completedTaskHistory[0].text = "Renamed task";
+    wizard.nativeRecords[0].text = "Renamed task";
     wizard.activityLog[0].title = "Renamed file";
     wizard.dailyFocus[date] = [];
     wizard.pendingFocus = null;
     Object.assign(wizard, clone(persisted));
     wizard.data = clone(persisted);
-    wizard.completedTaskHistory = []; wizard.activityLog = []; wizard.dailyFocus = {};
+    wizard.nativeRecords = []; wizard.activityLog = []; wizard.dailyFocus = {};
     day = reportDay(wizard, date);
     assert.equal(day.reports[0].projectName, "Project A");
     assert.equal(day.reports[0].context.tasks[0].text, "Original task");
@@ -72,18 +72,18 @@ async function run() {
 
     // Legacy entries resolve only from existing historical records, with no migration on read.
     delete wizard.projectWorkLogs.p[date].context;
-    wizard.completedTaskHistory = [{ projectId: "p", text: "Legacy evidence", timestamp }];
+    wizard.nativeRecords = [{ projectId: "p", text: "Legacy evidence", timestamp }];
     delete wizard.data.reportFocusByDate;
     wizard.pendingFocus = { sourceDate: "2026-09-15", items: [{ projectId: "p", text: "Wrong day" }] };
     const oldData = JSON.stringify(wizard.data);
     assert.equal(reportDay(wizard, date).reports[0].context.tasks[0].text, "Legacy evidence");
     assert.equal(reportDay(wizard, date).nextFocus.length, 0);
     assert.equal(JSON.stringify(wizard.data), oldData);
-    wizard.completedTaskHistory = [];
+    wizard.nativeRecords = [];
     assert.deepEqual(reportDay(wizard, date).reports[0].context.tasks, []);
 
     // Today's save refreshes context and preserves the existing rating/removal semantics.
-    wizard.completedTaskHistory = [{ projectId: "p", text: "Today's completed task", timestamp: Date.now() }];
+    wizard.nativeRecords = [{ projectId: "p", text: "Today's completed task", timestamp: Date.now() }];
     await wizard.replaceCombinedProgress(today, ["p", "q"], [], { p: 2, q: 1 }, { p: "Today" }, { sourceDate: today, items: [] });
     assert.equal(reportDay(wizard, today).reports[0].context.tasks.length, 1);
     assert.deepEqual(reportDay(wizard, today).nextFocus, []);
@@ -91,19 +91,19 @@ async function run() {
     assert.equal(reportDay(wizard, today, "p").reports.length, 0, "Zero removes report as before");
     assert.equal(reportDay(wizard, today, "q").reports.length, 1, "Rating-only report retained");
     const midnight = new Date(2026, 8, 14, 0, 0).getTime();
-    assert.equal(captureReportContext({ completedTaskHistory: [{ projectId: "p", text: "Midnight", timestamp: midnight }] }, date, "p").tasks.length, 1);
+    assert.equal(captureReportContext({ taskProgressEvidence:()=>({availability:"current",records:[{ projectId: "p", text: "Midnight", timestamp: midnight }]}) }, date, "p").tasks.length, 1);
     const progressDay = "2026-09-20", at = new Date(2026, 8, 20, 14).getTime();
-    wizard.completedTaskHistory = [
-        { id: "s2", kind: "step", hubTaskId: "step-b", parentTaskId: "parent", parentText: "Assignment 5", text: "2b", projectId: "p", timestamp: at + 1200000 },
+    wizard.nativeRecords = [
+        { id: "s2", kind: "step", parentTaskId: "parent", parentText: "Assignment 5", text: "2b", projectId: "p", timestamp: at + 1200000 },
         { id: "t", kind: "task", text: "Review lecture 7", projectId: "p", timestamp: at + 600000 },
-        { id: "s1", kind: "step", hubTaskId: "step-a", parentTaskId: "parent", parentText: "Assignment 5", text: "2a", projectId: "p", timestamp: at }
+        { id: "s1", kind: "step", parentTaskId: "parent", parentText: "Assignment 5", text: "2a", projectId: "p", timestamp: at }
     ];
     await wizard.replaceProjectProgress(progressDay, ["p"], { p: 3 }, { p: "Mixed progress" });
     const snapshot = clone(reportDay(wizard, progressDay).reports[0].context);
     assert.deepEqual(snapshot.tasks.map(item => item.id), ["s1", "t", "s2"]);
     assert.equal(snapshot.tasks[0].parentText, "Assignment 5");
-    assert.equal(snapshot.tasks[0].hubTaskId, "step-a");
-    wizard.completedTaskHistory = [];
+    assert.equal(snapshot.tasks[0].id, "s1");
+    wizard.nativeRecords = [];
     await wizard.replaceProjectProgress(progressDay, ["p"], { p: 4 }, { p: "Edited later" });
     assert.deepEqual(reportDay(wizard, progressDay).reports[0].context, snapshot, "Finalized mixed evidence survives source deletion and reflection edits");
     // Exercise the real exit entry point. Presentation reads the established

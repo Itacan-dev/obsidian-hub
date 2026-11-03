@@ -34,9 +34,9 @@ function createNativeTaskLocations(plugin) {
         const { file, type } = physical(w, path);
         return { path, type, name: file.name ?? path.split("/").at(-1), reference: L.locationReference(w.owner, w.root, path, type) };
     }
-    function legacyReference(w, path, type) {
+    function resourceReference(w, path, type) {
         if (w.owner.type !== "resource") return null;
-        const hash = require("../../../../../ItacanTaskCore/writer/policy").hash;
+        const hash = value => require("node:crypto").createHash("sha256").update(JSON.stringify(value)).digest("hex");
         return { type, id: "resource-location:" + hash([w.owner, type, path]) };
     }
     function index(owner, fresh = false) {
@@ -44,14 +44,14 @@ function createNativeTaskLocations(plugin) {
         if (!fresh && previous?.epoch === epoch) return previous;
         const w = workspace(owner, fresh), root = vault.getAbstractFileByPath(w.root), refs = [], byId = new Map(), stack = [...(root?.children ?? [])];
         if (!root || !Array.isArray(root.children)) throw Error("Workspace root is unavailable.");
-        const rootLegacy = legacyReference(w, w.root, "folder");
-        if (rootLegacy) { refs.push(rootLegacy); byId.set(rootLegacy.id, entry(w, w.root)); }
+        const resourceRoot = resourceReference(w, w.root, "folder");
+        if (resourceRoot) { refs.push(resourceRoot); byId.set(resourceRoot.id, entry(w, w.root)); }
         while (stack.length) {
             const file = stack.pop(); if (!typeOf(file)) continue;
             let item; try { item = entry(w, file.path); } catch (_) { continue; }
             refs.push(item.reference); byId.set(item.reference.id, item);
-            const legacy = legacyReference(w, item.path, item.type);
-            if (legacy) { refs.push(legacy); byId.set(legacy.id, item); }
+            const resource = resourceReference(w, item.path, item.type);
+            if (resource) { refs.push(resource); byId.set(resource.id, item); }
             if (item.type === "folder") stack.push(...file.children);
         }
         const value = { epoch, workspace: w, refs: refs.sort((a, b) => a.type.localeCompare(b.type) || a.id.localeCompare(b.id)), byId };
@@ -94,12 +94,14 @@ function locationService(service, plugin, owner) {
     services.set(key(owner), service);
     let creationOwner = null;
     const choose = target => {
-        if (!plugin.nativeTaskHost?.matches(target)) throw Error("Native workspace is unavailable. Markdown fallback is disabled.");
+        if (!plugin.nativeTaskHost?.matches(target)) throw Error("Native workspace is unavailable.");
         if (!services.has(key(target))) services.set(key(target), plugin.nativeTaskHost.runtime(target).formService(plugin.app));
         return services.get(key(target));
     };
     return { ...service, nativeLocations: locations, nativeOwner: owner,
-        formContext: snapshot => ({ ...service.formContext(snapshot), nativeOwner: owner }),
+        formContext: snapshot => ({ ...service.formContext(snapshot), sourcePath:locations.workspace(owner).path, nativeOwner: owner }),
+        context:()=>locations.workspace(owner), phases:()=>owner.type==="project"?plugin.planning.phases(owner.id):[],
+
         async create(destination, text, values) {
             const target = values.nativeOwner ?? owner;
             if (creationOwner && !L.sameOwner(creationOwner, target)) throw Error("Keep the original creation request until reviewed.");
@@ -114,7 +116,7 @@ function locationService(service, plugin, owner) {
 }
 function nativeCreationOwner(plugin, options = {}) {
     const explicit = options.location ?? options.path ?? options.root;
-    const context = explicit != null ? plugin.taskEditor.context(explicit) : plugin.taskEditor.currentContext();
+    const context = explicit != null ? plugin.projectWizard.getContextForPath(explicit) : plugin.workspaceModes?.currentContext?.() ?? plugin.projectWizard.getContextForPath(plugin.app.workspace.getActiveFile?.()?.path);
     let owner = options.owner ?? (context ? workspaceRef(context) : null);
     // Match Add's existing Home default, without entering a Markdown editor.
     if (!owner && explicit == null) owner = { type: "resource", id: "references" };

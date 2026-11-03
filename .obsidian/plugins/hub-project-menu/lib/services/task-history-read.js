@@ -1,18 +1,5 @@
 "use strict";
-const { TaskServiceError } = require("./task-service-errors");
-const { validPath } = require("./task-service-legacy-values");
 const consumers = new WeakMap();
-function historyRecords(query) {
-    const occurrences = new Map();
-    return query.rows.flatMap(row => {
-        if (!row.fact) return [];
-        const recorded = row.fact.recorded;
-        const base = JSON.stringify(recorded.id != null ? ["event", recorded.id] : ["legacy", recorded.kind, recorded.path, recorded.line, recorded.timestamp, recorded.text, recorded.parentText]);
-        const occurrence = occurrences.get(base) ?? 0; occurrences.set(base, occurrence + 1);
-        // Ephemeral DOM/focus key only; never an event/task ID or persisted field.
-        return [{ ...recorded, historyReadKey: JSON.stringify([base, occurrence]) }];
-    });
-}
 function preserveHistoryInteraction(body, render) {
     const document = body.ownerDocument, focused = document.activeElement;
     const row = body.contains(focused) ? focused.closest("[role=button]") : null;
@@ -24,7 +11,8 @@ function preserveHistoryInteraction(body, render) {
     // The existing pager remains the only pagination implementation.
     let previous = -1;
     while (body.childElementCount < count && previous !== body.childElementCount) {
-        previous = body.childElementCount; body.scrollTop = body.scrollHeight;
+        previous = body.childElementCount;
+        body.scrollTop = body.scrollHeight;
         body.dispatchEvent(new document.defaultView.Event("scroll"));
     }
     body.scrollTop = scroll;
@@ -33,43 +21,73 @@ function preserveHistoryInteraction(body, render) {
         (control >= 0 ? next?.querySelectorAll(controls)[control] : next)?.focus({ preventScroll: true });
     }
 }
-function createTaskHistoryRead({ plugin, component, completionFeed, changed = () => {} }) {
+function createTaskHistoryRead({ plugin, component, completionFeed, changed = () => { } }) {
     let closed = false, generation = 0, cached = null, last = null;
     let active = consumers.get(plugin);
     if (!active) {
         consumers.set(plugin, active = new Set());
-        plugin.register(() => { for (const close of [...active]) close(); active.clear(); consumers.delete(plugin); });
+        plugin.register(() => {
+            for (const close of [...active])
+                close();
+            active.clear();
+            consumers.delete(plugin);
+        });
     }
     const invalidate = () => { generation++; cached = null; };
-    const close = () => { if (closed) return; closed = true; invalidate(); active.delete(close); };
-    active.add(close); component.register(close);
-    if (completionFeed) { const stop = completionFeed.subscribe(() => { if (!closed) { invalidate(); changed(); } }); component.register(stop); }
+    const close = () => {
+        if (closed)
+            return;
+        closed = true;
+        invalidate();
+        active.delete(close);
+    };
+    active.add(close);
+    component.register(close);
+    if (completionFeed) {
+        const stop = completionFeed.subscribe(() => {
+            if (!closed) {
+                invalidate();
+                changed();
+            }
+        });
+        component.register(stop);
+    }
     return {
         invalidate, close,
         async read(cancelled = () => false) {
-            if (closed || cancelled()) return null;
+            if (closed || cancelled())
+                return null;
             const ticket = generation;
-            if (!cached) cached = completionFeed ? completionFeed.read().then(result => ({ records: result.records, diagnostics: result.diagnostics, signature: JSON.stringify(result.records) })) : Promise.resolve().then(() => plugin.taskService.queryHistory({ projection: "recorded" })).then(query => {
-                const records = historyRecords(query); return { records, diagnostics: query.diagnostics, signature: JSON.stringify(records) };
-            });
+            if (!cached)
+                cached = completionFeed.read().then(result => ({ records: result.records, diagnostics: result.diagnostics, signature: JSON.stringify(result.records) }));
             const pending = cached;
             let result;
-            try { result = await pending; }
-            catch (error) { if (cached === pending) cached = null; if (closed || ticket !== generation || cancelled()) return null; throw error; }
-            if (closed || ticket !== generation || cancelled()) return null;
+            try {
+                result = await pending;
+            }
+            catch (error) {
+                if (cached === pending)
+                    cached = null;
+                if (closed || ticket !== generation || cancelled())
+                    return null;
+                throw error;
+            }
+            if (closed || ticket !== generation || cancelled())
+                return null;
             return { ...result, changed: result.signature !== last };
         },
         accept(result) { last = result.signature; },
         preserve(body, render) { preserveHistoryInteraction(body, render); },
         reveal(record) {
-            if (closed) throw new TaskServiceError("CLOSED", "This History view has closed.");
-            if (record?.nativeHistory) { if (!completionFeed || record.nativeHistory.navigation.state !== "available") return null; return completionFeed.reveal(record); }
-            if (!validPath(record?.path)) return null;
-            const file = plugin.app.vault.getAbstractFileByPath(record.path);
-            // Existing compatibility opens the exact recorded note, not a live
-            // task found by title or a fabricated source. Missing rows remain.
-            return file && !Array.isArray(file.children) ? file : null;
+            if (closed)
+                throw Error("This History view has closed.");
+            if (record?.nativeHistory) {
+                if (!completionFeed || record.nativeHistory.navigation.state !== "available")
+                    return null;
+                return completionFeed.reveal(record);
+            }
+            return null;
         }
     };
 }
-module.exports = { createTaskHistoryRead, historyRecords };
+module.exports = { createTaskHistoryRead };

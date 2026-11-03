@@ -118,7 +118,7 @@ function openOathWorkspacePicker(service, type, selected, onSelect, restoreFocus
                 if (!contexts.length) body.createEl("p", { cls: "hub-oath-muted", text: type === "project" ? "No matching Active Projects." : "No matching Resources." });
             };
             search?.addEventListener("input", render);
-            this.owner.register(service.plugin.taskService.subscribe(render));
+            this.owner.register(service.onChange(render));
             this.contentEl.createDiv({ cls: "hub-oath-actions" }).createEl("button", { text: "Cancel" }).addEventListener("click", () => this.close());
             render(); layoutModal(this, { headerEnd: search ?? this.contentEl.querySelector("h2"), body }); (search ?? body.querySelector('[tabindex="0"]'))?.focus();
         }
@@ -439,7 +439,7 @@ function openOathSetup(service) {
                     if (this.candidates.state.status === "error") { void this.candidates.retry(); return; }
                     if (noOpenTasks) {
                         const context = service.resolveWorkspace(draft.workspace);
-                        if (context) this.creator = openTaskCreator(service.plugin.taskEditor, { root: context.root });
+                        if (context) this.creator = service.plugin.openTaskCreator({ root: context.root });
                         return;
                     }
                     this.picker = openOathPicker(service, draft.workspace, draft.tasks, tasks => {

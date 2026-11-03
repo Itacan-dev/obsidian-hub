@@ -1,0 +1,2 @@
+"use strict";
+const {performance}=require('node:perf_hooks'),W=require('./workload.cjs');const [kind,file]=process.argv.slice(2);(async()=>{const at=performance.now(),a=await W.adapter(kind,file,false),opened=performance.now();const page=await a.list(W.ownerIds[0]);console.log(JSON.stringify({kind,openMs:opened-at,firstPageMs:performance.now()-at,rows:page.tasks.length,versions:process.versions}));await a.close()})().catch(e=>{console.error(e);process.exitCode=1});

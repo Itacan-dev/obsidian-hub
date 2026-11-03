@@ -36,7 +36,7 @@ recovery behavior. A missing receipt never authorizes replacement identities.
 ## Complete drafts and guards
 
 Save requires complete editable metadata, continuation, every retained/new Step,
-explicit confirmed subtree deletions, and a parent completion intention. Every
+explicit individual Step deletions, and a parent completion intention. Every
 existing Step must be retained or deleted explicitly. Each retained target uses
 `keep`, `complete` or `reopen`; inserted Steps use explicit initial state.
 `complete` requires open state and `reopen` requires checked state. `keep`
@@ -52,7 +52,7 @@ clock; explicit null and backdated native times retain their meaning.
 Save reuses the unchanged structural/content functions and shared completion
 transition. Deleted bindings detach without uncounting retained History. Effects
 are ordered as old-tree deletions, then reopenings, then new completion events;
-target order is parent followed by final depth-first Steps. A changed Save
+target order is parent followed by the final flat Step order. A changed Save
 advances task revision once and finalizes one current-content revision. A no-op
 does neither and creates no event; its ordinary repository/partition receipt
 still commits.

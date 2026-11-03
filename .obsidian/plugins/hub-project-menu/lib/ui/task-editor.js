@@ -3,9 +3,13 @@ const { createModalHeader, layoutModal } = require("./window-title");
 const { taskFormValues } = require("../domain/task-form");
 const { mountLiveTaskForm } = require("./task-live-form");
 const { initialComposerTaskLocation, validateTaskDates } = require("../domain/task-compact-form");
+const nativeEditors = new WeakMap();
 
 function openTaskEditor(service, task, onEdit = () => {}, creation = null) {
     const { Modal, Notice } = require("obsidian");
+    const key = task?.nativeReference ? JSON.stringify([task.nativeReference.authorityId, task.nativeReference.owner, task.nativeReference.taskId]) : null;
+    let editors;
+    if (key) { editors = nativeEditors.get(service.app); if (!editors) nativeEditors.set(service.app, editors = new Map()); const existing = editors.get(key); if (existing && !existing.closed) return existing; }
     class TaskModal extends Modal {
         constructor(app) {
             super(app); this.closed = false;
@@ -40,8 +44,8 @@ function openTaskEditor(service, task, onEdit = () => {}, creation = null) {
                 const owner = state.nativeOwner;
                 const reference = state.nativeLocation ? { type: state.nativeLocationType ?? service.nativeLocations.resolveId?.(owner, state.nativeLocation)?.type, id: state.nativeLocation } : null;
                 this.locationPicker = require("./task-location-picker").openTaskLocationPicker(service.app, {
-                    locations: service.nativeLocations, owner, reference, allowOwnerChange: !!creation,
-                    onChoose: selected => { state.nativeOwner = selected.owner; state.nativeLocation = selected.reference?.id ?? ""; state.nativeLocationType = selected.reference?.type; this.taskFields.refresh(); clearError(); },
+                    locations: service.nativeLocations, owner, reference, allowOwnerChange: true,
+                    onChoose: selected => { state.nativeOwner = selected.owner; state.nativeLocation = selected.reference?.id ?? ""; state.nativeLocationType = selected.reference?.type; this.taskFields.phase.refresh(); this.taskFields.refresh(); clearError(); },
                     onClose: () => { this.locationPicker = null; if (!this.closed) this.taskFields.presentation.sourceControl?.focus({ preventScroll: true }); }
                 });
             };
@@ -116,9 +120,10 @@ function openTaskEditor(service, task, onEdit = () => {}, creation = null) {
             else { this.modalEl.tabIndex = -1; this.modalEl.focus({ preventScroll: true }); }
         }
         close() { if (!this.saving) { this.closed = true; super.close(); } }
-        onClose() { this.closed = true; this.locationPicker?.close(); this.taskFields?.destroy(); this.contentEl.empty(); }
+        onClose() { this.closed = true; if (key && editors.get(key) === this) editors.delete(key); this.locationPicker?.close(); this.taskFields?.destroy(); this.contentEl.empty(); }
     }
     const modal = new TaskModal(service.app);
+    if (key) editors.set(key, modal);
     // Obsidian appends the modal before calling onOpen and does not await it.
     // Keep the native container detached until the snapshot is available; there
     // is no intermediate modal, backdrop, focus transfer or loading geometry.

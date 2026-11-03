@@ -1,7 +1,6 @@
 "use strict";
 const { randomUUID } = require("crypto");
-const { taskGroups, readTaskSnapshot } = require("../domain/task-planning");
-const { taskLineDetails, taskIdentity, applyTaskEdit, normalizedTaskText } = require("../domain/tasks");
+const { taskGroups } = require("../domain/task-planning");
 const { isCommitted, validateOath, oathRequirements, oathTime, normalizeOath, fulfilmentTime } = require("../domain/oath");
 
 const { workspaceRef, validWorkspace, sameWorkspace, taskKey } = require("../domain/oath-workspace");
@@ -14,7 +13,7 @@ class HubOathService {
         this.deviceId = plugin.dataStore.deviceId; this.now = options.now ?? Date.now;
         this.listeners = new Set(); this.clockListeners = new Set();
         this.work = this.committed ? this.current.tasks.map(ref => ({ ref, task: null })) : [];
-        this.awaitingIndex = new Map(); this.needsRead = true;
+        this.taskPanels = new Map(); this.needsRead = true;
         this.queue = Promise.resolve(); this.disposed = false; this.refreshing = null;
         this.notice = options.notice ?? (text => new (require("obsidian").Notice)(text));
         // Product opt-in is device-local and off until explicitly saved.
@@ -69,9 +68,10 @@ class HubOathService {
         this.strictReviews.set(nonce, { signature, policy, expires: this.now() + 15 * 60000 });
         return { confirmation: { nonce, version: policy.confirmationVersion }, policy: JSON.parse(JSON.stringify(policy)), preflight, terms: STRICT_TERMS };
     }
-    api() { return this.app.plugins.getPlugin?.("dataview")?.api ?? this.app.plugins.plugins?.dataview?.api; }
-    ready() { const api = this.api(); return !!api && api.index?.initialized !== false; }
-    tasks() { return this.ready() ? this.plugin.taskData.readPages(this.api()).flatMap(page => page.file.tasks) : []; }
+    ready(ref = this.current?.workspace) {
+        const host = this.plugin.nativeTaskHost;
+        return !!host && (ref ? host.matches(ref) && (host.nativeTasks.availabilityFor?.(ref) ?? host.nativeTasks.availability()) === "current" : host.nativeTasks.availability() === "current");
+    }
     workspaces(type) {
         const wizard = this.plugin.projectWizard;
         return type === "resource" ? wizard.getResourceTypes() :
@@ -85,24 +85,21 @@ class HubOathService {
         return eligible && ref.type === "project" && context.status !== "active" ? null : context;
     }
     get workspace() { return this.resolveWorkspace(this.current?.workspace, false); }
-    ownsTask(ref, task) {
-        const context = this.resolveWorkspace(ref, false);
-        return !!context && (task.path === context.path || task.path?.startsWith(context.root + "/"));
-    }
+    ownsTask(ref, task) { return sameWorkspace(ref, task.nativeReference?.owner); }
     workspaceTasks(ref) {
-        const context = this.resolveWorkspace(ref);
-        if (!this.ready() || !context) return [];
-        const tasks = this.plugin.taskData.readPages(this.api(), context.root).flatMap(page => page.file.tasks);
-        const groups = taskGroups(tasks.filter(task => !task.completed && !task.identityConflict &&
-            (task.path === context.path || task.path?.startsWith(context.root + "/"))), new Date(this.now()));
-        return [...groups.active, ...groups.future];
+        this.ensureCommittedRead();
+        if (!this.resolveWorkspace(ref) || !this.ready(ref)) return [];
+        const panel = this.taskPanels.get(JSON.stringify([ref.type,ref.id])), snapshot = panel?.snapshot();
+        if (snapshot?.availability !== "current") return [];
+        const groups = taskGroups(snapshot.tasks.filter(task => !task.completed && !task.nativeReadOnly), new Date(this.now()));
+        return [...groups.active,...groups.future];
     }
     setupRequirements(draft) {
         const available = new Set(this.workspaceTasks(draft.workspace).map(taskKey));
         return oathRequirements(draft, this.now()).map(field => {
             if (field.key === "Workspace" && field.complete && !this.resolveWorkspace(draft.workspace))
                 return { ...field, complete: false, error: "Choose an available Active Project or Resource." };
-            if (field.key === "Tasks" && !this.ready()) return { ...field, complete: false, error: "Wait for the task index to finish loading." };
+            if (field.key === "Tasks" && !this.ready(draft.workspace)) return { ...field, complete: false, error: "Wait for native tasks to finish loading." };
             if (field.key === "Tasks" && field.complete && draft.tasks.some(task => !available.has(taskKey(task))))
                 return { ...field, complete: false, error: "Selected tasks must be open tasks from this workspace. Update your selection." };
             return field;
@@ -145,7 +142,7 @@ class HubOathService {
         await this.persist({ ...this.current, state: "invalid", fullscreenOwned: false,
             invalidReason: "workspace-unavailable" });
         await this.fullscreen.exit();
-        this.work = []; this.awaitingIndex.clear(); this.emit();
+        this.work = []; this.emit();
         this.notice("This Oath's workspace is unavailable. Make a new Oath and select an Active Project or Resource.");
     }
     async enterWorkspace() {
@@ -177,8 +174,7 @@ class HubOathService {
             else if (this.committed && JSON.stringify(this.current) !== JSON.stringify(this.bucket.current)) await this.persist(this.current);
         } catch (error) { this.error(error); }
         this.ensureCommittedRead();
-        // Index events read work. The clock only checks timestamps, avoiding a
-        // whole-vault task query and Markdown reads on every countdown tick.
+        // Native subscriptions refresh accepted work; the clock checks time only.
         this.timer = setInterval(() => { this.tickDisplay(); void this.refresh(false); }, 1000);
         this.timer.unref?.();
         await this.refresh();
@@ -188,11 +184,18 @@ class HubOathService {
         if (this.lastError !== error.message) { this.lastError = error.message; this.notice(`The Oath could not be updated: ${error.message}`); }
     }
     ensureCommittedRead() {
-        if (this.readClosed || this.disposed || this.committedReadStop) return;
-        // Oath is constructed before the shared facade; start/first hydration is
-        // the safe ownership boundary. No separate task-data backend watcher.
-        this.committedReadStop = this.plugin.taskService.subscribe(() => { void this.refresh(); });
-        this.plugin.register(() => this.closeCommittedRead());
+        if (this.readClosed || this.disposed) return;
+        const host = this.plugin.nativeTaskHost;
+        if (!host) return;
+        const stops = this.committedReadStops ??= [];
+        for (const owner of host.nativeTasks.owners ?? [host.nativeTasks.owner]) {
+            if (this.taskPanels.has(JSON.stringify([owner.type, owner.id]))) continue;
+            const component = { register: stop => stops.push(stop) };
+            const panel = host.nativeTasks.createPanelRead({ plugin:this.plugin,component,workspace:owner,changed:()=>{ if (!this.disposed) { this.emit(); if (this.committed) void this.refresh(); } } });
+            this.taskPanels.set(JSON.stringify([owner.type,owner.id]),panel);
+        }
+        this.committedReadStop = () => { stops.splice(0).forEach(stop=>stop());this.taskPanels.clear(); };
+        if (!this.committedReadRegistered) { this.committedReadRegistered = true; this.plugin.register(() => this.closeCommittedRead()); }
     }
     closeCommittedRead() {
         this.readClosed = true;
@@ -207,21 +210,11 @@ class HubOathService {
         const signature = scope(), commitment = JSON.stringify([oath.id, oath.workspace, oath.tasks]);
         const current = () => !this.disposed && !this.readClosed && this.committed && sequence === this.readSequence && revision === (this.readRevision ?? 0) &&
             commitment === JSON.stringify([this.current.id, this.current.workspace, this.current.tasks]);
-        let result;
-        try {
-            result = await this.plugin.taskService.resolveOathWork({ workspace: oath.workspace ?? null, references: oath.tasks,
-                awaitingIndex: [...this.awaitingIndex].map(([id, task]) => ({ id, path: task.path, line: task.line, text: task.text,
-                    metadata: Object.fromEntries(["description", "phaseId", "necessity", "fromDate", "fromTime", "dueDate", "dueTime", "captureSource"]
-                        .filter(key => task[key] !== undefined).map(key => [key, task[key]])) })) });
-        } catch (error) { if (!current()) return false; throw error; }
+        const runtime = this.plugin.nativeTaskHost.runtime(oath.workspace), result = await runtime.list();
         if (!current()) return false;
         if (scope() !== signature) { this.needsRead = true; return false; }
-        if (result.consistency !== "legacy-source-checked" || result.rows.length !== oath.tasks.length || result.rows.some((row, index) =>
-            ["id", "path", "text"].some(key => row.reference[key] !== oath.tasks[index][key]) || row.task && row.task.hubTaskId !== row.reference.id))
-            throw Error("Committed task read returned inconsistent references.");
-        const work = result.rows.map((row, index) => ({ ref: oath.tasks[index], task: row.task }));
-        for (const row of result.rows) if (row.retireAwaitingIndex) this.awaitingIndex.delete(row.reference.id);
-        this.readDiagnostics = result.diagnostics;
+        const work = oath.tasks.map(ref => ({ ref, task: ref.authorityId === runtime.info().authority.authorityId ? result.tasks.find(task=>task.id===ref.id && this.ownsTask(oath.workspace,task)) ?? null : null }));
+        this.readDiagnostics = [];
         const changed = JSON.stringify(work) !== JSON.stringify(this.work);
         this.work = work;
         return changed;
@@ -295,34 +288,13 @@ class HubOathService {
                     throw Error(preflight.blockers.length ? "Close the detected unpermitted applications and retry." : preflight.warnings.join(" "));
                 }
             }
-            if (draft.tasks?.length && !this.ready()) throw Error("Wait for the task index to finish loading.");
-            const selectedTasks = draft.tasks ?? [], indexed = selectedTasks.length ? this.tasks() : [];
-            if (selectedTasks.some(task => task.hubTaskId && indexed.some(item => item.hubTaskId === task.hubTaskId && item.identityConflict))) {
-                throw Error("A selected task has a copied ID. Resolve the copy before taking the Oath.");
-            }
-            // Assign IDs through the existing source mutation queue. ID comments
-            // are inert if the final Oath state write fails; no task data moves.
-            const refs = await this.plugin.enqueueTaskMutation(async () => {
-                const selected = [], seen = new Set();
-                for (const task of selectedTasks) {
-                    if (task.identityConflict) throw Error("A selected task has a copied ID. Resolve the copy before taking the Oath.");
-                    const file = this.plugin.taskEditor.file(task.path);
-                    await this.app.vault.process(file, content => {
-                        const snapshot = readTaskSnapshot(content, { ...task, path: file.path });
-                        if (snapshot.completed || !this.ownsTask(draft.workspace, { path: file.path })) {
-                            throw Error("A selected task is no longer available in this workspace.");
-                        }
-                        const id = snapshot.hubTaskId ?? randomUUID();
-                        if (seen.has(id)) return content;
-                        seen.add(id); selected.push({ id, path: file.path, text: snapshot.text });
-                        if (snapshot.hubTaskId) return content;
-                        const eol = content.includes("\r\n") ? "\r\n" : "\n", lines = content.split(/\r?\n/);
-                        const native = lines[snapshot.line].match(/\s+\^[a-zA-Z0-9-]+\s*$/)?.[0] ?? "";
-                        lines[snapshot.line] = (native ? lines[snapshot.line].slice(0, -native.length) : lines[snapshot.line]).trimEnd() + ` <!-- hub-task:${id} -->` + native;
-                        return lines.join(eol);
-                    });
-                }
-                return selected;
+            if (!this.ready(draft.workspace)) throw Error("Wait for native tasks to finish loading.");
+            const runtime = this.plugin.nativeTaskHost.runtime(draft.workspace), snapshot = await runtime.list(), seen = new Set();
+            const refs = (draft.tasks ?? []).map(selected => {
+                const ref = selected.nativeReference, task = snapshot.tasks.find(task=>task.id===ref?.taskId);
+                if (!task || task.completed || task.nativeReadOnly || !this.ownsTask(draft.workspace,task) || task.nativeReference.authorityId!==ref.authorityId || task.nativeReference.taskRevision!==ref.taskRevision) throw Error("A selected native task changed. Refresh the Oath selection.");
+                if (seen.has(task.id)) throw Error("Select each task once.");seen.add(task.id);
+                return { id:task.id,authorityId:ref.authorityId,owner:{...ref.owner},text:task.text };
             });
             if (!this.resolveWorkspace(draft.workspace)) throw Error("The selected workspace is no longer available.");
             const now = this.now();
@@ -332,9 +304,7 @@ class HubOathService {
                 tasks: refs, state: "scheduled", completedAt: null, fullscreenOwned: false,
                 ...(policy.mode === "strict" ? { policy, strictSessionId: null } : {}) });
             this.strictReviews.clear();
-            // The freshly marked lines may not be imported by Dataview yet.
-            this.work = await this.readNewWork(refs, selectedTasks);
-            this.awaitingIndex = new Map(this.work.filter(item => item.task).map(item => [item.ref.id, item.task]));
+            this.work = refs.map(ref=>({ref,task:snapshot.tasks.find(task=>task.id===ref.id)}));
             try {
                 if (draft.start !== "scheduled") { await this.activate(); await this.markFulfilled(); }
             } catch (error) {
@@ -344,17 +314,6 @@ class HubOathService {
             }
             this.emit();
         });
-    }
-    async readNewWork(refs, tasks) {
-        return Promise.all(refs.map(async ref => {
-            try {
-                const file = this.plugin.taskEditor.file(ref.path), content = await this.app.vault.read(file);
-                const lines = content.split(/\r?\n/), line = lines.findIndex(value => taskIdentity(value) === ref.id && taskLineDetails(value));
-                const snapshot = readTaskSnapshot(content, { path: ref.path, line, text: ref.text, hubTaskId: ref.id });
-                const original = tasks.find(task => task.path === ref.path && task.line === line) ?? {};
-                return { ref, task: { ...original, ...snapshot, hubTaskId: ref.id, ...this.plugin.taskEditor.metadata(ref.id) } };
-            } catch (_) { return { ref, task: null }; }
-        }));
     }
     async #finish(state, completedAt = this.now()) {
         const record = { ...this.current, state, completedAt, fullscreenOwned: false };
@@ -366,7 +325,7 @@ class HubOathService {
         }
         else await this.fullscreen.exit();
         this.work = []; this.emit(); this.notice(state === "fulfilled" ? "Oath fulfilled." : "Oath broken.");
-        this.awaitingIndex.clear();
+        
     }
     // Every UI/native exit request goes here. Only an explicit destructive
     // confirmation may break an unfulfilled commitment. Recheck at click time.
@@ -375,7 +334,7 @@ class HubOathService {
             if (this.current?.id !== id || !this.committed) return "inactive";
             if (this.current.state === "scheduled" && (this.isStrict || this.now() < this.current.scheduledAt)) {
                 if (outcome !== "cancel") return "scheduled";
-                await this.persist(null); this.work = []; this.awaitingIndex.clear(); this.emit(); return "cancelled";
+                await this.persist(null); this.work = []; this.emit(); return "cancelled";
             }
             await this.reconcile(true);
             if (!this.committed) return "inactive";
@@ -394,13 +353,7 @@ class HubOathService {
             await this.persist({ ...this.current, fullscreenOwned: owned });
         });
     }
-    changed(edit) {
-        if (!this.committed) return;
-        this.work = this.work.map(item => item.task ? { ...item, task: applyTaskEdit([item.task], edit)[0] ?? null } : item);
-        this.work = this.work.map(item => item.task && !this.ownsTask(this.current.workspace, item.task) ? { ...item, task: null } : item);
-        this.captureFulfilment();
-        this.emit(); void this.refresh();
-    }
+    changed() { if (this.committed) void this.refresh(); }
     async activateStrict() {
         if (this.now() < (this.nextStrictAttempt ?? 0)) return false;
         this.nextStrictAttempt = this.now() + 5000;
@@ -427,7 +380,7 @@ class HubOathService {
             interruptionReason: "strict-host-session-unavailable", fullscreenOwned: false };
         record.elapsedMs = oathTime(record, record.completedAt).elapsedMs;
         await this.persist(record, [...(this.bucket.history ?? []), record]);
-        this.work = []; this.awaitingIndex.clear(); this.emit();
+        this.work = []; this.emit();
     }
     destroy() { this.disposed = true; this.closeCommittedRead(); clearInterval(this.timer); this.listeners.clear(); this.clockListeners.clear(); this.strict.detach(); this.fullscreen.destroy(); }
 }

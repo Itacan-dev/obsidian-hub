@@ -4,7 +4,6 @@ const { projectItemPath } = require("../domain/files");
 const { openCaptureWorkspacePicker, openCaptureLocationPicker } = require("./capture-pickers");
 const { mountWorkspaceThumbnail } = require("./workspace-thumbnail");
 const { createCapturePickerTrigger } = require("./capture-picker-trigger");
-const { mountTaskForm } = require("./task-form");
 const { openNotePositionPicker } = require("./note-position-picker");
 const { noteLocation, noteLocationSummary, resolveNoteLocation } = require("../domain/note-insertion");
 
@@ -43,7 +42,6 @@ function noteTitle(draft) {
 // Both overlays retain their content and attachment controls. A fixed Inbox
 // form owns one type at a time; Inbox can confirm and remount a different type.
 function mountCaptureForm({ host, service, draft = {}, onChange = () => {}, onSubmit = () => {}, fixedType = null, captureId = () => null }) {
-    const taskEditor = service.plugin.taskEditor;
     const element = host.createDiv({ cls: "hub-capture-form hub-task-form" });
     const lockedType = ["task", "note", "file"].includes(fixedType) ? fixedType : null;
     let state = { ...draft, ...(lockedType ? { type: lockedType } : {}), steps: (draft.steps ?? []).map(step => ({ ...step })) };
@@ -140,10 +138,7 @@ function mountCaptureForm({ host, service, draft = {}, onChange = () => {}, onSu
         createCapturePickerTrigger(fieldHost(parent, task ? "Location" : "Folder"), locationControl(task));
     }
     function renderTask() {
-        if(service.plugin.nativeTaskHost){taskFields=require("./native-capture-task").mountNativeCaptureTask({host:element,service,draft:state,captureId,details:true,onSubmit,onChange:value=>{state=value;notify()}});return;}
-        taskFields = mountTaskForm({ app: service.app, host: element, state, service: taskEditor,
-            destination: { workspace: workspaceControl(), location: locationControl(true) },
-            location: () => state.location || workspace()?.root, onChange: notify });
+        taskFields=require("./native-capture-task").mountNativeCaptureTask({host:element,service,draft:state,captureId,details:true,onSubmit,onChange:value=>{state=value;notify()}});
     }
     function existingNoteField(parent) {
         const current = workspace();
@@ -198,7 +193,7 @@ function mountCaptureForm({ host, service, draft = {}, onChange = () => {}, onSu
             }
         }
     }
-    function value() { if(state.type === "task" && service.plugin.nativeTaskHost && taskFields?.value) return taskFields.value(); return { ...state, attachments: [...(state.attachments ?? [])], steps: state.steps.map(step => ({ ...step })) }; }
+    function value() { if(state.type === "task" && taskFields?.value) return taskFields.value(); return { ...state, attachments: [...(state.attachments ?? [])], steps: state.steps.map(step => ({ ...step })) }; }
     function valid() {
         return service.completion(value(), captureId()).complete;
     }
@@ -241,7 +236,7 @@ function mountCaptureForm({ host, service, draft = {}, onChange = () => {}, onSu
             if (patch.steps) state.steps = patch.steps.map(step => ({ ...step }));
             initializeTitle(); clearInvalidDestinations();
             if (layoutChanged) render();
-            else if(state.type === "task" && service.plugin.nativeTaskHost) taskFields?.update?.(patch);
+            else if(state.type === "task") taskFields?.update?.(patch);
             notify();
         },
         focus() { element.querySelector("button.is-active,button,input,select")?.focus(); },

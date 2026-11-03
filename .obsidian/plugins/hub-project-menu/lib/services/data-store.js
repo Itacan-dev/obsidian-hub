@@ -39,19 +39,6 @@ function clonePluginData(data) {
     return JSON.parse(JSON.stringify(data ?? {}));
 }
 
-// Retire only the old task relationship, leaving Resource mounts, ownership,
-// history and task identities intact. Cleanup rides normal load/save boundaries.
-function removeRetiredTaskLinks(data) {
-    for (const metadata of Object.values(data.taskMetadata ?? {})) {
-        if (metadata && typeof metadata === "object") delete metadata.linkedProjectId;
-    }
-    for (const capture of Array.isArray(data.inbox?.captures) ? data.inbox.captures : []) {
-        if (capture?.intent) delete capture.intent.linkedProjectId;
-        if (capture?.operation?.values) delete capture.operation.values.linkedProjectId;
-    }
-    return data;
-}
-
 function stateMeta(data) {
     const value = data?.[HUB_STATE_META_KEY];
 
@@ -195,7 +182,7 @@ class HubDataStore {
         refuseManaged(this);
         const data = (await this.plugin.loadData()) ?? {};
         const originalMeta = stateMeta(data);
-        const normalized = removeRetiredTaskLinks(await this.sharedProjects.load(this.normalizeLoadedData(data)));
+        const normalized = await this.sharedProjects.load(this.normalizeLoadedData(data));
         const requiresVersionStamp =
             Number(originalMeta.schemaVersion) !==
                 HUB_STATE_SCHEMA_VERSION ||
@@ -344,7 +331,7 @@ class HubDataStore {
 
     save(data) {
         refuseManaged(this, data);
-        const snapshot = removeRetiredTaskLinks(clonePluginData(data));
+        const snapshot = clonePluginData(data);
 
         const operation = this.writeQueue
             .catch(() => {})
