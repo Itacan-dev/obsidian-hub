@@ -11,6 +11,14 @@ const columns={
  occurrences:['task_id','series_id','ordinal','series_revision','successor_id','generated'],
  operations:['operation_id','command_hash','result_json','committed_at']
 };
+// Opaque logical writers are separate from the private OneDrive device identity.
+function logicalWriter(device){const h=createHash('sha256').update('itacan-logical-writer:'+device).digest('hex');return h.slice(0,8)+'-'+h.slice(8,12)+'-5'+h.slice(13,16)+'-a'+h.slice(17,20)+'-'+h.slice(20,32);}
+function normalize(p){if(p.writerId)return p;const cv=v=>Object.fromEntries(Object.entries(v).map(([k,n])=>[logicalWriter(k),n]));return {...p,writerId:logicalWriter(p.deviceId),bases:Object.fromEntries(Object.entries(p.bases).map(([u,v])=>[u,cv(v)])),versions:Object.fromEntries(Object.entries(p.versions).map(([u,v])=>[u,cv(v)]))};}
+function migrateLogicalWriters(e){
+ for(const r of e.all('SELECT * FROM sync_versions')){const v=Object.fromEntries(Object.entries(JSON.parse(r.version_json)).map(([k,n])=>[logicalWriter(k),n]));e.run('UPDATE sync_versions SET version_json=? WHERE unit=?',JSON.stringify(v),r.unit);}
+ for(const r of e.all("SELECT operation_id,payload_json FROM sync_received WHERE state IN ('pending','conflict')"))e.run('UPDATE sync_received SET payload_json=? WHERE operation_id=?',JSON.stringify(normalize(JSON.parse(r.payload_json))),r.operation_id);
+}
+function record(e,p){e.run('INSERT INTO sync_changes(operation_id,payload_json) VALUES(?,?) ON CONFLICT(operation_id) DO NOTHING',p.operationId,JSON.stringify(p));}
 const table=k=>k==='series'?'recurrence_series':k;
 const empty=()=>Object.fromEntries(Object.keys(columns).map(k=>[k,[]]));
 const hash=v=>createHash('sha256').update(V.canonical(v)).digest('hex');
@@ -51,13 +59,13 @@ function envelope(e,data,{operationId,commandHash,bases=null,replaceSeries=[],re
  if(!data.operations.some(o=>o.operation_id===operationId)){const original=e.one('SELECT operation_id,command_hash,result_json,committed_at FROM operations WHERE operation_id=?',operationId);if(original)data.operations.push(original);}
  const device=setting(e,'device'),number=setting(e,'next',0)+1;set(e,'next',number);
  bases??=Object.fromEntries(units(data).map(u=>[u,heads(e,u)]));
- const versions=Object.fromEntries(Object.entries(bases).map(([u,b])=>[u,{...b,[device]:number}]));
+ const writerId=logicalWriter(device),versions=Object.fromEntries(Object.entries(bases).map(([u,b])=>[u,{...b,[writerId]:number}]));
  for(const[u,v]of Object.entries(versions))putHeads(e,u,v);
- return {protocol:1,workspaceId:setting(e,'workspace'),deviceId:device,number,operationId,commandHash,data,bases,versions,replaceSeries,resolution};
+ const p={protocol:1,workspaceId:setting(e,'workspace'),deviceId:device,writerId,number,operationId,commandHash,data,bases,versions,replaceSeries,resolution};record(e,p);return p;
 }
-function capture(e,{taskIds,historyIds,operationId,commandHash}){
+function capture(e,{taskIds,historyIds,operationId,commandHash,complete=false}){
  if(!setting(e,'workspace')||!taskIds.length)return null;
- return envelope(e,taskData(e,taskIds,{historyIds}),{operationId,commandHash});
+ return envelope(e,taskData(e,taskIds,{historyIds,complete}),{operationId,commandHash});
 }
 function initialize(e,{workspaceId,authorityId,deviceId}){
  V.id(workspaceId);V.id(authorityId);V.id(deviceId);
@@ -97,10 +105,10 @@ function validateData(d){
  }
 }
 function validate(p,workspace,device,number){
- V.fields(p,['protocol','workspaceId','deviceId','number','operationId','commandHash','data','bases','versions','replaceSeries','resolution'],['protocol','workspaceId','deviceId','number','operationId','commandHash','data','bases','versions','replaceSeries','resolution']);
+ V.fields(p,['protocol','workspaceId','deviceId','number','operationId','commandHash','data','bases','versions','replaceSeries','resolution','writerId','sharedProjection'],['protocol','workspaceId','deviceId','number','operationId','commandHash','data','bases','versions','replaceSeries','resolution']);
  V.check(p.protocol===1&&p.workspaceId===workspace&&p.deviceId===device&&p.number===number,'Synchronization file identity mismatch');V.id(p.workspaceId);V.id(device);V.id(p.operationId);integer(number);V.check(number>0&&/^[a-f0-9]{64}$/.test(p.commandHash),'Invalid synchronization operation');validateData(p.data);
- const us=units(p.data);V.check(V.canonical(Object.keys(p.bases).sort())===V.canonical(us)&&V.canonical(Object.keys(p.versions).sort())===V.canonical(us),'Invalid synchronization units');
- for(const u of us){vector(p.bases[u]);vector(p.versions[u]);V.check(eq(p.versions[u],{...p.bases[u],[device]:number})&&(p.bases[u][device]??0)<number,'Invalid operation ancestry');}
+ if(p.writerId!==undefined)V.id(p.writerId);if(p.sharedProjection!==undefined)V.check(p.sharedProjection===true,'Invalid shared projection');const writer=p.writerId??device;const us=units(p.data);V.check(V.canonical(Object.keys(p.bases).sort())===V.canonical(us)&&V.canonical(Object.keys(p.versions).sort())===V.canonical(us),'Invalid synchronization units');
+ for(const u of us){vector(p.bases[u]);vector(p.versions[u]);V.check(eq(p.versions[u],{...p.bases[u],[writer]:number})&&(p.bases[u][writer]??0)<number,'Invalid operation ancestry');}
  V.check(typeof p.resolution==='boolean'&&Array.isArray(p.replaceSeries)&&p.replaceSeries.every(id=>p.data.series.some(s=>s.id===id))&&(p.resolution||p.replaceSeries.length===0),'Invalid series replacement');
  for(const r of [...p.data.tasks,...p.data.series,...p.data.history])V.check(p.data.owners.some(o=>o.id===r.owner_id),'Foreign owner reference');
  for(const h of p.data.history){V.check(p.data.tasks.some(t=>t.id===h.task_id),'Foreign History task');if(h.step_id)V.check(p.data.steps.some(s=>s.id===h.step_id&&s.task_id===h.task_id),'Foreign History Step');}
@@ -156,7 +164,7 @@ function notify(e,data,operationId,kind){
   // use the existing generatedTasks install path and retain tombstones.
   let c=changes.find(c=>c.ownerId===ownerId);if(c){c.taskIds.push(t.id);c.generatedTasks.push(current);c.historyIds.push(...p.historyIds);}else changes.push({...p,generatedTasks:[current],taskId:null,taskPatch:null});
  }}
- for(const c of changes)e.run('INSERT INTO outbox VALUES(?,?,?,?)',sequence,c.ownerId,operationId,JSON.stringify(c));return changes;
+ for(const c of changes)e.run('INSERT INTO outbox VALUES(?,?,?,?) ON CONFLICT(sequence,owner_id) DO UPDATE SET change_json=excluded.change_json',sequence,c.ownerId,operationId,JSON.stringify(c));return changes;
 }
 function rememberOperation(e,p){
  const old=e.one('SELECT command_hash FROM operations WHERE operation_id=?',p.operationId);
@@ -192,8 +200,21 @@ function receive(e,p){
  const old=e.one('SELECT payload_hash FROM sync_received WHERE device_id=? AND number=?',p.deviceId,p.number);
  if(old){V.check(old.payload_hash===hash(p),'Immutable stream was changed','SYNC_STREAM_CHANGED');return [];}
  const progress=e.one('SELECT number FROM sync_progress WHERE device_id=?',p.deviceId)?.number??0;V.check(p.number===progress+1,'Stream gap; waiting for earlier file','SYNC_GAP');
- e.run("INSERT INTO sync_received VALUES(?,?,?,?,?,'pending')",p.deviceId,p.number,p.operationId,JSON.stringify(p),hash(p));
- e.run('INSERT INTO sync_progress VALUES(?,?) ON CONFLICT(device_id) DO UPDATE SET number=excluded.number',p.deviceId,p.number);const changes=drain(e);e.boundary('syncBeforeCommit',p.operationId);return changes;
+ const original=p;p=normalize(p);const changes=receiveLogical(e,p);e.run('UPDATE sync_received SET payload_hash=? WHERE operation_id=?',hash(original),p.operationId);e.run('INSERT INTO sync_progress VALUES(?,?) ON CONFLICT(device_id) DO UPDATE SET number=excluded.number',original.deviceId,original.number);e.boundary('syncBeforeCommit',p.operationId);return changes;
+}
+function receiveLogical(e,p){
+ p=normalize(p);const prior=e.one('SELECT payload_json FROM sync_changes WHERE operation_id=?',p.operationId);
+ if(prior){const known=JSON.parse(prior.payload_json);V.check(known.commandHash===p.commandHash,'Logical operation identity collision');
+  // A personal original can arrive after its redacted shared withdrawal. It
+  // retains the same logical identity and ancestry, and restores private state.
+  if(known.sharedProjection&&!p.sharedProjection){
+   const same=units(p.data).every(u=>eq(heads(e,u),p.versions[u]));
+   e.run('UPDATE sync_changes SET payload_json=? WHERE operation_id=?',JSON.stringify(p),p.operationId);
+   if(same){const previousOwners=Object.fromEntries(p.data.tasks.map(t=>[t.id,[e.one('SELECT owner_id FROM tasks WHERE id=?',t.id)?.owner_id].filter(Boolean)]));rememberOperation(e,p);applyData(e,p.data,p);const presentation=randomUUID();e.run('INSERT INTO operations(operation_id,command_hash,result_json,committed_at) VALUES(?,?,?,?)',presentation,hash({upgrade:p.operationId}),JSON.stringify({operationId:presentation}),e.clock());return notify(e,{...p.data,previousOwners},presentation,'sync.receive');}
+  }return [];
+ }
+ record(e,p);e.run("INSERT INTO sync_received VALUES(?,?,?,?,?,'pending')",p.deviceId,p.number,p.operationId,JSON.stringify(p),hash(p));return drain(e);
+
 }
 function conflicts(e){
  const rows=e.all("SELECT payload_json,state FROM sync_received WHERE state IN ('pending','conflict') ORDER BY device_id,number LIMIT 1000").map(r=>({...r,p:JSON.parse(r.payload_json)})),used=new Set(),result=[];
@@ -259,4 +280,4 @@ function resolve(e,{operationId,choice}){
  for(const p of ps)e.run("UPDATE sync_received SET state='superseded' WHERE operation_id=?",p.operationId);
  return changes;
 }
-module.exports={columns,empty,setting,set,heads,le,eq,hash,units,taskData,initialData,baseline,initialize,capture,validateData,validate,applyData,receive,drain,conflicts,resolve,notify};
+module.exports={logicalWriter,normalize,migrateLogicalWriters,record,envelope,receiveLogical,columns,empty,setting,set,heads,le,eq,hash,units,taskData,initialData,baseline,initialize,capture,validateData,validate,applyData,receive,drain,conflicts,resolve,notify};

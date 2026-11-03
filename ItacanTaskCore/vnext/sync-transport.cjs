@@ -7,13 +7,13 @@ const UUID='[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}',worksp
 const MAX_FILE=8*1024*1024,MAX_BASELINE=128*1024*1024;
 const digest=b=>createHash('sha256').update(b).digest('hex');
 class TaskSync {
- constructor(engine,{vault,authorityId,interval=15000,automatic=true,onStatus=()=>{},testBoundary=null}={}){
+ constructor(engine,{vault,authorityId,interval=15000,automatic=true,onStatus=()=>{},testBoundary=null,gitEnabled=true}={}){
   V.check(path.isAbsolute(vault),'Absolute vault required');V.id(authorityId);
-  this.engine=engine;this.root=path.join(vault,'.itacan-task-sync');this.defaultAuthority=authorityId;this.interval=interval;this.automatic=automatic;this.onStatus=onStatus;this.testBoundary=testBoundary;this.closed=false;this.state={state:'starting',authorityId};
-  this.stopChanges=engine.subscribe({},c=>{if(!c.kind.startsWith('sync.'))this.schedule(200)});
+  this.vault=vault;this.gitEnabled=gitEnabled;this.engine=engine;this.root=path.join(vault,'.itacan-task-sync');this.defaultAuthority=authorityId;this.interval=interval;this.automatic=automatic;this.onStatus=onStatus;this.testBoundary=testBoundary;this.closed=false;this.state={state:'starting',authorityId};
+  this.stopChanges=engine.subscribe({},c=>{this.schedule(200)});
   this.state.authorityId=S.setting(engine,'authority',authorityId);this.state.workspaceId=S.setting(engine,'workspace');
  }
- status(){return structuredClone(this.state);}
+ status(){const value=structuredClone(this.state);if(this.git)value.gitProjects=[...this.git.projects.values()].map(p=>({...p.status(),projectId:p.id}));if(this.gitError)value.gitProjects=[...(value.gitProjects??[]),{state:'error',error:this.gitError}];if(value.gitProjects?.some(p=>p.state==='conflict'))value.state='conflict';return value;}
  report(state,extra={}){this.state={...this.state,state,...extra};this.onStatus(this.status());return this.status();}
  async safe(file,{directory=false,missing=false}={}){
   const relative=path.relative(this.root,file);V.check(relative===''||!relative.startsWith('..')&&!path.isAbsolute(relative),'Synchronization path escaped root');
@@ -26,7 +26,7 @@ class TaskSync {
   const st=await fs.stat(file);V.check(directory?st.isDirectory():st.isFile(),'Unexpected synchronization file type');return st;
  }
  async read(file,max=MAX_FILE){const st=await this.safe(file);V.check(st.size<=max,'Synchronization file exceeds size limit','SYNC_FILE_TOO_LARGE');const handle=await fs.open(file,'r');try{const stat=await handle.stat();V.check(stat.isFile()&&stat.size<=max,'Invalid synchronization file');const buffer=Buffer.alloc(stat.size+1);let length=0;while(length<buffer.length){const r=await handle.read(buffer,length,buffer.length-length,length);if(!r.bytesRead)break;length+=r.bytesRead;}V.check(length===stat.size&&length<=max,'Synchronization file changed during read');return buffer.subarray(0,length);}finally{await handle.close();}}
- async json(file,max){return JSON.parse((await this.read(file,max)).toString('utf8'));}
+ async json(file,max){const text=(await this.read(file,max)).toString('utf8');V.check(!/^(<<<<<<< |=======|>>>>>>> )/m.test(text),'Unresolved Git merge markers in '+path.basename(file)+'. Resolve the file through Git; local tasks remain available.','SYNC_MERGE_CONFLICT');return JSON.parse(text);}
  async mkdir(dir){await this.safe(path.dirname(dir),{directory:true});try{await fs.mkdir(dir)}catch(e){if(e.code!=='EEXIST')throw e;}await this.safe(dir,{directory:true});}
  async publish(file,value){
   const bytes=Buffer.from(JSON.stringify(value));V.check(bytes.length<=MAX_FILE,'Synchronization file exceeds size limit','SYNC_FILE_TOO_LARGE');
@@ -42,7 +42,7 @@ class TaskSync {
  }
  schedule(ms=250){if(this.closed||this.timer||!this.automatic)return;this.timer=setTimeout(()=>{this.timer=null;void this.reconcile()},ms);this.timer.unref?.();}
  async start(){await this.reconcile();if(!this.closed&&this.automatic){try{this.watcher=nativeFs.watch(this.root,{recursive:true},()=>this.schedule());this.watcher.on('error',()=>{this.watcher?.close();this.watcher=null;this.schedule(1000)});}catch{}this.periodic=setInterval(()=>this.schedule(),this.interval);this.periodic.unref?.();}return this.status();}
- reconcile(){if(this.closed)return Promise.resolve(this.status());if(this.running){this.again=true;return this.running;}this.running=this.cycle().catch(e=>this.report('error',{error:e.message,code:e.code??'SYNC_UNAVAILABLE'})).finally(()=>{this.running=null;if(this.again){this.again=false;this.schedule();}});return this.running;}
+ reconcile(){if(this.closed)return Promise.resolve(this.status());if(this.running){this.again=true;return this.running;}this.running=this.cycle().catch(e=>this.report('error',{error:e.message,code:e.code??'SYNC_UNAVAILABLE'})).then(async result=>{if(this.gitEnabled&&!this.closed){try{this.git??=new (require('./git-transport.cjs').GitProjects)(this);const projects=await this.git.reconcile();this.gitError=null;this.state.gitProjects=projects;result=this.status();}catch(e){this.gitError=e.message;this.state.gitProjects=[{state:'error',error:e.message}];result=this.status();}}return result;}).finally(()=>{this.running=null;if(this.again){this.again=false;this.schedule();}});return this.running;}
  async cycle(){
   if(this.closed)return this.status();
   try{await fs.mkdir(this.root);this.createdRoot=true;}catch(e){if(e.code!=='EEXIST')throw e;}await this.safe(this.root,{directory:true});
@@ -73,6 +73,9 @@ class TaskSync {
   await this.mkdir(path.join(this.root,'streams'));const stream=path.join(this.root,'streams',this.deviceId);await this.mkdir(stream);
   this.report('syncing',{authorityId:manifest.authorityId,workspaceId:manifest.workspaceId,deviceId:this.deviceId,error:null,code:null});
   await this.export(stream);await this.import();
+  const B=require('./transport-batches.cjs');
+  await B.publishBatch(this,'bridge:published',{protocol:1,workspaceId:this.manifest.workspaceId,writerId:this.deviceId,directory:'bridges'},(e,p)=>p.sharedProjection?p:null);
+  await B.importBatches(this,'bridges','bridge:received:',{workspaceId:this.manifest.workspaceId},(e,p)=>{S.validate(p,p.workspaceId,p.deviceId,p.number);V.check(p.workspaceId===this.manifest.workspaceId,'Personal bridge workspace mismatch');return S.receiveLogical(e,p);});
   const summary=await this.engine.enqueue(()=>({conflicts:S.conflicts(this.engine).length,pending:this.engine.one("SELECT count(*) n FROM sync_received WHERE state='pending'").n}));
   return this.report(summary.conflicts?'conflict':summary.pending?'waiting':'current',{...summary,lastSuccess:Date.now(),error:null});
  }
@@ -129,6 +132,6 @@ class TaskSync {
  }
  async conflicts(){return this.engine.enqueue(()=>S.conflicts(this.engine));}
  async resolve(input){await this.engine.syncTransaction(e=>({changes:S.resolve(e,input),value:true}));this.schedule(0);return this.status();}
- async close(){this.closed=true;clearTimeout(this.timer);clearInterval(this.periodic);this.watcher?.close();this.stopChanges();if(this.running){let timer;try{await Promise.race([this.running,new Promise(r=>{timer=setTimeout(r,500)})]);}finally{clearTimeout(timer);}}}
+ async close(){this.closed=true;clearTimeout(this.timer);clearInterval(this.periodic);this.watcher?.close();this.stopChanges();await this.git?.close();if(this.running){let timer;try{await Promise.race([this.running,new Promise(r=>{timer=setTimeout(r,500)})]);}finally{clearTimeout(timer);}}}
 }
 module.exports={TaskSync};

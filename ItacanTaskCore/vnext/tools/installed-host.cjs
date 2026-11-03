@@ -7,7 +7,7 @@ if(!label||!/^[a-z0-9-]+$/.test(label))throw Error('New evidence label required'
 const root=path.join(process.env.LOCALAPPDATA,'Itacan/DevelopmentEvidence/TaskCoreVNext',label);
 if(fs.existsSync(root))throw Error('Evidence directory already exists');
 const profile=path.join(root,'profile'),vault=path.join(root,'vault'),exe=path.join(process.env.LOCALAPPDATA,'Programs/obsidian/Obsidian.exe');
-const stage=process.argv[3]?path.resolve(process.argv[3]):null;
+const stage=process.argv[3]?path.resolve(process.argv[3]):null,gitOnly=process.argv[4]==='--git-only';
 fs.mkdirSync(path.join(vault,'.obsidian'),{recursive:true});fs.mkdirSync(profile);
 const archiveDirectory=path.join(process.env.APPDATA,'obsidian'),archiveName=fs.readdirSync(archiveDirectory).filter(n=>/^obsidian-\d+\.\d+\.\d+\.asar$/.test(n)).sort((a,b)=>{const av=a.match(/\d+/g).map(Number),bv=b.match(/\d+/g).map(Number);return bv[0]-av[0]||bv[1]-av[1]||bv[2]-av[2]})[0];
 if(!archiveName)throw Error('Installed updated Obsidian archive required');
@@ -20,11 +20,12 @@ if(stage){
  if(!stage.startsWith(path.join(process.env.LOCALAPPDATA,'Itacan/DevelopmentEvidence/TaskCoreVNext')+path.sep))throw Error('Owned stage required');
  const manifest=JSON.parse(fs.readFileSync(path.join(stage,'STAGE.json')));
  const target=path.join(vault,'.obsidian/plugins/hub-project-menu');fs.cpSync(manifest.output,target,{recursive:true});
+ if(gitOnly){cp.execFileSync('git',['-C',vault,'init'],{windowsHide:true,stdio:'ignore'});fs.mkdirSync(path.join(vault,'System'),{recursive:true});fs.writeFileSync(path.join(vault,'System/Hub-shared-projects.json'),JSON.stringify({schemaVersion:1,categories:[],projectPlanning:{},headerImagePlacements:{},projects:{'82b767fe-682b-4184-8918-3a5c47b45a25':{root:'Projects/Itacan'}}}));}
  const helper=path.join(vault,'.obsidian/plugins/sqlite-acceptance');fs.mkdirSync(helper,{recursive:true});
  fs.writeFileSync(path.join(helper,'manifest.json'),JSON.stringify({id:'sqlite-acceptance',name:'Synthetic acceptance helper',version:'1.0.0',minAppVersion:'1.0.0',isDesktopOnly:true}));
  fs.writeFileSync(path.join(helper,'main.js'),'const api=require("obsidian");module.exports=class extends api.Plugin{onload(){window.__sqliteAcceptanceApi=api;}}');
  fs.writeFileSync(path.join(vault,'.obsidian/community-plugins.json'),JSON.stringify(['sqlite-acceptance','hub-project-menu']));fs.writeFileSync(path.join(vault,'.obsidian/app.json'),JSON.stringify({safeMode:false}));
- fs.mkdirSync(path.join(vault,'Projects/Fixture/Notes'),{recursive:true});fs.writeFileSync(path.join(vault,'Projects/Fixture/Fixture.md'),'---\ntype: project\nprojectId: 82b767fe-682b-4184-8918-3a5c47b45a25\nstatus: active\ncategory: test\n---\n# Fixture\n');fs.writeFileSync(path.join(vault,'Projects/Fixture/Notes/Example.md'),'# Example\n');
+ const fixtureRoot=gitOnly?'Projects/Itacan':'Projects/Fixture';fs.mkdirSync(path.join(vault,fixtureRoot,'Notes'),{recursive:true});fs.writeFileSync(path.join(vault,fixtureRoot,'Fixture.md'),'---\ntype: project\nprojectId: 82b767fe-682b-4184-8918-3a5c47b45a25\nstatus: active\ncategory: physics-research\n---\n# Fixture\n');fs.writeFileSync(path.join(vault,fixtureRoot,'Notes/Example.md'),'# Example\n');
  fs.cpSync(path.resolve(__dirname,'../../../System/Dashboards'),path.join(vault,'System/Dashboards'),{recursive:true});
  for(const rel of Object.keys(manifest.dashboardFiles??{}))fs.copyFileSync(path.join(manifest.source,rel),path.join(vault,rel));
  fs.writeFileSync(path.join(root,'stage.json'),JSON.stringify({stage,manifestHash:crypto.createHash('sha256').update(fs.readFileSync(path.join(stage,'STAGE.json'))).digest('hex')},null,2));
@@ -69,7 +70,7 @@ const delay=ms=>new Promise(r=>setTimeout(r,ms));
    await delay(100);
   }
   fs.writeFileSync(path.join(root,'plugin-startup.json'),JSON.stringify(await client.evaluate(`({loaded:Object.keys(app.plugins.plugins),manifests:Object.keys(app.plugins.manifests),console:window.__sqliteConsole})`),null,2));
-  const fixture=path.resolve(__dirname,'../tests/production-ui.cjs');
+  const fixture=path.resolve(__dirname,gitOnly?'../tests/git-ui.cjs':'../tests/production-ui.cjs');
   const result=await client.evaluate(`require(${JSON.stringify(fixture)})({app,api:window.__sqliteAcceptanceApi,plugin:app.plugins.plugins['hub-project-menu']},${JSON.stringify(root)})`);
   fs.writeFileSync(path.join(root,'result.json'),JSON.stringify(result,null,2));
  }else{

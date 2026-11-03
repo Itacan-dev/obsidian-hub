@@ -1,5 +1,7 @@
 # Personal OneDrive task synchronization
 
+Shared Project Git transport is now integrated through the same engine. See [GIT-SYNCHRONIZATION.md](GIT-SYNCHRONIZATION.md) for the current cross-transport behavior. The installation evidence below documents the earlier OneDrive-only build.
+
 Installed and enabled in ordinary Work on the stationary computer, 2026-11-03. Physical laptop acceptance is deferred.
 
 ## Architecture and data
@@ -21,7 +23,7 @@ Local task changes commit immediately with their existing operation and outbox r
 
 The publisher writes and flushes a temporary file, closes it, then renames it locally to the immutable final filename. Its publication watermark is durable. The receiver reads exact next sequence filenames, so gaps, delayed files and incomplete temporary files cannot advance receive progress. Schema, size, workspace/device/operation identity, table references, recurrence invariants and ancestry are checked. Referenced filenames are fixed, bounded children of the synchronization root; directory links are rejected. Files-on-demand read failures are retried, with an actionable status and no dependency from local task confirmation. Shutdown waits at most 500 ms for transport work before draining accepted SQLite work.
 
-Incoming application, History, presentation outbox and receive progress commit atomically. Operation IDs plus durable per-device progress prevent duplicate application. Applied receipts retain a hash and small metadata rather than another full payload. Unresolved/rejected conflict versions remain retained. Incoming presentation changes have no export payload, preventing echo loops.
+Incoming application, History, presentation outbox and receive progress commit atomically. Operation IDs plus durable per-device progress prevent duplicate application. Applied receipts retain a hash and small metadata rather than another full payload. Unresolved/rejected conflict versions remain retained. The original OneDrive-only build gave incoming presentation changes no export payload. Schema 4 now retains received logical changes in a transport journal: Git imports forward through OneDrive bridges and OneDrive imports remain Git-eligible, with identity-based deduplication and durable per-transport cursors.
 
 All native Project and Resource tasks participate, including Projects whose ordinary files are Git-shared. Synchronized data includes stable Task/Step IDs, title/description, completion/reopening, Start/Due dates and times, importance, owner transfers, folder/note references, Phase IDs, ordered flat Steps, daily/weekly rules/templates/series/occurrences, tombstones and counted/uncounted completion History. Local owner and location availability comes from each device's current vault metadata; missing metadata does not discard the saved reference.
 
@@ -62,4 +64,4 @@ Installed `hub-project-menu/main.js` SHA-256: `15c3d49d8d496a82212b2808f3642a3d3
 3. If the status says **review enrollment**, click it and review the explicit merge action. Existing data remains intact until a valid merge commits. If it reports overlapping baseline identities or multiple workspace manifests, leave the files/database intact for manual review.
 4. Wait for **Task sync: ready**, then create one temporary task on each physical computer and confirm each appears on the other; verify a Step edit, completion/reopening and deletion in both directions. Review any reported conflict through the status item. These physical checks have **not** been performed yet.
 
-Transport limits are 8 MiB per file and 128 MiB per baseline, with bounded per-cycle work. Oversized/invalid/unavailable input stops transport with an actionable error while local task work remains available. Actual Microsoft OneDrive remote propagation/files-on-demand hydration, physical laptop use and hardware power-loss acceptance remain unverified. Personal synchronization does not introduce multi-user Git task collaboration.
+Transport limits are 8 MiB per file and 128 MiB per baseline, with bounded per-cycle work. Oversized/invalid/unavailable input stops transport with an actionable error while local task work remains available. Actual Microsoft OneDrive remote propagation/files-on-demand hydration, physical laptop use and hardware power-loss acceptance remain unverified. Shared Project collaboration is provided by the additional Git transport documented above.

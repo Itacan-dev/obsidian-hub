@@ -28,8 +28,8 @@ export interface TaskService {
 }
 export class TaskEngine implements TaskService {constructor(file:string,options?:{busyTimeout?:number;clock?:()=>number;diagnostic?:(event:object)=>void;readOnly?:boolean});execute:TaskService['execute'];listOwners:TaskService['listOwners'];getTask:TaskService['getTask'];listTasks:TaskService['listTasks'];readHistory:TaskService['readHistory'];readStatistics:TaskService['readStatistics'];getOperation:TaskService['getOperation'];readOutbox:TaskService['readOutbox'];getCursor:TaskService['getCursor'];checkpoint:TaskService['checkpoint'];subscribe:TaskService['subscribe'];close:TaskService['close']}
 export class TaskError extends Error {code:string}
-export interface TaskSyncStatus {state:'disabled'|'starting'|'syncing'|'current'|'waiting'|'conflict'|'enrollment-required'|'error';authorityId?:string;workspaceId?:string;deviceId?:string;error?:string|null;code?:string|null;conflicts?:number;pending?:number;lastSuccess?:number}
-/** The installed utility adds personal synchronization; the SQLite engine stays transport-independent. */
+export interface TaskSyncStatus {state:'disabled'|'starting'|'syncing'|'current'|'waiting'|'conflict'|'enrollment-required'|'error';authorityId?:string;workspaceId?:string;deviceId?:string;error?:string|null;code?:string|null;conflicts?:number;pending?:number;lastSuccess?:number;gitProjects?:Array<{projectId?:string;path?:string;state:TaskSyncStatus['state'];error?:string|null;conflicts?:number;pending?:number}>}
+/** The installed utility adds personal and shared Project synchronization; the SQLite engine stays transport-independent. */
 export interface SynchronizedTaskService extends TaskService {
  syncStatus():Promise<TaskSyncStatus>;
  syncNow():Promise<TaskSyncStatus>;
