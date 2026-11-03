@@ -62,6 +62,28 @@ function mountWrappingTaskInput(input) {
 function mountTaskSteps({ host: steps, state, onChange = () => {}, emptyPrompt = false, inlineAdd = false, checklist = null, markdown = null, getPath = () => state.path, actionLabel = "Add step", pendingPlaceholder = "Add a step...", focusFallback = null, canAdd = null, onBeforeAdd = () => {} }) {
     const list = checklist?.rowsHost ?? steps.createDiv({ cls: "hub-task-step-list" });
     const editors = new Set(), sizes = new Map();
+    const rowSteps = new WeakMap();
+    list.classList.add("hub-task-step-reorder-list");
+    const reorderStatus = steps.createDiv({ cls: "hub-task-reorder-status", attr: { role: "status", "aria-live": "polite", "aria-atomic": "true" } });
+    const updateOrderControls = () => [...list.children].forEach((row, index) => {
+        const handle = row.querySelector(".hub-task-step-drag-handle");
+        if (handle) { handle.disabled = state.steps.length < 2; handle.setAttribute("aria-label", "Reorder step " + (index + 1)); }
+        row.querySelector(".hub-task-step-remove")?.setAttribute("aria-label", "Remove step " + (index + 1));
+    });
+    // Modal layout creates its scrolling body after mounting the form.
+    let reorder;
+    const pointerReorder = () => reorder ??= require("./pointer-list-reorder").createPointerListReorder({
+        container: list, scroller: steps.closest(".hub-modal-body") ?? steps,
+        placeholderClass: "hub-preset-placeholder hub-task-step-placeholder", sortingClass: "is-sorting-steps", animate: true,
+        canStart: event => event.target.closest(".hub-task-step-drag-handle")?.disabled === false,
+        focusTarget: row => row.querySelector(".hub-task-step-drag-handle"),
+        commit(rows, moved) {
+            const next = rows.map(row => rowSteps.get(row));
+            if (next.every((step, index) => step === state.steps[index])) return;
+            state.steps = next; updateOrderControls(); onChange({ steps: state.steps });
+            reorderStatus.textContent = `Step moved to position ${next.indexOf(rowSteps.get(moved)) + 1} of ${next.length}.`;
+        }
+    });
     const textInput = (parent, attributes, value = "") => {
         const input = parent.createEl(checklist ? "textarea" : "input", { attr: { ...(checklist ? { rows: "1", wrap: "soft" } : { type: "text" }), ...attributes } });
         input.value = value;
@@ -81,6 +103,7 @@ function mountTaskSteps({ host: steps, state, onChange = () => {}, emptyPrompt =
     };
     state.steps ??= [];
     const renderSteps = (appendOnly = false) => {
+        reorder?.cancel();
         if (!appendOnly) { for (const input of editors) { sizes.get(input)?.destroy(); sizes.delete(input); } list.replaceChildren(); editors.clear(); }
         if (emptyPrompt && !state.steps.length) {
             const prompt = list.createEl("input", { type: "text", attr: { "aria-label": "New step", placeholder: "Add a step..." } });
@@ -95,6 +118,7 @@ function mountTaskSteps({ host: steps, state, onChange = () => {}, emptyPrompt =
             if (appendOnly && index !== state.steps.length - 1) return;
             const parts = checklist?.createRow(step);
             const row = parts?.row ?? list.createDiv({ cls: "hub-task-step" });
+            rowSteps.set(row, step);
             if (!parts) row.classList.add("hub-task-step"); row.classList.toggle("is-completed", inlineAdd && !!step.completed);
             const checkbox = parts?.checkbox ?? row.createEl("input", { type: "checkbox", attr: { "aria-label": "Step complete" } }); checkbox.checked = !!step.completed;
             bindCompletionSound(checkbox, playStepCompletionSound);
@@ -141,19 +165,38 @@ function mountTaskSteps({ host: steps, state, onChange = () => {}, emptyPrompt =
                     if (!event.isComposing && ["insertLineBreak", "insertParagraph"].includes(event.inputType)) { event.preventDefault(); confirm(); }
                 });
             }
-            for (const [offset, label, icon] of [[-1, "Move step up", "chevron-up"], [1, "Move step down", "chevron-down"]]) {
-                const move = row.createEl("button", { cls: "hub-task-step-order", attr: { type: "button", "aria-label": label } }); setHubIcon(move, icon);
-                move.disabled = index + offset < 0 || index + offset >= state.steps.length;
-                move.onclick = () => { const next = index + offset; [state.steps[index], state.steps[next]] = [state.steps[next], state.steps[index]]; renderSteps(); onChange({ steps: state.steps }); };
-            }
-            const remove = row.createEl("button", { attr: { type: "button", "aria-label": "Remove step " + (index + 1) } }); setHubIcon(remove, "x");
+            const handle = row.createEl("button", { cls: "hub-task-step-drag-handle", attr: { type: "button",
+                "aria-label": "Reorder step " + (index + 1), "aria-keyshortcuts": "Alt+ArrowUp Alt+ArrowDown Alt+Home Alt+End",
+                "aria-description": "Drag to reorder. Alt+Up or Down moves one position; Alt+Home or End moves to the first or last position.",
+                title: "Drag to reorder · Alt+↑/↓ to move" } });
+            setHubIcon(handle, "grip-vertical");
+            handle.addEventListener("pointerdown", event => {
+                if (handle.disabled || event.button !== 0 || event.isPrimary === false || !commitPending()) return;
+                event.preventDefault(); handle.focus({ preventScroll: true }); pointerReorder().begin(event, row, list);
+            });
+            handle.addEventListener("click", event => { event.preventDefault(); event.stopPropagation(); });
+            handle.addEventListener("keydown", event => {
+                if (handle.disabled || !event.altKey || !["ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) return;
+                event.preventDefault(); event.stopPropagation();
+                if (!commitPending()) return;
+                const current = state.steps.indexOf(step), next = event.key === "Home" ? 0 : event.key === "End" ? state.steps.length - 1 :
+                    Math.max(0, Math.min(state.steps.length - 1, current + (event.key === "ArrowUp" ? -1 : 1)));
+                if (current === next) return;
+                const rows = [...list.children].filter(item => item !== row); rows.splice(next, 0, row); list.append(...rows);
+                state.steps.splice(current, 1); state.steps.splice(next, 0, step);
+                updateOrderControls(); onChange({ steps: state.steps }); handle.focus({ preventScroll: true });
+                reorderStatus.textContent = `Step moved to position ${next + 1} of ${state.steps.length}.`;
+            });
+            const remove = row.createEl("button", { cls: "hub-task-step-remove", attr: { type: "button", "aria-label": "Remove step " + (index + 1) } }); setHubIcon(remove, "x");
             remove.addEventListener("click", event => {
                 const restoreFocus = hasKeyboardFocus(remove, event);
+                reorder?.cancel(); const currentIndex = state.steps.indexOf(step);
                 state.steps = state.steps.filter(item => item !== step);
                 renderSteps(); onChange({ steps: state.steps });
-                if (restoreFocus) focusAfterRowRemoval([...list.querySelectorAll(".hub-task-step > button, .hub-task-step-item > button")], index, draft && !draft.hidden ? draftInput : (add.getClientRects().length ? add : focusFallback ?? add));
+                if (restoreFocus) focusAfterRowRemoval([...list.querySelectorAll(".hub-task-step-remove")], currentIndex, draft && !draft.hidden ? draftInput : (add.getClientRects().length ? add : focusFallback ?? add));
             });
         });
+        updateOrderControls();
     };
     renderSteps();
     const draftParts = inlineAdd && checklist ? checklist.createRow({ text: "" }, checklist.list) : null;
@@ -194,6 +237,9 @@ function mountTaskSteps({ host: steps, state, onChange = () => {}, emptyPrompt =
         if (focus) (add.getClientRects().length ? add : focusFallback ?? add).focus({ preventScroll: true });
     };
     const commitPending = (focus = false) => {
+        // Flush the shared drag helper's settling animation before Save reads
+        // the draft. Unsaved Steps are mapped by object, not by optional IDs.
+        reorder?.cancel();
         if (!draft || draft.hidden) return true;
         if (composing) return false;
         if (!draftInput.value.trim() && !focus) { closeDraft(); return true; }
@@ -273,7 +319,7 @@ function mountTaskSteps({ host: steps, state, onChange = () => {}, emptyPrompt =
         get controls() { return [...editors, ...(draftInput ? [draftInput] : [])]; },
         get hasPending() { return !!draft && !draft.hidden; }, get pendingCompleted() { return !!draftCheckbox?.checked; },
         get meaningfulPending() { return meaningfulPending(); },
-        destroy() { view.clearTimeout(pointerTimer); emptyBlurVersion = null;
+        destroy() { reorder?.cancel(); reorderStatus.remove(); view.clearTimeout(pointerTimer); emptyBlurVersion = null;
             for (const sizing of sizes.values()) sizing.destroy(); sizes.clear();
             if (pointerRoot) pointerListeners.forEach(([target, type, handler, capture]) => target.removeEventListener(type, handler, capture)); },
         focusNew() { if (inlineAdd || !state.steps.length && !emptyPrompt) add.click(); else list.querySelector("input[type=text]")?.focus(); } };

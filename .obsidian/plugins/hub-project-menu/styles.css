@@ -755,6 +755,28 @@
     stroke-width: 2;
 }
 .hub-button-scope .hub-task-live-fields .hub-task-step-item > button:enabled:is(:hover,:active) { background: var(--background-modifier-hover); box-shadow: none; }
+.hub-task-step-reorder-list { position: relative; }
+.hub-task-step-reorder-list > .hub-task-step { grid-template-columns: 18px minmax(0, 1fr) 28px 28px; }
+.hub-button-scope .hub-task-step-reorder-list > :is(.hub-task-step-item, .hub-task-step) > :is(.hub-task-step-drag-handle, .hub-task-step-remove) {
+    display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box;
+    flex: 0 0 28px; width: 28px; height: 28px; min-height: 28px; margin: -4px 0; padding: 6px;
+    border: 0; border-radius: 4px; background: transparent; box-shadow: none; color: var(--text-muted);
+}
+.hub-button-scope .hub-task-step-reorder-list > :is(.hub-task-step-item, .hub-task-step) > .hub-task-step-drag-handle {
+    margin-inline-start: auto; margin-inline-end: -4px; cursor: grab; touch-action: none;
+}
+.hub-task-step-reorder-list > :is(.hub-task-step-item, .hub-task-step) > :is(.hub-task-step-drag-handle, .hub-task-step-remove) svg { width: 16px; height: 16px; }
+.hub-button-scope .hub-task-step-reorder-list > :is(.hub-task-step-item, .hub-task-step) > button:enabled:is(:hover, :active, :focus-visible) { background: var(--background-modifier-hover); }
+.hub-button-scope .hub-task-step-reorder-list > :is(.hub-task-step-item, .hub-task-step) > button:focus-visible { outline: 1px solid var(--text-muted); outline-offset: 1px; }
+.hub-task-step-reorder-list .hub-task-step-drag-handle:disabled { cursor: default; color: var(--text-faint); }
+.hub-task-step-reorder-list.is-sorting-steps, .hub-task-step-reorder-list.is-sorting-steps * { cursor: grabbing; user-select: none; }
+.hub-button-scope .hub-task-step-reorder-list.is-sorting-steps > :is(.hub-task-step-item, .hub-task-step) > .hub-task-step-drag-handle { cursor: grabbing; }
+.hub-task-step-reorder-list > .is-pointer-dragging {
+    position: absolute; z-index: 3; box-sizing: border-box; margin: 0; pointer-events: none;
+    border-radius: 4px; background: var(--background-secondary); box-shadow: 0 3px 12px rgba(0, 0, 0, 0.3);
+}
+.hub-task-step-reorder-list > .hub-task-step-placeholder { box-sizing: border-box; }
+.hub-task-reorder-status { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .hub-task-live-fields .hub-task-necessity-bar.hub-attention { position: absolute; }
 .hub-task-live-fields .hub-task-description-indicator.hub-attention { position: absolute; }
 .hub-task-popover.is-titleless > .hub-task-popover-heading { justify-content: flex-end; margin-bottom: 4px; }
