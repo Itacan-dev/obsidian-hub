@@ -94,8 +94,7 @@ function createTaskUi({ app, component, body, mutate, onEdit, editTask, createTa
                 catch (error) { report(error); return; }
                 if (modal?.ready) {
                     row.dataset.taskOpening = "true"; row.setAttribute("aria-busy", "true");
-                    const status = row.createSpan({ cls: "hub-task-operation-status", text: "Opening…", attr: { role: "status" } });
-                    Promise.resolve(modal.ready).finally(() => { delete row.dataset.taskOpening; row.removeAttribute("aria-busy"); status.remove(); }).catch(report);
+                    Promise.resolve(modal.ready).finally(() => { delete row.dataset.taskOpening; row.removeAttribute("aria-busy"); }).catch(report);
                     component.register(() => { if (!modal.saving) modal.close(); });
                 }
             };
