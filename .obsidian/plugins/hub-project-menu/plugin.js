@@ -13818,9 +13818,7 @@ module.exports = class HubProjectMenu extends Plugin {
     }
 
     openTaskCreator(options = {}) {
-        const owner = require("./lib/services/native-task-locations").nativeCreationOwner(this, options);
-        if (!owner) throw Error("Choose an available native task workspace.");
-        return this.nativeTaskHost.create({ ...options, owner });
+        return this.nativeTaskHost.create(options);
     }
 
     showProjectCoverMenu(

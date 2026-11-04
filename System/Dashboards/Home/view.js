@@ -775,7 +775,7 @@ function reconcileHomeTaskEdit(edit) {
     if (!homeTaskDisposed && root.isConnected) renderTaskContext();
 }
 upcomingBody.hubTaskUi = window.hubCreateTaskUi?.(dv.component, upcomingBody, reconcileHomeTaskEdit, homeTaskRead?.actions);
-const addTaskButton = upcomingBody.hubTaskUi?.addButton(upcomingHeader);
+const addTaskButton = upcomingBody.hubTaskUi?.addButton(upcomingHeader, { locationWorkspace: null });
 
 function renderTasksToDo(
     activeProjectTasks,

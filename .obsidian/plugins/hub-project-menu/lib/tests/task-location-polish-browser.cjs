@@ -1,0 +1,100 @@
+"use strict";
+const fs=require('node:fs'),path=require('node:path'),os=require('node:os'),http=require('node:http'),{spawn}=require('node:child_process'),assert=require('node:assert/strict');
+async function run(){
+ const root=path.resolve(__dirname,'../..'),output=fs.mkdtempSync(path.join(os.tmpdir(),'itacan-location-browser-'));
+ const server=http.createServer((req,res)=>{const file=path.resolve(root,'.'+decodeURIComponent(new URL(req.url,'http://localhost').pathname));if(!file.startsWith(root+path.sep)){res.writeHead(403).end();return}try{const data=fs.readFileSync(file);res.setHeader('Content-Type',file.endsWith('.js')?'text/javascript':file.endsWith('.css')?'text/css':'text/html');res.end(data)}catch{res.writeHead(404).end()}});
+ await new Promise(r=>server.listen(0,'127.0.0.1',r));const port=server.address().port;
+ const browser=process.argv[2]??'C:/Program Files/Google/Chrome/Application/chrome.exe';
+ const child=spawn(browser,['--headless=new','--no-first-run','--no-default-browser-check','--disable-background-networking','--remote-debugging-port=0','--user-data-dir='+path.join(output,'profile'),'about:blank'],{windowsHide:true,stdio:'ignore'});
+ let socket;try{
+  let devtools;for(let i=0;i<200;i++){try{devtools=fs.readFileSync(path.join(output,'profile/DevToolsActivePort'),'utf8').split(/\r?\n/);break}catch{await new Promise(r=>setTimeout(r,50))}}
+  assert(devtools,'Headless browser starts');const targets=await(await fetch('http://127.0.0.1:'+devtools[0]+'/json/list')).json();
+  socket=new WebSocket(targets.find(t=>t.type==='page').webSocketDebuggerUrl);await new Promise((r,j)=>{socket.addEventListener('open',r,{once:true});socket.addEventListener('error',j,{once:true})});let sequence=0;const pending=new Map();socket.addEventListener('message',event=>{const msg=JSON.parse(event.data);if(msg.id){const p=pending.get(msg.id);pending.delete(msg.id);if(msg.error)p.reject(Error(JSON.stringify(msg.error)));else p.resolve(msg.result)}});
+  const call=(method,params={})=>new Promise((resolve,reject)=>{const id=++sequence;pending.set(id,{resolve,reject});socket.send(JSON.stringify({id,method,params}))});await call('Page.enable');await call('Runtime.enable');
+  for(const [width,height,theme]of [[1024,900,'dark'],[600,780,'dark'],[390,720,'dark'],[560,900,'light']]){
+   await call('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:false});await call('Page.navigate',{url:'http://127.0.0.1:'+port+'/lib/tests/task-location-polish.html'+(theme==='light'?'?light':'')});
+   let ready=false;for(let i=0;i<200;i++){const r=await call('Runtime.evaluate',{expression:'Boolean(window.testDone)',returnByValue:true});if(r.result.value){ready=true;break}await new Promise(r=>setTimeout(r,25))}assert(ready,'Harness loads');
+   const result=await call('Runtime.evaluate',{expression:'window.testDone',awaitPromise:true,returnByValue:true,userGesture:true});if(result.exceptionDetails)throw Error(JSON.stringify(result.exceptionDetails));
+   const settleAnimations=()=>call('Runtime.evaluate',{expression:'Promise.all(document.getAnimations().map(a=>a.finished.catch(()=>{})))',awaitPromise:true});
+   await settleAnimations();
+   const geometry=await call('Runtime.evaluate',{expression:`(()=>{const selected=window.preview.list.querySelector('.is-selected'),other=[...window.preview.list.querySelectorAll('button')].find(b=>b.dataset.locationType==='note'&&!b.classList.contains('is-selected')),rect=e=>{const r=e.getBoundingClientRect();return{x:r.x+r.width/2,y:r.y+r.height/2}};return{selected:rect(selected),other:rect(other),color:getComputedStyle(selected).backgroundColor}})()`,returnByValue:true});
+   await call('Input.dispatchMouseEvent',{type:'mouseMoved',...geometry.result.value.selected});await settleAnimations();
+   const hover=await call('Runtime.evaluate',{expression:"getComputedStyle(window.preview.list.querySelector('.is-selected')).backgroundColor",returnByValue:true});assert.equal(hover.result.value,geometry.result.value.color,'Selected hover retains purple');
+   await call('Input.dispatchMouseEvent',{type:'mouseMoved',...geometry.result.value.other});await settleAnimations();
+   const otherHover=await call('Runtime.evaluate',{expression:"getComputedStyle([...window.preview.list.querySelectorAll('button')].find(b=>b.dataset.locationType==='note'&&!b.classList.contains('is-selected'))).backgroundColor",returnByValue:true});assert.notEqual(otherHover.result.value,hover.result.value,'Unselected hover differs from selection');
+   const screenshot=await call('Page.captureScreenshot',{format:'png'});fs.writeFileSync(path.join(output,'picker-'+width+'-'+theme+'.png'),Buffer.from(screenshot.data,'base64'));
+   const crumb=await call('Runtime.evaluate',{expression:`(()=>{const button=window.preview.breadcrumbs.querySelector('button'),r=button.getBoundingClientRect();return{x:r.x+r.width/2,y:r.y+r.height/2,color:getComputedStyle(button).color}})()`,returnByValue:true});
+   await call('Input.dispatchMouseEvent',{type:'mouseMoved',x:crumb.result.value.x,y:crumb.result.value.y});await settleAnimations();
+   const crumbHover=await call('Runtime.evaluate',{expression:`(()=>{const s=getComputedStyle(window.preview.breadcrumbs.querySelector('button'));return{background:s.backgroundColor,color:s.color,decoration:s.textDecorationLine,shadow:s.boxShadow,border:s.borderTopWidth}})()`,returnByValue:true});
+   assert.notEqual(crumbHover.result.value.background,'rgba(0, 0, 0, 0)','Breadcrumb hover uses gray background');assert.equal(crumbHover.result.value.decoration,'none','Breadcrumb hover has no underline');assert.equal(crumbHover.result.value.color,crumb.result.value.color,'Ancestor hover preserves text styling');assert.equal(crumbHover.result.value.shadow,'none');assert.equal(crumbHover.result.value.border,'0px');
+   const endpoint=await call('Runtime.evaluate',{expression:`(()=>{const e=window.preview.breadcrumbs.querySelector('[aria-current]'),r=e.getBoundingClientRect();return{x:r.x+r.width/2,y:r.y+r.height/2,color:getComputedStyle(e).backgroundColor,noteColor:getComputedStyle(window.preview.list.querySelector('.is-selected')).backgroundColor}})()`,returnByValue:true});
+   assert.equal(endpoint.result.value.color,endpoint.result.value.noteColor,'Breadcrumb and selected note use the same purple tint');
+   await call('Input.dispatchMouseEvent',{type:'mouseMoved',x:endpoint.result.value.x,y:endpoint.result.value.y});await settleAnimations();
+   const selectedCrumb=await call('Runtime.evaluate',{expression:"getComputedStyle(window.preview.breadcrumbs.querySelector('[aria-current]')).backgroundColor",returnByValue:true});assert.equal(selectedCrumb.result.value,endpoint.result.value.color,'Selected breadcrumb retains purple on hover');
+   const key=async(name,virtualKey)=>{await call('Input.dispatchKeyEvent',{type:name==='Enter'?'keyDown':'rawKeyDown',key:name,code:name,windowsVirtualKeyCode:virtualKey,...(name==='Enter'?{text:'\r',unmodifiedText:'\r'}:{})});await call('Input.dispatchKeyEvent',{type:'keyUp',key:name,code:name,windowsVirtualKeyCode:virtualKey})};
+   await call('Runtime.evaluate',{expression:"window.preview.breadcrumbs.querySelector('button').focus()"});await key('Tab',9);
+   const focus=await call('Runtime.evaluate',{expression:`(()=>{const e=document.activeElement,s=getComputedStyle(e);return{breadcrumb:window.preview.breadcrumbs.contains(e),outline:s.outlineStyle,width:s.outlineWidth,background:s.backgroundColor}})()`,returnByValue:true});assert(focus.result.value.breadcrumb&&focus.result.value.outline!=='none'&&parseFloat(focus.result.value.width)>0,'Breadcrumb keyboard focus remains visible');assert.equal(focus.result.value.background,'rgba(0, 0, 0, 0)','Unselected breadcrumb keyboard focus has no selection fill');
+   await call('Runtime.evaluate',{expression:'window.preview.workspaceButton.focus()'});await key('Enter',13);
+   const opened=await call('Runtime.evaluate',{expression:"Boolean(window.preview.workspaceMenu)&&window.preview.workspaceChevron.dataset.icon.endsWith('chevron-down')",returnByValue:true});assert(opened.result.value,'Enter opens dropdown and updates chevron');
+   const dropdown=await call('Page.captureScreenshot',{format:'png'});fs.writeFileSync(path.join(output,'dropdown-'+width+'-'+theme+'.png'),Buffer.from(dropdown.data,'base64'));
+   await key('Home',36);await key('Enter',13);
+   const chosen=await call('Runtime.evaluate',{expression:"!window.preview.workspaceMenu&&window.preview.owner.type==='resource'&&window.preview.workspaceChevron.dataset.icon.endsWith('chevron-right')&&document.activeElement===window.preview.workspaceButton",returnByValue:true});assert(chosen.result.value,'Keyboard workspace selection closes and restores selector focus');
+   await key('ArrowDown',40);
+   const selectedVisible=await call('Runtime.evaluate',{expression:`(()=>{const menu=window.preview.workspaceMenu,selected=menu.body.querySelector('[aria-checked="true"]').getBoundingClientRect(),popup=menu.element.getBoundingClientRect();return selected.top>=popup.top&&selected.bottom<=popup.bottom})()`,returnByValue:true});assert(selectedVisible.result.value,'Selected workspace is visible when reopening a long menu');
+   await key('Escape',27);const escaped=await call('Runtime.evaluate',{expression:"!window.preview.workspaceMenu&&window.preview.owner.type==='resource'&&window.preview.workspaceChevron.dataset.icon.endsWith('chevron-right')",returnByValue:true});assert(escaped.result.value,'Real Escape dismisses without changing selection');
+   await key('Enter',13);
+   const outside=await call('Runtime.evaluate',{expression:'(()=>{const r=window.preview.contentEl.querySelector("h2").getBoundingClientRect();return{x:r.x+5,y:r.y+5}})()',returnByValue:true});
+   await call('Input.dispatchMouseEvent',{type:'mousePressed',...outside.result.value,button:'left',clickCount:1});await call('Input.dispatchMouseEvent',{type:'mouseReleased',...outside.result.value,button:'left',clickCount:1});
+   const dismissed=await call('Runtime.evaluate',{expression:"!window.preview.workspaceMenu&&window.preview.owner.type==='resource'&&window.preview.workspaceChevron.dataset.icon.endsWith('chevron-right')",returnByValue:true});assert(dismissed.result.value,'Real outside click dismisses without changing selection');
+   const selectedButton=await call('Runtime.evaluate',{expression:`(()=>{const e=window.preview.breadcrumbs.querySelector('button[aria-current]'),r=e.getBoundingClientRect();return{x:r.x+r.width/2,y:r.y+r.height/2,color:getComputedStyle(e).backgroundColor,weight:getComputedStyle(e).fontWeight}})()`,returnByValue:true});
+   await call('Input.dispatchMouseEvent',{type:'mouseMoved',x:selectedButton.result.value.x,y:selectedButton.result.value.y});await settleAnimations();
+   const rootHover=await call('Runtime.evaluate',{expression:`(()=>{const s=getComputedStyle(window.preview.breadcrumbs.querySelector('[aria-current]'));return{color:s.backgroundColor,weight:s.fontWeight,decoration:s.textDecorationLine}})()`,returnByValue:true});assert.equal(rootHover.result.value.color,selectedButton.result.value.color,'Selected root button retains purple during hover');assert.equal(rootHover.result.value.weight,selectedButton.result.value.weight,'Selected root hover retains font weight');assert.equal(rootHover.result.value.decoration,'none','Selected root hover has no underline');
+   const namePoint=await call('Runtime.evaluate',{expression:`(()=>{const e=window.preview.contentEl.querySelector('.hub-task-location-task-name'),r=e.getBoundingClientRect();return{x:r.x+r.width/2,y:r.y+r.height/2}})()`,returnByValue:true});
+   await call('Input.dispatchMouseEvent',{type:'mouseMoved',...namePoint.result.value});
+   const tooltipResult=await call('Runtime.evaluate',{expression:`new Promise((resolve,reject)=>{let attempts=0;const check=()=>{const t=document.querySelector('.hub-task-location-title-tooltip');if(t){const r=t.getBoundingClientRect(),name=window.preview.contentEl.querySelector('.hub-task-location-task-text');resolve({full:t.textContent===name.textContent&&t.closest('.modal')===window.preview.modalEl,wrap:getComputedStyle(t).whiteSpace,overflow:getComputedStyle(t).overflowY,bounded:r.left>=0&&r.right<=innerWidth&&r.top>=0&&r.bottom<=innerHeight,x:r.x+r.width/2,y:r.y+Math.min(20,r.height/2)});}else if(++attempts<40)setTimeout(check,50);else reject(Error('Task name tooltip did not appear'));};check()})`,awaitPromise:true,returnByValue:true});
+   if(tooltipResult.exceptionDetails)throw Error(JSON.stringify(tooltipResult.exceptionDetails));assert(tooltipResult.result.value.full&&tooltipResult.result.value.bounded,'Tooltip contains complete draft title within viewport');assert.equal(tooltipResult.result.value.wrap,'pre-wrap','Tooltip supports wrapped long titles');assert.equal(tooltipResult.result.value.overflow,'auto','Exceptionally long tooltip is scrollable');
+   const tooltipShot=await call('Page.captureScreenshot',{format:'png'});fs.writeFileSync(path.join(output,'task-title-tooltip-'+width+'-'+theme+'.png'),Buffer.from(tooltipShot.data,'base64'));
+   await call('Input.dispatchMouseEvent',{type:'mouseMoved',x:tooltipResult.result.value.x,y:tooltipResult.result.value.y});
+   const tooltipScroll=await call('Runtime.evaluate',{expression:"(()=>{const t=document.querySelector('.hub-task-location-title-tooltip');t.scrollTop=30;t.dispatchEvent(new Event('scroll'));return Boolean(document.querySelector('.hub-task-location-title-tooltip'))})()",returnByValue:true});assert(tooltipScroll.result.value,'Tooltip stays available when its content is scrolled');
+   await call('Input.dispatchMouseEvent',{type:'mouseMoved',x:1,y:1});
+   const hoverGone=await call('Runtime.evaluate',{expression:"!document.querySelector('.hub-task-location-title-tooltip')",returnByValue:true});assert(hoverGone.result.value,'Pointer leave dismisses the full-title tooltip');
+   await call('Runtime.evaluate',{expression:'window.preview.workspaceButton.focus()'});
+   await call('Input.dispatchKeyEvent',{type:'rawKeyDown',key:'Tab',code:'Tab',windowsVirtualKeyCode:9,modifiers:8});await call('Input.dispatchKeyEvent',{type:'keyUp',key:'Tab',code:'Tab',windowsVirtualKeyCode:9,modifiers:8});
+   const keyboardTooltip=await call('Runtime.evaluate',{expression:"(()=>{const n=window.preview.contentEl.querySelector('.hub-task-location-task-name'),t=document.querySelector('.hub-task-location-title-tooltip');return document.activeElement===n&&t?.textContent===n.querySelector('.hub-task-location-task-text').textContent})()",returnByValue:true});assert(keyboardTooltip.result.value,'Keyboard Tab focus reveals the complete current draft title');
+   await key('Tab',9);const blurGone=await call('Runtime.evaluate',{expression:"!document.querySelector('.hub-task-location-title-tooltip')",returnByValue:true});assert(blurGone.result.value,'Keyboard focus loss dismisses tooltip');
+   const closed=await call('Runtime.evaluate',{expression:"window.preview.close();!document.querySelector('.hub-task-location-title-tooltip')",returnByValue:true});assert(closed.result.value,'Closing picker removes task tooltip');
+   await call('Runtime.evaluate',{expression:"window.preview=window.openLocationPreview('Assignment 5')"});
+   const shortPoint=await call('Runtime.evaluate',{expression:"(()=>{const r=window.preview.contentEl.querySelector('.hub-task-location-task-name').getBoundingClientRect();return{x:r.x+r.width/2,y:r.y+r.height/2}})()",returnByValue:true});await call('Input.dispatchMouseEvent',{type:'mouseMoved',...shortPoint.result.value});
+   const shortTooltip=await call('Runtime.evaluate',{expression:"document.querySelector('.hub-task-location-title-tooltip')?.textContent",returnByValue:true});assert.equal(shortTooltip.result.value,'Assignment 5','Pointer hover also shows full untruncated short names');
+   await call('Runtime.evaluate',{expression:'window.preview.close()'});
+
+   const evaluate=async expression=>{const r=await call('Runtime.evaluate',{expression,returnByValue:true});if(r.exceptionDetails)throw Error(JSON.stringify(r.exceptionDetails));return r.result.value};
+
+   await evaluate('window.preview=window.openDeepLocationPreview()');
+   assert(await evaluate('preview.breadcrumbs.scrollLeft>0&&preview.breadcrumbs.scrollWidth>preview.breadcrumbs.clientWidth'),'Deep breadcrumb reveals endpoint');
+   const deepShot=await call('Page.captureScreenshot',{format:'png'});fs.writeFileSync(path.join(output,'full-breadcrumb-'+width+'-'+theme+'.png'),Buffer.from(deepShot.data,'base64'));
+   const scrollPoint=await evaluate('(()=>{const b=preview.breadcrumbs,r=b.getBoundingClientRect();return{x:r.x+r.width/2,y:r.y+r.height/2}})()');
+   const beforeWheel=await evaluate('preview.breadcrumbs.scrollLeft');
+   await call('Input.dispatchMouseEvent',{type:'mouseWheel',...scrollPoint,deltaX:-250,deltaY:0});
+   await call('Runtime.evaluate',{expression:'new Promise(r=>setTimeout(r,200))',awaitPromise:true});
+   assert(await evaluate('preview.breadcrumbs.scrollLeft')<beforeWheel,'Real horizontal wheel scroll reveals earlier ancestors');
+   const manualOffset=await evaluate('preview.breadcrumbs.scrollLeft');await evaluate('preview.renderFolder()');
+   assert.equal(await evaluate('preview.breadcrumbs.scrollLeft'),manualOffset,'Refresh preserves manual wheel offset');
+   await evaluate('preview.breadcrumbs.scrollLeft=0;preview.breadcrumbs.querySelector("button").focus()');
+   await key('Tab',9);
+   assert(await evaluate('document.activeElement.dataset.locationPath==="Projects/P/Meta"'),'Tab reaches individual ancestor');
+   await key('Enter',13);
+   assert(await evaluate('preview.path==="Projects/P/Meta"&&document.activeElement===preview.breadcrumbs.querySelector("[aria-current]")'),'Keyboard ancestor activation navigates and focuses endpoint');
+   await evaluate('preview.navigate("Projects/P");preview.breadcrumbs.querySelector("button").focus()');
+   const hoverPoint=await evaluate('(()=>{preview.navigate("Projects/P/Meta");preview.breadcrumbs.scrollLeft=0;const r=preview.breadcrumbs.querySelector("button").getBoundingClientRect();return{x:r.x+r.width/2,y:r.y+r.height/2}})()');
+   await call('Input.dispatchMouseEvent',{type:'mouseMoved',...hoverPoint});await settleAnimations();
+   assert(await evaluate('getComputedStyle(preview.breadcrumbs.querySelector("button")).backgroundColor!=="rgba(0, 0, 0, 0)"'),'Ancestor hover remains gray');
+   await call('Input.dispatchMouseEvent',{type:'mousePressed',...hoverPoint,button:'left',clickCount:1});await call('Input.dispatchMouseEvent',{type:'mouseReleased',...hoverPoint,button:'left',clickCount:1});
+   assert(await evaluate('preview.path==="Projects/P"'),'Pointer ancestor navigation remains available');
+   await evaluate('preview.close()');
+   console.log('PASS',JSON.stringify({...result.result.value,theme,pointerAndKeyboard:true}));
+  }
+  console.log('Browser evidence:',output);
+ }finally{socket?.close();child.kill();await new Promise(r=>server.close(r));}
+}
+run().catch(error=>{console.error(error.stack);process.exitCode=1});

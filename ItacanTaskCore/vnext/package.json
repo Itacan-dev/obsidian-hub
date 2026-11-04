@@ -6,6 +6,6 @@
   "main": "engine.cjs",
   "types": "contracts.d.ts",
   "scripts": {
-    "test": "node --test tests/engine.test.cjs tests/process.test.cjs tests/presentation.test.cjs tests/outbox.test.cjs tests/recurrence.test.cjs tests/application.test.cjs tests/sync.test.cjs tests/git-sync.test.cjs"
+    "test": "node --test tests/engine.test.cjs tests/process.test.cjs tests/presentation.test.cjs tests/outbox.test.cjs tests/recurrence.test.cjs tests/application.test.cjs tests/sync.test.cjs tests/git-sync.test.cjs tests/location-defaults.test.cjs tests/location-editor.test.cjs"
   }
 }

@@ -2,47 +2,50 @@
 const { Modal } = require("obsidian");
 const { createModalHeader, layoutModal } = require("./window-title");
 const { setHubIcon } = require("./icons");
+const { openTaskPopover } = require("./task-popover");
 const { sameOwner, relativePath } = require("../domain/native-task-location");
-function openTaskLocationPicker(app, { locations, owner, reference = null, allowOwnerChange = false, onChoose, onClose = () => {} }) {
+let pickerSequence = 0;
+function focusRow(event, container) {
+    const buttons = [...container.querySelectorAll("button:not(:disabled)")], index = buttons.indexOf(event.target);
+    if (index < 0 || !["ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) return;
+    event.preventDefault();
+    const next = event.key === "Home" ? 0 : event.key === "End" ? buttons.length - 1 : Math.max(0, Math.min(buttons.length - 1, index + (event.key === "ArrowDown" ? 1 : -1)));
+    buttons[next]?.focus();
+}
+function openTaskLocationPicker(app, { locations, owner, reference = null, allowOwnerChange = false, taskTitle = "", onChoose, onClose = () => {} }) {
     class LocationModal extends Modal {
         onOpen() {
             this.modalEl.classList.add("hub-task-location-dialog");
             this.modalEl.setAttribute("aria-label", "Task location");
             this.contentEl.classList.add("hub-button-scope");
-            createModalHeader(this.contentEl, { title: "Location", icon: "folder-open" });
-            const label = this.contentEl.createEl("label", { cls: "hub-task-location-workspace", text: "Workspace" });
-            this.workspaceSelect = label.createEl("select", { attr: { "aria-label": "Owning workspace" } });
-            const choices = locations.workspaces();
-            for (const [type, name] of [["project", "Projects"], ["resource", "Resources"]]) {
-                const group = this.workspaceSelect.createEl("optgroup", { attr: { label: name } });
-                for (const choice of choices.filter(w => w.owner.type === type)) {
-                    const option = group.createEl("option", { value: JSON.stringify(choice.owner), text: choice.name });
-                    option.disabled = !choice.available && !sameOwner(owner, choice.owner);
-                }
-            }
-            this.owner = { ...owner }; this.workspaceSelect.value = JSON.stringify({ type: owner.type, id: owner.id });
-            this.workspaceSelect.disabled = !allowOwnerChange;
-            if (!allowOwnerChange) this.workspaceSelect.title = "Existing task ownership cannot be changed.";
-            this.breadcrumbs = this.contentEl.createEl("nav", { cls: "hub-task-location-breadcrumbs", attr: { "aria-label": "Folder breadcrumbs" } });
-            const toolbar = this.contentEl.createDiv({ cls: "hub-task-location-toolbar" });
-            this.chooseFolder = toolbar.createEl("button", { text: "Choose this folder", attr: { type: "button" } });
-            this.chooseFolder.onclick = () => { try { this.proposed = locations.select(this.owner, this.path, "folder"); this.updateSelection(); } catch (error) { this.showError(error); } };
-            this.list = this.contentEl.createDiv({ cls: "hub-task-location-entries", attr: { role: "group", "aria-label": "Folders and Markdown notes" } });
-            this.selection = this.contentEl.createDiv({ cls: "hub-task-location-selection", attr: { role: "status", "aria-label": "Selected location" } });
+            const { heading } = createModalHeader(this.contentEl, { title: "Task location", icon: "map-pin",
+                subtitle: "Choose where this task belongs." });
+            this.renderTaskName(heading, taskTitle);
+            this.owner = { ...owner };
+            const workspaceField = this.contentEl.createEl("section", { cls: "hub-oath-section hub-task-location-section hub-task-location-workspace" });
+            workspaceField.createEl("h3", { text: "Workspace" });
+            this.workspaceButton = workspaceField.createEl("button", { cls: "hub-task-location-workspace-row", attr: { type: "button", "aria-label": "Owning workspace", "aria-haspopup": "dialog", "aria-expanded": "false" } });
+            this.workspaceButton.disabled = !allowOwnerChange;
+            if (!allowOwnerChange) this.workspaceButton.title = "Existing task ownership cannot be changed.";
+            this.workspaceButton.onclick = () => this.openWorkspaces();
+            this.workspaceButton.onkeydown = event => {
+                if (["ArrowDown", "ArrowUp"].includes(event.key) && !this.workspaceButton.disabled) { event.preventDefault(); this.openWorkspaces(); }
+            };
+            this.renderWorkspace();
+            const locationSection = this.contentEl.createEl("section", { cls: "hub-oath-section hub-task-location-section" });
+            const locationHeading = locationSection.createEl("h3", { text: "Location", attr: { id: "hub-task-location-heading-" + ++pickerSequence } });
+            this.breadcrumbs = locationSection.createEl("nav", { cls: "hub-task-location-breadcrumbs", attr: { "aria-labelledby": locationHeading.id } });
+            this.list = locationSection.createDiv({ cls: "hub-task-location-entries", attr: { role: "group", "aria-label": "Folders and Markdown notes" } });
             this.error = this.contentEl.createDiv({ cls: "hub-task-error", attr: { role: "alert" } });
             const actions = this.contentEl.createDiv({ cls: "hub-task-dialog-actions" });
             actions.createEl("button", { text: "Cancel", attr: { type: "button" } }).onclick = () => this.close();
-            this.confirm = actions.createEl("button", { text: "Use location", cls: "mod-cta", attr: { type: "button" } });
+            this.confirm = actions.createEl("button", { text: "Select location", cls: "mod-cta", attr: { type: "button" } });
             this.confirm.onclick = () => {
                 try {
                     const accepted = this.proposed && locations.resolve(this.proposed.owner, this.proposed.reference);
                     if (!accepted || accepted.path !== this.proposed.path || accepted.type !== this.proposed.type) throw Error("Location is no longer available. Choose a replacement.");
                     onChoose({ ...this.proposed, display: locations.describe(this.proposed.owner, this.proposed.reference) }); this.close();
                 } catch (error) { this.showError(error); this.confirm.disabled = true; }
-            };
-            this.workspaceSelect.onchange = () => {
-                this.owner = JSON.parse(this.workspaceSelect.value); this.proposed = null;
-                this.path = locations.workspace(this.owner).root; this.renderFolder();
             };
             let initial;
             try { initial = locations.resolve(owner, reference); } catch (_) {}
@@ -52,55 +55,188 @@ function openTaskLocationPicker(app, { locations, owner, reference = null, allow
             this.renderFolder();
             if (!initial) this.showError(Error("Saved location is unavailable. Choose a replacement."));
             const body = layoutModal(this, { footer: actions }); body.classList.add("hub-task-location-body");
-            this.list.addEventListener("keydown", event => {
-                const buttons = [...this.list.querySelectorAll("button")], index = buttons.indexOf(event.target);
-                if (index < 0 || !["ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) return;
-                event.preventDefault(); const next = event.key === "Home" ? 0 : event.key === "End" ? buttons.length - 1 : Math.max(0, Math.min(buttons.length - 1, index + (event.key === "ArrowDown" ? 1 : -1))); buttons[next]?.focus();
-            });
+            // The modal layout establishes the initial breadcrumb viewport.
+            this.breadcrumbs.scrollLeft = this.breadcrumbs.scrollWidth;
+            this.list.addEventListener("keydown", event => focusRow(event, this.list));
             this.refs = ["create", "delete", "rename"].map(event => app.vault.on(event, (file, oldPath) => {
-                const root = locations.workspace(this.owner).root;
-                if ([file?.path, oldPath].some(path => path === root || path?.startsWith(root + "/"))) this.renderFolder();
+                try {
+                    const root = locations.workspace(this.owner).root;
+                    if ([file?.path, oldPath].some(path => path === root || path?.startsWith(root + "/"))) this.renderFolder();
+                } catch (error) { this.confirm.disabled = true; this.showError(error); }
             }));
         }
+        renderTaskName(heading, title) {
+            const text = String(title ?? "");
+            if (!text.trim()) return;
+            const doc = this.contentEl.ownerDocument, win = doc.defaultView, copy = heading.parentElement;
+            // Capture headings reserve a right margin as well as the shared row padding.
+            // Contextual headers use the same single right inset as Progress report.
+            copy.parentElement.style.marginRight = "0";
+            const row = copy.createDiv({ cls: "hub-window-title-row hub-task-location-title-row" });
+            copy.insertBefore(row, heading); row.append(heading);
+            const name = row.createSpan({ cls: "hub-window-header-date hub-task-location-task-name", attr: { tabindex: "0", "aria-label": '"' + text + '"' } });
+            name.style.font = win.getComputedStyle(heading).font;
+            name.style.setProperty("--no-tooltip", "true");
+            name.createSpan({ cls: "hub-task-location-task-quote", text: '"', attr: { "aria-hidden": "true" } });
+            name.createSpan({ cls: "hub-task-location-task-text", text });
+            name.createSpan({ cls: "hub-task-location-task-quote", text: '"', attr: { "aria-hidden": "true" } });
+            let tooltip = null, hovered = false, focused = false;
+            const hide = () => { tooltip?.remove(); tooltip = null; name.removeAttribute("aria-describedby"); };
+            const show = () => {
+                if (tooltip || !name.isConnected) return;
+                tooltip = doc.createElement("div");
+                tooltip.className = "tooltip hub-detail-tooltip hub-task-location-title-tooltip";
+                tooltip.id = "hub-task-location-title-tooltip-" + ++pickerSequence;
+                tooltip.setAttribute("role", "tooltip"); tooltip.setAttribute("popover", "manual");
+                tooltip.textContent = text; this.modalEl.append(tooltip); tooltip.showPopover?.();
+                name.setAttribute("aria-describedby", tooltip.id);
+                const rect = name.getBoundingClientRect(), size = tooltip.getBoundingClientRect(), viewport = win.visualViewport;
+                const left = (viewport?.offsetLeft ?? 0) + 8, top = (viewport?.offsetTop ?? 0) + 8;
+                const right = left + (viewport?.width ?? win.innerWidth) - 16, bottom = top + (viewport?.height ?? win.innerHeight) - 16;
+                tooltip.style.left = Math.max(left, Math.min(rect.right - size.width, right - size.width)) + "px";
+                tooltip.style.top = Math.max(top, Math.min(rect.bottom + 6 + size.height <= bottom ? rect.bottom + 6 : rect.top - size.height - 6, bottom - size.height)) + "px";
+                tooltip.onpointerleave = event => { if (!name.contains(event.relatedTarget)) { hovered = false; if (!focused) hide(); } };
+            };
+            // Use actual pointer movement, as the existing immediate Itacan previews do.
+            // Focus is informational only: there is no click handler or editor control.
+            name.onpointermove = () => { hovered = true; show(); };
+            name.onpointerleave = event => { if (!tooltip?.contains(event.relatedTarget)) { hovered = false; if (!focused) hide(); } };
+            name.onfocus = () => { focused = true; show(); };
+            name.onblur = () => { focused = false; if (!hovered) hide(); };
+            const escape = event => { if (event.key === "Escape" && tooltip) { hovered = focused = false; hide(); event.preventDefault(); event.stopImmediatePropagation(); } };
+            const scroll = event => { if (!tooltip?.contains(event.target)) hide(); };
+            doc.addEventListener("keydown", escape, true); win.addEventListener("resize", hide); doc.addEventListener("scroll", scroll, true);
+            this.disposeTaskName = () => { hide(); doc.removeEventListener("keydown", escape, true); win.removeEventListener("resize", hide); doc.removeEventListener("scroll", scroll, true); };
+        }
+        renderWorkspace() {
+            const w = locations.workspace(this.owner), button = this.workspaceButton;
+            button.empty();
+            locations.mountThumbnail(button, this.owner);
+            const copy = button.createSpan({ cls: "hub-capture-picker-copy" });
+            copy.createEl("strong", { text: w.name ?? w.label });
+            copy.createSpan({ cls: "hub-task-location-workspace-type", text: this.owner.type === "project" ? "Project" : "Resource" });
+            this.workspaceChevron = null;
+            if (!button.disabled) {
+                button.title = w.name ?? w.label;
+                this.workspaceChevron = button.createSpan({ cls: "hub-task-location-icon", attr: { "aria-hidden": "true" } });
+                this.updateWorkspaceChevron();
+            }
+        }
+        updateWorkspaceChevron() {
+            if (this.workspaceChevron) setHubIcon(this.workspaceChevron, this.workspaceButton.getAttribute("aria-expanded") === "true" ? "chevron-down" : "chevron-right");
+        }
+        openWorkspaces() {
+            if (this.workspaceMenu) { this.workspaceMenu.close(); return; }
+            this.workspaceMenu = openTaskPopover(this.workspaceButton, { title: "Choose workspace", heading: false, autofocus: false, className: "hub-task-location-workspaces", maxHeight: 320,
+                width: () => this.workspaceButton.getBoundingClientRect().width,
+                onClose: () => { this.workspaceMenu = null; this.updateWorkspaceChevron(); },
+                render: menu => {
+                    // Reuse the shared top-layer positioning and dismissal without editor chrome.
+                    menu.element.querySelector(".hub-task-popover-heading").remove();
+                    for (const [type, name] of [["resource", "Resources"], ["project", "Projects"]]) {
+                        const group = menu.body.createDiv({ cls: "hub-task-location-workspace-group", attr: { role: "group", "aria-label": name } });
+                        group.createEl("h3", { text: name });
+                        for (const w of locations.workspaces().filter(w => w.owner.type === type)) {
+                            const selected = sameOwner(this.owner, w.owner);
+                            const row = group.createEl("button", { text: w.name, cls: "hub-button-plain hub-task-location-entry" + (selected ? " is-selected" : ""),
+                                attr: { type: "button", role: "menuitemradio", "aria-checked": String(selected), title: w.name } });
+                            row.disabled = !w.available && !selected;
+                            row.onclick = () => {
+                                try {
+                                    const root = locations.workspace(w.owner).root, proposed = locations.select(w.owner, root, "folder");
+                                    this.owner = { ...w.owner }; this.path = root; this.proposed = proposed;
+                                    this.renderWorkspace(); this.renderFolder(); menu.close();
+                                } catch (error) { this.showError(error); menu.close(); }
+                            };
+                        }
+                    }
+                    menu.body.setAttribute("role", "menu");
+                    menu.body.addEventListener("keydown", event => focusRow(event, menu.body));
+                }
+            });
+            this.updateWorkspaceChevron();
+            // Start at Resources, even when the selected Project is farther down.
+            this.workspaceMenu.element.scrollTop = 0;
+            this.workspaceMenu.body.querySelector("button:not(:disabled)")?.focus({ preventScroll: true });
+        }
         showError(error) { this.error.textContent = error.message; }
+        navigate(path) {
+            try {
+                this.proposed = locations.select(this.owner, path, "folder"); this.path = path;
+                this.renderFolder(); this.breadcrumbs.querySelector("[aria-current]")?.focus({ preventScroll: true });
+            } catch (error) { this.showError(error); }
+        }
         updateSelection() {
             let current;
             try { current = this.proposed && locations.resolve(this.proposed.owner, this.proposed.reference); } catch (_) {}
-            this.confirm.disabled = !current;
-            const name = this.proposed ? locations.workspace(this.proposed.owner).name : null;
-            this.selection.textContent = current ? [name, ...relativePath(locations.workspace(this.proposed.owner).root, current.path).split("/")].filter(Boolean).join(" / ") : "No location selected";
-            this.selection.title = this.selection.textContent;
-            for (const row of this.list.querySelectorAll("[data-location-path]")) row.classList.toggle("is-selected", !!current && sameOwner(this.owner, this.proposed.owner) && row.dataset.locationPath === current.path);
+            this.confirm.disabled = !current || current.path !== this.proposed.path || current.type !== this.proposed.type;
+            for (const row of this.list.querySelectorAll("[data-location-path]")) {
+                const selected = !!current && row.dataset.locationType === "note" && row.dataset.locationPath === current.path;
+                row.classList.toggle("is-selected", selected);
+                if (row.dataset.locationType === "note") row.setAttribute("aria-pressed", String(selected));
+            }
+            this.renderBreadcrumbs();
+        }
+        renderBreadcrumbs() {
+            const w = locations.workspace(this.owner), route = relativePath(w.root, this.path).split("/").filter(Boolean);
+            const segments = [{ label: w.name, path: w.root }, ...route.map((label, i) => ({
+                label, path: w.root + "/" + route.slice(0, i + 1).join("/") }))];
+            const note = this.proposed?.type === "note" ? this.proposed.path.split("/").at(-1) : null;
+            if (note) segments.push({ label: note, path: this.proposed.path, note: true });
+            const selection = JSON.stringify([this.owner.type, this.owner.id, this.path, note]);
+            const changed = this.breadcrumbSelection !== selection, scrollLeft = this.breadcrumbs.scrollLeft;
+            this.breadcrumbSelection = selection;
+            const focused = this.contentEl.ownerDocument.activeElement;
+            const focusedPath = this.breadcrumbs.contains(focused) ? focused.dataset.locationPath : null;
+            this.breadcrumbs.empty();
+            this.breadcrumbs.setAttribute("aria-description", segments.map(segment => segment.label).join(" / "));
+            for (let i = 0; i < segments.length; i++) {
+                if (i) this.breadcrumbs.createSpan({ text: "/", cls: "hub-task-location-separator", attr: { "aria-hidden": "true" } });
+                const segment = segments[i], current = i === segments.length - 1;
+                const element = this.breadcrumbs.createEl(segment.note ? "span" : "button", {
+                    cls: segment.note ? "hub-task-location-note" : "hub-button-plain", text: segment.label,
+                    attr: { ...(segment.note ? {} : { type: "button" }), title: segment.path, ...(current ? { "aria-current": "location" } : {}) } });
+                element.dataset.locationPath = segment.path;
+                if (current) element.removeAttribute("title");
+                if (!segment.note) {
+                    element.onclick = () => this.navigate(segment.path);
+                    if (focusedPath === segment.path) element.focus({ preventScroll: true });
+                }
+            }
+            // Only a new location reveals the endpoint; background refreshes
+            // preserve the user's horizontal navigation through the ancestors.
+            this.breadcrumbs.scrollLeft = changed ? this.breadcrumbs.scrollWidth : scrollLeft;
         }
         renderFolder() {
-            this.error.textContent = ""; this.breadcrumbs.empty(); this.list.empty();
-            const w = locations.workspace(this.owner), route = relativePath(w.root, this.path).split("/").filter(Boolean);
-            const paths = [w.root, ...route.map((_part, i) => w.root + "/" + route.slice(0, i + 1).join("/"))];
-            for (let i = 0; i < paths.length; i++) {
-                if (i) this.breadcrumbs.createSpan({ text: "/", attr: { "aria-hidden": "true" } });
-                const button = this.breadcrumbs.createEl("button", { text: i ? route[i - 1] : w.name, attr: { type: "button", title: paths[i] } });
-                if (i === paths.length - 1) button.setAttribute("aria-current", "location");
-                button.onclick = () => { this.path = paths[i]; this.renderFolder(); this.chooseFolder.focus(); };
-            }
+            this.error.textContent = "";
+            const focusedPath = this.list.contains(this.contentEl.ownerDocument.activeElement) ? this.contentEl.ownerDocument.activeElement.dataset.locationPath : null;
+            this.list.empty();
             try {
-                const folder = locations.browse(this.owner, this.path); this.chooseFolder.disabled = false;
+                const folder = locations.browse(this.owner, this.path);
                 for (const item of folder.rows) {
-                    const row = this.list.createEl("button", { cls: "hub-task-location-entry", attr: { type: "button", title: item.name } });
+                    const row = this.list.createEl("button", { cls: "hub-button-plain hub-task-location-entry", attr: { type: "button", title: item.name } });
                     row.dataset.locationPath = item.path; row.dataset.locationType = item.type;
                     setHubIcon(row.createSpan({ cls: "hub-task-location-icon", attr: { "aria-hidden": "true" } }), item.type === "folder" ? "folder" : "file-text");
                     row.createSpan({ cls: "hub-task-location-name", text: item.name });
                     if (item.type === "folder") setHubIcon(row.createSpan({ cls: "hub-task-location-icon", attr: { "aria-hidden": "true" } }), "chevron-right");
                     row.onclick = () => {
-                        try { if (item.type === "folder") { this.path = item.path; this.renderFolder(); this.chooseFolder.focus(); }
-                            else { this.proposed = locations.select(this.owner, item.path, "note"); this.error.textContent = ""; this.updateSelection(); } }
-                        catch (error) { this.showError(error); }
+                        try {
+                            if (item.type === "folder") this.navigate(item.path);
+                            else {
+                                const deselect = this.proposed?.type === "note" && this.proposed.path === item.path;
+                                this.proposed = locations.select(this.owner, deselect ? this.path : item.path, deselect ? "folder" : "note");
+                                this.error.textContent = ""; this.updateSelection();
+                            }
+                        } catch (error) { this.showError(error); }
                     };
+                    if (focusedPath === item.path) row.focus({ preventScroll: true });
                 }
                 if (!folder.rows.length) this.list.createDiv({ cls: "hub-task-location-empty", text: "This folder is empty." });
-            } catch (error) { this.chooseFolder.disabled = true; this.showError(error); }
+            } catch (error) { this.showError(error); }
             this.updateSelection();
+            if (focusedPath && !this.list.contains(this.contentEl.ownerDocument.activeElement)) this.breadcrumbs.querySelector("button:last-of-type")?.focus({ preventScroll: true });
         }
-        onClose() { for (const ref of this.refs ?? []) app.vault.offref(ref); this.contentEl.empty(); onClose(); }
+        onClose() { this.disposeTaskName?.(); this.workspaceMenu?.close(false); for (const ref of this.refs ?? []) app.vault.offref(ref); this.contentEl.empty(); onClose(); }
     }
     const modal = new LocationModal(app); modal.open(); return modal;
 }

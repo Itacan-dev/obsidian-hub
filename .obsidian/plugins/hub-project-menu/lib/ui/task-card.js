@@ -57,9 +57,10 @@ function mountTaskCardPresentation(row, textEl, task, getPath, { now = new Date(
     const description = options.selection || options.description === false ? null : mountDescriptionIndicator(row, info);
     let indicator, dates, dateSpan, dateValue, phase, sourceControl, sourceText;
     if (source && options.locationAction) {
-        source.empty(); sourceControl = source.createEl("button", { cls: "hub-button-plain hub-task-location-trigger", attr: { type: "button", "aria-haspopup": "dialog" } });
-        require("./icons").setHubIcon(sourceControl.createSpan({ attr: { "aria-hidden": "true" } }), "folder");
-        sourceText = sourceControl.createSpan(); sourceControl.addEventListener("click", event => { event.stopPropagation(); options.locationAction(); });
+        source.empty(); sourceControl = source.createEl("button", { cls: "hub-button-plain hub-task-location-trigger", attr: { type: "button", "aria-haspopup": "dialog", "aria-label": "Change task location" } });
+        require("./icons").setHubIcon(sourceControl.createSpan({ cls: "hub-task-location-edit-icon", attr: { "aria-hidden": "true" } }), "map-pin-pen");
+        sourceText = sourceControl.createSpan({ cls: "hub-task-location-text" });
+        sourceControl.addEventListener("click", event => { event.stopPropagation(); options.locationAction(); });
     }
     function update(next = task) {
         task = next;
@@ -90,13 +91,22 @@ function mountTaskCardPresentation(row, textEl, task, getPath, { now = new Date(
             else { dateSpan.removeAttribute("title"); dateSpan.removeAttribute("aria-label"); }
         } else { dates?.remove(); dates = dateSpan = dateValue = null; }
         if (source) {
-            const native = require("../domain/native-task-location").locationBreadcrumb(options.nativeDisplay ? { ...task, nativeLocationDisplay: options.nativeDisplay() } : task, options.locationWorkspace);
+            // The editor previews the selected owner without mutating the saved reference.
+            const displayTask = options.nativeDisplay ? { ...task,
+                nativeReference: task.nativeReference ? { ...task.nativeReference, owner: task.nativeOwner ?? task.nativeReference.owner } : undefined,
+                nativeLocationDisplay: options.nativeDisplay() } : task;
+            const { locationBreadcrumb, sameOwner } = require("../domain/native-task-location");
+            const native = locationBreadcrumb(displayTask, options.locationWorkspace);
+            // Empty available segments mean the actual workspace root, not an
+            // unavailable location or a folder whose name resembles a placeholder.
+            const workspaceRoot = native?.available && displayTask.nativeLocationDisplay?.segments?.length === 0;
+            const insideRoot = workspaceRoot && sameOwner(displayTask.nativeReference?.owner ?? displayTask.owner ?? displayTask.nativeOwner, options.locationWorkspace);
             const label = native?.label ?? options.sourceLabel ?? (options.selection && !options.normalSource ? getPath().replace(/\.md$/i, "").split("/").join(" › ") : taskSourceLabel(getPath()));
             if (native) {
                 source.title = native.full; source.classList.toggle("is-location-unavailable", !native.available);
                 if (checkbox && (options.nativeDisplay || task.nativeLocationUnavailable)) checkbox.disabled = !native.available;
             }
-            if (sourceControl) { sourceText.textContent = label; sourceControl.setAttribute("aria-label", "Location: " + (native?.full ?? label)); sourceControl.title = native?.full ?? label; }
+            if (sourceControl) { sourceControl.classList.toggle("is-workspace-root", !!workspaceRoot); sourceText.textContent = workspaceRoot ? "Edit task location" : label; sourceControl.setAttribute("aria-label", "Change task location: " + (native?.full ?? label)); sourceControl.title = native?.full ?? label; }
 
             const labelText = source.firstChild;
             if (!sourceControl) {
@@ -108,6 +118,17 @@ function mountTaskCardPresentation(row, textEl, task, getPath, { now = new Date(
                 phase ??= source.createSpan({ cls: "hub-task-phase" });
                 phase.textContent = phaseText; phase.title = "Phase: " + phaseText;
             } else { phase?.remove(); phase = null; }
+            row.classList.toggle("hub-workspace-root-task", !!insideRoot && !sourceControl && row.classList.contains("project-task-row"));
+            if (insideRoot && !sourceControl) {
+                source.remove();
+                // A phase is independent metadata; retain it without a location line.
+                if (phase) { info.append(phase); phase.style.gridArea = "2 / 1"; phase.style.justifySelf = "start"; }
+            } else {
+                if (source.parentElement !== info) textEl.after(source);
+                if (phase && phase.parentElement !== source) {
+                    source.append(phase); phase.style.removeProperty("grid-area"); phase.style.removeProperty("justify-self");
+                }
+            }
         }
         description?.update(task.description);
     }

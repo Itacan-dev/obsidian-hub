@@ -58,3 +58,19 @@ test('closing during metadata startup does not hang or publish an incomplete own
 });
 test('a committed deletion without a caller reply updates interested panels after durable catch-up',async t=>{const f=await fixture(t),task=await f.create({steps:[]});let observed=false,panel;panel=f.host.nativeTasks.createPanelRead({component:{register(){}},workspace:f.owner,changed:()=>{if(!panel.snapshot().tasks.some(t=>t.id===task.id))observed=true}});await new Promise(r=>setTimeout(r,20));observed=false;await f.service.execute({type:'task.delete',operationId:require('node:crypto').randomUUID(),taskId:task.id,expectedRevision:task.revision});await new Promise(r=>setTimeout(r,35));assert(observed);panel.close();});
 test('service reconnection automatically demands durable catch-up and restores current views',async t=>{const f=await fixture(t);await f.create({steps:[]});f.host.setState('reconnecting');assert.equal(f.host.nativeTasks.availability(),'loading');await new Promise(r=>setTimeout(r,35));assert.equal(f.host.nativeTasks.availability(),'current');});
+
+
+test('editor and creator display context is captured by the originating panel', async t => {
+ const calls=[],f=await fixture(t,{openEditor:service=>{calls.push(service);return{close(){}}},openCreator:service=>{calls.push(service);return{close(){}}}}),task=await f.create({steps:[]});
+ const make=options=>f.host.nativeTasks.createPanelRead({component:{register(){}},workspace:f.owner,...options});
+ const home=make({locationWorkspace:null}),workspace=make({});
+ f.plugin.workspaceModes={currentContext:()=>({projectId:'unrelated',root:'Projects/Other'})};
+ home.actions.editTask(task);assert.equal(calls.at(-1).locationWorkspace,null);
+ workspace.actions.editTask(task);assert.deepEqual(calls.at(-1).locationWorkspace,f.owner);
+ home.create({});assert.equal(calls.at(-1).locationWorkspace,null);
+ workspace.create({});assert.deepEqual(calls.at(-1).locationWorkspace,f.owner);
+ f.host.create({root:'Projects/A'});assert.deepEqual(calls.at(-1).locationWorkspace,f.owner);
+ f.host.create({root:'Projects/A',locationWorkspace:null});assert.equal(calls.at(-1).locationWorkspace,null);
+ assert.equal(f.runtime.formService().locationWorkspace,null,'Unscoped editors retain workspace prefix');
+ home.close();workspace.close();
+});

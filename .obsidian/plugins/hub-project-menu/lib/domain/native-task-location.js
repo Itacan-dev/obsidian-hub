@@ -14,6 +14,12 @@ function locationReference(owner, root, path, type) {
     const hash = require("node:crypto").createHash("sha256").update(JSON.stringify([[owner.type, owner.id], type, relative])).digest("hex");
     return { type, id: "workspace-location:v1:" + hash };
 }
+// null is a display-only omission marker; the original items remain navigable.
+function compactPathSegments(parts) {
+    return parts.length > 3
+        ? { visible: [parts[0], null, ...parts.slice(-2)], omitted: parts.slice(1, -2) }
+        : { visible: [...parts], omitted: [] };
+}
 function locationBreadcrumb(task, contextOwner = null) {
     const display = task.nativeLocationDisplay, owner = task.nativeReference?.owner ?? task.owner ?? task.nativeOwner;
     if (!display) return null;
@@ -22,7 +28,6 @@ function locationBreadcrumb(task, contextOwner = null) {
     const full = [name, ...route].join(" / ");
     let parts = inside ? [...route] : [name, ...route];
     if (!parts.length) parts = ["Workspace root"];
-    if (parts.length > 3) parts = [parts[0], "\u2026", parts.at(-1)];
-    return { label: parts.join(" / "), full, available: display.available !== false };
+    return { label: compactPathSegments(parts).visible.map(part => part ?? "\u2026").join(" / "), full, available: display.available !== false };
 }
-module.exports = { sameOwner, relativePath, locationReference, locationBreadcrumb };
+module.exports = { sameOwner, relativePath, locationReference, compactPathSegments, locationBreadcrumb };

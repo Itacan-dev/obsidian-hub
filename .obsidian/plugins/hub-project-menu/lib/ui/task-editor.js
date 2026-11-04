@@ -44,7 +44,7 @@ function openTaskEditor(service, task, onEdit = () => {}, creation = null) {
                 const owner = state.nativeOwner;
                 const reference = state.nativeLocation ? { type: state.nativeLocationType ?? service.nativeLocations.resolveId?.(owner, state.nativeLocation)?.type, id: state.nativeLocation } : null;
                 this.locationPicker = require("./task-location-picker").openTaskLocationPicker(service.app, {
-                    locations: service.nativeLocations, owner, reference, allowOwnerChange: true,
+                    locations: service.nativeLocations, owner, reference, allowOwnerChange: true, taskTitle: this.taskFields.input.value,
                     onChoose: selected => { state.nativeOwner = selected.owner; state.nativeLocation = selected.reference?.id ?? ""; state.nativeLocationType = selected.reference?.type; this.taskFields.phase.refresh(); this.taskFields.refresh(); clearError(); },
                     onClose: () => { this.locationPicker = null; if (!this.closed) this.taskFields.presentation.sourceControl?.focus({ preventScroll: true }); }
                 });
@@ -137,10 +137,17 @@ function openTaskEditor(service, task, onEdit = () => {}, creation = null) {
         modal.open(); return modal; };
     const failed = error => { if (modal.closed) return null; modal.close(); new Notice(error.message); return null; };
     if (creation) {
-        try {
-            modal.snapshot = { text: "", steps: [], necessity: null, ...creation, completed: false, ...(service.formContext ? {} : { path: initialComposerTaskLocation(service, creation) }) };
-            modal.ready = Promise.resolve(present());
-        } catch (error) { modal.ready = Promise.resolve(failed(error)); }
+        modal.ready = (async () => {
+            try {
+                const nativePath = creation.location ?? creation.path ?? creation.root;
+                // A workspace root supplies scope; a note/subfolder is explicit.
+                const explicitPath = nativePath && (creation.location != null || creation.path != null || nativePath !== service.context?.()?.root);
+                const defaults = service.defaultCreationLocation && !Object.hasOwn(creation, "nativeLocation") && !explicitPath
+                    ? await service.defaultCreationLocation() : {};
+                modal.snapshot = { text: "", steps: [], necessity: null, ...defaults, ...creation, completed: false, ...(service.formContext ? {} : { path: initialComposerTaskLocation(service, creation) }) };
+                return present();
+            } catch (error) { return failed(error); }
+        })();
     } else modal.ready = (async () => {
         try { modal.snapshot = await service.read(task); return present(); }
         catch (error) { return failed(error); }

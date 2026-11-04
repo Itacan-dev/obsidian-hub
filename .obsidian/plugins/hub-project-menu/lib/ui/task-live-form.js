@@ -103,7 +103,7 @@ function mountLiveTaskForm({ host, state, service, location, text, initialStepsO
     const phaseLabel = task => (service.phases?.(location()) ?? []).find(phase => phase.id === task.phaseId)?.name;
     const presentation = mountTaskCardPresentation(parts.row, parts.textEl, state, cardPath, { phaseLabel,
         ...(presentationContext ? { sourceLabel: presentationContext.sourceLabel } : {}),
-        ...(service.nativeLocations ? { locationAction: onLocation, nativeDisplay: () => {
+        ...(service.nativeLocations ? { locationAction: onLocation, locationWorkspace: Object.hasOwn(service, "locationWorkspace") ? service.locationWorkspace : service.nativeOwner, nativeDisplay: () => {
             const ref = state.nativeLocation ? service.nativeLocations.resolveId(state.nativeOwner, state.nativeLocation)?.reference ?? { id: state.nativeLocation, type: state.nativeLocationType } : null;
             return service.nativeLocations.describe(state.nativeOwner, ref);
         } } : {}) });

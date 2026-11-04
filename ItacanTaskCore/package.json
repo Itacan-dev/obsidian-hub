@@ -16,7 +16,7 @@
     "node": ">=24"
   },
   "scripts": {
-    "test": "node --test vnext/tests/engine.test.cjs vnext/tests/process.test.cjs vnext/tests/presentation.test.cjs vnext/tests/outbox.test.cjs vnext/tests/recurrence.test.cjs vnext/tests/application.test.cjs vnext/tests/sync.test.cjs vnext/tests/git-sync.test.cjs vnext/tests/portability.test.cjs"
+    "test": "node --test vnext/tests/engine.test.cjs vnext/tests/process.test.cjs vnext/tests/presentation.test.cjs vnext/tests/outbox.test.cjs vnext/tests/recurrence.test.cjs vnext/tests/application.test.cjs vnext/tests/sync.test.cjs vnext/tests/git-sync.test.cjs vnext/tests/portability.test.cjs vnext/tests/location-defaults.test.cjs vnext/tests/location-editor.test.cjs"
   },
   "license": "UNLICENSED"
 }

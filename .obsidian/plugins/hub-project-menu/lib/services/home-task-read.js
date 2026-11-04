@@ -24,7 +24,7 @@ function createHomeTaskRead({ plugin, component, changed = () => { }, nativeTask
     };
     const makePanel = owner => {
         const entry = { owner, value: null, state: "loading", panel: null };
-        entry.panel = nativeTasks.createPanelRead({ plugin, component, workspace: owner, changed: notify });
+        entry.panel = nativeTasks.createPanelRead({ plugin, component, workspace: owner, locationWorkspace: null, changed: notify });
         return entry;
     };
     const panels = owners.map(makePanel);

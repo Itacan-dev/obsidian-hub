@@ -73,6 +73,7 @@ function createNativeTaskLocations(plugin) {
         } catch (_) { return { workspaceName: indexes.get(ownerKey(owner))?.workspace.name ?? (owner.type === "resource" ? "Resource" : "Project"), segments: [], available: false }; }
     }
     const provider = { workspace, describe, resolve, catalog,
+        mountThumbnail: (host, owner) => require("../ui/workspace-thumbnail").mountWorkspaceThumbnail(host, plugin, workspace(owner)),
         resolveId(owner, id) { try { const item = index(owner).byId.get(id); return item ? { ...item, reference: { type: item.type, id } } : null; } catch (_) { return null; } },
         workspaces: () => { const status = plugin.nativeTaskHost?.status(), states = status?.owners ?? (status ? [status] : []);
             return workspaces().map(w => ({ owner: w.owner, name: w.name ?? w.label, root: w.root,
