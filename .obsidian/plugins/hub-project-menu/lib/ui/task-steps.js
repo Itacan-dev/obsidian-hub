@@ -2,12 +2,14 @@
 const { createTaskChecklist } = require("./task-card");
 const { bindCompletionSound, playStepCompletionSound } = require("./completion-audio");
 function createTaskSteps({ markdown, mutate, onEdit, report, setIcon, states = new Map() }) {
-    function bind(info, task, getPath, component = null) {
+    function bind(info, task, getPath, component = null, alignToCheckbox = false) {
         if (!task.steps?.length)
             return;
         const key = JSON.stringify([task.nativeReference.authorityId, task.id]), state = states.get(key) ?? { open: false, pending: null };
         states.set(key, state);
-        const checklist = createTaskChecklist(info, { setIcon }), rows = task.steps.map(step => {
+        const checklist = createTaskChecklist(alignToCheckbox ? info.parentElement : info, { setIcon });
+        if (alignToCheckbox) checklist.host.classList.add("hub-task-panel-steps");
+        const rows = task.steps.map(step => {
             const { row, checkbox, text } = checklist.createRow(step);
             bindCompletionSound(checkbox, playStepCompletionSound);
             void markdown.render(text, step.text, getPath());

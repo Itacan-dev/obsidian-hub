@@ -1,5 +1,23 @@
 # Task location header alignment and tooltip correction
 
+## Overflow-only tooltip follow-up (2026-11-04)
+
+- Cause: the informational name was the first `tabindex="0"` element, and every focus event opened its tooltip, including modal autofocus. Neither focus nor pointer activation checked overflow. The popup inherited the shared detail tooltip's fixed 360px width.
+- The name starts outside the tab order. A fresh Tab gesture inside the dialog makes it keyboard-reachable only when its inner text has `scrollWidth > clientWidth`. Focus disclosure also requires that fresh keyboard gesture; programmatic focus and insertion under a stationary pointer do not open it.
+- Pointer movement is handled only on the existing name span, whose natural width, right alignment, visible quotation spans and 45% maximum remain unchanged. Header whitespace, heading and subtitle cannot trigger it. Existing leave/blur/Escape behavior is retained.
+- `ResizeObserver` measures the rendered text when its available width changes. A text-only `MutationObserver` updates overflow, the accessible label and active tooltip content when draft text changes. Observers and event listeners are disposed on close; no polling, artificial opening delay or measurement/render loop was added.
+- The existing native/Itacan tooltip surface now uses content-sized width, zero minimum width and a 300px maximum. Existing theme padding, colors, border, radius and typography remain; long words wrap and exceptional content scrolls. Placement and size respect viewport bounds. Tooltip content contains the original title without added quotation marks.
+- Real Edge CDP checks passed at 1024x900, 600x780 and 390x720 in dark theme and 560x900 in light theme: 1,003 browser-fixture assertions plus real pointer/keyboard checks. Coverage includes initial/programmatic focus, stationary-pointer insertion, short/fitting/truncated titles, exact trigger region, leave/blur/Escape, content-driven width, unbroken wrapping, viewport bounds, window/container resizing, changed drafts, Add/Edit unsaved input, unchanged header geometry and location selection. A short title that actually truncates on a narrow viewport correctly remains eligible.
+- Existing task-location-display browser regression: 436 assertions plus real keyboard/hover checks, all passed. Focused task location/default/editor/application/presentation/formatting/thumbnail regressions: 38 tests passed, zero failures/skips.
+- TaskCore `vnext/tests/types.fixture.ts`: TypeScript 6.0.3, strict/noEmit, zero diagnostics. The legacy `native-cutover-typecheck.cjs` points to a removed fixture, so the current TaskCore fixture was checked directly.
+- Production build passed (177 main modules, 27 native modules); rebuilt main bundle syntax and changed-file whitespace checks passed. Only `main.js` is installed from the disposable build; unrelated generated assets are left in place. No live task data was modified, and no commit or push was made.
+
+Browser evidence: `%TEMP%/itacan-location-browser-P0pEAw/`. Display regression evidence: `%TEMP%/itacan-location-browser-puEAnV/`. Prior bundle and disposable build: `%TEMP%/itacan-task-title-tooltip-00481f37eb044071a7c218663bb930bf/`. Installed `main.js` SHA-256: `9f0676d762a047c6bc52421e8019120c725e0f0153632ccb31744dd72b34c0bf`.
+
+The browser fixtures run the actual picker source with a Modal/vault adapter and shared stylesheet. The running Obsidian session was not reloaded; reload the plugin or restart Obsidian to use the rebuilt bundle.
+
+## Earlier header-alignment pass
+
 2026-11-04. Implemented and rebuilt in Work; no commit or push.
 
 ## Focused correction

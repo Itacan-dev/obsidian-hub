@@ -1,0 +1,70 @@
+<!doctype html><meta charset="utf-8"><title>Steps chevron and progress wording</title>
+<link rel="stylesheet" href="../../styles.css">
+<link rel="stylesheet" href="../../../../../System/Dashboards/Home/view.css">
+<link rel="stylesheet" href="../../../../../System/Dashboards/Project/view.css">
+<style>#fixture{padding:16px}.heading-panel{box-sizing:border-box;padding:12px;background:var(--background-secondary);border:1px solid var(--background-modifier-border);border-radius:8px}#result{position:fixed;bottom:0;pointer-events:none}.modal-close-button{background:transparent!important;border:0!important;box-shadow:none!important}</style>
+<body class="theme-dark hub-button-scope"><main id="fixture"></main><pre id="result">RUNNING</pre>
+<script type="module">
+let checks=0;const check=(value,message)=>{checks++;if(!value)throw Error(message)},near=(a,b)=>Math.abs(a-b)<.1,frame=()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+const move=element=>new Promise(r=>{const b=element.getBoundingClientRect();window.hubTestPointerDone=r;window.hubTestPointerRequest={x:b.x+b.width/2,y:b.y+b.height/2,action:'move'}});
+const leave=()=>new Promise(r=>{window.hubTestPointerDone=r;window.hubTestPointerRequest={x:1,y:1,action:'move'}});
+const key=value=>new Promise(r=>{window.hubTestKeyDone=r;window.hubTestKeyRequest=value});
+const shot=name=>new Promise(r=>{window.hubTestScreenshotDone=r;window.hubTestScreenshotRequest='step-heading-'+name});
+const phrase=(completed,total)=>`${completed} of ${total} ${total===1?'step':'steps'}`;
+try{
+ if(new URLSearchParams(location.search).get('home-source')==='light')document.body.classList.replace('theme-dark','theme-light');
+ const native=document.createElement('link');native.rel='stylesheet';native.href=new URLSearchParams(location.search).get('preview');document.head.prepend(native);await new Promise((r,j)=>{native.onload=r;native.onerror=j});await document.fonts.ready;
+ const source=await(await fetch('task-editor-step-context.html')).text(),setup=source.slice(source.indexOf(' const source=await'),source.indexOf(' // A genuine shared-renderer panel')).replace('["ui/task-editor", "ui/task-card", "ui/text-field-focus"]','["ui/task-editor", "ui/task-card", "ui/text-field-focus", "ui/tasks"]');
+ const {load,obsidian,owner}=await new (Object.getPrototypeOf(async function(){}).constructor)(setup+';return {load,obsidian,owner};')();obsidian.Component.prototype.addChild=function(child){this.children.add(child);return child};
+ // Use the unmodified Files explorer selectors and native SVG class as the
+ // reference, retaining its own 14px slot while Steps keeps its 16px slot.
+ const explorer=document.body.createDiv({cls:'hub-workspace-explorer',attr:{style:'position:absolute;left:16px;top:16px;width:160px;height:40px'}}),folder=explorer.createDiv({cls:'hub-explorer-tree-row'}),disclosure=folder.createEl('button',{cls:'hub-button-plain hub-explorer-disclosure',attr:{type:'button'}}),reference=disclosure.createSpan({cls:'hub-explorer-icon'});
+ folder.createSpan({text:'Folder reference'});
+ const referenceIcon=name=>{obsidian.setIcon(reference,name);reference.querySelector('svg').classList.add('svg-icon')};referenceIcon('chevron-down');
+ const referenceStyle=()=>({color:getComputedStyle(reference).color,opacity:getComputedStyle(reference).opacity,stroke:getComputedStyle(reference.querySelector('svg')).strokeWidth});
+ const explorerBaseline=JSON.stringify(referenceStyle());
+ const token=(element,name)=>{const probe=element.createSpan();probe.style.color='var('+name+')';const value=getComputedStyle(probe).color;probe.remove();return value};
+ const sample=(row,toggle)=>{const cb=row.querySelector('input[type=checkbox]').getBoundingClientRect(),host=toggle.parentElement,list=host.querySelector('.hub-task-step-items'),g=getComputedStyle(list,'::before'),b=list.getBoundingClientRect(),s=toggle.querySelector('svg').getBoundingClientRect(),c=toggle.querySelector('.hub-task-steps-chevron').getBoundingClientRect(),label=toggle.querySelector('.hub-task-steps-label').getBoundingClientRect();return{axis:cb.x+cb.width/2,guide:b.x+parseFloat(g.left)+parseFloat(g.width)/2,guideStyle:[g.left,g.top,g.bottom,g.width,g.backgroundColor],chevron:getComputedStyle(toggle.querySelector('.hub-task-steps-chevron')).color,svg:{w:s.width,h:s.height,stroke:getComputedStyle(toggle.querySelector('svg')).strokeWidth},center:c.x+c.width/2,gap:label.x-c.right,headingHeight:toggle.getBoundingClientRect().height}};
+ async function verify(row,toggle,completed,total,name){
+  document.activeElement?.blur();await leave();
+  if(toggle.getAttribute('aria-expanded')!=='true')toggle.click();await frame();
+  const label=toggle.querySelector('.hub-task-steps-label'),progress=toggle.querySelector('.hub-task-step-progress'),initial=sample(row,toggle);
+  check(label.textContent===phrase(completed,total),name+' wording');check(toggle.getAttribute('aria-label')==='Collapse '+phrase(completed,total),name+' accessible wording');check(progress.textContent===`${completed} of ${total}`,name+' numeric progress');check(getComputedStyle(progress).color===token(toggle,'--text-muted'),name+' muted numeric progress');
+  check(initial.chevron===referenceStyle().color&&getComputedStyle(toggle.querySelector('.hub-task-steps-chevron')).opacity===referenceStyle().opacity,name+' Files explorer color/opacity match');check(initial.chevron!==initial.guideStyle[4],name+' distinguishable from guideline');check(initial.svg.w===16&&initial.svg.h===16&&initial.svg.stroke===referenceStyle().stroke,name+' preserved size and Files explorer stroke');check(near(initial.axis,initial.guide)&&near(initial.center,initial.axis),name+' checkbox/guide/chevron alignment');check(near(initial.gap,8),name+' original icon-to-label gap');
+  check(getComputedStyle(label).whiteSpace==='nowrap'&&label.scrollWidth<=label.clientWidth+1&&label.getBoundingClientRect().right<=toggle.getBoundingClientRect().right+1,name+' compact phrase fits without wrapping/overflow');
+  toggle.click();await frame();referenceIcon('chevron-right');const collapsed=sample(row,toggle);check(collapsed.chevron===referenceStyle().color&&collapsed.svg.stroke===referenceStyle().stroke&&collapsed.svg.w===initial.svg.w&&collapsed.svg.h===initial.svg.h,name+' collapsed Files explorer styling');check(toggle.getAttribute('aria-label')==='Expand '+phrase(completed,total),name+' collapsed accessible wording');toggle.click();referenceIcon('chevron-down');
+  if(total!==2||completed!==1)return;
+  await move(disclosure);check(JSON.stringify(referenceStyle())===explorerBaseline,name+' Files explorer hover color is stable');await move(toggle);await frame();await Promise.all(toggle.getAnimations().map(a=>a.finished.catch(()=>{})));const hover=sample(row,toggle);check(hover.chevron===referenceStyle().color&&getComputedStyle(toggle).backgroundColor===token(toggle,'--background-modifier-hover'),name+' neutral icon and existing heading hover feedback');check(JSON.stringify(hover.guideStyle)===JSON.stringify(initial.guideStyle),name+' hover preserves guideline');check(hover.headingHeight===initial.headingHeight,name+' hover preserves height');await leave();
+  // Reach the heading through its real preceding controls using trusted Tab.
+  row.querySelector('input[type=checkbox]').focus();for(let i=0;i<8&&document.activeElement!==toggle;i++)await key('Tab');
+  check(document.activeElement===toggle&&toggle.matches(':focus-visible'),name+' keyboard reachable');const focus=getComputedStyle(toggle);check(focus.outlineStyle!=='none'&&parseFloat(focus.outlineWidth)>0||focus.boxShadow!=='none',name+' visible keyboard focus');check(sample(row,toggle).chevron===referenceStyle().color,name+' keyboard preserves explorer icon contrast');check(JSON.stringify(referenceStyle())===explorerBaseline,name+' Files explorer unaffected');
+  await key('Enter');check(toggle.getAttribute('aria-expanded')==='false',name+' keyboard collapse');await key('Enter');check(toggle.getAttribute('aria-expanded')==='true',name+' keyboard expand');toggle.blur();await leave();check(sample(row,toggle).chevron===initial.chevron,name+' idle appearance restored');
+ }
+ const fixture=document.querySelector('#fixture');
+ for(const context of ['Home','Project','Resource'])for(const width of [480,190]){
+  const shell=fixture.createDiv({cls:'heading-panel '+(context==='Home'?'home-dashboard':'project-dashboard')});shell.style.width=width+'px';const body=shell.createDiv({cls:context==='Home'?'home-tasks-body':'project-tasks-body'}),component=new obsidian.Component();component.load();
+  const nativeOwner=context==='Resource'?{type:'resource',id:'references'}:owner;
+  const ui=load('ui/tasks').createTaskUi({app:{},component,body});
+  for(const [total,completed]of [[0,0],[1,0],[1,1],[2,0],[2,1],[2,2],[5,3],[100,99]]){
+   const task={id:'task-'+total+'-'+completed,text:'Assignment 2',nativeReference:{authorityId:'fixture',owner:nativeOwner,taskId:'task-'+total+'-'+completed},nativeLocationDisplay:{workspaceName:'Fixture',segments:['Topology.md'],available:true},steps:Array.from({length:total},(_,i)=>({id:'step-'+i,text:'Task '+(i+1),completed:i<completed}))},parts=load('ui/task-card').createTaskRow(body,task,false,{variant:context==='Home'?'home':'project'});
+   ui.bind(parts.row,parts.textEl,task,()=>'',{locationWorkspace:context==='Home'?null:nativeOwner});await frame();const toggle=parts.row.querySelector('.hub-task-steps-toggle');
+   if(!total)check(!toggle,context+' empty panel behavior');else await verify(parts.row,toggle,completed,total,context+' '+width+' '+total+'/'+completed);
+   if(width===480&&total===2&&completed===1)await shot(context.toLowerCase());parts.row.remove();
+  }
+  component.unload();shell.remove();
+ }
+ for(const mode of ['Add','Edit']){
+  for(const [total,completed]of [[0,0],[1,0],[1,1],[2,0],[2,1],[2,2],[5,3]]){
+   await openEditor(mode,total);const f=editor.taskFields;f.state.steps.forEach((step,i)=>step.completed=i<completed);f.steps.list.querySelectorAll('input[type=checkbox]').forEach((checkbox,i)=>{checkbox.checked=i<completed;checkbox.parentElement.classList.toggle('is-completed',checkbox.checked)});f.refresh();
+   if(!total){check(f.checklist.toggle.textContent==='Add steps'&&f.checklist.progress.hidden&&f.checklist.list.hidden,mode+' empty Add steps preserved');check(f.checklist.chevron.dataset.icon==='list-tree',mode+' empty icon unchanged');f.checklist.toggle.click();check(f.checklist.toggle.textContent==='0 of 1 step',mode+' pending step counted immediately');editor.close();continue}
+   await verify(f.card.row,f.checklist.toggle,completed,total,mode+' '+total+'/'+completed);
+   f.checklist.list.querySelector('input[type=checkbox]').click();const next=completed?completed-1:completed+1;check(f.checklist.toggle.textContent===phrase(next,total),mode+' completion updates immediately');
+   f.steps.add.click();check(f.checklist.toggle.textContent===phrase(next,total+1),mode+' Add updates immediately');input(f.steps.draftInput,'Added Step');f.steps.commitPending();check(f.checklist.toggle.textContent===phrase(next,total+1),mode+' committed count stable');
+   f.steps.list.querySelector('.hub-task-step-remove').click();check(f.checklist.toggle.textContent===phrase(next-(completed?0:1),total),mode+' Delete updates immediately');
+   if(total===1){f.steps.list.querySelector('.hub-task-step-remove').click();check(f.checklist.toggle.textContent==='Add steps'&&f.checklist.progress.hidden&&f.checklist.list.hidden,mode+' deleting final Step restores empty action');}
+   if(total===2&&completed===1)await shot(mode.toLowerCase());editor.close();
+  }
+ }
+ explorer.remove();document.querySelector('#result').textContent='PASS: '+checks+' rendered heading checks; Files explorer chevron color/opacity/stroke parity, preserved guideline and geometry, hover/keyboard feedback, unchanged wording/counts/empty states on all five surfaces.';
+}catch(error){document.querySelector('#result').textContent='FAIL '+error.stack}
+</script>

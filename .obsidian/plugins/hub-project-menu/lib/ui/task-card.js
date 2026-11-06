@@ -144,19 +144,20 @@ function createTaskChecklist(info, { setIcon = require("./icons").setHubIcon, em
     for (const event of ["click", "keydown", "contextmenu"]) host.addEventListener(event, e => e.stopPropagation());
     const toggle = host.createEl("button", { cls: "hub-task-steps-toggle", attr: { type: "button" } });
     const chevron = toggle.createSpan({ cls: "hub-task-steps-chevron", attr: { "aria-hidden": "true" } });
-    const label = toggle.createSpan({ cls: "hub-task-steps-label", text: "Steps" });
-    const progress = toggle.createSpan({ cls: "hub-task-step-progress", attr: { "aria-live": "polite" } });
+    const label = toggle.createSpan({ cls: "hub-task-steps-label" });
+    const progress = label.createSpan({ cls: "hub-task-step-progress", attr: { "aria-live": "polite" } });
+    const wording = label.createSpan();
     const list = host.createDiv({ cls: "hub-task-step-items" });
     const rowsHost = list.createDiv({ cls: "hub-task-step-list" });
     function update(open, completed, count) {
         const empty = emptyAction && !count;
-        label.textContent = empty ? "Add steps" : "Steps";
+        wording.textContent = empty ? "Add steps" : count === 1 ? " step" : " steps";
         progress.hidden = empty;
         if (emptyAction) host.hidden = false;
-        progress.textContent = empty ? "" : `${completed}/${count}`;
+        progress.textContent = empty ? "" : `${completed} of ${count}`;
         toggle.classList.toggle("is-empty-steps", empty);
         toggle.setAttribute("aria-expanded", String(!empty && open));
-        toggle.setAttribute("aria-label", empty ? "Add steps" : `${open ? "Collapse" : "Expand"} Steps: ${progress.textContent}`);
+        toggle.setAttribute("aria-label", empty ? "Add steps" : `${open ? "Collapse" : "Expand"} ${label.textContent}`);
         setIcon(chevron, empty ? "list-tree" : open ? "chevron-down" : "chevron-right"); list.hidden = empty || !open;
     }
     function createRow(step, parent = rowsHost) {

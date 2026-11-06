@@ -87,7 +87,7 @@ function mountTaskDescriptionPopover(control, state, onChange, onFeedback, bind 
     refresh(); return { ...picker, refresh };
 }
 
-function mountLiveTaskForm({ host, state, service, location, text, initialStepsOpen = false, onChange = () => {}, presentationContext = null, onLocation = null }) {
+function mountLiveTaskForm({ host, state, service, location, text, initialStepsOpen = false, onChange = () => {}, presentationContext = null, onLocation = null, showRecurrenceAction = true }) {
     const element = host.createDiv({ cls: "hub-task-live-fields" });
     const surface = element.createDiv({ cls: "hub-task-card-container" });
     const parts = createTaskRow(surface, state, state.completed, { checkboxScope: host.ownerDocument.body });
@@ -108,7 +108,9 @@ function mountLiveTaskForm({ host, state, service, location, text, initialStepsO
             return service.nativeLocations.describe(state.nativeOwner, ref);
         } } : {}) });
     parts.textEl.classList.add("hub-task-markdown");
-    const checklist = createTaskChecklist(parts.info, { emptyAction: true });
+    // Ordinary Add/Edit spans the card's checkbox and content tracks. Other
+    // composers retain the shared renderer's title-column hierarchy.
+    const checklist = createTaskChecklist(host.closest(".hub-task-live-dialog") ? parts.row : parts.info, { emptyAction: true });
     // Only seed disclosure at construction; refreshes respect the user's choice.
     let steps, phase, openSteps = initialStepsOpen && state.steps.length > 0, editingTitle = true, initialized = false, descriptionMeaningful = !!state.description?.trim();
     let last = { necessity: state.necessity, dates: [state.fromDate, state.fromTime, state.dueDate, state.dueTime].join("|"), phase: state.phaseId };
@@ -196,8 +198,8 @@ function mountLiveTaskForm({ host, state, service, location, text, initialStepsO
     const necessityControl = configurationAction(actions, "Set importance", "flag", "necessity");
     const descriptionControl = configurationAction(actions, "Add description", "text-align-start", "description");
     const phaseControl = configurationAction(actions, "Assign to Phase", "layers", "phase");
-    const recurrenceControl = configurationAction(actions, "Repeat task", "repeat", "recurrence");
-    const recurrence = require("./task-recurrence").mountTaskRecurrence(recurrenceControl, state, changed, accordion.bind);
+    const recurrenceControl = showRecurrenceAction ? configurationAction(actions, "Repeat task", "repeat", "recurrence") : null;
+    const recurrence = recurrenceControl ? require("./task-recurrence").mountTaskRecurrence(recurrenceControl, state, changed, accordion.bind) : null;
     specifications = [fromControl, dueControl, necessityControl, descriptionControl, phaseControl];
     steps = mountTaskSteps({ host: checklist.list, state, checklist, markdown, getPath: cardPath, inlineAdd: true, actionLabel: "Add step", pendingPlaceholder: "Describe this step...", focusFallback: checklist.toggle, onChange: changed,
         canAdd: () => !!state.text?.trim(), onBeforeAdd() { accordion.close(); openSteps = true; } });
@@ -207,8 +209,8 @@ function mountLiveTaskForm({ host, state, service, location, text, initialStepsO
     const description = mountTaskDescriptionPopover(descriptionControl, state, changed, () => pulse(presentation.descriptionIndicator), accordion.bind);
     const notice = element.createDiv({ cls: "hub-task-location-notice", attr: { role: "status" } });
     phase = mountTaskPhaseButton({ host: actions, state, service, location, notice, onChange: changed, control: phaseControl, keepLabel: true, persistent: true, unassignedLabel: "Unassigned", bind: accordion.bind });
-    configurationPickers = [start, due, necessity, description, phase, recurrence];
-    specificationControls.push(recurrenceControl.button);
+    configurationPickers = [start, due, necessity, description, phase, recurrence].filter(Boolean);
+    if (recurrenceControl) specificationControls.push(recurrenceControl.button);
     checklist.toggle.addEventListener("click", () => {
         if (checklist.toggle.disabled) return;
         if (!state.steps.length && !steps.hasPending) { steps.focusNew(); return; }
@@ -224,8 +226,8 @@ function mountLiveTaskForm({ host, state, service, location, text, initialStepsO
     initialized = true;
     return { element, input, completion: parts.checkbox, phase, card: parts, presentation, checklist, steps, state,
         commitPending: steps.commitPending, refresh, resizeTitle: title.resize,
-        closePopovers() { recurrence.close(false); start.close(false); due.close(false); necessity.close(false); description.close(false); phase.close(false); },
-        destroy() { recurrence.destroy(); start.destroy(); due.destroy(); necessity.destroy(); description.destroy(); phase.destroy(); steps.destroy(); title.destroy();
+        closePopovers() { recurrence?.close(false); start.close(false); due.close(false); necessity.close(false); description.close(false); phase.close(false); },
+        destroy() { recurrence?.destroy(); start.destroy(); due.destroy(); necessity.destroy(); description.destroy(); phase.destroy(); steps.destroy(); title.destroy();
             accordion.destroy(); presentation.destroy(); effects.destroy(); component.unload(); element.remove(); } };
 }
 

@@ -49,6 +49,9 @@ async function run(){
    const selectedButton=await call('Runtime.evaluate',{expression:`(()=>{const e=window.preview.breadcrumbs.querySelector('button[aria-current]'),r=e.getBoundingClientRect();return{x:r.x+r.width/2,y:r.y+r.height/2,color:getComputedStyle(e).backgroundColor,weight:getComputedStyle(e).fontWeight}})()`,returnByValue:true});
    await call('Input.dispatchMouseEvent',{type:'mouseMoved',x:selectedButton.result.value.x,y:selectedButton.result.value.y});await settleAnimations();
    const rootHover=await call('Runtime.evaluate',{expression:`(()=>{const s=getComputedStyle(window.preview.breadcrumbs.querySelector('[aria-current]'));return{color:s.backgroundColor,weight:s.fontWeight,decoration:s.textDecorationLine}})()`,returnByValue:true});assert.equal(rootHover.result.value.color,selectedButton.result.value.color,'Selected root button retains purple during hover');assert.equal(rootHover.result.value.weight,selectedButton.result.value.weight,'Selected root hover retains font weight');assert.equal(rootHover.result.value.decoration,'none','Selected root hover has no underline');
+   const headerGap=await call('Runtime.evaluate',{expression:`(()=>{const n=preview.contentEl.querySelector('.hub-task-location-task-name').getBoundingClientRect();return{x:n.left-4,y:n.top+n.height/2}})()`,returnByValue:true});
+   await call('Input.dispatchMouseEvent',{type:'mouseMoved',...headerGap.result.value});
+   const emptyHeaderTooltip=await call('Runtime.evaluate',{expression:"Boolean(document.querySelector('.hub-task-location-title-tooltip'))",returnByValue:true});assert.equal(emptyHeaderTooltip.result.value,false,'Real pointer hover over empty header space does not activate tooltip');
    const namePoint=await call('Runtime.evaluate',{expression:`(()=>{const e=window.preview.contentEl.querySelector('.hub-task-location-task-name'),r=e.getBoundingClientRect();return{x:r.x+r.width/2,y:r.y+r.height/2}})()`,returnByValue:true});
    await call('Input.dispatchMouseEvent',{type:'mouseMoved',...namePoint.result.value});
    const tooltipResult=await call('Runtime.evaluate',{expression:`new Promise((resolve,reject)=>{let attempts=0;const check=()=>{const t=document.querySelector('.hub-task-location-title-tooltip');if(t){const r=t.getBoundingClientRect(),name=window.preview.contentEl.querySelector('.hub-task-location-task-text');resolve({full:t.textContent===name.textContent&&t.closest('.modal')===window.preview.modalEl,wrap:getComputedStyle(t).whiteSpace,overflow:getComputedStyle(t).overflowY,bounded:r.left>=0&&r.right<=innerWidth&&r.top>=0&&r.bottom<=innerHeight,x:r.x+r.width/2,y:r.y+Math.min(20,r.height/2)});}else if(++attempts<40)setTimeout(check,50);else reject(Error('Task name tooltip did not appear'));};check()})`,awaitPromise:true,returnByValue:true});
@@ -63,12 +66,59 @@ async function run(){
    const keyboardTooltip=await call('Runtime.evaluate',{expression:"(()=>{const n=window.preview.contentEl.querySelector('.hub-task-location-task-name'),t=document.querySelector('.hub-task-location-title-tooltip');return document.activeElement===n&&t?.textContent===n.querySelector('.hub-task-location-task-text').textContent})()",returnByValue:true});assert(keyboardTooltip.result.value,'Keyboard Tab focus reveals the complete current draft title');
    await key('Tab',9);const blurGone=await call('Runtime.evaluate',{expression:"!document.querySelector('.hub-task-location-title-tooltip')",returnByValue:true});assert(blurGone.result.value,'Keyboard focus loss dismisses tooltip');
    const closed=await call('Runtime.evaluate',{expression:"window.preview.close();!document.querySelector('.hub-task-location-title-tooltip')",returnByValue:true});assert(closed.result.value,'Closing picker removes task tooltip');
-   await call('Runtime.evaluate',{expression:"window.preview=window.openLocationPreview('Assignment 5')"});
+   await call('Runtime.evaluate',{expression:"window.preview=window.openLocationPreview('test')"});
    const shortPoint=await call('Runtime.evaluate',{expression:"(()=>{const r=window.preview.contentEl.querySelector('.hub-task-location-task-name').getBoundingClientRect();return{x:r.x+r.width/2,y:r.y+r.height/2}})()",returnByValue:true});await call('Input.dispatchMouseEvent',{type:'mouseMoved',...shortPoint.result.value});
-   const shortTooltip=await call('Runtime.evaluate',{expression:"document.querySelector('.hub-task-location-title-tooltip')?.textContent",returnByValue:true});assert.equal(shortTooltip.result.value,'Assignment 5','Pointer hover also shows full untruncated short names');
+   const shortTooltip=await call('Runtime.evaluate',{expression:"Boolean(document.querySelector('.hub-task-location-title-tooltip'))",returnByValue:true});assert.equal(shortTooltip.result.value,false,'Pointer hover never shows a tooltip for a fully visible short name');
    await call('Runtime.evaluate',{expression:'window.preview.close()'});
 
    const evaluate=async expression=>{const r=await call('Runtime.evaluate',{expression,returnByValue:true});if(r.exceptionDetails)throw Error(JSON.stringify(r.exceptionDetails));return r.result.value};
+   const frame=()=>call('Runtime.evaluate',{expression:'new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))',awaitPromise:true});
+   const moveToName=async()=>{const point=await evaluate('(()=>{const r=preview.contentEl.querySelector(".hub-task-location-task-name").getBoundingClientRect();return{x:r.x+r.width/2,y:r.y+r.height/2}})()');await call('Input.dispatchMouseEvent',{type:'mouseMoved',...point});};
+   const hasTooltip=()=>evaluate('Boolean(document.querySelector(".hub-task-location-title-tooltip"))');
+   await call('Input.dispatchMouseEvent',{type:'mouseMoved',x:1,y:1});
+   await evaluate('preview=openLocationPreview("test")');await frame();
+   assert(await evaluate('document.activeElement===preview.workspaceButton'),'Title never receives initial modal focus');
+   assert(!await hasTooltip(),'Opening the picker does not show a tooltip');
+   await evaluate('preview.contentEl.querySelector(".hub-task-location-task-name").focus()');
+   assert(!await hasTooltip(),'Programmatic initial focus cannot activate tooltip');
+   await evaluate('preview.workspaceButton.focus()');
+   await call('Input.dispatchKeyEvent',{type:'rawKeyDown',key:'Tab',code:'Tab',windowsVirtualKeyCode:9,modifiers:8});await call('Input.dispatchKeyEvent',{type:'keyUp',key:'Tab',code:'Tab',windowsVirtualKeyCode:9,modifiers:8});
+   assert(!await hasTooltip(),'Keyboard navigation skips fully visible titles');
+   // Constrain only the fixture to prove short titles also use actual overflow,
+   // and that compact tooltip width is driven by content rather than a fixed box.
+   await evaluate('preview.contentEl.querySelector(".hub-task-location-task-text").style.maxWidth="12px"');await frame();
+   assert(!await hasTooltip(),'Becoming truncated does not automatically activate tooltip');
+   await moveToName();
+   assert(await evaluate('(()=>{const t=document.querySelector(".hub-task-location-title-tooltip");return t?.textContent==="test"&&t.getBoundingClientRect().width<100})()'),'Even a short overflowing title gets a compact content-sized tooltip');
+   await evaluate('preview.contentEl.querySelector(".hub-task-location-task-text").textContent="Changed unsaved draft ".repeat(20)');await frame();
+   assert(await evaluate('document.querySelector(".hub-task-location-title-tooltip")?.textContent===preview.contentEl.querySelector(".hub-task-location-task-text").textContent'),'Changing draft text refreshes an active tooltip');
+   await evaluate('preview.contentEl.querySelector(".hub-task-location-task-text").style.maxWidth="";preview.contentEl.querySelector(".hub-task-location-task-text").textContent="test"');await frame();
+   assert(!await hasTooltip(),'Changing to a fitting draft title dismisses and disables tooltip');
+   await evaluate('preview.contentEl.querySelector(".hub-task-location-task-text").textContent="W".repeat(500)');await frame();
+   assert(!await hasTooltip(),'A new long draft requires fresh hover or keyboard intent');
+   await call('Input.dispatchMouseEvent',{type:'mouseMoved',x:1,y:1});await moveToName();
+   assert(await evaluate('(()=>{const t=document.querySelector(".hub-task-location-title-tooltip"),r=t?.getBoundingClientRect();return t?.textContent==="W".repeat(500)&&r.width<=300&&r.height>parseFloat(getComputedStyle(t).lineHeight)&&r.left>=0&&r.right<=innerWidth&&r.bottom<=innerHeight})()'),'Unbroken long content wraps within compact viewport bounds');
+   await call('Input.dispatchMouseEvent',{type:'mouseMoved',x:1,y:1});
+   await evaluate('preview.contentEl.querySelector(".hub-task-location-task-name").focus()');
+   assert(!await hasTooltip(),'Programmatic focus on a truncated title does not activate tooltip');
+   await evaluate('preview.workspaceButton.focus()');
+   await call('Input.dispatchKeyEvent',{type:'rawKeyDown',key:'Tab',code:'Tab',windowsVirtualKeyCode:9,modifiers:8});await call('Input.dispatchKeyEvent',{type:'keyUp',key:'Tab',code:'Tab',windowsVirtualKeyCode:9,modifiers:8});
+   assert(await hasTooltip(),'Deliberate keyboard focus reveals a changed truncated draft');
+   await key('Escape',27);assert(!await hasTooltip()&&await evaluate('preview.modalEl.isConnected'),'Escape dismisses tooltip without closing picker');
+   await evaluate('preview.close()');
+   if(width===1024){
+    await evaluate('preview=openLocationPreview("i".repeat(32))');await frame();
+    assert(await evaluate('(()=>{const t=preview.contentEl.querySelector(".hub-task-location-task-text");return t.scrollWidth<=t.clientWidth})()'),'Long narrow-character title fits at desktop width');
+    await moveToName();assert(!await hasTooltip(),'A longer fully visible title does not show tooltip');
+    await call('Emulation.setDeviceMetricsOverride',{width:390,height:720,deviceScaleFactor:1,mobile:false});await frame();
+    assert(await evaluate('(()=>{const t=preview.contentEl.querySelector(".hub-task-location-task-text");return t.scrollWidth>t.clientWidth})()'),'Window resize changes actual rendered overflow');
+    assert(!await hasTooltip(),'Resize alone does not activate tooltip');
+    await call('Input.dispatchMouseEvent',{type:'mouseMoved',x:1,y:1});await moveToName();assert(await hasTooltip(),'Truncated title becomes available after narrowing window');
+    await call('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:false});await frame();assert(!await hasTooltip(),'Widening window dismisses tooltip when text fits');
+    await evaluate('preview.modalEl.style.width="380px"');await frame();await call('Input.dispatchMouseEvent',{type:'mouseMoved',x:1,y:1});await moveToName();assert(await hasTooltip(),'ResizeObserver detects available-width changes without a window resize');
+    await evaluate('preview.modalEl.style.width=""');await frame();assert(!await hasTooltip(),'ResizeObserver disables tooltip when layout expands');
+    await evaluate('preview.close()');
+   }
 
    await evaluate('window.preview=window.openDeepLocationPreview()');
    assert(await evaluate('preview.breadcrumbs.scrollLeft>0&&preview.breadcrumbs.scrollWidth>preview.breadcrumbs.clientWidth'),'Deep breadcrumb reveals endpoint');

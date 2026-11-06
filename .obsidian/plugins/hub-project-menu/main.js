@@ -22437,19 +22437,20 @@ function createTaskChecklist(info, { setIcon = __hubRequire("lib/ui/icons.js").s
     for (const event of ["click", "keydown", "contextmenu"]) host.addEventListener(event, e => e.stopPropagation());
     const toggle = host.createEl("button", { cls: "hub-task-steps-toggle", attr: { type: "button" } });
     const chevron = toggle.createSpan({ cls: "hub-task-steps-chevron", attr: { "aria-hidden": "true" } });
-    const label = toggle.createSpan({ cls: "hub-task-steps-label", text: "Steps" });
-    const progress = toggle.createSpan({ cls: "hub-task-step-progress", attr: { "aria-live": "polite" } });
+    const label = toggle.createSpan({ cls: "hub-task-steps-label" });
+    const progress = label.createSpan({ cls: "hub-task-step-progress", attr: { "aria-live": "polite" } });
+    const wording = label.createSpan();
     const list = host.createDiv({ cls: "hub-task-step-items" });
     const rowsHost = list.createDiv({ cls: "hub-task-step-list" });
     function update(open, completed, count) {
         const empty = emptyAction && !count;
-        label.textContent = empty ? "Add steps" : "Steps";
+        wording.textContent = empty ? "Add steps" : count === 1 ? " step" : " steps";
         progress.hidden = empty;
         if (emptyAction) host.hidden = false;
-        progress.textContent = empty ? "" : `${completed}/${count}`;
+        progress.textContent = empty ? "" : `${completed} of ${count}`;
         toggle.classList.toggle("is-empty-steps", empty);
         toggle.setAttribute("aria-expanded", String(!empty && open));
-        toggle.setAttribute("aria-label", empty ? "Add steps" : `${open ? "Collapse" : "Expand"} Steps: ${progress.textContent}`);
+        toggle.setAttribute("aria-label", empty ? "Add steps" : `${open ? "Collapse" : "Expand"} ${label.textContent}`);
         setIcon(chevron, empty ? "list-tree" : open ? "chevron-down" : "chevron-right"); list.hidden = empty || !open;
     }
     function createRow(step, parent = rowsHost) {
@@ -22732,11 +22733,15 @@ function openTaskEditor(service, task, onEdit = () => {}, creation = null) {
                 this.locationPicker = __hubRequire("lib/ui/task-location-picker.js").openTaskLocationPicker(service.app, {
                     locations: service.nativeLocations, owner, reference, allowOwnerChange: true, taskTitle: this.taskFields.input.value,
                     onChoose: selected => { state.nativeOwner = selected.owner; state.nativeLocation = selected.reference?.id ?? ""; state.nativeLocationType = selected.reference?.type; this.taskFields.phase.refresh(); this.taskFields.refresh(); clearError(); },
-                    onClose: () => { this.locationPicker = null; if (!this.closed) this.taskFields.presentation.sourceControl?.focus({ preventScroll: true }); }
+                    // Native Modal restores the opener after onClose, including
+                    // keyboard focus. Only release our nested-dialog reference.
+                    onClose: () => { this.locationPicker = null; }
                 });
             };
             this.taskFields = mountLiveTaskForm({ host: form, state, service,
                 initialStepsOpen: !creation && snapshot.steps.length > 0,
+                // Temporarily hide the entry point; retain recurrence state and implementation.
+                showRecurrenceAction: false,
                 onChange: clearError,
                 text: { placeholder: creation ? "What needs doing?" : "" },
                 location, presentationContext: formContext, onLocation: service.nativeLocations ? openLocation : null });
@@ -23278,7 +23283,7 @@ function mountTaskDescriptionPopover(control, state, onChange, onFeedback, bind 
     refresh(); return { ...picker, refresh };
 }
 
-function mountLiveTaskForm({ host, state, service, location, text, initialStepsOpen = false, onChange = () => {}, presentationContext = null, onLocation = null }) {
+function mountLiveTaskForm({ host, state, service, location, text, initialStepsOpen = false, onChange = () => {}, presentationContext = null, onLocation = null, showRecurrenceAction = true }) {
     const element = host.createDiv({ cls: "hub-task-live-fields" });
     const surface = element.createDiv({ cls: "hub-task-card-container" });
     const parts = createTaskRow(surface, state, state.completed, { checkboxScope: host.ownerDocument.body });
@@ -23299,7 +23304,9 @@ function mountLiveTaskForm({ host, state, service, location, text, initialStepsO
             return service.nativeLocations.describe(state.nativeOwner, ref);
         } } : {}) });
     parts.textEl.classList.add("hub-task-markdown");
-    const checklist = createTaskChecklist(parts.info, { emptyAction: true });
+    // Ordinary Add/Edit spans the card's checkbox and content tracks. Other
+    // composers retain the shared renderer's title-column hierarchy.
+    const checklist = createTaskChecklist(host.closest(".hub-task-live-dialog") ? parts.row : parts.info, { emptyAction: true });
     // Only seed disclosure at construction; refreshes respect the user's choice.
     let steps, phase, openSteps = initialStepsOpen && state.steps.length > 0, editingTitle = true, initialized = false, descriptionMeaningful = !!state.description?.trim();
     let last = { necessity: state.necessity, dates: [state.fromDate, state.fromTime, state.dueDate, state.dueTime].join("|"), phase: state.phaseId };
@@ -23387,8 +23394,8 @@ function mountLiveTaskForm({ host, state, service, location, text, initialStepsO
     const necessityControl = configurationAction(actions, "Set importance", "flag", "necessity");
     const descriptionControl = configurationAction(actions, "Add description", "text-align-start", "description");
     const phaseControl = configurationAction(actions, "Assign to Phase", "layers", "phase");
-    const recurrenceControl = configurationAction(actions, "Repeat task", "repeat", "recurrence");
-    const recurrence = __hubRequire("lib/ui/task-recurrence.js").mountTaskRecurrence(recurrenceControl, state, changed, accordion.bind);
+    const recurrenceControl = showRecurrenceAction ? configurationAction(actions, "Repeat task", "repeat", "recurrence") : null;
+    const recurrence = recurrenceControl ? __hubRequire("lib/ui/task-recurrence.js").mountTaskRecurrence(recurrenceControl, state, changed, accordion.bind) : null;
     specifications = [fromControl, dueControl, necessityControl, descriptionControl, phaseControl];
     steps = mountTaskSteps({ host: checklist.list, state, checklist, markdown, getPath: cardPath, inlineAdd: true, actionLabel: "Add step", pendingPlaceholder: "Describe this step...", focusFallback: checklist.toggle, onChange: changed,
         canAdd: () => !!state.text?.trim(), onBeforeAdd() { accordion.close(); openSteps = true; } });
@@ -23398,8 +23405,8 @@ function mountLiveTaskForm({ host, state, service, location, text, initialStepsO
     const description = mountTaskDescriptionPopover(descriptionControl, state, changed, () => pulse(presentation.descriptionIndicator), accordion.bind);
     const notice = element.createDiv({ cls: "hub-task-location-notice", attr: { role: "status" } });
     phase = mountTaskPhaseButton({ host: actions, state, service, location, notice, onChange: changed, control: phaseControl, keepLabel: true, persistent: true, unassignedLabel: "Unassigned", bind: accordion.bind });
-    configurationPickers = [start, due, necessity, description, phase, recurrence];
-    specificationControls.push(recurrenceControl.button);
+    configurationPickers = [start, due, necessity, description, phase, recurrence].filter(Boolean);
+    if (recurrenceControl) specificationControls.push(recurrenceControl.button);
     checklist.toggle.addEventListener("click", () => {
         if (checklist.toggle.disabled) return;
         if (!state.steps.length && !steps.hasPending) { steps.focusNew(); return; }
@@ -23415,8 +23422,8 @@ function mountLiveTaskForm({ host, state, service, location, text, initialStepsO
     initialized = true;
     return { element, input, completion: parts.checkbox, phase, card: parts, presentation, checklist, steps, state,
         commitPending: steps.commitPending, refresh, resizeTitle: title.resize,
-        closePopovers() { recurrence.close(false); start.close(false); due.close(false); necessity.close(false); description.close(false); phase.close(false); },
-        destroy() { recurrence.destroy(); start.destroy(); due.destroy(); necessity.destroy(); description.destroy(); phase.destroy(); steps.destroy(); title.destroy();
+        closePopovers() { recurrence?.close(false); start.close(false); due.close(false); necessity.close(false); description.close(false); phase.close(false); },
+        destroy() { recurrence?.destroy(); start.destroy(); due.destroy(); necessity.destroy(); description.destroy(); phase.destroy(); steps.destroy(); title.destroy();
             accordion.destroy(); presentation.destroy(); effects.destroy(); component.unload(); element.remove(); } };
 }
 
@@ -23500,23 +23507,36 @@ function openTaskLocationPicker(app, { locations, owner, reference = null, allow
             copy.parentElement.style.marginRight = "0";
             const row = copy.createDiv({ cls: "hub-window-title-row hub-task-location-title-row" });
             copy.insertBefore(row, heading); row.append(heading);
-            const name = row.createSpan({ cls: "hub-window-header-date hub-task-location-task-name", attr: { tabindex: "0", "aria-label": '"' + text + '"' } });
+            // Join the tab order only after a new Tab gesture in this dialog,
+            // so the informational title never becomes Modal's autofocus target.
+            const name = row.createSpan({ cls: "hub-window-header-date hub-task-location-task-name", attr: { tabindex: "-1", "aria-label": '"' + text + '"' } });
             name.style.font = win.getComputedStyle(heading).font;
             name.style.setProperty("--no-tooltip", "true");
             name.createSpan({ cls: "hub-task-location-task-quote", text: '"', attr: { "aria-hidden": "true" } });
-            name.createSpan({ cls: "hub-task-location-task-text", text });
+            const taskText = name.createSpan({ cls: "hub-task-location-task-text", text });
             name.createSpan({ cls: "hub-task-location-task-quote", text: '"', attr: { "aria-hidden": "true" } });
-            let tooltip = null, hovered = false, focused = false;
+            let tooltip = null, hovered = false, focused = false, truncated = false, keyboardNavigation = false, tabNavigation = false;
             const hide = () => { tooltip?.remove(); tooltip = null; name.removeAttribute("aria-describedby"); };
+            const measure = () => {
+                truncated = !!taskText.textContent.trim() && taskText.clientWidth > 0 && taskText.scrollWidth > taskText.clientWidth;
+                name.tabIndex = truncated && tabNavigation ? 0 : -1;
+                if (!truncated) { hovered = focused = false; hide(); }
+                return truncated;
+            };
             const show = () => {
-                if (tooltip || !name.isConnected) return;
+                if (!name.isConnected || !measure()) return;
+                if (tooltip) hide();
                 tooltip = doc.createElement("div");
                 tooltip.className = "tooltip hub-detail-tooltip hub-task-location-title-tooltip";
                 tooltip.id = "hub-task-location-title-tooltip-" + ++pickerSequence;
                 tooltip.setAttribute("role", "tooltip"); tooltip.setAttribute("popover", "manual");
-                tooltip.textContent = text; this.modalEl.append(tooltip); tooltip.showPopover?.();
+                tooltip.textContent = taskText.textContent;
+                const viewport = win.visualViewport;
+                tooltip.style.maxWidth = Math.min(300, (viewport?.width ?? win.innerWidth) - 16) + "px";
+                tooltip.style.maxHeight = Math.min(280, (viewport?.height ?? win.innerHeight) - 16) + "px";
+                this.modalEl.append(tooltip); tooltip.showPopover?.();
                 name.setAttribute("aria-describedby", tooltip.id);
-                const rect = name.getBoundingClientRect(), size = tooltip.getBoundingClientRect(), viewport = win.visualViewport;
+                const rect = name.getBoundingClientRect(), size = tooltip.getBoundingClientRect();
                 const left = (viewport?.offsetLeft ?? 0) + 8, top = (viewport?.offsetTop ?? 0) + 8;
                 const right = left + (viewport?.width ?? win.innerWidth) - 16, bottom = top + (viewport?.height ?? win.innerHeight) - 16;
                 tooltip.style.left = Math.max(left, Math.min(rect.right - size.width, right - size.width)) + "px";
@@ -23525,14 +23545,34 @@ function openTaskLocationPicker(app, { locations, owner, reference = null, allow
             };
             // Use actual pointer movement, as the existing immediate Itacan previews do.
             // Focus is informational only: there is no click handler or editor control.
-            name.onpointermove = () => { hovered = true; show(); };
+            name.onpointermove = event => { if (event.pointerType !== "touch" && !tooltip && truncated) { hovered = true; show(); } };
             name.onpointerleave = event => { if (!tooltip?.contains(event.relatedTarget)) { hovered = false; if (!focused) hide(); } };
-            name.onfocus = () => { focused = true; show(); };
+            name.onfocus = () => { focused = keyboardNavigation && name.matches(":focus-visible"); if (focused) show(); };
             name.onblur = () => { focused = false; if (!hovered) hide(); };
-            const escape = event => { if (event.key === "Escape" && tooltip) { hovered = focused = false; hide(); event.preventDefault(); event.stopImmediatePropagation(); } };
-            const scroll = event => { if (!tooltip?.contains(event.target)) hide(); };
-            doc.addEventListener("keydown", escape, true); win.addEventListener("resize", hide); doc.addEventListener("scroll", scroll, true);
-            this.disposeTaskName = () => { hide(); doc.removeEventListener("keydown", escape, true); win.removeEventListener("resize", hide); doc.removeEventListener("scroll", scroll, true); };
+            const keydown = event => {
+                keyboardNavigation = event.key === "Tab" && this.modalEl.contains(event.target);
+                if (keyboardNavigation) { tabNavigation = true; measure(); }
+                if (event.key === "Escape" && tooltip) { hovered = focused = false; hide(); event.preventDefault(); event.stopImmediatePropagation(); }
+            };
+            const keyup = () => { keyboardNavigation = false; };
+            const pointerdown = () => { keyboardNavigation = hovered = focused = false; hide(); };
+            const resize = () => { hovered = focused = false; hide(); measure(); };
+            const scroll = event => { if (!tooltip?.contains(event.target)) { hovered = focused = false; hide(); } };
+            const observer = new win.ResizeObserver(() => { if (measure() && tooltip) show(); });
+            observer.observe(taskText);
+            const titleObserver = new win.MutationObserver(() => {
+                name.setAttribute("aria-label", '"' + taskText.textContent + '"');
+                if (measure() && tooltip) show();
+            });
+            titleObserver.observe(taskText, { childList: true, characterData: true, subtree: true });
+            doc.addEventListener("keydown", keydown, true); doc.addEventListener("keyup", keyup, true); doc.addEventListener("pointerdown", pointerdown, true);
+            win.addEventListener("resize", resize); doc.addEventListener("scroll", scroll, true);
+            this.disposeTaskName = () => {
+                hide(); observer.disconnect(); titleObserver.disconnect();
+                doc.removeEventListener("keydown", keydown, true); doc.removeEventListener("keyup", keyup, true); doc.removeEventListener("pointerdown", pointerdown, true);
+                win.removeEventListener("resize", resize); doc.removeEventListener("scroll", scroll, true);
+                name.onpointermove = name.onpointerleave = name.onfocus = name.onblur = null;
+            };
         }
         renderWorkspace() {
             const w = locations.workspace(this.owner), button = this.workspaceButton;
@@ -23843,12 +23883,14 @@ module.exports={createTaskRowCache};
 const { createTaskChecklist } = __hubRequire("lib/ui/task-card.js");
 const { bindCompletionSound, playStepCompletionSound } = __hubRequire("lib/ui/completion-audio.js");
 function createTaskSteps({ markdown, mutate, onEdit, report, setIcon, states = new Map() }) {
-    function bind(info, task, getPath, component = null) {
+    function bind(info, task, getPath, component = null, alignToCheckbox = false) {
         if (!task.steps?.length)
             return;
         const key = JSON.stringify([task.nativeReference.authorityId, task.id]), state = states.get(key) ?? { open: false, pending: null };
         states.set(key, state);
-        const checklist = createTaskChecklist(info, { setIcon }), rows = task.steps.map(step => {
+        const checklist = createTaskChecklist(alignToCheckbox ? info.parentElement : info, { setIcon });
+        if (alignToCheckbox) checklist.host.classList.add("hub-task-panel-steps");
+        const rows = task.steps.map(step => {
             const { row, checkbox, text } = checklist.createRow(step);
             bindCompletionSound(checkbox, playStepCompletionSound);
             void markdown.render(text, step.text, getPath());
@@ -24365,7 +24407,8 @@ function createTaskUi({ app, component, body, mutate, onEdit, editTask, createTa
             description: options.description ?? options.dates !== false, now: renderNow, phaseLabel });
         rowComponent.register(() => presentation.destroy());
         const info = textEl.parentElement;
-        if (!options.selection && options.steps !== false) steps.bind(info, task, getPath, rowComponent);
+        if (!options.selection && options.steps !== false) steps.bind(info, task, getPath, rowComponent,
+            body.matches(".home-tasks-body, .project-tasks-body") && !row.classList.contains("hub-full-task-card"));
         if (editTask && !task.nativeReadOnly) {
             textEl.tabIndex = 0; textEl.setAttribute("role", "button"); textEl.setAttribute("aria-label", `Edit task: ${task.text}`);
             const open = event => {

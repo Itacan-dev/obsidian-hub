@@ -46,11 +46,15 @@ function openTaskEditor(service, task, onEdit = () => {}, creation = null) {
                 this.locationPicker = require("./task-location-picker").openTaskLocationPicker(service.app, {
                     locations: service.nativeLocations, owner, reference, allowOwnerChange: true, taskTitle: this.taskFields.input.value,
                     onChoose: selected => { state.nativeOwner = selected.owner; state.nativeLocation = selected.reference?.id ?? ""; state.nativeLocationType = selected.reference?.type; this.taskFields.phase.refresh(); this.taskFields.refresh(); clearError(); },
-                    onClose: () => { this.locationPicker = null; if (!this.closed) this.taskFields.presentation.sourceControl?.focus({ preventScroll: true }); }
+                    // Native Modal restores the opener after onClose, including
+                    // keyboard focus. Only release our nested-dialog reference.
+                    onClose: () => { this.locationPicker = null; }
                 });
             };
             this.taskFields = mountLiveTaskForm({ host: form, state, service,
                 initialStepsOpen: !creation && snapshot.steps.length > 0,
+                // Temporarily hide the entry point; retain recurrence state and implementation.
+                showRecurrenceAction: false,
                 onChange: clearError,
                 text: { placeholder: creation ? "What needs doing?" : "" },
                 location, presentationContext: formContext, onLocation: service.nativeLocations ? openLocation : null });

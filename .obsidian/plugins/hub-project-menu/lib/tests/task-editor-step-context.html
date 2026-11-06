@@ -1,0 +1,54 @@
+<!doctype html><meta charset="utf-8"><title>Task editor Step alignment and contextual controls</title>
+<link rel="stylesheet" href="../../styles.css">
+<style>#result{position:fixed;bottom:0;pointer-events:none}.modal-close-button{background:transparent!important;border:0!important;box-shadow:none!important}</style>
+<body class="theme-dark"><pre id="result">RUNNING</pre>
+<script type="module">
+window.testDone=(async()=>{
+ const native=document.createElement('link');native.rel='stylesheet';native.href='native-app.css';document.head.prepend(native);await new Promise((r,j)=>{native.onload=r;native.onerror=j});
+ const source=await(await fetch('inbox-browser.js')).text();
+ const bootstrap=source.slice(0,source.indexOf('window.onload = async'))
+  .replace('["ui/quick-add", "ui/inbox", "ui/capture-controls", "services/inbox", "services/task-editor"]','["ui/task-editor", "ui/task-card", "ui/text-field-focus"]')
+  .replace('const preload = name => {','const preload = name => { name=name.replace(/^node:/, "");')
+  .replace('const load = name => {','const load = name => { name=name.replace(/^node:/, "");');
+ const {load,obsidian}=await new (Object.getPrototypeOf(async function(){}).constructor)(bootstrap+';return {load:await modules(),obsidian};')();
+ const icons=await(await fetch('task-card-icons.json')).json(),fallback=obsidian.setIcon;
+ const draw=name=>{const shapes=icons[name.replace(/^lucide-/,'')];if(!shapes)return null;const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');
+  for(const[k,v]of Object.entries({viewBox:'0 0 24 24',fill:'none',stroke:'currentColor','stroke-width':2,'stroke-linecap':'round','stroke-linejoin':'round'}))svg.setAttribute(k,v);
+  for(const[type,...values]of shapes){const tags=['line','circle','polyline','polygon','ellipse','rect','path'],attrs=[['x1','y1','x2','y2'],['cx','cy','r'],['points'],['points'],['cx','cy','rx','ry'],['x','y','width','height','rx','ry'],['d']],shape=document.createElementNS(svg.namespaceURI,tags[type]);values.forEach((value,i)=>{if(attrs[type][i])shape.setAttribute(attrs[type][i],value)});svg.append(shape)}return svg};
+ icons['grip-vertical']=[...Array.from({length:3},(_,i)=>[[1,9,5+i*7,1],[1,15,5+i*7,1]]).flat()];
+ obsidian.getIcon=draw;obsidian.setIcon=(element,name)=>{const svg=draw(name);if(svg){element.dataset.icon=name.replace(/^lucide-/,'');element.replaceChildren(svg)}else fallback(element,name)};
+ load('ui/text-field-focus').trackTextFieldFocus(document);
+ const {openTaskCreator,openTaskEditor}=load('ui/task-editor'),{createTaskRow,createTaskChecklist,mountTaskCardPresentation}=load('ui/task-card');
+ let saved,writes=0;
+ const owner={type:'project',id:'fixture'},app={vault:{getAbstractFileByPath:()=>null}};
+ const service={app,context:()=>({root:'Projects/Fixture',projectId:'fixture',contextKind:'project'}),phases:()=>[{id:'proof',name:'Proof review'}],nativeLocations:{describe:(_owner,ref)=>({workspaceName:'Fixture',segments:ref?[ref.id]:[],available:true}),resolveId:(_owner,id)=>({reference:{id,type:'note'}})},formContext:()=>({sourcePath:'Projects/Fixture/Tasks.md',sourceLabel:'Fixture',nativeOwner:owner,destination:owner}),
+  read:async()=>structuredClone(saved),create:async(_destination,_text,value)=>{saved=structuredClone(value);writes++},save:async(_snapshot,value)=>{saved=structuredClone(value);writes++;return saved}};
+ window.openEditor=async(mode,count=3,long=false,reopen=false)=>{
+  window.editor?.close();
+  if(!reopen)saved={text:long?'A wrapping task title with topology arguments and detailed metadata. '.repeat(4):'Assignment 5',steps:Array.from({length:count},(_,i)=>({id:'step-'+i,text:long&&i===1?'A long step description that wraps naturally across the available space. '.repeat(5):'Problem '+(i+1),completed:i===1})),nativeOwner:owner,nativeLocation:long?'Notes/Topology.md':'',nativeLocationType:'note',phaseId:long?'proof':null,necessity:'must',dueDate:'2026-11-06',description:'Additional task metadata'};
+  window.editor=mode==='Add'?openTaskCreator(service,reopen?{}:{...structuredClone(saved),steps:count?structuredClone(saved.steps):[]}):openTaskEditor(service,{});
+  await editor.ready;if(!editor.taskFields)throw Error('Editor failed to mount');await frames();return true;
+ };
+ window.frames=()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+ window.rows=()=>[...editor.taskFields.steps.list.children];
+ window.input=(element,value)=>{element.value=value;element.dispatchEvent(new Event('input',{bubbles:true}))};
+ window.box=element=>{const b=element.getBoundingClientRect();return{x:b.x,y:b.y,w:b.width,h:b.height}};
+ window.controlState=row=>[...row.querySelectorAll('.hub-task-step-drag-handle,.hub-task-step-remove')].map(button=>({opacity:getComputedStyle(button).opacity,pointer:getComputedStyle(button).pointerEvents,box:box(button),disabled:button.disabled}));
+ window.geometry=()=>{
+  const f=editor.taskFields,list=f.checklist.list,guide=getComputedStyle(list,'::before'),cb=box(f.completion),listBox=box(list),chevron=box(f.checklist.chevron),add=f.steps.add,first=rows()[0],step=first?.querySelector('input[type=checkbox]'),text=first?.querySelector('.hub-task-step-text');
+  return{checkboxCenter:cb.x+cb.w/2,guideCenter:listBox.x+parseFloat(guide.left)+parseFloat(guide.width)/2,guideTop:listBox.y+parseFloat(guide.top),headingBottom:box(f.checklist.toggle).y+box(f.checklist.toggle).h,guideBottom:listBox.y+listBox.h-parseFloat(guide.bottom),addBottom:box(add).y+box(add).h,chevronCenter:chevron.x+chevron.w/2,stepX:step&&box(step).x,textX:text&&box(text).x,addIcon:box(add.firstElementChild),addText:box(add.lastElementChild),guideWidth:guide.width,guideColor:guide.backgroundColor,progress:getComputedStyle(f.checklist.progress).color,hidden:list.hidden};
+ };
+ window.fingerprint=()=>JSON.stringify(saved);
+ window.writeCount=()=>writes;
+ // A genuine shared-renderer panel stays outside the dialog's selectors.
+ const panel=document.body.createDiv({cls:'hub-button-scope',attr:{style:'position:absolute;left:0;top:0;width:480px'}}),parts=createTaskRow(panel,{text:'Panel task'});mountTaskCardPresentation(parts.row,parts.textEl,{text:'Panel task'},()=> 'Projects/Fixture/Tasks.md');
+ const checklist=createTaskChecklist(parts.info);checklist.createRow({text:'Panel Step'}).text.textContent='Panel Step';checklist.update(true,0,1);
+ window.panelGeometry=()=>({row:box(parts.row),checkbox:box(parts.checkbox),step:box(checklist.rowsHost.firstChild),heading:box(checklist.toggle),parent:checklist.host.parentElement.className});
+ window.legacyComposer=()=>{
+  const host=document.body.createDiv({cls:'hub-native-capture-task hub-button-scope'}),state={text:'Capture',steps:[{text:'Capture Step'}]};
+  const fields=load('ui/task-live-form').mountLiveTaskForm({host,state,service,location:()=> 'Projects/Fixture/Tasks.md',text:{},initialStepsOpen:true});
+  const unchanged=fields.checklist.host.parentElement===fields.card.info;fields.destroy();host.remove();return unchanged;
+ };
+ return {ready:true};
+})().catch(error=>{document.querySelector('#result').textContent='FAIL '+error.stack;throw error});
+</script>

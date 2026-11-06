@@ -1,0 +1,55 @@
+<!doctype html><meta charset="utf-8"><title>Add/Edit spacing above Steps</title>
+<link rel="stylesheet" href="../../styles.css">
+<style>#result{position:fixed;bottom:0;pointer-events:none}.modal-close-button{background:transparent!important;border:0!important;box-shadow:none!important}</style>
+<body class="theme-dark"><pre id="result">RUNNING</pre>
+<script type="module">
+let checks=0;const check=(value,message)=>{checks++;if(!value)throw Error(message)},near=(a,b)=>Math.abs(a-b)<.1;
+const frame=()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+const shot=name=>new Promise(r=>{window.hubTestScreenshotDone=r;window.hubTestScreenshotRequest='editor-step-spacing-'+name});
+try{
+ const native=document.createElement('link');native.rel='stylesheet';native.href=new URLSearchParams(location.search).get('preview');document.head.prepend(native);await new Promise((r,j)=>{native.onload=r;native.onerror=j});await document.fonts.ready;
+ const source=await(await fetch('task-editor-step-context.html')).text(),setup=source.slice(source.indexOf(' const source=await'),source.indexOf(' // A genuine shared-renderer panel'));
+ const {load,obsidian,service,owner}=await new (Object.getPrototypeOf(async function(){}).constructor)(setup+';return {load,obsidian,service,owner};')();
+ const rule=[...document.styleSheets].flatMap(sheet=>[...sheet.cssRules]).find(rule=>rule.selectorText==='.hub-task-live-dialog .hub-task-live-fields .project-task-row:has(> .hub-task-steps)');check(!!rule,'Scoped gap correction exists');
+ const corrected=rule.style.rowGap;
+ const relativeBox=(element,origin)=>{const b=element.getBoundingClientRect();return{x:b.x-origin.x,y:b.y-origin.y,w:b.width,h:b.height}};
+ const sample=()=>{
+  const f=editor.taskFields,origin=f.card.row.getBoundingClientRect(),section=f.checklist.host.getBoundingClientRect(),box=e=>relativeBox(e,origin),inside=e=>e.getClientRects().length?relativeBox(e,section):null,surface=f.card.row.parentElement,s=getComputedStyle(surface),guide=getComputedStyle(f.checklist.list,'::before');
+  return{parent:{checkbox:box(f.completion),title:box(f.card.textEl),location:box(f.card.source),info:box(f.card.info)},section:box(f.checklist.host),infoGap:box(f.checklist.host).y-(box(f.card.info).y+box(f.card.info).h),locationGap:box(f.checklist.toggle).y-(box(f.card.source).y+box(f.card.source).h),heading:inside(f.checklist.toggle),chevron:inside(f.checklist.chevron),list:inside(f.checklist.list),rows:[...f.checklist.list.querySelectorAll('.hub-task-step-item')].filter(e=>e.getClientRects().length).map(inside),add:inside(f.steps.add),surface:box(surface),surfaceStyle:[s.padding,s.backgroundColor,s.border,s.borderRadius],rowGap:getComputedStyle(f.card.row).rowGap,guide:[guide.left,guide.top,guide.bottom,guide.width,guide.backgroundColor],progress:getComputedStyle(f.checklist.progress).color,geometry:geometry()};
+ };
+ const equal=(a,b,label)=>{check(!!a===!!b,label+' visibility');if(a)for(const k of ['x','y','w','h'])check(near(a[k],b[k]),label+' '+k+': '+a[k]+' / '+b[k])};
+ // A panel rendered by the actual shared binding supplies the reference gap.
+ // It remains mounted while the dialog-only declaration is toggled for baseline.
+ const bootstrapSource=await(await fetch('inbox-browser.js')).text(),bootstrap=bootstrapSource.slice(0,bootstrapSource.indexOf('window.onload = async')).replace('["ui/quick-add", "ui/inbox", "ui/capture-controls", "services/inbox", "services/task-editor"]','["ui/tasks", "ui/task-card"]')
+  .replace('const preload = name => {','const preload = name => { name=name.replace(/^node:/, "");').replace('const load = name => {','const load = name => { name=name.replace(/^node:/, "");');
+ const panelEnv=await new (Object.getPrototypeOf(async function(){}).constructor)(bootstrap+';return {load:await modules(),obsidian};')();panelEnv.obsidian.Component.prototype.addChild=function(child){this.children.add(child);return child};
+ const panel=document.body.createDiv({cls:'hub-button-scope',attr:{style:'position:absolute;left:0;top:0;width:480px'}}),body=panel.createDiv({cls:'project-tasks-body'}),component=new panelEnv.obsidian.Component();component.load();
+ const task={id:'panel',text:'Panel task',nativeReference:{authorityId:'fixture',owner,taskId:'panel'},nativeLocationDisplay:{workspaceName:'Fixture',segments:['Notes','Topology.md'],available:true},steps:[{id:'p1',text:'Panel Step',completed:false}]},parts=panelEnv.load('ui/task-card').createTaskRow(body,task);
+ panelEnv.load('ui/tasks').createTaskUi({app:{},component,body}).bind(parts.row,parts.textEl,task,()=>'',{locationWorkspace:owner});
+ const panelSample=()=>{const host=parts.row.querySelector('.hub-task-steps'),source=parts.source.getBoundingClientRect(),toggle=host.querySelector('button').getBoundingClientRect();return{row:parts.row.getBoundingClientRect().toJSON(),heading:toggle.toJSON(),gap:toggle.y-source.bottom}};
+ await frame();const panelBaseline=panelSample(),traces=[];
+ for(const mode of ['Add','Edit'])for(const count of [0,1,3])for(const location of ['root','folder','note'])for(const configured of [false,true]){
+  await openEditor(mode,count,count===3);const f=editor.taskFields;
+  f.state.nativeLocation=location==='root'?'':location==='folder'?'Mathematics':'Notes/Topology.md';f.state.nativeLocationType=location==='folder'?'folder':'note';f.state.dueDate=configured?'2026-11-17':'';f.state.necessity=configured?'must':null;f.refresh();
+  const states=count?['collapsed','expanded']:['empty'];
+  for(const state of states){
+   if(count&&((f.checklist.list.hidden&&state==='expanded')||(!f.checklist.list.hidden&&state==='collapsed')))f.checklist.toggle.click();
+   rule.style.removeProperty('row-gap');await frame();const before=sample();
+   rule.style.rowGap=corrected;await frame();const after=sample(),delta=parseFloat(before.rowGap)-parseFloat(after.rowGap);
+   check(delta>0,'Inherited gap removed');check(near(after.infoGap,panelBaseline.gap),'Editor follows panel separation');check(near(before.section.y-after.section.y,delta),'Section moves up by inherited gap only');check(near(before.surface.h-after.surface.h,delta),'Card naturally shrinks by gap');
+   for(const part of Object.keys(before.parent))equal(before.parent[part],after.parent[part],'Parent '+part);
+   check(near(before.section.x,after.section.x)&&near(before.section.w,after.section.w)&&near(before.section.h,after.section.h),'Section horizontal geometry and height unchanged');
+   for(const part of ['heading','chevron','list','add'])equal(before[part],after[part],'Internal '+part);for(let i=0;i<before.rows.length;i++)equal(before.rows[i],after.rows[i],'Step row '+i);
+   check(JSON.stringify(before.surfaceStyle)===JSON.stringify(after.surfaceStyle),'Card padding/background/border/radius unchanged');check(JSON.stringify(before.guide)===JSON.stringify(after.guide),'Guide style and offsets unchanged');check(before.progress===after.progress,'Progress color unchanged');
+   if(!f.checklist.list.hidden)check(near(after.geometry.checkboxCenter,after.geometry.guideCenter),'Horizontal guide/checkbox alignment retained');
+   check(JSON.stringify(panelBaseline)===JSON.stringify(panelSample()),'Panel rendering unaffected by dialog correction');
+   if(count===1&&location==='note'&&configured){traces.push({mode,state,before,after});if(state==='expanded')await shot(mode.toLowerCase())}
+  }
+  // The pending Add-step row retains exactly the same internal geometry too.
+  if(!count){f.checklist.toggle.click();rule.style.removeProperty('row-gap');await frame();const before=sample();rule.style.rowGap=corrected;await frame();const after=sample();equal(before.rows[0],after.rows[0],'Pending Step');equal(before.add,after.add,'Pending Add action');}
+  editor.close();
+ }
+ component.unload();panel.remove();window.hubTaskOpeningFrames=traces;
+ document.querySelector('#result').textContent='PASS: '+checks+' rendered spacing checks; Add/Edit, empty/collapsed/expanded/pending Steps, root/folder/note, dates/importance, wrapping, unchanged internal geometry and panels.';
+}catch(error){document.querySelector('#result').textContent='FAIL '+error.stack}
+</script>

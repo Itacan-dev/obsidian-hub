@@ -1,0 +1,167 @@
+<!doctype html><meta charset="utf-8"><title>Task header alignment</title>
+<link rel="stylesheet" href="../../styles.css">
+<link rel="stylesheet" href="home-view.css">
+<style>
+body { margin: 0; padding: 20px; --font-interface: Arial, sans-serif; font-family: var(--font-interface); }
+.alignment-panel { width: min(480px, 100%); background: var(--background-secondary); border: 1px solid var(--background-modifier-border); border-radius: 8px; padding: 12px; margin-bottom: 16px; }
+#result { position: fixed; bottom: 0; font-size: 10px; pointer-events: none; }
+</style>
+<body class="theme-dark"><pre id="result">RUNNING</pre>
+<script type="module">
+window.testDone = (async () => {
+    document.body.className = new URLSearchParams(location.search).get('theme') === 'light' ? 'theme-light' : 'theme-dark';
+    const native = document.createElement('link'); native.rel = 'stylesheet'; native.href = 'native-app.css'; document.head.prepend(native);
+    await new Promise((resolve, reject) => { native.onload = resolve; native.onerror = reject; });
+    const source = await (await fetch('inbox-browser.js')).text();
+    const bootstrap = source.slice(0, source.indexOf('window.onload = async'))
+        .replace('["ui/quick-add", "ui/inbox", "ui/capture-controls", "services/inbox", "services/task-editor"]', '["ui/task-editor", "ui/task-card", "ui/text-field-focus"]')
+        .replace('const preload = name => {', 'const preload = name => { name=name.replace(/^node:/, "");')
+        .replace('const load = name => {', 'const load = name => { name=name.replace(/^node:/, "");');
+    const { load, obsidian } = await new (Object.getPrototypeOf(async function () {}).constructor)(bootstrap + ';return {load:await modules(),obsidian};')();
+    const icons = await (await fetch('task-card-icons.json')).json(), fallback = obsidian.setIcon;
+    // Use the existing fixture's real Lucide paths instead of its generic icon mock.
+    const draw = name => {
+        const shapes = icons[name.replace(/^lucide-/, '')]; if (!shapes) return null;
+        const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        for (const [key, value] of Object.entries({ viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': 2, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' })) svg.setAttribute(key, value);
+        for (const [type, ...values] of shapes) {
+            const tags = ['line', 'circle', 'polyline', 'polygon', 'ellipse', 'rect', 'path'], attrs = [['x1', 'y1', 'x2', 'y2'], ['cx', 'cy', 'r'], ['points'], ['points'], ['cx', 'cy', 'rx', 'ry'], ['x', 'y', 'width', 'height', 'rx', 'ry'], ['d']];
+            const shape = document.createElementNS(svg.namespaceURI, tags[type]); values.forEach((value, i) => { if (attrs[type][i]) shape.setAttribute(attrs[type][i], value); }); svg.append(shape);
+        }
+        return svg;
+    };
+    icons.info ??= [[1, 12, 12, 10], [6, 'M12 16v-4'], [6, 'M12 8h.01']];
+    obsidian.getIcon = draw; obsidian.setIcon = (element, name) => { const svg = draw(name); if (svg) { element.dataset.icon = name.replace(/^lucide-/, ''); element.replaceChildren(svg); } else fallback(element, name); };
+    load('ui/text-field-focus').trackTextFieldFocus(document);
+    const { createTaskRow, mountTaskCardPresentation, createTaskChecklist } = load('ui/task-card');
+    const { taskDatePresentation } = load('domain/task-planning');
+    const { openTaskCreator, openTaskEditor } = load('ui/task-editor');
+    const now = new Date(2026, 10, 6, 12), owner = { type: 'resource', id: 'knowledge' };
+    const frame = () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    const box = element => element.getBoundingClientRect();
+    const near = (a, b) => Math.abs(a - b) < .7;
+    let checks = 0;
+    const check = (value, message) => { if (!value) throw Error(message); checks++; };
+    const base = { text: 'Assignment 2', steps: [], nativeReference: { owner }, nativeOwner: owner,
+        nativeLocationDisplay: { workspaceName: 'Knowledge', segments: ['Tamos2'] } };
+    const surfaces = [];
+    for (const name of ['Home', 'Project', 'Resource']) {
+        const surfaceOwner = name === 'Project' ? { type: 'project', id: 'project' } : owner;
+        const host = document.body.createDiv({ cls: 'alignment-panel hub-button-scope ' + (name === 'Home' ? 'home-dashboard home-tasks-body' : 'project-tasks-body') });
+        host.createEl('h3', { text: name + ' Tasks' });
+        surfaces.push({ name, host, owner: surfaceOwner });
+    }
+    const assess = (parts, card, task, label, root = false) => {
+        const title = box(parts.textEl), info = box(parts.info), line = parseFloat(getComputedStyle(parts.textEl).lineHeight), date = card.dates, icon = card.descriptionIndicator;
+        const titleCenter = title.top + line / 2;
+        if (date) {
+            const d = box(date);
+            check(near(d.top + d.height / 2, titleCenter), label + ': date centered on first title line');
+            check(d.left >= title.right + 1, label + ': title and date do not overlap ' + JSON.stringify({ title: title.toJSON(), date: d.toJSON(), columns: getComputedStyle(parts.info).gridTemplateColumns, text: date.textContent }));
+            check(d.right <= info.right + .7, label + ': date remains inside header');
+            check(date.textContent === taskDatePresentation(task, now).label, label + ': original date formatting');
+            check(near(parseFloat(getComputedStyle(date).fontSize), parseFloat(getComputedStyle(document.documentElement).fontSize) * .66), label + ': original metadata size');
+        }
+        if (icon && !icon.hidden) {
+            const i = box(icon);
+            check(near(i.top + i.height / 2, titleCenter), label + ': icon centered on first title line');
+            check(near(i.right, info.right), label + ': icon at far right');
+            check(i.width === 28 && i.height === 28, label + ': original icon hit area');
+            if (date) check(near(i.left - box(date).right, 8), label + ': 8px date/icon gap');
+            else check(i.left >= title.right + 11, label + ': icon separated from title');
+        } else if (date) check(near(box(date).right, info.right), label + ': no empty icon space');
+        else check(near(title.right, info.right), label + ': no empty metadata space');
+        if (root) {
+            check(!parts.info.querySelector('.project-task-location'), label + ': no empty location row');
+            const cb = box(parts.checkbox);
+            check(near(cb.top + cb.height / 2, title.top + title.height / 2), label + ': root title centered on checkbox');
+        } else {
+            check(box(parts.source).top >= title.bottom - .7, label + ': location remains below title');
+            check(near(box(parts.source).left, title.left), label + ': location retains left alignment');
+        }
+        check(parts.row.scrollWidth <= parts.row.clientWidth + 1, label + ': no card overflow');
+        check(parts.textEl.scrollWidth <= parts.textEl.clientWidth + 1, label + ': title wraps without overflow');
+    };
+    for (const surface of surfaces) {
+        for (const root of [false, true]) for (const dates of [false, true]) for (const description of ['', 'Task details']) {
+            const task = { ...base, nativeOwner: surface.owner, nativeReference: { owner: surface.owner },
+                nativeLocationDisplay: { workspaceName: 'Knowledge', segments: root ? [] : ['Tamos2'] },
+                ...(dates ? { dueDate: '2026-11-17', dueTime: '10:00' } : {}), description };
+            const parts = createTaskRow(surface.host, task, false, { variant: surface.name === 'Home' ? 'home' : 'project' });
+            const card = mountTaskCardPresentation(parts.row, parts.textEl, task, () => '', { now, locationWorkspace: surface.name === 'Home' ? undefined : surface.owner });
+            await frame();
+            assess(parts, card, task, surface.name, root && surface.name !== 'Home');
+            if (root && surface.name === 'Home') check(parts.source.textContent === 'Knowledge', 'Home keeps root owning workspace');
+            const height = box(parts.row).height;
+            for (const text of ['A long task title that wraps naturally while leaving space for its date and information icon. '.repeat(3), 'Unbroken'.repeat(40)]) {
+                parts.textEl.textContent = text;
+                await frame(); assess(parts, card, task, surface.name + ' long', root && surface.name !== 'Home');
+            }
+            parts.textEl.textContent = task.text;
+            for (const necessity of ['must', 'should', null]) for (const dueDate of ['2026-10-01', '2026-11-17', null]) {
+                const next = { ...task, necessity, dueDate, description: dueDate ? 'Updated details' : '' };
+                card.update(next); await frame(); assess(parts, card, next, surface.name + ' update', root && surface.name !== 'Home');
+                if (dueDate === '2026-10-01') {
+                    const probe = surface.host.createSpan(); probe.style.color = 'var(--color-red, #f16d73)';
+                    check(card.dates.querySelector('.is-overdue time') && getComputedStyle(card.dates.querySelector('time')).color === getComputedStyle(probe).color, 'Overdue keeps native red'); probe.remove();
+                }
+            }
+            card.update(task); await frame(); check(near(box(parts.row).height, height), 'Conditional updates restore compact height');
+            if (dates) for (const dates of [{ fromDate: '2026-12-30', dueDate: '2027-01-02' }, { fromDate: '2026-11-20', fromTime: '09:00', dueDate: '2026-11-20', dueTime: '17:00' }, { fromDate: '2027-01-02', fromTime: '09:00', dueDate: null }]) {
+                const next = { ...task, ...dates }; card.update(next); await frame();
+                assess(parts, card, next, surface.name + ' future/range', root && surface.name !== 'Home');
+            }
+            card.update(task);
+            const checklist = createTaskChecklist(parts.info); checklist.createRow({ text: 'Task 1' }).text.textContent = 'Task 1'; checklist.update(true, 0, 1);
+            await frame(); assess(parts, card, task, surface.name + ' expanded', root && surface.name !== 'Home');
+            check(box(checklist.host).top >= box(parts.textEl).bottom, 'Expanded Steps remain beneath header');
+            card.destroy(); parts.row.remove();
+        }
+        // Visible reference cards for screenshot inspection.
+        for (const task of [{ ...base, dueDate: '2026-11-17', dueTime: '10:00', description: 'Task details' }, { ...base, text: 'Read Lecture 2', necessity: 'should', description: 'Lecture notes' }, { ...base, text: 'test32' }]) {
+            const parts = createTaskRow(surface.host, task, false, { variant: surface.name === 'Home' ? 'home' : 'project' });
+            mountTaskCardPresentation(parts.row, parts.textEl, task, () => '', { now });
+        }
+    }
+    // Non-target views retain the original layout, including Oath selection.
+    for (const kind of ['oath', 'capture', 'full']) {
+        const host = document.body.createDiv({ cls: 'hub-button-scope ' + (kind === 'capture' ? 'hub-native-capture-task' : kind === 'full' ? 'project-tasks-body' : '') });
+        const task = { ...base, description: 'Details', dueDate: '2026-11-17' }, parts = createTaskRow(host, task);
+        if (kind === 'full') parts.row.classList.add('hub-full-task-card');
+        if (kind === 'oath') parts.row.classList.add('hub-oath-task-row');
+        const card = mountTaskCardPresentation(parts.row, parts.textEl, task, () => '', { now });
+        check(getComputedStyle(card.dates).gridRowStart === '2', kind + ': original date row retained');
+        check(getComputedStyle(card.descriptionIndicator).position === 'absolute', kind + ': original icon positioning retained');
+        card.destroy(); host.remove();
+    }
+    // Real Add/Edit adapters in an isolated Modal/service environment.
+    let saved, writes = 0;
+    const service = { app: { vault: { getAbstractFileByPath: () => null } }, context: () => ({ root: 'Resources/Knowledge', resourceType: 'knowledge', contextKind: 'resource' }), phases: () => [],
+        nativeLocations: { describe: (_owner, ref) => ({ workspaceName: 'Knowledge', segments: ref ? [ref.id] : [], available: true }), resolveId: (_owner, id) => ({ reference: { id, type: 'note' } }) },
+        formContext: () => ({ sourcePath: 'Resources/Knowledge/Tasks.md', nativeOwner: owner, destination: owner }),
+        read: async () => structuredClone(saved), create: async (_destination, _text, value) => { saved = structuredClone(value); writes++; },
+        save: async (_snapshot, value) => { saved = structuredClone(value); writes++; return saved; } };
+    window.openEditor = async mode => {
+        window.editor?.close(); saved = { ...base, dueDate: '2026-11-17', dueTime: '10:00', description: 'Task details', nativeLocation: 'Tamos2', nativeLocationType: 'note' };
+        window.editor = mode === 'Add' ? openTaskCreator(service, structuredClone(saved)) : openTaskEditor(service, {});
+        await editor.ready; if (!editor.taskFields) throw Error('Editor failed to mount'); await frame(); return true;
+    };
+    window.editorAssessment = async () => {
+        const fields = editor.taskFields, parts = fields.card, task = fields.state;
+        // Editors use the current clock; their content is compared to the native formatter separately.
+        const date = parts.info.querySelector('.hub-task-dates'), icon = parts.info.querySelector('.hub-task-description-indicator');
+        const title = box(parts.textEl), line = parseFloat(getComputedStyle(parts.textEl).lineHeight);
+        check(near(box(date).top + box(date).height / 2, title.top + line / 2), 'Editor date aligns with title');
+        check(near(box(icon).top + box(icon).height / 2, title.top + line / 2), 'Editor icon aligns with title');
+        check(near(box(icon).left - box(date).right, 8), 'Editor metadata gap');
+        check(parts.row.scrollWidth <= parts.row.clientWidth + 1, 'Editor remains bounded');
+        check(box(parts.source).top >= title.bottom - .7 && near(box(parts.source).left, title.left), 'Editor location remains below title');
+        check(!!fields.presentation.sourceControl && fields.presentation.sourceControl.querySelector('.hub-task-location-edit-icon'), 'Location editing control preserved');
+        return { checks, writes };
+    };
+    window.results = () => ({ checks, writes });
+    window.frames = frame;
+    document.querySelector('#result').textContent = 'PASS ' + checks;
+    return { checks };
+})().catch(error => { document.querySelector('#result').textContent = 'FAIL ' + error.stack; throw error; });
+</script>

@@ -4,7 +4,7 @@ window.testDone=(async()=>{
  let checks=0;const check=(v,message)=>{if(!v)throw Error(message);checks++;},frame=()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
  HTMLElement.prototype.createEl=function(tag,options={}){const e=document.createElement(tag);if(options.cls)e.className=options.cls;if(options.text!=null)e.textContent=options.text;for(const [k,v]of Object.entries(options.attr??{}))e.setAttribute(k,v);this.append(e);return e;};
  HTMLElement.prototype.createDiv=function(o={}){return this.createEl('div',o)};HTMLElement.prototype.createSpan=function(o={}){return this.createEl('span',o)};HTMLElement.prototype.empty=function(){this.replaceChildren()};
- class Modal{constructor(app){this.app=app;this.containerEl=document.body.createDiv({cls:'modal-container'});this.modalEl=this.containerEl.createDiv({cls:'modal'});this.contentEl=this.modalEl.createDiv({cls:'modal-content'});this.closeButton=this.modalEl.createEl('button',{cls:'modal-close-button',text:'?',attr:{'aria-label':'Close'}});this.closeButton.onclick=()=>this.close();}open(){this.onOpen()}close(){this.onClose();this.containerEl.remove()}}
+ class Modal{constructor(app){this.app=app;this.containerEl=document.body.createDiv({cls:'modal-container'});this.modalEl=this.containerEl.createDiv({cls:'modal'});this.contentEl=this.modalEl.createDiv({cls:'modal-content'});this.closeButton=this.modalEl.createEl('button',{cls:'modal-close-button',text:'?',attr:{'aria-label':'Close'}});this.closeButton.onclick=()=>this.close();}open(){this.onOpen();this.modalEl.querySelector('button:not(:disabled),[tabindex="0"]')?.focus()}close(){this.onClose();this.containerEl.remove()}}
  const icon=(e,name)=>{e.dataset.icon=name;e.innerHTML='<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="4" y="5" width="16" height="14" rx="2"/></svg>'};
  const obsidian={Modal,setIcon:icon,getIcon:()=>true,addIcon(){}};
  const modules=new Map();async function preload(id){if(modules.has(id))return;const source=await(await fetch('../'+id)).text();modules.set(id,{source});for(const m of source.matchAll(/require\(["'](\.[^"']+)["']\)/g)){const target=new URL(m[1],new URL(id,location.origin+'/')).pathname.slice(1);await preload(target.endsWith('.js')?target:target+'.js')}}
@@ -116,7 +116,7 @@ window.testDone=(async()=>{
  document.activeElement.dispatchEvent(new KeyboardEvent('keydown',{key:'End',bubbles:true,cancelable:true}));check(document.activeElement===m.workspaceMenu.body.querySelector('[aria-checked="true"]')&&m.workspaceMenu.element.scrollTop>0&&m.owner.id===lastOwner,'End reaches the offscreen selected Project without changing selection');m.close();
  m=open(null,false);check(m.workspaceButton.disabled,'Restricted ownership is retained');m.close();
  m=open();click('Projects/P/Meta');click(note);tree.set('Projects/P/Meta',tree.get('Projects/P/Meta').filter(x=>x.path!==note));events.get('delete')({path:note});check(m.confirm.disabled,'Deleted selected note disables confirmation');m.confirm.onclick();check(m.error.textContent.includes('no longer available'),'Stale confirmation rejected');m.close();
- for(const taskTitle of ['   ','Assignment 5','Review the topology assignment','A very long unsaved task title with many words '.repeat(30)]){
+ for(const taskTitle of ['   ','test','Assignment 5','Review the topology assignment','A very long unsaved task title with many words '.repeat(30)]){
   m=open(null,true,taskTitle);await frame();const header=m.contentEl.querySelector('header'),name=m.contentEl.querySelector('.hub-task-location-task-name'),heading=m.contentEl.querySelector('h2'),subtitle=m.contentEl.querySelector('.hub-window-undertext');
   check(header.getBoundingClientRect().height===emptyHeader.height&&heading.getBoundingClientRect().left===emptyHeader.title.left&&heading.getBoundingClientRect().top===emptyHeader.title.top&&subtitle.getBoundingClientRect().left===emptyHeader.subtitle.left&&subtitle.getBoundingClientRect().top===emptyHeader.subtitle.top,'Named/blank/long task preserves header height and title/subtitle alignment');
   if(!taskTitle.trim())check(!name&&!m.contentEl.querySelector('.hub-task-location-title-row'),'Whitespace-only task omits name and row');
@@ -128,7 +128,22 @@ window.testDone=(async()=>{
    const row=name.parentElement,available=row.clientWidth-parseFloat(getComputedStyle(row).paddingRight);check(name.getBoundingClientRect().width<=available*.45+1&&name.getBoundingClientRect().left>=header.getBoundingClientRect().left+header.getBoundingClientRect().width*.5,'Name stays within the right-side 45 percent region');
    const quotes=name.querySelectorAll('.hub-task-location-task-quote');check(quotes[0].getBoundingClientRect().left>=heading.getBoundingClientRect().right&&quotes[1].getBoundingClientRect().right<=header.getBoundingClientRect().right-24,'Visible quotes avoid the main heading and close-button area');
    check(getComputedStyle(name).fontSize===getComputedStyle(heading).fontSize&&getComputedStyle(name).color!==getComputedStyle(heading).color,'Task name uses heading font size with subdued coloring');
-   check(!name.matches('button,input,textarea,[contenteditable]')&&name.tabIndex===0&&!name.onclick,'Task name is keyboard-focusable information, not an editable/clickable control');
+   check(!name.matches('button,input,textarea,[contenteditable]')&&name.tabIndex===-1&&!name.onclick,'Informational task name is excluded from modal autofocus');
+   check(document.activeElement===m.workspaceButton&&!document.querySelector('.hub-task-location-title-tooltip'),'Opening modal focuses the existing workspace control without a tooltip');
+   name.dispatchEvent(new PointerEvent('pointerover',{bubbles:true,pointerType:'mouse'}));
+   check(!document.querySelector('.hub-task-location-title-tooltip'),'Insertion under a stationary pointer does not activate tooltip');
+   name.focus();check(!document.querySelector('.hub-task-location-title-tooltip'),'Programmatic title focus does not activate tooltip');
+   const text=name.querySelector('.hub-task-location-task-text'),overflowing=text.scrollWidth>text.clientWidth;
+   m.workspaceButton.focus();m.workspaceButton.dispatchEvent(new KeyboardEvent('keydown',{key:'Tab',bubbles:true}));
+   check(name.tabIndex===(overflowing?0:-1),'Only a rendered overflow joins deliberate keyboard navigation');
+   document.dispatchEvent(new KeyboardEvent('keyup',{key:'Tab',bubbles:true}));
+   name.focus();check(!document.querySelector('.hub-task-location-title-tooltip'),'Programmatic focus after keyboard navigation still does not activate tooltip');m.workspaceButton.focus();
+   m.contentEl.querySelector('header').dispatchEvent(new PointerEvent('pointermove',{bubbles:true,pointerType:'mouse'}));
+   check(!document.querySelector('.hub-task-location-title-tooltip'),'Header space is outside the tooltip trigger');
+   name.dispatchEvent(new PointerEvent('pointermove',{bubbles:true,pointerType:'mouse'}));
+   const tooltip=document.querySelector('.hub-task-location-title-tooltip');check(!!tooltip===overflowing,'Hover availability follows actual rendered overflow');
+   if(tooltip){const bounds=tooltip.getBoundingClientRect();check(tooltip.textContent===taskTitle,'Tooltip preserves full original title without artificial quotes');check(bounds.width<=300&&bounds.left>=0&&bounds.right<=innerWidth&&bounds.top>=0&&bounds.bottom<=innerHeight,'Tooltip is compact and within viewport');}
+   name.dispatchEvent(new PointerEvent('pointerleave',{relatedTarget:m.workspaceButton}));check(!document.querySelector('.hub-task-location-title-tooltip'),'Leaving the task name dismisses tooltip');
    if(taskTitle.length>100)check(name.querySelector('.hub-task-location-task-text').scrollWidth>name.querySelector('.hub-task-location-task-text').clientWidth&&getComputedStyle(name.querySelector('.hub-task-location-task-text')).textOverflow==='ellipsis','Long task name ellipsizes inside visible quotes');
    check(m.modalEl.scrollWidth<=m.modalEl.clientWidth+1,'Named header stays within responsive width');
   }m.close();

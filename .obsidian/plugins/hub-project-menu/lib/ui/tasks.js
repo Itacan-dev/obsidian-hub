@@ -82,7 +82,8 @@ function createTaskUi({ app, component, body, mutate, onEdit, editTask, createTa
             description: options.description ?? options.dates !== false, now: renderNow, phaseLabel });
         rowComponent.register(() => presentation.destroy());
         const info = textEl.parentElement;
-        if (!options.selection && options.steps !== false) steps.bind(info, task, getPath, rowComponent);
+        if (!options.selection && options.steps !== false) steps.bind(info, task, getPath, rowComponent,
+            body.matches(".home-tasks-body, .project-tasks-body") && !row.classList.contains("hub-full-task-card"));
         if (editTask && !task.nativeReadOnly) {
             textEl.tabIndex = 0; textEl.setAttribute("role", "button"); textEl.setAttribute("aria-label", `Edit task: ${task.text}`);
             const open = event => {

@@ -224,10 +224,10 @@
     font-size: var(--hub-font-body);
 }
 
-/* Tasks to Do route undertext: Home is the canonical treatment.
- * Project and Resource pages share the project renderer. */
+/* Task location metadata shares the ordinary due-date foreground.
+ * Home, workspaces, The Oath and Add/Edit reuse these task rows. */
 .hub-button-scope :is(.home-task-location, .project-task-location) {
-    color: var(--text-faint);
+    color: var(--text-muted);
 }
 
 /* The Oath shares the native shell footer; reserve space instead of overlaying notes. */
@@ -524,10 +524,14 @@
     transform: none; translate: none; scale: none; box-shadow: none; border: 0;
     color: var(--text-normal); background: var(--background-modifier-hover);
 }
+.hub-button-scope button.hub-task-steps-toggle:focus-visible { outline: 1px solid var(--text-muted); outline-offset: 2px; }
 .hub-task-steps-chevron { display: inline-flex; flex: 0 0 16px; }
 .hub-task-steps-chevron svg { width: 16px; height: 16px; stroke-width: 1.5; }
+.hub-task-steps-toggle:not(.is-empty-steps) .hub-task-steps-chevron { color: var(--text-faint); }
+.hub-task-steps-toggle:not(.is-empty-steps) .hub-task-steps-chevron svg { stroke-width: var(--icon-stroke, 2); }
 .hub-task-steps-label, .hub-task-step-progress { flex: 0 0 auto; white-space: nowrap; }
-.hub-task-step-progress { color: var(--text-faint); margin-left: calc(-1 * var(--size-4-1, 4px)); }
+.hub-task-step-progress { color: var(--text-muted); }
+.hub-task-steps-toggle:disabled .hub-task-step-progress { color: var(--text-faint); }
 .hub-task-step-items {
     --hub-task-step-gap: var(--size-4-2, 8px); --hub-task-step-padding: 3px;
     --hub-task-step-column: var(--checkbox-size, 16px);
@@ -545,6 +549,20 @@
     pointer-events: none;
 }
 .hub-task-step-items[hidden] { display: none; }
+/* Panel checklists span the existing checkbox/content tracks. Root tasks keep
+ * their subgrid's metadata row; no parent task content changes columns. */
+.hub-planned-task-row:has(> .hub-task-panel-steps) { row-gap: 0; }
+.hub-planned-task-row > .hub-task-panel-steps {
+    --hub-task-step-guide-center: calc(var(--checkbox-size, 16px) / 2);
+    grid-row: 2;
+}
+.hub-planned-task-row.hub-workspace-root-task > .hub-task-panel-steps { grid-row: 3; }
+.hub-planned-task-row.hub-workspace-root-task:has(> .hub-task-panel-steps) > .project-task-info { grid-row: 1 / span 2; }
+.hub-task-panel-steps > .hub-task-step-items {
+    padding-left: calc(var(--size-4-5, 20px) + var(--hub-task-step-guide-center) - var(--hub-task-checkbox-column) / 2);
+}
+.hub-task-panel-steps > .hub-task-step-items::before { left: calc(var(--hub-task-step-guide-center) - 0.5px); }
+.hub-task-panel-steps .hub-task-steps-chevron { flex-basis: var(--checkbox-size, 16px); justify-content: center; }
 .hub-button-scope .hub-task-step-item { display: flex; align-items: flex-start; gap: var(--hub-task-step-gap); padding-block: var(--hub-task-step-padding); min-width: 0; font-size: var(--hub-font-compact); cursor: pointer; }
 .hub-task-step-item input[type=checkbox] { flex: 0 0 auto; margin: 2px 0 0; }
 .hub-task-step-item > input[type=checkbox], .hub-task-step > input[type=checkbox] { --checkbox-radius: 50%; }
@@ -603,6 +621,48 @@
 .hub-task-description-indicator svg { width: 16px; height: 16px; }
 .hub-task-description-indicator[hidden] { display: none !important; }
 .hub-button-scope button.hub-task-description-indicator:enabled:is(:hover,:active) { background: var(--background-modifier-hover); box-shadow: none; }
+
+/* Panels and Add/Edit share a title/date/info row. Empty metadata tracks have
+ * no gap; location and Steps keep their own rows and full available width.
+ * Match the existing title's first line without enlarging compact cards for
+ * the information button's preserved 28px hit area. Other task views opt out. */
+:is(.home-tasks-body, .project-tasks-body, .hub-task-live-dialog) .hub-planned-task-row:not(.hub-full-task-card):not(.hub-oath-task-row) {
+    --hub-task-title-line: calc(var(--hub-font-compact) * 1.3);
+}
+:is(.home-tasks-body, .project-tasks-body, .hub-task-live-dialog) .hub-planned-task-row:not(.hub-full-task-card):not(.hub-oath-task-row) :is(.home-task-info, .project-task-info) {
+    grid-template-columns: minmax(1em, 1fr) minmax(0, max-content) auto;
+    column-gap: 0;
+}
+:is(.home-tasks-body, .project-tasks-body, .hub-task-live-dialog) .hub-planned-task-row:not(.hub-full-task-card):not(.hub-oath-task-row) :is(.home-task-text, .project-task-text) {
+    grid-column: 1;
+    padding-right: 0;
+}
+:is(.home-tasks-body, .project-tasks-body, .hub-task-live-dialog) .hub-planned-task-row:not(.hub-full-task-card):not(.hub-oath-task-row) :is(.home-task-location, .project-task-location) {
+    grid-column: 1 / -1;
+}
+:is(.home-tasks-body, .project-tasks-body, .hub-task-live-dialog) .hub-planned-task-row:not(.hub-full-task-card):not(.hub-oath-task-row) .hub-task-dates {
+    grid-row: 1;
+    justify-self: end;
+    margin-top: calc((var(--hub-task-title-line) - 1lh) / 2);
+    margin-left: var(--size-4-3, 12px);
+    min-width: 0;
+    width: auto;
+    max-width: calc(100% - var(--size-4-3, 12px));
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+:is(.home-tasks-body, .project-tasks-body, .hub-task-live-dialog) .hub-planned-task-row:not(.hub-full-task-card):not(.hub-oath-task-row) button.hub-task-description-indicator {
+    position: relative;
+    inset: auto;
+    grid-column: 3;
+    grid-row: 1;
+    align-self: start;
+    margin-block: calc((var(--hub-task-title-line) - 28px) / 2);
+    margin-left: var(--size-4-3, 12px);
+}
+:is(.home-tasks-body, .project-tasks-body, .hub-task-live-dialog) .hub-planned-task-row:not(.hub-full-task-card):not(.hub-oath-task-row):has(.hub-task-dates) button.hub-task-description-indicator {
+    margin-left: var(--size-4-2, 8px);
+}
 
 /* Composer-only editing controls attach to the actual shared card parts. */
 .hub-task-live-dialog .hub-window-header {
@@ -713,7 +773,7 @@
 :is(.modal.hub-task-live-dialog, .hub-native-capture-task) .project-task-text::before {
     content: ""; position: absolute; z-index: -1; inset: -2px -4px -1px; border-radius: var(--radius-s, 4px); pointer-events: none;
 }
-:is(.modal.hub-task-live-dialog, .hub-native-capture-task) .has-description .project-task-text::before { right: 28px; }
+.hub-native-capture-task .has-description .project-task-text::before { right: 28px; }
 :is(.modal.hub-task-live-dialog, .hub-native-capture-task) .project-task-text[role=button]:focus-visible { outline: 1px solid var(--text-muted); outline-offset: 2px; }
 :is(.modal.hub-task-live-dialog, .hub-native-capture-task) .project-task-text:is(:hover,:focus-within)::before { background: var(--background-modifier-hover); }
 .hub-button-scope .hub-task-live-fields button:is(.hub-task-config-action,.hub-task-inline-action):enabled:is(:hover,:active) { background: var(--background-modifier-hover); box-shadow: none; transform: none; }
@@ -790,6 +850,36 @@
     border-radius: 4px; background: var(--background-secondary); box-shadow: 0 3px 12px rgba(0, 0, 0, 0.3);
 }
 .hub-task-step-reorder-list > .hub-task-step-placeholder { box-sizing: border-box; }
+/* Only ordinary Add/Edit: anchor the checklist to the parent checkbox track.
+ * Keep the guide-to-child spacing and the list-owned vertical extent. */
+/* Match panels: the checklist's own margin supplies the heading separation. */
+.hub-task-live-dialog .hub-task-live-fields .project-task-row:has(> .hub-task-steps) { row-gap: 0; }
+.hub-task-live-dialog .hub-task-live-fields .project-task-row > .hub-task-steps {
+    --hub-task-step-guide-center: calc(var(--hub-task-card-checkbox-size) / 2);
+    grid-column: 1 / -1; grid-row: 2;
+}
+.hub-task-live-dialog .hub-task-live-fields .project-task-row > .hub-task-steps > .hub-task-step-items {
+    padding-left: calc(var(--hub-task-step-guide-center) + var(--size-4-3, 12px));
+}
+.hub-task-live-dialog .hub-task-live-fields .project-task-row > .hub-task-steps > .hub-task-step-items::before {
+    left: calc(var(--hub-task-step-guide-center) - 0.5px);
+}
+.hub-task-live-dialog .hub-task-steps-chevron {
+    flex-basis: var(--hub-task-card-checkbox-size); justify-content: center;
+}
+/* Opacity retains Tab access and geometry; pointer-events prevents invisible
+ * controls intercepting clicks. The row reveals them before activation. */
+@media (hover: hover) and (pointer: fine) {
+    .hub-task-live-dialog .hub-task-step-reorder-list > .hub-task-step-item > :is(.hub-task-step-drag-handle, .hub-task-step-remove) {
+        opacity: 0; pointer-events: none; transition: none;
+    }
+    .hub-task-live-dialog .hub-task-step-reorder-list > .hub-task-step-item:is(:hover, :focus-within, .is-pointer-dragging) > :is(.hub-task-step-drag-handle, .hub-task-step-remove) {
+        opacity: 1; pointer-events: auto;
+    }
+    .hub-task-live-dialog .hub-task-step-reorder-list > .hub-task-step-item.is-pointer-dragging > :is(.hub-task-step-drag-handle, .hub-task-step-remove) {
+        pointer-events: none;
+    }
+}
 .hub-task-reorder-status { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .hub-task-live-fields .hub-task-necessity-bar.hub-attention { position: absolute; }
 .hub-task-live-fields .hub-task-description-indicator.hub-attention { position: absolute; }
@@ -4031,7 +4121,7 @@ body.hub-project-note-mode
 .hub-task-location-task-name:focus-visible { outline: 1px solid var(--background-modifier-border-focus); outline-offset: 2px; border-radius: var(--radius-s, 4px); }
 .hub-task-location-task-quote { flex: 0 0 auto; }
 .hub-task-location-task-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tooltip.hub-detail-tooltip.hub-task-location-title-tooltip { background: var(--tooltip-background, var(--background-modifier-message, #2a2a2a)); color: var(--tooltip-color, #fafafa); border: 1px solid var(--background-modifier-border); border-radius: var(--tooltip-radius, var(--radius-m, 8px)); box-shadow: var(--tooltip-shadow, var(--shadow-s, 0 2px 8px #0003)); padding: var(--tooltip-padding, 8px 12px); inset: auto; margin: 0; pointer-events: auto; max-height: min(280px, calc(100dvh - 16px)); overflow: auto; overflow-wrap: anywhere; white-space: pre-wrap; font-weight: var(--font-normal, 400); }
+.tooltip.hub-detail-tooltip.hub-task-location-title-tooltip { width: max-content; min-width: 0; max-width: min(300px, calc(100vw - 16px)); background: var(--tooltip-background, var(--background-modifier-message, #2a2a2a)); color: var(--tooltip-color, #fafafa); border: 1px solid var(--background-modifier-border); border-radius: var(--tooltip-radius, var(--radius-m, 8px)); box-shadow: var(--tooltip-shadow, var(--shadow-s, 0 2px 8px #0003)); padding: var(--tooltip-padding, 8px 12px); inset: auto; margin: 0; pointer-events: auto; max-height: min(280px, calc(100dvh - 16px)); overflow: auto; overflow-wrap: anywhere; white-space: pre-wrap; font-weight: var(--font-normal, 400); }
 .hub-task-location-body { display: flex; flex-direction: column; min-width: 0; }
 .hub-task-location-dialog .hub-task-dialog-actions { border-top: 0; }
 /* Oath supplies the h3 typography and 14px heading/control gap. */
@@ -4073,6 +4163,9 @@ body.hub-project-note-mode
     color: inherit; font: inherit; text-align: left; cursor: pointer;
 }
 .hub-button-scope button.hub-task-location-trigger:is(:hover, :active) { background: var(--background-modifier-hover); color: inherit; box-shadow: none; }
+/* Inline location actions keep their keyboard outline, rather than inheriting
+   the capture form's raised input shadow when native Modal restores focus. */
+.hub-button-scope.hub-capture-form-scope button.hub-task-location-trigger:focus { box-shadow: none; }
 .hub-button-scope button.hub-task-location-trigger:focus-visible { outline: 2px solid var(--background-modifier-border-focus); outline-offset: -2px; }
 .hub-task-location-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .hub-task-location-trigger.is-workspace-root .hub-task-location-text { color: var(--text-normal); }

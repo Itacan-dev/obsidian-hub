@@ -74,3 +74,23 @@ test('editor and creator display context is captured by the originating panel', 
  assert.equal(f.runtime.formService().locationWorkspace,null,'Unscoped editors retain workspace prefix');
  home.close();workspace.close();
 });
+
+for (const frequency of ['daily', 'weekly']) test(`hidden recurrence action: ${frequency} survives editor saves without a recurrence draft`, async t => {
+ const f = await fixture(t);
+ let task = await f.create({fromDate:'2026-11-06',dueDate:'2026-11-07',steps:[{text:'Original step'}],recurrenceDraft:{frequency,interval:2,zone:'Europe/Stockholm'}});
+ const recurrence = structuredClone(task.recurrence);
+ let original = await f.form.read(task);
+ assert.deepEqual(original.recurrence, recurrence);
+ assert.equal(original.recurrenceDraft, undefined);
+ let result = await f.form.save(original, {...original});
+ task = result.tasks.find(item => item.id === task.id);
+ assert.deepEqual(task.recurrence, recurrence);
+ original = await f.form.read(task);
+ result = await f.form.save(original, {...original,text:'Edited title',description:'Edited description',necessity:'should',fromDate:'2026-11-08',dueDate:'2026-11-09',nativeLocation:'location-a',steps:original.steps.map(step=>({...step,text:'Edited step'}))});
+ task = result.tasks.find(item => item.id === task.id);
+ assert.deepEqual(task.recurrence, recurrence);
+ assert.equal(task.text, 'Edited title');
+ assert.equal(task.steps[0].text, 'Edited step');
+ assert.equal(task.location.id, 'location-a');
+ assert.deepEqual((await f.form.read(task)).recurrence, recurrence);
+});

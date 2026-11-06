@@ -1,0 +1,85 @@
+<!doctype html><meta charset="utf-8"><title>Tasks panel Step alignment</title>
+<link rel="stylesheet" href="../../styles.css">
+<link rel="stylesheet" href="../../../../../System/Dashboards/Home/view.css">
+<link rel="stylesheet" href="../../../../../System/Dashboards/Project/view.css">
+<style>body{margin:0;padding:16px}#result{position:fixed;bottom:0;pointer-events:none}.comparison{display:flex;gap:24px;align-items:flex-start}.case-panel{flex:none;border:1px solid var(--background-modifier-border);border-radius:8px;background:var(--background-secondary);padding:12px}.case-panel h3{margin:0 0 8px}</style>
+<body class="theme-dark hub-button-scope"><main id="fixture"></main><pre id="result">RUNNING</pre>
+<script type="module">
+let checks=0;
+const check=(v,message)=>{checks++;if(!v)throw Error(message)},frame=()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r))),near=(a,b)=>Math.abs(a-b)<.15;
+const pointer=element=>new Promise(resolve=>{element.scrollIntoView({block:'nearest'});const b=element.getBoundingClientRect();window.hubTestPointerDone=resolve;window.hubTestPointerRequest={x:b.x+b.width/2,y:b.y+b.height/2}});
+const key=(key,modifiers=0)=>new Promise(resolve=>{window.hubTestKeyDone=resolve;window.hubTestKeyRequest={key,modifiers}});
+const screenshot=name=>new Promise(resolve=>{window.hubTestScreenshotDone=resolve;window.hubTestScreenshotRequest='panel-step-alignment-'+name});
+try{
+ const native=document.createElement('link');native.rel='stylesheet';native.href=new URLSearchParams(location.search).get('preview');document.head.prepend(native);await new Promise((r,j)=>{native.onload=r;native.onerror=j});await document.fonts.ready;
+ // Reuse the established isolated Obsidian API/Markdown/icon host. The baseline
+ // runs the same modules with only the new panel alignment opt-in disabled.
+ const hostSource=await(await fetch('task-editor-step-context.html')).text();
+ const setup=hostSource.slice(hostSource.indexOf(' const source=await'),hostSource.indexOf(' let saved,writes=0;')).replace('["ui/task-editor", "ui/task-card", "ui/text-field-focus"]','["ui/task-editor", "ui/task-card", "ui/text-field-focus", "ui/tasks"]');
+ const makeEnv=async baseline=>{
+  const fetchOriginal=window.fetch;
+  if(baseline)window.fetch=async(...args)=>{const response=await fetchOriginal(...args);if(args[0]==='../ui/tasks.js'){const text=await response.text(),optIn='body.matches(".home-tasks-body, .project-tasks-body") && !row.classList.contains("hub-full-task-card")';check(text.includes(optIn),'Baseline disables exactly the new alignment opt-in');return new Response(text.replace(optIn,'false'))}return response};
+  try{const env=await new (Object.getPrototypeOf(async function(){}).constructor)(setup+';return {load,obsidian};')();
+   env.obsidian.Component.prototype.addChild=function(child){this.children.add(child);return child};return env;
+  }finally{window.fetch=fetchOriginal}
+ };
+ const current=await makeEnv(false),baseline=await makeEnv(true),fixture=document.querySelector('#fixture');
+ let edits=0,mutations=0;
+ function render(env,parent,context,scenario,width,extra={}){
+  const home=context==='Home',owner={type:context==='Resource'?'resource':'project',id:context==='Resource'?'references':'fixture'};
+  const shell=parent.createDiv({cls:'case-panel '+(home?'home-dashboard':'project-dashboard')});shell.style.width=width+'px';shell.createEl('h3',{text:(env===baseline?'Before':'After')+' · '+context});
+  const body=shell.createDiv({cls:home?'home-tasks-body':'project-tasks-body'}),component=new env.obsidian.Component();component.load();
+  const long=scenario==='wrapping',root=scenario.startsWith('root'),empty=scenario==='empty',plain=scenario==='plain'||scenario==='root-plain';
+  const task={id:'parent',text:long?'Review topology and the continuity arguments in the long assignment title. '.repeat(3):'Assignment 2',completed:false,necessity:plain?null:'must',dueDate:plain?null:'2026-11-17',dueTime:plain?null:'10:00',description:plain?'':'Task information',phaseId:scenario==='root-phase'?'review':null,
+   nativeReference:{authorityId:'fixture',owner,taskId:'parent',taskRevision:1},nativeLocationDisplay:{workspaceName:'Knowledge',segments:root?[]:scenario==='folder'?['Mathematics','Topology']:['Notes','Topology.md'],available:true},
+   steps:empty?[]:[{id:'step-1',text:long?'A naturally wrapping step description with detailed proof arguments. '.repeat(5):'Task 1',completed:false},{id:'step-2',text:'Task 2',completed:true}]};
+  const parts=env.load('ui/task-card').createTaskRow(body,task,false,{variant:home?'home':'project'});
+  if(extra.fullCard)parts.row.classList.add('hub-full-task-card');
+  if(extra.outside)body.className='schedule-fixture';
+  const ui=env.load('ui/tasks').createTaskUi({app:{},component,body,editTask:()=>{edits++;},onEdit:()=>{},phaseLabel:t=>t.phaseId?'Proof review':null,
+   mutate:async request=>{mutations++;request.step.completed=request.stepCompleted;return{availability:'current'}}});
+  ui.bind(parts.row,parts.textEl,task,()=>'',{locationWorkspace:home?null:owner,...(extra.selection?{selection:true}:{} )});
+  parts.checkbox.addEventListener('click',event=>event.stopPropagation());
+  return{...parts,shell,body,task,component,ui,destroy(){component.unload();shell.remove()}};
+ }
+ const rect=(element,origin)=>{if(!element)return null;const r=element.getBoundingClientRect();return{x:r.x-origin.x,y:r.y-origin.y,w:r.width,h:r.height}};
+ function sample(p){
+  const origin=p.row.getBoundingClientRect(),host=p.row.querySelector('.hub-task-steps'),list=host?.querySelector('.hub-task-step-items'),guide=list&&getComputedStyle(list,'::before'),items=[...p.row.querySelectorAll('.hub-task-step-item')],box=el=>rect(el,origin),s=getComputedStyle(p.row);
+  return{row:box(p.row),parent:Object.fromEntries(['input[type=checkbox]',homeText(p),'.home-task-location','.project-task-location','.hub-task-dates','.hub-task-necessity-bar','.hub-task-description-indicator','.hub-task-phase'].map(selector=>[selector,box(p.row.querySelector(selector))])),
+   heading:box(host?.querySelector('.hub-task-steps-toggle')),chevron:box(host?.querySelector('.hub-task-steps-chevron')),list:box(list),guide:guide&&{center:box(list).x+parseFloat(guide.left)+parseFloat(guide.width)/2,top:guide.top,bottom:guide.bottom,width:guide.width,color:guide.backgroundColor},
+   steps:items.map(row=>{const text=row.querySelector('.hub-task-step-text'),t=getComputedStyle(text);return{row:box(row),checkbox:box(row.querySelector('input')),text:box(text),font:t.font,color:t.color,line:t.lineHeight,padding:getComputedStyle(row).paddingBlock}}),
+   progress:host&&getComputedStyle(host.querySelector('.hub-task-step-progress')).color,padding:s.padding,border:s.border,hidden:list?.hidden,aligned:!!host?.classList.contains('hub-task-panel-steps'),root:p.row.classList.contains('hub-workspace-root-task')};
+ }
+ function homeText(p){return p.body.classList.contains('home-tasks-body')?'.home-task-text':'.project-task-text'}
+ const equalBox=(a,b,label,ignoreHeight=false)=>{check(!!a===!!b,label+' existence');if(a)for(const key of(ignoreHeight?['x','y','w']:['x','y','w','h']))check(near(a[key],b[key]),label+' '+key+': '+a[key]+' / '+b[key])};
+ const evidence=[];
+ for(const width of [480,280,190])for(const context of ['Home','Project','Resource'])for(const scenario of ['plain','folder','root','root-plain','root-phase','wrapping','empty']){
+  const pair=fixture.createDiv({cls:'comparison'}),before=render(baseline,pair,context,scenario,width),after=render(current,pair,context,scenario,width);await frame();
+  let a=sample(before),b=sample(after);
+  for(const selector of Object.keys(a.parent))equalBox(a.parent[selector],b.parent[selector],context+' '+scenario+' unchanged parent '+selector);
+  check(a.padding===b.padding&&a.border===b.border,'Original row padding/border');check(a.hidden===b.hidden,'Original disclosure state');
+  if(scenario==='empty'){check(!a.heading&&!b.heading,'No Steps on empty task');before.destroy();after.destroy();pair.remove();continue}
+  check(near(a.heading.y,b.heading.y)&&near(a.heading.h,b.heading.h),'Collapsed heading vertical geometry '+context+' '+scenario+' '+width+': '+JSON.stringify([a.heading,b.heading]));
+  before.row.querySelector('.hub-task-steps-toggle').click();after.row.querySelector('.hub-task-steps-toggle').click();await frame();a=sample(before);b=sample(after);
+  const cb=b.parent['input[type=checkbox]'],axis=cb.x+cb.w/2,shift=a.guide.center-b.guide.center;
+  check(b.aligned&&!a.aligned,'Panel-only integration opt-in');check(near(b.guide.center,axis),'Guide centered on parent checkbox: '+context+' '+scenario+' '+width);check(near(b.chevron.x+b.chevron.w/2,axis),'Chevron centered on parent checkbox');
+  check(near(a.heading.y,b.heading.y)&&near(a.heading.h,b.heading.h),'Heading retains compact height/y');check(near(a.heading.x-b.heading.x,shift),'Heading and guide move together');
+  check(a.guide.width===b.guide.width&&a.guide.color===b.guide.color&&a.guide.top===b.guide.top&&a.guide.bottom===b.guide.bottom,'Original guide style/vertical extent');check(near(b.list.y,b.heading.y+b.heading.h),'Guide starts below heading');check(a.progress===b.progress,'Muted progress unchanged');
+  for(let i=0;i<a.steps.length;i++){const x=a.steps[i],y=b.steps[i];check(near(x.checkbox.x-y.checkbox.x,shift)&&near(x.text.x-y.text.x,shift),'Step content shares section movement');check(near(x.checkbox.x-a.guide.center,y.checkbox.x-b.guide.center)&&near(x.text.x-x.checkbox.x,y.text.x-y.checkbox.x),'Original child relative spacing');check(x.font===y.font&&x.line===y.line&&x.color===y.color&&x.padding===y.padding,'Compact typography/completed styling preserved');check(near(x.checkbox.w,y.checkbox.w)&&near(x.checkbox.h,y.checkbox.h),'Step checkbox size unchanged');if(scenario!=='wrapping')check(near(x.row.h,y.row.h),'Short step row height unchanged');}
+  for(const selector of Object.keys(a.parent))equalBox(a.parent[selector],b.parent[selector],'Expanded parent '+selector);
+  if(scenario!=='wrapping')check(near(a.row.h,b.row.h),'Compact task height unchanged');
+  after.row.querySelector('.hub-task-steps-toggle').click();check(sample(after).hidden,'Collapse works');after.row.querySelector('.hub-task-steps-toggle').click();check(near(sample(after).guide.center,axis),'Re-expand retains alignment');
+  if(width===480&&scenario==='folder'){evidence.push({context,before:a,after:b});await screenshot(context.toLowerCase());}
+  before.destroy();after.destroy();pair.remove();
+ }
+ // Trusted pointer and keyboard interactions use the production shared binding.
+ const pair=fixture.createDiv({cls:'comparison'}),p=render(current,pair,'Project','root-phase',480);await frame();
+ await pointer(p.row.querySelector('.hub-task-steps-toggle'));check(!sample(p).hidden,'Pointer expands');
+ await pointer(p.row.querySelector('.hub-task-step-item input'));await frame();await new Promise(r=>setTimeout(r,30));check(mutations===1&&p.task.steps[0].completed,'Step completes through native toggle callback');check(edits===0,'Step checkbox never opens editor');check(p.row.querySelector('.hub-task-steps-label').textContent==='2 of 2 steps','Progress refreshes');
+ const checkbox=p.row.querySelector('.hub-task-step-item input');checkbox.focus();await key(' ');await frame();await new Promise(r=>setTimeout(r,30));check(mutations===2&&!p.task.steps[0].completed,'Keyboard uncompletes Step');
+ const toggle=p.row.querySelector('.hub-task-steps-toggle');toggle.focus();await key('Enter');check(sample(p).hidden,'Keyboard collapses');await key('Enter');check(!sample(p).hidden,'Keyboard expands');await pointer(p.textEl);check(edits===1,'Parent title edit action preserved');p.destroy();pair.remove();
+ for(const extra of [{outside:true},{fullCard:true},{selection:true}]){const pair=fixture.createDiv({cls:'comparison'}),a=render(baseline,pair,'Project','folder',280,extra),b=render(current,pair,'Project','folder',280,extra);await frame();check(!sample(b).aligned,'Other surfaces retain hierarchy');equalBox(sample(a).heading,sample(b).heading,'Other surface geometry');a.destroy();b.destroy();pair.remove()}
+ window.hubTaskOpeningFrames=evidence;
+ document.querySelector('#result').textContent='PASS: '+checks+' panel alignment/parent geometry/compact styling checks; Home, Project, Resource; root/folder/note, importance, dates, descriptions, phases, wrapping, collapse, pointer/keyboard completion, Oath/schedule exclusion.';
+}catch(error){document.querySelector('#result').textContent='FAIL '+error.stack}
+</script>

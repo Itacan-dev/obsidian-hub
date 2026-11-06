@@ -74,23 +74,36 @@ function openTaskLocationPicker(app, { locations, owner, reference = null, allow
             copy.parentElement.style.marginRight = "0";
             const row = copy.createDiv({ cls: "hub-window-title-row hub-task-location-title-row" });
             copy.insertBefore(row, heading); row.append(heading);
-            const name = row.createSpan({ cls: "hub-window-header-date hub-task-location-task-name", attr: { tabindex: "0", "aria-label": '"' + text + '"' } });
+            // Join the tab order only after a new Tab gesture in this dialog,
+            // so the informational title never becomes Modal's autofocus target.
+            const name = row.createSpan({ cls: "hub-window-header-date hub-task-location-task-name", attr: { tabindex: "-1", "aria-label": '"' + text + '"' } });
             name.style.font = win.getComputedStyle(heading).font;
             name.style.setProperty("--no-tooltip", "true");
             name.createSpan({ cls: "hub-task-location-task-quote", text: '"', attr: { "aria-hidden": "true" } });
-            name.createSpan({ cls: "hub-task-location-task-text", text });
+            const taskText = name.createSpan({ cls: "hub-task-location-task-text", text });
             name.createSpan({ cls: "hub-task-location-task-quote", text: '"', attr: { "aria-hidden": "true" } });
-            let tooltip = null, hovered = false, focused = false;
+            let tooltip = null, hovered = false, focused = false, truncated = false, keyboardNavigation = false, tabNavigation = false;
             const hide = () => { tooltip?.remove(); tooltip = null; name.removeAttribute("aria-describedby"); };
+            const measure = () => {
+                truncated = !!taskText.textContent.trim() && taskText.clientWidth > 0 && taskText.scrollWidth > taskText.clientWidth;
+                name.tabIndex = truncated && tabNavigation ? 0 : -1;
+                if (!truncated) { hovered = focused = false; hide(); }
+                return truncated;
+            };
             const show = () => {
-                if (tooltip || !name.isConnected) return;
+                if (!name.isConnected || !measure()) return;
+                if (tooltip) hide();
                 tooltip = doc.createElement("div");
                 tooltip.className = "tooltip hub-detail-tooltip hub-task-location-title-tooltip";
                 tooltip.id = "hub-task-location-title-tooltip-" + ++pickerSequence;
                 tooltip.setAttribute("role", "tooltip"); tooltip.setAttribute("popover", "manual");
-                tooltip.textContent = text; this.modalEl.append(tooltip); tooltip.showPopover?.();
+                tooltip.textContent = taskText.textContent;
+                const viewport = win.visualViewport;
+                tooltip.style.maxWidth = Math.min(300, (viewport?.width ?? win.innerWidth) - 16) + "px";
+                tooltip.style.maxHeight = Math.min(280, (viewport?.height ?? win.innerHeight) - 16) + "px";
+                this.modalEl.append(tooltip); tooltip.showPopover?.();
                 name.setAttribute("aria-describedby", tooltip.id);
-                const rect = name.getBoundingClientRect(), size = tooltip.getBoundingClientRect(), viewport = win.visualViewport;
+                const rect = name.getBoundingClientRect(), size = tooltip.getBoundingClientRect();
                 const left = (viewport?.offsetLeft ?? 0) + 8, top = (viewport?.offsetTop ?? 0) + 8;
                 const right = left + (viewport?.width ?? win.innerWidth) - 16, bottom = top + (viewport?.height ?? win.innerHeight) - 16;
                 tooltip.style.left = Math.max(left, Math.min(rect.right - size.width, right - size.width)) + "px";
@@ -99,14 +112,34 @@ function openTaskLocationPicker(app, { locations, owner, reference = null, allow
             };
             // Use actual pointer movement, as the existing immediate Itacan previews do.
             // Focus is informational only: there is no click handler or editor control.
-            name.onpointermove = () => { hovered = true; show(); };
+            name.onpointermove = event => { if (event.pointerType !== "touch" && !tooltip && truncated) { hovered = true; show(); } };
             name.onpointerleave = event => { if (!tooltip?.contains(event.relatedTarget)) { hovered = false; if (!focused) hide(); } };
-            name.onfocus = () => { focused = true; show(); };
+            name.onfocus = () => { focused = keyboardNavigation && name.matches(":focus-visible"); if (focused) show(); };
             name.onblur = () => { focused = false; if (!hovered) hide(); };
-            const escape = event => { if (event.key === "Escape" && tooltip) { hovered = focused = false; hide(); event.preventDefault(); event.stopImmediatePropagation(); } };
-            const scroll = event => { if (!tooltip?.contains(event.target)) hide(); };
-            doc.addEventListener("keydown", escape, true); win.addEventListener("resize", hide); doc.addEventListener("scroll", scroll, true);
-            this.disposeTaskName = () => { hide(); doc.removeEventListener("keydown", escape, true); win.removeEventListener("resize", hide); doc.removeEventListener("scroll", scroll, true); };
+            const keydown = event => {
+                keyboardNavigation = event.key === "Tab" && this.modalEl.contains(event.target);
+                if (keyboardNavigation) { tabNavigation = true; measure(); }
+                if (event.key === "Escape" && tooltip) { hovered = focused = false; hide(); event.preventDefault(); event.stopImmediatePropagation(); }
+            };
+            const keyup = () => { keyboardNavigation = false; };
+            const pointerdown = () => { keyboardNavigation = hovered = focused = false; hide(); };
+            const resize = () => { hovered = focused = false; hide(); measure(); };
+            const scroll = event => { if (!tooltip?.contains(event.target)) { hovered = focused = false; hide(); } };
+            const observer = new win.ResizeObserver(() => { if (measure() && tooltip) show(); });
+            observer.observe(taskText);
+            const titleObserver = new win.MutationObserver(() => {
+                name.setAttribute("aria-label", '"' + taskText.textContent + '"');
+                if (measure() && tooltip) show();
+            });
+            titleObserver.observe(taskText, { childList: true, characterData: true, subtree: true });
+            doc.addEventListener("keydown", keydown, true); doc.addEventListener("keyup", keyup, true); doc.addEventListener("pointerdown", pointerdown, true);
+            win.addEventListener("resize", resize); doc.addEventListener("scroll", scroll, true);
+            this.disposeTaskName = () => {
+                hide(); observer.disconnect(); titleObserver.disconnect();
+                doc.removeEventListener("keydown", keydown, true); doc.removeEventListener("keyup", keyup, true); doc.removeEventListener("pointerdown", pointerdown, true);
+                win.removeEventListener("resize", resize); doc.removeEventListener("scroll", scroll, true);
+                name.onpointermove = name.onpointerleave = name.onfocus = name.onblur = null;
+            };
         }
         renderWorkspace() {
             const w = locations.workspace(this.owner), button = this.workspaceButton;
