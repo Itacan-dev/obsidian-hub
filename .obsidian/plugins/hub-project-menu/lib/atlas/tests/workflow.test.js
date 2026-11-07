@@ -13,6 +13,21 @@ function note() {
             leafDocument: () => doc, leafPath: l => l.path, contextContainsFile: (_, p) => p?.startsWith("P/"), contentLeaves: () => leaves } };
     return { plugin, mode, leaves, markdown, empty, pdf, web, foreign, events };
 }
+
+test("pop-out controls use live workspace membership without enabling the Note-only launcher", () => {
+    const { canUseAtlasContext } = require("../obsidian/note-context"), f = note();
+    const document = {}, win = { document, closed: false }, container = { win };
+    const leaf = { getContainer: () => container, view: { contentEl: { ownerDocument: document, isConnected: true } } };
+    const workspace = f.plugin.app.workspace;
+    workspace.rootSplit = {}; workspace.getLeavesOfType = () => [leaf];
+    f.plugin.workspaceModes.mode = null;
+    assert.equal(canUseAtlasContext(f.plugin, leaf), true);
+    assert.equal(canOpenAtlas(f.plugin, leaf), false);
+    leaf.view.contentEl.isConnected = false; assert.equal(canUseAtlasContext(f.plugin, leaf), false);
+    leaf.view.contentEl.isConnected = true; win.closed = true; assert.equal(canUseAtlasContext(f.plugin, leaf), false);
+    win.closed = false; workspace.getLeavesOfType = () => []; assert.equal(canUseAtlasContext(f.plugin, leaf), false);
+    workspace.getLeavesOfType = () => [leaf]; container.win = { document: {} }; assert.equal(canUseAtlasContext(f.plugin, leaf), false);
+});
 test("M2: launcher is Note-context scoped for Markdown, empty, PDF and webviewer leaves", () => {
     const f = note();
     for (const leaf of f.leaves) { f.plugin.app.workspace.activeLeaf = leaf; assert.equal(canOpenAtlas(f.plugin, leaf), true, leaf.type); }

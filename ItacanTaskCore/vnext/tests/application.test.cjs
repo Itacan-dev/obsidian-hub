@@ -47,6 +47,34 @@ test('lost creation reply retains the original command and app restart recovers 
  await assert.rejects(f.create({steps:[]}),e=>e.code==='OUTCOME_UNKNOWN');assert.equal(pending.size,1);const original=[...pending.values()][0];await f.host.close();
  const reopened=new TaskEngine(f.service.file);reopened.ready=Promise.resolve(reopened);const host=createApplication({plugin:f.plugin,service:reopened,authorityId:'2eab707f-1674-485f-ae7e-752c9286af65',openEditor(){},openCreator(){},pendingStore});t.after(()=>host.close());await host.ready;assert.equal(pending.size,0);assert.equal((await reopened.listTasks()).total,1);assert.equal((await reopened.getOperation(original.operationId)).taskId,(await reopened.listTasks()).tasks[0].id);
 });
+
+test('startup reuses persisted Project and Resource owners after adopting a different sync authority',async t=>{
+ const {randomUUID}=require('node:crypto'),f=await fixture(t);
+ const projectTask=(await f.runtime.createTask({text:'Existing project task'})).task;
+ const resourceTask=(await f.host.runtime(f.other).createTask({text:'Existing resource task',completed:true,steps:[{text:'Keep this step'}]})).task;
+ const beforeOwners=(await f.service.listOwners()).owners,beforeHistory=await f.service.readHistory();
+ await f.host.close();
+ const service=new TaskEngine(f.service.file);service.ready=Promise.resolve(service);
+ const authorityId=randomUUID();service.syncStatus=async()=>({state:'current',workspaceId:randomUUID(),authorityId});
+ const host=createApplication({plugin:f.plugin,service,authorityId:randomUUID(),openEditor(){},openCreator(){}});
+ t.after(()=>host.close());
+ // Panels can subscribe before startup has read the persisted owner registry.
+ let changes=0;const panel=host.nativeTasks.createPanelRead({component:{register(){}},workspace:f.other,changed:()=>changes++});
+ await host.ready;
+ assert.equal(host.nativeTasks.availability(),'current');
+ assert.deepEqual((await service.listOwners()).owners,beforeOwners);
+ assert.deepEqual(await service.readHistory(),beforeHistory);
+ assert.equal((await host.runtime(f.owner).list()).tasks[0].id,projectTask.id);
+ const retained=(await panel.read()).tasks[0];assert.equal(retained.id,resourceTask.id);assert.equal(retained.steps[0].id,resourceTask.steps[0].id);
+ await new Promise(r=>setTimeout(r,20));changes=0;
+ await service.execute({type:'task.edit',operationId:randomUUID(),taskId:resourceTask.id,expectedRevision:resourceTask.revision,patch:{title:'Incoming edit'}});
+ await new Promise(r=>setTimeout(r,35));assert(changes>0,'early panel receives changes for the persisted owner');
+ await panel.toggle((await panel.read()).tasks[0],false);
+ const created=(await host.runtime(f.other).createTask({text:'New resource task'})).task;
+ assert.equal(created.ownerId,resourceTask.ownerId);
+ await host.refreshInventory();assert.deepEqual((await service.listOwners()).owners,beforeOwners);
+ assert.equal((await host.runtime(f.other).list()).tasks.length,2);panel.close();
+});
 test('one workspace metadata barrier precedes owner availability and initial task presentation',async t=>{
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'itacan-ready-')),service=new TaskEngine(path.join(root,'tasks.sqlite'));service.ready=Promise.resolve(service);let metadata=false,release;
  const project={projectId:'ready-project',name:'Ready Project',root:'Projects/Ready',path:'Projects/Ready/Ready.md',status:'active'},plugin={projectWizard:{getProjectRecords:()=>metadata?[project]:[],getResourceTypes:()=>[]},planning:{phases:()=>[]},app:{}},metadataReady=new Promise(r=>release=r);

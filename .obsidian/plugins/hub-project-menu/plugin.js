@@ -68,7 +68,6 @@ const {
     CATEGORY_IMAGE_ROOT,
     DEFAULT_CATEGORIES,
     DEFAULT_SHORTCUT_IDS,
-    FIREFOX_EXECUTABLES,
     HUB_BACKUP_ROOT,
     HUB_BACKUP_VERSION,
     HubDataStore,
@@ -16748,56 +16747,23 @@ module.exports = class HubProjectMenu extends Plugin {
         }
 
 
-        if (this.oath?.active && this.oath.isStrict) {
-            // Strict shortcuts use the frozen executable policy; no title/PID focus workaround.
-            const executable = resolveExecutable(shortcut.type === "website" ? FIREFOX_EXECUTABLES : shortcut.executables ?? []);
-            if (!executable) throw new Error("Application executable could not be found.");
-            await this.oath.launchStrictApplication(executable, shortcut.type === "website" ? shortcut.url : null);
-            return;
+        if (shortcut.type === "website" || shortcut.type === "atlas") {
+            if (this.oath?.active && this.oath.isStrict) throw new Error("Web pop-outs are unavailable during Strict Oath.");
+            if (!this.atlas) throw new Error("Atlas browsing is unavailable.");
+            return this.atlas.openPopout(shortcut.type === "atlas" ? "about:blank" : shortcut.url, shortcut.label);
         }
 
-        // ---------- WEBSITE ----------
+        if (this.oath?.active && this.oath.isStrict) {
+            // Strict shortcuts use the frozen executable policy; no title/PID focus workaround.
+            const executable = resolveExecutable(shortcut.executables ?? []);
+            if (!executable) throw new Error("Application executable could not be found.");
+            await this.oath.launchStrictApplication(executable, null);
+            return;
+        }
 
         if (process.platform === "darwin") {
             return require("./lib/services/mac-shortcuts").openMacShortcut(shortcut);
         }
-
-        if (
-            shortcut.type === "website"
-        ) {
-
-            const firefox =
-                resolveExecutable(
-                    FIREFOX_EXECUTABLES
-                );
-
-
-            if (!firefox) {
-
-                throw new Error(
-                    "Firefox could not be found."
-                );
-            }
-
-
-            /*
-            * Firefox behavior:
-            *
-            * closed  -> launch Firefox
-            * running -> open a new tab
-            */
-            await spawnDetached(
-                firefox,
-                [
-                    "-new-tab",
-                    shortcut.url
-                ]
-            );
-
-
-            return;
-        }
-
 
         // ---------- APPLICATION ----------
 

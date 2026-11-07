@@ -16,6 +16,7 @@ function installAtlasIntegration(plugin) {
     const app = plugin.app, records = new Map(), listeners = new Set(), patches = new Map(), documents = new Map(), existingIds = new WeakMap();
     let host = null, client = null, stopped = false, issue = null, action = null;
     let description = null, launchingHome = null, descriptionJSON = null;
+    const launchingPopouts = new Map();
     const readDescription = () => { if (!host) return false; const encoded = host.viewJSON(); if (encoded === descriptionJSON) return false; description = JSON.parse(encoded); descriptionJSON = encoded; return true; };
     const publish = () => { for (const callback of listeners) callback(); };
     const bridge = {
@@ -37,6 +38,26 @@ function installAtlasIntegration(plugin) {
             return !!leaf && canUseAtlasContext(plugin, leaf);
         },
         forget(nativeId) { if (!stopped) host?.forget(nativeId); },
+        openPopout(url, title) {
+            if (stopped || !host) return Promise.reject(new Error("Atlas native enforcement is unavailable. Restart Obsidian and try again."));
+            if (!app.internalPlugins?.getEnabledPluginById?.("webviewer")) return Promise.reject(new Error("Enable Obsidian's Web viewer core plugin to open Atlas web windows."));
+            if (launchingPopouts.has(url)) return launchingPopouts.get(url);
+            const work = async () => {
+                const leaf = app.workspace.getLeaf("window");
+                try {
+                    // The native host already guards new windows and their vault
+                    // partition. This only selects the ordinary Obsidian view.
+                    watchDocument(leaf.view?.containerEl?.ownerDocument);
+                    await leaf.setViewState({ type: "webviewer", state: { url, title, ...(url === "about:blank" ? { atlasHome: true } : {}) }, active: true });
+                    if (stopped) throw new Error("Atlas closed while opening the window.");
+                    scan();
+                    await app.workspace.revealLeaf(leaf);
+                    return leaf;
+                } catch (error) { leaf.detach(); throw error; }
+            };
+            const pending = work().finally(() => { if (launchingPopouts.get(url) === pending) launchingPopouts.delete(url); });
+            launchingPopouts.set(url, pending); return pending;
+        },
         open(route) {
             if (stopped) return false;
             const session = getAtlasSession(bridge), target = normalizeRoute(route, session.route);
@@ -109,6 +130,9 @@ function installAtlasIntegration(plugin) {
     }
     function scan() {
         if (stopped) return;
+        for (const [document, observer] of documents) if (!document.defaultView || document.defaultView.closed) {
+            observer.disconnect(); action?.unwatchDocument(document); documents.delete(document);
+        }
         action?.sync();
         watchDocument(window.document);
         app.workspace.iterateAllLeaves?.(leaf => watchDocument(leaf.view?.containerEl?.ownerDocument ?? leaf.view?.contentEl?.ownerDocument));
@@ -140,7 +164,7 @@ function installAtlasIntegration(plugin) {
                 record.disposeHome = mountAtlasHome(record.home, bridge, async url => {
                     if (stopped || !host) return;
                     // The same native navigate/loadURL/Fetch gate as note links.
-                    await record.view.navigate(url).catch(() => {}); refresh();
+                    await Promise.resolve(record.view.navigate(url)).catch(() => {}); refresh();
                 });
             }
             if (record.home) record.home.hidden = !internalHome;

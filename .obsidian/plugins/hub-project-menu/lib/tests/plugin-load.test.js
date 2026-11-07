@@ -78,6 +78,18 @@ try {
         const HubPlugin = require(pluginPath);
         assert.strictEqual(typeof HubPlugin, "function");
 
+        test(label + ": web shortcuts route exclusively through Atlas pop-outs", async () => {
+            const calls = [], plugin = Object.assign(Object.create(HubPlugin.prototype), {
+                atlas: { openPopout: async (...args) => calls.push(args) }
+            });
+            for (const id of ["overleaf", "chatgpt", "google"]) await plugin.openAppShortcut(id);
+            assert.deepStrictEqual(calls, [["https://www.overleaf.com", "Overleaf"], ["https://chatgpt.com/", "ChatGPT"], ["about:blank", "Atlas"]]);
+            plugin.atlas = null;
+            await assert.rejects(plugin.openAppShortcut("overleaf"), /Atlas browsing is unavailable/);
+            plugin.oath = { active: true, isStrict: true };
+            await assert.rejects(plugin.openAppShortcut("google"), /Strict Oath/);
+        });
+
         for (const outcome of ["resolve", "reject"]) {
             test(label + ": native, Athena and Atlas cleanup while native shutdown is pending (" + outcome + ")", async t => {
                 const previousWindow = Object.getOwnPropertyDescriptor(globalThis, "window");

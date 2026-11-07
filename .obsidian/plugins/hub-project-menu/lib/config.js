@@ -89,22 +89,7 @@ const PROGRAM_FILES =
     process.env.PROGRAMFILES ||
     "C:\\Program Files";
 
-const PROGRAM_FILES_X86 =
-    process.env["ProgramFiles(x86)"] ||
-    process.env["PROGRAMFILES(X86)"];
-
 const LOCAL_APP_DATA = process.env.LOCALAPPDATA;
-
-const FIREFOX_EXECUTABLES = [
-    `${PROGRAM_FILES}\\Mozilla Firefox\\firefox.exe`,
-    PROGRAM_FILES_X86
-        ? `${PROGRAM_FILES_X86}\\Mozilla Firefox\\firefox.exe`
-        : null,
-    LOCAL_APP_DATA
-        ? `${LOCAL_APP_DATA}\\Mozilla Firefox\\firefox.exe`
-        : null,
-    "firefox.exe"
-];
 
 const APP_SHORTCUTS = [
     {
@@ -112,7 +97,7 @@ const APP_SHORTCUTS = [
         label: "Overleaf",
         type: "website",
         icon: "Assets/AppShortcuts/overleaf.svg",
-        url: "https://www.overleaf.com/project"
+        url: "https://www.overleaf.com"
     },
     {
         id: "chatgpt",
@@ -136,11 +121,11 @@ const APP_SHORTCUTS = [
         ]
     },
     {
+        // Retain the saved shortcut ID so existing category selections/order work.
         id: "google",
-        label: "Google",
-        type: "website",
-        icon: "Assets/AppShortcuts/google.svg",
-        url: "https://www.google.com/"
+        label: "Atlas",
+        type: "atlas",
+        iconName: "compass"
     }
 ];
 
@@ -250,7 +235,6 @@ module.exports = {
     CATEGORY_IMAGE_ROOT,
     DEFAULT_CATEGORIES,
     DEFAULT_SHORTCUT_IDS,
-    FIREFOX_EXECUTABLES,
     HUB_BACKUP_ROOT,
     HUB_BACKUP_VERSION,
     PROJECT_ADVANCEMENT_OPTIONS,

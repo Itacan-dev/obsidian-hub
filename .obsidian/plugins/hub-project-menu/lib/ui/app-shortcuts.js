@@ -31,9 +31,10 @@ function mountAppShortcuts(plugin, left) {
             const icon = button.createSpan({ cls: "hub-shell-shortcut-icon" });
             const file = shortcut.icon && plugin.app.vault.getAbstractFileByPath(shortcut.icon);
             if (file) icon.createEl("img", { attr: { src: plugin.app.vault.getResourcePath(file), alt: "" } });
-            else setIcon(icon, shortcut.type === "website" ? "globe" : "app-window");
+            else setIcon(icon, shortcut.iconName ?? (shortcut.type === "website" ? "globe" : "app-window"));
             button.createSpan({ cls: "hub-shell-shortcut-label", text: shortcut.label });
-            button.addEventListener("click", async () => {
+            button.addEventListener("click", async event => {
+                if (button.disabled || event.detail > 1) return;
                 button.disabled = true;
                 try {
                     if (shortcut.focus) plugin.oath.strict.host.focus();

@@ -17,19 +17,24 @@ function stableId(value){const h=createHash('sha256').update(JSON.stringify(valu
 function createApplication({plugin,service,authorityId,locations,openEditor,openCreator,pendingStore=null,metadataReady=Promise.resolve(),onError=console.error}){
  const wizard=plugin.projectWizard,listeners=new Set(),historyListeners=new Set(),records=new Map(),dbOwners=new Map(),runtimes=new Map();let syncState={state:'disabled'},state='opening',closed=false,closing=null,notification=null,metadataWork=Promise.resolve();
  let stopStartup;const startupStopped=new Promise(resolve=>{stopStartup=resolve});
- const ownerId=owner=>stableId([authorityId,owner.type,owner.id]);
+ // Enrollment may retain local owners absent from the shared baseline. Their
+ // persisted identity remains authoritative even when the workspace changes.
+ const ownerIds=new Map();
+ const ownerId=owner=>ownerIds.get(key(owner))??stableId([authorityId,owner.type,owner.id]);
  const refOf=w=>w.contextKind==='resource'?{type:'resource',id:w.resourceType??w.id}:{type:'project',id:w.projectId};
  function collect(){const values=[...wizard.getProjectRecords(),...wizard.getResourceTypes()],seen=new Set();records.clear();for(const w of values){const owner=refOf(w);if(!owner.id)continue;const k=key(owner);if(seen.has(k))throw Error('Ambiguous task owner: '+k);seen.add(k);records.set(k,{...w,owner,dbId:ownerId(owner),available:!w.deleted&&(owner.type==='resource'||['active','future','shelved'].includes(w.status))});}}
  collect();
  function record(owner){const r=records.get(key(owner));if(!r||!r.available)throw Object.assign(Error('Task workspace unavailable'),{code:'OWNER_UNAVAILABLE'});return r;}
  function ownerRecord(id){const live=[...records.values()].find(r=>r.dbId===id);if(live)return live;const o=dbOwners.get(id);return o?{owner:{type:o.kind,id:o.externalId},name:o.label,available:o.available}:null;}
  function context(owner){const r=record(owner);return{owner,root:r.root,dashboard:r.path,status:r.status??'active'};}
- function notify(change={reset:true}){if(closed)return;for(const l of listeners)if(change.reset||!l.ownerId||(change.ownerIds??[]).includes(l.ownerId))l.dirty=true;if(notification!==null)return;notification=setTimeout(()=>{notification=null;for(const l of [...listeners])if(l.dirty){l.dirty=false;try{l.fn()}catch(e){onError(e)}}},0);}
- function subscribe(owner,fn){const l={ownerId:owner?ownerId(owner):null,fn,dirty:false};listeners.add(l);return()=>listeners.delete(l);}
+ function notify(change={reset:true}){if(closed)return;for(const l of listeners)if(change.reset||!l.owner||(change.ownerIds??[]).includes(ownerId(l.owner)))l.dirty=true;if(notification!==null)return;notification=setTimeout(()=>{notification=null;for(const l of [...listeners])if(l.dirty){l.dirty=false;try{l.fn()}catch(e){onError(e)}}},0);}
+ function subscribe(owner,fn){const l={owner,fn,dirty:false};listeners.add(l);return()=>listeners.delete(l);}
  const model=new TaskModel(service,{changed(change){if(change.available&&model.started&&state!=='ready'&&!closed){state='ready';notify({reset:true});return;}const ownerIds=new Set(change.ownerIds??[]);for(const id of change.taskIds??[]){const t=model.tasks.get(id);if(t)ownerIds.add(t.ownerId);}if(change.reset)notify({reset:true});else if(ownerIds.size)notify({ownerIds:[...ownerIds]});},failed(error){const changed=state!=='unavailable';state='unavailable';if(changed)notify();onError(error)}});
  const stopChanges=service.subscribe({},change=>{notify({ownerIds:[change.ownerId]});if(change.historyIds.length)for(const fn of [...historyListeners])try{fn(change)}catch(e){onError(e)}});
  async function registerOwners(){
-  collect();const old=await service.listOwners();const desired=[...records.values()].map(r=>({id:r.dbId,kind:r.owner.type,externalId:r.owner.id,label:r.name??r.label??r.owner.id,available:r.available}));
+  const old=await service.listOwners();ownerIds.clear();dbOwners.clear();
+  for(const o of old.owners)ownerIds.set(key({type:o.kind,id:o.externalId}),o.id);
+  collect();const desired=[...records.values()].map(r=>({id:r.dbId,kind:r.owner.type,externalId:r.owner.id,label:r.name??r.label??r.owner.id,available:r.available}));
   for(const o of old.owners)if(!desired.some(n=>n.id===o.id))desired.push({...o,available:false});
   for(const owner of desired){if(JSON.stringify(old.owners.find(o=>o.id===owner.id))!==JSON.stringify(owner))await service.execute({type:'owner.put',operationId:randomUUID(),owner});dbOwners.set(owner.id,owner);}
  }
@@ -4540,6 +4545,7 @@ function installAtlasIntegration(plugin) {
     const app = plugin.app, records = new Map(), listeners = new Set(), patches = new Map(), documents = new Map(), existingIds = new WeakMap();
     let host = null, client = null, stopped = false, issue = null, action = null;
     let description = null, launchingHome = null, descriptionJSON = null;
+    const launchingPopouts = new Map();
     const readDescription = () => { if (!host) return false; const encoded = host.viewJSON(); if (encoded === descriptionJSON) return false; description = JSON.parse(encoded); descriptionJSON = encoded; return true; };
     const publish = () => { for (const callback of listeners) callback(); };
     const bridge = {
@@ -4561,6 +4567,26 @@ function installAtlasIntegration(plugin) {
             return !!leaf && canUseAtlasContext(plugin, leaf);
         },
         forget(nativeId) { if (!stopped) host?.forget(nativeId); },
+        openPopout(url, title) {
+            if (stopped || !host) return Promise.reject(new Error("Atlas native enforcement is unavailable. Restart Obsidian and try again."));
+            if (!app.internalPlugins?.getEnabledPluginById?.("webviewer")) return Promise.reject(new Error("Enable Obsidian's Web viewer core plugin to open Atlas web windows."));
+            if (launchingPopouts.has(url)) return launchingPopouts.get(url);
+            const work = async () => {
+                const leaf = app.workspace.getLeaf("window");
+                try {
+                    // The native host already guards new windows and their vault
+                    // partition. This only selects the ordinary Obsidian view.
+                    watchDocument(leaf.view?.containerEl?.ownerDocument);
+                    await leaf.setViewState({ type: "webviewer", state: { url, title, ...(url === "about:blank" ? { atlasHome: true } : {}) }, active: true });
+                    if (stopped) throw new Error("Atlas closed while opening the window.");
+                    scan();
+                    await app.workspace.revealLeaf(leaf);
+                    return leaf;
+                } catch (error) { leaf.detach(); throw error; }
+            };
+            const pending = work().finally(() => { if (launchingPopouts.get(url) === pending) launchingPopouts.delete(url); });
+            launchingPopouts.set(url, pending); return pending;
+        },
         open(route) {
             if (stopped) return false;
             const session = getAtlasSession(bridge), target = normalizeRoute(route, session.route);
@@ -4633,6 +4659,9 @@ function installAtlasIntegration(plugin) {
     }
     function scan() {
         if (stopped) return;
+        for (const [document, observer] of documents) if (!document.defaultView || document.defaultView.closed) {
+            observer.disconnect(); action?.unwatchDocument(document); documents.delete(document);
+        }
         action?.sync();
         watchDocument(window.document);
         app.workspace.iterateAllLeaves?.(leaf => watchDocument(leaf.view?.containerEl?.ownerDocument ?? leaf.view?.contentEl?.ownerDocument));
@@ -4664,7 +4693,7 @@ function installAtlasIntegration(plugin) {
                 record.disposeHome = mountAtlasHome(record.home, bridge, async url => {
                     if (stopped || !host) return;
                     // The same native navigate/loadURL/Fetch gate as note links.
-                    await record.view.navigate(url).catch(() => {}); refresh();
+                    await Promise.resolve(record.view.navigate(url)).catch(() => {}); refresh();
                 });
             }
             if (record.home) record.home.hidden = !internalHome;
@@ -4876,7 +4905,15 @@ function eligibleNoteLeaf(plugin, leaf, expectedMode = plugin.workspaceModes?.mo
         (active === mode.projectLeaf || modes.contentLeaves().includes(active));
 }
 const canOpenAtlas = (plugin, leaf, expectedMode = plugin.workspaceModes?.mode) => eligibleNoteLeaf(plugin, leaf, expectedMode);
-const canUseAtlasContext = (plugin, leaf, expectedMode = plugin.workspaceModes?.mode) => eligibleNoteLeaf(plugin, leaf, expectedMode, true);
+function canUseAtlasContext(plugin, leaf, expectedMode = plugin.workspaceModes?.mode) {
+    const workspace = plugin.app.workspace, container = leaf?.getContainer?.(), document = leaf?.view?.contentEl?.ownerDocument;
+    // Pop-out access controls address a live native webviewer in this workspace.
+    // This is UI eligibility only; the shared native host still authorizes every
+    // command and navigation. Main-window Note restrictions remain unchanged.
+    if (container && container !== workspace.rootSplit && document && container.win?.document === document &&
+        !container.win.closed && leaf.view.contentEl.isConnected && workspace.getLeavesOfType("webviewer").includes(leaf)) return true;
+    return eligibleNoteLeaf(plugin, leaf, expectedMode, true);
+}
 function registerNoteAtlasAction(plugin, openHome, createMenu) {
     const workspace = plugin.app.workspace;
     const documents = new Map(); let destroyed = false;
@@ -4920,11 +4957,12 @@ function registerNoteAtlasAction(plugin, openHome, createMenu) {
         document.addEventListener("contextmenu", contextmenu);
         documents.set(document, contextmenu);
     };
-    const destroy = () => { destroyed = true; for (const [document, listener] of documents) document.removeEventListener("contextmenu", listener); documents.clear();
+    const unwatchDocument = document => { const listener = documents.get(document); if (listener) document.removeEventListener("contextmenu", listener); documents.delete(document); };
+    const destroy = () => { destroyed = true; for (const document of documents.keys()) unwatchDocument(document);
         for (const tabs of markedTabs) tabs.classList.remove("hub-atlas-note-tabs"); markedTabs.clear(); };
     watchDocument(globalThis.document);
     sync();
-    return { open, watchDocument, sync, destroy };
+    return { open, watchDocument, unwatchDocument, sync, destroy };
 }
 module.exports = { canOpenAtlas, canUseAtlasContext, registerNoteAtlasAction };
 
@@ -5964,22 +6002,7 @@ const PROGRAM_FILES =
     process.env.PROGRAMFILES ||
     "C:\\Program Files";
 
-const PROGRAM_FILES_X86 =
-    process.env["ProgramFiles(x86)"] ||
-    process.env["PROGRAMFILES(X86)"];
-
 const LOCAL_APP_DATA = process.env.LOCALAPPDATA;
-
-const FIREFOX_EXECUTABLES = [
-    `${PROGRAM_FILES}\\Mozilla Firefox\\firefox.exe`,
-    PROGRAM_FILES_X86
-        ? `${PROGRAM_FILES_X86}\\Mozilla Firefox\\firefox.exe`
-        : null,
-    LOCAL_APP_DATA
-        ? `${LOCAL_APP_DATA}\\Mozilla Firefox\\firefox.exe`
-        : null,
-    "firefox.exe"
-];
 
 const APP_SHORTCUTS = [
     {
@@ -5987,7 +6010,7 @@ const APP_SHORTCUTS = [
         label: "Overleaf",
         type: "website",
         icon: "Assets/AppShortcuts/overleaf.svg",
-        url: "https://www.overleaf.com/project"
+        url: "https://www.overleaf.com"
     },
     {
         id: "chatgpt",
@@ -6011,11 +6034,11 @@ const APP_SHORTCUTS = [
         ]
     },
     {
+        // Retain the saved shortcut ID so existing category selections/order work.
         id: "google",
-        label: "Google",
-        type: "website",
-        icon: "Assets/AppShortcuts/google.svg",
-        url: "https://www.google.com/"
+        label: "Atlas",
+        type: "atlas",
+        iconName: "compass"
     }
 ];
 
@@ -6125,7 +6148,6 @@ module.exports = {
     CATEGORY_IMAGE_ROOT,
     DEFAULT_CATEGORIES,
     DEFAULT_SHORTCUT_IDS,
-    FIREFOX_EXECUTABLES,
     HUB_BACKUP_ROOT,
     HUB_BACKUP_VERSION,
     PROJECT_ADVANCEMENT_OPTIONS,
@@ -15103,9 +15125,10 @@ function mountAppShortcuts(plugin, left) {
             const icon = button.createSpan({ cls: "hub-shell-shortcut-icon" });
             const file = shortcut.icon && plugin.app.vault.getAbstractFileByPath(shortcut.icon);
             if (file) icon.createEl("img", { attr: { src: plugin.app.vault.getResourcePath(file), alt: "" } });
-            else setIcon(icon, shortcut.type === "website" ? "globe" : "app-window");
+            else setIcon(icon, shortcut.iconName ?? (shortcut.type === "website" ? "globe" : "app-window"));
             button.createSpan({ cls: "hub-shell-shortcut-label", text: shortcut.label });
-            button.addEventListener("click", async () => {
+            button.addEventListener("click", async event => {
+                if (button.disabled || event.detail > 1) return;
                 button.disabled = true;
                 try {
                     if (shortcut.focus) plugin.oath.strict.host.focus();
@@ -25523,7 +25546,6 @@ const {
     CATEGORY_IMAGE_ROOT,
     DEFAULT_CATEGORIES,
     DEFAULT_SHORTCUT_IDS,
-    FIREFOX_EXECUTABLES,
     HUB_BACKUP_ROOT,
     HUB_BACKUP_VERSION,
     HubDataStore,
@@ -42203,56 +42225,23 @@ module.exports = class HubProjectMenu extends Plugin {
         }
 
 
-        if (this.oath?.active && this.oath.isStrict) {
-            // Strict shortcuts use the frozen executable policy; no title/PID focus workaround.
-            const executable = resolveExecutable(shortcut.type === "website" ? FIREFOX_EXECUTABLES : shortcut.executables ?? []);
-            if (!executable) throw new Error("Application executable could not be found.");
-            await this.oath.launchStrictApplication(executable, shortcut.type === "website" ? shortcut.url : null);
-            return;
+        if (shortcut.type === "website" || shortcut.type === "atlas") {
+            if (this.oath?.active && this.oath.isStrict) throw new Error("Web pop-outs are unavailable during Strict Oath.");
+            if (!this.atlas) throw new Error("Atlas browsing is unavailable.");
+            return this.atlas.openPopout(shortcut.type === "atlas" ? "about:blank" : shortcut.url, shortcut.label);
         }
 
-        // ---------- WEBSITE ----------
+        if (this.oath?.active && this.oath.isStrict) {
+            // Strict shortcuts use the frozen executable policy; no title/PID focus workaround.
+            const executable = resolveExecutable(shortcut.executables ?? []);
+            if (!executable) throw new Error("Application executable could not be found.");
+            await this.oath.launchStrictApplication(executable, null);
+            return;
+        }
 
         if (process.platform === "darwin") {
             return __hubRequire("lib/services/mac-shortcuts.js").openMacShortcut(shortcut);
         }
-
-        if (
-            shortcut.type === "website"
-        ) {
-
-            const firefox =
-                resolveExecutable(
-                    FIREFOX_EXECUTABLES
-                );
-
-
-            if (!firefox) {
-
-                throw new Error(
-                    "Firefox could not be found."
-                );
-            }
-
-
-            /*
-            * Firefox behavior:
-            *
-            * closed  -> launch Firefox
-            * running -> open a new tab
-            */
-            await spawnDetached(
-                firefox,
-                [
-                    "-new-tab",
-                    shortcut.url
-                ]
-            );
-
-
-            return;
-        }
-
 
         // ---------- APPLICATION ----------
 

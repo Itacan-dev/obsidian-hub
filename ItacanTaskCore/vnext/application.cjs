@@ -8,19 +8,24 @@ function stableId(value){const h=createHash('sha256').update(JSON.stringify(valu
 function createApplication({plugin,service,authorityId,locations,openEditor,openCreator,pendingStore=null,metadataReady=Promise.resolve(),onError=console.error}){
  const wizard=plugin.projectWizard,listeners=new Set(),historyListeners=new Set(),records=new Map(),dbOwners=new Map(),runtimes=new Map();let syncState={state:'disabled'},state='opening',closed=false,closing=null,notification=null,metadataWork=Promise.resolve();
  let stopStartup;const startupStopped=new Promise(resolve=>{stopStartup=resolve});
- const ownerId=owner=>stableId([authorityId,owner.type,owner.id]);
+ // Enrollment may retain local owners absent from the shared baseline. Their
+ // persisted identity remains authoritative even when the workspace changes.
+ const ownerIds=new Map();
+ const ownerId=owner=>ownerIds.get(key(owner))??stableId([authorityId,owner.type,owner.id]);
  const refOf=w=>w.contextKind==='resource'?{type:'resource',id:w.resourceType??w.id}:{type:'project',id:w.projectId};
  function collect(){const values=[...wizard.getProjectRecords(),...wizard.getResourceTypes()],seen=new Set();records.clear();for(const w of values){const owner=refOf(w);if(!owner.id)continue;const k=key(owner);if(seen.has(k))throw Error('Ambiguous task owner: '+k);seen.add(k);records.set(k,{...w,owner,dbId:ownerId(owner),available:!w.deleted&&(owner.type==='resource'||['active','future','shelved'].includes(w.status))});}}
  collect();
  function record(owner){const r=records.get(key(owner));if(!r||!r.available)throw Object.assign(Error('Task workspace unavailable'),{code:'OWNER_UNAVAILABLE'});return r;}
  function ownerRecord(id){const live=[...records.values()].find(r=>r.dbId===id);if(live)return live;const o=dbOwners.get(id);return o?{owner:{type:o.kind,id:o.externalId},name:o.label,available:o.available}:null;}
  function context(owner){const r=record(owner);return{owner,root:r.root,dashboard:r.path,status:r.status??'active'};}
- function notify(change={reset:true}){if(closed)return;for(const l of listeners)if(change.reset||!l.ownerId||(change.ownerIds??[]).includes(l.ownerId))l.dirty=true;if(notification!==null)return;notification=setTimeout(()=>{notification=null;for(const l of [...listeners])if(l.dirty){l.dirty=false;try{l.fn()}catch(e){onError(e)}}},0);}
- function subscribe(owner,fn){const l={ownerId:owner?ownerId(owner):null,fn,dirty:false};listeners.add(l);return()=>listeners.delete(l);}
+ function notify(change={reset:true}){if(closed)return;for(const l of listeners)if(change.reset||!l.owner||(change.ownerIds??[]).includes(ownerId(l.owner)))l.dirty=true;if(notification!==null)return;notification=setTimeout(()=>{notification=null;for(const l of [...listeners])if(l.dirty){l.dirty=false;try{l.fn()}catch(e){onError(e)}}},0);}
+ function subscribe(owner,fn){const l={owner,fn,dirty:false};listeners.add(l);return()=>listeners.delete(l);}
  const model=new TaskModel(service,{changed(change){if(change.available&&model.started&&state!=='ready'&&!closed){state='ready';notify({reset:true});return;}const ownerIds=new Set(change.ownerIds??[]);for(const id of change.taskIds??[]){const t=model.tasks.get(id);if(t)ownerIds.add(t.ownerId);}if(change.reset)notify({reset:true});else if(ownerIds.size)notify({ownerIds:[...ownerIds]});},failed(error){const changed=state!=='unavailable';state='unavailable';if(changed)notify();onError(error)}});
  const stopChanges=service.subscribe({},change=>{notify({ownerIds:[change.ownerId]});if(change.historyIds.length)for(const fn of [...historyListeners])try{fn(change)}catch(e){onError(e)}});
  async function registerOwners(){
-  collect();const old=await service.listOwners();const desired=[...records.values()].map(r=>({id:r.dbId,kind:r.owner.type,externalId:r.owner.id,label:r.name??r.label??r.owner.id,available:r.available}));
+  const old=await service.listOwners();ownerIds.clear();dbOwners.clear();
+  for(const o of old.owners)ownerIds.set(key({type:o.kind,id:o.externalId}),o.id);
+  collect();const desired=[...records.values()].map(r=>({id:r.dbId,kind:r.owner.type,externalId:r.owner.id,label:r.name??r.label??r.owner.id,available:r.available}));
   for(const o of old.owners)if(!desired.some(n=>n.id===o.id))desired.push({...o,available:false});
   for(const owner of desired){if(JSON.stringify(old.owners.find(o=>o.id===owner.id))!==JSON.stringify(owner))await service.execute({type:'owner.put',operationId:randomUUID(),owner});dbOwners.set(owner.id,owner);}
  }

@@ -28,7 +28,15 @@ function eligibleNoteLeaf(plugin, leaf, expectedMode = plugin.workspaceModes?.mo
         (active === mode.projectLeaf || modes.contentLeaves().includes(active));
 }
 const canOpenAtlas = (plugin, leaf, expectedMode = plugin.workspaceModes?.mode) => eligibleNoteLeaf(plugin, leaf, expectedMode);
-const canUseAtlasContext = (plugin, leaf, expectedMode = plugin.workspaceModes?.mode) => eligibleNoteLeaf(plugin, leaf, expectedMode, true);
+function canUseAtlasContext(plugin, leaf, expectedMode = plugin.workspaceModes?.mode) {
+    const workspace = plugin.app.workspace, container = leaf?.getContainer?.(), document = leaf?.view?.contentEl?.ownerDocument;
+    // Pop-out access controls address a live native webviewer in this workspace.
+    // This is UI eligibility only; the shared native host still authorizes every
+    // command and navigation. Main-window Note restrictions remain unchanged.
+    if (container && container !== workspace.rootSplit && document && container.win?.document === document &&
+        !container.win.closed && leaf.view.contentEl.isConnected && workspace.getLeavesOfType("webviewer").includes(leaf)) return true;
+    return eligibleNoteLeaf(plugin, leaf, expectedMode, true);
+}
 function registerNoteAtlasAction(plugin, openHome, createMenu) {
     const workspace = plugin.app.workspace;
     const documents = new Map(); let destroyed = false;
@@ -72,10 +80,11 @@ function registerNoteAtlasAction(plugin, openHome, createMenu) {
         document.addEventListener("contextmenu", contextmenu);
         documents.set(document, contextmenu);
     };
-    const destroy = () => { destroyed = true; for (const [document, listener] of documents) document.removeEventListener("contextmenu", listener); documents.clear();
+    const unwatchDocument = document => { const listener = documents.get(document); if (listener) document.removeEventListener("contextmenu", listener); documents.delete(document); };
+    const destroy = () => { destroyed = true; for (const document of documents.keys()) unwatchDocument(document);
         for (const tabs of markedTabs) tabs.classList.remove("hub-atlas-note-tabs"); markedTabs.clear(); };
     watchDocument(globalThis.document);
     sync();
-    return { open, watchDocument, sync, destroy };
+    return { open, watchDocument, unwatchDocument, sync, destroy };
 }
 module.exports = { canOpenAtlas, canUseAtlasContext, registerNoteAtlasAction };
