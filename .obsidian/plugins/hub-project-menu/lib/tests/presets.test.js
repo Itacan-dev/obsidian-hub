@@ -121,16 +121,17 @@ async function test() {
         usableContentLeaves:()=>[{id:"web1"}],pickContentLeaf(){return this.lastActiveNoteLeaf},
         leafPath:()=>null
     });
-    lastFileMode.rememberBrowserLayout(context);
-    assert(lastFileMode.hasLastFile(),"Browser-only Last File remains enabled");
-    assert(await lastFileMode.openLastFile(null),"Actual Last File route restores browser-only layout");
-    assert.equal(liveLayout.active,"web1");
-    assert.equal(liveLayout.main.children[1].children[0].state.type,"webviewer");
-    assert.equal(lastFileMode.lastActiveNoteLeaf.id,"web1","Browser active leaf retained");
-    assert(!lastFileMode.state.lastFile.path,"Browser association never pretends URL is a file");
+    assert(!lastFileMode.hasLastFile(),"Browser-only history is not a file destination");
+    assert.equal(await lastFileMode.openLastFile(null),false,"Last File cannot restore a browser-only workspace");
     lastFileMode.app={...m.app,internalPlugins:{getEnabledPluginById:()=>null}};
     assert(!lastFileMode.hasLastFile(),"Unavailable browser-only layout cannot break navigation");
     assert.deepEqual(lastFileMode.state.projects[context.projectId].layout,browserLayout,"Unavailable layout is retained for later restoration");
+    const history = lastFileMode.navigationHistory;
+    lastFileMode.state.fileHistory = [{ contextId: context.projectId, path: null }, { contextId: context.projectId, path: `${kind}/A.md` }];
+    assert.equal(history.resolveFile().file.path, `${kind}/A.md`, "Legacy browser entry cannot displace the last actual note");
+    const fileHistory = JSON.stringify(lastFileMode.state.fileHistory);
+    history.rememberFile(context);
+    assert.equal(JSON.stringify(lastFileMode.state.fileHistory), fileHistory, "Browser-only activity never enters file history");
     await presets.open(first.id,{});
     m.noteRailState = "closed"; presets.update(first.id); assert.equal(presets.items[0].railState,"closed");
     assert.equal(presets.items[0].name,"Focused","Update preserves preset identity/name");

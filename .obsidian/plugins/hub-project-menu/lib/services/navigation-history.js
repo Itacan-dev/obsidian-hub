@@ -28,6 +28,7 @@ class HubNavigationHistory {
         this.state.workspaceHistory = rememberHistory(this.state.workspaceHistory.filter(id => typeof id === "string"), context.projectId);
     }
     rememberFile(context, file = null) {
+        if (!(file instanceof TFile)) return;
         this.initialize();
         this.state.fileHistory = rememberHistory(this.state.fileHistory.filter(validFileHistoryEntry),
             { contextId: context?.projectId ?? null, path: file?.path ?? null }, fileHistoryKey);
@@ -110,13 +111,15 @@ class HubNavigationHistory {
     resolveFile(scopeId = null) {
         this.prune();
         for (const entry of this.state.fileHistory) {
+            // Old browser-only entries remain available as workspace metadata,
+            // but Last File resolves only a real vault file.
+            if (!entry.path) continue;
             if (scopeId && entry.contextId !== scopeId) continue;
             const context = this.context(entry.contextId) || (entry.path ? this.modes.contextFor(entry.path) : null);
             if (context && !this.eligibleContext(context)) continue;
             if (entry.path && (!this.eligiblePath(entry.path) ||
                 (context && !this.modes.contextContainsFile(context, entry.path)))) continue;
             const layout = this.layout(context, entry);
-            if (!entry.path && !layout) continue;
             return { entry, context, file: this.file(entry.path), layout };
         }
         return null;

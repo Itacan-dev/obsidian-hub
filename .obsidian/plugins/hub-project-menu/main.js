@@ -4567,6 +4567,10 @@ function installAtlasIntegration(plugin) {
             return !!leaf && canUseAtlasContext(plugin, leaf);
         },
         forget(nativeId) { if (!stopped) host?.forget(nativeId); },
+        isUtilityLeaf(leaf) {
+            const state = leaf?.getViewState?.();
+            return state?.type === "webviewer" && (leaf.view?.__hubUtility === true || state.state?.hubUtility === true);
+        },
         openPopout(url, title) {
             if (stopped || !host) return Promise.reject(new Error("Atlas native enforcement is unavailable. Restart Obsidian and try again."));
             if (!app.internalPlugins?.getEnabledPluginById?.("webviewer")) return Promise.reject(new Error("Enable Obsidian's Web viewer core plugin to open Atlas web windows."));
@@ -4577,7 +4581,10 @@ function installAtlasIntegration(plugin) {
                     // The native host already guards new windows and their vault
                     // partition. This only selects the ordinary Obsidian view.
                     watchDocument(leaf.view?.containerEl?.ownerDocument);
-                    await leaf.setViewState({ type: "webviewer", state: { url, title, ...(url === "about:blank" ? { atlasHome: true } : {}) }, active: true });
+                    await leaf.setViewState({ type: "webviewer", state: { url, title, hubUtility: true, ...(url === "about:blank" ? { atlasHome: true } : {}) }, active: true });
+                    // The first webviewer may precede the prototype's discovery.
+                    leaf.view.__hubUtility = true;
+                    app.workspace.requestSaveLayout();
                     if (stopped) throw new Error("Atlas closed while opening the window.");
                     scan();
                     await app.workspace.revealLeaf(leaf);
@@ -4634,13 +4641,15 @@ function installAtlasIntegration(plugin) {
             };
             const setState = prototype.setState, getState = prototype.getState;
             const setStateWrapper = function (state, ...args) {
+                this.__hubUtility = this.__hubUtility === true || state?.hubUtility === true;
                 this.__atlasHome = state?.atlasHome === true && state?.url === "about:blank";
                 const result = setState.call(this, state, ...args);
                 Promise.resolve(result).then(() => { watch(this); refresh(); }, () => {}); return result;
             };
             const getStateWrapper = function (...args) {
                 const state = getState.apply(this, args);
-                return this.__atlasHome || !this.url || this.url === "about:blank" ? { ...state, url: "about:blank", atlasHome: true, title: "Atlas" } : state;
+                const saved = this.__atlasHome || !this.url || this.url === "about:blank" ? { ...state, url: "about:blank", atlasHome: true, title: "Atlas" } : state;
+                return this.__hubUtility ? { ...saved, hubUtility: true } : saved;
             };
             patches.set(prototype, { original, wrapper, navigate, navigateWrapper, setState, getState, setStateWrapper, getStateWrapper }); prototype.instantiateWebView = wrapper;
             if (typeof navigate === "function") prototype.navigate = navigateWrapper;
@@ -4846,6 +4855,17 @@ function installAtlasIntegration(plugin) {
     const scanTimer = setInterval(scan, 500);
     plugin.registerEvent(app.workspace.on("layout-change", scan));
     plugin.registerEvent(app.workspace.on("window-open", (_workspaceWindow, openedWindow) => watchDocument(openedWindow?.document)));
+    plugin.registerEvent(app.workspace.on("quit", tasks => {
+        const utilities = app.workspace.getLeavesOfType("webviewer").filter(bridge.isUtilityLeaf);
+        if (!utilities.length) return;
+        tasks.add(async () => {
+            for (const leaf of utilities) if (bridge.isUtilityLeaf(leaf)) leaf.detach();
+            // Obsidian saves once before emitting quit; request and await the
+            // updated layout through its public debouncer after our cleanup.
+            app.workspace.requestSaveLayout();
+            await app.workspace.requestSaveLayout.run();
+        });
+    }));
     app.workspace.onLayoutReady(scan);
     action = registerNoteAtlasAction(plugin, (source, expectedMode) => {
         if (!canOpenAtlas(plugin, source, expectedMode) || stopped || !host) return Promise.resolve(false);
@@ -7911,7 +7931,7 @@ module.exports = { HISTORY_LIMIT, fileHistoryKey, validFileHistoryEntry, uniqueH
 // Store native main-workspace trees, never sidebars or other window state.
 // Missing files are pruned at restore time; markdown content always opens editable.
 function browserViewState(view) {
-    if (view?.type !== "webviewer" || typeof view.state?.url !== "string") return null;
+    if (view?.type !== "webviewer" || view.state?.hubUtility === true || typeof view.state?.url !== "string") return null;
     if (view.state.url === "about:blank" && view.state.atlasHome === true) return { url: "about:blank", atlasHome: true, title: "Atlas" };
     try {
         const url = new URL(view.state.url);
@@ -7981,7 +8001,28 @@ function rewriteLayoutPaths(snapshot, rewrite) {
     return copy;
 }
 
-module.exports = { prepareNoteLayout, rewriteLayoutPaths, browserViewState };
+// Native changeLayout rebuilds floating windows too. Keep unrelated windows,
+// but never re-create a footer utility as a side effect of restoring notes.
+function withoutUtilityViews(snapshot) {
+    const copy = JSON.parse(JSON.stringify(snapshot));
+    const visit = node => {
+        if (!node || typeof node !== "object") return node;
+        if (node.type === "leaf") return node.state?.type === "webviewer" && node.state.state?.hubUtility === true ? null : node;
+        if (!Array.isArray(node.children)) return node;
+        const selected = node.children[node.currentTab ?? 0]?.id;
+        const count = node.children.length;
+        node.children = node.children.map(visit).filter(Boolean);
+        if (node.type === "tabs" && node.children.length !== count) node.currentTab = Math.max(0, node.children.findIndex(child => child.id === selected));
+        return node.children.length || count === 0 ? node : null;
+    };
+    if (copy.floating) {
+        const floating = visit(copy.floating);
+        if (floating) copy.floating = floating; else delete copy.floating;
+    }
+    return copy;
+}
+
+module.exports = { prepareNoteLayout, rewriteLayoutPaths, browserViewState, withoutUtilityViews };
 
 },
 "lib/domain/note-insertion.js": function (module, exports, __hubRequire) {
@@ -12709,6 +12750,7 @@ class HubNavigationHistory {
         this.state.workspaceHistory = rememberHistory(this.state.workspaceHistory.filter(id => typeof id === "string"), context.projectId);
     }
     rememberFile(context, file = null) {
+        if (!(file instanceof TFile)) return;
         this.initialize();
         this.state.fileHistory = rememberHistory(this.state.fileHistory.filter(validFileHistoryEntry),
             { contextId: context?.projectId ?? null, path: file?.path ?? null }, fileHistoryKey);
@@ -12791,13 +12833,15 @@ class HubNavigationHistory {
     resolveFile(scopeId = null) {
         this.prune();
         for (const entry of this.state.fileHistory) {
+            // Old browser-only entries remain available as workspace metadata,
+            // but Last File resolves only a real vault file.
+            if (!entry.path) continue;
             if (scopeId && entry.contextId !== scopeId) continue;
             const context = this.context(entry.contextId) || (entry.path ? this.modes.contextFor(entry.path) : null);
             if (context && !this.eligibleContext(context)) continue;
             if (entry.path && (!this.eligiblePath(entry.path) ||
                 (context && !this.modes.contextContainsFile(context, entry.path)))) continue;
             const layout = this.layout(context, entry);
-            if (!entry.path && !layout) continue;
             return { entry, context, file: this.file(entry.path), layout };
         }
         return null;
@@ -25589,6 +25633,7 @@ const {
     publicResourceType,
     prepareNoteLayout,
     rewriteLayoutPaths,
+    withoutUtilityViews,
     reduceActivityLog,
     replacePathRoot,
     shortDateLabel,
@@ -32824,23 +32869,6 @@ class HubWorkspaceModeService {
         };
         this.navigationHistory.rememberConfiguration(this.mode.project, configuration, Date.now(), worked);
         this.state.projects[id] = { ...this.state.projects[id], hubPath: this.mode.project.path, layout: snapshot };
-        const hasFile = node => node?.type === "leaf"
-            ? !!node.state?.state?.file && node.state.state.file !== this.mode.project.path
-            : (node?.children ?? []).some(hasFile);
-        const activeView = this.lastActiveNoteLeaf?.getViewState?.() ??
-            this.app.workspace.activeLeaf?.getViewState?.();
-        if (activeView?.type === "webviewer" ||
-            !hasFile(snapshot.main)) this.rememberBrowserLayout(this.mode.project);
-        this.saveState();
-    }
-
-    rememberBrowserLayout(context) {
-        if (this.plugin.oath?.canOpen(context, false) === false) return;
-        this.rememberContext(context);
-        // Workspace association, not a fabricated file path for a browser URL.
-        this.state.lastFile = { contextKind: context.contextKind ?? "project",
-            contextId: context.contextKind === "resource" ? context.resourceType : context.projectId };
-        this.navigationHistory.rememberFile(context);
         this.saveState();
     }
 
@@ -32917,7 +32945,7 @@ class HubWorkspaceModeService {
         const restore = this.prepareRestoredNoteMode(context, snapshot);
         this.pendingNoteRestore = restore;
         try {
-            const changing = this.app.workspace.changeLayout({ ...this.app.workspace.getLayout(), ...prepared.snapshot });
+            const changing = this.app.workspace.changeLayout({ ...withoutUtilityViews(this.app.workspace.getLayout()), ...prepared.snapshot });
             restore.adopt();
             await changing;
             if (this.destroyed) return false;
@@ -32935,7 +32963,6 @@ class HubWorkspaceModeService {
         this.state.currentMode = "note";
         const activeFile = this.app.vault.getAbstractFileByPath(this.leafPath(this.lastActiveNoteLeaf) ?? "");
         if (activeFile instanceof TFile) this.rememberNote(context, activeFile);
-        else this.rememberBrowserLayout(context);
         this.applyModeClasses();
         this.collapseNativeSidebars();
         this.plugin.presets?.applyPendingFolders();
@@ -33344,6 +33371,8 @@ class HubWorkspaceModeService {
 
 
     isMainLeaf(leaf) {
+
+        if (this.plugin.atlas?.isUtilityLeaf(leaf)) return false;
 
         const element =
             this.leafElement(leaf);

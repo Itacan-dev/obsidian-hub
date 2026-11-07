@@ -25,39 +25,73 @@ const server = http.createServer((request, response) => {
     fs.cpSync(path.join(workspace, "System/Dashboards"), path.join(vault, "System/Dashboards"), { recursive: true });
     fs.writeFileSync(path.join(vault, "Home.md"), "# Pop-out test\n");
     fs.writeFileSync(path.join(vault, "Original.md"), "# Original note\n\nKeep this note intact.\n");
+    fs.mkdirSync(path.join(vault, "Projects/Fixture/Notes"), { recursive: true });
+    fs.writeFileSync(path.join(vault, "Projects/Fixture/Fixture.md"), "---\ntype: project\nprojectId: 82b767fe-682b-4184-8918-3a5c47b45a25\nstatus: active\ncategory: physics-research\n---\n# Fixture\n");
+    for (const name of ["A", "B"]) fs.writeFileSync(path.join(vault, "Projects/Fixture/Notes", name + ".md"), "# " + name + "\n");
     const obsidian = path.join(vault, ".obsidian");
     fs.writeFileSync(path.join(obsidian, "app.json"), JSON.stringify({ safeMode: false }));
     fs.writeFileSync(path.join(obsidian, "core-plugins.json"), JSON.stringify({ "file-explorer": true, webviewer: true }));
     const helper = path.join(obsidian, "plugins/popout-acceptance"); fs.mkdirSync(helper, { recursive: true });
     fs.writeFileSync(path.join(helper, "manifest.json"), JSON.stringify({ id: "popout-acceptance", name: "Isolated pop-out acceptance", version: "1.0.0", minAppVersion: "1.0.0" }));
-    fs.writeFileSync(path.join(helper, "main.js"), 'const api=require("obsidian");module.exports=class extends api.Plugin{onload(){window.__popoutApi=api;}}');
-    fs.writeFileSync(path.join(obsidian, "community-plugins.json"), JSON.stringify(["popout-acceptance", "hub-project-menu"]));
+    fs.writeFileSync(path.join(helper, "main.js"), 'const api=require("obsidian");module.exports=class extends api.Plugin{onload(){window.__popoutApi=api;window.__fixtureErrors=[];const original=console.error;console.error=(...args)=>{window.__fixtureErrors.push(args.map(x=>x?.stack??String(x)).join(" "));original(...args)};this.register(()=>console.error=original);}}');
+    const dataview = path.join(obsidian, "plugins/dataview"); fs.mkdirSync(dataview, { recursive: true });
+    for (const name of ["manifest.json", "main.js", "styles.css"]) fs.copyFileSync(path.join(workspace, ".obsidian/plugins/dataview", name), path.join(dataview, name));
+    fs.writeFileSync(path.join(dataview, "data.json"), JSON.stringify({ enableDataviewJs: true }));
+    fs.writeFileSync(path.join(obsidian, "community-plugins.json"), JSON.stringify(["dataview", "popout-acceptance", "hub-project-menu"]));
     const sourceProfile = path.join(process.env.APPDATA, "obsidian"), archive = fs.readdirSync(sourceProfile).filter(n => /^obsidian-\d+\.\d+\.\d+\.asar$/.test(n)).sort((a,b) => b.localeCompare(a, undefined, { numeric: true }))[0];
     fs.copyFileSync(path.join(sourceProfile, archive), path.join(profile, archive));
     fs.writeFileSync(path.join(profile, "obsidian.json"), JSON.stringify({ vaults: { popoutfixture: { path: vault, ts: Date.now(), open: true } }, updateDisabled: true, cli: false }));
     fs.writeFileSync(path.join(profile, "popoutfixture.json"), "{}");
     await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
     const port = 19317;
-    child = cp.spawn(exe, ["--user-data-dir=" + profile, "--remote-debugging-address=127.0.0.1", "--remote-debugging-port=" + port, "--host-resolver-rules=MAP *.test 127.0.0.1", "--no-proxy-server", "--disable-gpu"], {
-        windowsHide: true, stdio: ["ignore", "ignore", "pipe"], env: { ...process.env, LOCALAPPDATA: path.join(root, "local") }
-    });
-    let stderr = ""; child.stderr.on("data", data => { stderr += data; fs.writeFileSync(path.join(root, "stderr.txt"), stderr); });
-    for (let i = 0; i < 100; i++) { try { client = await connect(port); break; } catch {} await delay(200); }
-    assert(client, "Installed Obsidian exposes the isolated renderer");
-    for (let i = 0; i < 100; i++) { if (await client.evaluate("!!window.app?.plugins")) break; await delay(100); }
-    const identity = await client.evaluate('({vault:app.vault.adapter.getBasePath(),profile:window.electron.remote.app.getPath("userData"),version:window.__popoutApi?.apiVersion,versions:process.versions})');
-    assert.equal(path.resolve(identity.vault), vault); assert.equal(path.resolve(identity.profile), profile); verified = true;
-    for (let i = 0; i < 120; i++) {
-        if (await client.evaluate("!!app.plugins.plugins['hub-project-menu']?.atlas && !!window.__popoutApi")) break;
-        await client.evaluate(`(()=>{const b=[...document.querySelectorAll('.modal-container button')].find(b=>/^(Trust author|Confiar en el autor)/i.test(b.textContent.trim()));if(b&&!b.disabled)b.click();})()`);
-        await delay(150);
+    async function start() {
+        client = null;
+        child = cp.spawn(exe, ["--user-data-dir=" + profile, "--remote-debugging-address=127.0.0.1", "--remote-debugging-port=" + port, "--host-resolver-rules=MAP *.test 127.0.0.1", "--no-proxy-server", "--disable-gpu"], {
+            windowsHide: true, stdio: ["ignore", "ignore", "pipe"], env: { ...process.env, LOCALAPPDATA: path.join(root, "local") }
+        });
+        let stderr = ""; child.stderr.on("data", data => { stderr += data; fs.writeFileSync(path.join(root, "stderr.txt"), stderr); });
+        for (let i = 0; i < 100; i++) { try { client = await connect(port); break; } catch {} await delay(200); }
+        assert(client, "Installed Obsidian exposes the isolated renderer");
+        for (let i = 0; i < 100; i++) { if (await client.evaluate("!!window.app?.plugins")) break; await delay(100); }
+        const identity = await client.evaluate('({vault:app.vault.adapter.getBasePath(),profile:window.electron.remote.app.getPath("userData"),version:window.__popoutApi?.apiVersion,versions:process.versions})');
+        assert.equal(path.resolve(identity.vault), vault); assert.equal(path.resolve(identity.profile), profile); verified = true;
+        for (let i = 0; i < 120; i++) {
+            if (await client.evaluate("!!app.plugins.plugins['hub-project-menu']?.atlas && !!window.__popoutApi")) break;
+            await client.evaluate(`(()=>{const seen=window.__fixtureTrustedButtons??=new WeakSet();const b=[...document.querySelectorAll('.modal-container button')].find(b=>/^(Trust author|Confiar en el autor)/i.test(b.textContent.trim()));if(b&&!b.disabled&&!seen.has(b)){seen.add(b);b.click();}})()`);
+            await delay(150);
+        }
+        return identity;
     }
-    const result = await client.evaluate(`(${renderer.toString()})(${JSON.stringify(server.address().port)})`);
-    assert.equal(requests.some(r => r.host === "blocked.test"), false, "denied requests never reach the server");
-    assert(requests.some(r => r.host === "trusted.test"), "allowed navigation reaches the server");
+    const identity = await start();
+    let result;
+    if (process.argv.includes("--last-file")) {
+        const fixture = JSON.stringify(path.join(__dirname, "last-file-installed.cjs"));
+        const before = await client.evaluate(`require(${fixture})({app,phase:"before"})`);
+        const exited = new Promise((resolve, reject) => {
+            const timeout = setTimeout(() => reject(Error("Obsidian did not quit cleanly")), 15000);
+            child.once("exit", () => { clearTimeout(timeout); resolve(); });
+        });
+        await client.evaluate('setTimeout(()=>window.electron.remote.app.quit(),0);true');
+        await exited;
+        client.close();
+        const saved = fs.readFileSync(path.join(obsidian, "workspace.json"), "utf8");
+        assert(!/"hubUtility"\s*:\s*true/.test(saved), "clean quit excludes owned utilities from native restoration");
+        fs.writeFileSync(path.join(root, "closed-workspace.json"), saved);
+        await start();
+        const after = await client.evaluate(`require(${fixture})({app,phase:"after",expected:${JSON.stringify(before)}})`);
+        result = { before, after };
+    } else {
+        result = await client.evaluate(`(${renderer.toString()})(${JSON.stringify(server.address().port)})`);
+        assert.equal(requests.some(r => r.host === "blocked.test"), false, "denied requests never reach the server");
+        assert(requests.some(r => r.host === "trusted.test"), "allowed navigation reaches the server");
+    }
     fs.writeFileSync(path.join(root, "result.json"), JSON.stringify({ pass: true, identity, ...result, requests }, null, 2));
     console.log(JSON.stringify({ root, pass: true, ...result }));
-})().catch(error => { fs.writeFileSync(path.join(root, "error.txt"), error.stack); console.error(root, error); process.exitCode = 1; }).finally(async () => {
+})().catch(async error => {
+    fs.writeFileSync(path.join(root, "error.txt"), error.stack);
+    if (verified) try { fs.writeFileSync(path.join(root, "renderer-errors.json"), JSON.stringify(await client.evaluate('({errors:window.__fixtureErrors,hubReady:!!app.plugins.plugins["hub-project-menu"]?.preparedNoteRails,metadata:app.metadataCache.initialized,dataview:app.plugins.plugins.dataview?.index?.initialized})'), null, 2)); } catch {}
+    console.error(root, error); process.exitCode = 1;
+}).finally(async () => {
     if (verified) try { await client.evaluate('setTimeout(()=>window.electron.remote.app.quit(),0);true'); } catch {}
     client?.close(); server.close(); server.closeAllConnections();
     if (child) { await delay(1000); if (child.exitCode === null) child.kill(); }
@@ -125,7 +159,7 @@ async function renderer(port) {
     await until(() => control("Confirm and open homepage"), "pop-out confirmation control");
     assert.equal(bridge.view().snapshot.accessState.grants.length, 0);
     control("Confirm and open homepage").click();
-    await until(() => contextFor(leaf)?.phase === "DISPLAYED", "confirmed access loads fresh homepage");
+    await until(() => contextFor(leaf)?.phase === "DISPLAYED" && leaf.view.url === "http://unknown.test:" + port + "/", "confirmed access loads fresh homepage");
     assert.equal(leaf.view.url, "http://unknown.test:" + port + "/");
     assert.equal(bridge.view().snapshot.accessState.grants.length, 1);
     checks.push("Pop-out Access buttons require waiting and explicit confirmation before granting and opening a fresh homepage");
