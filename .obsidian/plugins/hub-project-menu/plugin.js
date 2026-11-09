@@ -113,6 +113,7 @@ const {
     publicResourceType,
     prepareNoteLayout,
     rewriteLayoutPaths,
+    withoutUtilityViews,
     reduceActivityLog,
     replacePathRoot,
     shortDateLabel,
@@ -7356,23 +7357,6 @@ class HubWorkspaceModeService {
         };
         this.navigationHistory.rememberConfiguration(this.mode.project, configuration, Date.now(), worked);
         this.state.projects[id] = { ...this.state.projects[id], hubPath: this.mode.project.path, layout: snapshot };
-        const hasFile = node => node?.type === "leaf"
-            ? !!node.state?.state?.file && node.state.state.file !== this.mode.project.path
-            : (node?.children ?? []).some(hasFile);
-        const activeView = this.lastActiveNoteLeaf?.getViewState?.() ??
-            this.app.workspace.activeLeaf?.getViewState?.();
-        if (activeView?.type === "webviewer" ||
-            !hasFile(snapshot.main)) this.rememberBrowserLayout(this.mode.project);
-        this.saveState();
-    }
-
-    rememberBrowserLayout(context) {
-        if (this.plugin.oath?.canOpen(context, false) === false) return;
-        this.rememberContext(context);
-        // Workspace association, not a fabricated file path for a browser URL.
-        this.state.lastFile = { contextKind: context.contextKind ?? "project",
-            contextId: context.contextKind === "resource" ? context.resourceType : context.projectId };
-        this.navigationHistory.rememberFile(context);
         this.saveState();
     }
 
@@ -7449,7 +7433,7 @@ class HubWorkspaceModeService {
         const restore = this.prepareRestoredNoteMode(context, snapshot);
         this.pendingNoteRestore = restore;
         try {
-            const changing = this.app.workspace.changeLayout({ ...this.app.workspace.getLayout(), ...prepared.snapshot });
+            const changing = this.app.workspace.changeLayout({ ...withoutUtilityViews(this.app.workspace.getLayout()), ...prepared.snapshot });
             restore.adopt();
             await changing;
             if (this.destroyed) return false;
@@ -7467,7 +7451,6 @@ class HubWorkspaceModeService {
         this.state.currentMode = "note";
         const activeFile = this.app.vault.getAbstractFileByPath(this.leafPath(this.lastActiveNoteLeaf) ?? "");
         if (activeFile instanceof TFile) this.rememberNote(context, activeFile);
-        else this.rememberBrowserLayout(context);
         this.applyModeClasses();
         this.collapseNativeSidebars();
         this.plugin.presets?.applyPendingFolders();
@@ -7876,6 +7859,8 @@ class HubWorkspaceModeService {
 
 
     isMainLeaf(leaf) {
+
+        if (this.plugin.atlas?.isUtilityLeaf(leaf)) return false;
 
         const element =
             this.leafElement(leaf);

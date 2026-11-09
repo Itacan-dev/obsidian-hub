@@ -38,6 +38,10 @@ function installAtlasIntegration(plugin) {
             return !!leaf && canUseAtlasContext(plugin, leaf);
         },
         forget(nativeId) { if (!stopped) host?.forget(nativeId); },
+        isUtilityLeaf(leaf) {
+            const state = leaf?.getViewState?.();
+            return state?.type === "webviewer" && (leaf.view?.__hubUtility === true || state.state?.hubUtility === true);
+        },
         openPopout(url, title) {
             if (stopped || !host) return Promise.reject(new Error("Atlas native enforcement is unavailable. Restart Obsidian and try again."));
             if (!app.internalPlugins?.getEnabledPluginById?.("webviewer")) return Promise.reject(new Error("Enable Obsidian's Web viewer core plugin to open Atlas web windows."));
@@ -48,7 +52,10 @@ function installAtlasIntegration(plugin) {
                     // The native host already guards new windows and their vault
                     // partition. This only selects the ordinary Obsidian view.
                     watchDocument(leaf.view?.containerEl?.ownerDocument);
-                    await leaf.setViewState({ type: "webviewer", state: { url, title, ...(url === "about:blank" ? { atlasHome: true } : {}) }, active: true });
+                    await leaf.setViewState({ type: "webviewer", state: { url, title, hubUtility: true, ...(url === "about:blank" ? { atlasHome: true } : {}) }, active: true });
+                    // The first webviewer may precede the prototype's discovery.
+                    leaf.view.__hubUtility = true;
+                    app.workspace.requestSaveLayout();
                     if (stopped) throw new Error("Atlas closed while opening the window.");
                     scan();
                     await app.workspace.revealLeaf(leaf);
@@ -105,13 +112,15 @@ function installAtlasIntegration(plugin) {
             };
             const setState = prototype.setState, getState = prototype.getState;
             const setStateWrapper = function (state, ...args) {
+                this.__hubUtility = this.__hubUtility === true || state?.hubUtility === true;
                 this.__atlasHome = state?.atlasHome === true && state?.url === "about:blank";
                 const result = setState.call(this, state, ...args);
                 Promise.resolve(result).then(() => { watch(this); refresh(); }, () => {}); return result;
             };
             const getStateWrapper = function (...args) {
                 const state = getState.apply(this, args);
-                return this.__atlasHome || !this.url || this.url === "about:blank" ? { ...state, url: "about:blank", atlasHome: true, title: "Atlas" } : state;
+                const saved = this.__atlasHome || !this.url || this.url === "about:blank" ? { ...state, url: "about:blank", atlasHome: true, title: "Atlas" } : state;
+                return this.__hubUtility ? { ...saved, hubUtility: true } : saved;
             };
             patches.set(prototype, { original, wrapper, navigate, navigateWrapper, setState, getState, setStateWrapper, getStateWrapper }); prototype.instantiateWebView = wrapper;
             if (typeof navigate === "function") prototype.navigate = navigateWrapper;
@@ -317,6 +326,17 @@ function installAtlasIntegration(plugin) {
     const scanTimer = setInterval(scan, 500);
     plugin.registerEvent(app.workspace.on("layout-change", scan));
     plugin.registerEvent(app.workspace.on("window-open", (_workspaceWindow, openedWindow) => watchDocument(openedWindow?.document)));
+    plugin.registerEvent(app.workspace.on("quit", tasks => {
+        const utilities = app.workspace.getLeavesOfType("webviewer").filter(bridge.isUtilityLeaf);
+        if (!utilities.length) return;
+        tasks.add(async () => {
+            for (const leaf of utilities) if (bridge.isUtilityLeaf(leaf)) leaf.detach();
+            // Obsidian saves once before emitting quit; request and await the
+            // updated layout through its public debouncer after our cleanup.
+            app.workspace.requestSaveLayout();
+            await app.workspace.requestSaveLayout.run();
+        });
+    }));
     app.workspace.onLayoutReady(scan);
     action = registerNoteAtlasAction(plugin, (source, expectedMode) => {
         if (!canOpenAtlas(plugin, source, expectedMode) || stopped || !host) return Promise.resolve(false);

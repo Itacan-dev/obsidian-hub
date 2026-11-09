@@ -22,15 +22,16 @@ class Menu{
  addSeparator(){this.separators++}onHide(fn){this.hidden=fn}hide(){this.dom.remove();this.hidden?.()}
  showAtMouseEvent(){document.body.append(this.dom)}showAtPosition(){this.showAtMouseEvent()}
 }
+const colorScope={exports:{}};new Function('module',await(await fetch('../ui/color-system.js')).text())(colorScope);
 const notices=[];
 const pointerReorder={exports:{}};new Function('module',await(await fetch('../ui/pointer-list-reorder.js')).text())(pointerReorder);
 const windowTitle={exports:{}};new Function('module','require',await(await fetch('../ui/window-title.js')).text())(windowTitle,()=>({setIcon(el,name){el.dataset.icon=name;el.innerHTML='<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor"/></svg>'}}));
 const saveState={exports:{}};new Function('module',await(await fetch('../ui/modal-save.js')).text())(saveState);
-const module={exports:{}};new Function('module','require',await(await fetch('../ui/presets.js')).text())(module,name=>name==='./window-title'?windowTitle.exports:name==='./modal-save'?saveState.exports:name==='./pointer-list-reorder'?pointerReorder.exports:({Modal,Menu,setIcon(el,name){el.dataset.icon=name;el.innerHTML='<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor"/></svg>'},Notice:class{constructor(m){notices.push(m)}}}));
+const module={exports:{}};new Function('module','require',await(await fetch('../ui/presets.js')).text())(module,name=>name==='./color-system'?colorScope.exports:name==='./window-title'?windowTitle.exports:name==='./modal-save'?saveState.exports:name==='./pointer-list-reorder'?pointerReorder.exports:({Modal,Menu,setIcon(el,name){el.dataset.icon=name;el.innerHTML='<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor"/></svg>'},Notice:class{constructor(m){notices.push(m)}}}));
 const tooltips={exports:{}},ui={exports:{}};
-new Function('module',await(await fetch('../ui/tooltips.js')).text())(tooltips);
+new Function('module','require',await(await fetch('../ui/tooltips.js')).text())(tooltips,n=>{if(n==='./color-system')return colorScope.exports;throw Error('Unknown tooltip dependency '+n)});
 const disclosure={exports:{}};new Function('module','require',await(await fetch('../ui/disclosure.js')).text())(disclosure,()=>({setIcon(el,name){el.dataset.icon=name;el.innerHTML='<svg viewBox=\"0 0 24 24\"></svg>'}}));
-new Function('module','require',await(await fetch('../ui/dashboard-ui.js')).text())(ui,name=>name==='./disclosure'?disclosure.exports:name==='obsidian'?{setIcon(el,name){el.dataset.icon=name;el.innerHTML='<svg viewBox="0 0 24 24"></svg>'}}:tooltips.exports);
+new Function('module','require',await(await fetch('../ui/dashboard-ui.js')).text())(ui,name=>name==='./color-system'?colorScope.exports:name==='./disclosure'?disclosure.exports:name==='obsidian'?{setIcon(el,name){el.dataset.icon=name;el.innerHTML='<svg viewBox="0 0 24 24"></svg>'}}:tooltips.exports);
 const calls=[],presets={modes:{app:{}},canSave:false,items:[],defaultName:()=> 'Preset 1',
 create(name){calls.push(['create',name]);this.items.push({id:'p',name:name.trim()||this.defaultName()})},
 rename(id,name){calls.push(['rename',id,name]);this.items.find(item=>item.id===id).name=name},delete(id){calls.push(['delete',id]);this.items=this.items.filter(item=>item.id!==id)},

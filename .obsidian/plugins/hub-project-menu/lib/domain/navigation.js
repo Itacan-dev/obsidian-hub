@@ -3,7 +3,7 @@
 // Store native main-workspace trees, never sidebars or other window state.
 // Missing files are pruned at restore time; markdown content always opens editable.
 function browserViewState(view) {
-    if (view?.type !== "webviewer" || typeof view.state?.url !== "string") return null;
+    if (view?.type !== "webviewer" || view.state?.hubUtility === true || typeof view.state?.url !== "string") return null;
     if (view.state.url === "about:blank" && view.state.atlasHome === true) return { url: "about:blank", atlasHome: true, title: "Atlas" };
     try {
         const url = new URL(view.state.url);
@@ -73,4 +73,25 @@ function rewriteLayoutPaths(snapshot, rewrite) {
     return copy;
 }
 
-module.exports = { prepareNoteLayout, rewriteLayoutPaths, browserViewState };
+// Native changeLayout rebuilds floating windows too. Keep unrelated windows,
+// but never re-create a footer utility as a side effect of restoring notes.
+function withoutUtilityViews(snapshot) {
+    const copy = JSON.parse(JSON.stringify(snapshot));
+    const visit = node => {
+        if (!node || typeof node !== "object") return node;
+        if (node.type === "leaf") return node.state?.type === "webviewer" && node.state.state?.hubUtility === true ? null : node;
+        if (!Array.isArray(node.children)) return node;
+        const selected = node.children[node.currentTab ?? 0]?.id;
+        const count = node.children.length;
+        node.children = node.children.map(visit).filter(Boolean);
+        if (node.type === "tabs" && node.children.length !== count) node.currentTab = Math.max(0, node.children.findIndex(child => child.id === selected));
+        return node.children.length || count === 0 ? node : null;
+    };
+    if (copy.floating) {
+        const floating = visit(copy.floating);
+        if (floating) copy.floating = floating; else delete copy.floating;
+    }
+    return copy;
+}
+
+module.exports = { prepareNoteLayout, rewriteLayoutPaths, browserViewState, withoutUtilityViews };

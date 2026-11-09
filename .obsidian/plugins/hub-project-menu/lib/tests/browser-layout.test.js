@@ -1,6 +1,6 @@
 "use strict";
 const assert = require("assert");
-const { prepareNoteLayout, rewriteLayoutPaths } = require("../domain/navigation");
+const { prepareNoteLayout, rewriteLayoutPaths, withoutUtilityViews } = require("../domain/navigation");
 const file = (id, path) => ({ id, type: "leaf", state: { type: "markdown", state: { file: path } } });
 const browser = (id, url) => ({ id, type: "leaf", state: { type: "webviewer",
     state: { url, title: id, mode: "reader", navigate: true, history: ["private"], loading: true } } });
@@ -35,3 +35,21 @@ const rewritten=rewriteLayoutPaths(prepareNoteLayout(mixed,"Hub.md",exists),p=>p
 assert.equal(rewritten.main.children[1].children[0].state.state.file,"Moved.md");
 assert.equal(rewritten.main.children[1].children[1].state.state.url,a.state.state.url);
 console.log("Browser layout tests passed: files-only, browser-only, interspersed tabs, URL/title whitelist, ordering/active tabs, invalid URLs, unavailable provider, input immutability and file-only rename.");
+
+const utility = browser("utility", "https://chatgpt.com/"); utility.state.state.hubUtility = true;
+const homeUtility = browser("utility-home", "about:blank"); Object.assign(homeUtility.state.state, { atlasHome: true, hubUtility: true });
+const utilityLayout = layout([file("a", "A.md"), utility, homeUtility, a]);
+assert.deepEqual(prepareNoteLayout(utilityLayout, "Hub.md", exists).main.children[1].children.map(n => n.id), ["a", "web-a"]);
+assert.equal(prepareNoteLayout(layout([utility, homeUtility]), "Hub.md", exists), null);
+const floating = { main: mixed.main, active: "a", left: { keep: true }, floating: { type: "floating", children: [
+    { type: "window", id: "utility-window", children: [{ type: "tabs", children: [utility] }] },
+    { type: "window", id: "mixed-window", children: [{ type: "tabs", currentTab: 1, children: [homeUtility, file("pop-note", "B.md"), a] }] },
+    { type: "window", id: "ordinary-window", children: [{ type: "tabs", children: [browser("ordinary", "https://chatgpt.com/")] }] }
+] } };
+const originalFloating = JSON.stringify(floating), filtered = withoutUtilityViews(floating);
+assert.equal(JSON.stringify(floating), originalFloating);
+assert.deepEqual(filtered.main, floating.main); assert.deepEqual(filtered.left, floating.left);
+assert.deepEqual(filtered.floating.children.map(n => n.id), ["mixed-window", "ordinary-window"]);
+assert.deepEqual(filtered.floating.children[0].children[0].children.map(n => n.id), ["pop-note", "web-a"]);
+assert.equal(filtered.floating.children[0].children[0].currentTab, 0);
+assert.deepEqual(filtered.floating.children[1], floating.floating.children[2], "URL alone never identifies a utility");
