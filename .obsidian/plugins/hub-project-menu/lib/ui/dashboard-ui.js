@@ -1,4 +1,5 @@
 "use strict";
+const { ownColorRoot } = require("./color-system");
 const { disclosureIcons } = require("./disclosure");
 const { formatDate, formatTime, formatDateTime, formatWeekday, formatDateRange, historyDateLabel } = require("../domain/dates");
 const { setHubTooltip } = require("./tooltips");
@@ -247,6 +248,7 @@ function createDashboardUi({
         createProgressHeatmap: require("./progress-heatmap").createProgressHeatmap,
         progressColors,
         progressColor,
+        ownColorRoot,
         selectNavigation
     });
 }

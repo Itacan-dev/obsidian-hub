@@ -1,4 +1,5 @@
 "use strict";
+const { ownNoticeColors } = require("../ui/color-system");
 const path=require('node:path');
 const {createApplication,stableId}=require('../../../../../ItacanTaskCore/vnext/application.cjs');
 const {connect,unavailable}=require('../../../../../ItacanTaskCore/vnext/host/renderer.cjs');
@@ -24,11 +25,11 @@ function createNativeTaskHost(plugin){
  host.ready.then(()=>{host.startupMs=performance.now()-started;host.startupFromPluginMs=plugin.taskStartupClock===undefined?null:performance.now()-plugin.taskStartupClock},error=>{
   diagnostic({stage:'failed',error:{code:error.code??'TASK_START_FAILED',message:error.message}});
   console.error('Itacan task startup failed',host.diagnostics(),error);
-  new (require('obsidian').Notice)('Tasks could not start ('+(error.code??'TASK_START_FAILED')+'). '+error.message+' Run Task runtime diagnostics for details.',0);
+  ownNoticeColors(new (require('obsidian').Notice)('Tasks could not start ('+(error.code??'TASK_START_FAILED')+'). '+error.message+' Run Task runtime diagnostics for details.',0));
  });
  plugin.addCommand({id:'task-runtime-diagnostics',name:'Task runtime diagnostics',callback:()=>{
   console.info('Itacan task runtime diagnostics',host.diagnostics());
-  new (require('obsidian').Notice)('Task runtime: '+diagnostics.stage+(diagnostics.error?' — '+diagnostics.error.code+': '+diagnostics.error.message:'')+'. Details are in the developer console.',10000);
+  ownNoticeColors(new (require('obsidian').Notice)('Task runtime: '+diagnostics.stage+(diagnostics.error?' — '+diagnostics.error.code+': '+diagnostics.error.message:'')+'. Details are in the developer console.',10000));
  }});
  host.pendingOperations=()=>pendingStore.list();host.retryPending=async()=>{for(const c of pendingStore.list()){await host.retryOriginal(c)}await host.refreshInventory();};
  let timer;const refresh=()=>{clearTimeout(timer);timer=setTimeout(()=>void host.refreshInventory().catch(console.error),50)};

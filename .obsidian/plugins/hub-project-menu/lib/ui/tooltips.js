@@ -1,5 +1,5 @@
 "use strict";
-
+const { inheritColorOwner } = require("./color-system");
 function setHubTooltip(element, text, position = "bottom") {
     element.removeAttribute("title");
     if (!text) {
@@ -109,6 +109,7 @@ function createImmediateHubTooltip(root, { interactive = false, contentOnly = fa
         const description = tooltip.appendChild(doc.createElement('div'));
         description.className = 'hub-detail-tooltip-description';
         description.textContent = definition.description;
+        inheritColorOwner(tooltip, root);
         doc.body.append(tooltip);
         if (interactive) {
             // The same native tooltip surface enters the top layer only for
@@ -235,7 +236,8 @@ function bindHubFocusTooltip(root, component, selector) {
             tooltip.id = `hub-focus-tooltip-${++detailTooltipId}`;
             tooltip.textContent = element.dataset.hubFocusTooltip || element.getAttribute("aria-label");
             const arrow = tooltip.appendChild(doc.createElement("div")); arrow.className = "tooltip-arrow";
-            doc.body.append(tooltip); element.setAttribute("aria-describedby", tooltip.id);
+            inheritColorOwner(tooltip, root);
+        doc.body.append(tooltip); element.setAttribute("aria-describedby", tooltip.id);
             const bounds = element.getBoundingClientRect(), size = tooltip.getBoundingClientRect();
             const gap = Number(element.getAttribute("data-tooltip-gap") ?? 8);
             const center = Math.max(size.width / 2 + gap, Math.min(bounds.left + bounds.width / 2, win.innerWidth - size.width / 2 - gap));

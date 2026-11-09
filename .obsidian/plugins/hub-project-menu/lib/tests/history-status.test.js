@@ -53,12 +53,12 @@ function selection(fn,variable,env){
  const end=source.indexOf("\n    if (",start);
  return new Function(...Object.keys(env),source.slice(start,end)+"\nreturn "+variable+";")(...Object.values(env));
 }
-for(const scope of ["projects","resources"]){
- const wizard=reload(),env={historyKind,progressScope:scope,projects:[],resourceTypes:[],
- progressReports:[...wizard.getProgressReports(),...wizard.getProgressReports({kind:"resource"})],
+{
+ const wizard=reload(),env={historyKind,projects:[],resourceTypes:[],
+ progressReports:wizard.getProgressReports({kind:"all"}),
  recentItems:wizard.getActivityLog(),completedTaskHistory:wizard.getCompletedTaskHistory()};
  for(const [fn,v] of [["renderRecentReports","visibleReports"],["renderRecentActivity","visibleItems"],["renderCompletedTaskHistory","items"]])
-  assert.equal(selection(fn,v,env).length,scope==="projects"?3:1,"Actual Home selections retain deleted sources");
+  assert.equal(selection(fn,v,env).length,4,"Unified Home selections retain deleted Project and Resource sources");
 }
-console.log("PASS: actual shared getters and Home queries; Active/Future/Shelved/status changes/reload/deleted Project and Resource; Reports/Activity/Tasks identity/name retention; independent categorical scopes; >650 retained events.");
+console.log("PASS: actual shared getters and unified Home queries; Active/Future/Shelved/status changes/reload/deleted Project and Resource; Reports/Activity/Tasks identity/name retention; >650 retained events.");
 

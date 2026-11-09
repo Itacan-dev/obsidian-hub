@@ -1,4 +1,5 @@
 "use strict";
+const { inheritColorOwner } = require("./color-system");
 const { setHubIcon } = require("./icons");
 let sequence = 0;
 const active = new WeakMap();
@@ -11,6 +12,7 @@ function openTaskPopover(anchor, { title, heading = true, autofocus = true, excl
     const parent = anchor.closest(".modal") ?? doc.body;
     const element = parent.createDiv({ cls: "hub-task-popover hub-button-scope hub-capture-form-scope " + className,
         attr: { role: "dialog", "aria-label": title, id: "hub-task-popover-" + ++sequence, popover: "manual" } });
+    inheritColorOwner(element, anchor);
     const header = element.createDiv({ cls: "hub-task-popover-heading" });
     if (heading) header.createEl("strong", { text: title });
     else element.classList.add("is-titleless");

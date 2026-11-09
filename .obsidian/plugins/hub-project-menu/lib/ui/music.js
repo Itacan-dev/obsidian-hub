@@ -1,4 +1,6 @@
 "use strict";
+const { ownModalColors } = require("./color-system");
+
 const { createWindowTitle, setWindowUndertext } = require("./window-title");
 const { Modal } = require("obsidian");
 const { setHubIcon } = require("./icons");
@@ -13,7 +15,7 @@ class MusicModal extends Modal {
         this.controller = plugin.music; this.library = plugin.musicLibrary;
         this.titleId = `hub-music-${++instance}-title`;
     }
-    onOpen() {
+    onOpen() { ownModalColors(this);
         this.modalEl.classList.add("hub-oath-dialog", "hub-music-dialog");
         this.contentEl.classList.add("hub-button-scope", "hub-capture-content", "hub-music-content");
         this.contentEl.tabIndex = -1;

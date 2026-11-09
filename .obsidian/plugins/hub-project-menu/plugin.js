@@ -1,3 +1,5 @@
+const { ownColorRoot, refreshHostColorReferences, disposeColorSystem } = require("./lib/ui/color-system");
+const { ownMenuColors, ownModalColors, ownNoticeColors } = require("./lib/ui/color-system");
 const { createWindowTitle, setWindowUndertext, layoutModal } = require("./lib/ui/window-title");
 const { dispose: disposeCompletionAudio } = require("./lib/ui/completion-audio");
 const { mountMusicControl } = require("./lib/ui/music");
@@ -515,7 +517,7 @@ class ConfirmModal extends Modal {
     }
 
 
-    onOpen() {
+    onOpen() { ownModalColors(this);
 
         this.contentEl.addClass("hub-button-scope");
 
@@ -1077,7 +1079,7 @@ class ProjectAdvancementModal
     }
 
 
-    onOpen() {
+    onOpen() { ownModalColors(this);
         this.evidenceRows = new Map();
         this.evidenceComponents = new Map();
         this.renderEvidence = (parent, context, id) => {
@@ -1622,9 +1624,9 @@ class ProjectAdvancementModal
 
         } catch (error) {
 
-            new Notice(
+            ownNoticeColors(new Notice(
                 error.message
-            );
+            ));
 
             return;
         }
@@ -1671,9 +1673,9 @@ class ProjectAdvancementModal
             this.updateSaveButton();
 
 
-            new Notice(
+            ownNoticeColors(new Notice(
                 "Could not save progress report."
-            );
+            ));
         }
     }
 
@@ -1745,7 +1747,7 @@ class DailyFocusModal
     }
 
 
-    onOpen() {
+    onOpen() { ownModalColors(this);
 
         this.contentEl.addClass(
             "hub-daily-focus-modal", "hub-button-scope"
@@ -1910,10 +1912,10 @@ class DailyFocusModal
             restoreControls?.();
 
 
-            new Notice(
+            ownNoticeColors(new Notice(
                 error.message ||
                 "Could not save today's focus."
-            );
+            ));
         }
     }
 
@@ -1973,7 +1975,7 @@ class ProjectCategoryModal
     }
 
 
-    onOpen() {
+    onOpen() { ownModalColors(this);
 
         this.contentEl.addClass(
             "hub-project-wizard", "hub-button-scope"
@@ -2032,10 +2034,10 @@ class ProjectCategoryModal
 
                         console.error(error);
 
-                        new Notice(
+                        ownNoticeColors(new Notice(
                             error.message ||
                             "Could not change category."
-                        );
+                        ));
                     }
                 }
             );
@@ -2069,7 +2071,7 @@ class HubDataAuditModal extends Modal {
     }
 
 
-    onOpen() {
+    onOpen() { ownModalColors(this);
         this.render();
     }
 
@@ -2201,10 +2203,10 @@ class HubDataAuditModal extends Modal {
                             "Could not repair Hub data:",
                             error
                         );
-                        new Notice(
+                        ownNoticeColors(new Notice(
                             error.message ||
                             "Could not repair Hub data."
-                        );
+                        ));
                         repair.disabled = false;
                         close.disabled = false;
                     }
@@ -2229,7 +2231,7 @@ class ResourceFolderPickerModal extends Modal {
         this.onSave = onSave;
     }
 
-    onOpen() {
+    onOpen() { ownModalColors(this);
         this.contentEl.addClass("hub-resource-folder-picker", "hub-button-scope");
         createWindowTitle(this.contentEl, this.title, "library");
 
@@ -2273,7 +2275,7 @@ class ResourceFolderPickerModal extends Modal {
                 this.close();
             } catch (error) {
                 console.error(error);
-                new Notice(error.message || "Could not save Resource folders.");
+                ownNoticeColors(new Notice(error.message || "Could not save Resource folders."));
                 save.disabled = false;
             }
         });
@@ -2306,7 +2308,7 @@ class ProjectWizardModal extends Modal {
     }
 
 
-    onOpen() {
+    onOpen() { ownModalColors(this);
         this.showCategorySelection();
     }
 
@@ -2373,7 +2375,7 @@ class ProjectWizardModal extends Modal {
         category
     ) {
 
-        const menu = new Menu();
+        const menu = ownMenuColors(new Menu());
 
         menu.addItem(item => {
             item
@@ -2485,10 +2487,10 @@ class ProjectWizardModal extends Modal {
 
                         console.error(error);
 
-                        new Notice(
+                        ownNoticeColors(new Notice(
                             error.message ||
                             "Could not delete category."
-                        );
+                        ));
                     }
                 });
         });
@@ -2649,10 +2651,10 @@ class ProjectWizardModal extends Modal {
 
                 console.error(error);
 
-                new Notice(
+                ownNoticeColors(new Notice(
                     error.message ||
                     "Could not create project."
-                );
+                ));
             }
         };
 
@@ -2731,7 +2733,7 @@ class ProjectWizardModal extends Modal {
 
             } catch (error) {
 
-                new Notice(error.message);
+                ownNoticeColors(new Notice(error.message));
             }
         };
 
@@ -2822,10 +2824,10 @@ class ProjectWizardModal extends Modal {
 
                 console.error(error);
 
-                new Notice(
+                ownNoticeColors(new Notice(
                     error.message ||
                     "Could not rename category."
-                );
+                ));
             }
         };
 
@@ -3289,9 +3291,9 @@ class ProjectWizardModal extends Modal {
 
                 if (!choice) {
 
-                    new Notice(
+                    ownNoticeColors(new Notice(
                         "Choose a category image."
-                    );
+                    ));
 
                     return;
                 }
@@ -3436,9 +3438,9 @@ class ProjectWizardModal extends Modal {
 
                 if (!choice) {
 
-                    new Notice(
+                    ownNoticeColors(new Notice(
                         "Choose a category image."
-                    );
+                    ));
 
                     return;
                 }
@@ -3471,10 +3473,10 @@ class ProjectWizardModal extends Modal {
                     apply.disabled = false;
 
 
-                    new Notice(
+                    ownNoticeColors(new Notice(
                         error.message ||
                         "Could not change category image."
-                    );
+                    ));
                 }
             }
         );
@@ -3567,9 +3569,9 @@ class ProjectWizardModal extends Modal {
                     );
 
 
-                    new Notice(
+                    ownNoticeColors(new Notice(
                         "Could not change app shortcuts."
-                    );
+                    ));
                 }
             }
         );
@@ -3660,10 +3662,10 @@ class ProjectWizardModal extends Modal {
 
                 console.error(error);
 
-                new Notice(
+                ownNoticeColors(new Notice(
                     error.message ||
                     "Could not create project."
-                );
+                ));
             }
         };
 
@@ -5120,6 +5122,14 @@ class ProjectWizardService {
         projectId = null
     ) {
 
+        if (projectId?.kind === "all") {
+            return [...this.getProgressReports(), ...this.getProgressReports({ kind: "resource" })]
+                .sort((a, b) => b.date.localeCompare(a.date) ||
+                    (b.timestamp ?? 0) - (a.timestamp ?? 0) ||
+                    a.projectName.localeCompare(b.projectName, undefined, { sensitivity: "base" }) ||
+                    a.targetKind.localeCompare(b.targetKind) || a.projectId.localeCompare(b.projectId));
+        }
+
         const resourceQuery =
             projectId && typeof projectId === "object" && projectId.kind === "resource";
 
@@ -5321,18 +5331,18 @@ class ProjectWizardService {
         const byDate =
             new Map();
 
-        const contexts =
-            scope === "resources"
-                ? this.getResourceTypes().map(resource => ({
-                    projectId: `resource:${resource.resourceType}`,
-                    name: resource.label,
-                    ratings: this.getResourceWorkRatings(resource.resourceType)
-                }))
-                : this.getProjectRecords().map(project => ({
-                    projectId: project.projectId,
-                    name: project.name,
-                    ratings: this.getProjectWorkRatings(project.projectId)
-                }));
+        const contexts = [
+            ...(scope === "resources" ? [] : this.getProjectRecords().map(project => ({
+                projectId: project.projectId,
+                name: project.name,
+                ratings: this.getProjectWorkRatings(project.projectId)
+            }))),
+            ...(["resources", "all"].includes(scope) ? this.getResourceTypes().map(resource => ({
+                projectId: `resource:${resource.resourceType}`,
+                name: resource.label,
+                ratings: this.getResourceWorkRatings(resource.resourceType)
+            })) : [])
+        ];
 
         for (
             const context
@@ -7105,9 +7115,9 @@ class ProjectWizardService {
                 });
 
 
-            new Notice(
+            ownNoticeColors(new Notice(
                 `Created "${name}".`
-            );
+            ));
 
 
         } catch (error) {
@@ -7566,7 +7576,7 @@ class HubWorkspaceModeService {
     openWorkspace(source = null) {
         const context = this.lastWorkspace();
         if (!context) {
-            new Notice("No recently opened workspaces.");
+            ownNoticeColors(new Notice("No recently opened workspaces."));
             return Promise.resolve(false);
         }
         return this.openProjectFull(context, source);
@@ -9794,9 +9804,9 @@ class HubWorkspaceModeService {
 
 
                         if (!project) {
-                            new Notice(
+                            ownNoticeColors(new Notice(
                                 "No project has been opened yet."
-                            );
+                            ));
                             return false;
                         }
 
@@ -9818,7 +9828,7 @@ class HubWorkspaceModeService {
         const open = () => this.enqueue(async () => {
             const resource = this.lastResource();
             if (!resource) {
-                new Notice("No Resource has been opened yet.");
+                ownNoticeColors(new Notice("No Resource has been opened yet."));
                 return false;
             }
             return this.showProjectFull(resource, sourceLeaf);
@@ -9845,7 +9855,7 @@ class HubWorkspaceModeService {
 
                 const destination = this.resolveLastFile(dashboardRoot);
                 if (!destination) {
-                    new Notice("No recently opened files.");
+                    ownNoticeColors(new Notice("No recently opened files."));
                     return false;
                 }
                 const { file, context: project, layout } = destination;
@@ -11077,9 +11087,9 @@ module.exports = class HubProjectMenu extends Plugin {
             backups.length === 0
         ) {
 
-            new Notice(
+            ownNoticeColors(new Notice(
                 "No Hub backups found."
-            );
+            ));
 
             return;
         }
@@ -11124,10 +11134,10 @@ module.exports = class HubProjectMenu extends Plugin {
                     );
 
 
-                    new Notice(
+                    ownNoticeColors(new Notice(
                         error.message ||
                         "Could not restore Hub backup."
-                    );
+                    ));
                 }
             }
         ).open();
@@ -11675,10 +11685,10 @@ module.exports = class HubProjectMenu extends Plugin {
                 "Could not audit Hub data:",
                 error
             );
-            new Notice(
+            ownNoticeColors(new Notice(
                 error.message ||
                 "Could not audit Hub data."
-            );
+            ));
         }
     }
 
@@ -11729,10 +11739,10 @@ module.exports = class HubProjectMenu extends Plugin {
             notify ||
             signature !== this.hubConflictSignature
         ) {
-            new Notice(
+            ownNoticeColors(new Notice(
                 `${conflicts.length} conflicting Hub data file${conflicts.length === 1 ? " was" : "s were"} found. Run “Audit Hub data” to review them.`,
                 12000
-            );
+            ));
         }
 
         this.hubConflictSignature = signature;
@@ -11742,6 +11752,12 @@ module.exports = class HubProjectMenu extends Plugin {
 
     async onload() {
         this.taskStartupClock = performance.now();
+        this.register(disposeColorSystem);
+        this.registerEvent(this.app.workspace.on("css-change", () => {
+            const docs = new Set([document]);
+            this.app.workspace.iterateAllLeaves(leaf => { if (leaf.containerEl?.ownerDocument) docs.add(leaf.containerEl.ownerDocument); });
+            docs.forEach(refreshHostColorReferences);
+        }));
 
         this.register(installWindowMinimum(window));
 
@@ -11782,10 +11798,10 @@ module.exports = class HubProjectMenu extends Plugin {
 
 
         if (this.dataStore.loadWarning) {
-            new Notice(
+            ownNoticeColors(new Notice(
                 "The Hub loaded, but its state metadata could not be saved. Reload Obsidian before making Hub changes.",
                 12000
-            );
+            ));
         }
 
         await this.projectWizard
@@ -11832,9 +11848,9 @@ module.exports = class HubProjectMenu extends Plugin {
                                 .createHubBackup();
 
 
-                        new Notice(
+                        ownNoticeColors(new Notice(
                             `Hub backup created: ${path}`
-                        );
+                        ));
 
                     } catch (error) {
 
@@ -11844,10 +11860,10 @@ module.exports = class HubProjectMenu extends Plugin {
                         );
 
 
-                        new Notice(
+                        ownNoticeColors(new Notice(
                             error.message ||
                             "Could not create Hub backup."
-                        );
+                        ));
                     }
                 }
         });
@@ -12169,10 +12185,10 @@ module.exports = class HubProjectMenu extends Plugin {
                     );
 
 
-                    new Notice(
+                    ownNoticeColors(new Notice(
                         error.message ||
                         "Could not open shortcut."
-                    );
+                    ));
                 }
             };
 
@@ -12466,9 +12482,10 @@ module.exports = class HubProjectMenu extends Plugin {
         this.planning = new (require("./lib/services/project-planning").ProjectPlanningService)(this);
         window.hubMountFullViewLayout = (root, component) => require("./lib/ui/full-view-layout").mountFullViewLayout({ root, component, app: this.app });
         try { this.athena = require("./lib/athena/runtime.cjs").installAthena(this, {
+            ownColors: ownColorRoot,
             openSettings: () => require("./lib/ui/settings").getSettingsOwner(this).open("athena")
         }); }
-        catch (_) { new Notice("Athena could not initialize. Other Hub features remain available."); }
+        catch (_) { ownNoticeColors(new Notice("Athena could not initialize. Other Hub features remain available.")); }
         window.hubMountContextSearch = options => require("./lib/ui/context-search").mountContextSearch({ service: this.contextSearch, ...options });
         window.hubRegisterSearchWorkspace = (...args) => this.contextSearch.registerWorkspace(...args);
         window.hubApplySearchFolder = root => this.contextSearch.applyFolder(root);
@@ -12503,10 +12520,10 @@ module.exports = class HubProjectMenu extends Plugin {
             this.oathControl = mountOathControl(this, this.oath);
             this.captureControls = mountCaptureControls(this, this.inbox, this.oathControl.item);
             this.musicControl = mountMusicControl(this, this.oathControl.item);
+            this.dailyBriefControl = mountDailyBriefControl(this, this.dailyBrief, this.oathControl.item);
             this.settingsControl = mountSettingsControl(this, this.oathControl.item);
-            if (ITACAN_DEVELOPMENT) this.dailyBriefControl = mountDailyBriefControl(this, this.dailyBrief, this.oathControl.item);
             this.appShortcutsControl = require("./lib/ui/app-shortcuts").mountAppShortcuts(this, this.oathControl.item);
-            void this.oath.start().then(() => { if (ITACAN_DEVELOPMENT) this.dailyBrief.start(); }).catch(error => this.oath.error(error));
+            void this.oath.start().then(() => { this.dailyBrief.start(); }).catch(error => this.oath.error(error));
         });
         this.addCommand({ id: "quick-add", name: "Quick Add", hotkeys: [{ modifiers: ["Mod", "Shift"], key: " " }],
             callback: () => this.captureControls?.openQuickAdd() });
@@ -13854,7 +13871,7 @@ module.exports = class HubProjectMenu extends Plugin {
 
 
         const menu =
-            new Menu();
+            ownMenuColors(new Menu());
 
         menu.addItem(item => item.setTitle("Edit image placement").setIcon("move")
             .onClick(() => this.headerImageEditors.get(dashboard.querySelector(".project-cover"))?.begin()));
@@ -14111,10 +14128,10 @@ module.exports = class HubProjectMenu extends Plugin {
                     );
 
 
-                    new Notice(
+                    ownNoticeColors(new Notice(
                         error.message ||
                         "Could not change project image."
-                    );
+                    ));
                 }
             },
             {
@@ -14204,7 +14221,7 @@ module.exports = class HubProjectMenu extends Plugin {
 
     showProjectMenu(event, file, status, dashboard, card) {
 
-        const menu = new Menu();
+        const menu = ownMenuColors(new Menu());
 
         // Open
 
@@ -14405,7 +14422,7 @@ module.exports = class HubProjectMenu extends Plugin {
     ) {
 
         const menu =
-            new Menu();
+            ownMenuColors(new Menu());
 
 
         // ---------- CREATE ----------
@@ -14491,10 +14508,10 @@ module.exports = class HubProjectMenu extends Plugin {
                                             );
 
 
-                                            new Notice(
+                                            ownNoticeColors(new Notice(
                                                 error.message ||
                                                 "Could not move folder."
-                                            );
+                                            ));
                                         }
                                     }
                                 ).open();
@@ -14547,9 +14564,9 @@ module.exports = class HubProjectMenu extends Plugin {
                                     !quickAddApi
                                 ) {
 
-                                    new Notice(
+                                    ownNoticeColors(new Notice(
                                         "QuickAdd is not enabled."
-                                    );
+                                    ));
 
                                     return;
                                 }
@@ -14597,10 +14614,10 @@ module.exports = class HubProjectMenu extends Plugin {
                                     );
 
 
-                                    new Notice(
+                                    ownNoticeColors(new Notice(
                                         error.message ||
                                         "Could not rename folder."
-                                    );
+                                    ));
                                 }
                             }
                         );
@@ -14686,10 +14703,10 @@ module.exports = class HubProjectMenu extends Plugin {
                                     );
 
 
-                                    new Notice(
+                                    ownNoticeColors(new Notice(
                                         error.message ||
                                         "Could not delete folder."
-                                    );
+                                    ));
                                 }
                             }
                         );
@@ -14708,7 +14725,7 @@ module.exports = class HubProjectMenu extends Plugin {
                             await actions.detach();
                         } catch (error) {
                             console.error("Could not detach Resource folder:", error);
-                            new Notice(error.message || "Could not detach Resource folder.");
+                            ownNoticeColors(new Notice(error.message || "Could not detach Resource folder."));
                         }
                     });
             });
@@ -14726,7 +14743,7 @@ module.exports = class HubProjectMenu extends Plugin {
     ) {
 
         const menu =
-            new Menu();
+            ownMenuColors(new Menu());
 
 
         const count =
@@ -14778,10 +14795,10 @@ module.exports = class HubProjectMenu extends Plugin {
                                             );
 
 
-                                            new Notice(
+                                            ownNoticeColors(new Notice(
                                                 error.message ||
                                                 "Could not move selected items."
-                                            );
+                                            ));
                                         }
                                     }
                                 ).open();
@@ -14884,10 +14901,10 @@ module.exports = class HubProjectMenu extends Plugin {
                                 );
 
 
-                                new Notice(
+                                ownNoticeColors(new Notice(
                                     error.message ||
                                     "Could not delete selected items."
-                                );
+                                ));
                             }
                         }
                     );
@@ -15021,9 +15038,9 @@ module.exports = class HubProjectMenu extends Plugin {
 
         if (!parseLocalISODate(date)) {
 
-            new Notice(
+            ownNoticeColors(new Notice(
                 "Choose a valid focus date."
-            );
+            ));
 
             return;
         }
@@ -15085,9 +15102,9 @@ module.exports = class HubProjectMenu extends Plugin {
             date > localISODate()
         ) {
 
-            new Notice(
+            ownNoticeColors(new Notice(
                 "Choose today or an earlier date."
-            );
+            ));
 
             return;
         }
@@ -15229,11 +15246,11 @@ module.exports = class HubProjectMenu extends Plugin {
             resources.length === 0
         ) {
 
-            new Notice(
+            ownNoticeColors(new Notice(
                 requestedKind === "resource"
                     ? "No Resource is available for this progress entry."
                     : "No project is available for this progress entry."
-            );
+            ));
 
             return;
         }
@@ -15418,9 +15435,9 @@ module.exports = class HubProjectMenu extends Plugin {
                         );
 
 
-                        new Notice(
+                        ownNoticeColors(new Notice(
                             `Updated progress for ${dateLabel}.`
-                        );
+                        ));
                     }
             }
         ).open();
@@ -15805,9 +15822,9 @@ module.exports = class HubProjectMenu extends Plugin {
             );
 
 
-        new Notice(
+        ownNoticeColors(new Notice(
             "Obsidian URL copied."
-        );
+        ));
     }
 
     showProjectFileMenu(
@@ -15846,7 +15863,7 @@ module.exports = class HubProjectMenu extends Plugin {
 
 
         const menu =
-            new Menu();
+            ownMenuColors(new Menu());
 
 
         // ---------- OPEN ----------
@@ -15982,10 +15999,10 @@ module.exports = class HubProjectMenu extends Plugin {
                                 );
 
 
-                                new Notice(
+                                ownNoticeColors(new Notice(
                                     error.message ||
                                     "Could not make a copy."
-                                );
+                                ));
                             }
                         }
                     );
@@ -16030,10 +16047,10 @@ module.exports = class HubProjectMenu extends Plugin {
                                             );
 
 
-                                            new Notice(
+                                            ownNoticeColors(new Notice(
                                                 error.message ||
                                                 "Could not move file."
-                                            );
+                                            ));
                                         }
                                     }
                                 ).open();
@@ -16134,9 +16151,9 @@ module.exports = class HubProjectMenu extends Plugin {
 
         if (!quickAddApi) {
 
-            new Notice(
+            ownNoticeColors(new Notice(
                 "QuickAdd is not enabled."
-            );
+            ));
 
             return;
         }
@@ -16168,9 +16185,9 @@ module.exports = class HubProjectMenu extends Plugin {
                 )
             ) {
 
-                new Notice(
+                ownNoticeColors(new Notice(
                     "Enter a valid file name."
-                );
+                ));
 
                 return;
             }
@@ -16205,9 +16222,9 @@ module.exports = class HubProjectMenu extends Plugin {
 
             if (existing) {
 
-                new Notice(
+                ownNoticeColors(new Notice(
                     "A file with that name already exists."
-                );
+                ));
 
                 return;
             }
@@ -16272,9 +16289,9 @@ module.exports = class HubProjectMenu extends Plugin {
             );
 
 
-            new Notice(
+            ownNoticeColors(new Notice(
                 "Could not delete file."
-            );
+            ));
         }
     }
 
@@ -16336,7 +16353,7 @@ module.exports = class HubProjectMenu extends Plugin {
         if (this.oath?.canOpen(context) === false) return false;
         if (context.contextKind === "resource" || context.status === "active") return true;
         if (context.status !== "shelved") {
-            new Notice("Activate this project before opening it.");
+            ownNoticeColors(new Notice("Activate this project before opening it."));
             return false;
         }
         const accepted = await new ConfirmModal(this.app,
@@ -16398,9 +16415,9 @@ module.exports = class HubProjectMenu extends Plugin {
                 );
             }
 
-            new Notice(
+            ownNoticeColors(new Notice(
                 "Could not change project status."
-            );
+            ));
             return false;
         }
     }
@@ -16412,7 +16429,7 @@ module.exports = class HubProjectMenu extends Plugin {
             this.app.plugins.plugins.quickadd?.api;
 
         if (!quickAddApi) {
-            new Notice("QuickAdd is not enabled.");
+            ownNoticeColors(new Notice("QuickAdd is not enabled."));
             return;
         }
 
@@ -16622,9 +16639,9 @@ module.exports = class HubProjectMenu extends Plugin {
                 }
             }
 
-            new Notice(
+            ownNoticeColors(new Notice(
                 "Could not rename project."
-            );
+            ));
         }
     }
 
@@ -16713,9 +16730,9 @@ module.exports = class HubProjectMenu extends Plugin {
                 );
             }
 
-            new Notice(
+            ownNoticeColors(new Notice(
                 "Could not delete project."
-            );
+            ));
         } finally {
 
             if (ignoredRoot) {

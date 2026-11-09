@@ -22,7 +22,7 @@ interface HubPlugin extends Plugin {
   oath?: { canOpen(path: string, notify: boolean): boolean; onChange(callback: () => void): () => void };
   projectWizard?: { getProjectRecords(): { projectId: string; name: string; root: string }[] };
 }
-export function installAthena(plugin: HubPlugin, options: { storeRoot?: string; openSettings?: () => void } = {}) {
+export function installAthena(plugin: HubPlugin, options: { storeRoot?: string; openSettings?: () => void; ownColors?: (root: HTMLElement) => () => void } = {}) {
   const { ItemView, Modal } = require("obsidian") as typeof import("obsidian");
   let destroyed = false;
   const views = new Set<AthenaView>(), modals = new Set<import("obsidian").Modal>();
@@ -72,8 +72,10 @@ export function installAthena(plugin: HubPlugin, options: { storeRoot?: string; 
   const openSource = (evidence: Evidence) => { void ready.then(async controller => {
     if (destroyed || !controller.knowledge.permitted(evidence)) return;
     class SourceModal extends Modal {
+      private disposeColors?: () => void;
       private unsubscribe?: () => void;
       onOpen() {
+        this.disposeColors = options.ownColors?.(this.containerEl);
         modals.add(this); this.modalEl.classList.add("hub-athena-source-modal", "hub-button-scope");
         el(this.contentEl, "h2", "", sourceLabel(evidence));
         const status = el(this.contentEl, "p", "hub-athena-muted", "Checking source revision…");
@@ -93,13 +95,14 @@ export function installAthena(plugin: HubPlugin, options: { storeRoot?: string; 
           void openVerifiedSource(controller.knowledge.host, plugin.app, actual, evidence.location, new AbortController().signal).catch(() => { status.textContent = "The source is unavailable, changed, or restricted."; });
         });
       }
-      onClose() { this.unsubscribe?.(); modals.delete(this); this.contentEl.replaceChildren(); }
+      onClose() { this.disposeColors?.(); this.unsubscribe?.(); modals.delete(this); this.contentEl.replaceChildren(); }
     }
     new SourceModal(plugin.app).open();
   }).catch(() => {}); };
 
   class AthenaView extends ItemView {
     presenter?: SidebarPresenter;
+    private disposeColors?: () => void;
     private selected?: string;
     private closed = true;
     constructor(leaf: WorkspaceLeaf) { super(leaf); this.navigation = false; }
@@ -113,6 +116,7 @@ export function installAthena(plugin: HubPlugin, options: { storeRoot?: string; 
       await super.setState(state, result);
     }
     async onOpen() {
+      this.disposeColors = options.ownColors?.(this.contentEl);
       this.closed = false; views.add(this); this.contentEl.classList.add("hub-athena-view");
       el(this.contentEl, "p", "", "Loading Athena…");
       try {
@@ -122,7 +126,8 @@ export function installAthena(plugin: HubPlugin, options: { storeRoot?: string; 
         this.presenter = new SidebarPresenter(this.contentEl, controller, { conversationId: this.selected, projects: () => projects().map(project => ({ id: project.projectId, name: project.name })), openSource, openSettings });
       } catch (error) { if (!this.closed && !destroyed) { this.contentEl.replaceChildren(); el(this.contentEl, "p", "hub-athena-error", safeMessage(error)); } }
     }
-    async onClose() { this.closed = true; this.presenter?.dispose(); this.presenter = undefined; views.delete(this); if (!views.size) void ready.then(controller => controller.stop()).catch(() => {}); }
+    releaseColorScope() { this.disposeColors?.(); this.disposeColors = undefined; }
+    async onClose() { this.releaseColorScope(); this.closed = true; this.presenter?.dispose(); this.presenter = undefined; views.delete(this); if (!views.size) void ready.then(controller => controller.stop()).catch(() => {}); }
   }
   plugin.registerView(ATHENA_VIEW, leaf => new AthenaView(leaf));
   const open = async () => {
@@ -146,7 +151,7 @@ export function installAthena(plugin: HubPlugin, options: { storeRoot?: string; 
     },
     destroy() {
       if (destroyed) return; destroyed = true;
-      for (const view of views) view.presenter?.dispose();
+      for (const view of views) { view.releaseColorScope(); view.presenter?.dispose(); }
       for (const modal of modals) modal.close();
       views.clear(); modals.clear(); void ready.then(controller => controller.dispose()).catch(() => {});
     }

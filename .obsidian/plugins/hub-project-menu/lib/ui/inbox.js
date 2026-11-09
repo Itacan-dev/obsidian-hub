@@ -1,4 +1,6 @@
 "use strict";
+const { ownMenuColors, ownModalColors, ownNoticeColors } = require("./color-system");
+
 const { Notice, Menu } = require("obsidian");
 const { CaptureModal, CaptureConfirmation, action, attachments } = require("./capture-modal");
 const { setHubIcon } = require("./icons");
@@ -10,7 +12,7 @@ const clone = value => JSON.parse(JSON.stringify(value));
 const preview = capture => capture.text?.trim() || capture.attachments?.map(a=>a.name).join(", ") || "Untitled item";
 const fingerprint = value => JSON.stringify({text:value.text,attachments:value.attachments,intent:captureIntent(value,value.attachments??[])});
 class InboxModal extends CaptureModal {
-    onOpen() {
+    onOpen() { ownModalColors(this);
         this.modalEl.classList.add("hub-inbox-dialog");this.header("Inbox","Saved items awaiting organisation","inbox");
         this.filter="all";this.sortOrder=["most-complete","least-complete"].includes(this.service.sortPreference)?"newest":this.service.sortPreference;
         this.rows=new Map();this.drafts=new Map();this.actionsByItem=new Map();this.selectedId=null;this.mode=null;this.dirty=false;
@@ -28,7 +30,7 @@ class InboxModal extends CaptureModal {
     }
     visible(){return sortedCaptures(this.service.captures,{filter:this.filter,sort:this.sortOrder})}
     async changeFilter(filter){if(this.busy||!await this.flushEdits())return;this.filter=filter;this.refresh()}
-    showSortMenu(){if(this.busy)return;const menu=this.sortMenu=new Menu();for(const [key,label]of INBOX_SORTS.filter(([key])=>!key.includes('complete')))menu.addItem(i=>i.setTitle(label).setChecked(key===this.sortOrder).onClick(async()=>{if(!await this.flushEdits())return;await this.service.setSortPreference(key);this.sortOrder=key;this.refresh()}));menu.onHide(()=>{this.sortMenu=null;this.sort.focus()});const r=this.sort.getBoundingClientRect();menu.showAtPosition({x:r.left,y:r.bottom})}
+    showSortMenu(){if(this.busy)return;const menu=this.sortMenu=ownMenuColors(new Menu());for(const [key,label]of INBOX_SORTS.filter(([key])=>!key.includes('complete')))menu.addItem(i=>i.setTitle(label).setChecked(key===this.sortOrder).onClick(async()=>{if(!await this.flushEdits())return;await this.service.setSortPreference(key);this.sortOrder=key;this.refresh()}));menu.onHide(()=>{this.sortMenu=null;this.sort.focus()});const r=this.sort.getBoundingClientRect();menu.showAtPosition({x:r.left,y:r.bottom})}
     refresh(){
         if(this.closed)return;const captures=this.visible(),scroll=this.list.scrollTop,counts=inboxCounts(this.service.captures);
         for(const f of this.filterButtons){f.button.querySelector('span').textContent=f.label+' ('+counts[f.key]+')';f.button.classList.toggle('is-selected',f.key===this.filter);f.button.setAttribute('aria-pressed',String(f.key===this.filter))}
@@ -39,7 +41,7 @@ class InboxModal extends CaptureModal {
         });this.list.scrollTop=scroll;
         if(!captures.some(c=>c.id===this.selectedId)){this.resetForm();this.selectedId=captures[0]?.id??null;this.loadSelected();for(const [id,row]of this.rows){row.button.classList.toggle('is-selected',id===this.selectedId);row.button.setAttribute('aria-pressed',String(id===this.selectedId))}}
     }
-    showItemMenu(id,position){const c=this.service.get(id);if(!c||this.busy)return;const menu=new Menu();menu.addItem(i=>i.setTitle('Open').setIcon('panel-right-open').onClick(()=>this.select(id)));if(!c.attachments.length)menu.addItem(i=>i.setTitle('Create task').setIcon('square-plus').onClick(async()=>{await this.select(id);await this.createTask()}));menu.addSeparator();menu.addItem(i=>i.setTitle('Delete').setIcon('trash-2').setWarning(true).onClick(()=>this.remove(id)));menu.showAtPosition(position)}
+    showItemMenu(id,position){const c=this.service.get(id);if(!c||this.busy)return;const menu=ownMenuColors(new Menu());menu.addItem(i=>i.setTitle('Open').setIcon('panel-right-open').onClick(()=>this.select(id)));if(!c.attachments.length)menu.addItem(i=>i.setTitle('Create task').setIcon('square-plus').onClick(async()=>{await this.select(id);await this.createTask()}));menu.addSeparator();menu.addItem(i=>i.setTitle('Delete').setIcon('trash-2').setWarning(true).onClick(()=>this.remove(id)));menu.showAtPosition(position)}
     async select(id,focus=false){if(this.busy||id===this.selectedId||!await this.flushEdits())return;this.remember();this.resetForm();this.selectedId=id;this.loadSelected();this.refresh();if(focus)this.rows.get(id)?.button.focus({preventScroll:true})}
     remember(){if(!this.selectedId||!this.draft)return;const value=this.form?.value()??this.draft;this.draft={...this.draft,...value};this.drafts.set(this.selectedId,clone(this.draft));if(this.mode){const choices=this.actionsByItem.get(this.selectedId)??{};choices[this.mode]=clone(this.draft);this.actionsByItem.set(this.selectedId,choices)}}
     resetForm(){this.form?.destroy();this.form=null;this.mode=null;this.draft=null;this.dirty=false;this.save=null}
@@ -70,7 +72,7 @@ class InboxModal extends CaptureModal {
     sync(){if(this.needsRefresh&&!this.busy){this.needsRefresh=false;this.refresh()}if(this.save)this.save.disabled=this.busy;const c=this.service.get(this.selectedId);if(c?.operation&&c.operation.state!=='done'&&(['native-task','task','note-insertion'].includes(c.operation.kind)||c.operation.state==='ready')){this.actionHost.querySelectorAll('input,textarea,select,button').forEach(e=>e.disabled=true)}}
     async createTask(){if(this.busy||this.closed)return;const c=this.service.get(this.selectedId);if(!c||c.attachments.length)return;if(this.mode!=='task'){await this.showAction('task');if(this.mode!=='task')return;}return this.commit()}
     async commit(){if(this.busy||this.closed||!this.form)return;if(this.form.prepare?.()===false)return;if(!this.service.get(this.selectedId)?.operation&&!this.form.valid()){this.error.textContent=this.service.completion(this.form.value(),this.selectedId).error??'Choose the required destination.';return;}if(!await this.flushEdits())return;
-        return this.run(async()=>{const id=this.selectedId,draft=this.form.value(),result=this.mode==='task'?await this.service.makeTask(draft,id):this.mode==='note'?await this.service.createNote(draft,id):await this.service.addFiles(draft,id);new Notice(result?.message??'Item organized.');this.drafts.delete(id);this.actionsByItem.delete(id);this.dirty=false;this.resetForm();this.refresh()});}
+        return this.run(async()=>{const id=this.selectedId,draft=this.form.value(),result=this.mode==='task'?await this.service.makeTask(draft,id):this.mode==='note'?await this.service.createNote(draft,id):await this.service.addFiles(draft,id);ownNoticeColors(new Notice(result?.message??'Item organized.'));this.drafts.delete(id);this.actionsByItem.delete(id);this.dirty=false;this.resetForm();this.refresh()});}
     async remove(id){if(this.busy||!this.service.get(id)||this.confirmation)return;const dialog=this.confirmation=new CaptureConfirmation(this.app,null,{title:'Delete this inbox item?',message:'This item will be removed from your Inbox.',confirmLabel:'Delete',destructive:true});const yes=await dialog.ask();this.confirmation=null;if(!yes||this.closed)return;await this.run(async()=>{await this.service.delete(id);this.drafts.delete(id);this.actionsByItem.delete(id);this.resetForm();this.selectedId=null;this.refresh()});}
     async close(){if(this.busy||this.closed||!await this.flushEdits())return;super.close()}
     onClose(){this.modalEl.removeEventListener('keydown',this.deleteKey);this.confirmation?.close();this.sortMenu?.hide();this.remember();this.service.scheduleNativeRefresh?.();super.onClose()}

@@ -1,0 +1,8028 @@
+{
+  "description": "Explicit Stage 2 deltas only: primary fill, three readable text treatments, and targeted keyboard-focus paint. Original baselines remain immutable.",
+  "baselineHashes": {
+    "color-default-baseline.json": "a205f8ace8e09b8aae22a0968710d4227013e30b87efb0766d8efe329e4fc3dd",
+    "color-consistency-baseline.json": "556bb6789584ea1d411c76bd9c1754ecfe6887023ed6d3f4bfc1072f81070fc7",
+    "color-native-baseline.json": "f8741bbc6af9afa4b4df43db931acaa160c5ae5a71226740e12c216243382938",
+    "color-stage2-baseline.json": "d942e257a25f1a0b4a9748539b7a5b2b0f6c2ba8a45965ef12aab7665e06af37"
+  },
+  "changes": {
+    "default": [
+      {
+        "path": [
+          "dark",
+          "cta",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover",
+          "cta",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-focus",
+          "cta",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-pressed",
+          "cta",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      }
+    ],
+    "consistency": [
+      {
+        "path": [
+          "dark",
+          "ordinary-action",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark",
+          "task-action",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark",
+          "inbox-action",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark",
+          "home-history-location",
+          "color"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark",
+          "home-history-location",
+          "border"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark",
+          "home-history-location",
+          "outline"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-music",
+          "ordinary-action",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-music",
+          "task-action",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-music",
+          "inbox-action",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-music",
+          "home-history-location",
+          "color"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-music",
+          "home-history-location",
+          "border"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-music",
+          "home-history-location",
+          "outline"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-statistics",
+          "ordinary-action",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-statistics",
+          "task-action",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-statistics",
+          "inbox-action",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-statistics",
+          "home-history-location",
+          "color"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-statistics",
+          "home-history-location",
+          "border"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-statistics",
+          "home-history-location",
+          "outline"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-workspace",
+          "ordinary-action",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-workspace",
+          "task-action",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-workspace",
+          "inbox-action",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-workspace",
+          "home-history-location",
+          "color"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-workspace",
+          "home-history-location",
+          "border"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-workspace",
+          "home-history-location",
+          "outline"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-ordinary-action",
+          "ordinary-action",
+          "background"
+        ],
+        "before": "rgb(166, 138, 249)",
+        "after": "rgb(131, 82, 244)"
+      },
+      {
+        "path": [
+          "dark-hover-ordinary-action",
+          "task-action",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-ordinary-action",
+          "inbox-action",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-ordinary-action",
+          "home-history-location",
+          "color"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-ordinary-action",
+          "home-history-location",
+          "border"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-ordinary-action",
+          "home-history-location",
+          "outline"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-task-action",
+          "ordinary-action",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-task-action",
+          "task-action",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(131, 82, 244)"
+      },
+      {
+        "path": [
+          "dark-hover-task-action",
+          "inbox-action",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-task-action",
+          "home-history-location",
+          "color"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-task-action",
+          "home-history-location",
+          "border"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-task-action",
+          "home-history-location",
+          "outline"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-inbox-action",
+          "ordinary-action",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-inbox-action",
+          "task-action",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-inbox-action",
+          "inbox-action",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(131, 82, 244)"
+      },
+      {
+        "path": [
+          "dark-hover-inbox-action",
+          "home-history-location",
+          "color"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-inbox-action",
+          "home-history-location",
+          "border"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-inbox-action",
+          "home-history-location",
+          "outline"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-focus",
+          "ordinary-action",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-focus",
+          "task-action",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-focus",
+          "inbox-action",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-focus",
+          "home-history-location",
+          "color"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-focus",
+          "home-history-location",
+          "border"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-focus",
+          "home-history-location",
+          "outline"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "light",
+          "home-history-location",
+          "color"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light",
+          "home-history-location",
+          "border"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light",
+          "home-history-location",
+          "outline"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-music",
+          "home-history-location",
+          "color"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-music",
+          "home-history-location",
+          "border"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-music",
+          "home-history-location",
+          "outline"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-statistics",
+          "home-history-location",
+          "color"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-statistics",
+          "home-history-location",
+          "border"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-statistics",
+          "home-history-location",
+          "outline"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-workspace",
+          "home-history-location",
+          "color"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-workspace",
+          "home-history-location",
+          "border"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-workspace",
+          "home-history-location",
+          "outline"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-ordinary-action",
+          "home-history-location",
+          "color"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-ordinary-action",
+          "home-history-location",
+          "border"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-ordinary-action",
+          "home-history-location",
+          "outline"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-task-action",
+          "home-history-location",
+          "color"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-task-action",
+          "home-history-location",
+          "border"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-task-action",
+          "home-history-location",
+          "outline"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-inbox-action",
+          "home-history-location",
+          "color"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-inbox-action",
+          "home-history-location",
+          "border"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-inbox-action",
+          "home-history-location",
+          "outline"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-focus",
+          "home-history-location",
+          "color"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-focus",
+          "home-history-location",
+          "border"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-focus",
+          "home-history-location",
+          "outline"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-host",
+          "home-history-location",
+          "color"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-host",
+          "home-history-location",
+          "border"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-host",
+          "home-history-location",
+          "outline"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      }
+    ],
+    "stage2": [
+      {
+        "path": [
+          "dark",
+          "primary-quick",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark",
+          "primary-task",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark",
+          "primary-location",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark",
+          "primary-inbox",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark",
+          "primary-brief",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark",
+          "primary-music",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark",
+          "primary-planning",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark",
+          "primary-preset",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark",
+          "primary-recovery",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark",
+          "disabled-primary",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark",
+          "home-history",
+          "color"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark",
+          "home-history",
+          "border"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark",
+          "home-history",
+          "outline"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark",
+          "week-range",
+          "color"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark",
+          "week-range",
+          "border"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark",
+          "week-range",
+          "outline"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark",
+          "appearance-note",
+          "color"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark",
+          "appearance-note",
+          "border"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark",
+          "appearance-note",
+          "outline"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-quick",
+          "primary-quick",
+          "background"
+        ],
+        "before": "rgb(166, 138, 249)",
+        "after": "rgb(131, 82, 244)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-quick",
+          "primary-task",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-quick",
+          "primary-location",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-quick",
+          "primary-inbox",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-quick",
+          "primary-brief",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-quick",
+          "primary-music",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-quick",
+          "primary-planning",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-quick",
+          "primary-preset",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-quick",
+          "primary-recovery",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-quick",
+          "disabled-primary",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-quick",
+          "home-history",
+          "color"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-quick",
+          "home-history",
+          "border"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-quick",
+          "home-history",
+          "outline"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-quick",
+          "week-range",
+          "color"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-quick",
+          "week-range",
+          "border"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-quick",
+          "week-range",
+          "outline"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-quick",
+          "appearance-note",
+          "color"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-quick",
+          "appearance-note",
+          "border"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-quick",
+          "appearance-note",
+          "outline"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-task",
+          "primary-quick",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-task",
+          "primary-task",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(131, 82, 244)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-task",
+          "primary-location",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-task",
+          "primary-inbox",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-task",
+          "primary-brief",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-task",
+          "primary-music",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-task",
+          "primary-planning",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-task",
+          "primary-preset",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-task",
+          "primary-recovery",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-task",
+          "disabled-primary",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-task",
+          "home-history",
+          "color"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-task",
+          "home-history",
+          "border"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-task",
+          "home-history",
+          "outline"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-task",
+          "week-range",
+          "color"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-task",
+          "week-range",
+          "border"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-task",
+          "week-range",
+          "outline"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-task",
+          "appearance-note",
+          "color"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-task",
+          "appearance-note",
+          "border"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-task",
+          "appearance-note",
+          "outline"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-location",
+          "primary-quick",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-location",
+          "primary-task",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-location",
+          "primary-location",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(131, 82, 244)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-location",
+          "primary-inbox",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-location",
+          "primary-brief",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-location",
+          "primary-music",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-location",
+          "primary-planning",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-location",
+          "primary-preset",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-location",
+          "primary-recovery",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-location",
+          "disabled-primary",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-location",
+          "home-history",
+          "color"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-location",
+          "home-history",
+          "border"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-location",
+          "home-history",
+          "outline"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-location",
+          "week-range",
+          "color"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-location",
+          "week-range",
+          "border"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-location",
+          "week-range",
+          "outline"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-location",
+          "appearance-note",
+          "color"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-location",
+          "appearance-note",
+          "border"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-location",
+          "appearance-note",
+          "outline"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-inbox",
+          "primary-quick",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-inbox",
+          "primary-task",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-inbox",
+          "primary-location",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-inbox",
+          "primary-inbox",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(131, 82, 244)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-inbox",
+          "primary-brief",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-inbox",
+          "primary-music",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-inbox",
+          "primary-planning",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-inbox",
+          "primary-preset",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-inbox",
+          "primary-recovery",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-inbox",
+          "disabled-primary",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-inbox",
+          "home-history",
+          "color"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-inbox",
+          "home-history",
+          "border"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-inbox",
+          "home-history",
+          "outline"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-inbox",
+          "week-range",
+          "color"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-inbox",
+          "week-range",
+          "border"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-inbox",
+          "week-range",
+          "outline"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-inbox",
+          "appearance-note",
+          "color"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-inbox",
+          "appearance-note",
+          "border"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-inbox",
+          "appearance-note",
+          "outline"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-brief",
+          "primary-quick",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-brief",
+          "primary-task",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-brief",
+          "primary-location",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-brief",
+          "primary-inbox",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-brief",
+          "primary-brief",
+          "background"
+        ],
+        "before": "rgb(166, 138, 249)",
+        "after": "rgb(131, 82, 244)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-brief",
+          "primary-music",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-brief",
+          "primary-planning",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-brief",
+          "primary-preset",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-brief",
+          "primary-recovery",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-brief",
+          "disabled-primary",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-brief",
+          "home-history",
+          "color"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-brief",
+          "home-history",
+          "border"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-brief",
+          "home-history",
+          "outline"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-brief",
+          "week-range",
+          "color"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-brief",
+          "week-range",
+          "border"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-brief",
+          "week-range",
+          "outline"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-brief",
+          "appearance-note",
+          "color"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-brief",
+          "appearance-note",
+          "border"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-brief",
+          "appearance-note",
+          "outline"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-music",
+          "primary-quick",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-music",
+          "primary-task",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-music",
+          "primary-location",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-music",
+          "primary-inbox",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-music",
+          "primary-brief",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-music",
+          "primary-music",
+          "background"
+        ],
+        "before": "rgb(166, 138, 249)",
+        "after": "rgb(131, 82, 244)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-music",
+          "primary-planning",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-music",
+          "primary-preset",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-music",
+          "primary-recovery",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-music",
+          "disabled-primary",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-music",
+          "home-history",
+          "color"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-music",
+          "home-history",
+          "border"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-music",
+          "home-history",
+          "outline"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-music",
+          "week-range",
+          "color"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-music",
+          "week-range",
+          "border"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-music",
+          "week-range",
+          "outline"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-music",
+          "appearance-note",
+          "color"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-music",
+          "appearance-note",
+          "border"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-music",
+          "appearance-note",
+          "outline"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-planning",
+          "primary-quick",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-planning",
+          "primary-task",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-planning",
+          "primary-location",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-planning",
+          "primary-inbox",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-planning",
+          "primary-brief",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-planning",
+          "primary-music",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-planning",
+          "primary-planning",
+          "background"
+        ],
+        "before": "rgb(166, 138, 249)",
+        "after": "rgb(131, 82, 244)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-planning",
+          "primary-preset",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-planning",
+          "primary-recovery",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-planning",
+          "disabled-primary",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-planning",
+          "home-history",
+          "color"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-planning",
+          "home-history",
+          "border"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-planning",
+          "home-history",
+          "outline"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-planning",
+          "week-range",
+          "color"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-planning",
+          "week-range",
+          "border"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-planning",
+          "week-range",
+          "outline"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-planning",
+          "appearance-note",
+          "color"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-planning",
+          "appearance-note",
+          "border"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-planning",
+          "appearance-note",
+          "outline"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-preset",
+          "primary-quick",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-preset",
+          "primary-task",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-preset",
+          "primary-location",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-preset",
+          "primary-inbox",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-preset",
+          "primary-brief",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-preset",
+          "primary-music",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-preset",
+          "primary-planning",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-preset",
+          "primary-preset",
+          "background"
+        ],
+        "before": "rgb(166, 138, 249)",
+        "after": "rgb(131, 82, 244)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-preset",
+          "primary-recovery",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-preset",
+          "disabled-primary",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-preset",
+          "home-history",
+          "color"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-preset",
+          "home-history",
+          "border"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-preset",
+          "home-history",
+          "outline"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-preset",
+          "week-range",
+          "color"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-preset",
+          "week-range",
+          "border"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-preset",
+          "week-range",
+          "outline"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-preset",
+          "appearance-note",
+          "color"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-preset",
+          "appearance-note",
+          "border"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-preset",
+          "appearance-note",
+          "outline"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-recovery",
+          "primary-quick",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-recovery",
+          "primary-task",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-recovery",
+          "primary-location",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-recovery",
+          "primary-inbox",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-recovery",
+          "primary-brief",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-recovery",
+          "primary-music",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-recovery",
+          "primary-planning",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-recovery",
+          "primary-preset",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-recovery",
+          "primary-recovery",
+          "background"
+        ],
+        "before": "rgb(166, 138, 249)",
+        "after": "rgb(131, 82, 244)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-recovery",
+          "disabled-primary",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-recovery",
+          "home-history",
+          "color"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-recovery",
+          "home-history",
+          "border"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-recovery",
+          "home-history",
+          "outline"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-recovery",
+          "week-range",
+          "color"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-recovery",
+          "week-range",
+          "border"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-recovery",
+          "week-range",
+          "outline"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-recovery",
+          "appearance-note",
+          "color"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-recovery",
+          "appearance-note",
+          "border"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-primary-recovery",
+          "appearance-note",
+          "outline"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-oath",
+          "primary-quick",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-oath",
+          "primary-task",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-oath",
+          "primary-location",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-oath",
+          "primary-inbox",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-oath",
+          "primary-brief",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-oath",
+          "primary-music",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-oath",
+          "primary-planning",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-oath",
+          "primary-preset",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-oath",
+          "primary-recovery",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-oath",
+          "disabled-primary",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-oath",
+          "home-history",
+          "color"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-oath",
+          "home-history",
+          "border"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-oath",
+          "home-history",
+          "outline"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-oath",
+          "week-range",
+          "color"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-oath",
+          "week-range",
+          "border"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-oath",
+          "week-range",
+          "outline"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-oath",
+          "appearance-note",
+          "color"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-oath",
+          "appearance-note",
+          "border"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-oath",
+          "appearance-note",
+          "outline"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-danger",
+          "primary-quick",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-danger",
+          "primary-task",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-danger",
+          "primary-location",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-danger",
+          "primary-inbox",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-danger",
+          "primary-brief",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-danger",
+          "primary-music",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-danger",
+          "primary-planning",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-danger",
+          "primary-preset",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-danger",
+          "primary-recovery",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-danger",
+          "disabled-primary",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-danger",
+          "home-history",
+          "color"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-danger",
+          "home-history",
+          "border"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-danger",
+          "home-history",
+          "outline"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-danger",
+          "week-range",
+          "color"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-danger",
+          "week-range",
+          "border"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-danger",
+          "week-range",
+          "outline"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-danger",
+          "appearance-note",
+          "color"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-danger",
+          "appearance-note",
+          "border"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-danger",
+          "appearance-note",
+          "outline"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-disabled-primary",
+          "primary-quick",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-disabled-primary",
+          "primary-task",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-disabled-primary",
+          "primary-location",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-disabled-primary",
+          "primary-inbox",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-disabled-primary",
+          "primary-brief",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-disabled-primary",
+          "primary-music",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-disabled-primary",
+          "primary-planning",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-disabled-primary",
+          "primary-preset",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-disabled-primary",
+          "primary-recovery",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-disabled-primary",
+          "disabled-primary",
+          "background"
+        ],
+        "before": "rgb(166, 138, 249)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-hover-disabled-primary",
+          "home-history",
+          "color"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-disabled-primary",
+          "home-history",
+          "border"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-disabled-primary",
+          "home-history",
+          "outline"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-disabled-primary",
+          "week-range",
+          "color"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-disabled-primary",
+          "week-range",
+          "border"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-disabled-primary",
+          "week-range",
+          "outline"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-disabled-primary",
+          "appearance-note",
+          "color"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-disabled-primary",
+          "appearance-note",
+          "border"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-hover-disabled-primary",
+          "appearance-note",
+          "outline"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-cancel",
+          "primary-quick",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-cancel",
+          "primary-task",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-cancel",
+          "primary-location",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-cancel",
+          "primary-inbox",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-cancel",
+          "primary-brief",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-cancel",
+          "primary-music",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-cancel",
+          "primary-planning",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-cancel",
+          "primary-preset",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-cancel",
+          "primary-recovery",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-cancel",
+          "disabled-primary",
+          "background"
+        ],
+        "before": "rgb(166, 138, 249)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-cancel",
+          "home-history",
+          "color"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-cancel",
+          "home-history",
+          "border"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-cancel",
+          "home-history",
+          "outline"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-cancel",
+          "week-range",
+          "color"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-cancel",
+          "week-range",
+          "border"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-cancel",
+          "week-range",
+          "outline"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-cancel",
+          "appearance-note",
+          "color"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-cancel",
+          "appearance-note",
+          "border"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-cancel",
+          "appearance-note",
+          "outline"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-cancel",
+          "focus-cancel",
+          "outline"
+        ],
+        "before": "rgb(218, 218, 218)",
+        "after": "rgb(153, 153, 153)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-cancel",
+          "focus-cancel",
+          "outlineWidth"
+        ],
+        "before": "3px",
+        "after": "2px"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-cancel",
+          "focus-cancel",
+          "outlineStyle"
+        ],
+        "before": "none",
+        "after": "solid"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-cancel",
+          "focus-cancel",
+          "outlineOffset"
+        ],
+        "before": "0px",
+        "after": "2px"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-input",
+          "primary-quick",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-input",
+          "primary-task",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-input",
+          "primary-location",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-input",
+          "primary-inbox",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-input",
+          "primary-brief",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-input",
+          "primary-music",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-input",
+          "primary-planning",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-input",
+          "primary-preset",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-input",
+          "primary-recovery",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-input",
+          "disabled-primary",
+          "background"
+        ],
+        "before": "rgb(166, 138, 249)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-input",
+          "home-history",
+          "color"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-input",
+          "home-history",
+          "border"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-input",
+          "home-history",
+          "outline"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-input",
+          "week-range",
+          "color"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-input",
+          "week-range",
+          "border"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-input",
+          "week-range",
+          "outline"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-input",
+          "appearance-note",
+          "color"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-input",
+          "appearance-note",
+          "border"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-input",
+          "appearance-note",
+          "outline"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-input",
+          "focus-input",
+          "outline"
+        ],
+        "before": "rgb(63, 63, 63)",
+        "after": "rgb(153, 153, 153)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-select",
+          "primary-quick",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-select",
+          "primary-task",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-select",
+          "primary-location",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-select",
+          "primary-inbox",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-select",
+          "primary-brief",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-select",
+          "primary-music",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-select",
+          "primary-planning",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-select",
+          "primary-preset",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-select",
+          "primary-recovery",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-select",
+          "disabled-primary",
+          "background"
+        ],
+        "before": "rgb(166, 138, 249)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-select",
+          "home-history",
+          "color"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-select",
+          "home-history",
+          "border"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-select",
+          "home-history",
+          "outline"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-select",
+          "week-range",
+          "color"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-select",
+          "week-range",
+          "border"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-select",
+          "week-range",
+          "outline"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-select",
+          "appearance-note",
+          "color"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-select",
+          "appearance-note",
+          "border"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-select",
+          "appearance-note",
+          "outline"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-select",
+          "focus-select",
+          "outline"
+        ],
+        "before": "rgb(63, 63, 63)",
+        "after": "rgb(153, 153, 153)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-wrapped-select",
+          "primary-quick",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-wrapped-select",
+          "primary-task",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-wrapped-select",
+          "primary-location",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-wrapped-select",
+          "primary-inbox",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-wrapped-select",
+          "primary-brief",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-wrapped-select",
+          "primary-music",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-wrapped-select",
+          "primary-planning",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-wrapped-select",
+          "primary-preset",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-wrapped-select",
+          "primary-recovery",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-wrapped-select",
+          "disabled-primary",
+          "background"
+        ],
+        "before": "rgb(166, 138, 249)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-wrapped-select",
+          "home-history",
+          "color"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-wrapped-select",
+          "home-history",
+          "border"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-wrapped-select",
+          "home-history",
+          "outline"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-wrapped-select",
+          "week-range",
+          "color"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-wrapped-select",
+          "week-range",
+          "border"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-wrapped-select",
+          "week-range",
+          "outline"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-wrapped-select",
+          "appearance-note",
+          "color"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-wrapped-select",
+          "appearance-note",
+          "border"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-wrapped-select",
+          "appearance-note",
+          "outline"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-wrapped-select",
+          "focus-wrapped-select",
+          "outline"
+        ],
+        "before": "rgb(63, 63, 63)",
+        "after": "rgb(218, 218, 218)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-wrapped-select",
+          "focus-wrapped-select",
+          "outlineWidth"
+        ],
+        "before": "2px",
+        "after": "3px"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-wrapped-select",
+          "focus-wrapped-select",
+          "outlineStyle"
+        ],
+        "before": "solid",
+        "after": "none"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-wrapped-select",
+          "wrapper",
+          "outline"
+        ],
+        "before": "rgb(63, 63, 63)",
+        "after": "rgb(153, 153, 153)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-trigger",
+          "primary-quick",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-trigger",
+          "primary-task",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-trigger",
+          "primary-location",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-trigger",
+          "primary-inbox",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-trigger",
+          "primary-brief",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-trigger",
+          "primary-music",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-trigger",
+          "primary-planning",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-trigger",
+          "primary-preset",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-trigger",
+          "primary-recovery",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-trigger",
+          "disabled-primary",
+          "background"
+        ],
+        "before": "rgb(166, 138, 249)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-trigger",
+          "home-history",
+          "color"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-trigger",
+          "home-history",
+          "border"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-trigger",
+          "home-history",
+          "outline"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-trigger",
+          "week-range",
+          "color"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-trigger",
+          "week-range",
+          "border"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-trigger",
+          "week-range",
+          "outline"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-trigger",
+          "appearance-note",
+          "color"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-trigger",
+          "appearance-note",
+          "border"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-trigger",
+          "appearance-note",
+          "outline"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-trigger",
+          "focus-trigger",
+          "outline"
+        ],
+        "before": "rgb(51, 51, 51)",
+        "after": "rgb(153, 153, 153)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-location",
+          "primary-quick",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-location",
+          "primary-task",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-location",
+          "primary-location",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-location",
+          "primary-inbox",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-location",
+          "primary-brief",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-location",
+          "primary-music",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-location",
+          "primary-planning",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-location",
+          "primary-preset",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-location",
+          "primary-recovery",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-location",
+          "disabled-primary",
+          "background"
+        ],
+        "before": "rgb(166, 138, 249)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-location",
+          "home-history",
+          "color"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-location",
+          "home-history",
+          "border"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-location",
+          "home-history",
+          "outline"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-location",
+          "week-range",
+          "color"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-location",
+          "week-range",
+          "border"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-location",
+          "week-range",
+          "outline"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-location",
+          "appearance-note",
+          "color"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-location",
+          "appearance-note",
+          "border"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-location",
+          "appearance-note",
+          "outline"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-location",
+          "focus-location",
+          "outline"
+        ],
+        "before": "rgb(85, 85, 85)",
+        "after": "rgb(153, 153, 153)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-crumb",
+          "primary-quick",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-crumb",
+          "primary-task",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-crumb",
+          "primary-location",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-crumb",
+          "primary-inbox",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-crumb",
+          "primary-brief",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-crumb",
+          "primary-music",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-crumb",
+          "primary-planning",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-crumb",
+          "primary-preset",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-crumb",
+          "primary-recovery",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-crumb",
+          "disabled-primary",
+          "background"
+        ],
+        "before": "rgb(166, 138, 249)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-crumb",
+          "home-history",
+          "color"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-crumb",
+          "home-history",
+          "border"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-crumb",
+          "home-history",
+          "outline"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-crumb",
+          "week-range",
+          "color"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-crumb",
+          "week-range",
+          "border"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-crumb",
+          "week-range",
+          "outline"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-crumb",
+          "appearance-note",
+          "color"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-crumb",
+          "appearance-note",
+          "border"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-crumb",
+          "appearance-note",
+          "outline"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-crumb",
+          "focus-crumb",
+          "outline"
+        ],
+        "before": "rgb(85, 85, 85)",
+        "after": "rgb(153, 153, 153)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-home",
+          "primary-quick",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-home",
+          "primary-task",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-home",
+          "primary-location",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-home",
+          "primary-inbox",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-home",
+          "primary-brief",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-home",
+          "primary-music",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-home",
+          "primary-planning",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-home",
+          "primary-preset",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-home",
+          "primary-recovery",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-home",
+          "disabled-primary",
+          "background"
+        ],
+        "before": "rgb(166, 138, 249)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-home",
+          "home-history",
+          "color"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-home",
+          "home-history",
+          "border"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-home",
+          "home-history",
+          "outline"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-home",
+          "week-range",
+          "color"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-home",
+          "week-range",
+          "border"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-home",
+          "week-range",
+          "outline"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-home",
+          "appearance-note",
+          "color"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-home",
+          "appearance-note",
+          "border"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-home",
+          "appearance-note",
+          "outline"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-home",
+          "focus-home",
+          "outline"
+        ],
+        "before": "rgb(218, 218, 218)",
+        "after": "rgb(153, 153, 153)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-home",
+          "focus-home",
+          "outlineWidth"
+        ],
+        "before": "3px",
+        "after": "2px"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-home",
+          "focus-home",
+          "outlineStyle"
+        ],
+        "before": "none",
+        "after": "solid"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-home",
+          "focus-home",
+          "outlineOffset"
+        ],
+        "before": "0px",
+        "after": "2px"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-project",
+          "primary-quick",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-project",
+          "primary-task",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-project",
+          "primary-location",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-project",
+          "primary-inbox",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-project",
+          "primary-brief",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-project",
+          "primary-music",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-project",
+          "primary-planning",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-project",
+          "primary-preset",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-project",
+          "primary-recovery",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-project",
+          "disabled-primary",
+          "background"
+        ],
+        "before": "rgb(166, 138, 249)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-project",
+          "home-history",
+          "color"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-project",
+          "home-history",
+          "border"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-project",
+          "home-history",
+          "outline"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-project",
+          "week-range",
+          "color"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-project",
+          "week-range",
+          "border"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-project",
+          "week-range",
+          "outline"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-project",
+          "appearance-note",
+          "color"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-project",
+          "appearance-note",
+          "border"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-project",
+          "appearance-note",
+          "outline"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-project",
+          "focus-project",
+          "outline"
+        ],
+        "before": "rgb(218, 218, 218)",
+        "after": "rgb(153, 153, 153)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-project",
+          "focus-project",
+          "outlineWidth"
+        ],
+        "before": "3px",
+        "after": "2px"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-project",
+          "focus-project",
+          "outlineStyle"
+        ],
+        "before": "none",
+        "after": "solid"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-project",
+          "focus-project",
+          "outlineOffset"
+        ],
+        "before": "0px",
+        "after": "2px"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-settings",
+          "primary-quick",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-settings",
+          "primary-task",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-settings",
+          "primary-location",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-settings",
+          "primary-inbox",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-settings",
+          "primary-brief",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-settings",
+          "primary-music",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-settings",
+          "primary-planning",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-settings",
+          "primary-preset",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-settings",
+          "primary-recovery",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-settings",
+          "disabled-primary",
+          "background"
+        ],
+        "before": "rgb(166, 138, 249)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-settings",
+          "home-history",
+          "color"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-settings",
+          "home-history",
+          "border"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-settings",
+          "home-history",
+          "outline"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-settings",
+          "week-range",
+          "color"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-settings",
+          "week-range",
+          "border"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-settings",
+          "week-range",
+          "outline"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-settings",
+          "appearance-note",
+          "color"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-settings",
+          "appearance-note",
+          "border"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-settings",
+          "appearance-note",
+          "outline"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-menu",
+          "primary-quick",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-menu",
+          "primary-task",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-menu",
+          "primary-location",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-menu",
+          "primary-inbox",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-menu",
+          "primary-brief",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-menu",
+          "primary-music",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-menu",
+          "primary-planning",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-menu",
+          "primary-preset",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-menu",
+          "primary-recovery",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-menu",
+          "disabled-primary",
+          "background"
+        ],
+        "before": "rgb(166, 138, 249)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-menu",
+          "home-history",
+          "color"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-menu",
+          "home-history",
+          "border"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-menu",
+          "home-history",
+          "outline"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-menu",
+          "week-range",
+          "color"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-menu",
+          "week-range",
+          "border"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-menu",
+          "week-range",
+          "outline"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-menu",
+          "appearance-note",
+          "color"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-menu",
+          "appearance-note",
+          "border"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-menu",
+          "appearance-note",
+          "outline"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-menu",
+          "focus-menu",
+          "outline"
+        ],
+        "before": "rgb(218, 218, 218)",
+        "after": "rgb(153, 153, 153)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-menu",
+          "focus-menu",
+          "outlineWidth"
+        ],
+        "before": "3px",
+        "after": "2px"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-menu",
+          "focus-menu",
+          "outlineStyle"
+        ],
+        "before": "none",
+        "after": "solid"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-menu",
+          "focus-menu",
+          "outlineOffset"
+        ],
+        "before": "0px",
+        "after": "-2px"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-athena-checkbox",
+          "primary-quick",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-athena-checkbox",
+          "primary-task",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-athena-checkbox",
+          "primary-location",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-athena-checkbox",
+          "primary-inbox",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-athena-checkbox",
+          "primary-brief",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-athena-checkbox",
+          "primary-music",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-athena-checkbox",
+          "primary-planning",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-athena-checkbox",
+          "primary-preset",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-athena-checkbox",
+          "primary-recovery",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-athena-checkbox",
+          "disabled-primary",
+          "background"
+        ],
+        "before": "rgb(166, 138, 249)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-athena-checkbox",
+          "home-history",
+          "color"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-athena-checkbox",
+          "home-history",
+          "border"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-athena-checkbox",
+          "home-history",
+          "outline"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-athena-checkbox",
+          "week-range",
+          "color"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-athena-checkbox",
+          "week-range",
+          "border"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-athena-checkbox",
+          "week-range",
+          "outline"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-athena-checkbox",
+          "appearance-note",
+          "color"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-athena-checkbox",
+          "appearance-note",
+          "border"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-athena-checkbox",
+          "appearance-note",
+          "outline"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-keyboard-focus-athena-checkbox",
+          "focus-athena-checkbox",
+          "shadow"
+        ],
+        "before": "rgb(85, 85, 85) 0px 0px 0px 2px",
+        "after": "rgb(153, 153, 153) 0px 0px 0px 2px"
+      },
+      {
+        "path": [
+          "dark-mouse-focus-input",
+          "primary-quick",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-mouse-focus-input",
+          "primary-task",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-mouse-focus-input",
+          "primary-location",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-mouse-focus-input",
+          "primary-inbox",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-mouse-focus-input",
+          "primary-brief",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-mouse-focus-input",
+          "primary-music",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-mouse-focus-input",
+          "primary-planning",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-mouse-focus-input",
+          "primary-preset",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-mouse-focus-input",
+          "primary-recovery",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-mouse-focus-input",
+          "disabled-primary",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-mouse-focus-input",
+          "home-history",
+          "color"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-mouse-focus-input",
+          "home-history",
+          "border"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-mouse-focus-input",
+          "home-history",
+          "outline"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-mouse-focus-input",
+          "week-range",
+          "color"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-mouse-focus-input",
+          "week-range",
+          "border"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-mouse-focus-input",
+          "week-range",
+          "outline"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-mouse-focus-input",
+          "appearance-note",
+          "color"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-mouse-focus-input",
+          "appearance-note",
+          "border"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-mouse-focus-input",
+          "appearance-note",
+          "outline"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-mouse-focus-cancel",
+          "primary-quick",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-mouse-focus-cancel",
+          "primary-task",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-mouse-focus-cancel",
+          "primary-location",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-mouse-focus-cancel",
+          "primary-inbox",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-mouse-focus-cancel",
+          "primary-brief",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-mouse-focus-cancel",
+          "primary-music",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-mouse-focus-cancel",
+          "primary-planning",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-mouse-focus-cancel",
+          "primary-preset",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-mouse-focus-cancel",
+          "primary-recovery",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-mouse-focus-cancel",
+          "disabled-primary",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-mouse-focus-cancel",
+          "home-history",
+          "color"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-mouse-focus-cancel",
+          "home-history",
+          "border"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-mouse-focus-cancel",
+          "home-history",
+          "outline"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-mouse-focus-cancel",
+          "week-range",
+          "color"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-mouse-focus-cancel",
+          "week-range",
+          "border"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-mouse-focus-cancel",
+          "week-range",
+          "outline"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-mouse-focus-cancel",
+          "appearance-note",
+          "color"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-mouse-focus-cancel",
+          "appearance-note",
+          "border"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-mouse-focus-cancel",
+          "appearance-note",
+          "outline"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-mouse-focus-location",
+          "primary-quick",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-mouse-focus-location",
+          "primary-task",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-mouse-focus-location",
+          "primary-location",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-mouse-focus-location",
+          "primary-inbox",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-mouse-focus-location",
+          "primary-brief",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-mouse-focus-location",
+          "primary-music",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-mouse-focus-location",
+          "primary-planning",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-mouse-focus-location",
+          "primary-preset",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-mouse-focus-location",
+          "primary-recovery",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-mouse-focus-location",
+          "disabled-primary",
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      },
+      {
+        "path": [
+          "dark-mouse-focus-location",
+          "home-history",
+          "color"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-mouse-focus-location",
+          "home-history",
+          "border"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-mouse-focus-location",
+          "home-history",
+          "outline"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-mouse-focus-location",
+          "week-range",
+          "color"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-mouse-focus-location",
+          "week-range",
+          "border"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-mouse-focus-location",
+          "week-range",
+          "outline"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-mouse-focus-location",
+          "appearance-note",
+          "color"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-mouse-focus-location",
+          "appearance-note",
+          "border"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "dark-mouse-focus-location",
+          "appearance-note",
+          "outline"
+        ],
+        "before": "rgb(102, 102, 102)",
+        "after": "rgb(179, 179, 179)"
+      },
+      {
+        "path": [
+          "light",
+          "home-history",
+          "color"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light",
+          "home-history",
+          "border"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light",
+          "home-history",
+          "outline"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light",
+          "week-range",
+          "color"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light",
+          "week-range",
+          "border"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light",
+          "week-range",
+          "outline"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light",
+          "appearance-note",
+          "color"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light",
+          "appearance-note",
+          "border"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light",
+          "appearance-note",
+          "outline"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-primary-quick",
+          "home-history",
+          "color"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-primary-quick",
+          "home-history",
+          "border"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-primary-quick",
+          "home-history",
+          "outline"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-primary-quick",
+          "week-range",
+          "color"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-primary-quick",
+          "week-range",
+          "border"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-primary-quick",
+          "week-range",
+          "outline"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-primary-quick",
+          "appearance-note",
+          "color"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-primary-quick",
+          "appearance-note",
+          "border"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-primary-quick",
+          "appearance-note",
+          "outline"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-primary-task",
+          "home-history",
+          "color"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-primary-task",
+          "home-history",
+          "border"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-primary-task",
+          "home-history",
+          "outline"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-primary-task",
+          "week-range",
+          "color"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-primary-task",
+          "week-range",
+          "border"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-primary-task",
+          "week-range",
+          "outline"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-primary-task",
+          "appearance-note",
+          "color"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-primary-task",
+          "appearance-note",
+          "border"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-primary-task",
+          "appearance-note",
+          "outline"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-primary-location",
+          "home-history",
+          "color"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-primary-location",
+          "home-history",
+          "border"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-primary-location",
+          "home-history",
+          "outline"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-primary-location",
+          "week-range",
+          "color"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-primary-location",
+          "week-range",
+          "border"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-primary-location",
+          "week-range",
+          "outline"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-primary-location",
+          "appearance-note",
+          "color"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-primary-location",
+          "appearance-note",
+          "border"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-primary-location",
+          "appearance-note",
+          "outline"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-primary-inbox",
+          "home-history",
+          "color"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-primary-inbox",
+          "home-history",
+          "border"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-primary-inbox",
+          "home-history",
+          "outline"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-primary-inbox",
+          "week-range",
+          "color"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-primary-inbox",
+          "week-range",
+          "border"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-primary-inbox",
+          "week-range",
+          "outline"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-primary-inbox",
+          "appearance-note",
+          "color"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-primary-inbox",
+          "appearance-note",
+          "border"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-primary-inbox",
+          "appearance-note",
+          "outline"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-primary-brief",
+          "home-history",
+          "color"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-primary-brief",
+          "home-history",
+          "border"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-primary-brief",
+          "home-history",
+          "outline"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-primary-brief",
+          "week-range",
+          "color"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-primary-brief",
+          "week-range",
+          "border"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-primary-brief",
+          "week-range",
+          "outline"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-primary-brief",
+          "appearance-note",
+          "color"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-primary-brief",
+          "appearance-note",
+          "border"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-primary-brief",
+          "appearance-note",
+          "outline"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-primary-music",
+          "home-history",
+          "color"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-primary-music",
+          "home-history",
+          "border"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-primary-music",
+          "home-history",
+          "outline"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-primary-music",
+          "week-range",
+          "color"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-primary-music",
+          "week-range",
+          "border"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-primary-music",
+          "week-range",
+          "outline"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-primary-music",
+          "appearance-note",
+          "color"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-primary-music",
+          "appearance-note",
+          "border"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-primary-music",
+          "appearance-note",
+          "outline"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-primary-planning",
+          "home-history",
+          "color"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-primary-planning",
+          "home-history",
+          "border"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-primary-planning",
+          "home-history",
+          "outline"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-primary-planning",
+          "week-range",
+          "color"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-primary-planning",
+          "week-range",
+          "border"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-primary-planning",
+          "week-range",
+          "outline"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-primary-planning",
+          "appearance-note",
+          "color"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-primary-planning",
+          "appearance-note",
+          "border"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-primary-planning",
+          "appearance-note",
+          "outline"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-primary-preset",
+          "home-history",
+          "color"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-primary-preset",
+          "home-history",
+          "border"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-primary-preset",
+          "home-history",
+          "outline"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-primary-preset",
+          "week-range",
+          "color"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-primary-preset",
+          "week-range",
+          "border"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-primary-preset",
+          "week-range",
+          "outline"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-primary-preset",
+          "appearance-note",
+          "color"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-primary-preset",
+          "appearance-note",
+          "border"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-primary-preset",
+          "appearance-note",
+          "outline"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-primary-recovery",
+          "home-history",
+          "color"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-primary-recovery",
+          "home-history",
+          "border"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-primary-recovery",
+          "home-history",
+          "outline"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-primary-recovery",
+          "week-range",
+          "color"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-primary-recovery",
+          "week-range",
+          "border"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-primary-recovery",
+          "week-range",
+          "outline"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-primary-recovery",
+          "appearance-note",
+          "color"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-primary-recovery",
+          "appearance-note",
+          "border"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-primary-recovery",
+          "appearance-note",
+          "outline"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-oath",
+          "home-history",
+          "color"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-oath",
+          "home-history",
+          "border"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-oath",
+          "home-history",
+          "outline"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-oath",
+          "week-range",
+          "color"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-oath",
+          "week-range",
+          "border"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-oath",
+          "week-range",
+          "outline"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-oath",
+          "appearance-note",
+          "color"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-oath",
+          "appearance-note",
+          "border"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-oath",
+          "appearance-note",
+          "outline"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-danger",
+          "home-history",
+          "color"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-danger",
+          "home-history",
+          "border"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-danger",
+          "home-history",
+          "outline"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-danger",
+          "week-range",
+          "color"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-danger",
+          "week-range",
+          "border"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-danger",
+          "week-range",
+          "outline"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-danger",
+          "appearance-note",
+          "color"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-danger",
+          "appearance-note",
+          "border"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-danger",
+          "appearance-note",
+          "outline"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-disabled-primary",
+          "home-history",
+          "color"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-disabled-primary",
+          "home-history",
+          "border"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-disabled-primary",
+          "home-history",
+          "outline"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-disabled-primary",
+          "week-range",
+          "color"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-disabled-primary",
+          "week-range",
+          "border"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-disabled-primary",
+          "week-range",
+          "outline"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-disabled-primary",
+          "appearance-note",
+          "color"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-disabled-primary",
+          "appearance-note",
+          "border"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-hover-disabled-primary",
+          "appearance-note",
+          "outline"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-keyboard-focus-cancel",
+          "home-history",
+          "color"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-keyboard-focus-cancel",
+          "home-history",
+          "border"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-keyboard-focus-cancel",
+          "home-history",
+          "outline"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-keyboard-focus-cancel",
+          "week-range",
+          "color"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-keyboard-focus-cancel",
+          "week-range",
+          "border"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-keyboard-focus-cancel",
+          "week-range",
+          "outline"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-keyboard-focus-cancel",
+          "appearance-note",
+          "color"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-keyboard-focus-cancel",
+          "appearance-note",
+          "border"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-keyboard-focus-cancel",
+          "appearance-note",
+          "outline"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-keyboard-focus-input",
+          "home-history",
+          "color"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-keyboard-focus-input",
+          "home-history",
+          "border"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-keyboard-focus-input",
+          "home-history",
+          "outline"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-keyboard-focus-input",
+          "week-range",
+          "color"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-keyboard-focus-input",
+          "week-range",
+          "border"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-keyboard-focus-input",
+          "week-range",
+          "outline"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-keyboard-focus-input",
+          "appearance-note",
+          "color"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-keyboard-focus-input",
+          "appearance-note",
+          "border"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-keyboard-focus-input",
+          "appearance-note",
+          "outline"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-keyboard-focus-select",
+          "home-history",
+          "color"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-keyboard-focus-select",
+          "home-history",
+          "border"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-keyboard-focus-select",
+          "home-history",
+          "outline"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-keyboard-focus-select",
+          "week-range",
+          "color"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-keyboard-focus-select",
+          "week-range",
+          "border"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-keyboard-focus-select",
+          "week-range",
+          "outline"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-keyboard-focus-select",
+          "appearance-note",
+          "color"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-keyboard-focus-select",
+          "appearance-note",
+          "border"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-keyboard-focus-select",
+          "appearance-note",
+          "outline"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-keyboard-focus-wrapped-select",
+          "home-history",
+          "color"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-keyboard-focus-wrapped-select",
+          "home-history",
+          "border"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-keyboard-focus-wrapped-select",
+          "home-history",
+          "outline"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-keyboard-focus-wrapped-select",
+          "week-range",
+          "color"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-keyboard-focus-wrapped-select",
+          "week-range",
+          "border"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-keyboard-focus-wrapped-select",
+          "week-range",
+          "outline"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-keyboard-focus-wrapped-select",
+          "appearance-note",
+          "color"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-keyboard-focus-wrapped-select",
+          "appearance-note",
+          "border"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-keyboard-focus-wrapped-select",
+          "appearance-note",
+          "outline"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-keyboard-focus-trigger",
+          "home-history",
+          "color"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-keyboard-focus-trigger",
+          "home-history",
+          "border"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-keyboard-focus-trigger",
+          "home-history",
+          "outline"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-keyboard-focus-trigger",
+          "week-range",
+          "color"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-keyboard-focus-trigger",
+          "week-range",
+          "border"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-keyboard-focus-trigger",
+          "week-range",
+          "outline"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-keyboard-focus-trigger",
+          "appearance-note",
+          "color"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-keyboard-focus-trigger",
+          "appearance-note",
+          "border"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-keyboard-focus-trigger",
+          "appearance-note",
+          "outline"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-keyboard-focus-location",
+          "home-history",
+          "color"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-keyboard-focus-location",
+          "home-history",
+          "border"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-keyboard-focus-location",
+          "home-history",
+          "outline"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-keyboard-focus-location",
+          "week-range",
+          "color"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-keyboard-focus-location",
+          "week-range",
+          "border"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-keyboard-focus-location",
+          "week-range",
+          "outline"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-keyboard-focus-location",
+          "appearance-note",
+          "color"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-keyboard-focus-location",
+          "appearance-note",
+          "border"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-keyboard-focus-location",
+          "appearance-note",
+          "outline"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-keyboard-focus-crumb",
+          "home-history",
+          "color"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-keyboard-focus-crumb",
+          "home-history",
+          "border"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-keyboard-focus-crumb",
+          "home-history",
+          "outline"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-keyboard-focus-crumb",
+          "week-range",
+          "color"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-keyboard-focus-crumb",
+          "week-range",
+          "border"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-keyboard-focus-crumb",
+          "week-range",
+          "outline"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-keyboard-focus-crumb",
+          "appearance-note",
+          "color"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-keyboard-focus-crumb",
+          "appearance-note",
+          "border"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-keyboard-focus-crumb",
+          "appearance-note",
+          "outline"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-keyboard-focus-home",
+          "home-history",
+          "color"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-keyboard-focus-home",
+          "home-history",
+          "border"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-keyboard-focus-home",
+          "home-history",
+          "outline"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-keyboard-focus-home",
+          "week-range",
+          "color"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-keyboard-focus-home",
+          "week-range",
+          "border"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-keyboard-focus-home",
+          "week-range",
+          "outline"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-keyboard-focus-home",
+          "appearance-note",
+          "color"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-keyboard-focus-home",
+          "appearance-note",
+          "border"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-keyboard-focus-home",
+          "appearance-note",
+          "outline"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-keyboard-focus-project",
+          "home-history",
+          "color"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-keyboard-focus-project",
+          "home-history",
+          "border"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-keyboard-focus-project",
+          "home-history",
+          "outline"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-keyboard-focus-project",
+          "week-range",
+          "color"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-keyboard-focus-project",
+          "week-range",
+          "border"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-keyboard-focus-project",
+          "week-range",
+          "outline"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-keyboard-focus-project",
+          "appearance-note",
+          "color"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-keyboard-focus-project",
+          "appearance-note",
+          "border"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-keyboard-focus-project",
+          "appearance-note",
+          "outline"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-keyboard-focus-settings",
+          "home-history",
+          "color"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-keyboard-focus-settings",
+          "home-history",
+          "border"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-keyboard-focus-settings",
+          "home-history",
+          "outline"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-keyboard-focus-settings",
+          "week-range",
+          "color"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-keyboard-focus-settings",
+          "week-range",
+          "border"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-keyboard-focus-settings",
+          "week-range",
+          "outline"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-keyboard-focus-settings",
+          "appearance-note",
+          "color"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-keyboard-focus-settings",
+          "appearance-note",
+          "border"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-keyboard-focus-settings",
+          "appearance-note",
+          "outline"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-keyboard-focus-menu",
+          "home-history",
+          "color"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-keyboard-focus-menu",
+          "home-history",
+          "border"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-keyboard-focus-menu",
+          "home-history",
+          "outline"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-keyboard-focus-menu",
+          "week-range",
+          "color"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-keyboard-focus-menu",
+          "week-range",
+          "border"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-keyboard-focus-menu",
+          "week-range",
+          "outline"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-keyboard-focus-menu",
+          "appearance-note",
+          "color"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-keyboard-focus-menu",
+          "appearance-note",
+          "border"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-keyboard-focus-menu",
+          "appearance-note",
+          "outline"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-keyboard-focus-athena-checkbox",
+          "home-history",
+          "color"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-keyboard-focus-athena-checkbox",
+          "home-history",
+          "border"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-keyboard-focus-athena-checkbox",
+          "home-history",
+          "outline"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-keyboard-focus-athena-checkbox",
+          "week-range",
+          "color"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-keyboard-focus-athena-checkbox",
+          "week-range",
+          "border"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-keyboard-focus-athena-checkbox",
+          "week-range",
+          "outline"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-keyboard-focus-athena-checkbox",
+          "appearance-note",
+          "color"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-keyboard-focus-athena-checkbox",
+          "appearance-note",
+          "border"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-keyboard-focus-athena-checkbox",
+          "appearance-note",
+          "outline"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-mouse-focus-input",
+          "home-history",
+          "color"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-mouse-focus-input",
+          "home-history",
+          "border"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-mouse-focus-input",
+          "home-history",
+          "outline"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-mouse-focus-input",
+          "week-range",
+          "color"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-mouse-focus-input",
+          "week-range",
+          "border"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-mouse-focus-input",
+          "week-range",
+          "outline"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-mouse-focus-input",
+          "appearance-note",
+          "color"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-mouse-focus-input",
+          "appearance-note",
+          "border"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-mouse-focus-input",
+          "appearance-note",
+          "outline"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-mouse-focus-cancel",
+          "home-history",
+          "color"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-mouse-focus-cancel",
+          "home-history",
+          "border"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-mouse-focus-cancel",
+          "home-history",
+          "outline"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-mouse-focus-cancel",
+          "week-range",
+          "color"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-mouse-focus-cancel",
+          "week-range",
+          "border"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-mouse-focus-cancel",
+          "week-range",
+          "outline"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-mouse-focus-cancel",
+          "appearance-note",
+          "color"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-mouse-focus-cancel",
+          "appearance-note",
+          "border"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-mouse-focus-cancel",
+          "appearance-note",
+          "outline"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-mouse-focus-location",
+          "home-history",
+          "color"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-mouse-focus-location",
+          "home-history",
+          "border"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-mouse-focus-location",
+          "home-history",
+          "outline"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-mouse-focus-location",
+          "week-range",
+          "color"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-mouse-focus-location",
+          "week-range",
+          "border"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-mouse-focus-location",
+          "week-range",
+          "outline"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-mouse-focus-location",
+          "appearance-note",
+          "color"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-mouse-focus-location",
+          "appearance-note",
+          "border"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      },
+      {
+        "path": [
+          "light-mouse-focus-location",
+          "appearance-note",
+          "outline"
+        ],
+        "before": "rgb(171, 171, 171)",
+        "after": "rgb(92, 92, 92)"
+      }
+    ],
+    "native": [
+      {
+        "path": [
+          5,
+          "background"
+        ],
+        "before": "rgb(138, 92, 245)",
+        "after": "rgb(124, 73, 243)"
+      }
+    ]
+  }
+}

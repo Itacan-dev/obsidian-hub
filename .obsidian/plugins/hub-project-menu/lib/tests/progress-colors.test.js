@@ -11,7 +11,7 @@ for (let score = 1.25; score <= 4; score += .25) {
     assert(alpha(score) > alpha(score - .25), "Every displayed score step increases brightness");
 }
 assert.deepEqual([1, 2, 3, 4].map(alpha), [.1, .3, .6, 1]);
-assert.equal(progressColor(4), "rgba(13, 201, 79, 1)", "Level 4 retains its exact color and opacity");
+assert.equal(progressColor(4), "rgba(var(--hub-progress-rgb, 13, 201, 79), 1)", "Level 4 retains its exact color and opacity");
 assert.equal(progressColors.green[3], progressColor(4));
 assert.equal(progressColor(2.24), progressColor(2), "Sub-quarter scores retain the existing display quantization");
 assert.equal(progressColor(3.99), progressColor(3.75));

@@ -1,4 +1,6 @@
 "use strict";
+const { ownModalColors, ownNoticeColors } = require("./color-system");
+
 const { Notice } = require("obsidian");
 const { CaptureModal, action, attachments } = require("./capture-modal");
 const { mountCaptureForm } = require("./capture-form");
@@ -13,7 +15,7 @@ class QuickAddModal extends CaptureModal {
         this.saved = false;
         this.pendingImports = 0; this.importQueue = Promise.resolve();
     }
-    onOpen() {
+    onOpen() { ownModalColors(this);
         this.modalEl.classList.add("hub-quick-add-dialog");
         this.header("Quick Add", "Write down a thought, or add a file", "zap");
         this.body = this.contentEl.createDiv({ cls: "hub-capture-body" });
@@ -149,7 +151,7 @@ class QuickAddModal extends CaptureModal {
             if (this.captureId) await this.service.updateCapture(this.captureId, value);
             else await this.service.capture(value);
             this.saved = true;
-            new Notice("Sent to Inbox."); this.finish();
+            ownNoticeColors(new Notice("Sent to Inbox.")); this.finish();
         });
     }
     addDirect() {
@@ -165,7 +167,7 @@ class QuickAddModal extends CaptureModal {
             const draft = this.form.value();
             const result = draft.type === "task" ? await this.service.makeTask(draft, this.captureId, this.nativeAttempt ??= {}) : draft.type === "note" ?
                 await this.service.createNote(draft, this.captureId) : await this.service.addFiles(draft, this.captureId);
-            this.saved = true; new Notice(result?.message ?? `Added ${draft.type}.`); this.finish();
+            this.saved = true; ownNoticeColors(new Notice(result?.message ?? `Added ${draft.type}.`)); this.finish();
         });
     }
     onProblem(error) {
@@ -176,7 +178,7 @@ class QuickAddModal extends CaptureModal {
     onClose() {
         this.service.scheduleNativeRefresh?.();
         if (!this.saved && this.draft.attachments.length) void this.service.releaseAttachments(this.draft.attachments)
-            .catch(error => new Notice(`Could not remove temporary attachment: ${error.message}`));
+            .catch(error => ownNoticeColors(new Notice(`Could not remove temporary attachment: ${error.message}`)));
         super.onClose();
     }
 }

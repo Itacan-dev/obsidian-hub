@@ -1,4 +1,6 @@
 "use strict";
+const { ownNoticeColors } = require("./color-system");
+
 const { setIcon, Notice } = require("obsidian");
 const { createTaskRow } = require("./tasks");
 const { taskDateLabel } = require("../domain/dates");
@@ -37,7 +39,7 @@ function source(host, task, context) {
     const el = button(host, label, async event => {
         event.stopPropagation();
         try { await context.openSource(task); }
-        catch (error) { new Notice(error.message || "Could not open task location."); }
+        catch (error) { ownNoticeColors(new Notice(error.message || "Could not open task location.")); }
     }, "hub-button-plain hub-full-location");
     el.title = require("../domain/native-task-location").locationBreadcrumb(task, { type: "project", id: context.workspace.projectId })?.full ?? label; el.setAttribute("aria-label", "Open location: " + label);
     el.disabled = true; el.setAttribute("aria-label", "Location: " + el.title);
@@ -55,7 +57,7 @@ function bindTask(row, title, checkbox, task, context, options = {}) {
             let uncertain = false; context.pending.add(key);
             try { await require("./task-operation").runNativeTaskToggle({ checkbox, task, completed,
                 run: completed => context.toggle({ ...task, completed }), onEdit: context.apply,
-                report: error => { uncertain = error.outcome?.status === "uncertain"; new Notice(error.message || "Could not update task."); } }); }
+                report: error => { uncertain = error.outcome?.status === "uncertain"; ownNoticeColors(new Notice(error.message || "Could not update task.")); } }); }
             finally { if (!uncertain) context.pending.delete(key); context.render(); }
             return;
         }

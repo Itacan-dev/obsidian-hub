@@ -1,4 +1,6 @@
 "use strict";
+const { ownModalColors } = require("./color-system");
+
 const { createWindowTitle, setWindowUndertext, layoutModal } = require("./window-title");
 const { Modal, Component, setIcon } = require("obsidian");
 const { parseLocalISODate, formatDate, formatWeekday } = require("../domain/dates");
@@ -16,7 +18,7 @@ class DailyBriefModal extends Modal {
         super(app); Object.assign(this, { context, recommendation, onAction, onReport, closed: onClose });
         this.selectedDate = context.lastWorkDate; this.expanded = false;
     }
-    onOpen() {
+    onOpen() { ownModalColors(this);
         this.contentEl.classList.add("hub-project-advancement-modal", "hub-daily-brief-modal", "hub-button-scope");
         this.component = new Component(); this.component.load();
         this.markdown = createHubMarkdown({ app: this.app, component: this.component });

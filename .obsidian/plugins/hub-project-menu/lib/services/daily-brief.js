@@ -35,9 +35,8 @@ class DailyBriefService {
         if (this.disposed || !this.ready()) return { available: false, reason: "Waiting for task history to load." };
         if (this.oathBlocked()) return { available: false, reason: "Unavailable during an active Oath." };
         if (this.manualOpening) return { available: false, reason: "Opening today's brief." };
-        const snapshot = this.snapshot(), useful = snapshot ? snapshot.days.length :
-            this.historyDay === dailyBriefDay(this.now()) && this.hasHistory;
-        return { available: !!useful, reason: useful ? "" : "No meaningful work recorded before this Itacan day." };
+        const snapshot = this.snapshot(), useful = snapshot?.days.length;
+        return { available: !!useful, reason: useful ? "" : "Today?s Daily Brief is not available yet." };
     }
     async refreshAvailability() {
         if (this.disposed) return;
@@ -59,11 +58,12 @@ class DailyBriefService {
         if (this.disposed || this.manualOpening || !this.ready() || this.blocked()) return false;
         this.manualOpening = true; this.emit();
         try {
-            const brief = await this.load(this.now());
-            return !!brief && this.open(brief);
+            // Navigation only displays the artifact published by the existing trigger.
+            const saved = this.snapshot();
+            return !!saved && this.open(briefFromSnapshot(saved));
         } catch (error) {
             console.error("Daily Brief could not be opened", error);
-            new (require("obsidian").Notice)("The Daily Brief could not be saved or opened. Please try again.");
+            new (require("obsidian").Notice)("The Daily Brief could not be opened. Please try again.");
             return false;
         } finally { this.manualOpening = false; this.refreshAvailability(); }
     }

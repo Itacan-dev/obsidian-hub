@@ -142,6 +142,7 @@ const {
     createProgressHeatmap,
     progressColors,
     progressColor,
+    ownColorRoot,
     lastFileTooltip,
     lastNavigationInfo,
     workspaceButton,
@@ -2686,6 +2687,7 @@ projectGrid.addEventListener(
             if (!state.dragging) {
                 state.dragging = true;
                 state.ghost = card.cloneNode(true);
+                ownColorRoot?.(state.ghost);
                 state.ghost.addClass("is-dragging");
                 Object.assign(state.ghost.style, {
                     position: "fixed", width: `${state.initialRect.width}px`,
@@ -3192,33 +3194,8 @@ let workRatings = {};
 let workContributors = {};
 
 
-const PROGRESS_SCOPE_STORAGE_KEY =
-    "obsidian-hub::home-progress-scope";
-
-
-const savedProgressScope =
-    sessionStorage.getItem(
-        PROGRESS_SCOPE_STORAGE_KEY
-    );
-
-
-let progressScope =
-    [
-        "projects",
-        "resources"
-    ].includes(savedProgressScope)
-        ? savedProgressScope
-        : "projects";
-
-
-function getScopedProgressReports() {
-    return window.hubGetProgressReports?.(
-        progressScope === "resources"
-            ? {
-                kind: "resource"
-            }
-            : null
-    ) ?? [];
+function getCombinedProgressReports() {
+    return window.hubGetProgressReports?.({ kind: "all" }) ?? [];
 }
 
 
@@ -3226,7 +3203,7 @@ function refreshWorkProgress() {
 
     const progress =
         window.hubGetWorkProgress?.(
-            progressScope
+            "all"
         )
         ?? {
             ratings: {},
@@ -3313,22 +3290,6 @@ const progressHeader =
 
 
 const progressHeaderControls = progressHeader.createDiv({ cls: 'home-progress-header-controls' });
-const progressScopeControls = progressHeaderControls.createDiv({ cls: 'home-progress-scope-controls hub-panel-selectors' });
-progressScopeControls.setAttribute('role', 'group');
-progressScopeControls.setAttribute('aria-label', 'Progress view');
-for (const [scope, label] of [['projects', 'Projects'], ['resources', 'Resources']]) {
-    const button = progressScopeControls.createEl('button', { text: label, attr: { type: 'button' } });
-    button.dataset.scope = scope;
-    button.addEventListener('click', () => setProgressScope(scope));
-}
-function updateProgressScopeButtons() {
-    for (const button of progressScopeControls.children) {
-        const active = button.dataset.scope === progressScope;
-        button.classList.toggle('is-active', active);
-        button.setAttribute('aria-pressed', String(active));
-    }
-}
-updateProgressScopeButtons();
 
 const statisticsButton = progressHeaderControls.createEl('button', {
     cls: 'hub-panel-action hub-panel-action-icon hub-statistics-trigger',
@@ -3554,14 +3515,7 @@ function renderProgressYear() {
             year:
                 progressYear,
 
-            projectId:
-                progressScope === "resources"
-                    ? {
-                        kind: "resource"
-                    }
-                    : {
-                        kind: "project"
-                    }
+            projectId: { kind: "all" }
         }
     );
 }
@@ -3647,7 +3601,7 @@ root.addEventListener(
         refreshProgressYears();
 
         progressReports =
-            getScopedProgressReports();
+            getCombinedProgressReports();
 
         renderProgressYear();
 
@@ -4199,15 +4153,7 @@ function renderRecentReports() {
     recentBody.empty();
 
 
-    const visibleReports =
-        progressReports
-            .filter(
-                report =>
-                    progressScope === "resources"
-                        ? historyKind(report) === "resource"
-                        : historyKind(report) !== "resource"
-            )
-            ;
+    const visibleReports = progressReports;
 
 
     if (
@@ -4218,9 +4164,7 @@ function renderRecentReports() {
             recentBody,
             "div",
             "home-empty",
-            progressScope === "resources"
-                ? "No Resource progress reports yet."
-                : "No project progress reports yet."
+            "No progress reports yet."
         );
 
         return;
@@ -4384,13 +4328,6 @@ function renderCompletedTaskHistory() {
 
     const items =
         [...completedTaskHistory]
-            .filter(item => {
-                const isResourceItem = historyKind(item) === "resource";
-
-                return progressScope === "resources"
-                    ? Boolean(isResourceItem)
-                    : !isResourceItem;
-            })
             .sort(
                 (a, b) =>
                     a.nativeHistory && a.timestamp === null ? (b.nativeHistory && b.timestamp === null ? 0 : 1) : b.nativeHistory && b.timestamp === null ? -1 : Number(b.timestamp) -
@@ -4404,9 +4341,7 @@ function renderCompletedTaskHistory() {
             recentBody,
             "div",
             "home-empty",
-            progressScope === "resources"
-                ? "No task progress recorded for Resources."
-                : "No task progress recorded for projects."
+            "No task progress recorded."
         );
 
         return;
@@ -4599,39 +4534,6 @@ function renderActiveProgressView() {
 }
 
 
-function setProgressScope(scope) {
-        if (scope === progressScope) return;
-
-        progressScope =
-            scope === "resources"
-                ? "resources"
-                : "projects";
-
-        updateProgressScopeButtons();
-
-        sessionStorage.setItem(
-            PROGRESS_SCOPE_STORAGE_KEY,
-            progressScope
-        );
-
-
-        refreshWorkProgress();
-        refreshProgressYears();
-
-
-        progressReports =
-            getScopedProgressReports();
-
-
-        recentBody.scrollTop = 0;
-        recentScrollTarget = 0;
-
-
-        renderProgressYear();
-        renderActiveProgressView();
-}
-
-
 reportsTab.addEventListener(
     "click",
     () => {
@@ -4735,22 +4637,13 @@ function renderRecentActivity() {
                         ) ?? null;
 
 
-                const visible = progressScope === "resources"
-                    ? isResourceItem : !isResourceItem;
-
-
                 return {
                     item,
                     project,
                     resource,
-                    isProjectEvent,
-                    visible
+                    isProjectEvent
                 };
             })
-            .filter(
-                item =>
-                    item.visible
-            )
             .sort(
                 (a, b) =>
                     Number(
@@ -4770,9 +4663,7 @@ function renderRecentActivity() {
             recentBody,
             "div",
             "home-empty",
-            progressScope === "resources"
-                ? "No recent Resource activity."
-                : "No recent project activity."
+            "No recent activity."
         );
 
         return;
@@ -5105,7 +4996,7 @@ async function loadSecondaryData() {
         ?? [];
 
     progressReports =
-        getScopedProgressReports();
+        getCombinedProgressReports();
 
     renderActiveProgressView();
     void refreshCompletedTaskHistory();

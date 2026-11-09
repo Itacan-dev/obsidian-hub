@@ -8,7 +8,7 @@
 <style>
 /* A continuous panel-colored raster backdrop separates edge cells from the
    screenshot boundary. Cells still use the app's outside-surface token. */
-html{font-size:17px}body{margin:0;background:#262626;color:#ddd;font:17px system-ui;--background-primary:#1e1e1e;--background-secondary:#262626;--text-muted:#aaa;--text-faint:#777;--background-modifier-border:#343434}
+html{font-size:17px}body{margin:0;background:#282828;color:#dadada;font:17px system-ui;--background-primary:#1c1c1c;--background-secondary:#282828;--text-muted:#b3b3b3;--text-faint:#666666;--background-modifier-border:#333333}
 *{box-sizing:border-box}#host{position:absolute;left:20.3px;top:20.7px;width:498px;padding:14px;background:var(--background-secondary)}
 </style><body class="theme-dark"><div id="host" class="hub-button-scope markdown-rendered"></div>
 <script type="module">
@@ -17,6 +17,7 @@ function create(tag,o={}){const e=document.createElement(tag);e.className=Array.
 window.createEl=create;window.createDiv=o=>create('div',o);window.createSpan=o=>create('span',o);
 const native={Plugin:class{async loadData(){return {}}addSettingTab(){}},PluginSettingTab:class{}};
 const renderer={exports:{}},layout={exports:{}},palette={exports:{}};
+const scope={exports:{}};new Function("module","exports",await read("../ui/color-system.js"))(scope,scope.exports);scope.exports.ownColorRoot(host);
 new Function('module','require',await read('../../../heatmap-calendar/main.js'))(renderer,()=>native);
 const nativePlugin=new renderer.exports.default();await nativePlugin.onload();
 new Function('module',await read('../ui/progress-heatmap.js'))(layout);
@@ -70,7 +71,8 @@ window.inspectWeekdayPixels=async (actual,reference,geometry)=>{
  return geometry.labels.map(r=>{
   const first=geometry.cells[0],monthGap=first.y-geometry.months.bottom;
   if(Math.abs(r.bottom-(first.y+r.row*(first.h+1/d)+first.h))>.04)throw Error('Weekday is not bottom-aligned with its row');
-  if(Math.abs((first.x-r.right)-monthGap)>.04)throw Error('Month and weekday gaps differ');
+  const extraLeading=Math.max(0,parseFloat(getComputedStyle(calendar.querySelector('.heatmap-calendar-months')).lineHeight)-parseFloat(getComputedStyle(calendar.querySelector('.hub-progress-weekdays')).lineHeight))/2*geometry.zoom;
+  if(Math.abs((first.x-r.right)-monthGap-extraLeading)>.04)throw Error('Weekday gap does not account for month text leading');
   if(r.left<geometry.viewport.left-.01||r.right>geometry.viewport.right+.01)throw Error(r.text+' is clipped by viewport');
   if(r.left<geometry.weekdayColumn.left-.01||r.right>geometry.weekdayColumn.right+.01)throw Error(r.text+' overflows weekday column');
   for(const cell of geometry.cells)if(r.right>cell.x&&r.left<cell.x+cell.w&&r.bottom>cell.y&&r.top<cell.y+cell.h)throw Error(r.text+' intersects a cell');
@@ -99,7 +101,7 @@ window.inspectPixels=async (base64,geometry)=>{
   if((r.x+r.w)*d>img.width||(r.y+r.h)*d>img.height)continue;
   if(!r.visible)throw Error('Rectangular grid contains a hidden cell');
   const center=(cy*img.width+cx)*4;
-  if([0,1,2].some(c=>pixels[center+c]!==30))throw Error('Empty/filler cell does not match outside-of-panel color');
+  if([0,1,2].some(c=>pixels[center+c]!==28))throw Error('Empty/filler cell does not match outside-of-panel color');
   let l=cx,t=cy,right=cx,bottom=cy;
   if(!occupied(cx,cy))throw Error('Cell center not found at '+cx+','+cy);
   while(occupied(l-1,cy))l--;while(occupied(right+1,cy))right++;
@@ -119,7 +121,7 @@ window.inspectProgressColors=async (base64,geometry)=>{
  const canvas=document.createElement('canvas');canvas.width=img.width;canvas.height=img.height;
  const ctx=canvas.getContext('2d');ctx.drawImage(img,0,0);const pixels=ctx.getImageData(0,0,img.width,img.height).data;
  const rgb=r=>{const i=(Math.floor((r.y+r.h/2)*geometry.dpr)*img.width+Math.floor((r.x+r.w/2)*geometry.dpr))*4;return [...pixels.slice(i,i+3)]};
- const empty=rgb(geometry.cells[0]),green=[13,201,79],panel=[38,38,38],alphas=[.1,.3,.6,1];
+ const empty=rgb(geometry.cells[0]),green=[13,201,79],panel=[40,40,40],alphas=[.1,.3,.6,1];
  const levels=alphas.map((alpha,i)=>{
   const color=rgb(geometry.cells.find(r=>r.date==='2026-01-0'+(i+5)));
   // Chromium quantizes premultiplied alpha and compositing channels to 8 bits.
@@ -127,7 +129,7 @@ window.inspectProgressColors=async (base64,geometry)=>{
   return color;
  });
  const distance=color=>Math.hypot(...color.map((c,i)=>c-empty[i]));
- if(empty.some(c=>c!==30))throw Error('Empty surface changed');
+ if(empty.some(c=>c!==28))throw Error('Empty surface changed');
  if(distance(levels[0])>=distance(green.map((c,i)=>.25*c+.75*panel[i])))throw Error('Painted level 1 is not closer to empty');
  if(levels[3].some((c,i)=>c!==green[i]))throw Error('Strongest green changed');
  if(levels.some((color,i)=>i&&distance(color)<=distance(levels[i-1])))throw Error('Non-monotonic painted scale');

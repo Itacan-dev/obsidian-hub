@@ -1,4 +1,6 @@
 "use strict";
+const { ownModalColors } = require("./color-system");
+
 const { CaptureModal, action } = require("./capture-modal");
 const { MUSIC_PROVIDERS, LOCAL_AUDIO_EXTENSIONS, normalizeMusicSource } = require("../domain/music");
 
@@ -10,7 +12,7 @@ class MusicItemModal extends CaptureModal {
         host.createEl("label", { cls: "hub-capture-label", text: label, attr: { for: id } });
         return { host, id };
     }
-    onOpen() {
+    onOpen() { ownModalColors(this);
         this.modalEl.classList.add("hub-music-item-dialog", "hub-quick-add-dialog");
         this.header(this.item ? "Rename music" : "Add music", this.item ? "Choose a name for this music" : "Save a music link or choose local files", "music");
         const form = this.contentEl.createEl("form", { cls: "hub-music-item-form hub-capture-content" });

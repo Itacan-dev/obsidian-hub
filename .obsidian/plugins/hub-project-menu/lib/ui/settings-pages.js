@@ -57,7 +57,7 @@ function renderAppearance(parent) {
     for (const [name, color] of [["Purple", "#8B5CF6"], ["Blue", "#528DD7"], ["Green", "#549D7A"], ["Amber", "#BB914A"], ["Gray", "#90949C"]]) {
         const swatch = swatches.createEl("button", { cls: "hub-settings-swatch" + (name === "Purple" ? " is-selected" : ""),
             attr: { type: "button", disabled: "", "aria-label": name, "aria-pressed": String(name === "Purple") } });
-        swatch.style.backgroundColor = color;
+        swatch.style.backgroundColor = `var(--hub-color-preview-${name.toLowerCase()}, ${color})`;
     }
     swatches.createEl("button", { cls: "hub-settings-custom-color", text: "+", attr: { type: "button", disabled: "", "aria-label": "Custom color" } });
     const defaults = row(group, "Interface colors", "Use theme pack defaults");

@@ -36,7 +36,7 @@ try{
  native.TFile=TFile;
  class Menu{constructor(){this.items=[];window.lastWizardMenu=this}addItem(build){const item={setTitle(value){this.title=value;return this},setIcon(){return this},setDisabled(value){this.disabled=value;return this},setWarning(){return this},onClick(fn){this.action=fn;return this}};build(item);this.items.push(item);return this}addSeparator(){}onHide(fn){this.hidden=fn}showAtPosition(){}showAtMouseEvent(){}hide(){this.hidden?.()}}
  native.Menu=Menu;
- const code=source.slice(source.indexOf('class ProjectCategoryModal'),source.indexOf('class ProjectWizardService'));
+ const code='const {ownModalColors,ownMenuColors,ownNoticeColors}=globalThis.__hubFixtureColors;\n'+source.slice(source.indexOf('class ProjectCategoryModal'),source.indexOf('class ProjectWizardService'));
  const confirmationCode=source.slice(source.indexOf('class ConfirmModal'),source.indexOf('class FocusListEditor'));
  const focusCode=source.slice(source.indexOf('function focusWizardInput('),source.indexOf('class ProjectFolderPickerModal'));
  const classes=new Function('Modal','Menu','Notice','TFile','setIcon','createWindowTitle','layoutModal','APP_SHORTCUTS','DEFAULT_SHORTCUT_IDS','RESOURCE_TYPES','normalizeShortcutIds','normalizeShortcutOrder',

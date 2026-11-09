@@ -1,0 +1,796 @@
+{
+  "version": 1,
+  "entries": [
+    {
+      "file": ".obsidian/plugins/hub-project-menu/lib/athena/src/integration.ts",
+      "line": 78,
+      "kind": "injected-owner"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/lib/athena/src/integration.ts",
+      "line": 119,
+      "kind": "injected-owner"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/lib/services/home-covers.js",
+      "line": 84,
+      "kind": "ownMenuColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/lib/services/native-task-host.js",
+      "line": 28,
+      "kind": "ownNoticeColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/lib/services/native-task-host.js",
+      "line": 32,
+      "kind": "ownNoticeColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/lib/services/presets.js",
+      "line": 87,
+      "kind": "ownNoticeColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/lib/services/presets.js",
+      "line": 95,
+      "kind": "ownNoticeColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/lib/services/presets.js",
+      "line": 113,
+      "kind": "ownNoticeColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/lib/services/task-sync.js",
+      "line": 7,
+      "kind": "ownColorRoot"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/lib/services/task-sync.js",
+      "line": 11,
+      "kind": "ownModalColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/lib/services/task-sync.js",
+      "line": 15,
+      "kind": "ownNoticeColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/lib/services/task-sync.js",
+      "line": 27,
+      "kind": "ownNoticeColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/lib/services/task-sync.js",
+      "line": 29,
+      "kind": "ownNoticeColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/lib/ui/app-shortcuts.js",
+      "line": 11,
+      "kind": "ownColorRoot"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/lib/ui/app-shortcuts.js",
+      "line": 48,
+      "kind": "ownNoticeColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/lib/ui/capture-controls.js",
+      "line": 59,
+      "kind": "ownNoticeColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/lib/ui/capture-modal.js",
+      "line": 21,
+      "kind": "ownModalColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/lib/ui/capture-modal.js",
+      "line": 68,
+      "kind": "ownModalColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/lib/ui/capture-pickers.js",
+      "line": 35,
+      "kind": "ownModalColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/lib/ui/capture-pickers.js",
+      "line": 87,
+      "kind": "ownModalColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/lib/ui/daily-brief.js",
+      "line": 21,
+      "kind": "ownModalColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/lib/ui/daily-report.js",
+      "line": 142,
+      "kind": "ownModalColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/lib/ui/dashboard-frame.js",
+      "line": 10,
+      "kind": "ownColorRoot"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/lib/ui/date-time.js",
+      "line": 113,
+      "kind": "ownModalColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/lib/ui/header-image.js",
+      "line": 123,
+      "kind": "ownNoticeColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/lib/ui/header-image.js",
+      "line": 196,
+      "kind": "ownMenuColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/lib/ui/home-covers.js",
+      "line": 11,
+      "kind": "ownModalColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/lib/ui/home-covers.js",
+      "line": 39,
+      "kind": "ownMenuColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/lib/ui/home-covers.js",
+      "line": 108,
+      "kind": "ownNoticeColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/lib/ui/home-covers.js",
+      "line": 125,
+      "kind": "ownNoticeColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/lib/ui/inbox.js",
+      "line": 15,
+      "kind": "ownModalColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/lib/ui/inbox.js",
+      "line": 33,
+      "kind": "ownMenuColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/lib/ui/inbox.js",
+      "line": 44,
+      "kind": "ownMenuColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/lib/ui/inbox.js",
+      "line": 75,
+      "kind": "ownNoticeColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/lib/ui/music-item-editor.js",
+      "line": 15,
+      "kind": "ownModalColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/lib/ui/music-settings.js",
+      "line": 143,
+      "kind": "ownMenuColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/lib/ui/music.js",
+      "line": 18,
+      "kind": "ownModalColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/lib/ui/native-task-recovery.js",
+      "line": 6,
+      "kind": "ownModalColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/lib/ui/native-task-recovery.js",
+      "line": 6,
+      "kind": "ownNoticeColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/lib/ui/native-task-recovery.js",
+      "line": 6,
+      "kind": "ownNoticeColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/lib/ui/note-position-picker.js",
+      "line": 13,
+      "kind": "ownModalColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/lib/ui/note-position-picker.js",
+      "line": 122,
+      "kind": "ownMenuColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/lib/ui/note-rail.js",
+      "line": 23,
+      "kind": "ownColorRoot"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/lib/ui/note-rail.js",
+      "line": 23,
+      "kind": "ownColorRoot"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/lib/ui/oath.js",
+      "line": 88,
+      "kind": "ownModalColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/lib/ui/oath.js",
+      "line": 136,
+      "kind": "ownModalColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/lib/ui/oath.js",
+      "line": 203,
+      "kind": "ownModalColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/lib/ui/oath.js",
+      "line": 529,
+      "kind": "ownMenuColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/lib/ui/oath.js",
+      "line": 732,
+      "kind": "ownModalColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/lib/ui/oath.js",
+      "line": 819,
+      "kind": "ownModalColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/lib/ui/oath.js",
+      "line": 848,
+      "kind": "ownColorRoot"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/lib/ui/planning-editor.js",
+      "line": 13,
+      "kind": "ownModalColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/lib/ui/planning-editor.js",
+      "line": 116,
+      "kind": "ownModalColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/lib/ui/presets.js",
+      "line": 21,
+      "kind": "ownNoticeColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/lib/ui/presets.js",
+      "line": 23,
+      "kind": "ownNoticeColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/lib/ui/presets.js",
+      "line": 62,
+      "kind": "ownModalColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/lib/ui/presets.js",
+      "line": 80,
+      "kind": "ownNoticeColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/lib/ui/presets.js",
+      "line": 137,
+      "kind": "ownMenuColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/lib/ui/presets.js",
+      "line": 191,
+      "kind": "inheritColorOwner"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/lib/ui/presets.js",
+      "line": 192,
+      "kind": "detached-root"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/lib/ui/project-deletion.js",
+      "line": 54,
+      "kind": "ownModalColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/lib/ui/project-roadmap.js",
+      "line": 51,
+      "kind": "ownMenuColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/lib/ui/project-roadmap.js",
+      "line": 74,
+      "kind": "ownMenuColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/lib/ui/project-roadmap.js",
+      "line": 191,
+      "kind": "ownMenuColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/lib/ui/project-roadmap.js",
+      "line": 245,
+      "kind": "ownNoticeColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/lib/ui/quick-add.js",
+      "line": 18,
+      "kind": "ownModalColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/lib/ui/quick-add.js",
+      "line": 154,
+      "kind": "ownNoticeColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/lib/ui/quick-add.js",
+      "line": 170,
+      "kind": "ownNoticeColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/lib/ui/quick-add.js",
+      "line": 181,
+      "kind": "ownNoticeColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/lib/ui/settings.js",
+      "line": 13,
+      "kind": "ownModalColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/lib/ui/statistics-charts.js",
+      "line": 92,
+      "kind": "inheritColorOwner"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/lib/ui/statistics-charts.js",
+      "line": 93,
+      "kind": "detached-root"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/lib/ui/statistics.js",
+      "line": 37,
+      "kind": "ownModalColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/lib/ui/task-editor.js",
+      "line": 22,
+      "kind": "ownModalColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/lib/ui/task-editor.js",
+      "line": 144,
+      "kind": "ownNoticeColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/lib/ui/task-location-picker.js",
+      "line": 20,
+      "kind": "ownModalColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/lib/ui/task-location-picker.js",
+      "line": 107,
+      "kind": "inheritColorOwner"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/lib/ui/task-popover.js",
+      "line": 15,
+      "kind": "inheritColorOwner"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/lib/ui/task-popover.js",
+      "line": 62,
+      "kind": "detached-root"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/lib/ui/task-view-primitives.js",
+      "line": 42,
+      "kind": "ownNoticeColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/lib/ui/task-view-primitives.js",
+      "line": 60,
+      "kind": "ownNoticeColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/lib/ui/tasks.js",
+      "line": 33,
+      "kind": "ownNoticeColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/lib/ui/tasks.js",
+      "line": 118,
+      "kind": "ownMenuColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/lib/ui/tasks.js",
+      "line": 154,
+      "kind": "ownMenuColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/lib/ui/tooltips.js",
+      "line": 112,
+      "kind": "inheritColorOwner"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/lib/ui/tooltips.js",
+      "line": 113,
+      "kind": "detached-root"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/lib/ui/tooltips.js",
+      "line": 239,
+      "kind": "inheritColorOwner"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/lib/ui/tooltips.js",
+      "line": 240,
+      "kind": "detached-root"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/plugin.js",
+      "line": 520,
+      "kind": "ownModalColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/plugin.js",
+      "line": 1082,
+      "kind": "ownModalColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/plugin.js",
+      "line": 1627,
+      "kind": "ownNoticeColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/plugin.js",
+      "line": 1676,
+      "kind": "ownNoticeColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/plugin.js",
+      "line": 1750,
+      "kind": "ownModalColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/plugin.js",
+      "line": 1915,
+      "kind": "ownNoticeColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/plugin.js",
+      "line": 1978,
+      "kind": "ownModalColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/plugin.js",
+      "line": 2037,
+      "kind": "ownNoticeColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/plugin.js",
+      "line": 2074,
+      "kind": "ownModalColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/plugin.js",
+      "line": 2206,
+      "kind": "ownNoticeColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/plugin.js",
+      "line": 2234,
+      "kind": "ownModalColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/plugin.js",
+      "line": 2278,
+      "kind": "ownNoticeColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/plugin.js",
+      "line": 2311,
+      "kind": "ownModalColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/plugin.js",
+      "line": 2378,
+      "kind": "ownMenuColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/plugin.js",
+      "line": 2490,
+      "kind": "ownNoticeColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/plugin.js",
+      "line": 2654,
+      "kind": "ownNoticeColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/plugin.js",
+      "line": 2736,
+      "kind": "ownNoticeColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/plugin.js",
+      "line": 2827,
+      "kind": "ownNoticeColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/plugin.js",
+      "line": 3294,
+      "kind": "ownNoticeColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/plugin.js",
+      "line": 3441,
+      "kind": "ownNoticeColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/plugin.js",
+      "line": 3476,
+      "kind": "ownNoticeColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/plugin.js",
+      "line": 3572,
+      "kind": "ownNoticeColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/plugin.js",
+      "line": 3665,
+      "kind": "ownNoticeColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/plugin.js",
+      "line": 7118,
+      "kind": "ownNoticeColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/plugin.js",
+      "line": 7579,
+      "kind": "ownNoticeColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/plugin.js",
+      "line": 9807,
+      "kind": "ownNoticeColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/plugin.js",
+      "line": 9831,
+      "kind": "ownNoticeColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/plugin.js",
+      "line": 9858,
+      "kind": "ownNoticeColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/plugin.js",
+      "line": 11090,
+      "kind": "ownNoticeColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/plugin.js",
+      "line": 11137,
+      "kind": "ownNoticeColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/plugin.js",
+      "line": 11688,
+      "kind": "ownNoticeColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/plugin.js",
+      "line": 11742,
+      "kind": "ownNoticeColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/plugin.js",
+      "line": 11801,
+      "kind": "ownNoticeColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/plugin.js",
+      "line": 11851,
+      "kind": "ownNoticeColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/plugin.js",
+      "line": 11863,
+      "kind": "ownNoticeColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/plugin.js",
+      "line": 12188,
+      "kind": "ownNoticeColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/plugin.js",
+      "line": 12488,
+      "kind": "ownNoticeColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/plugin.js",
+      "line": 13874,
+      "kind": "ownMenuColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/plugin.js",
+      "line": 14131,
+      "kind": "ownNoticeColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/plugin.js",
+      "line": 14224,
+      "kind": "ownMenuColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/plugin.js",
+      "line": 14425,
+      "kind": "ownMenuColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/plugin.js",
+      "line": 14511,
+      "kind": "ownNoticeColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/plugin.js",
+      "line": 14567,
+      "kind": "ownNoticeColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/plugin.js",
+      "line": 14617,
+      "kind": "ownNoticeColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/plugin.js",
+      "line": 14706,
+      "kind": "ownNoticeColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/plugin.js",
+      "line": 14728,
+      "kind": "ownNoticeColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/plugin.js",
+      "line": 14746,
+      "kind": "ownMenuColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/plugin.js",
+      "line": 14798,
+      "kind": "ownNoticeColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/plugin.js",
+      "line": 14904,
+      "kind": "ownNoticeColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/plugin.js",
+      "line": 15041,
+      "kind": "ownNoticeColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/plugin.js",
+      "line": 15105,
+      "kind": "ownNoticeColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/plugin.js",
+      "line": 15249,
+      "kind": "ownNoticeColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/plugin.js",
+      "line": 15438,
+      "kind": "ownNoticeColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/plugin.js",
+      "line": 15825,
+      "kind": "ownNoticeColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/plugin.js",
+      "line": 15866,
+      "kind": "ownMenuColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/plugin.js",
+      "line": 16002,
+      "kind": "ownNoticeColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/plugin.js",
+      "line": 16050,
+      "kind": "ownNoticeColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/plugin.js",
+      "line": 16154,
+      "kind": "ownNoticeColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/plugin.js",
+      "line": 16188,
+      "kind": "ownNoticeColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/plugin.js",
+      "line": 16225,
+      "kind": "ownNoticeColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/plugin.js",
+      "line": 16292,
+      "kind": "ownNoticeColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/plugin.js",
+      "line": 16356,
+      "kind": "ownNoticeColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/plugin.js",
+      "line": 16418,
+      "kind": "ownNoticeColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/plugin.js",
+      "line": 16432,
+      "kind": "ownNoticeColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/plugin.js",
+      "line": 16642,
+      "kind": "ownNoticeColors"
+    },
+    {
+      "file": ".obsidian/plugins/hub-project-menu/plugin.js",
+      "line": 16733,
+      "kind": "ownNoticeColors"
+    },
+    {
+      "file": "System/Dashboards/Daily/view.js",
+      "line": 17,
+      "kind": "explicit-marker"
+    },
+    {
+      "file": "System/Dashboards/Daily/view.js",
+      "line": 28,
+      "kind": "explicit-marker"
+    },
+    {
+      "file": "System/Dashboards/Home/view.js",
+      "line": 2698,
+      "kind": "detached-root"
+    }
+  ],
+  "boundaries": [
+    "native note-editor leaves",
+    "service documents",
+    "OS-controlled interfaces",
+    "excluded Settings island"
+  ]
+}

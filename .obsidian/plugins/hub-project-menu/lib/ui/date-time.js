@@ -1,4 +1,6 @@
 "use strict";
+const { ownModalColors } = require("./color-system");
+
 const { Modal } = require("obsidian");
 const { layoutModal } = require("./window-title");
 const { parseLocalISODate, validLocalTime, formatDate } = require("../domain/dates");
@@ -108,7 +110,7 @@ function mountTaskDateTime({ app, host, label, state, dateKey, timeKey, onChange
     // native date/time interactions inside one shared picker, with independent
     // optional time precision rather than seeding a persisted midnight.
     class TaskDateTimePicker extends Modal {
-        onOpen() {
+        onOpen() { ownModalColors(this);
             this.modalEl.classList.add("hub-task-date-time-picker");
             this.contentEl.classList.add("hub-button-scope", "hub-capture-form-scope");
             this.setTitle(label);

@@ -1,4 +1,6 @@
 "use strict";
+const { ownModalColors } = require("./color-system");
+
 const { hasKeyboardFocus, focusAfterRowRemoval } = require("./focus-restoration");
 const { createWindowTitle, setWindowUndertext, layoutModal } = require("./window-title");
 const { Modal, FuzzySuggestModal, Component } = require("obsidian");
@@ -8,7 +10,7 @@ const { localISODate } = require("../domain/dates");
 function openPlanningEditor(service, projectId, kind, value = null, dv, defaults = {}) {
     const phase = kind === "phases", noun = phase ? "phase" : "milestone";
     class PlanningModal extends Modal {
-        onOpen() {
+        onOpen() { ownModalColors(this);
             this.closed = false;
             this.modalEl.classList.add("hub-task-dialog");
             this.contentEl.classList.add("hub-button-scope", "hub-task-form", "hub-planning-form");
@@ -111,6 +113,7 @@ function openPlanningEditor(service, projectId, kind, value = null, dv, defaults
                 this.refreshPhaseTasks = refresh;
                 add.addEventListener("click", () => {
                     class TaskPicker extends FuzzySuggestModal {
+                        onOpen() { ownModalColors(this); super.onOpen?.(); }
                         getItems() { return draft.pickerItems(); }
                         getItemText(task) { const current = pickerState.phases.find(item => item.id === task.phaseId); return task.text + " · " + task.path + (current ? " · " + current.name : ""); }
                         onChooseItem(task) {

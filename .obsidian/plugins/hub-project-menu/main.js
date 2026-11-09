@@ -3875,8 +3875,10 @@ function installAthena(plugin, options = {}) {
     void ready.then(async (controller) => {
       if (destroyed || !controller.knowledge.permitted(evidence)) return;
       class SourceModal extends Modal {
+        disposeColors;
         unsubscribe;
         onOpen() {
+          this.disposeColors = options.ownColors?.(this.containerEl);
           modals.add(this);
           this.modalEl.classList.add("hub-athena-source-modal", "hub-button-scope");
           el(this.contentEl, "h2", "", sourceLabel(evidence));
@@ -3908,6 +3910,7 @@ function installAthena(plugin, options = {}) {
           });
         }
         onClose() {
+          this.disposeColors?.();
           this.unsubscribe?.();
           modals.delete(this);
           this.contentEl.replaceChildren();
@@ -3919,6 +3922,7 @@ function installAthena(plugin, options = {}) {
   };
   class AthenaView extends ItemView {
     presenter;
+    disposeColors;
     selected;
     closed = true;
     constructor(leaf) {
@@ -3946,6 +3950,7 @@ function installAthena(plugin, options = {}) {
       await super.setState(state, result);
     }
     async onOpen() {
+      this.disposeColors = options.ownColors?.(this.contentEl);
       this.closed = false;
       views.add(this);
       this.contentEl.classList.add("hub-athena-view");
@@ -3962,7 +3967,12 @@ function installAthena(plugin, options = {}) {
         }
       }
     }
+    releaseColorScope() {
+      this.disposeColors?.();
+      this.disposeColors = void 0;
+    }
     async onClose() {
+      this.releaseColorScope();
       this.closed = true;
       this.presenter?.dispose();
       this.presenter = void 0;
@@ -4016,7 +4026,10 @@ function installAthena(plugin, options = {}) {
     destroy() {
       if (destroyed) return;
       destroyed = true;
-      for (const view of views) view.presenter?.dispose();
+      for (const view of views) {
+        view.releaseColorScope();
+        view.presenter?.dispose();
+      }
       for (const modal of modals) modal.close();
       views.clear();
       modals.clear();
@@ -10439,9 +10452,8 @@ class DailyBriefService {
         if (this.disposed || !this.ready()) return { available: false, reason: "Waiting for task history to load." };
         if (this.oathBlocked()) return { available: false, reason: "Unavailable during an active Oath." };
         if (this.manualOpening) return { available: false, reason: "Opening today's brief." };
-        const snapshot = this.snapshot(), useful = snapshot ? snapshot.days.length :
-            this.historyDay === dailyBriefDay(this.now()) && this.hasHistory;
-        return { available: !!useful, reason: useful ? "" : "No meaningful work recorded before this Itacan day." };
+        const snapshot = this.snapshot(), useful = snapshot?.days.length;
+        return { available: !!useful, reason: useful ? "" : "Today?s Daily Brief is not available yet." };
     }
     async refreshAvailability() {
         if (this.disposed) return;
@@ -10463,11 +10475,12 @@ class DailyBriefService {
         if (this.disposed || this.manualOpening || !this.ready() || this.blocked()) return false;
         this.manualOpening = true; this.emit();
         try {
-            const brief = await this.load(this.now());
-            return !!brief && this.open(brief);
+            // Navigation only displays the artifact published by the existing trigger.
+            const saved = this.snapshot();
+            return !!saved && this.open(briefFromSnapshot(saved));
         } catch (error) {
             console.error("Daily Brief could not be opened", error);
-            new (require("obsidian").Notice)("The Daily Brief could not be saved or opened. Please try again.");
+            new (require("obsidian").Notice)("The Daily Brief could not be opened. Please try again.");
             return false;
         } finally { this.manualOpening = false; this.refreshAvailability(); }
     }
@@ -11139,6 +11152,8 @@ module.exports = {
 },
 "lib/services/home-covers.js": function (module, exports, __hubRequire) {
 "use strict";
+const { ownMenuColors } = __hubRequire("lib/ui/color-system.js");
+
 const { mountHeaderImage } = __hubRequire("lib/ui/header-image.js");
 
 const HOME_COVER_PERIODS = Object.freeze([
@@ -11219,7 +11234,7 @@ class HomeCovers {
         component.register(() => { disposed = true; this.listeners.delete(update); });
         component.registerDomEvent(cover, "contextmenu", event => {
             event.preventDefault(); event.stopPropagation();
-            const menu = new Menu();
+            const menu = ownMenuColors(new Menu());
             menu.addItem(item => item.setTitle("Edit cover images…").setIcon("image").onClick(() => openModal(cover)));
             menu.showAtMouseEvent(event);
         });
@@ -12493,6 +12508,7 @@ module.exports={workspaces,ownerOf,sourceDestination,draft,payload,sameValues,su
 },
 "lib/services/native-task-host.js": function (module, exports, __hubRequire) {
 "use strict";
+const { ownNoticeColors } = __hubRequire("lib/ui/color-system.js");
 const path=require('node:path');
 const {createApplication,stableId}=__hubRequire("../../../ItacanTaskCore/vnext/application.cjs");
 const {connect,unavailable}=__hubRequire("../../../ItacanTaskCore/vnext/host/renderer.cjs");
@@ -12518,11 +12534,11 @@ function createNativeTaskHost(plugin){
  host.ready.then(()=>{host.startupMs=performance.now()-started;host.startupFromPluginMs=plugin.taskStartupClock===undefined?null:performance.now()-plugin.taskStartupClock},error=>{
   diagnostic({stage:'failed',error:{code:error.code??'TASK_START_FAILED',message:error.message}});
   console.error('Itacan task startup failed',host.diagnostics(),error);
-  new (require('obsidian').Notice)('Tasks could not start ('+(error.code??'TASK_START_FAILED')+'). '+error.message+' Run Task runtime diagnostics for details.',0);
+  ownNoticeColors(new (require('obsidian').Notice)('Tasks could not start ('+(error.code??'TASK_START_FAILED')+'). '+error.message+' Run Task runtime diagnostics for details.',0));
  });
  plugin.addCommand({id:'task-runtime-diagnostics',name:'Task runtime diagnostics',callback:()=>{
   console.info('Itacan task runtime diagnostics',host.diagnostics());
-  new (require('obsidian').Notice)('Task runtime: '+diagnostics.stage+(diagnostics.error?' — '+diagnostics.error.code+': '+diagnostics.error.message:'')+'. Details are in the developer console.',10000);
+  ownNoticeColors(new (require('obsidian').Notice)('Task runtime: '+diagnostics.stage+(diagnostics.error?' — '+diagnostics.error.code+': '+diagnostics.error.message:'')+'. Details are in the developer console.',10000));
  }});
  host.pendingOperations=()=>pendingStore.list();host.retryPending=async()=>{for(const c of pendingStore.list()){await host.retryOriginal(c)}await host.refreshInventory();};
  let timer;const refresh=()=>{clearTimeout(timer);timer=setTimeout(()=>void host.refreshInventory().catch(console.error),50)};
@@ -13736,6 +13752,8 @@ module.exports = { PhaseTaskRead, taskKey };
 },
 "lib/services/presets.js": function (module, exports, __hubRequire) {
 "use strict";
+const { ownNoticeColors } = __hubRequire("lib/ui/color-system.js");
+
 const { prepareNoteLayout, rewriteLayoutPaths } = __hubRequire("lib/domain/navigation.js");
 const copy = value => JSON.parse(JSON.stringify(value));
 
@@ -13819,7 +13837,7 @@ class HubPresets {
             const context = m.contextFor(item.contextId);
             if (m.plugin.oath?.canOpen(context) === false) return false;
             if (!context || !(m.app.vault.getAbstractFileByPath(context.path) instanceof TFile)) {
-                new Notice("This preset's workspace no longer exists."); return false;
+                ownNoticeColors(new Notice("This preset's workspace no longer exists.")); return false;
             }
             if (!allowActivation && context.contextKind !== "resource" && context.status !== "active") return false;
             const layout = prepareNoteLayout(rewriteLayoutPaths(item.layout,
@@ -13827,7 +13845,7 @@ class HubPresets {
                 path => m.app.vault.getAbstractFileByPath(path) instanceof TFile &&
                     (allowActivation || m.navigationHistory.eligiblePath(path)),
                 type => m.canRestoreLayoutView(type));
-            if (!layout) { if (allowActivation) new Notice("No saved tabs are available for this preset. The current workspace was left unchanged."); return false; }
+            if (!layout) { if (allowActivation) ownNoticeColors(new Notice("No saved tabs are available for this preset. The current workspace was left unchanged.")); return false; }
             if (!await m.plugin.ensureContextOpen(context, m.dashboardRoot(source)) ||
                 m.plugin.oathNavigation?.allowLayout(layout) === false) return false;
             const files = tree => tree?.type === "leaf" ? 1 : (tree?.children ?? []).reduce((n, child) => n + files(child), 0);
@@ -13845,7 +13863,7 @@ class HubPresets {
                 }
                 m.noteRailState = ["full", "half", "closed"].includes(item.railState) ? item.railState : "full";
                 const restored = await m.applyNoteLayout(context, layout);
-                if (allowActivation && restored && missing > 0) new Notice(`Preset restored; ${missing} unavailable tab${missing === 1 ? " was" : "s were"} skipped.`);
+                if (allowActivation && restored && missing > 0) ownNoticeColors(new Notice(`Preset restored; ${missing} unavailable tab${missing === 1 ? " was" : "s were"} skipped.`));
                 return restored;
             })).finally(() => { this.pending = null; });
         });
@@ -14774,17 +14792,20 @@ module.exports = { taskWorkspaces, taskLocations };
 },
 "lib/services/task-sync.js": function (module, exports, __hubRequire) {
 "use strict";
+const { ownColorRoot } = __hubRequire("lib/ui/color-system.js");
+const { ownModalColors, ownNoticeColors } = __hubRequire("lib/ui/color-system.js");
+
 const {Modal,Notice}=require('obsidian');
 function mountTaskSync(plugin,host,service){
- const item=plugin.addStatusBarItem();item.style.cursor='pointer';item.dataset.taskSyncStatus='';let closed=false,loading=false,status={state:'starting'};
+ const item=plugin.addStatusBarItem();item.style.cursor='pointer';item.dataset.taskSyncStatus='';plugin.register(ownColorRoot(item));let closed=false,loading=false,status={state:'starting'};
  const labels={starting:'starting',syncing:'working',current:'ready',waiting:'waiting for earlier changes',conflict:'review conflicts','enrollment-required':'review enrollment',error:'needs attention',disabled:'off'};
  async function refresh(){if(closed||loading)return;loading=true;try{status=await service.syncStatus();await host.setSyncStatus(status);const gitError=status.gitProjects?.find(p=>p.state==='error');item.setText('Task sync: '+(gitError?'Git needs attention':labels[status.state]??status.state));item.title=gitError?.error??status.error??'OneDrive synchronizes personal devices; explicitly shared Projects exchange tasks through your manual Git workflow. Click for details.';}catch{item.setText('Task sync: reconnecting');}finally{loading=false;}}
  class SyncModal extends Modal{
-  async onOpen(){const body=this.contentEl;body.empty();body.createEl('h2',{text:'Task synchronization'});body.createEl('p',{text:'Task databases stay on each computer. OneDrive carries committed task changes through Work/.itacan-task-sync. Shared Project tasks also travel through their .itacan-tasks folders using your manual Git commits and pulls. Ready means this device has reconciled the files currently available here.'});
+  async onOpen(){ ownModalColors(this);const body=this.contentEl;body.empty();body.createEl('h2',{text:'Task synchronization'});body.createEl('p',{text:'Task databases stay on each computer. OneDrive carries committed task changes through Work/.itacan-task-sync. Shared Project tasks also travel through their .itacan-tasks folders using your manual Git commits and pulls. Ready means this device has reconciled the files currently available here.'});
    body.createEl('p',{text:'Status: '+(labels[status.state]??status.state)});if(status.error)body.createEl('p',{text:status.error});for(const project of status.gitProjects??[]){body.createEl('h3',{text:'Git Project: '+(project.path??project.projectId??'configuration')});body.createEl('p',{text:(labels[project.state]??project.state)+(project.error?' ? '+project.error:'')});}
    if(status.state==='enrollment-required'){
     body.createEl('p',{text:'This computer already has independent tasks. Merge preserves their Task identities and History in this database, adds the shared baseline, and publishes these tasks to your other devices. Task identities overlapping the baseline stop enrollment for manual review. Conflicting later changes are preserved for review.'});
-    const button=body.createEl('button',{text:'Merge this computer’s tasks and join'});button.onclick=async()=>{button.disabled=true;try{await service.syncEnroll('merge');await refresh();await this.onOpen();}catch(e){new Notice(e.message);button.disabled=false;}};
+    const button=body.createEl('button',{text:'Merge this computer’s tasks and join'});button.onclick=async()=>{button.disabled=true;try{await service.syncEnroll('merge');await refresh();await this.onOpen();}catch(e){ownNoticeColors(new Notice(e.message));button.disabled=false;}};
    }
    const conflicts=await service.syncConflicts();for(const conflict of conflicts){
     const section=body.createDiv();section.createEl('h3',{text:'Conflicting task changes'});section.createEl('p',{text:'Both versions are preserved. Choose the version to use for the affected task or recurring series. The rejected completion events remain as uncounted audit History. Later unseen offline edits can require another review.'});
@@ -14796,9 +14817,9 @@ function mountTaskSync(plugin,host,service){
      if(task.steps.length){const list=version.createEl('ol');for(const step of task.steps)list.createEl('li',{text:(step.completed?'Completed: ':'')+step.text});}
      if(task.recurrence){const r=task.recurrence;version.createEl('p',{text:(r.active?'Repeats':'Stopped recurrence')+': every '+r.rule.interval+' '+(r.rule.frequency==='daily'?'day(s)':'week(s)')+', occurrence '+r.ordinal+', '+r.rule.zone});if(task.futureTemplate)version.createEl('p',{text:'Future template: '+task.futureTemplate.title+(task.futureTemplate.description?' — '+task.futureTemplate.description:'')+'; Steps: '+task.futureTemplate.steps.map(s=>s.text).join(', ')});}
     }}
-    const buttons=[];for(const[choice,label]of [['local','Use this computer’s version'],['incoming','Use incoming version']]){const button=section.createEl('button',{text:label});button.dataset.syncChoice=choice;buttons.push(button);button.onclick=async()=>{buttons.forEach(b=>b.disabled=true);try{await service.syncResolve({operationId:conflict.operationId,choice});await service.syncNow();await refresh();await this.onOpen();}catch(e){new Notice(e.message);buttons.forEach(b=>b.disabled=false);}};}
+    const buttons=[];for(const[choice,label]of [['local','Use this computer’s version'],['incoming','Use incoming version']]){const button=section.createEl('button',{text:label});button.dataset.syncChoice=choice;buttons.push(button);button.onclick=async()=>{buttons.forEach(b=>b.disabled=true);try{await service.syncResolve({operationId:conflict.operationId,choice});await service.syncNow();await refresh();await this.onOpen();}catch(e){ownNoticeColors(new Notice(e.message));buttons.forEach(b=>b.disabled=false);}};}
    }
-   const retry=body.createEl('button',{text:'Check available files now'});retry.onclick=async()=>{retry.disabled=true;try{await service.syncNow();await refresh();await this.onOpen();}catch(e){new Notice(e.message);retry.disabled=false;}};
+   const retry=body.createEl('button',{text:'Check available files now'});retry.onclick=async()=>{retry.disabled=true;try{await service.syncNow();await refresh();await this.onOpen();}catch(e){ownNoticeColors(new Notice(e.message));retry.disabled=false;}};
   }
  }
  const show=()=>{plugin.taskSyncModal?.close();plugin.taskSyncModal=new SyncModal(plugin.app);plugin.taskSyncModal.open();};
@@ -15093,12 +15114,16 @@ module.exports = { HubWorkspaceState, emptyWorkspaceState, migrateWorkspaceState
 },
 "lib/ui/app-shortcuts.js": function (module, exports, __hubRequire) {
 "use strict";
+const { ownColorRoot } = __hubRequire("lib/ui/color-system.js");
+const { ownNoticeColors } = __hubRequire("lib/ui/color-system.js");
+
 const { setIcon, Notice } = require("obsidian");
 const { APP_SHORTCUTS } = __hubRequire("lib/config.js");
 
 function mountAppShortcuts(plugin, left) {
     const bar = left.parentElement;
     const group = bar.createDiv({ cls: "hub-shell-shortcuts hub-button-scope", attr: { role: "group", "aria-label": "App shortcuts" } });
+    const disposeColors = ownColorRoot(group); plugin.register(disposeColors);
     left.after(group);
     let signature = "", disposed = false;
     const render = () => {
@@ -15135,7 +15160,7 @@ function mountAppShortcuts(plugin, left) {
                     else if (shortcut.executable) await plugin.oath.launchStrictApplication(shortcut.executable);
                     else await plugin.openAppShortcut(shortcut.id);
                 }
-                catch (error) { new Notice(error.message || "Could not open app shortcut."); }
+                catch (error) { ownNoticeColors(new Notice(error.message || "Could not open app shortcut.")); }
                 finally { button.disabled = false; }
             });
         }
@@ -15190,7 +15215,7 @@ function mountTransientEffects(root) {
         // color, otherwise their tint compounds with the highlighted parent.
         const ancestors = []; for (let parent = node; parent; parent = parent.parentElement) ancestors.push(parent);
         paint.clearRect(0, 0, 1, 1);
-        paint.fillStyle = view.getComputedStyle(root).getPropertyValue("--background-primary").trim() || "#1e1e1e";
+        paint.fillStyle = view.getComputedStyle(root).getPropertyValue("--hub-color-surface-page").trim() || view.getComputedStyle(root).getPropertyValue("--background-primary").trim() || "#1e1e1e";
         paint.fillRect(0, 0, 1, 1);
         for (const parent of ancestors.reverse()) {
             paint.fillStyle = view.getComputedStyle(parent).backgroundColor; paint.fillRect(0, 0, 1, 1);
@@ -15254,7 +15279,7 @@ function mountTransientEffects(root) {
         if (field.top < bounds.top + 6 || field.bottom > bounds.bottom - 6)
             container.scrollTo({ top: Math.max(0, container.scrollTop + field.top - bounds.top - 8), behavior });
     }
-    return { run, cancel, reveal,
+    return { run, cancel, cancelAll: () => { for (const effect of [...effects.values()]) effect.finish(); }, reveal,
         pulse(element, container, done) { reveal(element, container); run(element, "hub-attention", done); },
         destroy() { disposed = true; for (const effect of [...effects.values()]) effect.finish(); }
     };
@@ -15265,6 +15290,8 @@ module.exports = { mountTransientEffects };
 },
 "lib/ui/capture-controls.js": function (module, exports, __hubRequire) {
 "use strict";
+const { ownNoticeColors } = __hubRequire("lib/ui/color-system.js");
+
 const { Notice } = require("obsidian");
 const { setHubIcon } = __hubRequire("lib/ui/icons.js");
 const { setHubTooltip } = __hubRequire("lib/ui/tooltips.js");
@@ -15320,7 +15347,7 @@ function mountCaptureControls(plugin, service, host) {
     };
     const openInbox = () => {
         if (disposed) return;
-        if (plugin.oath?.active) { new Notice("Inbox is unavailable during an active Oath."); return; }
+        if (plugin.oath?.active) { ownNoticeColors(new Notice("Inbox is unavailable during an active Oath.")); return; }
         if (inbox) { inbox.filterButtons[0].button.focus(); return; }
         if (host.ownerDocument.querySelector(".modal-container")) return;
         inbox = new InboxModal(plugin.app, service, { openLink, workspaceId: plugin.workspaceModes?.currentContext()?.projectId,
@@ -15587,6 +15614,8 @@ module.exports = { mountCaptureForm, mountCaptureTypeControl, noteTitle };
 },
 "lib/ui/capture-modal.js": function (module, exports, __hubRequire) {
 "use strict";
+const { ownModalColors } = __hubRequire("lib/ui/color-system.js");
+
 const { createModalHeader } = __hubRequire("lib/ui/window-title.js");
 const { Modal } = require("obsidian");
 const { setHubIcon } = __hubRequire("lib/ui/icons.js");
@@ -15604,7 +15633,7 @@ function action(host, text, icon, callback, cls = "") {
 // save blocking, native feedback, and restoration to the actual invoking input.
 class CaptureModal extends Modal {
     constructor(app, service, options = {}) {
-        super(app); this.service = service; this.options = options;
+        super(app); ownModalColors(this); this.service = service; this.options = options;
         this.returnFocus = options.returnFocus ?? app.workspace?.activeLeaf?.view?.containerEl?.ownerDocument?.activeElement ?? globalThis.document?.activeElement;
         this.prefix = `hub-capture-${++instance}`; this.busy = false; this.closed = false;
     }
@@ -15651,7 +15680,7 @@ class CaptureModal extends Modal {
 // handling. Closing the dialog always means Cancel.
 class CaptureConfirmation extends CaptureModal {
     ask() { return new Promise(resolve => { this.resolve = resolve; this.open(); }); }
-    onOpen() {
+    onOpen() { ownModalColors(this);
         this.modalEl.classList.add("hub-capture-confirmation");
         this.header(this.options.title, this.options.message);
         const actions = this.contentEl.createDiv({ cls: "hub-capture-actions" });
@@ -15721,6 +15750,8 @@ module.exports = { createCapturePickerTrigger };
 },
 "lib/ui/capture-pickers.js": function (module, exports, __hubRequire) {
 "use strict";
+const { ownModalColors } = __hubRequire("lib/ui/color-system.js");
+
 const { Modal, Component } = require("obsidian");
 const { createWorkspaceCards } = __hubRequire("lib/ui/workspace-cards.js");
 const { createCardImageRenderer } = __hubRequire("lib/ui/card-images.js");
@@ -15752,7 +15783,7 @@ function listen(owner, emitter, event, render) {
 // eligibility as Home and Select project/resource. Choosing never navigates.
 function openCaptureWorkspacePicker(service, { selectedId, onSelect, restoreFocus } = {}) {
     class WorkspacePicker extends Modal {
-        onOpen() {
+        onOpen() { ownModalColors(this);
             preparePicker(this, "Save to", ["hub-oath-workspace-picker", "hub-capture-workspace-picker"]);
             const search = this.contentEl.createEl("input", { type: "search", cls: "hub-oath-search",
                 attr: { placeholder: "Search projects and resources…", "aria-label": "Search destinations" } });
@@ -15804,7 +15835,7 @@ function openCaptureWorkspacePicker(service, { selectedId, onSelect, restoreFocu
 // nested group language without mounting the explorer's editing/navigation UI.
 function openCaptureLocationPicker(service, { workspace, task = false, selectedPath, getItems, onSelect, restoreFocus } = {}) {
     class LocationPicker extends Modal {
-        onOpen() {
+        onOpen() { ownModalColors(this);
             preparePicker(this, task ? "Choose task location" : "Choose a folder", ["hub-capture-location-picker"]);
             if (workspace?.name) this.contentEl.createEl("p", { cls: "hub-oath-muted", text: workspace.name });
             const searchBox = this.contentEl.createDiv({ cls: "hub-explorer-search" });
@@ -16166,6 +16197,316 @@ function createCardImageRenderer(root, component, placementStorage = null, share
 module.exports = { createCardImageRenderer, createCardImageCache };
 
 },
+"lib/ui/color-system.js": function (module, exports, __hubRequire) {
+"use strict";
+
+// Explicit DOM ownership only. No preferences, palette selector, or global theme
+// overrides. Keep this list in sync with the scoped native bridge in styles.css.
+const NATIVE_COLOR_PROPERTIES = Object.freeze([
+    "--background-primary",
+    "--background-primary-alt",
+    "--background-secondary",
+    "--background-secondary-alt",
+    "--background-modifier-form-field",
+    "--background-modifier-form-field-hover",
+    "--background-modifier-hover",
+    "--background-modifier-active-hover",
+    "--background-modifier-border",
+    "--background-modifier-border-hover",
+    "--background-modifier-border-focus",
+    "--background-modifier-message",
+    "--background-modifier-cover",
+    "--text-normal",
+    "--text-muted",
+    "--text-faint",
+    "--text-on-accent",
+    "--text-error",
+    "--text-warning",
+    "--text-accent",
+    "--text-accent-hover",
+    "--text-selection",
+    "--interactive-normal",
+    "--interactive-hover",
+    "--dropdown-background",
+    "--dropdown-background-hover",
+    "--interactive-accent",
+    "--interactive-accent-hover",
+    "--modal-background",
+    "--modal-sidebar-background",
+    "--modal-border-color",
+    "--checkbox-color",
+    "--checkbox-color-hover",
+    "--checkbox-marker-color",
+    "--checkbox-border-color",
+    "--checkbox-border-color-hover",
+    "--input-placeholder-color",
+    "--input-date-separator",
+    "--caret-color",
+    "--icon-color",
+    "--icon-color-hover",
+    "--icon-color-active",
+    "--icon-color-focused",
+    "--divider-color",
+    "--divider-color-hover",
+    "--tooltip-background",
+    "--tooltip-color",
+    "--notice-background",
+    "--notice-color",
+    "--status-bar-text-color",
+    "--menu-background",
+    "--menu-border-color",
+    "--prompt-background",
+    "--prompt-border-color",
+    "--suggestion-background",
+    "--scrollbar-thumb-bg",
+    "--scrollbar-active-thumb-bg",
+    "--slider-track-background",
+    "--slider-fill-background",
+    "--slider-thumb-border-color",
+    "--slider-thumb-background",
+    "--slider-thumb-background-hover",
+    "--toggle-thumb-color",
+    "--link-color",
+    "--link-color-hover",
+    "--link-external-color",
+    "--link-external-color-hover",
+    "--link-unresolved-color",
+    "--list-marker-color",
+    "--list-marker-color-hover",
+    "--list-marker-color-collapsed",
+    "--code-background",
+    "--code-normal",
+    "--code-border-color",
+    "--hr-color",
+    "--blockquote-border-color",
+    "--search-icon-color",
+    "--search-clear-button-color",
+    "--table-border-color",
+    "--table-header-border-color",
+    "--table-header-color",
+    "--table-drag-handle-color",
+    "--table-selection-border-color",
+    "--background-modifier-error",
+    "--background-modifier-error-hover",
+    "--background-modifier-warning",
+    "--background-modifier-warning-hover",
+    "--background-modifier-success",
+    "--color-accent",
+    "--color-accent-1",
+    "--color-accent-2",
+    "--input-shadow",
+    "--input-shadow-hover",
+    "--shadow-s",
+    "--shadow-l",
+    "--modal-shadow",
+    "--slider-thumb-shadow",
+    "--slider-thumb-shadow-hover",
+    "--slider-thumb-shadow-active",
+    "--slider-thumb-shadow-focus",
+    "--tooltip-shadow",
+    "--menu-shadow",
+    "--color-base-70",
+    "--color-purple",
+    "--color-base-25",
+    "--color-pink",
+    "--color-base-05",
+    "--color-blue-rgb",
+    "--color-base-100",
+    "--color-base-40",
+    "--color-pink-rgb",
+    "--color-base-00",
+    "--color-yellow-rgb",
+    "--color-base-50",
+    "--color-orange",
+    "--color-base-60",
+    "--color-base-35",
+    "--color-orange-rgb",
+    "--color-base-30",
+    "--color-base-10",
+    "--color-green",
+    "--color-purple-rgb",
+    "--color-red-rgb",
+    "--color-green-rgb",
+    "--color-base-20",
+    "--color-cyan-rgb",
+    "--color-cyan",
+    "--color-red",
+    "--color-blue",
+    "--color-yellow",
+    "--accent-h",
+    "--accent-s",
+    "--accent-l",
+    "--color-accent-hsl",
+    "--interactive-accent-hsl",
+    "--mono-0",
+    "--mono-100",
+    "--mono-rgb-0",
+    "--mono-rgb-100",
+    "--link-unresolved-decoration-color",
+    "--background-modifier-error-rgb",
+    "--background-modifier-success-rgb",
+    "--background-modifier-box-shadow",
+    "--table-background",
+    "--table-header-background",
+    "--table-column-alt-background",
+    "--table-row-alt-background",
+    "--code-comment",
+    "--code-function",
+    "--code-important",
+    "--code-keyword",
+    "--code-operator",
+    "--code-property",
+    "--code-punctuation",
+    "--code-string",
+    "--code-tag",
+    "--code-value",
+    "--text-success"
+]);
+const SCOPE = "hub-color-scope", ISLAND = "hub-color-host-island";
+const roots = new WeakMap(), documents = new WeakMap(), modals = new WeakMap(), activeDocuments = new Set();
+const ownedPrefix = name => /^--hub-(?:palette-|color-|oath-(?:active|focus|selection|action|pledge|pinned|workspace-badge)|progress-(?:rgb|today-border)|roadmap-phase-|effect-)/.test(name);
+function hasColorOwner(element) {
+    if (element?.closest?.("." + ISLAND)) return false;
+    const boundary = element?.closest?.("." + SCOPE + ", ." + ISLAND);
+    return !!boundary?.classList.contains(SCOPE);
+}
+function documentState(doc) {
+    if (documents.has(doc)) return documents.get(doc);
+    const state = { roots: new Set(), islands: new Set(), queued: false, hostDirty: false };
+    const refresh = () => {
+        state.queued = false;
+        for (const item of [...state.roots]) {
+            if (item.root.isConnected) item.attached = true;
+            else if (item.attached) item.dispose();
+        }
+        if (state.hostDirty) { state.hostDirty = false; for (const island of state.islands) island.refresh(); }
+        if (!state.roots.size && !state.islands.size) {
+            state.removals.disconnect(); state.host.disconnect(); doc.defaultView.removeEventListener("pagehide", state.release);
+            if (documents.get(doc) === state) { documents.delete(doc); activeDocuments.delete(doc); }
+        }
+    };
+    const queue = (hostDirty = false) => { if (hostDirty) state.hostDirty = true; if (!state.queued) { state.queued = true; queueMicrotask(refresh); } };
+    state.removals = new doc.defaultView.MutationObserver(records => {
+        if (records.some(record => record.removedNodes.length || record.addedNodes.length)) queue();
+    });
+    state.removals.observe(doc.body, { childList: true, subtree: true });
+    state.host = new doc.defaultView.MutationObserver(() => queue(true));
+    state.host.observe(doc.body, { attributes: true, attributeFilter: ["class", "style"] });
+    state.release = () => {
+        for (const island of [...state.islands]) island.dispose();
+        for (const item of [...state.roots]) item.dispose();
+        state.removals.disconnect(); state.host.disconnect(); doc.defaultView.removeEventListener("pagehide", state.release);
+        if (documents.get(doc) === state) { documents.delete(doc); activeDocuments.delete(doc); }
+    };
+    doc.defaultView.addEventListener("pagehide", state.release);
+    state.refresh = queue; state.refreshHost = () => queue(true); documents.set(doc, state); activeDocuments.add(doc); return state;
+}
+function ownColorRoot(root) {
+    if (!root?.classList || !root.ownerDocument?.defaultView || root.closest("." + ISLAND)) return () => {};
+    if (roots.has(root)) return roots.get(root).dispose;
+    const added = !root.classList.contains(SCOPE), origins = new Map();
+    root.classList.add(SCOPE);
+    const doc = root.ownerDocument, state = documentState(doc);
+    let disposed = false;
+    const prepare = node => {
+        if (node.nodeType !== 1 || node.closest?.("." + ISLAND)) return;
+        if (node.hasAttribute("aria-label") && hasColorOwner(node)) {
+            const classes = (node.getAttribute("data-tooltip-classes") || "").split(/\s+/).filter(Boolean);
+            if (!classes.includes(SCOPE)) {
+                origins.set(node, true); classes.push(SCOPE);
+                node.setAttribute("data-tooltip-classes", classes.join(" "));
+            }
+        }
+        node.querySelectorAll?.("[aria-label]").forEach(child => {
+            if (!child.closest("." + ISLAND)) prepareOrigin(child);
+        });
+    };
+    const prepareOrigin = node => {
+        if (!hasColorOwner(node)) return;
+        const classes = (node.getAttribute("data-tooltip-classes") || "").split(/\s+/).filter(Boolean);
+        if (!classes.includes(SCOPE)) { origins.set(node, true); classes.push(SCOPE); node.setAttribute("data-tooltip-classes", classes.join(" ")); }
+    };
+    const observer = new doc.defaultView.MutationObserver(records => {
+        for (const record of records) {
+            if (record.type === "childList") for (const node of record.addedNodes) prepare(node);
+            else if (!record.target.closest?.("." + ISLAND)) prepareOrigin(record.target);
+        }
+        for (const node of origins.keys()) if (!root.contains(node) && node !== root) {
+            const values = (node.getAttribute("data-tooltip-classes") || "").split(/\s+/).filter(x => x && x !== SCOPE);
+            if (values.length) node.setAttribute("data-tooltip-classes", values.join(" ")); else node.removeAttribute("data-tooltip-classes");
+            origins.delete(node);
+        }
+    });
+    const item = { root, attached: root.isConnected, dispose() {
+        if (disposed) return; disposed = true; observer.disconnect();
+        for (const node of origins.keys()) {
+            const classes = (node.getAttribute("data-tooltip-classes") || "").split(/\s+/).filter(x => x && x !== SCOPE);
+            if (classes.length) node.setAttribute("data-tooltip-classes", classes.join(" ")); else node.removeAttribute("data-tooltip-classes");
+        }
+        origins.clear(); if (added) root.classList.remove(SCOPE);
+        roots.delete(root); state.roots.delete(item); state.refresh();
+    } };
+    roots.set(root, item); state.roots.add(item); prepare(root);
+    observer.observe(root, { childList: true, subtree: true, attributes: true, attributeFilter: ["aria-label", "data-tooltip-classes"] });
+    return item.dispose;
+}
+function ownModalColors(modal) {
+    if (modals.has(modal)) return modals.get(modal);
+    const dispose = ownColorRoot(modal.containerEl || modal.modalEl);
+    const original = modal.onClose, descriptor = Object.getOwnPropertyDescriptor(modal, "onClose");
+    const release = () => { dispose(); modals.delete(modal); if (modal.onClose === wrapped) { if (descriptor) Object.defineProperty(modal, "onClose", descriptor); else delete modal.onClose; } };
+    function wrapped(...args) {
+        try { const result = original?.apply(this, args); if (result?.finally) return result.finally(release); release(); return result; }
+        catch (error) { release(); throw error; }
+    }
+    modal.onClose = wrapped; modals.set(modal, release); return release;
+}
+function ownMenuColors(menu) {
+    const dispose = ownColorRoot(menu?.dom);
+    menu?.onHide?.(() => { if (!menu.dom?.isConnected) dispose(); }); return menu;
+}
+function ownNoticeColors(notice) {
+    // noticeEl is the message; containerEl owns the native notification paint.
+    ownColorRoot(notice?.containerEl || notice?.noticeEl?.parentElement); return notice;
+}
+function inheritColorOwner(element, origin) {
+    return hasColorOwner(origin) ? ownColorRoot(element) : () => {};
+}
+function hostColorIsland(root) {
+    const doc = root.ownerDocument, state = documentState(doc), saved = new Map();
+    const hadIsland = root.classList.contains(ISLAND); root.classList.add(ISLAND);
+    const set = (name, value) => {
+        if (!saved.has(name)) saved.set(name, [root.style.getPropertyValue(name), root.style.getPropertyPriority(name)]);
+        root.style.setProperty(name, value);
+    };
+    const island = { refresh() {
+        const host = doc.defaultView.getComputedStyle(doc.body);
+        for (const name of NATIVE_COLOR_PROPERTIES) set(name, host.getPropertyValue(name).trim() || "initial");
+        const inherited = doc.defaultView.getComputedStyle(root);
+        for (const name of inherited) if (ownedPrefix(name)) set(name, "initial");
+        set("color", host.color); set("background-color", host.getPropertyValue("--modal-background").trim() || host.backgroundColor);
+        for (const element of [root, ...root.querySelectorAll("[data-tooltip-classes]")]) {
+            const classes = (element.getAttribute("data-tooltip-classes") || "").split(/\s+/).filter(x => x && x !== SCOPE);
+            if (classes.length) element.setAttribute("data-tooltip-classes", classes.join(" ")); else element.removeAttribute("data-tooltip-classes");
+        }
+    } };
+    state.islands.add(island); island.refresh();
+    let disposed = false;
+    const dispose = () => {
+        if (disposed) return; disposed = true;
+        state.islands.delete(island);
+        for (const [name, [value, priority]] of saved) { if (value) root.style.setProperty(name, value, priority); else root.style.removeProperty(name); }
+        if (!hadIsland) root.classList.remove(ISLAND); state.refresh();
+    };
+    island.dispose = dispose; return dispose;
+}
+function refreshHostColorReferences(doc) { documents.get(doc)?.refreshHost(); }
+function disposeColorSystem() {
+    for (const doc of [...activeDocuments]) documents.get(doc)?.release();
+}
+module.exports = { disposeColorSystem, ownColorRoot, ownModalColors, ownMenuColors, ownNoticeColors, inheritColorOwner, hasColorOwner, hostColorIsland, refreshHostColorReferences, NATIVE_COLOR_PROPERTIES };
+
+},
 "lib/ui/completion-audio.js": function (module, exports, __hubRequire) {
 "use strict";
 
@@ -16396,6 +16737,8 @@ module.exports = { mountDailyBriefControl };
 },
 "lib/ui/daily-brief.js": function (module, exports, __hubRequire) {
 "use strict";
+const { ownModalColors } = __hubRequire("lib/ui/color-system.js");
+
 const { createWindowTitle, setWindowUndertext, layoutModal } = __hubRequire("lib/ui/window-title.js");
 const { Modal, Component, setIcon } = require("obsidian");
 const { parseLocalISODate, formatDate, formatWeekday } = __hubRequire("lib/domain/dates.js");
@@ -16413,7 +16756,7 @@ class DailyBriefModal extends Modal {
         super(app); Object.assign(this, { context, recommendation, onAction, onReport, closed: onClose });
         this.selectedDate = context.lastWorkDate; this.expanded = false;
     }
-    onOpen() {
+    onOpen() { ownModalColors(this);
         this.contentEl.classList.add("hub-project-advancement-modal", "hub-daily-brief-modal", "hub-button-scope");
         this.component = new Component(); this.component.load();
         this.markdown = createHubMarkdown({ app: this.app, component: this.component });
@@ -16503,6 +16846,8 @@ module.exports = { DailyBriefModal, briefDateLabel };
 },
 "lib/ui/daily-report.js": function (module, exports, __hubRequire) {
 "use strict";
+const { ownModalColors } = __hubRequire("lib/ui/color-system.js");
+
 const { createWindowTitle, setWindowUndertext, layoutModal } = __hubRequire("lib/ui/window-title.js");
 
 const { renderReportWorkspaceHeader } = __hubRequire("lib/ui/report-workspace-header.js");
@@ -16641,7 +16986,7 @@ function reportTitle(date, editing = false) {
 
 class DailyReportModal extends Modal {
     constructor(app, { day, onEdit, plugin }) { super(app); this.day = day; this.onEdit = onEdit; this.plugin = plugin; }
-    onOpen() {
+    onOpen() { ownModalColors(this);
         this.contentEl.addClass("hub-project-advancement-modal", "hub-daily-report-modal", "hub-button-scope");
         const heading = createWindowTitle(this.contentEl, reportTitle(this.day.date), "clipboard-check", {
             date: { value: this.day.date, label: formatDate(parseLocalISODate(this.day.date), "full") }
@@ -16669,7 +17014,7 @@ module.exports = { reportTitle, DailyReportModal, renderDailyReport, renderRepor
 },
 "lib/ui/dashboard-frame.js": function (module, exports, __hubRequire) {
 "use strict";
-
+const { ownColorRoot } = __hubRequire("lib/ui/color-system.js");
 const frames = new WeakMap();
 
 function createDashboardFrame(container, component, className) {
@@ -16677,12 +17022,13 @@ function createDashboardFrame(container, component, className) {
     const controller = new AbortController();
     const root = container.ownerDocument.createElement("div");
     root.className = className;
+    const disposeColors = ownColorRoot(root);
     const work = [];
     const layoutWork = [];
     const current = () => !controller.signal.aborted && frames.get(container) === frame && root.isConnected;
     const frame = {
         root, current,
-        abort: () => controller.abort(),
+        abort: () => { controller.abort(); if (!root.isConnected) disposeColors(); },
         defer: task => work.push(task),
         // Geometry needs attached, styled DOM, but must precede the first paint.
         // Detached prepared views retain these tasks until their activation.
@@ -16737,6 +17083,7 @@ module.exports = { createDashboardFrame };
 },
 "lib/ui/dashboard-ui.js": function (module, exports, __hubRequire) {
 "use strict";
+const { ownColorRoot } = __hubRequire("lib/ui/color-system.js");
 const { disclosureIcons } = __hubRequire("lib/ui/disclosure.js");
 const { formatDate, formatTime, formatDateTime, formatWeekday, formatDateRange, historyDateLabel } = __hubRequire("lib/domain/dates.js");
 const { setHubTooltip } = __hubRequire("lib/ui/tooltips.js");
@@ -16985,6 +17332,7 @@ function createDashboardUi({
         createProgressHeatmap: __hubRequire("lib/ui/progress-heatmap.js").createProgressHeatmap,
         progressColors,
         progressColor,
+        ownColorRoot,
         selectNavigation
     });
 }
@@ -16998,6 +17346,8 @@ module.exports = {
 },
 "lib/ui/date-time.js": function (module, exports, __hubRequire) {
 "use strict";
+const { ownModalColors } = __hubRequire("lib/ui/color-system.js");
+
 const { Modal } = require("obsidian");
 const { layoutModal } = __hubRequire("lib/ui/window-title.js");
 const { parseLocalISODate, validLocalTime, formatDate } = __hubRequire("lib/domain/dates.js");
@@ -17107,7 +17457,7 @@ function mountTaskDateTime({ app, host, label, state, dateKey, timeKey, onChange
     // native date/time interactions inside one shared picker, with independent
     // optional time precision rather than seeding a persisted midnight.
     class TaskDateTimePicker extends Modal {
-        onOpen() {
+        onOpen() { ownModalColors(this);
             this.modalEl.classList.add("hub-task-date-time-picker");
             this.contentEl.classList.add("hub-button-scope", "hub-capture-form-scope");
             this.setTitle(label);
@@ -17304,6 +17654,8 @@ module.exports = { mountFullViewLayout };
 },
 "lib/ui/header-image.js": function (module, exports, __hubRequire) {
 "use strict";
+const { ownMenuColors, ownNoticeColors } = __hubRequire("lib/ui/color-system.js");
+
 
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 const headerImages = new WeakMap();
@@ -17423,7 +17775,7 @@ function mountHeaderImage({ cover, image, component, initial, save, defaultY = 3
             } catch (error) {
                 saving = false;
                 done.disabled = cancel.disabled = false;
-                new Notice("Could not save image placement. Please try again.");
+                ownNoticeColors(new Notice("Could not save image placement. Please try again."));
                 console.error("Hub image placement save failed", error);
             }
         });
@@ -17496,7 +17848,7 @@ function mountHeaderImage({ cover, image, component, initial, save, defaultY = 3
     });
     if (manageMenu) component.registerDomEvent(cover, "contextmenu", event => {
         event.preventDefault(); event.stopPropagation();
-        const menu = new Menu();
+        const menu = ownMenuColors(new Menu());
         menu.addItem(item => item.setTitle("Edit image placement").setIcon("move").onClick(begin));
         menu.showAtMouseEvent(event);
     });
@@ -17562,6 +17914,8 @@ module.exports = { createHistoryPager };
 },
 "lib/ui/home-covers.js": function (module, exports, __hubRequire) {
 "use strict";
+const { ownMenuColors, ownModalColors, ownNoticeColors } = __hubRequire("lib/ui/color-system.js");
+
 const { createWindowTitle, setWindowUndertext, layoutModal } = __hubRequire("lib/ui/window-title.js");
 const { HOME_COVER_PERIODS } = __hubRequire("lib/services/home-covers.js");
 const { mountHeaderImage } = __hubRequire("lib/ui/header-image.js");
@@ -17569,7 +17923,7 @@ const { mountHeaderImage } = __hubRequire("lib/ui/header-image.js");
 function openHomeCoverEditor(service, sourceCover) {
     const { Modal, Component, Menu, Notice, setIcon } = require("obsidian");
     class HomeCoverModal extends Modal {
-        onOpen() {
+        onOpen() { ownModalColors(this);
             this.owner = new Component(); this.owner.load(); this.closed = false;
             this.modalEl.classList.add("hub-home-covers-dialog");
             this.contentEl.classList.add("hub-button-scope", "hub-home-covers-editor");
@@ -17597,7 +17951,7 @@ function openHomeCoverEditor(service, sourceCover) {
                 this.previews.push(preview);
                 const showMenu = (event, anchor = frame) => {
                     event.preventDefault(); event.stopPropagation();
-                    const menu = new Menu();
+                    const menu = ownMenuColors(new Menu());
                     menu.addItem(item => item.setTitle("Change image…").setIcon("image")
                         .setDisabled(!!preview.editor?.editing).onClick(() => this.chooseImage(preview)));
                     menu.addItem(item => item.setTitle("Edit image placement…").setIcon("move")
@@ -17666,7 +18020,7 @@ function openHomeCoverEditor(service, sourceCover) {
                     preview.editor?.dispose(); preview.editor = null;
                     preview.surface.empty(); preview.unavailable?.remove();
                     preview.unavailable = preview.frame.createDiv({ cls: "hub-home-cover-unavailable hub-capture-muted", text: "Image unavailable. Use Change image to choose a replacement.", attr: { role: "status" } });
-                    new Notice(error.message || "Could not load cover preview.");
+                    ownNoticeColors(new Notice(error.message || "Could not load cover preview."));
                 }
             }
         }
@@ -17683,7 +18037,7 @@ function openHomeCoverEditor(service, sourceCover) {
                     if (this.closed) return;
                     await service.changeImage(preview.name, source);
                     if (!this.closed) await this.renderPreview(preview);
-                } catch (error) { if (!this.closed) new Notice(error.message || "Could not change cover image."); }
+                } catch (error) { if (!this.closed) ownNoticeColors(new Notice(error.message || "Could not change cover image.")); }
                 finally { URL.revokeObjectURL(url); }
             }, { once: true });
             input.click();
@@ -17787,6 +18141,8 @@ module.exports = { setHubIcon, ensureHubIcon };
 },
 "lib/ui/inbox.js": function (module, exports, __hubRequire) {
 "use strict";
+const { ownMenuColors, ownModalColors, ownNoticeColors } = __hubRequire("lib/ui/color-system.js");
+
 const { Notice, Menu } = require("obsidian");
 const { CaptureModal, CaptureConfirmation, action, attachments } = __hubRequire("lib/ui/capture-modal.js");
 const { setHubIcon } = __hubRequire("lib/ui/icons.js");
@@ -17798,7 +18154,7 @@ const clone = value => JSON.parse(JSON.stringify(value));
 const preview = capture => capture.text?.trim() || capture.attachments?.map(a=>a.name).join(", ") || "Untitled item";
 const fingerprint = value => JSON.stringify({text:value.text,attachments:value.attachments,intent:captureIntent(value,value.attachments??[])});
 class InboxModal extends CaptureModal {
-    onOpen() {
+    onOpen() { ownModalColors(this);
         this.modalEl.classList.add("hub-inbox-dialog");this.header("Inbox","Saved items awaiting organisation","inbox");
         this.filter="all";this.sortOrder=["most-complete","least-complete"].includes(this.service.sortPreference)?"newest":this.service.sortPreference;
         this.rows=new Map();this.drafts=new Map();this.actionsByItem=new Map();this.selectedId=null;this.mode=null;this.dirty=false;
@@ -17816,7 +18172,7 @@ class InboxModal extends CaptureModal {
     }
     visible(){return sortedCaptures(this.service.captures,{filter:this.filter,sort:this.sortOrder})}
     async changeFilter(filter){if(this.busy||!await this.flushEdits())return;this.filter=filter;this.refresh()}
-    showSortMenu(){if(this.busy)return;const menu=this.sortMenu=new Menu();for(const [key,label]of INBOX_SORTS.filter(([key])=>!key.includes('complete')))menu.addItem(i=>i.setTitle(label).setChecked(key===this.sortOrder).onClick(async()=>{if(!await this.flushEdits())return;await this.service.setSortPreference(key);this.sortOrder=key;this.refresh()}));menu.onHide(()=>{this.sortMenu=null;this.sort.focus()});const r=this.sort.getBoundingClientRect();menu.showAtPosition({x:r.left,y:r.bottom})}
+    showSortMenu(){if(this.busy)return;const menu=this.sortMenu=ownMenuColors(new Menu());for(const [key,label]of INBOX_SORTS.filter(([key])=>!key.includes('complete')))menu.addItem(i=>i.setTitle(label).setChecked(key===this.sortOrder).onClick(async()=>{if(!await this.flushEdits())return;await this.service.setSortPreference(key);this.sortOrder=key;this.refresh()}));menu.onHide(()=>{this.sortMenu=null;this.sort.focus()});const r=this.sort.getBoundingClientRect();menu.showAtPosition({x:r.left,y:r.bottom})}
     refresh(){
         if(this.closed)return;const captures=this.visible(),scroll=this.list.scrollTop,counts=inboxCounts(this.service.captures);
         for(const f of this.filterButtons){f.button.querySelector('span').textContent=f.label+' ('+counts[f.key]+')';f.button.classList.toggle('is-selected',f.key===this.filter);f.button.setAttribute('aria-pressed',String(f.key===this.filter))}
@@ -17827,7 +18183,7 @@ class InboxModal extends CaptureModal {
         });this.list.scrollTop=scroll;
         if(!captures.some(c=>c.id===this.selectedId)){this.resetForm();this.selectedId=captures[0]?.id??null;this.loadSelected();for(const [id,row]of this.rows){row.button.classList.toggle('is-selected',id===this.selectedId);row.button.setAttribute('aria-pressed',String(id===this.selectedId))}}
     }
-    showItemMenu(id,position){const c=this.service.get(id);if(!c||this.busy)return;const menu=new Menu();menu.addItem(i=>i.setTitle('Open').setIcon('panel-right-open').onClick(()=>this.select(id)));if(!c.attachments.length)menu.addItem(i=>i.setTitle('Create task').setIcon('square-plus').onClick(async()=>{await this.select(id);await this.createTask()}));menu.addSeparator();menu.addItem(i=>i.setTitle('Delete').setIcon('trash-2').setWarning(true).onClick(()=>this.remove(id)));menu.showAtPosition(position)}
+    showItemMenu(id,position){const c=this.service.get(id);if(!c||this.busy)return;const menu=ownMenuColors(new Menu());menu.addItem(i=>i.setTitle('Open').setIcon('panel-right-open').onClick(()=>this.select(id)));if(!c.attachments.length)menu.addItem(i=>i.setTitle('Create task').setIcon('square-plus').onClick(async()=>{await this.select(id);await this.createTask()}));menu.addSeparator();menu.addItem(i=>i.setTitle('Delete').setIcon('trash-2').setWarning(true).onClick(()=>this.remove(id)));menu.showAtPosition(position)}
     async select(id,focus=false){if(this.busy||id===this.selectedId||!await this.flushEdits())return;this.remember();this.resetForm();this.selectedId=id;this.loadSelected();this.refresh();if(focus)this.rows.get(id)?.button.focus({preventScroll:true})}
     remember(){if(!this.selectedId||!this.draft)return;const value=this.form?.value()??this.draft;this.draft={...this.draft,...value};this.drafts.set(this.selectedId,clone(this.draft));if(this.mode){const choices=this.actionsByItem.get(this.selectedId)??{};choices[this.mode]=clone(this.draft);this.actionsByItem.set(this.selectedId,choices)}}
     resetForm(){this.form?.destroy();this.form=null;this.mode=null;this.draft=null;this.dirty=false;this.save=null}
@@ -17858,7 +18214,7 @@ class InboxModal extends CaptureModal {
     sync(){if(this.needsRefresh&&!this.busy){this.needsRefresh=false;this.refresh()}if(this.save)this.save.disabled=this.busy;const c=this.service.get(this.selectedId);if(c?.operation&&c.operation.state!=='done'&&(['native-task','task','note-insertion'].includes(c.operation.kind)||c.operation.state==='ready')){this.actionHost.querySelectorAll('input,textarea,select,button').forEach(e=>e.disabled=true)}}
     async createTask(){if(this.busy||this.closed)return;const c=this.service.get(this.selectedId);if(!c||c.attachments.length)return;if(this.mode!=='task'){await this.showAction('task');if(this.mode!=='task')return;}return this.commit()}
     async commit(){if(this.busy||this.closed||!this.form)return;if(this.form.prepare?.()===false)return;if(!this.service.get(this.selectedId)?.operation&&!this.form.valid()){this.error.textContent=this.service.completion(this.form.value(),this.selectedId).error??'Choose the required destination.';return;}if(!await this.flushEdits())return;
-        return this.run(async()=>{const id=this.selectedId,draft=this.form.value(),result=this.mode==='task'?await this.service.makeTask(draft,id):this.mode==='note'?await this.service.createNote(draft,id):await this.service.addFiles(draft,id);new Notice(result?.message??'Item organized.');this.drafts.delete(id);this.actionsByItem.delete(id);this.dirty=false;this.resetForm();this.refresh()});}
+        return this.run(async()=>{const id=this.selectedId,draft=this.form.value(),result=this.mode==='task'?await this.service.makeTask(draft,id):this.mode==='note'?await this.service.createNote(draft,id):await this.service.addFiles(draft,id);ownNoticeColors(new Notice(result?.message??'Item organized.'));this.drafts.delete(id);this.actionsByItem.delete(id);this.dirty=false;this.resetForm();this.refresh()});}
     async remove(id){if(this.busy||!this.service.get(id)||this.confirmation)return;const dialog=this.confirmation=new CaptureConfirmation(this.app,null,{title:'Delete this inbox item?',message:'This item will be removed from your Inbox.',confirmLabel:'Delete',destructive:true});const yes=await dialog.ask();this.confirmation=null;if(!yes||this.closed)return;await this.run(async()=>{await this.service.delete(id);this.drafts.delete(id);this.actionsByItem.delete(id);this.resetForm();this.selectedId=null;this.refresh()});}
     async close(){if(this.busy||this.closed||!await this.flushEdits())return;super.close()}
     onClose(){this.modalEl.removeEventListener('keydown',this.deleteKey);this.confirmation?.close();this.sortMenu?.hide();this.remember();this.service.scheduleNativeRefresh?.();super.onClose()}
@@ -18089,6 +18445,8 @@ module.exports = { lockModalControls };
 },
 "lib/ui/music-item-editor.js": function (module, exports, __hubRequire) {
 "use strict";
+const { ownModalColors } = __hubRequire("lib/ui/color-system.js");
+
 const { CaptureModal, action } = __hubRequire("lib/ui/capture-modal.js");
 const { MUSIC_PROVIDERS, LOCAL_AUDIO_EXTENSIONS, normalizeMusicSource } = __hubRequire("lib/domain/music.js");
 
@@ -18100,7 +18458,7 @@ class MusicItemModal extends CaptureModal {
         host.createEl("label", { cls: "hub-capture-label", text: label, attr: { for: id } });
         return { host, id };
     }
-    onOpen() {
+    onOpen() { ownModalColors(this);
         this.modalEl.classList.add("hub-music-item-dialog", "hub-quick-add-dialog");
         this.header(this.item ? "Rename music" : "Add music", this.item ? "Choose a name for this music" : "Save a music link or choose local files", "music");
         const form = this.contentEl.createEl("form", { cls: "hub-music-item-form hub-capture-content" });
@@ -18176,6 +18534,8 @@ module.exports = { MusicItemModal, openMusicItemEditor };
 },
 "lib/ui/music-settings.js": function (module, exports, __hubRequire) {
 "use strict";
+const { ownMenuColors } = __hubRequire("lib/ui/color-system.js");
+
 const { ToggleComponent, Menu } = require("obsidian");
 const { MUSIC_PROVIDERS, musicProvider } = __hubRequire("lib/domain/music.js");
 const { row, section } = __hubRequire("lib/ui/settings-pages.js");
@@ -18315,7 +18675,7 @@ function mountMusicSettings(parent, service) {
                 if (itemMenu && itemMenuButton === menuButton) { itemMenu.hide(); return; }
                 itemMenu?.hide(); itemMenuButton = menuButton;
                 let keyboard = hasKeyboardFocus(menuButton, event);
-                const menu = itemMenu = new Menu(), doc = host.ownerDocument;
+                const menu = itemMenu = ownMenuColors(new Menu()), doc = host.ownerDocument;
                 const onKey = () => { keyboard = true; }, onPointer = () => { keyboard = false; };
                 doc.addEventListener("keydown", onKey, true); doc.addEventListener("pointerdown", onPointer, true);
                 menu.onHide(() => {
@@ -18353,6 +18713,8 @@ module.exports = { mountMusicSettings };
 },
 "lib/ui/music.js": function (module, exports, __hubRequire) {
 "use strict";
+const { ownModalColors } = __hubRequire("lib/ui/color-system.js");
+
 const { createWindowTitle, setWindowUndertext } = __hubRequire("lib/ui/window-title.js");
 const { Modal } = require("obsidian");
 const { setHubIcon } = __hubRequire("lib/ui/icons.js");
@@ -18367,7 +18729,7 @@ class MusicModal extends Modal {
         this.controller = plugin.music; this.library = plugin.musicLibrary;
         this.titleId = `hub-music-${++instance}-title`;
     }
-    onOpen() {
+    onOpen() { ownModalColors(this);
         this.modalEl.classList.add("hub-oath-dialog", "hub-music-dialog");
         this.contentEl.classList.add("hub-button-scope", "hub-capture-content", "hub-music-content");
         this.contentEl.tabIndex = -1;
@@ -18569,9 +18931,11 @@ module.exports={mountNativeCaptureTask};
 },
 "lib/ui/native-task-recovery.js": function (module, exports, __hubRequire) {
 "use strict";
+const { ownModalColors, ownNoticeColors } = __hubRequire("lib/ui/color-system.js");
+
 function openNativeTaskRecovery(plugin){
  const {Modal,Notice}=require('obsidian');
- class Recovery extends Modal{onOpen(){this.titleEl.setText('Local task recovery');const host=plugin.nativeTaskHost;this.contentEl.createEl('p',{text:'Tasks are stored on this device. Task synchronization is unavailable.'});const pending=host.pendingOperations();this.contentEl.createEl('p',{text:pending.length?pending.length+' original operation(s) await confirmation.':'No unconfirmed task operations.'});for(const c of pending)this.contentEl.createEl('code',{text:c.operationId});if(pending.length){const button=this.contentEl.createEl('button',{text:'Retry original operations',cls:'mod-cta'});button.onclick=async()=>{button.disabled=true;try{await host.retryPending();this.close();new Notice('Task operations confirmed.')}catch(e){new Notice(e.message);button.disabled=false}};}}}
+ class Recovery extends Modal{onOpen(){ ownModalColors(this);this.titleEl.setText('Local task recovery');const host=plugin.nativeTaskHost;this.contentEl.createEl('p',{text:'Tasks are stored on this device. Task synchronization is unavailable.'});const pending=host.pendingOperations();this.contentEl.createEl('p',{text:pending.length?pending.length+' original operation(s) await confirmation.':'No unconfirmed task operations.'});for(const c of pending)this.contentEl.createEl('code',{text:c.operationId});if(pending.length){const button=this.contentEl.createEl('button',{text:'Retry original operations',cls:'mod-cta'});button.onclick=async()=>{button.disabled=true;try{await host.retryPending();this.close();ownNoticeColors(new Notice('Task operations confirmed.'))}catch(e){ownNoticeColors(new Notice(e.message));button.disabled=false}};}}}
  const modal=new Recovery(plugin.app);modal.open();return modal;
 }
 module.exports={openNativeTaskRecovery};
@@ -18579,6 +18943,8 @@ module.exports={openNativeTaskRecovery};
 },
 "lib/ui/note-position-picker.js": function (module, exports, __hubRequire) {
 "use strict";
+const { ownMenuColors, ownModalColors } = __hubRequire("lib/ui/color-system.js");
+
 const { Modal, Menu } = require("obsidian");
 const { preparePicker, listen } = __hubRequire("lib/ui/capture-pickers.js");
 const { mountCaptureLocationTree } = __hubRequire("lib/ui/capture-tree.js");
@@ -18588,7 +18954,7 @@ const { noteLocation, resolveNoteLocation } = __hubRequire("lib/domain/note-inse
 
 function openNotePositionPicker(service, { workspace, selectedLocation, onSelect, restoreFocus }) {
     class NotePositionPicker extends Modal {
-        onOpen() {
+        onOpen() { ownModalColors(this);
             preparePicker(this, "Choose note and position", ["hub-capture-location-picker", "hub-note-position-picker"]);
             this.contentEl.createEl("p", { cls: "hub-oath-muted", text: workspace.name });
             const searchBox = this.contentEl.createDiv({ cls: "hub-explorer-search" });
@@ -18697,7 +19063,7 @@ function openNotePositionPicker(service, { workspace, selectedLocation, onSelect
         }
         showPositionMenu(button, kind, options, onSelect) {
             if (this.positionMenu) { this.positionMenu.hide(); return; }
-            const menu = this.positionMenu = new Menu();
+            const menu = this.positionMenu = ownMenuColors(new Menu());
             options.forEach(option => menu.addItem(item => item.setTitle(option.label).setDisabled(!!option.disabled).setChecked(
                 kind === "target" ? option.anchor === this.selection?.anchor : kind === "position" ? option.position === this.selection?.position :
                     option.type === this.selection?.targetType && (option.type !== "note" || option.position === this.selection.position)
@@ -18734,7 +19100,7 @@ module.exports = { openNotePositionPicker };
 },
 "lib/ui/note-rail.js": function (module, exports, __hubRequire) {
 "use strict";
-
+const { ownColorRoot } = __hubRequire("lib/ui/color-system.js");
 // Controls the existing structural workspace pane; never creates another leaf.
 function mountNoteRail(pane, initialState = "full", onChange = () => {}) {
     const { setIcon } = require("obsidian");
@@ -18755,6 +19121,7 @@ function mountNoteRail(pane, initialState = "full", onChange = () => {}) {
     edge.setAttribute("aria-label", "Folder bar width");
     edge.setAttribute("aria-valuemin", "0");
     edge.setAttribute("aria-valuemax", "2");
+    ownColorRoot(controls); ownColorRoot(edge);
     pane.append(controls, edge);
 
     function select(next) {
@@ -18974,6 +19341,9 @@ module.exports = { createOathTaskSection };
 },
 "lib/ui/oath.js": function (module, exports, __hubRequire) {
 "use strict";
+const { ownColorRoot } = __hubRequire("lib/ui/color-system.js");
+const { ownMenuColors, ownModalColors } = __hubRequire("lib/ui/color-system.js");
+
 const { hasKeyboardFocus, focusControl } = __hubRequire("lib/ui/focus-restoration.js");
 const { createWindowTitle, setWindowUndertext, layoutModal } = __hubRequire("lib/ui/window-title.js");
 const { createTaskUi, createTaskRow, renderReadOnlyTask } = __hubRequire("lib/ui/tasks.js");
@@ -19057,7 +19427,7 @@ function selectionRow(ui, body, task) {
 function openOathWorkspacePicker(service, type, selected, onSelect, restoreFocus) {
     const { Modal, Component } = require("obsidian");
     class Picker extends Modal {
-        onOpen() {
+        onOpen() { ownModalColors(this);
             this.modalEl.classList.add("hub-oath-dialog", "hub-oath-workspace-picker");
             this.contentEl.classList.add("hub-button-scope");
             this.contentEl.createEl("h2", { text: type === "project" ? "Select project" : "Select resource" });
@@ -19105,7 +19475,7 @@ function openOathWorkspacePicker(service, type, selected, onSelect, restoreFocus
 function openOathPicker(service, workspace, selected, onSelect, candidateRead = null) {
     const { Modal, Component } = require("obsidian");
     class Picker extends Modal {
-        onOpen() {
+        onOpen() { ownModalColors(this);
             this.modalEl.classList.add("hub-oath-dialog", "hub-oath-picker");
             this.contentEl.classList.add("hub-button-scope");
             this.contentEl.createEl("h2", { text: "Add tasks" });
@@ -19172,7 +19542,7 @@ function openOathPicker(service, workspace, selected, onSelect, candidateRead = 
 function openOathSetup(service) {
     const { Modal, Component, Menu } = require("obsidian");
     class Setup extends Modal {
-        onOpen() {
+        onOpen() { ownModalColors(this);
             this.modalEl.classList.add("hub-oath-dialog");
             this.contentEl.classList.add("hub-button-scope");
             this.draft = { start: "now", scheduledAt: null, durationMs: null, workspace: null, tasks: [] };
@@ -19498,7 +19868,7 @@ function openOathSetup(service) {
                 const showUnits = () => {
                     if (this.unitMenu) { this.unitMenu.hide(); return; }
                     this.dateDisclosure.close();
-                    const menu = this.unitMenu = new Menu();
+                    const menu = this.unitMenu = ownMenuColors(new Menu());
                     for (const value of ["minutes", "hours"]) menu.addItem(item => item.setTitle(value)
                         .setChecked(this.customValue.unit === value).onClick(() => {
                             this.customValue.unit = value; update();
@@ -19701,7 +20071,7 @@ function openOathSetup(service) {
 function openOathStatus(service) {
     const { Modal, Component } = require("obsidian");
     class Status extends Modal {
-        onOpen() {
+        onOpen() { ownModalColors(this);
             this.modalEl.classList.add("hub-oath-dialog", "hub-oath-status"); this.contentEl.classList.add("hub-button-scope");
             this.id = service.current.id; this.render();
             this.dispose = service.onChange(() => {
@@ -19788,7 +20158,7 @@ async function requestOathExit(service) {
         if (decision !== "confirmation-required") return;
         const { Modal } = require("obsidian");
         class BreakWarning extends Modal {
-            onOpen() {
+            onOpen() { ownModalColors(this);
                 this.modalEl.classList.add("hub-oath-dialog", "hub-oath-status");
                 this.contentEl.classList.add("hub-button-scope");
                 this.contentEl.createEl("h2", { text: "Break your Oath?" });
@@ -19817,7 +20187,7 @@ function mountOathControl(plugin, service) {
     const { setIcon } = require("obsidian");
     // Reuse Obsidian's status bar, turning it into a reserved full-width footer.
     // It is outside individual leaves and survives Home/Workspace/note changes.
-    const item = plugin.addStatusBarItem(); item.classList.add("hub-oath-control", "hub-button-scope");
+    const item = plugin.addStatusBarItem(); item.classList.add("hub-oath-control", "hub-button-scope"); plugin.register(ownColorRoot(item));
     let bar = item.parentElement, fallback = false;
     if (!bar) { fallback = true; bar = document.createElement("div"); document.querySelector(".app-container").appendChild(bar); bar.appendChild(item); }
     bar.classList.add("hub-oath-statusbar");
@@ -19846,6 +20216,8 @@ module.exports = { openOathPicker, openOathSetup, openOathStatus, mountOathContr
 },
 "lib/ui/planning-editor.js": function (module, exports, __hubRequire) {
 "use strict";
+const { ownModalColors } = __hubRequire("lib/ui/color-system.js");
+
 const { hasKeyboardFocus, focusAfterRowRemoval } = __hubRequire("lib/ui/focus-restoration.js");
 const { createWindowTitle, setWindowUndertext, layoutModal } = __hubRequire("lib/ui/window-title.js");
 const { Modal, FuzzySuggestModal, Component } = require("obsidian");
@@ -19855,7 +20227,7 @@ const { localISODate } = __hubRequire("lib/domain/dates.js");
 function openPlanningEditor(service, projectId, kind, value = null, dv, defaults = {}) {
     const phase = kind === "phases", noun = phase ? "phase" : "milestone";
     class PlanningModal extends Modal {
-        onOpen() {
+        onOpen() { ownModalColors(this);
             this.closed = false;
             this.modalEl.classList.add("hub-task-dialog");
             this.contentEl.classList.add("hub-button-scope", "hub-task-form", "hub-planning-form");
@@ -19958,6 +20330,7 @@ function openPlanningEditor(service, projectId, kind, value = null, dv, defaults
                 this.refreshPhaseTasks = refresh;
                 add.addEventListener("click", () => {
                     class TaskPicker extends FuzzySuggestModal {
+                        onOpen() { ownModalColors(this); super.onOpen?.(); }
                         getItems() { return draft.pickerItems(); }
                         getItemText(task) { const current = pickerState.phases.find(item => item.id === task.phaseId); return task.text + " · " + task.path + (current ? " · " + current.name : ""); }
                         onChooseItem(task) {
@@ -20331,6 +20704,9 @@ module.exports = { createPreparedNoteRails, NOTE_RAIL_VIEW, HOME_VIEW };
 },
 "lib/ui/presets.js": function (module, exports, __hubRequire) {
 "use strict";
+const { inheritColorOwner } = __hubRequire("lib/ui/color-system.js");
+const { ownMenuColors, ownModalColors, ownNoticeColors } = __hubRequire("lib/ui/color-system.js");
+
 const { createWindowTitle } = __hubRequire("lib/ui/window-title.js");
 const { lockModalControls } = __hubRequire("lib/ui/modal-save.js");
 
@@ -20347,9 +20723,9 @@ function showPresetsMenu(anchor, presets) {
     const reorder = __hubRequire("lib/ui/pointer-list-reorder.js").createPointerListReorder({
         container: menu, canStart: event => !event.target.closest("button") && !contextMenu,
         commit: rows => presets.reorder(rows.map(row => row.dataset.presetId)),
-        onError: error => new Notice(error.message || "Could not reorder presets.")
+        onError: error => ownNoticeColors(new Notice(error.message || "Could not reorder presets."))
     });
-    const run = action => Promise.resolve().then(action).catch(error => new Notice(error.message || "Could not update preset."));
+    const run = action => Promise.resolve().then(action).catch(error => ownNoticeColors(new Notice(error.message || "Could not update preset.")));
     function close() {
         if (closed) return;
         reorder.cancel();
@@ -20388,7 +20764,7 @@ function showPresetsMenu(anchor, presets) {
     }
     function namePrompt(title, value, save) {
         class NameModal extends Modal {
-            onOpen() {
+            onOpen() { ownModalColors(this);
                 this.contentEl.addClass("hub-button-scope");
                 createWindowTitle(this.contentEl, title, "panels-top-left");
                 const input = this.contentEl.createEl("input", { type: "text", cls: "hub-preset-name" });
@@ -20406,7 +20782,7 @@ function showPresetsMenu(anchor, presets) {
                         await save(input.value); render();
                         this.saving = false; restoreControls(); this.close();
                     } catch (error) {
-                        this.saving = false; restoreControls(); new Notice(error.message);
+                        this.saving = false; restoreControls(); ownNoticeColors(new Notice(error.message));
                     }
                 };
                 cancel.addEventListener("click", () => this.close());
@@ -20463,7 +20839,7 @@ function showPresetsMenu(anchor, presets) {
             reorder.cancel();
             contextMenu?.hide();
             let restoreFocus = event.type === "keydown" || (event.type === "click" && event.detail === 0);
-            const context = new Menu();
+            const context = ownMenuColors(new Menu());
             contextMenu = context;
             const keyboard = () => { restoreFocus = true; }, pointer = () => { restoreFocus = false; };
             doc.addEventListener("keydown", keyboard, true); doc.addEventListener("pointerdown", pointer, true);
@@ -20517,6 +20893,7 @@ function showPresetsMenu(anchor, presets) {
             items[next].focus();
         }
     });
+    inheritColorOwner(menu, anchor);
     doc.body.append(menu);
     function position() {
     if (closed) return;
@@ -20608,7 +20985,7 @@ function momentumRgba(
 
 
     return (
-        `rgba(${red}, ${green}, ${blue}, ${opacity})`
+        `rgba(var(--hub-progress-rgb, ${red}, ${green}, ${blue}), ${opacity})`
     );
 }
 
@@ -20821,7 +21198,11 @@ function createProgressHeatmap(calendar, component) {
         if (disposed || !graph?.isConnected || !measure || !availableWidth) return;
         const samples = [...measure.children];
         const calendarStyle = view.getComputedStyle(calendar);
-        const weekdayGap = parseFloat(calendarStyle.getPropertyValue("--hub-heatmap-label-gap")) || 4;
+        const labelGap = parseFloat(calendarStyle.getPropertyValue("--hub-heatmap-label-gap")) || 4;
+        // Month text has more leading than weekday text. Match its extra space
+        // below the glyphs without moving labels or changing the month row.
+        const extraLeading = Math.max(0, parseFloat(view.getComputedStyle(months).lineHeight) - parseFloat(view.getComputedStyle(weekdays).lineHeight)) / 2;
+        const weekdayGap = labelGap + extraLeading;
         const inset = parseFloat(calendarStyle.getPropertyValue("--hub-heatmap-inline-inset")) || 4;
         const scale = heatmapPixelScale(calendar);
         // offsetWidth rounds text to CSS pixels and can under-reserve this tight
@@ -20923,6 +21304,8 @@ module.exports = { heatmapGeometry, heatmapPixelScale, fillOutsideYearCells, cre
 },
 "lib/ui/project-deletion.js": function (module, exports, __hubRequire) {
 "use strict";
+const { ownModalColors } = __hubRequire("lib/ui/color-system.js");
+
 const { Modal, setIcon } = require("obsidian");
 
 class ProjectDeletionModal extends Modal {
@@ -20973,7 +21356,7 @@ class ProjectDeletionModal extends Modal {
         this.close();
     }
 
-    onOpen() {
+    onOpen() { ownModalColors(this);
         const content = this.contentEl;
         content.addClass("hub-button-scope", "hub-project-deletion");
         content.createEl("h2", { text: "Delete project?" });
@@ -21054,6 +21437,8 @@ module.exports = { ProjectDeletionModal };
 },
 "lib/ui/project-roadmap.js": function (module, exports, __hubRequire) {
 "use strict";
+const { ownMenuColors, ownNoticeColors } = __hubRequire("lib/ui/color-system.js");
+
 const { Notice, Menu, setIcon } = require("obsidian");
 const { localISODate, parseLocalISODate, formatDate } = __hubRequire("lib/domain/dates.js");
 const { roadmapViewport, roadmapZoom, panRoadmap, roadmapToday, phasePlacement } = __hubRequire("lib/domain/project-planning.js");
@@ -21101,7 +21486,7 @@ function mountProjectRoadmap({ plugin, component, dv, host, workspace, state }) 
         disclosureIcons(dropdown);
         function showRanges() {
             if (activeMenu) { closeMenu(); return; }
-            const menu = activeMenu = new Menu();
+            const menu = activeMenu = ownMenuColors(new Menu());
             for (const [value, label] of choices) menu.addItem(item => item.setTitle(label).setChecked(value === state.roadmapZoom)
                 .onClick(() => changeViewport(roadmapZoom(data, state, value))));
             menu.onHide(() => { if (activeMenu === menu) activeMenu = null; dropdown.setAttribute("aria-expanded", "false");
@@ -21124,7 +21509,7 @@ function mountProjectRoadmap({ plugin, component, dv, host, workspace, state }) 
                 const day = Math.min(range.total - 1, Math.max(0, Math.floor((event.clientX - bounds.left) / bounds.width * range.total)));
                 const inferred = new Date(range.start); inferred.setDate(inferred.getDate() + day); date = localISODate(inferred);
             }
-            const menu = activeMenu = new Menu();
+            const menu = activeMenu = ownMenuColors(new Menu());
             menu.addItem(item => item.setTitle("Add phase").onClick(() => edit("phases", null, { start: date })));
             menu.addItem(item => item.setTitle("Add milestone").onClick(() => edit("milestones", null, { date })));
             menu.onHide(() => { if (activeMenu === menu) activeMenu = null; });
@@ -21241,7 +21626,7 @@ function mountProjectRoadmap({ plugin, component, dv, host, workspace, state }) 
             }
             if (layout.more) {
                 moreButton = button(milestones.track, layout.overflow.length + " more milestones", () => {
-                    closeMenu(); const menu = activeMenu = new Menu();
+                    closeMenu(); const menu = activeMenu = ownMenuColors(new Menu());
                     for (const entry of layout.overflow) {
                         const item = data.milestones.find(item => item.id === entry.id);
                         menu.addItem(choice => choice.setTitle(item.name + " - " + dateLabel(item.date)).onClick(() => edit("milestones", item)));
@@ -21295,7 +21680,7 @@ function mountProjectRoadmap({ plugin, component, dv, host, workspace, state }) 
                 handle?.focus({ preventScroll: true });
                 const message = panel.querySelector(".hub-roadmap-status");
                 if (message) message.textContent = "Phase order saved.";
-            } catch (error) { new Notice(error.message); if (!disposed) render(); }
+            } catch (error) { ownNoticeColors(new Notice(error.message)); if (!disposed) render(); }
         } });
         const grid = timeline.createDiv({ cls: "hub-roadmap-grid", attr: { "aria-hidden": "true" } });
         for (const position of weeks) { const line = grid.createSpan(); line.style.left = position + "%"; }
@@ -21351,6 +21736,8 @@ module.exports = { mountProjectRoadmap };
 },
 "lib/ui/quick-add.js": function (module, exports, __hubRequire) {
 "use strict";
+const { ownModalColors, ownNoticeColors } = __hubRequire("lib/ui/color-system.js");
+
 const { Notice } = require("obsidian");
 const { CaptureModal, action, attachments } = __hubRequire("lib/ui/capture-modal.js");
 const { mountCaptureForm } = __hubRequire("lib/ui/capture-form.js");
@@ -21365,7 +21752,7 @@ class QuickAddModal extends CaptureModal {
         this.saved = false;
         this.pendingImports = 0; this.importQueue = Promise.resolve();
     }
-    onOpen() {
+    onOpen() { ownModalColors(this);
         this.modalEl.classList.add("hub-quick-add-dialog");
         this.header("Quick Add", "Write down a thought, or add a file", "zap");
         this.body = this.contentEl.createDiv({ cls: "hub-capture-body" });
@@ -21501,7 +21888,7 @@ class QuickAddModal extends CaptureModal {
             if (this.captureId) await this.service.updateCapture(this.captureId, value);
             else await this.service.capture(value);
             this.saved = true;
-            new Notice("Sent to Inbox."); this.finish();
+            ownNoticeColors(new Notice("Sent to Inbox.")); this.finish();
         });
     }
     addDirect() {
@@ -21517,7 +21904,7 @@ class QuickAddModal extends CaptureModal {
             const draft = this.form.value();
             const result = draft.type === "task" ? await this.service.makeTask(draft, this.captureId, this.nativeAttempt ??= {}) : draft.type === "note" ?
                 await this.service.createNote(draft, this.captureId) : await this.service.addFiles(draft, this.captureId);
-            this.saved = true; new Notice(result?.message ?? `Added ${draft.type}.`); this.finish();
+            this.saved = true; ownNoticeColors(new Notice(result?.message ?? `Added ${draft.type}.`)); this.finish();
         });
     }
     onProblem(error) {
@@ -21528,7 +21915,7 @@ class QuickAddModal extends CaptureModal {
     onClose() {
         this.service.scheduleNativeRefresh?.();
         if (!this.saved && this.draft.attachments.length) void this.service.releaseAttachments(this.draft.attachments)
-            .catch(error => new Notice(`Could not remove temporary attachment: ${error.message}`));
+            .catch(error => ownNoticeColors(new Notice(`Could not remove temporary attachment: ${error.message}`)));
         super.onClose();
     }
 }
@@ -21686,7 +22073,7 @@ function renderAppearance(parent) {
     for (const [name, color] of [["Purple", "#8B5CF6"], ["Blue", "#528DD7"], ["Green", "#549D7A"], ["Amber", "#BB914A"], ["Gray", "#90949C"]]) {
         const swatch = swatches.createEl("button", { cls: "hub-settings-swatch" + (name === "Purple" ? " is-selected" : ""),
             attr: { type: "button", disabled: "", "aria-label": name, "aria-pressed": String(name === "Purple") } });
-        swatch.style.backgroundColor = color;
+        swatch.style.backgroundColor = `var(--hub-color-preview-${name.toLowerCase()}, ${color})`;
     }
     swatches.createEl("button", { cls: "hub-settings-custom-color", text: "+", attr: { type: "button", disabled: "", "aria-label": "Custom color" } });
     const defaults = row(group, "Interface colors", "Use theme pack defaults");
@@ -21718,6 +22105,9 @@ module.exports = { SETTINGS_PAGES, renderSettingsPage, row, section };
 },
 "lib/ui/settings.js": function (module, exports, __hubRequire) {
 "use strict";
+const { hostColorIsland } = __hubRequire("lib/ui/color-system.js");
+const { ownModalColors } = __hubRequire("lib/ui/color-system.js");
+
 const { createWindowTitle, setWindowUndertext } = __hubRequire("lib/ui/window-title.js");
 const { Modal, setIcon } = require("obsidian");
 const { setHubTooltip } = __hubRequire("lib/ui/tooltips.js");
@@ -21726,7 +22116,7 @@ let instance = 0;
 
 class SettingsModal extends Modal {
     constructor(app, onClose, plugin, initialPage = "appearance") { super(app); this.closed = onClose; this.plugin = plugin; this.initialPage = initialPage; this.prefix = `hub-settings-${++instance}`; }
-    onOpen() {
+    onOpen() { ownModalColors(this);
         this.modalEl.classList.add("hub-settings-dialog");
         this.contentEl.classList.add("hub-settings-content", "hub-button-scope");
         const header = this.contentEl.createEl("header", { cls: "hub-settings-header" });
@@ -21763,9 +22153,9 @@ class SettingsModal extends Modal {
         });
         this.selected = id;
         this.panel.setAttribute("aria-labelledby", `${this.prefix}-${id}`);
-        this.disposePage?.(); this.panel.empty(); this.disposePage = renderSettingsPage(this.panel, page, this.plugin); this.panel.scrollTop = 0;
+        this.disposePage?.(); this.disposeIsland?.(); this.disposeIsland = id === "atlas" ? hostColorIsland(this.panel) : null; this.panel.empty(); this.disposePage = renderSettingsPage(this.panel, page, this.plugin); this.panel.scrollTop = 0;
     }
-    onClose() { this.disposePage?.(); this.contentEl.empty(); this.closed?.(); }
+    onClose() { this.disposeIsland?.(); this.disposePage?.(); this.contentEl.empty(); this.closed?.(); }
 }
 
 // The footer control and Atlas entry points share this one owner per plugin.
@@ -21811,7 +22201,7 @@ module.exports = { SettingsModal, mountSettingsControl, getSettingsOwner };
 },
 "lib/ui/statistics-charts.js": function (module, exports, __hubRequire) {
 "use strict";
-
+const { inheritColorOwner } = __hubRequire("lib/ui/color-system.js");
 const { formatDuration } = __hubRequire("lib/domain/statistics.js");
 const { formatDate } = __hubRequire("lib/domain/dates.js");
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -21901,6 +22291,7 @@ function renderBarChart(parent, { range, values, label, color = "accent", durati
     detail.className = "tooltip hub-detail-tooltip hub-statistics-point-tooltip hub-button-scope";
     detail.setAttribute("role", "tooltip");
     detail.hidden = true;
+    inheritColorOwner(detail, parent);
     doc.body.append(detail);
     const selectBars = (index, active) => bars.filter(item => item.index === index).forEach(({ bar }) => bar.classList.toggle("is-selected", active));
     const hide = () => { detail.hidden = true; selectBars(selected, false); };
@@ -21977,6 +22368,8 @@ module.exports = { renderBarChart, renderDonut, renderLegend, emptyChart, dateLa
 },
 "lib/ui/statistics.js": function (module, exports, __hubRequire) {
 "use strict";
+const { ownModalColors } = __hubRequire("lib/ui/color-system.js");
+
 const { createWindowTitle, layoutModal } = __hubRequire("lib/ui/window-title.js");
 
 const { Modal, setIcon } = require("obsidian");
@@ -22010,7 +22403,7 @@ class StatisticsModal extends Modal {
         this.range = "all"; this.workspace = "all";
         this.cache = new Map(); this.chartCleanups = [];
     }
-    onOpen() {
+    onOpen() { ownModalColors(this);
         this.isOpen = true; this.generation++; this.contentEl.empty(); ownModal(this);
         this.source = this.suppliedSource;
         this.contentEl.classList.add("hub-project-advancement-modal", "hub-statistics-modal", "hub-button-scope");
@@ -22709,6 +23102,8 @@ module.exports = { mountTaskDescription, mountTaskDates, mountTaskNecessity, mou
 },
 "lib/ui/task-editor.js": function (module, exports, __hubRequire) {
 "use strict";
+const { ownModalColors, ownNoticeColors } = __hubRequire("lib/ui/color-system.js");
+
 const { createModalHeader, layoutModal } = __hubRequire("lib/ui/window-title.js");
 const { taskFormValues } = __hubRequire("lib/domain/task-form.js");
 const { mountLiveTaskForm } = __hubRequire("lib/ui/task-live-form.js");
@@ -22727,7 +23122,7 @@ function openTaskEditor(service, task, onEdit = () => {}, creation = null) {
             // focus here so that pass cannot move Add's caret to the checkbox.
             this.hasInitialInputFocus = false;
         }
-        onOpen() {
+        onOpen() { ownModalColors(this);
             this.modalEl.classList.add("hub-task-dialog", "hub-task-compact-dialog");
             this.modalEl.classList.add("hub-task-live-dialog");
             this.modalEl.setAttribute("aria-label", creation ? "Add task" : "Edit task");
@@ -22849,7 +23244,7 @@ function openTaskEditor(service, task, onEdit = () => {}, creation = null) {
             modal.snapshot.nativeLocation = selected.reference?.id ?? ""; modal.snapshot.nativeLocationType = selected.reference?.type;
         }
         modal.open(); return modal; };
-    const failed = error => { if (modal.closed) return null; modal.close(); new Notice(error.message); return null; };
+    const failed = error => { if (modal.closed) return null; modal.close(); ownNoticeColors(new Notice(error.message)); return null; };
     if (creation) {
         modal.ready = (async () => {
             try {
@@ -23455,6 +23850,9 @@ module.exports = { mountLiveTaskForm, mountTaskDateEndpoint };
 },
 "lib/ui/task-location-picker.js": function (module, exports, __hubRequire) {
 "use strict";
+const { inheritColorOwner } = __hubRequire("lib/ui/color-system.js");
+const { ownModalColors } = __hubRequire("lib/ui/color-system.js");
+
 const { Modal } = require("obsidian");
 const { createModalHeader, layoutModal } = __hubRequire("lib/ui/window-title.js");
 const { setHubIcon } = __hubRequire("lib/ui/icons.js");
@@ -23470,7 +23868,7 @@ function focusRow(event, container) {
 }
 function openTaskLocationPicker(app, { locations, owner, reference = null, allowOwnerChange = false, taskTitle = "", onChoose, onClose = () => {} }) {
     class LocationModal extends Modal {
-        onOpen() {
+        onOpen() { ownModalColors(this);
             this.modalEl.classList.add("hub-task-location-dialog");
             this.modalEl.setAttribute("aria-label", "Task location");
             this.contentEl.classList.add("hub-button-scope");
@@ -23557,6 +23955,7 @@ function openTaskLocationPicker(app, { locations, owner, reference = null, allow
                 const viewport = win.visualViewport;
                 tooltip.style.maxWidth = Math.min(300, (viewport?.width ?? win.innerWidth) - 16) + "px";
                 tooltip.style.maxHeight = Math.min(280, (viewport?.height ?? win.innerHeight) - 16) + "px";
+                inheritColorOwner(tooltip, name);
                 this.modalEl.append(tooltip); tooltip.showPopover?.();
                 name.setAttribute("aria-describedby", tooltip.id);
                 const rect = name.getBoundingClientRect(), size = tooltip.getBoundingClientRect();
@@ -23770,6 +24169,7 @@ module.exports = { runNativeTaskToggle };
 },
 "lib/ui/task-popover.js": function (module, exports, __hubRequire) {
 "use strict";
+const { inheritColorOwner } = __hubRequire("lib/ui/color-system.js");
 const { setHubIcon } = __hubRequire("lib/ui/icons.js");
 let sequence = 0;
 const active = new WeakMap();
@@ -23782,6 +24182,7 @@ function openTaskPopover(anchor, { title, heading = true, autofocus = true, excl
     const parent = anchor.closest(".modal") ?? doc.body;
     const element = parent.createDiv({ cls: "hub-task-popover hub-button-scope hub-capture-form-scope " + className,
         attr: { role: "dialog", "aria-label": title, id: "hub-task-popover-" + ++sequence, popover: "manual" } });
+    inheritColorOwner(element, anchor);
     const header = element.createDiv({ cls: "hub-task-popover-heading" });
     if (heading) header.createEl("strong", { text: title });
     else element.classList.add("is-titleless");
@@ -23994,6 +24395,8 @@ module.exports = { renderTaskCalendar };
 },
 "lib/ui/task-view-primitives.js": function (module, exports, __hubRequire) {
 "use strict";
+const { ownNoticeColors } = __hubRequire("lib/ui/color-system.js");
+
 const { setIcon, Notice } = require("obsidian");
 const { createTaskRow } = __hubRequire("lib/ui/tasks.js");
 const { taskDateLabel } = __hubRequire("lib/domain/dates.js");
@@ -24032,7 +24435,7 @@ function source(host, task, context) {
     const el = button(host, label, async event => {
         event.stopPropagation();
         try { await context.openSource(task); }
-        catch (error) { new Notice(error.message || "Could not open task location."); }
+        catch (error) { ownNoticeColors(new Notice(error.message || "Could not open task location.")); }
     }, "hub-button-plain hub-full-location");
     el.title = __hubRequire("lib/domain/native-task-location.js").locationBreadcrumb(task, { type: "project", id: context.workspace.projectId })?.full ?? label; el.setAttribute("aria-label", "Open location: " + label);
     el.disabled = true; el.setAttribute("aria-label", "Location: " + el.title);
@@ -24050,7 +24453,7 @@ function bindTask(row, title, checkbox, task, context, options = {}) {
             let uncertain = false; context.pending.add(key);
             try { await __hubRequire("lib/ui/task-operation.js").runNativeTaskToggle({ checkbox, task, completed,
                 run: completed => context.toggle({ ...task, completed }), onEdit: context.apply,
-                report: error => { uncertain = error.outcome?.status === "uncertain"; new Notice(error.message || "Could not update task."); } }); }
+                report: error => { uncertain = error.outcome?.status === "uncertain"; ownNoticeColors(new Notice(error.message || "Could not update task.")); } }); }
             finally { if (!uncertain) context.pending.delete(key); context.render(); }
             return;
         }
@@ -24347,6 +24750,8 @@ module.exports = { mountTaskWorkspace };
 },
 "lib/ui/tasks.js": function (module, exports, __hubRequire) {
 "use strict";
+const { ownMenuColors, ownNoticeColors } = __hubRequire("lib/ui/color-system.js");
+
 const { bindCompletionSound, playTaskCompletionSound } = __hubRequire("lib/ui/completion-audio.js");
 const { createHubMarkdown } = __hubRequire("lib/ui/markdown.js");
 const { taskGroups, taskIsFuture, taskStartDate } = __hubRequire("lib/domain/task-planning.js");
@@ -24376,7 +24781,7 @@ function createTaskUi({ app, component, body, mutate, onEdit, editTask, createTa
     let lastRender = null, disposed = false, groupMenu = null;
     let renderNow = new Date(), refreshTimer = null, refreshAt = Infinity;
     const expanded = new Set();
-    const report = error => { console.error("Hub task action failed", error); new Notice(error.message || "Could not update task."); };
+    const report = error => { console.error("Hub task action failed", error); ownNoticeColors(new Notice(error.message || "Could not update task.")); };
     const stepStates = new Map(); component.register(() => stepStates.clear());
     const rows = __hubRequire("lib/ui/task-row-cache.js").createTaskRowCache(component, task => JSON.stringify([task, phaseLabel?.(task), Math.floor(renderNow.getTime() / 60000)]));
     const oathSection = createOathTaskSection(oath, body, component);
@@ -24461,7 +24866,7 @@ function createTaskUi({ app, component, body, mutate, onEdit, editTask, createTa
         row.addEventListener("contextmenu", event => {
             if (event.target.closest("textarea, input:not([type=checkbox])")) return;
             event.preventDefault(); event.stopPropagation();
-            const menu = new Menu();
+            const menu = ownMenuColors(new Menu());
             menu.addItem(item => item.setTitle("Edit").setIcon("pencil")
                 .onClick(() => editTask(task, onEdit)));
             menu.addItem(item => item.setTitle("Delete").setIcon("trash-2").setWarning(true)
@@ -24497,7 +24902,7 @@ function createTaskUi({ app, component, body, mutate, onEdit, editTask, createTa
                 event.preventDefault(); event.stopPropagation();
                 if (disposed) return;
                 groupMenu?.hide();
-                const menu = groupMenu = new Menu();
+                const menu = groupMenu = ownMenuColors(new Menu());
                 menu.addItem(item => item.setTitle("Clear completed tasks").setIcon("trash-2").setWarning(true)
                     .setDisabled(options.canClear?.() === false)
                     .onClick(async () => {
@@ -24573,7 +24978,7 @@ module.exports = { trackTextFieldFocus };
 },
 "lib/ui/tooltips.js": function (module, exports, __hubRequire) {
 "use strict";
-
+const { inheritColorOwner } = __hubRequire("lib/ui/color-system.js");
 function setHubTooltip(element, text, position = "bottom") {
     element.removeAttribute("title");
     if (!text) {
@@ -24683,6 +25088,7 @@ function createImmediateHubTooltip(root, { interactive = false, contentOnly = fa
         const description = tooltip.appendChild(doc.createElement('div'));
         description.className = 'hub-detail-tooltip-description';
         description.textContent = definition.description;
+        inheritColorOwner(tooltip, root);
         doc.body.append(tooltip);
         if (interactive) {
             // The same native tooltip surface enters the top layer only for
@@ -24809,7 +25215,8 @@ function bindHubFocusTooltip(root, component, selector) {
             tooltip.id = `hub-focus-tooltip-${++detailTooltipId}`;
             tooltip.textContent = element.dataset.hubFocusTooltip || element.getAttribute("aria-label");
             const arrow = tooltip.appendChild(doc.createElement("div")); arrow.className = "tooltip-arrow";
-            doc.body.append(tooltip); element.setAttribute("aria-describedby", tooltip.id);
+            inheritColorOwner(tooltip, root);
+        doc.body.append(tooltip); element.setAttribute("aria-describedby", tooltip.id);
             const bounds = element.getBoundingClientRect(), size = tooltip.getBoundingClientRect();
             const gap = Number(element.getAttribute("data-tooltip-gap") ?? 8);
             const center = Math.max(size.width / 2 + gap, Math.min(bounds.left + bounds.width / 2, win.innerWidth - size.width / 2 - gap));
@@ -24831,7 +25238,7 @@ module.exports = { setHubTooltip, watchHubTooltips, createImmediateHubTooltip, b
 
 },
 "lib/ui/window-title.js": function (module, exports, __hubRequire) {
-﻿"use strict";
+"use strict";
 const { setIcon } = require("obsidian");
 
 const headers = new WeakMap();
@@ -24847,7 +25254,7 @@ function createWindowTitle(parent, text, icon, options = {}) {
     parent.insertBefore(header, title);
     header.style.margin = margins.join(" ");
     const graphic = header.createEl("span", { cls: "hub-window-title-icon", attr: { "aria-hidden": "true", "data-icon": icon } });
-    graphic.style.color = color;
+    graphic.style.color = `var(--hub-color-window-title, ${color})`;
     setIcon(graphic, icon);
     const copy = header.createEl("div", { cls: "hub-window-header-copy" });
     copy.append(title);
@@ -24858,7 +25265,7 @@ function createWindowTitle(parent, text, icon, options = {}) {
             text: date.label, attr: { datetime: date.value } });
         // Reuse the native/theme heading typography already read for this title.
         dateEl.style.font = style.font;
-        dateEl.style.color = color;
+        dateEl.style.color = `var(--hub-color-window-title, ${color})`;
     }
     title.classList.add("hub-window-title");
     title.style.margin = "0";
@@ -25476,6 +25883,8 @@ module.exports = { workspaceImagePath, mountWorkspaceThumbnail };
 
 },
 "plugin.js": function (module, exports, __hubRequire) {
+const { ownColorRoot, refreshHostColorReferences, disposeColorSystem } = __hubRequire("lib/ui/color-system.js");
+const { ownMenuColors, ownModalColors, ownNoticeColors } = __hubRequire("lib/ui/color-system.js");
 const { createWindowTitle, setWindowUndertext, layoutModal } = __hubRequire("lib/ui/window-title.js");
 const { dispose: disposeCompletionAudio } = __hubRequire("lib/ui/completion-audio.js");
 const { mountMusicControl } = __hubRequire("lib/ui/music.js");
@@ -25993,7 +26402,7 @@ class ConfirmModal extends Modal {
     }
 
 
-    onOpen() {
+    onOpen() { ownModalColors(this);
 
         this.contentEl.addClass("hub-button-scope");
 
@@ -26555,7 +26964,7 @@ class ProjectAdvancementModal
     }
 
 
-    onOpen() {
+    onOpen() { ownModalColors(this);
         this.evidenceRows = new Map();
         this.evidenceComponents = new Map();
         this.renderEvidence = (parent, context, id) => {
@@ -27100,9 +27509,9 @@ class ProjectAdvancementModal
 
         } catch (error) {
 
-            new Notice(
+            ownNoticeColors(new Notice(
                 error.message
-            );
+            ));
 
             return;
         }
@@ -27149,9 +27558,9 @@ class ProjectAdvancementModal
             this.updateSaveButton();
 
 
-            new Notice(
+            ownNoticeColors(new Notice(
                 "Could not save progress report."
-            );
+            ));
         }
     }
 
@@ -27223,7 +27632,7 @@ class DailyFocusModal
     }
 
 
-    onOpen() {
+    onOpen() { ownModalColors(this);
 
         this.contentEl.addClass(
             "hub-daily-focus-modal", "hub-button-scope"
@@ -27388,10 +27797,10 @@ class DailyFocusModal
             restoreControls?.();
 
 
-            new Notice(
+            ownNoticeColors(new Notice(
                 error.message ||
                 "Could not save today's focus."
-            );
+            ));
         }
     }
 
@@ -27451,7 +27860,7 @@ class ProjectCategoryModal
     }
 
 
-    onOpen() {
+    onOpen() { ownModalColors(this);
 
         this.contentEl.addClass(
             "hub-project-wizard", "hub-button-scope"
@@ -27510,10 +27919,10 @@ class ProjectCategoryModal
 
                         console.error(error);
 
-                        new Notice(
+                        ownNoticeColors(new Notice(
                             error.message ||
                             "Could not change category."
-                        );
+                        ));
                     }
                 }
             );
@@ -27547,7 +27956,7 @@ class HubDataAuditModal extends Modal {
     }
 
 
-    onOpen() {
+    onOpen() { ownModalColors(this);
         this.render();
     }
 
@@ -27679,10 +28088,10 @@ class HubDataAuditModal extends Modal {
                             "Could not repair Hub data:",
                             error
                         );
-                        new Notice(
+                        ownNoticeColors(new Notice(
                             error.message ||
                             "Could not repair Hub data."
-                        );
+                        ));
                         repair.disabled = false;
                         close.disabled = false;
                     }
@@ -27707,7 +28116,7 @@ class ResourceFolderPickerModal extends Modal {
         this.onSave = onSave;
     }
 
-    onOpen() {
+    onOpen() { ownModalColors(this);
         this.contentEl.addClass("hub-resource-folder-picker", "hub-button-scope");
         createWindowTitle(this.contentEl, this.title, "library");
 
@@ -27751,7 +28160,7 @@ class ResourceFolderPickerModal extends Modal {
                 this.close();
             } catch (error) {
                 console.error(error);
-                new Notice(error.message || "Could not save Resource folders.");
+                ownNoticeColors(new Notice(error.message || "Could not save Resource folders."));
                 save.disabled = false;
             }
         });
@@ -27784,7 +28193,7 @@ class ProjectWizardModal extends Modal {
     }
 
 
-    onOpen() {
+    onOpen() { ownModalColors(this);
         this.showCategorySelection();
     }
 
@@ -27851,7 +28260,7 @@ class ProjectWizardModal extends Modal {
         category
     ) {
 
-        const menu = new Menu();
+        const menu = ownMenuColors(new Menu());
 
         menu.addItem(item => {
             item
@@ -27963,10 +28372,10 @@ class ProjectWizardModal extends Modal {
 
                         console.error(error);
 
-                        new Notice(
+                        ownNoticeColors(new Notice(
                             error.message ||
                             "Could not delete category."
-                        );
+                        ));
                     }
                 });
         });
@@ -28127,10 +28536,10 @@ class ProjectWizardModal extends Modal {
 
                 console.error(error);
 
-                new Notice(
+                ownNoticeColors(new Notice(
                     error.message ||
                     "Could not create project."
-                );
+                ));
             }
         };
 
@@ -28209,7 +28618,7 @@ class ProjectWizardModal extends Modal {
 
             } catch (error) {
 
-                new Notice(error.message);
+                ownNoticeColors(new Notice(error.message));
             }
         };
 
@@ -28300,10 +28709,10 @@ class ProjectWizardModal extends Modal {
 
                 console.error(error);
 
-                new Notice(
+                ownNoticeColors(new Notice(
                     error.message ||
                     "Could not rename category."
-                );
+                ));
             }
         };
 
@@ -28767,9 +29176,9 @@ class ProjectWizardModal extends Modal {
 
                 if (!choice) {
 
-                    new Notice(
+                    ownNoticeColors(new Notice(
                         "Choose a category image."
-                    );
+                    ));
 
                     return;
                 }
@@ -28914,9 +29323,9 @@ class ProjectWizardModal extends Modal {
 
                 if (!choice) {
 
-                    new Notice(
+                    ownNoticeColors(new Notice(
                         "Choose a category image."
-                    );
+                    ));
 
                     return;
                 }
@@ -28949,10 +29358,10 @@ class ProjectWizardModal extends Modal {
                     apply.disabled = false;
 
 
-                    new Notice(
+                    ownNoticeColors(new Notice(
                         error.message ||
                         "Could not change category image."
-                    );
+                    ));
                 }
             }
         );
@@ -29045,9 +29454,9 @@ class ProjectWizardModal extends Modal {
                     );
 
 
-                    new Notice(
+                    ownNoticeColors(new Notice(
                         "Could not change app shortcuts."
-                    );
+                    ));
                 }
             }
         );
@@ -29138,10 +29547,10 @@ class ProjectWizardModal extends Modal {
 
                 console.error(error);
 
-                new Notice(
+                ownNoticeColors(new Notice(
                     error.message ||
                     "Could not create project."
-                );
+                ));
             }
         };
 
@@ -30598,6 +31007,14 @@ class ProjectWizardService {
         projectId = null
     ) {
 
+        if (projectId?.kind === "all") {
+            return [...this.getProgressReports(), ...this.getProgressReports({ kind: "resource" })]
+                .sort((a, b) => b.date.localeCompare(a.date) ||
+                    (b.timestamp ?? 0) - (a.timestamp ?? 0) ||
+                    a.projectName.localeCompare(b.projectName, undefined, { sensitivity: "base" }) ||
+                    a.targetKind.localeCompare(b.targetKind) || a.projectId.localeCompare(b.projectId));
+        }
+
         const resourceQuery =
             projectId && typeof projectId === "object" && projectId.kind === "resource";
 
@@ -30799,18 +31216,18 @@ class ProjectWizardService {
         const byDate =
             new Map();
 
-        const contexts =
-            scope === "resources"
-                ? this.getResourceTypes().map(resource => ({
-                    projectId: `resource:${resource.resourceType}`,
-                    name: resource.label,
-                    ratings: this.getResourceWorkRatings(resource.resourceType)
-                }))
-                : this.getProjectRecords().map(project => ({
-                    projectId: project.projectId,
-                    name: project.name,
-                    ratings: this.getProjectWorkRatings(project.projectId)
-                }));
+        const contexts = [
+            ...(scope === "resources" ? [] : this.getProjectRecords().map(project => ({
+                projectId: project.projectId,
+                name: project.name,
+                ratings: this.getProjectWorkRatings(project.projectId)
+            }))),
+            ...(["resources", "all"].includes(scope) ? this.getResourceTypes().map(resource => ({
+                projectId: `resource:${resource.resourceType}`,
+                name: resource.label,
+                ratings: this.getResourceWorkRatings(resource.resourceType)
+            })) : [])
+        ];
 
         for (
             const context
@@ -32583,9 +33000,9 @@ class ProjectWizardService {
                 });
 
 
-            new Notice(
+            ownNoticeColors(new Notice(
                 `Created "${name}".`
-            );
+            ));
 
 
         } catch (error) {
@@ -33044,7 +33461,7 @@ class HubWorkspaceModeService {
     openWorkspace(source = null) {
         const context = this.lastWorkspace();
         if (!context) {
-            new Notice("No recently opened workspaces.");
+            ownNoticeColors(new Notice("No recently opened workspaces."));
             return Promise.resolve(false);
         }
         return this.openProjectFull(context, source);
@@ -35272,9 +35689,9 @@ class HubWorkspaceModeService {
 
 
                         if (!project) {
-                            new Notice(
+                            ownNoticeColors(new Notice(
                                 "No project has been opened yet."
-                            );
+                            ));
                             return false;
                         }
 
@@ -35296,7 +35713,7 @@ class HubWorkspaceModeService {
         const open = () => this.enqueue(async () => {
             const resource = this.lastResource();
             if (!resource) {
-                new Notice("No Resource has been opened yet.");
+                ownNoticeColors(new Notice("No Resource has been opened yet."));
                 return false;
             }
             return this.showProjectFull(resource, sourceLeaf);
@@ -35323,7 +35740,7 @@ class HubWorkspaceModeService {
 
                 const destination = this.resolveLastFile(dashboardRoot);
                 if (!destination) {
-                    new Notice("No recently opened files.");
+                    ownNoticeColors(new Notice("No recently opened files."));
                     return false;
                 }
                 const { file, context: project, layout } = destination;
@@ -36555,9 +36972,9 @@ module.exports = class HubProjectMenu extends Plugin {
             backups.length === 0
         ) {
 
-            new Notice(
+            ownNoticeColors(new Notice(
                 "No Hub backups found."
-            );
+            ));
 
             return;
         }
@@ -36602,10 +37019,10 @@ module.exports = class HubProjectMenu extends Plugin {
                     );
 
 
-                    new Notice(
+                    ownNoticeColors(new Notice(
                         error.message ||
                         "Could not restore Hub backup."
-                    );
+                    ));
                 }
             }
         ).open();
@@ -37153,10 +37570,10 @@ module.exports = class HubProjectMenu extends Plugin {
                 "Could not audit Hub data:",
                 error
             );
-            new Notice(
+            ownNoticeColors(new Notice(
                 error.message ||
                 "Could not audit Hub data."
-            );
+            ));
         }
     }
 
@@ -37207,10 +37624,10 @@ module.exports = class HubProjectMenu extends Plugin {
             notify ||
             signature !== this.hubConflictSignature
         ) {
-            new Notice(
+            ownNoticeColors(new Notice(
                 `${conflicts.length} conflicting Hub data file${conflicts.length === 1 ? " was" : "s were"} found. Run “Audit Hub data” to review them.`,
                 12000
-            );
+            ));
         }
 
         this.hubConflictSignature = signature;
@@ -37220,6 +37637,12 @@ module.exports = class HubProjectMenu extends Plugin {
 
     async onload() {
         this.taskStartupClock = performance.now();
+        this.register(disposeColorSystem);
+        this.registerEvent(this.app.workspace.on("css-change", () => {
+            const docs = new Set([document]);
+            this.app.workspace.iterateAllLeaves(leaf => { if (leaf.containerEl?.ownerDocument) docs.add(leaf.containerEl.ownerDocument); });
+            docs.forEach(refreshHostColorReferences);
+        }));
 
         this.register(installWindowMinimum(window));
 
@@ -37260,10 +37683,10 @@ module.exports = class HubProjectMenu extends Plugin {
 
 
         if (this.dataStore.loadWarning) {
-            new Notice(
+            ownNoticeColors(new Notice(
                 "The Hub loaded, but its state metadata could not be saved. Reload Obsidian before making Hub changes.",
                 12000
-            );
+            ));
         }
 
         await this.projectWizard
@@ -37310,9 +37733,9 @@ module.exports = class HubProjectMenu extends Plugin {
                                 .createHubBackup();
 
 
-                        new Notice(
+                        ownNoticeColors(new Notice(
                             `Hub backup created: ${path}`
-                        );
+                        ));
 
                     } catch (error) {
 
@@ -37322,10 +37745,10 @@ module.exports = class HubProjectMenu extends Plugin {
                         );
 
 
-                        new Notice(
+                        ownNoticeColors(new Notice(
                             error.message ||
                             "Could not create Hub backup."
-                        );
+                        ));
                     }
                 }
         });
@@ -37647,10 +38070,10 @@ module.exports = class HubProjectMenu extends Plugin {
                     );
 
 
-                    new Notice(
+                    ownNoticeColors(new Notice(
                         error.message ||
                         "Could not open shortcut."
-                    );
+                    ));
                 }
             };
 
@@ -37944,9 +38367,10 @@ module.exports = class HubProjectMenu extends Plugin {
         this.planning = new (__hubRequire("lib/services/project-planning.js").ProjectPlanningService)(this);
         window.hubMountFullViewLayout = (root, component) => __hubRequire("lib/ui/full-view-layout.js").mountFullViewLayout({ root, component, app: this.app });
         try { this.athena = __hubRequire("lib/athena/runtime.cjs").installAthena(this, {
+            ownColors: ownColorRoot,
             openSettings: () => __hubRequire("lib/ui/settings.js").getSettingsOwner(this).open("athena")
         }); }
-        catch (_) { new Notice("Athena could not initialize. Other Hub features remain available."); }
+        catch (_) { ownNoticeColors(new Notice("Athena could not initialize. Other Hub features remain available.")); }
         window.hubMountContextSearch = options => __hubRequire("lib/ui/context-search.js").mountContextSearch({ service: this.contextSearch, ...options });
         window.hubRegisterSearchWorkspace = (...args) => this.contextSearch.registerWorkspace(...args);
         window.hubApplySearchFolder = root => this.contextSearch.applyFolder(root);
@@ -37981,10 +38405,10 @@ module.exports = class HubProjectMenu extends Plugin {
             this.oathControl = mountOathControl(this, this.oath);
             this.captureControls = mountCaptureControls(this, this.inbox, this.oathControl.item);
             this.musicControl = mountMusicControl(this, this.oathControl.item);
+            this.dailyBriefControl = mountDailyBriefControl(this, this.dailyBrief, this.oathControl.item);
             this.settingsControl = mountSettingsControl(this, this.oathControl.item);
-            if (ITACAN_DEVELOPMENT) this.dailyBriefControl = mountDailyBriefControl(this, this.dailyBrief, this.oathControl.item);
             this.appShortcutsControl = __hubRequire("lib/ui/app-shortcuts.js").mountAppShortcuts(this, this.oathControl.item);
-            void this.oath.start().then(() => { if (ITACAN_DEVELOPMENT) this.dailyBrief.start(); }).catch(error => this.oath.error(error));
+            void this.oath.start().then(() => { this.dailyBrief.start(); }).catch(error => this.oath.error(error));
         });
         this.addCommand({ id: "quick-add", name: "Quick Add", hotkeys: [{ modifiers: ["Mod", "Shift"], key: " " }],
             callback: () => this.captureControls?.openQuickAdd() });
@@ -39332,7 +39756,7 @@ module.exports = class HubProjectMenu extends Plugin {
 
 
         const menu =
-            new Menu();
+            ownMenuColors(new Menu());
 
         menu.addItem(item => item.setTitle("Edit image placement").setIcon("move")
             .onClick(() => this.headerImageEditors.get(dashboard.querySelector(".project-cover"))?.begin()));
@@ -39589,10 +40013,10 @@ module.exports = class HubProjectMenu extends Plugin {
                     );
 
 
-                    new Notice(
+                    ownNoticeColors(new Notice(
                         error.message ||
                         "Could not change project image."
-                    );
+                    ));
                 }
             },
             {
@@ -39682,7 +40106,7 @@ module.exports = class HubProjectMenu extends Plugin {
 
     showProjectMenu(event, file, status, dashboard, card) {
 
-        const menu = new Menu();
+        const menu = ownMenuColors(new Menu());
 
         // Open
 
@@ -39883,7 +40307,7 @@ module.exports = class HubProjectMenu extends Plugin {
     ) {
 
         const menu =
-            new Menu();
+            ownMenuColors(new Menu());
 
 
         // ---------- CREATE ----------
@@ -39969,10 +40393,10 @@ module.exports = class HubProjectMenu extends Plugin {
                                             );
 
 
-                                            new Notice(
+                                            ownNoticeColors(new Notice(
                                                 error.message ||
                                                 "Could not move folder."
-                                            );
+                                            ));
                                         }
                                     }
                                 ).open();
@@ -40025,9 +40449,9 @@ module.exports = class HubProjectMenu extends Plugin {
                                     !quickAddApi
                                 ) {
 
-                                    new Notice(
+                                    ownNoticeColors(new Notice(
                                         "QuickAdd is not enabled."
-                                    );
+                                    ));
 
                                     return;
                                 }
@@ -40075,10 +40499,10 @@ module.exports = class HubProjectMenu extends Plugin {
                                     );
 
 
-                                    new Notice(
+                                    ownNoticeColors(new Notice(
                                         error.message ||
                                         "Could not rename folder."
-                                    );
+                                    ));
                                 }
                             }
                         );
@@ -40164,10 +40588,10 @@ module.exports = class HubProjectMenu extends Plugin {
                                     );
 
 
-                                    new Notice(
+                                    ownNoticeColors(new Notice(
                                         error.message ||
                                         "Could not delete folder."
-                                    );
+                                    ));
                                 }
                             }
                         );
@@ -40186,7 +40610,7 @@ module.exports = class HubProjectMenu extends Plugin {
                             await actions.detach();
                         } catch (error) {
                             console.error("Could not detach Resource folder:", error);
-                            new Notice(error.message || "Could not detach Resource folder.");
+                            ownNoticeColors(new Notice(error.message || "Could not detach Resource folder."));
                         }
                     });
             });
@@ -40204,7 +40628,7 @@ module.exports = class HubProjectMenu extends Plugin {
     ) {
 
         const menu =
-            new Menu();
+            ownMenuColors(new Menu());
 
 
         const count =
@@ -40256,10 +40680,10 @@ module.exports = class HubProjectMenu extends Plugin {
                                             );
 
 
-                                            new Notice(
+                                            ownNoticeColors(new Notice(
                                                 error.message ||
                                                 "Could not move selected items."
-                                            );
+                                            ));
                                         }
                                     }
                                 ).open();
@@ -40362,10 +40786,10 @@ module.exports = class HubProjectMenu extends Plugin {
                                 );
 
 
-                                new Notice(
+                                ownNoticeColors(new Notice(
                                     error.message ||
                                     "Could not delete selected items."
-                                );
+                                ));
                             }
                         }
                     );
@@ -40499,9 +40923,9 @@ module.exports = class HubProjectMenu extends Plugin {
 
         if (!parseLocalISODate(date)) {
 
-            new Notice(
+            ownNoticeColors(new Notice(
                 "Choose a valid focus date."
-            );
+            ));
 
             return;
         }
@@ -40563,9 +40987,9 @@ module.exports = class HubProjectMenu extends Plugin {
             date > localISODate()
         ) {
 
-            new Notice(
+            ownNoticeColors(new Notice(
                 "Choose today or an earlier date."
-            );
+            ));
 
             return;
         }
@@ -40707,11 +41131,11 @@ module.exports = class HubProjectMenu extends Plugin {
             resources.length === 0
         ) {
 
-            new Notice(
+            ownNoticeColors(new Notice(
                 requestedKind === "resource"
                     ? "No Resource is available for this progress entry."
                     : "No project is available for this progress entry."
-            );
+            ));
 
             return;
         }
@@ -40896,9 +41320,9 @@ module.exports = class HubProjectMenu extends Plugin {
                         );
 
 
-                        new Notice(
+                        ownNoticeColors(new Notice(
                             `Updated progress for ${dateLabel}.`
-                        );
+                        ));
                     }
             }
         ).open();
@@ -41283,9 +41707,9 @@ module.exports = class HubProjectMenu extends Plugin {
             );
 
 
-        new Notice(
+        ownNoticeColors(new Notice(
             "Obsidian URL copied."
-        );
+        ));
     }
 
     showProjectFileMenu(
@@ -41324,7 +41748,7 @@ module.exports = class HubProjectMenu extends Plugin {
 
 
         const menu =
-            new Menu();
+            ownMenuColors(new Menu());
 
 
         // ---------- OPEN ----------
@@ -41460,10 +41884,10 @@ module.exports = class HubProjectMenu extends Plugin {
                                 );
 
 
-                                new Notice(
+                                ownNoticeColors(new Notice(
                                     error.message ||
                                     "Could not make a copy."
-                                );
+                                ));
                             }
                         }
                     );
@@ -41508,10 +41932,10 @@ module.exports = class HubProjectMenu extends Plugin {
                                             );
 
 
-                                            new Notice(
+                                            ownNoticeColors(new Notice(
                                                 error.message ||
                                                 "Could not move file."
-                                            );
+                                            ));
                                         }
                                     }
                                 ).open();
@@ -41612,9 +42036,9 @@ module.exports = class HubProjectMenu extends Plugin {
 
         if (!quickAddApi) {
 
-            new Notice(
+            ownNoticeColors(new Notice(
                 "QuickAdd is not enabled."
-            );
+            ));
 
             return;
         }
@@ -41646,9 +42070,9 @@ module.exports = class HubProjectMenu extends Plugin {
                 )
             ) {
 
-                new Notice(
+                ownNoticeColors(new Notice(
                     "Enter a valid file name."
-                );
+                ));
 
                 return;
             }
@@ -41683,9 +42107,9 @@ module.exports = class HubProjectMenu extends Plugin {
 
             if (existing) {
 
-                new Notice(
+                ownNoticeColors(new Notice(
                     "A file with that name already exists."
-                );
+                ));
 
                 return;
             }
@@ -41750,9 +42174,9 @@ module.exports = class HubProjectMenu extends Plugin {
             );
 
 
-            new Notice(
+            ownNoticeColors(new Notice(
                 "Could not delete file."
-            );
+            ));
         }
     }
 
@@ -41814,7 +42238,7 @@ module.exports = class HubProjectMenu extends Plugin {
         if (this.oath?.canOpen(context) === false) return false;
         if (context.contextKind === "resource" || context.status === "active") return true;
         if (context.status !== "shelved") {
-            new Notice("Activate this project before opening it.");
+            ownNoticeColors(new Notice("Activate this project before opening it."));
             return false;
         }
         const accepted = await new ConfirmModal(this.app,
@@ -41876,9 +42300,9 @@ module.exports = class HubProjectMenu extends Plugin {
                 );
             }
 
-            new Notice(
+            ownNoticeColors(new Notice(
                 "Could not change project status."
-            );
+            ));
             return false;
         }
     }
@@ -41890,7 +42314,7 @@ module.exports = class HubProjectMenu extends Plugin {
             this.app.plugins.plugins.quickadd?.api;
 
         if (!quickAddApi) {
-            new Notice("QuickAdd is not enabled.");
+            ownNoticeColors(new Notice("QuickAdd is not enabled."));
             return;
         }
 
@@ -42100,9 +42524,9 @@ module.exports = class HubProjectMenu extends Plugin {
                 }
             }
 
-            new Notice(
+            ownNoticeColors(new Notice(
                 "Could not rename project."
-            );
+            ));
         }
     }
 
@@ -42191,9 +42615,9 @@ module.exports = class HubProjectMenu extends Plugin {
                 );
             }
 
-            new Notice(
+            ownNoticeColors(new Notice(
                 "Could not delete project."
-            );
+            ));
         } finally {
 
             if (ignoredRoot) {

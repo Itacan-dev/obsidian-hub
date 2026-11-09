@@ -1,4 +1,7 @@
 "use strict";
+const { hostColorIsland } = require("./color-system");
+const { ownModalColors } = require("./color-system");
+
 const { createWindowTitle, setWindowUndertext } = require("./window-title");
 const { Modal, setIcon } = require("obsidian");
 const { setHubTooltip } = require("./tooltips");
@@ -7,7 +10,7 @@ let instance = 0;
 
 class SettingsModal extends Modal {
     constructor(app, onClose, plugin, initialPage = "appearance") { super(app); this.closed = onClose; this.plugin = plugin; this.initialPage = initialPage; this.prefix = `hub-settings-${++instance}`; }
-    onOpen() {
+    onOpen() { ownModalColors(this);
         this.modalEl.classList.add("hub-settings-dialog");
         this.contentEl.classList.add("hub-settings-content", "hub-button-scope");
         const header = this.contentEl.createEl("header", { cls: "hub-settings-header" });
@@ -44,9 +47,9 @@ class SettingsModal extends Modal {
         });
         this.selected = id;
         this.panel.setAttribute("aria-labelledby", `${this.prefix}-${id}`);
-        this.disposePage?.(); this.panel.empty(); this.disposePage = renderSettingsPage(this.panel, page, this.plugin); this.panel.scrollTop = 0;
+        this.disposePage?.(); this.disposeIsland?.(); this.disposeIsland = id === "atlas" ? hostColorIsland(this.panel) : null; this.panel.empty(); this.disposePage = renderSettingsPage(this.panel, page, this.plugin); this.panel.scrollTop = 0;
     }
-    onClose() { this.disposePage?.(); this.contentEl.empty(); this.closed?.(); }
+    onClose() { this.disposeIsland?.(); this.disposePage?.(); this.contentEl.empty(); this.closed?.(); }
 }
 
 // The footer control and Atlas entry points share this one owner per plugin.

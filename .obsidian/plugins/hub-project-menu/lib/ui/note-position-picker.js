@@ -1,4 +1,6 @@
 "use strict";
+const { ownMenuColors, ownModalColors } = require("./color-system");
+
 const { Modal, Menu } = require("obsidian");
 const { preparePicker, listen } = require("./capture-pickers");
 const { mountCaptureLocationTree } = require("./capture-tree");
@@ -8,7 +10,7 @@ const { noteLocation, resolveNoteLocation } = require("../domain/note-insertion"
 
 function openNotePositionPicker(service, { workspace, selectedLocation, onSelect, restoreFocus }) {
     class NotePositionPicker extends Modal {
-        onOpen() {
+        onOpen() { ownModalColors(this);
             preparePicker(this, "Choose note and position", ["hub-capture-location-picker", "hub-note-position-picker"]);
             this.contentEl.createEl("p", { cls: "hub-oath-muted", text: workspace.name });
             const searchBox = this.contentEl.createDiv({ cls: "hub-explorer-search" });
@@ -117,7 +119,7 @@ function openNotePositionPicker(service, { workspace, selectedLocation, onSelect
         }
         showPositionMenu(button, kind, options, onSelect) {
             if (this.positionMenu) { this.positionMenu.hide(); return; }
-            const menu = this.positionMenu = new Menu();
+            const menu = this.positionMenu = ownMenuColors(new Menu());
             options.forEach(option => menu.addItem(item => item.setTitle(option.label).setDisabled(!!option.disabled).setChecked(
                 kind === "target" ? option.anchor === this.selection?.anchor : kind === "position" ? option.position === this.selection?.position :
                     option.type === this.selection?.targetType && (option.type !== "note" || option.position === this.selection.position)

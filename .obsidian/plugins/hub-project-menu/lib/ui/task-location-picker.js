@@ -1,4 +1,7 @@
 "use strict";
+const { inheritColorOwner } = require("./color-system");
+const { ownModalColors } = require("./color-system");
+
 const { Modal } = require("obsidian");
 const { createModalHeader, layoutModal } = require("./window-title");
 const { setHubIcon } = require("./icons");
@@ -14,7 +17,7 @@ function focusRow(event, container) {
 }
 function openTaskLocationPicker(app, { locations, owner, reference = null, allowOwnerChange = false, taskTitle = "", onChoose, onClose = () => {} }) {
     class LocationModal extends Modal {
-        onOpen() {
+        onOpen() { ownModalColors(this);
             this.modalEl.classList.add("hub-task-location-dialog");
             this.modalEl.setAttribute("aria-label", "Task location");
             this.contentEl.classList.add("hub-button-scope");
@@ -101,6 +104,7 @@ function openTaskLocationPicker(app, { locations, owner, reference = null, allow
                 const viewport = win.visualViewport;
                 tooltip.style.maxWidth = Math.min(300, (viewport?.width ?? win.innerWidth) - 16) + "px";
                 tooltip.style.maxHeight = Math.min(280, (viewport?.height ?? win.innerHeight) - 16) + "px";
+                inheritColorOwner(tooltip, name);
                 this.modalEl.append(tooltip); tooltip.showPopover?.();
                 name.setAttribute("aria-describedby", tooltip.id);
                 const rect = name.getBoundingClientRect(), size = tooltip.getBoundingClientRect();

@@ -14,7 +14,7 @@ if (
         "No project activity yet today.",
         {
             cls:
-                "daily-project-empty"
+                "daily-project-empty hub-color-scope"
         }
     );
 
@@ -25,7 +25,7 @@ if (
 const list =
     dv.container.createDiv({
         cls:
-            "daily-project-list"
+            "daily-project-list hub-color-scope"
     });
 
 

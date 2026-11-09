@@ -1,4 +1,6 @@
 "use strict";
+const { ownMenuColors } = require("./color-system");
+
 const { ToggleComponent, Menu } = require("obsidian");
 const { MUSIC_PROVIDERS, musicProvider } = require("../domain/music");
 const { row, section } = require("./settings-pages");
@@ -138,7 +140,7 @@ function mountMusicSettings(parent, service) {
                 if (itemMenu && itemMenuButton === menuButton) { itemMenu.hide(); return; }
                 itemMenu?.hide(); itemMenuButton = menuButton;
                 let keyboard = hasKeyboardFocus(menuButton, event);
-                const menu = itemMenu = new Menu(), doc = host.ownerDocument;
+                const menu = itemMenu = ownMenuColors(new Menu()), doc = host.ownerDocument;
                 const onKey = () => { keyboard = true; }, onPointer = () => { keyboard = false; };
                 doc.addEventListener("keydown", onKey, true); doc.addEventListener("pointerdown", onPointer, true);
                 menu.onHide(() => {

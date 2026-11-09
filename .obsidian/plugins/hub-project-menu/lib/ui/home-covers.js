@@ -1,4 +1,6 @@
 "use strict";
+const { ownMenuColors, ownModalColors, ownNoticeColors } = require("./color-system");
+
 const { createWindowTitle, setWindowUndertext, layoutModal } = require("./window-title");
 const { HOME_COVER_PERIODS } = require("../services/home-covers");
 const { mountHeaderImage } = require("./header-image");
@@ -6,7 +8,7 @@ const { mountHeaderImage } = require("./header-image");
 function openHomeCoverEditor(service, sourceCover) {
     const { Modal, Component, Menu, Notice, setIcon } = require("obsidian");
     class HomeCoverModal extends Modal {
-        onOpen() {
+        onOpen() { ownModalColors(this);
             this.owner = new Component(); this.owner.load(); this.closed = false;
             this.modalEl.classList.add("hub-home-covers-dialog");
             this.contentEl.classList.add("hub-button-scope", "hub-home-covers-editor");
@@ -34,7 +36,7 @@ function openHomeCoverEditor(service, sourceCover) {
                 this.previews.push(preview);
                 const showMenu = (event, anchor = frame) => {
                     event.preventDefault(); event.stopPropagation();
-                    const menu = new Menu();
+                    const menu = ownMenuColors(new Menu());
                     menu.addItem(item => item.setTitle("Change image…").setIcon("image")
                         .setDisabled(!!preview.editor?.editing).onClick(() => this.chooseImage(preview)));
                     menu.addItem(item => item.setTitle("Edit image placement…").setIcon("move")
@@ -103,7 +105,7 @@ function openHomeCoverEditor(service, sourceCover) {
                     preview.editor?.dispose(); preview.editor = null;
                     preview.surface.empty(); preview.unavailable?.remove();
                     preview.unavailable = preview.frame.createDiv({ cls: "hub-home-cover-unavailable hub-capture-muted", text: "Image unavailable. Use Change image to choose a replacement.", attr: { role: "status" } });
-                    new Notice(error.message || "Could not load cover preview.");
+                    ownNoticeColors(new Notice(error.message || "Could not load cover preview."));
                 }
             }
         }
@@ -120,7 +122,7 @@ function openHomeCoverEditor(service, sourceCover) {
                     if (this.closed) return;
                     await service.changeImage(preview.name, source);
                     if (!this.closed) await this.renderPreview(preview);
-                } catch (error) { if (!this.closed) new Notice(error.message || "Could not change cover image."); }
+                } catch (error) { if (!this.closed) ownNoticeColors(new Notice(error.message || "Could not change cover image.")); }
                 finally { URL.revokeObjectURL(url); }
             }, { once: true });
             input.click();

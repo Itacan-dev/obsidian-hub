@@ -1,4 +1,7 @@
 "use strict";
+const { ownColorRoot } = require("./color-system");
+const { ownMenuColors, ownModalColors } = require("./color-system");
+
 const { hasKeyboardFocus, focusControl } = require("./focus-restoration");
 const { createWindowTitle, setWindowUndertext, layoutModal } = require("./window-title");
 const { createTaskUi, createTaskRow, renderReadOnlyTask } = require("./tasks");
@@ -82,7 +85,7 @@ function selectionRow(ui, body, task) {
 function openOathWorkspacePicker(service, type, selected, onSelect, restoreFocus) {
     const { Modal, Component } = require("obsidian");
     class Picker extends Modal {
-        onOpen() {
+        onOpen() { ownModalColors(this);
             this.modalEl.classList.add("hub-oath-dialog", "hub-oath-workspace-picker");
             this.contentEl.classList.add("hub-button-scope");
             this.contentEl.createEl("h2", { text: type === "project" ? "Select project" : "Select resource" });
@@ -130,7 +133,7 @@ function openOathWorkspacePicker(service, type, selected, onSelect, restoreFocus
 function openOathPicker(service, workspace, selected, onSelect, candidateRead = null) {
     const { Modal, Component } = require("obsidian");
     class Picker extends Modal {
-        onOpen() {
+        onOpen() { ownModalColors(this);
             this.modalEl.classList.add("hub-oath-dialog", "hub-oath-picker");
             this.contentEl.classList.add("hub-button-scope");
             this.contentEl.createEl("h2", { text: "Add tasks" });
@@ -197,7 +200,7 @@ function openOathPicker(service, workspace, selected, onSelect, candidateRead = 
 function openOathSetup(service) {
     const { Modal, Component, Menu } = require("obsidian");
     class Setup extends Modal {
-        onOpen() {
+        onOpen() { ownModalColors(this);
             this.modalEl.classList.add("hub-oath-dialog");
             this.contentEl.classList.add("hub-button-scope");
             this.draft = { start: "now", scheduledAt: null, durationMs: null, workspace: null, tasks: [] };
@@ -523,7 +526,7 @@ function openOathSetup(service) {
                 const showUnits = () => {
                     if (this.unitMenu) { this.unitMenu.hide(); return; }
                     this.dateDisclosure.close();
-                    const menu = this.unitMenu = new Menu();
+                    const menu = this.unitMenu = ownMenuColors(new Menu());
                     for (const value of ["minutes", "hours"]) menu.addItem(item => item.setTitle(value)
                         .setChecked(this.customValue.unit === value).onClick(() => {
                             this.customValue.unit = value; update();
@@ -726,7 +729,7 @@ function openOathSetup(service) {
 function openOathStatus(service) {
     const { Modal, Component } = require("obsidian");
     class Status extends Modal {
-        onOpen() {
+        onOpen() { ownModalColors(this);
             this.modalEl.classList.add("hub-oath-dialog", "hub-oath-status"); this.contentEl.classList.add("hub-button-scope");
             this.id = service.current.id; this.render();
             this.dispose = service.onChange(() => {
@@ -813,7 +816,7 @@ async function requestOathExit(service) {
         if (decision !== "confirmation-required") return;
         const { Modal } = require("obsidian");
         class BreakWarning extends Modal {
-            onOpen() {
+            onOpen() { ownModalColors(this);
                 this.modalEl.classList.add("hub-oath-dialog", "hub-oath-status");
                 this.contentEl.classList.add("hub-button-scope");
                 this.contentEl.createEl("h2", { text: "Break your Oath?" });
@@ -842,7 +845,7 @@ function mountOathControl(plugin, service) {
     const { setIcon } = require("obsidian");
     // Reuse Obsidian's status bar, turning it into a reserved full-width footer.
     // It is outside individual leaves and survives Home/Workspace/note changes.
-    const item = plugin.addStatusBarItem(); item.classList.add("hub-oath-control", "hub-button-scope");
+    const item = plugin.addStatusBarItem(); item.classList.add("hub-oath-control", "hub-button-scope"); plugin.register(ownColorRoot(item));
     let bar = item.parentElement, fallback = false;
     if (!bar) { fallback = true; bar = document.createElement("div"); document.querySelector(".app-container").appendChild(bar); bar.appendChild(item); }
     bar.classList.add("hub-oath-statusbar");

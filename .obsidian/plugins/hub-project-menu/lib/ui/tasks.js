@@ -1,4 +1,6 @@
 "use strict";
+const { ownMenuColors, ownNoticeColors } = require("./color-system");
+
 const { bindCompletionSound, playTaskCompletionSound } = require("./completion-audio");
 const { createHubMarkdown } = require("./markdown");
 const { taskGroups, taskIsFuture, taskStartDate } = require("../domain/task-planning");
@@ -28,7 +30,7 @@ function createTaskUi({ app, component, body, mutate, onEdit, editTask, createTa
     let lastRender = null, disposed = false, groupMenu = null;
     let renderNow = new Date(), refreshTimer = null, refreshAt = Infinity;
     const expanded = new Set();
-    const report = error => { console.error("Hub task action failed", error); new Notice(error.message || "Could not update task."); };
+    const report = error => { console.error("Hub task action failed", error); ownNoticeColors(new Notice(error.message || "Could not update task.")); };
     const stepStates = new Map(); component.register(() => stepStates.clear());
     const rows = require("./task-row-cache").createTaskRowCache(component, task => JSON.stringify([task, phaseLabel?.(task), Math.floor(renderNow.getTime() / 60000)]));
     const oathSection = createOathTaskSection(oath, body, component);
@@ -113,7 +115,7 @@ function createTaskUi({ app, component, body, mutate, onEdit, editTask, createTa
         row.addEventListener("contextmenu", event => {
             if (event.target.closest("textarea, input:not([type=checkbox])")) return;
             event.preventDefault(); event.stopPropagation();
-            const menu = new Menu();
+            const menu = ownMenuColors(new Menu());
             menu.addItem(item => item.setTitle("Edit").setIcon("pencil")
                 .onClick(() => editTask(task, onEdit)));
             menu.addItem(item => item.setTitle("Delete").setIcon("trash-2").setWarning(true)
@@ -149,7 +151,7 @@ function createTaskUi({ app, component, body, mutate, onEdit, editTask, createTa
                 event.preventDefault(); event.stopPropagation();
                 if (disposed) return;
                 groupMenu?.hide();
-                const menu = groupMenu = new Menu();
+                const menu = groupMenu = ownMenuColors(new Menu());
                 menu.addItem(item => item.setTitle("Clear completed tasks").setIcon("trash-2").setWarning(true)
                     .setDisabled(options.canClear?.() === false)
                     .onClick(async () => {

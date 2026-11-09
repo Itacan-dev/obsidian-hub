@@ -13,7 +13,7 @@
     "lib/athena/src/host/path-guard.ts": "ce351e402009596386de2050e58fdb906eb0bf62353d47a1f601433936243737",
     "lib/athena/src/host/pdf-reader.ts": "e47ffb5b1c416b482aef8cf1c8a6e709adab517ab9c0552d836aaf7748f76b38",
     "lib/athena/src/host/source-opener.ts": "1b82f6ada16093278f617def1d853586f90e5f427812789f7ba44196de91159e",
-    "lib/athena/src/integration.ts": "2e4a0468ab2c156e1736fc5954b4c1facecc1d3125a7c0dd1f6194a72c6f0107",
+    "lib/athena/src/integration.ts": "d9cce3f99670118bc22e2b6b69d701291977237b181f76dec81a27b64556f400",
     "lib/athena/src/knowledge/chunking.ts": "868d116dceef81cc96b97863585bf734e39091ea29e4ce3af7f483bcf8d007c0",
     "lib/athena/src/knowledge/context.ts": "a6898600fe23898150ee80d9d3d480555cfadfeddb1536d1f89a8569095bcaf0",
     "lib/athena/src/knowledge/documents.ts": "8897d0858bd69eafc55bd8f5f16c4e69157dff8f980fba008fcc712c7a26d3e0",
@@ -30,7 +30,7 @@
     "lib/athena/src/ui/sources.ts": "12cddf0ef7508c1cfe90d0b3f409c73daab83afb63f0804cacfd69412a63a464"
   },
   "artifacts": {
-    "lib/athena/runtime.cjs": "082a67e33a05716bbdb187d14f8c3a0de10219da56182225c8260e6e3a74da82",
+    "lib/athena/runtime.cjs": "9d97e3a77e4da70405df6b9de62b04b0e95f799714537bc79d41dbfa2d025fbc",
     "lib/athena/assets/pdf-worker.js": "a0f2b6306c3c6c892cf8fd073981ba5d34a36c37ed965dc422107d2ee01821d4",
     "lib/athena/licenses/minisearch.txt": "70d37354d6395629fb99edb28cb37a5d356ffa24a48cd02a5def5b83a300a899",
     "lib/athena/licenses/pdfjs.txt": "0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594",

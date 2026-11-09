@@ -1,4 +1,6 @@
 "use strict";
+const { ownModalColors } = require("./color-system");
+
 const { createWindowTitle, layoutModal } = require("./window-title");
 
 const { Modal, setIcon } = require("obsidian");
@@ -32,7 +34,7 @@ class StatisticsModal extends Modal {
         this.range = "all"; this.workspace = "all";
         this.cache = new Map(); this.chartCleanups = [];
     }
-    onOpen() {
+    onOpen() { ownModalColors(this);
         this.isOpen = true; this.generation++; this.contentEl.empty(); ownModal(this);
         this.source = this.suppliedSource;
         this.contentEl.classList.add("hub-project-advancement-modal", "hub-statistics-modal", "hub-button-scope");

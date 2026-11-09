@@ -29,7 +29,7 @@ try{
  const parser={exports:{}};new Function('module',await(await fetch('markdown-fixture.js')).text())(parser);
  native.MarkdownRenderer.render=async(app,text,element)=>parser.exports.renderFixtureMarkdown(app,text,element);
  const briefModule={exports:{}};new Function('module','require',await(await fetch('../ui/daily-brief.js')).text())(briefModule,name=>({
-  './window-title':windowTitle,'obsidian':native,'../domain/dates':dates,'./markdown':markdown,'./daily-report':ui
+  './color-system':globalThis.__hubFixtureColors,'./window-title':windowTitle,'obsidian':native,'../domain/dates':dates,'./markdown':markdown,'./daily-report':ui
  }[name]));
  const open=Modal.prototype.open;
  Modal.prototype.open=function(){this.contentEl.classList.add('modal-content');this.modalEl.createEl('button',{cls:'modal-close-button',text:'Close',attr:{'aria-label':'Close window'}}).onclick=()=>this.close();return open.call(this)};

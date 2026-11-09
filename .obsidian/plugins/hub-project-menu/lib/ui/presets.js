@@ -1,4 +1,7 @@
 "use strict";
+const { inheritColorOwner } = require("./color-system");
+const { ownMenuColors, ownModalColors, ownNoticeColors } = require("./color-system");
+
 const { createWindowTitle } = require("./window-title");
 const { lockModalControls } = require("./modal-save");
 
@@ -15,9 +18,9 @@ function showPresetsMenu(anchor, presets) {
     const reorder = require("./pointer-list-reorder").createPointerListReorder({
         container: menu, canStart: event => !event.target.closest("button") && !contextMenu,
         commit: rows => presets.reorder(rows.map(row => row.dataset.presetId)),
-        onError: error => new Notice(error.message || "Could not reorder presets.")
+        onError: error => ownNoticeColors(new Notice(error.message || "Could not reorder presets."))
     });
-    const run = action => Promise.resolve().then(action).catch(error => new Notice(error.message || "Could not update preset."));
+    const run = action => Promise.resolve().then(action).catch(error => ownNoticeColors(new Notice(error.message || "Could not update preset.")));
     function close() {
         if (closed) return;
         reorder.cancel();
@@ -56,7 +59,7 @@ function showPresetsMenu(anchor, presets) {
     }
     function namePrompt(title, value, save) {
         class NameModal extends Modal {
-            onOpen() {
+            onOpen() { ownModalColors(this);
                 this.contentEl.addClass("hub-button-scope");
                 createWindowTitle(this.contentEl, title, "panels-top-left");
                 const input = this.contentEl.createEl("input", { type: "text", cls: "hub-preset-name" });
@@ -74,7 +77,7 @@ function showPresetsMenu(anchor, presets) {
                         await save(input.value); render();
                         this.saving = false; restoreControls(); this.close();
                     } catch (error) {
-                        this.saving = false; restoreControls(); new Notice(error.message);
+                        this.saving = false; restoreControls(); ownNoticeColors(new Notice(error.message));
                     }
                 };
                 cancel.addEventListener("click", () => this.close());
@@ -131,7 +134,7 @@ function showPresetsMenu(anchor, presets) {
             reorder.cancel();
             contextMenu?.hide();
             let restoreFocus = event.type === "keydown" || (event.type === "click" && event.detail === 0);
-            const context = new Menu();
+            const context = ownMenuColors(new Menu());
             contextMenu = context;
             const keyboard = () => { restoreFocus = true; }, pointer = () => { restoreFocus = false; };
             doc.addEventListener("keydown", keyboard, true); doc.addEventListener("pointerdown", pointer, true);
@@ -185,6 +188,7 @@ function showPresetsMenu(anchor, presets) {
             items[next].focus();
         }
     });
+    inheritColorOwner(menu, anchor);
     doc.body.append(menu);
     function position() {
     if (closed) return;

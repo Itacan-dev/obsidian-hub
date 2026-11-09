@@ -1,4 +1,6 @@
 "use strict";
+const { ownModalColors, ownNoticeColors } = require("./color-system");
+
 const { createModalHeader, layoutModal } = require("./window-title");
 const { taskFormValues } = require("../domain/task-form");
 const { mountLiveTaskForm } = require("./task-live-form");
@@ -17,7 +19,7 @@ function openTaskEditor(service, task, onEdit = () => {}, creation = null) {
             // focus here so that pass cannot move Add's caret to the checkbox.
             this.hasInitialInputFocus = false;
         }
-        onOpen() {
+        onOpen() { ownModalColors(this);
             this.modalEl.classList.add("hub-task-dialog", "hub-task-compact-dialog");
             this.modalEl.classList.add("hub-task-live-dialog");
             this.modalEl.setAttribute("aria-label", creation ? "Add task" : "Edit task");
@@ -139,7 +141,7 @@ function openTaskEditor(service, task, onEdit = () => {}, creation = null) {
             modal.snapshot.nativeLocation = selected.reference?.id ?? ""; modal.snapshot.nativeLocationType = selected.reference?.type;
         }
         modal.open(); return modal; };
-    const failed = error => { if (modal.closed) return null; modal.close(); new Notice(error.message); return null; };
+    const failed = error => { if (modal.closed) return null; modal.close(); ownNoticeColors(new Notice(error.message)); return null; };
     if (creation) {
         modal.ready = (async () => {
             try {

@@ -1,4 +1,6 @@
 "use strict";
+const { ownModalColors } = require("./color-system");
+
 const { createModalHeader } = require("./window-title");
 const { Modal } = require("obsidian");
 const { setHubIcon } = require("./icons");
@@ -16,7 +18,7 @@ function action(host, text, icon, callback, cls = "") {
 // save blocking, native feedback, and restoration to the actual invoking input.
 class CaptureModal extends Modal {
     constructor(app, service, options = {}) {
-        super(app); this.service = service; this.options = options;
+        super(app); ownModalColors(this); this.service = service; this.options = options;
         this.returnFocus = options.returnFocus ?? app.workspace?.activeLeaf?.view?.containerEl?.ownerDocument?.activeElement ?? globalThis.document?.activeElement;
         this.prefix = `hub-capture-${++instance}`; this.busy = false; this.closed = false;
     }
@@ -63,7 +65,7 @@ class CaptureModal extends Modal {
 // handling. Closing the dialog always means Cancel.
 class CaptureConfirmation extends CaptureModal {
     ask() { return new Promise(resolve => { this.resolve = resolve; this.open(); }); }
-    onOpen() {
+    onOpen() { ownModalColors(this);
         this.modalEl.classList.add("hub-capture-confirmation");
         this.header(this.options.title, this.options.message);
         const actions = this.contentEl.createDiv({ cls: "hub-capture-actions" });

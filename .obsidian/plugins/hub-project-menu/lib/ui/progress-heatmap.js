@@ -88,7 +88,11 @@ function createProgressHeatmap(calendar, component) {
         if (disposed || !graph?.isConnected || !measure || !availableWidth) return;
         const samples = [...measure.children];
         const calendarStyle = view.getComputedStyle(calendar);
-        const weekdayGap = parseFloat(calendarStyle.getPropertyValue("--hub-heatmap-label-gap")) || 4;
+        const labelGap = parseFloat(calendarStyle.getPropertyValue("--hub-heatmap-label-gap")) || 4;
+        // Month text has more leading than weekday text. Match its extra space
+        // below the glyphs without moving labels or changing the month row.
+        const extraLeading = Math.max(0, parseFloat(view.getComputedStyle(months).lineHeight) - parseFloat(view.getComputedStyle(weekdays).lineHeight)) / 2;
+        const weekdayGap = labelGap + extraLeading;
         const inset = parseFloat(calendarStyle.getPropertyValue("--hub-heatmap-inline-inset")) || 4;
         const scale = heatmapPixelScale(calendar);
         // offsetWidth rounds text to CSS pixels and can under-reserve this tight

@@ -1,5 +1,5 @@
 "use strict";
-
+const { ownColorRoot } = require("./color-system");
 // Controls the existing structural workspace pane; never creates another leaf.
 function mountNoteRail(pane, initialState = "full", onChange = () => {}) {
     const { setIcon } = require("obsidian");
@@ -20,6 +20,7 @@ function mountNoteRail(pane, initialState = "full", onChange = () => {}) {
     edge.setAttribute("aria-label", "Folder bar width");
     edge.setAttribute("aria-valuemin", "0");
     edge.setAttribute("aria-valuemax", "2");
+    ownColorRoot(controls); ownColorRoot(edge);
     pane.append(controls, edge);
 
     function select(next) {

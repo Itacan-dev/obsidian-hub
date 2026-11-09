@@ -1,4 +1,6 @@
 "use strict";
+const { ownModalColors } = require("./color-system");
+
 const { Modal, Component } = require("obsidian");
 const { createWorkspaceCards } = require("./workspace-cards");
 const { createCardImageRenderer } = require("./card-images");
@@ -30,7 +32,7 @@ function listen(owner, emitter, event, render) {
 // eligibility as Home and Select project/resource. Choosing never navigates.
 function openCaptureWorkspacePicker(service, { selectedId, onSelect, restoreFocus } = {}) {
     class WorkspacePicker extends Modal {
-        onOpen() {
+        onOpen() { ownModalColors(this);
             preparePicker(this, "Save to", ["hub-oath-workspace-picker", "hub-capture-workspace-picker"]);
             const search = this.contentEl.createEl("input", { type: "search", cls: "hub-oath-search",
                 attr: { placeholder: "Search projects and resources…", "aria-label": "Search destinations" } });
@@ -82,7 +84,7 @@ function openCaptureWorkspacePicker(service, { selectedId, onSelect, restoreFocu
 // nested group language without mounting the explorer's editing/navigation UI.
 function openCaptureLocationPicker(service, { workspace, task = false, selectedPath, getItems, onSelect, restoreFocus } = {}) {
     class LocationPicker extends Modal {
-        onOpen() {
+        onOpen() { ownModalColors(this);
             preparePicker(this, task ? "Choose task location" : "Choose a folder", ["hub-capture-location-picker"]);
             if (workspace?.name) this.contentEl.createEl("p", { cls: "hub-oath-muted", text: workspace.name });
             const searchBox = this.contentEl.createDiv({ cls: "hub-explorer-search" });

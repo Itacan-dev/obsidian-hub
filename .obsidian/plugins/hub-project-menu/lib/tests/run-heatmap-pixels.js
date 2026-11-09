@@ -60,16 +60,19 @@ const timeout=setTimeout(()=>{child.kill();process.exitCode=1},120000);
    await check(await evaluate(`mountHeatmap(${JSON.stringify(scenario)})`),scenario);
   }
  }
- // The new full desktop panels retain the exact pre-change physical square
- // size while fitting the whole label/grid assembly inside the separator.
+ // Fit the largest whole-device-pixel squares after reserving the optical
+ // weekday gap; the complete assembly must remain centered in the separator.
  if([1.5,2].includes(dpr))for(const kind of ['home','project']){
   const width=dpr===1.5?482+2/3:482;
   const geometry=await evaluate(`mountHeatmap(${JSON.stringify({kind,width})})`);
   const square=Math.round(geometry.cells[0].w*dpr);
-  if(square!==(dpr===1.5?12:16))throw Error('Full desktop square size changed');
+  const weekdayGap=Number(geometry.style.match(/--hub-heatmap-weekday-gap: ([0-9.]+)px/)[1]);
+  const weeks=geometry.cells.length/7;
+  const available=width-8-geometry.weekdayColumn.width-weekdayGap;
+  if(square!==Math.floor((available*dpr-(weeks-1))/weeks+1e-9))throw Error('Full desktop squares do not maximize the reserved width');
   const left=geometry.weekdayColumn.left-geometry.viewport.left;
   const right=geometry.viewport.right-Math.max(...geometry.cells.map(cell=>cell.x+cell.w));
-  if(Math.abs(left-right)>.04||Math.abs(left-(dpr===1.5?4+2/3:8.75))>.04)throw Error('Desktop separator insets changed');
+  if(Math.abs(left-right)>.04||Math.min(left,right)<4-.04)throw Error('Desktop assembly is not centered within the separator insets');
   await check(geometry,{kind,width,fullDesktop:true,primary:kind==='home',leftInset:left,rightInset:right});
  }
  const paintedPalettes=[];

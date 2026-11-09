@@ -38,8 +38,9 @@ const setIcon=(el,name)=>{
   }
  }
 };
+const __colors={exports:{}};new Function("module","exports",await(await fetch("../ui/color-system.js")).text())(__colors,__colors.exports);globalThis.__hubFixtureColors=__colors.exports;
 const modules={};
-async function load(name,file,require=()=>{}){const m={exports:{}};new Function('module','require','process',await(await fetch(file)).text())(m,require,{env:{}});modules[name]=m.exports;return m.exports}
+async function load(name,file,require=()=>{}){const m={exports:{}};new Function('module','require','process',await(await fetch(file)).text())(m,n=>n.endsWith("/color-system")?__colors.exports:require(n),{env:{}});modules[name]=m.exports;return m.exports}
 const dates=await load('dates','../domain/dates.js'),focus=await load('focus','../domain/focus.js');
 const domain=await load('context','../domain/report-context.js',n=>n==='./dates'?dates:focus);
 class Component{constructor(){this.callbacks=[];this.children=[]}load(){}register(fn){this.callbacks.push(fn)}addChild(c){this.children.push(c)}removeChild(c){c.unload();this.children=this.children.filter(x=>x!==c)}unload(){this.children.forEach(c=>c.unload());this.callbacks.forEach(fn=>fn())}}
@@ -57,7 +58,7 @@ const config=await load('config','../config.js'),tooltips=await load('tooltips',
 const attention={exports:{}};new Function('module',await(await fetch('../ui/attention.js')).text())(attention);
 const focusRestore={exports:{}};new Function('module',await(await fetch('../ui/focus-restoration.js')).text())(focusRestore);
 const source=await(await fetch('../../plugin.js')).text();
-const code=source.slice(source.indexOf('class FocusListEditor'),source.indexOf('class ProjectWizardModal'));
+const code='const {ownModalColors,ownMenuColors,ownNoticeColors}=globalThis.__hubFixtureColors;\n'+source.slice(source.indexOf('class FocusListEditor'),source.indexOf('class ProjectWizardModal'));
 const saveState={exports:{}};new Function('module',await(await fetch('../ui/modal-save.js')).text())(saveState);
 const {Report,Focus,DailyFocus}=new Function('hasKeyboardFocus','focusAfterRowRemoval','Modal','PROJECT_ADVANCEMENT_OPTIONS','progressRatingOptions','createImmediateHubTooltip','setIcon','Notice','normalizeFocusItems','renderReportEvidence','focusSection','createWindowTitle','setWindowUndertext','renderReportWorkspaceHeader','mountTransientEffects','lockModalControls','layoutModal','Component','createHubMarkdown','formatDate','parseLocalISODate',code+';return {Report:ProjectAdvancementModal,Focus:FocusListEditor,DailyFocus:DailyFocusModal};')(
  focusRestore.exports.hasKeyboardFocus,focusRestore.exports.focusAfterRowRemoval,Modal,config.PROJECT_ADVANCEMENT_OPTIONS,config.progressRatingOptions,tooltips.createImmediateHubTooltip,setIcon,class{constructor(message){throw Error(message)}},focus.normalizeFocusItems,ui.renderReportEvidence,ui.focusSection,windowTitle.createWindowTitle,windowTitle.setWindowUndertext,workspaceHeader.exports.renderReportWorkspaceHeader,attention.exports.mountTransientEffects,saveState.exports.lockModalControls,windowTitle.layoutModal,Component,markdown.createHubMarkdown,dates.formatDate,dates.parseLocalISODate);
@@ -175,7 +176,7 @@ try{
  const draftSummary=editor.contentEl.querySelector('textarea');
  draftSummary.value='Unsaved reflection';
  liveContexts={p:{...many,tasks:many.tasks.filter(task=>task.kind!=='step')},'resource:study':empty};
- document.dispatchEvent(new CustomEvent('hub-completed-tasks-changed'));
+ document.dispatchEvent(new CustomEvent('hub-task-progress-evidence-changed'));
  assert(!row.querySelector('[data-icon=circle-check]'),'Uncheck updates open unsaved progress evidence');
  assert(draftSummary.value==='Unsaved reflection','Live evidence refresh preserves unsaved reflection');
  draftSummary.value='Keep summary';
@@ -185,12 +186,15 @@ try{
  const calendarCode=source.slice(source.indexOf('    enableProgressCalendarEditing('),source.indexOf('    async copyProjectObsidianUrl('));
  const host=new Function('localISODate','shortDateLabel','setHubTooltip','reportDay','DailyReportModal',`return {${calendarCode}}`)(dates.localISODate,dates.shortDateLabel,tooltips.setHubTooltip,domain.reportDay,ui.DailyReportModal);
  const resourceReport={...reports[0],projectId:'resource:study',projectName:'Knowledge',targetKind:'resource'};
- const all=[...reports,resourceReport];
- host.projectWizard={data:{reportFocusByDate:{[date]:{items:nextFocus}}},getProgressReports(scope){return all.filter(r=>typeof scope==='string'?r.projectId===scope:scope?.kind==='resource'?r.targetKind==='resource':r.targetKind!=='resource')}};
+ const all=[...reports,resourceReport,
+  {...resourceReport,date:'2026-09-12'},
+  {...reports[0],date:'2026-09-11'},
+  {...resourceReport,date:'2026-09-10',score:null,summary:'Summary only'}];
+ host.projectWizard={data:{reportFocusByDate:{[date]:{items:nextFocus}}},getProgressReports(scope){return all.filter(r=>typeof scope==='string'?r.projectId===scope:scope?.kind==='all'?true:scope?.kind==='resource'?r.targetKind==='resource':r.targetKind!=='resource')}};
  host.app={vault:{getAbstractFileByPath:()=>null}};
  const heatmap=await load('heatmap','../ui/progress-heatmap.js');
  let editCalls=[];window.hubOpenProgressEditor=(...args)=>editCalls.push(args);
- for(const scope of [{kind:'project'},{kind:'resource'},'p','resource:study']){
+ for(const scope of [{kind:'all'},{kind:'project'},{kind:'resource'},'p','resource:study']){
   const calendar=document.body.createDiv({cls:'home-progress-calendar'}),boxes=calendar.createEl('ol',{cls:'heatmap-calendar-boxes hub-progress-grid'});
   for(let i=0;i<3;i++)boxes.createEl('li',{attr:{style:'background-color: transparent'}});
   for(let i=0;i<365;i++)boxes.createEl('li',{cls:'month-1',attr:{'data-hub-progress-details':'Existing hover details'}});
@@ -211,12 +215,19 @@ try{
   const rect=cell.getBoundingClientRect();
   assert(cell.classList.contains('has-report')&&cell.getAttribute('aria-label').includes('Existing hover details'),'Discoverability and hover retained');
   const before=editCalls.length;cell.click();assert(editCalls.length===before&&opened instanceof ui.DailyReportModal,'Report cell opens history');
-  assert(opened.day.reports.length===(scope?.kind==='project'?2:1),'Scope retained');
+  assert(opened.day.reports.length===(scope?.kind==='all'?3:scope?.kind==='project'?2:1),'Scope retained');
   opened.contentEl.querySelector('button').click();assert(editCalls.at(-1)[0]===date&&editCalls.at(-1)[1]===scope,'Edit action preserves date and scope');
   cell.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true,cancelable:true}));assert(opened instanceof ui.DailyReportModal,'Keyboard opens history');opened.close();
   emptyCell.click();assert(editCalls.at(-1)[0]==='2026-09-13','Empty day retains existing editor');
   assert(cell.getBoundingClientRect().width===rect.width&&cell.getBoundingClientRect().height===rect.height,'Cell geometry unchanged');
-  host.enableProgressCalendarEditing(calendar,{year:2026,projectId:scope});cell.click();opened.close();calendar.remove();
+  host.enableProgressCalendarEditing(calendar,{year:2026,projectId:scope});cell.click();opened.close();
+  if(scope?.kind==='all')for(const [day,kind] of [['2026-09-12','resource'],['2026-09-11',undefined],['2026-09-10','resource']]){
+   const target=calendar.querySelector(`[data-date="${day}"]`),count=editCalls.length;
+   assert(target.classList.contains('has-report'),'Single-type and summary-only dates marked as reports');
+   target.click();assert(editCalls.length===count&&opened.day.reports.length===1&&opened.day.reports[0].targetKind===kind,'Combined calendar opens Resource-only, Project-only and summary-only reports');
+   opened.contentEl.querySelector('button').click();assert(editCalls.at(-1)[0]===day&&editCalls.at(-1)[1]===scope,'Combined report edit retains all-workspace scope');
+  }
+  calendar.remove();
  }
  // Grouping remains clear with one/multiple records and many editing workspaces.
  function checkCards(modal,selector){

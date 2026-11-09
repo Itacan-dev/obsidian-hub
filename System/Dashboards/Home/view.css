@@ -251,8 +251,7 @@
 }
 
 /* Equal button widths within each selector, sized to its widest label. */
-.home-project-tab-buttons > .hub-panel-selectors,
-.home-progress-scope-controls.hub-panel-selectors {
+.home-project-tab-buttons > .hub-panel-selectors {
     display: grid;
     grid-auto-flow: column;
     grid-auto-columns: 1fr;
@@ -441,7 +440,7 @@
     border-color: var(--interactive-accent);
 
     box-shadow:
-        0 12px 30px rgba(0, 0, 0, 0.32);
+        0 12px 30px rgba(var(--hub-palette-black-rgb, 0, 0, 0), 0.32);
 
     opacity: 0.96;
     z-index: 20;
@@ -743,7 +742,7 @@
 
 
 .home-calendar-week-range {
-    color: var(--text-faint);
+    color: var(--text-muted);
     font-size: var(--hub-font-secondary);
     font-weight: 600;
 }
@@ -1072,7 +1071,7 @@ a.home-calendar-title:focus-visible {
     align-items: center;
     justify-content: center;
 
-    color: var(--color-red);
+    color: var(--hub-color-destructive, var(--color-red));
 
     opacity: 0;
     cursor: pointer;
@@ -1095,7 +1094,7 @@ a.home-calendar-title:focus-visible {
 
 .home-task-delete:hover,
 .home-task-delete:focus-visible {
-    color: var(--color-red);
+    color: var(--hub-color-destructive, var(--color-red));
 }
 
 
@@ -1126,7 +1125,7 @@ a.home-calendar-title:focus-visible {
 
 .home-task-clear-completed:hover:not(:disabled),
 .home-task-clear-completed:focus-visible {
-    color: var(--color-red);
+    color: var(--hub-color-destructive, var(--color-red));
 }
 
 
@@ -1319,7 +1318,7 @@ a.home-calendar-title:focus-visible {
     padding-top: 9px;
 }
 
-/* Keep the header rhythm while both controls share one full-height grid row. */
+/* Keep the header rhythm and Statistics aligned to the right. */
 .home-progress-header-controls {
     display: grid;
     grid-auto-flow: column;
@@ -1329,13 +1328,8 @@ a.home-calendar-title:focus-visible {
     height: var(--hub-progress-header-line-height);
 }
 
-.home-progress-scope-controls {
-    height: var(--hub-panel-control-height);
-}
-
-
 .home-recent-action-icon.is-completed-task {
-    color: var(--color-green);
+    color: var(--hub-color-success, var(--color-green));
 }
 
 .home-recent-action-icon.is-progress-report {
@@ -1453,7 +1447,7 @@ a.home-calendar-title:focus-visible {
 /* Edited */
 
 .home-recent-action-icon.is-edited {
-    color: var(--color-blue);
+    color: var(--hub-color-activity-edited, var(--color-blue));
 }
 
 

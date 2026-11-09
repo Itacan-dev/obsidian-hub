@@ -1,4 +1,6 @@
 "use strict";
+const { ownModalColors } = require("./color-system");
+
 const { Modal, setIcon } = require("obsidian");
 
 class ProjectDeletionModal extends Modal {
@@ -49,7 +51,7 @@ class ProjectDeletionModal extends Modal {
         this.close();
     }
 
-    onOpen() {
+    onOpen() { ownModalColors(this);
         const content = this.contentEl;
         content.addClass("hub-button-scope", "hub-project-deletion");
         content.createEl("h2", { text: "Delete project?" });

@@ -14,7 +14,7 @@ function mountTransientEffects(root) {
         // color, otherwise their tint compounds with the highlighted parent.
         const ancestors = []; for (let parent = node; parent; parent = parent.parentElement) ancestors.push(parent);
         paint.clearRect(0, 0, 1, 1);
-        paint.fillStyle = view.getComputedStyle(root).getPropertyValue("--background-primary").trim() || "#1e1e1e";
+        paint.fillStyle = view.getComputedStyle(root).getPropertyValue("--hub-color-surface-page").trim() || view.getComputedStyle(root).getPropertyValue("--background-primary").trim() || "#1e1e1e";
         paint.fillRect(0, 0, 1, 1);
         for (const parent of ancestors.reverse()) {
             paint.fillStyle = view.getComputedStyle(parent).backgroundColor; paint.fillRect(0, 0, 1, 1);
@@ -78,7 +78,7 @@ function mountTransientEffects(root) {
         if (field.top < bounds.top + 6 || field.bottom > bounds.bottom - 6)
             container.scrollTo({ top: Math.max(0, container.scrollTop + field.top - bounds.top - 8), behavior });
     }
-    return { run, cancel, reveal,
+    return { run, cancel, cancelAll: () => { for (const effect of [...effects.values()]) effect.finish(); }, reveal,
         pulse(element, container, done) { reveal(element, container); run(element, "hub-attention", done); },
         destroy() { disposed = true; for (const effect of [...effects.values()]) effect.finish(); }
     };

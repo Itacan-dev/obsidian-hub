@@ -16,6 +16,7 @@ function create(tag, options = {}) {
 window.createDiv = options => create("div", options);
 window.createEl = create;
 window.createSpan = options => create("span", options);
+HTMLElement.prototype.createEl = function(tag, options) { return create(tag, { ...options, parent: this }); };
 HTMLElement.prototype.createDiv = function(options) { return create("div", { ...options, parent: this }); };
 HTMLElement.prototype.createSpan = function(options) { return create("span", { ...options, parent: this }); };
 function sourceFunction(source, name) {
@@ -86,6 +87,11 @@ window.onload = async () => {
             }
             const heading = create("div", { cls: home ? "home-panel-title" : "project-progress-header", parent: panel });
             create("div", { cls: home ? "" : "project-progress-title", text: "Progress", parent: heading });
+            if (home) {
+                const controls = homeSource.slice(homeSource.indexOf("const progressHeaderControls ="), homeSource.indexOf("const progressToolbar ="));
+                new Function("progressHeader", controls)(heading);
+                assert(!heading.querySelector(".home-progress-scope-controls"), "No workspace scope selector");
+            }
             const section = home ? create("div", { cls: "home-progress-section", parent: panel }) : panel;
             const calendar = create("div", { cls: prefix + "-progress-calendar", parent: section });
             nativePlugin.settings.weekStartDay = weekStart;
@@ -143,8 +149,9 @@ window.onload = async () => {
             const pixelScale = layoutModule.exports.heatmapPixelScale(f.calendar);
             const weekdayWidth = Math.ceil(Math.max(...samples.slice(24).map(label => rect(label).width / scale)) * pixelScale - 1e-9) / pixelScale;
             const labelGap = parseFloat(getComputedStyle(f.calendar).getPropertyValue("--hub-heatmap-label-gap"));
+            const extraLeading = Math.max(0, parseFloat(getComputedStyle(f.months).lineHeight) - parseFloat(getComputedStyle(weekdays).lineHeight)) / 2;
             const inset = parseFloat(getComputedStyle(f.calendar).getPropertyValue("--hub-heatmap-inline-inset"));
-            const available = Math.max(0, f.contentWidth - 2 * inset - weekdayWidth - labelGap);
+            const available = Math.max(0, f.contentWidth - 2 * inset - weekdayWidth - labelGap - extraLeading);
             const rows = [...weekdays.children].map(label => Number(label.style.gridRow)).sort((a, b) => a - b);
             const rowDistance = Math.min(...rows.slice(1).map((row, index) => row - rows[index]));
             const expectedGeometry = layoutModule.exports.heatmapGeometry(available, weeks,
@@ -162,7 +169,7 @@ window.onload = async () => {
                 assert(rect(label).right < rect(f.boxes).left, "Weekday label remains beside cells");
                 assert(rect(label).left >= rect(weekdays).left - .04, "Measured weekday column never clips label text");
                 assert(rect(label).right <= rect(weekdays).right + .04, "Weekday text stays within its dedicated column");
-                near(rect(f.boxes).left - rect(label).right, rect(f.boxes).top - rect(f.months).bottom, "Weekday and month gaps are identical");
+                near(rect(f.boxes).left - rect(label).right, rect(f.boxes).top - rect(f.months).bottom + extraLeading * scale, "Weekday gap accounts for month text leading");
                 for (const cell of cells) {
                     const a = rect(label), b = rect(cell);
                     assert(a.right <= b.left || a.left >= b.right || a.bottom <= b.top || a.top >= b.bottom,
@@ -187,7 +194,9 @@ window.onload = async () => {
                 const assemblyLeft = Math.min(rect(weekdays).left, ...[...f.months.children].map(label => rect(label).left));
                 const assemblyRight = Math.max(rect(f.boxes).right, ...[...f.months.children].map(label => rect(label).right));
                 const leftInset = assemblyLeft - rect(f.calendar).left, rightInset = rect(f.calendar).right - assemblyRight;
-                near(leftInset, rightInset, "Complete assembly centers within separator endpoints");
+                // Compare centers: subtracting both independently rounded edges
+                // doubles the browser's subpixel rounding error in the insets.
+                near(leftInset / 2, rightInset / 2, "Complete assembly centers within separator endpoints");
                 assert(Math.min(leftInset, rightInset) >= inset * scale - .04, "All labels and squares fit inside separator with minimum inset");
                 assert(leftInset + rightInset - 2 * inset * scale < weeks / devicePixelRatio + .04, "Residual width cannot fit the next whole-device-pixel square size");
                 assert(scrollViewport.scrollWidth <= scrollViewport.clientWidth + 1, "No hidden measurement or navigation overflow");
@@ -245,6 +254,20 @@ window.onload = async () => {
             for (const panel of f.root.querySelectorAll(home ? ".home-calendar,.home-glance,.home-upcoming,.home-recent" : ".project-tasks,.project-progress")) near(rect(panel).width, unit, "Shared equal-width panel unit");
             near(parseFloat(getComputedStyle(f.grid).gap), 12, "Panel gutter remains 12px");
             if (!home) return;
+            const statistics = f.heading.querySelector(".hub-statistics-trigger"), controls = statistics.parentElement;
+            near(rect(statistics).right, rect(f.heading).right - parseFloat(getComputedStyle(f.heading).paddingRight) * zoom, "Statistics remains right-aligned");
+            const geometry = () => [f.panel, f.heading, f.calendar, f.boxes, f.history, f.scroller].map(element => {
+                const box = rect(element); return [box.x, box.y, box.width, box.height];
+            });
+            const unified = geometry();
+            // Restore the former selector in its fixed-height header to compare
+            // all panel/calendar/History bounds at each responsive width.
+            const legacy = create("div", { parent: controls });
+            legacy.style.cssText = "display:grid;grid-auto-flow:column;grid-auto-columns:1fr;width:max-content;height:var(--hub-panel-control-height)";
+            for (const label of ["Projects", "Resources"]) create("button", { text: label, parent: legacy });
+            controls.prepend(legacy);
+            geometry().forEach((box, i) => box.forEach((value, j) => near(value, unified[i][j], "Removing selector preserves panel, heatmap and History bounds")));
+            legacy.remove();
             for (const [selector, count, minimum, gap] of [["project", 3, 220, 12], ["resource", 4, 205, 16]]) {
                 const rail = f.root.querySelector(`.home-${selector}-grid`), style = getComputedStyle(rail);
                 const cards = [...rail.children], padding = parseFloat(style.paddingLeft) + parseFloat(style.paddingRight);

@@ -1,4 +1,6 @@
 "use strict";
+const { ownNoticeColors } = require("../ui/color-system");
+
 const { prepareNoteLayout, rewriteLayoutPaths } = require("../domain/navigation");
 const copy = value => JSON.parse(JSON.stringify(value));
 
@@ -82,7 +84,7 @@ class HubPresets {
             const context = m.contextFor(item.contextId);
             if (m.plugin.oath?.canOpen(context) === false) return false;
             if (!context || !(m.app.vault.getAbstractFileByPath(context.path) instanceof TFile)) {
-                new Notice("This preset's workspace no longer exists."); return false;
+                ownNoticeColors(new Notice("This preset's workspace no longer exists.")); return false;
             }
             if (!allowActivation && context.contextKind !== "resource" && context.status !== "active") return false;
             const layout = prepareNoteLayout(rewriteLayoutPaths(item.layout,
@@ -90,7 +92,7 @@ class HubPresets {
                 path => m.app.vault.getAbstractFileByPath(path) instanceof TFile &&
                     (allowActivation || m.navigationHistory.eligiblePath(path)),
                 type => m.canRestoreLayoutView(type));
-            if (!layout) { if (allowActivation) new Notice("No saved tabs are available for this preset. The current workspace was left unchanged."); return false; }
+            if (!layout) { if (allowActivation) ownNoticeColors(new Notice("No saved tabs are available for this preset. The current workspace was left unchanged.")); return false; }
             if (!await m.plugin.ensureContextOpen(context, m.dashboardRoot(source)) ||
                 m.plugin.oathNavigation?.allowLayout(layout) === false) return false;
             const files = tree => tree?.type === "leaf" ? 1 : (tree?.children ?? []).reduce((n, child) => n + files(child), 0);
@@ -108,7 +110,7 @@ class HubPresets {
                 }
                 m.noteRailState = ["full", "half", "closed"].includes(item.railState) ? item.railState : "full";
                 const restored = await m.applyNoteLayout(context, layout);
-                if (allowActivation && restored && missing > 0) new Notice(`Preset restored; ${missing} unavailable tab${missing === 1 ? " was" : "s were"} skipped.`);
+                if (allowActivation && restored && missing > 0) ownNoticeColors(new Notice(`Preset restored; ${missing} unavailable tab${missing === 1 ? " was" : "s were"} skipped.`));
                 return restored;
             })).finally(() => { this.pending = null; });
         });

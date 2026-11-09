@@ -1,4 +1,6 @@
 "use strict";
+const { ownMenuColors, ownNoticeColors } = require("./color-system");
+
 
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 const headerImages = new WeakMap();
@@ -118,7 +120,7 @@ function mountHeaderImage({ cover, image, component, initial, save, defaultY = 3
             } catch (error) {
                 saving = false;
                 done.disabled = cancel.disabled = false;
-                new Notice("Could not save image placement. Please try again.");
+                ownNoticeColors(new Notice("Could not save image placement. Please try again."));
                 console.error("Hub image placement save failed", error);
             }
         });
@@ -191,7 +193,7 @@ function mountHeaderImage({ cover, image, component, initial, save, defaultY = 3
     });
     if (manageMenu) component.registerDomEvent(cover, "contextmenu", event => {
         event.preventDefault(); event.stopPropagation();
-        const menu = new Menu();
+        const menu = ownMenuColors(new Menu());
         menu.addItem(item => item.setTitle("Edit image placement").setIcon("move").onClick(begin));
         menu.showAtMouseEvent(event);
     });

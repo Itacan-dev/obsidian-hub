@@ -1,5 +1,5 @@
 "use strict";
-
+const { inheritColorOwner } = require("./color-system");
 const { formatDuration } = require("../domain/statistics");
 const { formatDate } = require("../domain/dates");
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -89,6 +89,7 @@ function renderBarChart(parent, { range, values, label, color = "accent", durati
     detail.className = "tooltip hub-detail-tooltip hub-statistics-point-tooltip hub-button-scope";
     detail.setAttribute("role", "tooltip");
     detail.hidden = true;
+    inheritColorOwner(detail, parent);
     doc.body.append(detail);
     const selectBars = (index, active) => bars.filter(item => item.index === index).forEach(({ bar }) => bar.classList.toggle("is-selected", active));
     const hide = () => { detail.hidden = true; selectBars(selected, false); };

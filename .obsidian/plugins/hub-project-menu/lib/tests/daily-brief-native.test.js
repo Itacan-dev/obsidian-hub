@@ -7,5 +7,17 @@ let DailyBriefService;try{({DailyBriefService}=require("../services/daily-brief"
  let saved=0,reads=0;const plugin={app:{vault:{getAbstractFileByPath:path=>({path,extension:"md"})}},projectWizard:{data:{},getProjectRecords:()=>[project],getResourceTypes:()=>[],getProjectById:()=>project,getProgressReports:()=>[],getContextForPath:()=>project,activityLog:[]},dataStore:{deviceId:"fixture",async save(){saved++}},oath:{ready:()=>true,active:false,canOpen:()=>true},nativeTaskHost:{nativeTasks:{owners:[owner]},completionFeed:{read:async()=>({records:[event]})},runtime:()=>({async list(){reads++;return {tasks:[task]}}})}};
  for(const key of ["taskService","taskData","taskEditor"])Object.defineProperty(plugin,key,{get(){throw Error("Retired task service accessed")}});
  const service=new DailyBriefService(plugin,{now:()=>now});service.started=true;service.refreshAvailability=()=>{};
- const brief=await service.load(now);assert.equal(saved,1);assert.equal(reads,1);assert.equal(brief.context.lastWorkDate,"2026-09-23");assert.equal(brief.recommendation.reason,"unfinished-progress");assert.equal(brief.recommendation.target.kind,"workspace");assert.equal(brief.recommendation.target.workspaceId,owner.id);assert.deepEqual(await service.load(now),brief);assert.equal(reads,1);service.destroy();console.log("PASS: Daily Brief reads native task/Step evidence, persists a current recommendation and reuses the bounded snapshot without retired services.");
+ const brief=await service.load(now);assert.equal(saved,1);assert.equal(reads,1);assert.equal(brief.context.lastWorkDate,"2026-09-23");assert.equal(brief.recommendation.reason,"unfinished-progress");assert.equal(brief.recommendation.target.kind,"workspace");assert.equal(brief.recommendation.target.workspaceId,owner.id);assert.deepEqual(await service.load(now),brief);assert.equal(reads,1);service.blocked=()=>false;
+ let opened=[];service.open=value=>{opened.push(value);return true};
+ service.load=()=>{throw Error("Manual navigation must not generate a brief")};
+ const snapshotBefore=JSON.stringify(plugin.projectWizard.data.dailyBriefSnapshot);
+ assert.equal(await service.openManual(),true);assert.equal(await service.openManual(),true);
+ assert.deepEqual(opened,[brief,brief]);assert.equal(saved,1);assert.equal(reads,1);
+ assert.equal(JSON.stringify(plugin.projectWizard.data.dailyBriefSnapshot),snapshotBefore);
+ assert.equal(service.availability().available,true);
+ delete plugin.projectWizard.data.dailyBriefSnapshot;
+ service.hasHistory=true;service.historyDay="2026-09-26";
+ assert.equal(service.availability().available,false);
+ assert.equal(await service.openManual(),false);assert.equal(saved,1);assert.equal(reads,1);
+ service.destroy();console.log("PASS: Daily Brief reads native task/Step evidence, persists a current recommendation and reuses the bounded snapshot without retired services.");
 })().catch(e=>{console.error(e);process.exitCode=1});

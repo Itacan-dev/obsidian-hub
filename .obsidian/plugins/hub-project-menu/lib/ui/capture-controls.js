@@ -1,4 +1,6 @@
 "use strict";
+const { ownNoticeColors } = require("./color-system");
+
 const { Notice } = require("obsidian");
 const { setHubIcon } = require("./icons");
 const { setHubTooltip } = require("./tooltips");
@@ -54,7 +56,7 @@ function mountCaptureControls(plugin, service, host) {
     };
     const openInbox = () => {
         if (disposed) return;
-        if (plugin.oath?.active) { new Notice("Inbox is unavailable during an active Oath."); return; }
+        if (plugin.oath?.active) { ownNoticeColors(new Notice("Inbox is unavailable during an active Oath.")); return; }
         if (inbox) { inbox.filterButtons[0].button.focus(); return; }
         if (host.ownerDocument.querySelector(".modal-container")) return;
         inbox = new InboxModal(plugin.app, service, { openLink, workspaceId: plugin.workspaceModes?.currentContext()?.projectId,

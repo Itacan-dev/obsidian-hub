@@ -1,4 +1,6 @@
 "use strict";
+const { ownMenuColors } = require("../ui/color-system");
+
 const { mountHeaderImage } = require("../ui/header-image");
 
 const HOME_COVER_PERIODS = Object.freeze([
@@ -79,7 +81,7 @@ class HomeCovers {
         component.register(() => { disposed = true; this.listeners.delete(update); });
         component.registerDomEvent(cover, "contextmenu", event => {
             event.preventDefault(); event.stopPropagation();
-            const menu = new Menu();
+            const menu = ownMenuColors(new Menu());
             menu.addItem(item => item.setTitle("Edit cover images…").setIcon("image").onClick(() => openModal(cover)));
             menu.showAtMouseEvent(event);
         });

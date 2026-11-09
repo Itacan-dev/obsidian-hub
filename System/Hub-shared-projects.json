@@ -52,7 +52,7 @@
   "projectPlanning": {
     "4b597e3b-b588-4a29-969b-70db3a684112": {
       "version": 1,
-      "revision": 78,
+      "revision": 79,
       "phases": [
         {
           "id": "bf24b7f3-d3bc-4834-be4a-0bf12191da64",
@@ -69,14 +69,6 @@
           "end": "2026-10-31",
           "description": "Integrate Atlas into prototype \nContinue Hub and Atlas refinement\nComplete remaining visible functionality\nPolish UI and interaction patterns\nDesign onboarding and guided setup\nRefine target users and core use cases\nMove prototype to GitHub",
           "order": 1
-        },
-        {
-          "id": "3073d0e3-4268-4b84-b45a-efcaad526684",
-          "name": "Theme System & Positioning",
-          "start": "2026-11-01",
-          "end": "2026-11-30",
-          "description": "Design Theme System\nDesign initial Theme Packs\nContinue prototype logic and behavioral refinement\nDefine positioning and target customer\nBegin Closed Beta recruitment\nRegister with KTH Innovation\nRead The Odyssey",
-          "order": 2
         },
         {
           "id": "9bff9e9a-a57e-4e41-b65a-c6d0c6860539",

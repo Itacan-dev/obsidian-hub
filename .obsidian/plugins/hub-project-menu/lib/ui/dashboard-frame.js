@@ -1,5 +1,5 @@
 "use strict";
-
+const { ownColorRoot } = require("./color-system");
 const frames = new WeakMap();
 
 function createDashboardFrame(container, component, className) {
@@ -7,12 +7,13 @@ function createDashboardFrame(container, component, className) {
     const controller = new AbortController();
     const root = container.ownerDocument.createElement("div");
     root.className = className;
+    const disposeColors = ownColorRoot(root);
     const work = [];
     const layoutWork = [];
     const current = () => !controller.signal.aborted && frames.get(container) === frame && root.isConnected;
     const frame = {
         root, current,
-        abort: () => controller.abort(),
+        abort: () => { controller.abort(); if (!root.isConnected) disposeColors(); },
         defer: task => work.push(task),
         // Geometry needs attached, styled DOM, but must precede the first paint.
         // Detached prepared views retain these tasks until their activation.

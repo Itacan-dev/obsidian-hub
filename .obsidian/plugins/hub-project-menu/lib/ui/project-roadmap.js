@@ -1,4 +1,6 @@
 "use strict";
+const { ownMenuColors, ownNoticeColors } = require("./color-system");
+
 const { Notice, Menu, setIcon } = require("obsidian");
 const { localISODate, parseLocalISODate, formatDate } = require("../domain/dates");
 const { roadmapViewport, roadmapZoom, panRoadmap, roadmapToday, phasePlacement } = require("../domain/project-planning");
@@ -46,7 +48,7 @@ function mountProjectRoadmap({ plugin, component, dv, host, workspace, state }) 
         disclosureIcons(dropdown);
         function showRanges() {
             if (activeMenu) { closeMenu(); return; }
-            const menu = activeMenu = new Menu();
+            const menu = activeMenu = ownMenuColors(new Menu());
             for (const [value, label] of choices) menu.addItem(item => item.setTitle(label).setChecked(value === state.roadmapZoom)
                 .onClick(() => changeViewport(roadmapZoom(data, state, value))));
             menu.onHide(() => { if (activeMenu === menu) activeMenu = null; dropdown.setAttribute("aria-expanded", "false");
@@ -69,7 +71,7 @@ function mountProjectRoadmap({ plugin, component, dv, host, workspace, state }) 
                 const day = Math.min(range.total - 1, Math.max(0, Math.floor((event.clientX - bounds.left) / bounds.width * range.total)));
                 const inferred = new Date(range.start); inferred.setDate(inferred.getDate() + day); date = localISODate(inferred);
             }
-            const menu = activeMenu = new Menu();
+            const menu = activeMenu = ownMenuColors(new Menu());
             menu.addItem(item => item.setTitle("Add phase").onClick(() => edit("phases", null, { start: date })));
             menu.addItem(item => item.setTitle("Add milestone").onClick(() => edit("milestones", null, { date })));
             menu.onHide(() => { if (activeMenu === menu) activeMenu = null; });
@@ -186,7 +188,7 @@ function mountProjectRoadmap({ plugin, component, dv, host, workspace, state }) 
             }
             if (layout.more) {
                 moreButton = button(milestones.track, layout.overflow.length + " more milestones", () => {
-                    closeMenu(); const menu = activeMenu = new Menu();
+                    closeMenu(); const menu = activeMenu = ownMenuColors(new Menu());
                     for (const entry of layout.overflow) {
                         const item = data.milestones.find(item => item.id === entry.id);
                         menu.addItem(choice => choice.setTitle(item.name + " - " + dateLabel(item.date)).onClick(() => edit("milestones", item)));
@@ -240,7 +242,7 @@ function mountProjectRoadmap({ plugin, component, dv, host, workspace, state }) 
                 handle?.focus({ preventScroll: true });
                 const message = panel.querySelector(".hub-roadmap-status");
                 if (message) message.textContent = "Phase order saved.";
-            } catch (error) { new Notice(error.message); if (!disposed) render(); }
+            } catch (error) { ownNoticeColors(new Notice(error.message)); if (!disposed) render(); }
         } });
         const grid = timeline.createDiv({ cls: "hub-roadmap-grid", attr: { "aria-hidden": "true" } });
         for (const position of weeks) { const line = grid.createSpan(); line.style.left = position + "%"; }

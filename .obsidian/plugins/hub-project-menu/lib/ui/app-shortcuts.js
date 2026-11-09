@@ -1,10 +1,14 @@
 "use strict";
+const { ownColorRoot } = require("./color-system");
+const { ownNoticeColors } = require("./color-system");
+
 const { setIcon, Notice } = require("obsidian");
 const { APP_SHORTCUTS } = require("../config");
 
 function mountAppShortcuts(plugin, left) {
     const bar = left.parentElement;
     const group = bar.createDiv({ cls: "hub-shell-shortcuts hub-button-scope", attr: { role: "group", "aria-label": "App shortcuts" } });
+    const disposeColors = ownColorRoot(group); plugin.register(disposeColors);
     left.after(group);
     let signature = "", disposed = false;
     const render = () => {
@@ -41,7 +45,7 @@ function mountAppShortcuts(plugin, left) {
                     else if (shortcut.executable) await plugin.oath.launchStrictApplication(shortcut.executable);
                     else await plugin.openAppShortcut(shortcut.id);
                 }
-                catch (error) { new Notice(error.message || "Could not open app shortcut."); }
+                catch (error) { ownNoticeColors(new Notice(error.message || "Could not open app shortcut.")); }
                 finally { button.disabled = false; }
             });
         }

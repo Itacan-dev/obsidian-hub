@@ -58,7 +58,7 @@ function momentumRgba(
 
 
     return (
-        `rgba(${red}, ${green}, ${blue}, ${opacity})`
+        `rgba(var(--hub-progress-rgb, ${red}, ${green}, ${blue}), ${opacity})`
     );
 }
 

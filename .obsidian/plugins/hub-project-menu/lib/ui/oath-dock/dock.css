@@ -1,5 +1,6 @@
-:root { color-scheme: dark; font: 13px system-ui, sans-serif; background: #242329; color: #eee; }
+:root { --hub-dock-background: #242329; --hub-dock-text: #eee; --hub-dock-button: #37353f; --hub-dock-border: #55515e; --hub-dock-focus: #b4a5ed; }
+:root { color-scheme: dark; font: 13px system-ui, sans-serif; background: var(--hub-dock-background); color: var(--hub-dock-text); }
 body { margin: 8px; } nav, #apps { display: flex; gap: 6px; } nav { overflow-x: auto; }
-button { flex-shrink: 0; background: #37353f; color: inherit; border: 1px solid #55515e; border-radius: 6px; padding: 8px 12px; cursor: pointer; }
-button:focus-visible { outline: 2px solid #b4a5ed; } button:disabled { opacity: .5; }
+button { flex-shrink: 0; background: var(--hub-dock-button); color: inherit; border: 1px solid var(--hub-dock-border); border-radius: 6px; padding: 8px 12px; cursor: pointer; }
+button:focus-visible { outline: 2px solid var(--hub-dock-focus); } button:disabled { opacity: .5; }
 p { margin: 8px 2px 0; font-size: 12px; }

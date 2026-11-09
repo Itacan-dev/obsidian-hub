@@ -1,4 +1,4 @@
-﻿"use strict";
+"use strict";
 const { setIcon } = require("obsidian");
 
 const headers = new WeakMap();
@@ -14,7 +14,7 @@ function createWindowTitle(parent, text, icon, options = {}) {
     parent.insertBefore(header, title);
     header.style.margin = margins.join(" ");
     const graphic = header.createEl("span", { cls: "hub-window-title-icon", attr: { "aria-hidden": "true", "data-icon": icon } });
-    graphic.style.color = color;
+    graphic.style.color = `var(--hub-color-window-title, ${color})`;
     setIcon(graphic, icon);
     const copy = header.createEl("div", { cls: "hub-window-header-copy" });
     copy.append(title);
@@ -25,7 +25,7 @@ function createWindowTitle(parent, text, icon, options = {}) {
             text: date.label, attr: { datetime: date.value } });
         // Reuse the native/theme heading typography already read for this title.
         dateEl.style.font = style.font;
-        dateEl.style.color = color;
+        dateEl.style.color = `var(--hub-color-window-title, ${color})`;
     }
     title.classList.add("hub-window-title");
     title.style.margin = "0";

@@ -1,4 +1,6 @@
 "use strict";
+const { ownModalColors } = require("./color-system");
+
 const { createWindowTitle, setWindowUndertext, layoutModal } = require("./window-title");
 
 const { renderReportWorkspaceHeader } = require("./report-workspace-header");
@@ -137,7 +139,7 @@ function reportTitle(date, editing = false) {
 
 class DailyReportModal extends Modal {
     constructor(app, { day, onEdit, plugin }) { super(app); this.day = day; this.onEdit = onEdit; this.plugin = plugin; }
-    onOpen() {
+    onOpen() { ownModalColors(this);
         this.contentEl.addClass("hub-project-advancement-modal", "hub-daily-report-modal", "hub-button-scope");
         const heading = createWindowTitle(this.contentEl, reportTitle(this.day.date), "clipboard-check", {
             date: { value: this.day.date, label: formatDate(parseLocalISODate(this.day.date), "full") }

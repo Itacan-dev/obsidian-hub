@@ -3628,8 +3628,10 @@ function installAthena(plugin, options = {}) {
     void ready.then(async (controller) => {
       if (destroyed || !controller.knowledge.permitted(evidence)) return;
       class SourceModal extends Modal {
+        disposeColors;
         unsubscribe;
         onOpen() {
+          this.disposeColors = options.ownColors?.(this.containerEl);
           modals.add(this);
           this.modalEl.classList.add("hub-athena-source-modal", "hub-button-scope");
           el(this.contentEl, "h2", "", sourceLabel(evidence));
@@ -3661,6 +3663,7 @@ function installAthena(plugin, options = {}) {
           });
         }
         onClose() {
+          this.disposeColors?.();
           this.unsubscribe?.();
           modals.delete(this);
           this.contentEl.replaceChildren();
@@ -3672,6 +3675,7 @@ function installAthena(plugin, options = {}) {
   };
   class AthenaView extends ItemView {
     presenter;
+    disposeColors;
     selected;
     closed = true;
     constructor(leaf) {
@@ -3699,6 +3703,7 @@ function installAthena(plugin, options = {}) {
       await super.setState(state, result);
     }
     async onOpen() {
+      this.disposeColors = options.ownColors?.(this.contentEl);
       this.closed = false;
       views.add(this);
       this.contentEl.classList.add("hub-athena-view");
@@ -3715,7 +3720,12 @@ function installAthena(plugin, options = {}) {
         }
       }
     }
+    releaseColorScope() {
+      this.disposeColors?.();
+      this.disposeColors = void 0;
+    }
     async onClose() {
+      this.releaseColorScope();
       this.closed = true;
       this.presenter?.dispose();
       this.presenter = void 0;
@@ -3769,7 +3779,10 @@ function installAthena(plugin, options = {}) {
     destroy() {
       if (destroyed) return;
       destroyed = true;
-      for (const view of views) view.presenter?.dispose();
+      for (const view of views) {
+        view.releaseColorScope();
+        view.presenter?.dispose();
+      }
       for (const modal of modals) modal.close();
       views.clear();
       modals.clear();
