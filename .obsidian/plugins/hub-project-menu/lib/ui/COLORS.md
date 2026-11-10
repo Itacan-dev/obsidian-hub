@@ -1,4 +1,4 @@
-# Itacan Default colors
+# Itacan color system
 
 `styles.css` contains the authoritative Default color contract. Primitives feed
 semantic roles and specialized Oath/visualization roles; those feed an explicitly
@@ -18,10 +18,10 @@ images/brands/calendar source identities and OS-controlled surfaces remain outsi
 the contract. Settings' excluded content uses a host island. Host snapshots are
 used only to restore that island, never to derive Default.
 
-Do not add palette preferences or activate Appearance during this migration.
-Future application can replace the owned declaration set in each document. Cancel
-sampled attention effects before doing so. The dock currently owns five local
-fixed tokens; future messages belong in its existing model boundary.
+The initial migration established Default without activating Appearance. Stage 3
+below documents the now-functional Dark families, scoped application controller,
+independent preferences, sampled-effect cancellation and dock synchronization.
+Earlier verification sections remain historical records of each migration stage.
 
 ## Verification
 
@@ -235,3 +235,209 @@ real Tab and pointer input. Existing title, wizard/report, task/date/location,
 History status, Settings, roadmap and heatmap checks pass. The independently
 established `unified-progress.test.js:71` failure remains reproducible before and
 after Stage 2 and is reported separately. No production JavaScript changed.
+
+## Stage 3: functional Dark color families
+
+Settings → Appearance now offers Default, Blue, Green, Amber, and Gray.
+“Coordinate interface colors” applies matching neutral surfaces, Oath roles,
+roadmap endpoints and dock colors; off applies only the ordinary accent family.
+Reset restores Default with coordination enabled. The + button, theme packs,
+mode, typography, density, corners and animation controls remain inactive.
+Light mode disables color editing and explains that saved Dark preferences return
+when Obsidian re-enters Dark mode. No independent mode setting exists.
+
+### Contracts and runtime
+
+`color-palettes.js` owns the four alternative contracts and registry validation.
+Default remains solely in the existing stylesheet, with an empty override set.
+Each alternative supplies coherent native HSL inputs, independent primary-action
+and selected-state foregrounds, a 12-step neutral ramp, all 17 Oath roles, two
+roadmap endpoints and five dock roles. Status primitives, categorical chart colors,
+attention amber and momentum green remain independent. Accent-only selection keeps
+Default specialized treatments. No arbitrary cross-family accent overrides exist.
+
+| Family | Primary normal / hover | White-text contrast normal / hover |
+| --- | --- | --- |
+| Default | #7c49f3 / #8352f4 | 5.12 / 4.69 |
+| Blue | #245fa5 / #2b68ae | 6.45 / 5.68 |
+| Green | #246957 / #2c7260 | 6.49 / 5.70 |
+| Amber | #78551e / #825e26 | 6.74 / 5.87 |
+| Gray | #555b66 / #5f6570 | 6.83 / 5.86 |
+
+Alternatives use stable white primary-action labels and independently validated
+dark labels on their lighter filled selections. Existing Default exceptions are
+preserved; this feature does not claim that every decorative or disabled element
+satisfies ordinary-text contrast thresholds.
+
+`color-system.js` maintains one replaceable palette sheet per document, including
+marker-only native tooltips and nested owned roots. Rules apply only under host
+Dark and stop at the existing Settings host island. No native aliases are added
+or duplicated. Coordinated alternatives explicitly paint verified dashboard,
+Athena and Daily list roots that were previously transparent. Itacan-created
+prepared Markdown hosts carry `hub-color-page` ownership; native note-editor
+hosts do not. Default and accent-only retain their original backdrop behavior. Sheets persist beyond individual roots and are removed at document
+closure/plugin unload. Native ownership helper signatures are unchanged.
+`mountTransientEffects()` registers cancellation with this controller and releases
+it on destruction; changing colors cancels sampled effects before replacing rules.
+
+### Preference ownership
+
+`services/appearance.js` owns only `<plugin directory>/appearance.json`:
+
+```json
+{"version":1,"paletteId":"default","coordinateInterfaceColors":true}
+```
+
+This is a per-vault plugin preference and follows existing config-folder sync.
+It is not a device-private profile or a multi-process transaction service.
+Startup reads it before Itacan UI initialization; a missing file uses Default
+without writing. Selection applies immediately, then a single queue publishes a
+flushed sibling temporary file through rename and verifies readback. Publication
+errors reconcile exact bytes; latest failed choices roll back to confirmed state.
+External edits are checked before writes and reread on application focus.
+Conflicts disable writes instead of knowingly overwriting external changes.
+
+Unknown IDs render Default without automatically rewriting the file. Corrupt or
+future-version files remain intact; editing is disabled with an explanation.
+Pending writes survive closing Settings. No appearance fields were added to
+`data.json`, application transaction codecs, task stores, or shared project data.
+The inactive transaction infrastructure was deliberately not adopted.
+
+### Dock and installation
+
+The Strict host retains a validated five-color model, gives it a host-owned
+monotonic revision and reapplies it during dock repair. The existing sandboxed
+renderer applies only five CSSOM properties. A color acknowledgment on the existing
+channel precedes initial display. Main-host Light mode sends the dock's existing
+Default dark colors. No Strict permissions, launch actions, guards, or health
+semantics changed; the existing CSP is unchanged.
+
+Use `build-itacan.js --baseline <frozen main.js> --output-dir <staging directory>`.
+It compiles Itacan modules while preserving excluded/opaque factories without
+traversing their source, and generates the explicit dock asset manifest. The
+ordinary builder's asset list also includes the new dock model validator. Do not
+run the full builder as part of this scoped release. Athena's existing ownership
+callback is sufficient; its source and compiled artifacts remain unchanged.
+
+After installing the matching source, stylesheet, bundle and dock asset set,
+restart Obsidian once to load the main-process dock module, which Electron caches
+across ordinary plugin reloads. This is an installation requirement; choosing
+palettes afterwards requires neither a restart nor a plugin reload. Never restart
+to install while relying on an active Strict session. Rollback restores the frozen
+matching artifact set; the separate Appearance file need not be migrated or deleted.
+
+### Verification
+
+Additional commands:
+
+```
+node lib/tests/appearance.test.js
+node lib/tests/color-build.test.js <frozen main.js>
+node lib/tests/run-color-system.cjs color-palettes
+node lib/tests/run-color-system.cjs color-appearance
+node lib/tests/oath-phase5.test.cjs
+```
+
+`dock-colors.cjs` runs with the existing Electron test binary in a hidden,
+sandboxed temporary profile. No real Strict restrictions or permitted applications
+are activated. The native color runner likewise uses its existing disposable vault.
+
+Verified in staging:
+
+- All prior 4,752 + 11,594 + 26,888 Default/Light comparisons pass with their original
+  goldens and reviewed Stage 2 deltas, plus 212 semantic assertions.
+- Ten family/mode contracts pass rendered primary/selection/sidebar contrast,
+  540 geometry checks, nested roots, marker-only tooltips, exact return to Default,
+  Light compatibility, host/island isolation and sampled-effect cancellation.
+- Real pointer and keyboard Appearance interactions pass, including radio focus,
+  Space and pointer toggle, reset, save/reopen/reload, Light messaging and cleanup.
+- Persistence tests cover rapid selection, missing/unknown/corrupt/future files,
+  external conflicts, definitive failures, ambiguous publication and file isolation.
+- Actual native Obsidian: 44 baseline values, six alias checks, 212 semantic checks,
+  30 palette shell/control/portal checks and five real modal primary hover cases pass.
+- Actual sandboxed dock: initial-paint acknowledgment and five color payloads pass
+  under unchanged CSP; invalid payloads reject. Mock-host repair/reload tests pass.
+- Title, wizard and report style ownership pass (24 headers, 384 and 228 comparisons).
+  Progress, 23,100 heatmap geometry cases plus 70 weekday cases, eight native-DPR
+  raster configurations/two DPR transitions, task date/location and roadmap pass.
+- Prepared page ownership passes the actual frame/rail fixture and 32 Home/workspace
+  transition scenarios, including first-frame width, abort/cleanup and delayed closes.
+
+Two legacy fixtures remain broken on both frozen and changed sources:
+`form-consistency.html` calls retired `task.mountTaskForm`; `editor-save-validation.html`
+has an unresolved color-system dependency in its tooltip bootstrap. They are not
+reported as passing and were not repaired as part of this feature. Older verification
+notes above also record the unrelated unified-progress listener failure.
+
+These targeted galleries and native probes do not constitute a complete manual tour
+of every production screen. Alternative palette artwork/branding, external services,
+native note leaves, calendar-source identities and excluded integration content remain
+outside color authority. No production user data or preferences were changed during
+verification.
+
+## Coordinated dashboard surroundings and bottom bar
+
+The limited follow-up correction extends existing coordinated Dark colors to the
+empty margins and space beneath actual Home, Project and Resource dashboards,
+and to the adopted bottom bar's background and top border. It adds no palettes,
+preferences, tab/header styling, note association or split-pane management.
+
+`dashboard-frame.js` accepts an optional `{app, sourcePath}` page proof. Home only
+supplies its canonical page path; Project/Resource supply the validated hub page's
+path. A real rendered frame, its preview ancestor, and the matching containing
+native Markdown view are required. Merely matching a filename or workspace context
+is insufficient. Prepared routes require the existing explicit owned wrapper and
+prepared component identity. Embedded dashboards in other notes do not qualify.
+Proof is checked at pre-paint layout and on native file-open notifications. The
+component and color-root disposal paths both release its notification and marker.
+
+`color-system.js` uses one hidden contract reference per document to resolve the
+existing semantic page/panel/border roles. Its existing palette sheet emits only
+background-color and border-top-color rules for the additional surfaces. Native
+Markdown rules require data-mode=preview and positive dashboard proof; prepared
+rules require the two known prepared view types. The full-width view-content and
+containing reading/preview wrappers paint the page color. No native ancestor gains
+the full color bridge, text overrides or tooltip ownership. Host islands are
+excluded. Removing the frame or changing mode/type immediately stops the selector
+from painting; unloading removes the document sheet/reference and page proof.
+
+The existing hub-oath-statusbar adoption class is sufficient for the footer;
+there is no replacement bar or new footer manager. Only its background and top
+border use coordinated panel/border colors. Native status foregrounds, warnings,
+errors, controls, geometry, ordering and interactions retain their existing owners.
+Default, accent-only and Light rendering receive no additional paint rules.
+
+Verification commands:
+
+```
+node lib/tests/run-color-system.cjs color-backgrounds
+node lib/tests/run-color-native.cjs
+node lib/tests/run-browser-test.js prepared-note-rail
+node lib/tests/run-browser-test.js note-home-atomic
+node lib/tests/run-browser-test.js home-scroll
+node lib/tests/run-browser-test.js modal-footers
+```
+
+The new browser fixture passes 1,476 checks across Home/Project/Resource,
+ordinary/prepared routes, narrow/wide panes and all ten family/coordination
+combinations. It samples paint through elementFromPoint outside the centered
+root, including bottom gaps and scrolled margins, and compares geometry and
+native header/tab/editor/status sentinels. It also tests source mode, embedded and
+unknown views, leaf repurposing, new/closed views, host islands, Light and unload.
+An exact screenshot comparison changes 431,011 pixels in the intended gaps/footer
+and zero pixels outside those allowed regions, including zero inside the dashboard.
+
+The actual isolated Obsidian probe adds 423 native background/footer/isolation
+checks, including source editors, unchanged native tabs/headers and status warning/
+error colors. Existing 44 native comparisons, six alias comparisons, 212 semantic
+checks, 30 palette checks, native popups and five modal hover cases also pass.
+The previous 4,752 + 11,594 + 26,888 Default/Light comparisons and palette/Appearance
+fixtures pass without golden changes. Prepared lifecycle, 32 atomic Home/workspace
+transitions, Home scrolling, 60 footer checks, six Oath cases, Settings, persistence
+and progress/heatmap geometry tests pass. No new unrelated failures were encountered;
+the legacy fixture limitations recorded in Stage 3 remain outside this correction.
+
+Source-loaded Home/Project scripts and the matching Hub bundle must be delivered
+together. Refresh/reopen current dashboards after loading the updated plugin.
+Subsequent palette switching remains immediate. No dock or Athena rebuild is
+needed; their sources/assets and excluded integration artifacts remain unchanged.

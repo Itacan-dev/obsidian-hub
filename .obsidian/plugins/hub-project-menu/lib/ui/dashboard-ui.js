@@ -225,7 +225,7 @@ function createDashboardUi({
 
 
     return Object.freeze({
-        createFrame: (container, component, className) => require("./dashboard-frame").createDashboardFrame(container, component, className),
+        createFrame: (container, component, className, page) => require("./dashboard-frame").createDashboardFrame(container, component, className, page),
         el,
         historyHeading,
         makeActionableRow: require("./row-activation").makeActionableRow,

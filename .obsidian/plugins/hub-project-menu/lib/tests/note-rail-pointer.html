@@ -1,0 +1,51 @@
+<!doctype html><meta charset="utf-8"><title>Note rail pointer capture</title>
+<link rel="stylesheet" href="../../styles.css">
+<style>
+*{box-sizing:border-box}body{margin:0;font:14px system-ui;background:#222;color:#ddd;--background-primary:#222;--background-secondary:#333;--background-modifier-border:#555;--divider-width:1px;--divider-width-hover:2px;--divider-color:#666;--divider-color-hover:purple}
+.workspace-split{display:flex;width:800px;height:350px}.workspace-tabs{overflow:hidden}.document{flex:1;min-width:0}.document iframe{width:100%;height:100%;border:0}.hub-rail-toggle{background:#555;color:white}.content{padding:12px}#result{white-space:pre-wrap}
+</style>
+<div class="workspace-split mod-root hub-project-note-layout"><section class="workspace-tabs hub-project-rail-pane"><div class="content">Folders and tasks</div></section><div class="document"><iframe srcdoc="<body style='background:#ddd'>PDF/web pane input boundary</body>"></iframe></div></div><pre id="result">RUNNING</pre>
+<script type="module">
+const check=(ok,message)=>{if(!ok)throw Error(message)}, frame=()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+const stub={ownColorRoot(){},setHubTooltip(){},setIcon(e){e.textContent='☰'}};
+const module={exports:{}};
+new Function('module','require',await(await fetch('../ui/note-rail.js')).text())(module,()=>stub);
+const root=document.querySelector('.mod-root'),pane=root.querySelector('section');
+let commits=0, last, changes=0;
+let control=module.exports.mountNoteRail(pane,'full',(state,width)=>{last={state,width};changes++},{width:350,onCommit(){commits++}});
+const edge=root.querySelector('.hub-rail-resizer'),button=root.querySelector('.hub-rail-toggle');
+const width=()=>pane.getBoundingClientRect().width,near=(n,m)=>check(Math.abs(width()-n)<1,m+' ('+width()+')');
+const pointer=(x,y,action)=>new Promise(resolve=>{window.hubTestPointerDone=resolve;window.hubTestPointerRequest={x,y,action}});
+const center=e=>{const r=e.getBoundingClientRect();return{x:r.x+r.width/2,y:r.y+r.height/2}};
+const click=async e=>{const p=center(e);await pointer(p.x,p.y,'click')};
+const trace=[];window.addEventListener('blur',()=>trace.push(['blur']));window.addEventListener('resize',()=>trace.push(['resize']));for(const type of ['pointerdown','pointermove','pointerup','gotpointercapture','lostpointercapture'])document.addEventListener(type,e=>trace.push([type,e.target.className,e.clientX,e.buttons,e.pointerId]),true);
+try{
+ await frame();near(350,'Initial remembered width');check(commits===0,'Mount does not write migration');
+ const origin=center(edge);await pointer(origin.x,150,'down');
+ await pointer(origin.x-20,150,'move');near(330,'Physical intermediate width');
+ await pointer(origin.x-150,150,'move');near(200,'Physical custom width below half');
+ check(commits===0&&changes>=3,'Dragging changes layout without disk commits');
+ await pointer(origin.x-180,150,'move');near(170,'Physical minimum');
+ await pointer(origin.x-210,150,'move');near(0,'Physical collapse');
+ check(edge.hasPointerCapture(1),'Capture survives zero width');
+ await pointer(origin.x-191,150,'move');near(0,'Physical hysteresis');
+ await pointer(origin.x-190,150,'move');near(170,'Captured drag reverses across iframe');
+ await pointer(origin.x-50,150,'move');near(300,'Reopened drag continuous');
+ await pointer(origin.x-50,150,'up');check(commits===1,'Commit only on release');
+ await click(button);near(0,'Physical close button');await click(button);near(300,'Physical open button restores');
+ const start=center(edge);await pointer(start.x,150,'down');await pointer(start.x-170,150,'move');near(0,'Collapse with release');await pointer(start.x-170,150,'up');
+ check(last.width===300,'Direct drag collapse remembers visible width');
+ const closed=center(edge);await pointer(closed.x,150,'down');await pointer(closed.x+200,150,'move');near(200,'Physical fresh drag from collapsed handle');await pointer(closed.x+200,150,'up');
+ await click(button);await click(button);near(200,'Fresh drag width remembered');
+ const larger=center(edge);await pointer(larger.x,150,'down');await pointer(larger.x+150,150,'move');await pointer(larger.x+150,150,'up');near(350,'Set width for resize');
+ const active=center(edge);await pointer(active.x,150,'down');
+ root.style.width='400px';await frame();near(230,'Window constraint');check(last.width===350,'Resize preserves preferred width');check(!edge.hasPointerCapture(1),'Resize releases capture');
+ await pointer(active.x+10,150,'move');near(230,'Interrupted pointer movement ignored');await pointer(active.x+10,150,'up');
+ await click(button);near(0,'Constrained close');await click(button);near(230,'Constrained reopen');check(last.width===350,'Constrained toggle preserves preference');
+ root.style.width='800px';await frame();near(350,'Wider window restores preference');
+ const lost=center(edge);await pointer(lost.x,150,'down');await pointer(lost.x-10,150,'move');edge.releasePointerCapture(1);await pointer(lost.x-20,150,'move');near(340,'Lost capture keeps last width');await pointer(lost.x-20,150,'up');
+ const saved=control.getSnapshot();control.destroy();check(!root.querySelector('.hub-rail-overlay'),'Overlay removed');
+ control=module.exports.mountNoteRail(pane,'closed',()=>{},{width:saved.width});await frame();near(0,'Recreated closed rail');await click(root.querySelector('.hub-rail-toggle'));near(340,'Recreated rail restores last width');
+ result.textContent='PASS: real Chromium pointer capture, iframe crossing, continuous widths, thresholds, closed handle/button hit tests, release commits, lost capture, resize interruption and remembered width.';
+}catch(e){result.textContent='FAIL: '+e.message+'\n'+e.stack+'\n'+JSON.stringify(trace)}
+</script>

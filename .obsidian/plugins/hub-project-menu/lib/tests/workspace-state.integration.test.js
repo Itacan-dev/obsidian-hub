@@ -93,6 +93,8 @@ async function run() {
         const context = { projectId: "p", path: "Projects/Test/Test.md", root: "Projects/Test" };
         modes.mode = { project: context, projectLeaf: {} };
         modes.noteRailState = "half";
+        modes.noteRailWidth = 307;
+        modes.state.noteRail = { state: "closed", width: 307 };
         modes.usableContentLeaves = () => [{}];
         modes.leafElement = () => null;
         modes.app.workspace = { getLayout: () => clone(layout) };
@@ -105,6 +107,9 @@ async function run() {
         plugin = await boot();
         presets = new HubPresets(plugin.workspaceModes);
         assert.deepEqual(presets.items[1], created, "Complete snapshot survives plugin reload on a clean device");
+        assert.equal(created.railWidth, 307, "Preset stores custom open width");
+        assert.equal(plugin.workspaceModes.noteRailState, "closed", "Closed state survives restart");
+        assert.equal(plugin.workspaceModes.noteRailWidth, 307, "Restart retains remembered open width separately");
         presets.rename(created.id, "Renamed");
         await plugin.workspaceState.pending;
         assert.equal((await disk()).workspaceMode.presets[1].name, "Renamed");

@@ -316,6 +316,7 @@ function mountTaskSteps({ host: steps, state, onChange = () => {}, emptyPrompt =
     });
     refreshReadiness();
     return { refresh: renderSteps, refreshReadiness, commitPending, list, draftInput, add,
+        restorePending(value) { if (!draft || !value) return; draft.hidden = false; draftInput.value = value.text ?? ""; draftCheckbox.checked = !!value.completed; refreshReadiness(); onChange({ steps: state.steps }); },
         get controls() { return [...editors, ...(draftInput ? [draftInput] : [])]; },
         get hasPending() { return !!draft && !draft.hidden; }, get pendingCompleted() { return !!draftCheckbox?.checked; },
         get meaningfulPending() { return meaningfulPending(); },

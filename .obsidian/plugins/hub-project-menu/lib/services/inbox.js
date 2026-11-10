@@ -51,15 +51,15 @@ class HubInboxService {
             throw error;
         }
     }); }
-    get(id) { return this.captures.find(capture => capture.id === id) ?? null; }
+    get(id) { return this.captures.find(capture => capture.id === id) ?? (id && this.currentQuickDraft?.id === id ? this.currentQuickDraft : null); }
     onChange(callback) { this.listeners.add(callback); return () => this.listeners.delete(callback); }
-    destroy() { this.listeners.clear(); this.noteEvents.forEach(ref => this.app.vault.offref(ref)); this.noteCache.clear(); this.noteRevisions.clear(); }
+    destroy() { this.destroyed = true; this.captureAction?.close(); this.listeners.clear(); this.noteEvents.forEach(ref => this.app.vault.offref(ref)); this.noteCache.clear(); this.noteRevisions.clear(); }
     emit() { for (const callback of this.listeners) { try { callback(); } catch (error) { console.error("Could not refresh Inbox", error); } } }
     enqueue(work) { const result = this.queue.catch(() => {}).then(work); this.queue = result; return result; }
-    async save(captures) {
+    async save(captures, patch = {}) {
         await this.plugin.dataStore.writeQueue?.catch(() => {});
         const data = this.plugin.projectWizard.data, previous = data.inbox;
-        const next = { ...this.state, version: INBOX_VERSION, captures };
+        const next = { ...this.state, ...patch, version: INBOX_VERSION, captures };
         data.inbox = next;
         try { await this.plugin.dataStore.save(data); this.plugin.projectWizard.data.inbox = next; }
         catch (error) {
@@ -68,7 +68,12 @@ class HubInboxService {
         }
         this.emit();
     }
-    async replace(capture) { await this.save(this.captures.map(item => item.id === capture.id ? capture : item)); return capture; }
+    async replace(capture) {
+        if (capture.id === this.currentQuickDraft?.id) {
+            await this.save(this.captures, { quickAddDraft: capture }); this.draftSession = clone(capture);
+        } else await this.save(this.captures.map(item => item.id === capture.id ? capture : item));
+        return capture;
+    }
     capture(values) { return this.enqueue(() => this.createCapture(values)); }
     async createCapture(values = {}) {
         const text = String(values.text ?? values.taskTitle ?? ""), attachments = values.attachments ?? [], source = values.source ?? {};
@@ -90,7 +95,7 @@ class HubInboxService {
                 throw Error("Retry this item's saved operation before editing its content or attachments.");
             }
             if (previous.operation.kind === "native-task") { require("./native-inbox-task").sameValues(previous.operation,values); }
-            else if (previous.operation.kind === "note-insertion") {            } else if (previous.operation.kind === "note-insertion") {
+            else if (previous.operation.kind === "note-insertion") {
                 this.assertNoteInsertionValues(previous.operation, values);
             } else if (previous.operation.state === "ready" && this.changedFileDestination(previous.operation, values)) {
                 throw Error("This item was already saved to its selected destination. Retry to finish removing it from Inbox.");
@@ -105,6 +110,7 @@ class HubInboxService {
         const actionDrafts = {...previous.actionDrafts};
         if(previous.intent?.type && previous.intent.type !== intent?.type) actionDrafts[previous.intent.type] = clone(previous.intent);
         if(Object.keys(actionDrafts).length && intent?.type) actionDrafts[intent.type] = clone(intent);
+        if (["task", "note", "text", "file"].includes(values.actionMode)) actionDrafts[values.actionMode] = clone(intent ?? {});
         const result = { ...previous, ...(Object.keys(actionDrafts).length?{actionDrafts}:{}), text, attachments, kind: captureKind(text, attachments), source: sourceMetadata(values.source ?? previous.source) };
         if (intent) result.intent = intent; else delete result.intent;
         if (JSON.stringify(result) === JSON.stringify(previous)) return previous;
@@ -119,6 +125,13 @@ class HubInboxService {
         const previous = capture.operation?.input ?? this.input(capture, {});
         if (JSON.stringify(this.input(capture, values)) !== JSON.stringify(previous)) {
             throw Error("This item has a saved action to retry. Retry its original content and files; keep any new content in a separate item.");
+        }
+    }
+    assertNoteInsertionValues(operation, values) {
+        if ((values.workspaceId !== undefined && values.workspaceId !== operation.workspaceId) ||
+            (values.noteAction !== undefined && values.noteAction !== "existing") ||
+            (values.noteLocation !== undefined && JSON.stringify(noteLocation(values.noteLocation)) !== JSON.stringify(noteLocation(operation.noteLocation)))) {
+            throw Error("Retry the original note and position before changing this item's destination.");
         }
     }
     changedFileDestination(operation, values) {
@@ -270,7 +283,7 @@ class HubInboxService {
     }
     attachmentPath(ref) {
         if (this.app.vault.getAbstractFileByPath(ref?.path)) return ref.path;
-        for (const capture of this.captures) {
+        for (const capture of [...this.captures, this.currentQuickDraft].filter(Boolean)) {
             const move = capture.operation?.moves?.find(item => item.from === ref?.path);
             if (move && this.app.vault.getAbstractFileByPath(move.to)) return move.to;
         }
@@ -307,36 +320,41 @@ class HubInboxService {
         const path = relative.replace(/\\/g, "/"), file = this.app.vault.getAbstractFileByPath(path);
         return file && !isFolderLike(file) ? file : null;
     }
-    stageFiles(sources) { return this.enqueue(async () => {
+    stageFiles(sources, checkpoint) { return this.enqueue(async () => {
         const refs = [], imported = [], folder = INBOX_ATTACHMENT_ROOT + "/" + randomUUID();
         try {
             for (const source of Array.from(sources ?? [])) {
                 if (!source || typeof source.arrayBuffer !== "function") throw Error("Drop files or images, rather than a folder.");
                 const name = String(source.name ?? "").trim();
-                if (!name || /[\\/:*?\"<>|]/.test(name) || name === "." || name === "..") throw Error("An attachment has an invalid filename. Rename it before importing.");
+                if (!name || /[\\/:*?"<>|\u0000-\u001f]/.test(name) || /[. ]$/.test(name) || /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(name) || name === "." || name === "..") throw Error("An attachment has an invalid filename. Rename it before importing.");
                 const sourcePath = this.sourcePath(source), existing = this.vaultSource(source, sourcePath);
                 if (existing) {
                     refs.push({ id: randomUUID(), path: existing.path, name: existing.name || name, ownership: "reference", size: Number(source.size) || existing.stat?.size || 0, mime: source.type || "", originalPath: existing.path });
+                    if (checkpoint) await checkpoint([...refs]);
                     continue;
                 }
                 await this.ensureFolder(folder);
                 const path = this.files.availableExternalFilePath(folder, name);
+                const ref = { id: randomUUID(), path, name, ownership: "inbox", size: Number(source.size) || 0,
+                    mime: source.type || "", ...(sourcePath ? { originalPath: sourcePath } : {}) };
+                // Journal the planned vault path before copying bytes. A crash can
+                // leave a missing-file reference, never an undiscoverable draft copy.
+                if (checkpoint) await checkpoint([...refs, ref]);
                 // Keep Markdown text and other bytes on the same native import paths as Files.
                 const file = /\.md$/i.test(name) && typeof source.text === "function" ?
                     await this.app.vault.create(path, await source.text()) : await this.app.vault.createBinary(path, await source.arrayBuffer());
                 imported.push(file);
-                refs.push({ id: randomUUID(), path, name, ownership: "inbox", size: Number(source.size) || file.stat?.size || 0,
-                    mime: source.type || "", ...(sourcePath ? { originalPath: sourcePath } : {}) });
+                refs.push(ref);
             }
             return refs;
         } catch (error) {
-            for (const file of imported) { try { await this.app.vault.delete(file); } catch (_) { /* Preserve a failed-cleanup copy rather than its original. */ } }
+            if (!checkpoint) for (const file of imported) { try { await this.app.vault.delete(file); } catch (_) { /* Preserve a failed-cleanup copy rather than its original. */ } }
             throw error;
         }
     }); }
     async releaseAttachments(refs) {
         for (const ref of refs ?? []) {
-            if (!isInboxOwned(ref) || this.captures.some(capture => capture.attachments?.some(item => item.path === ref.path))) continue;
+            if (!isInboxOwned(ref) || [...this.captures, this.currentQuickDraft].filter(Boolean).some(capture => capture.attachments?.some(item => item.path === ref.path) || capture.operation?.moves?.some(move => move.from === ref.path || move.to === ref.path))) continue;
             const file = this.app.vault.getAbstractFileByPath(ref.path);
             if (file && !isFolderLike(file)) { try { await this.app.vault.delete(file); } catch (error) { console.warn("Could not remove unused Inbox copy", error); } }
         }
@@ -390,7 +408,7 @@ class HubInboxService {
                 mime: ref.mime, hash: digest(await this.app.vault.readBinary(file)) });
         }
         const source = capture.source ?? {}, operationId = randomUUID();
-        const needsNote = kind === "note" || !!capture.text.trim() || !!(source.url || source.pageUrl || source.path || source.workspaceName);
+        const needsNote = kind === "note" || !!capture.text.trim() || (!values.filesOnly && !!(source.url || source.pageUrl || source.path || source.workspaceName));
         let note = null;
         if (needsNote) {
             const proposed = projectItemPath(folder, "note", values.title || (kind === "files" ? "Captured files" : "Untitled"));
@@ -460,13 +478,18 @@ class HubInboxService {
     }
     async finish(capture) {
         const moves = capture.operation?.state === "ready" ? capture.operation.moves ?? [] : [];
-        await this.save(this.captures.filter(item => item.id !== capture.id).map(other => {
+        const quick = this.currentQuickDraft, isQuick = quick?.id === capture.id;
+        const remap = other => {
             const attachments = other.attachments.map(ref => {
                 const move = moves.find(item => item.from === ref.path);
                 return move ? { ...ref, path: move.to, ownership: "reference" } : ref;
             });
             return { ...other, attachments };
-        }));
+        };
+        await this.save(this.captures.filter(item => item.id !== capture.id).map(remap),
+            isQuick ? { quickAddDraft: null } : quick ? { quickAddDraft: remap(quick) } : {});
+        if (isQuick) this.draftSession = this.newQuickDraft(capture.source);
+        else if (quick) this.draftSession = remap(quick);
         await this.releaseAttachments(capture.attachments);
     }
     createNote(values, captureId) { return this.enqueue(() => {
@@ -603,4 +626,5 @@ class HubInboxService {
     makeTask(values, captureId, attempt) { return this.enqueue(()=>require("./native-inbox-task").submit(this,values,captureId,attempt)); }
 }
 
+Object.defineProperties(HubInboxService.prototype, Object.getOwnPropertyDescriptors(require("./quick-add-draft")));
 module.exports = { HubInboxService };

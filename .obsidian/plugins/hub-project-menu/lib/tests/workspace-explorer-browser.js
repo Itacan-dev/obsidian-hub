@@ -29,7 +29,7 @@ const runtimeErrors = [];
 window.onerror = (message, source, line, column, error) => runtimeErrors.push(error?.stack ?? message);
 window.addEventListener("unhandledrejection", event => runtimeErrors.push(String(event.reason?.stack ?? event.reason)));
 window.onload = async () => { try {
-    const names = ["domain/dates", "domain/files", "domain/workspace-explorer", "ui/file-icons", "ui/icons", "ui/workspace-explorer", "ui/note-rail", "ui/tooltips"];
+    const names = ["ui/color-system", "domain/dates", "domain/files", "domain/workspace-explorer", "ui/file-icons", "ui/icons", "ui/workspace-explorer", "ui/note-rail", "ui/tooltips"];
     const sources = Object.fromEntries(await Promise.all(names.map(async name => [name, await (await fetch("../" + name + ".js")).text()]))), cache = {};
     function load(name) {
         if (name === "obsidian") return { setIcon, getIcon };
@@ -284,7 +284,7 @@ window.onload = async () => { try {
         assert(getComputedStyle(root.querySelector(".hub-explorer-details")).display === "none", "Note-view has no details table");
         checkTreeSpacing();
     }
-    host.querySelector(".hub-rail-toggle").click(); host.style.width = "230px"; await settle();
+    host.parentElement.querySelector(".hub-rail-resizer").dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true })); host.style.width = "230px"; await settle();
     assert(host.dataset.hubRailState === "half", "Existing half state");
     assert(getComputedStyle(root.querySelector(".hub-explorer-search")).display !== "none", "Half state retains the same search field");
     assert(root.querySelector(".hub-explorer-search-input") === visibleSearch, "Resizing keeps the same search input and query state");
@@ -293,8 +293,8 @@ window.onload = async () => { try {
     checkTreeSpacing();
     assert(root.scrollWidth <= root.clientWidth + 1, "No sidebar horizontal overflow");
     const expansion = treeItem(math).getAttribute("aria-expanded");
-    host.querySelector(".hub-rail-toggle").click(); await settle(); assert(host.dataset.hubRailState === "closed", "Existing hidden state");
-    host.querySelector(".hub-rail-toggle").click(); await settle(); assert(treeItem(math).getAttribute("aria-expanded") === expansion, "Expansion survives half/hidden/restored state");
+    host.parentElement.querySelector(".hub-rail-toggle").click(); await settle(); assert(host.dataset.hubRailState === "closed", "Existing hidden state");
+    host.parentElement.querySelector(".hub-rail-toggle").click(); await settle(); assert(treeItem(math).getAttribute("aria-expanded") === expansion, "Expansion survives half/hidden/restored state");
     rail.destroy(); host.classList.remove("hub-project-rail", "hub-project-rail-pane"); host.style.width = "1000px";
     add("Resources/Literature"); add("Resources/Literature/Knowledge.md", false);
     mount("empty"); await settle();

@@ -6,6 +6,7 @@ const ownerKey = Symbol.for("itacan.strict-oath.window-owner");
 function createStrictHost(win, options = {}) {
     const desktop = options.desktop ?? require("electron");
     const makeDock = options.makeDock ?? require("./oath-dock").createOathDock;
+    let colors = null, colorRevision = 0;
     let saved = null, pendingRestore = null, guarded = false, lastRestore = 0, dock = null;
     let dockConfig = null, opening = null, epoch = 0, lastRepair = -Infinity, lost = null, releasing = null;
     const full = win.setFullScreen, kiosk = win.setKiosk, contents = win.webContents;
@@ -27,8 +28,9 @@ function createStrictHost(win, options = {}) {
         dockConfig = { policy, actions }; const generation = epoch;
         dock?.dispose(); dock = null; delete identity.dockHandle;
         const work = (async () => {
-            const created = await makeDock(win, policy, actions);
+            const created = await makeDock(win, policy, actions, colors);
             if (!guarded || epoch !== generation) { created.dispose(); throw Error("Strict preparation was released."); }
+            if (colors) created.setColors?.(colors);
             dock = created; identity.dockHandle = created.win.getNativeWindowHandle().readBigUInt64LE().toString();
             created.win.once("closed", () => { if (dock === created) delete identity.dockHandle; });
         })();
@@ -95,6 +97,10 @@ function createStrictHost(win, options = {}) {
             return result.canceled ? null : result.filePaths[0];
         },
         openDock,
+        setColors(payload) {
+            const value = require("../domain/oath-dock-colors").validateDockColors(payload);
+            colors = { ...value, revision: ++colorRevision }; dock?.setColors?.(colors);
+        },
         updateDock: health => dock?.update(health),
         async enter() {
             if (pendingRestore) throw Error("Restore the previous window state in Settings → The Oath before starting another Strict Oath.");

@@ -19,8 +19,9 @@ class ItemView extends Component{
  async setState(){}
 }
 const frames={exports:{}},rails={exports:{}};
-new Function('module','require',await(await fetch('../ui/dashboard-frame.js')).text())(frames,()=>({refreshHeaderImages(){}}));
-new Function('module','require',await(await fetch('../ui/prepared-note-rail.js')).text())(rails,()=>({Component,ItemView}));
+const fixtureColors={exports:{}};new Function('module','exports',await(await fetch('../ui/color-system.js')).text())(fixtureColors,fixtureColors.exports);
+new Function('module','require',await(await fetch('../ui/dashboard-frame.js')).text())(frames,()=>({refreshHeaderImages(){},ownColorRoot(){return()=>{}}}));
+new Function('module','require',await(await fetch('../ui/prepared-note-rail.js')).text())(rails,n=>n==='./color-system'?fixtureColors.exports:({Component,ItemView}));
 let factory,renders=0,secondary=0,assetReads=0,activeRail;
 const shell=document.querySelector('.workspace');
 const code=`

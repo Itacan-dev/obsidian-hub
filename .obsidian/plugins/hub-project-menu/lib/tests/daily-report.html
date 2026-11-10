@@ -55,7 +55,7 @@ new Function('module','require',await(await fetch('../ui/workspace-thumbnail.js'
 new Function('module','require',await(await fetch('../ui/report-workspace-header.js')).text())(workspaceHeader,()=>thumbnail.exports);
 const ui=await load('ui','../ui/daily-report.js',n=>n==='./report-workspace-header'?workspaceHeader.exports:n==='./window-title'?windowTitle:n==='obsidian'?native:n==='./icons'?icons:n==='./markdown'?markdown:n==='./dashboard-ui'?dashboard:n.includes('dates')?dates:domain);
 const config=await load('config','../config.js'),tooltips=await load('tooltips','../ui/tooltips.js');
-const attention={exports:{}};new Function('module',await(await fetch('../ui/attention.js')).text())(attention);
+const attention={exports:{}};new Function('module','require',await(await fetch('../ui/attention.js')).text())(attention,()=>__colors.exports);
 const focusRestore={exports:{}};new Function('module',await(await fetch('../ui/focus-restoration.js')).text())(focusRestore);
 const source=await(await fetch('../../plugin.js')).text();
 const code='const {ownModalColors,ownMenuColors,ownNoticeColors}=globalThis.__hubFixtureColors;\n'+source.slice(source.indexOf('class FocusListEditor'),source.indexOf('class ProjectWizardModal'));

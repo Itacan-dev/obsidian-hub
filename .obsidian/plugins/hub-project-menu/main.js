@@ -7595,12 +7595,22 @@ function sortedCaptures(captures, { filter = "all", sort = "newest", completion 
 
 function taskTitle(text) { return String(text ?? "").trim().split(/\r?\n/).find(line => line.trim())?.trim() ?? ""; }
 
+const firstLine = text => String(text ?? "").split(/\r?\n/).find(line => line.trim())?.trim() ?? "";
+function noteTitle(draft) {
+    const proposed = firstLine(draft.text) || String(draft.attachments?.[0]?.name ?? "").replace(/\.[^./\\]+$/, "");
+    const title = proposed.replace(/[\\/:*?"<>|\u0000-\u001f]/g, " ").replace(/\s+/g, " ").trim().slice(0, 120).replace(/[. ]+$/, "") || "Untitled";
+    projectItemPath("", "note", title);
+    return title;
+}
+
 function captureNoteTitle(value) {
     const raw = String(value ?? ""), title = raw.trim();
     if (!title) throw Error("Enter a note title.");
     if (/[\r\n\u0000-\u001f]/.test(raw) || /^\.{1,2}(?:\.md)?$/i.test(title)) {
         throw Error("Enter a valid note title.");
     }
+    const filename = title.replace(/\.md$/i, "");
+    if (/[. ]$/.test(filename) || /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(filename)) throw Error("Enter a valid note title.");
     projectItemPath("", "note", title);
     return title;
 }
@@ -7609,10 +7619,10 @@ function captureNoteTitle(value) {
 // keeps the decisions that can be resumed in the existing creation forms.
 function captureIntent(values = {}, attachments = []) {
     const input = { ...(values.intent ?? {}), ...values };
-    const type = attachments.length ? (["task", "note", "file"].includes(input.type) || input.workspaceId || input.folder ? "file" : null) : ["task", "note"].includes(input.type) ? input.type : null;
+    const type = attachments.length ? (input.type === "note" && input.noteAction !== "existing" ? "note" : (["task", "note", "file"].includes(input.type) || input.workspaceId || input.folder ? "file" : null)) : ["task", "note"].includes(input.type) ? input.type : null;
     if (!type) return null;
     const intent = { inputPath: attachments.length ? "file" : "text", type };
-    const keys = type === "task" ? ["workspaceId", "nativeLocation", "taskTitle", "description", "necessity", "fromDate", "dueDate", "fromTime", "dueTime", "phaseId"] :
+    const keys = type === "task" ? ["workspaceId", "nativeLocation", "nativeLocationType", "taskTitle", "description", "necessity", "fromDate", "dueDate", "fromTime", "dueTime", "phaseId"] :
         type === "note" ? ["workspaceId", "folder", "title"] : ["workspaceId", "folder"];
     for (const key of keys) {
         if (typeof input[key] === "string" || input[key] === null) intent[key] = input[key];
@@ -7623,10 +7633,12 @@ function captureIntent(values = {}, attachments = []) {
         if (location || input.noteLocation === null) intent.noteLocation = location;
     }
     if(type === "task") { if(typeof input.completed === "boolean") intent.completed=input.completed; if(Object.hasOwn(input,"completedAt") && (input.completedAt===null || typeof input.completedAt==="number")) intent.completedAt=input.completedAt; }
+    if (type === "task") for (const key of ["recurrence", "recurrenceDraft"]) if (input[key]) intent[key] = JSON.parse(JSON.stringify(input[key]));
+    if (type === "task" && input.pendingStep) intent.pendingStep = { text: String(input.pendingStep.text ?? ""), completed: !!input.pendingStep.completed };
     if (type === "task" && Array.isArray(input.steps)) {
         intent.steps = input.steps.map(step => {
             const result = {};
-            for (const key of ["id", "text", "completed", "completedAt"]) {
+            for (const key of ["id", "text", "completed", "completedAt", "parentStepId"]) {
                 if (["string", "number", "boolean"].includes(typeof step?.[key]) || step?.[key] === null) result[key] = step[key];
             }
             return result;
@@ -7658,7 +7670,7 @@ function captureDraft(capture = {}, type = null) {
 }
 
 module.exports = { INBOX_VERSION, INBOX_ATTACHMENT_ROOT, linkFromText, isInboxOwned, captureKind,
-    capturePreview, sourceMetadata, attachmentReference, sortedCaptures, taskTitle, captureIntent, captureDraft, captureNoteTitle,
+    capturePreview, sourceMetadata, attachmentReference, sortedCaptures, taskTitle, captureIntent, captureDraft, captureNoteTitle, noteTitle,
     INBOX_SORTS, inboxSort, inboxCounts, inboxItemType };
 
 },
@@ -9921,6 +9933,94 @@ class YouTubeProvider extends MusicProvider {
 module.exports = { YouTubeProvider };
 
 },
+"lib/services/appearance.js": function (module, exports, __hubRequire) {
+"use strict";
+const fs = require("fs").promises, path = require("path"), { randomUUID } = require("crypto");
+const { DEFAULT_PREFERENCES, DEFAULT_DOCK, normalizePreferences, resolvePalette } = __hubRequire("lib/ui/color-palettes.js");
+// Appearance owns only this file. Never save plugin data or shared project snapshots.
+class AppearanceService {
+    constructor({ file, colors = __hubRequire("lib/ui/color-system.js"), io = fs, onError = () => {} }) {
+        this.file=file; this.colors=colors; this.io=io; this.onError=onError;
+        this.value={...DEFAULT_PREFERENCES}; this.confirmed=this.value; this.diskRaw=null;
+        this.listeners=new Set(); this.documents=new Map(); this.queue=Promise.resolve();
+        this.sequence=0; this.pending=0; this.available=!!file; this.error=""; this.closed=false; this.dock=null;
+    }
+    snapshot() { return { ...this.value, available:this.available && !this.closed, pending:this.pending>0, error:this.error }; }
+    subscribe(listener) { this.listeners.add(listener); listener(this.snapshot()); return () => this.listeners.delete(listener); }
+    emit() { for(const listener of this.listeners) listener(this.snapshot()); }
+    async read() { try { return await this.io.readFile(this.file,"utf8"); } catch(error) { if(error.code==="ENOENT") return null; throw error; } }
+    decode(raw) {
+        if(raw===null) return {...DEFAULT_PREFERENCES};
+        const data=JSON.parse(raw); if(!data || Array.isArray(data)) throw Error("Invalid Appearance preferences");
+        return normalizePreferences(data);
+    }
+    async initialize() {
+        if(this.file) try { const raw=await this.read(); this.value=this.decode(raw); this.confirmed=this.value; this.diskRaw=raw; }
+        catch(error) { this.available=false; this.error="Saved colors could not be read. The preference file was preserved."; }
+        else this.error="Color preferences are unavailable in this environment.";
+        this.apply(); return this;
+    }
+    apply() { if(this.closed) return; this.contract=resolvePalette(this.value); this.revision=this.colors.applyResolvedColors(this.contract); this.updateDock(); this.emit(); }
+    attachDocument(doc) {
+        if(this.documents.has(doc)) return;
+        this.colors.attachColorDocument(doc);
+        const focus=()=>{ void this.refresh(); }, mode=()=>{ this.updateDock(); this.emit(); };
+        const dispose=()=>{ doc.defaultView.removeEventListener("focus",focus); doc.removeEventListener("hub-color-mode-change",mode); doc.defaultView.removeEventListener("pagehide",dispose); this.documents.delete(doc); };
+        doc.defaultView.addEventListener("focus",focus); doc.addEventListener("hub-color-mode-change",mode); doc.defaultView.addEventListener("pagehide",dispose);
+        this.documents.set(doc,dispose);
+    }
+    connectDock(setColors, doc) { this.dock={setColors,doc}; this.updateDock(); }
+    updateDock() {
+        if(!this.dock) return;
+        const dock=this.dock.doc.body.classList.contains("theme-dark") ? this.contract.dock : DEFAULT_DOCK;
+        try { this.dock.setColors({version:1, revision:this.revision, colors:{...dock}}); }
+        catch(error) { this.onError("The dock could not receive the selected colors. Its Oath remains active."); }
+    }
+    set(next) {
+        if(!this.available || this.closed) return Promise.resolve(false);
+        const value=normalizePreferences({version:1,paletteId:next.paletteId,coordinateInterfaceColors:next.coordinateInterfaceColors});
+        const sequence=++this.sequence; this.value=value; this.pending++; this.error=""; this.apply();
+        const work=async()=>{
+            try {
+                if(!this.available) throw Error("Appearance storage is unavailable");
+                const raw=await this.read();
+                if(raw!==this.diskRaw) { this.available=false; throw Error("Color preferences changed outside this window. Reopen Itacan before changing them again."); }
+                const text=JSON.stringify(value,null,2)+"\n", temporary=this.file+"."+randomUUID()+".tmp";
+                let handle;
+                try { handle=await this.io.open(temporary,"wx"); await handle.writeFile(text,"utf8"); await handle.sync(); await handle.close(); handle=null; await this.io.rename(temporary,this.file); }
+                catch(error) {
+                    // A failed response can follow successful publication. Reconcile exact bytes.
+                    const observed=await this.read().catch(()=>undefined);
+                    if(observed!==text) throw error;
+                } finally { if(handle) await handle.close().catch(()=>{}); await this.io.unlink(temporary).catch(()=>{}); }
+                if(await this.read()!==text) { this.available=false; throw Error("Saved colors could not be verified."); }
+                this.diskRaw=text; this.confirmed=value; return true;
+            } catch(error) {
+                if(sequence===this.sequence) { this.value=this.confirmed; this.error=error.message || "Colors could not be saved."; this.apply(); if(!this.closed) this.onError(this.error); }
+                return false;
+            } finally { this.pending--; this.emit(); }
+        };
+        this.queue=this.queue.then(work,work); return this.queue;
+    }
+    refresh() {
+        if(this.closed || !this.file || this.pending || !this.available) return this.queue;
+        const work=async()=>{
+            if(this.closed || this.pending) return;
+            try { const raw=await this.read(); if(raw!==this.diskRaw) { this.value=this.decode(raw); this.confirmed=this.value; this.diskRaw=raw; this.apply(); } }
+            catch(error) { this.available=false; this.error="Saved colors could not be read. The preference file was preserved."; this.emit(); }
+        };
+        this.queue=this.queue.then(work,work); return this.queue;
+    }
+    destroy() { this.closed=true; this.dock=null; for(const dispose of [...this.documents.values()]) dispose(); this.listeners.clear(); return this.queue; }
+}
+function appearanceFile(plugin) {
+    const base=plugin.app.vault.adapter.getBasePath?.(); if(!base) return null;
+    const directory=plugin.manifest.dir || `${plugin.app.vault.configDir}/plugins/${plugin.manifest.id}`;
+    return path.join(path.isAbsolute(directory)?directory:path.join(base,directory),"appearance.json");
+}
+module.exports={AppearanceService,appearanceFile};
+
+},
 "lib/services/application-storage/codec.js": function (module, exports, __hubRequire) {
 "use strict";
 // Private transactional application envelope; never imported from native task code.
@@ -11526,15 +11626,15 @@ class HubInboxService {
             throw error;
         }
     }); }
-    get(id) { return this.captures.find(capture => capture.id === id) ?? null; }
+    get(id) { return this.captures.find(capture => capture.id === id) ?? (id && this.currentQuickDraft?.id === id ? this.currentQuickDraft : null); }
     onChange(callback) { this.listeners.add(callback); return () => this.listeners.delete(callback); }
-    destroy() { this.listeners.clear(); this.noteEvents.forEach(ref => this.app.vault.offref(ref)); this.noteCache.clear(); this.noteRevisions.clear(); }
+    destroy() { this.destroyed = true; this.captureAction?.close(); this.listeners.clear(); this.noteEvents.forEach(ref => this.app.vault.offref(ref)); this.noteCache.clear(); this.noteRevisions.clear(); }
     emit() { for (const callback of this.listeners) { try { callback(); } catch (error) { console.error("Could not refresh Inbox", error); } } }
     enqueue(work) { const result = this.queue.catch(() => {}).then(work); this.queue = result; return result; }
-    async save(captures) {
+    async save(captures, patch = {}) {
         await this.plugin.dataStore.writeQueue?.catch(() => {});
         const data = this.plugin.projectWizard.data, previous = data.inbox;
-        const next = { ...this.state, version: INBOX_VERSION, captures };
+        const next = { ...this.state, ...patch, version: INBOX_VERSION, captures };
         data.inbox = next;
         try { await this.plugin.dataStore.save(data); this.plugin.projectWizard.data.inbox = next; }
         catch (error) {
@@ -11543,7 +11643,12 @@ class HubInboxService {
         }
         this.emit();
     }
-    async replace(capture) { await this.save(this.captures.map(item => item.id === capture.id ? capture : item)); return capture; }
+    async replace(capture) {
+        if (capture.id === this.currentQuickDraft?.id) {
+            await this.save(this.captures, { quickAddDraft: capture }); this.draftSession = clone(capture);
+        } else await this.save(this.captures.map(item => item.id === capture.id ? capture : item));
+        return capture;
+    }
     capture(values) { return this.enqueue(() => this.createCapture(values)); }
     async createCapture(values = {}) {
         const text = String(values.text ?? values.taskTitle ?? ""), attachments = values.attachments ?? [], source = values.source ?? {};
@@ -11565,7 +11670,7 @@ class HubInboxService {
                 throw Error("Retry this item's saved operation before editing its content or attachments.");
             }
             if (previous.operation.kind === "native-task") { __hubRequire("lib/services/native-inbox-task.js").sameValues(previous.operation,values); }
-            else if (previous.operation.kind === "note-insertion") {            } else if (previous.operation.kind === "note-insertion") {
+            else if (previous.operation.kind === "note-insertion") {
                 this.assertNoteInsertionValues(previous.operation, values);
             } else if (previous.operation.state === "ready" && this.changedFileDestination(previous.operation, values)) {
                 throw Error("This item was already saved to its selected destination. Retry to finish removing it from Inbox.");
@@ -11580,6 +11685,7 @@ class HubInboxService {
         const actionDrafts = {...previous.actionDrafts};
         if(previous.intent?.type && previous.intent.type !== intent?.type) actionDrafts[previous.intent.type] = clone(previous.intent);
         if(Object.keys(actionDrafts).length && intent?.type) actionDrafts[intent.type] = clone(intent);
+        if (["task", "note", "text", "file"].includes(values.actionMode)) actionDrafts[values.actionMode] = clone(intent ?? {});
         const result = { ...previous, ...(Object.keys(actionDrafts).length?{actionDrafts}:{}), text, attachments, kind: captureKind(text, attachments), source: sourceMetadata(values.source ?? previous.source) };
         if (intent) result.intent = intent; else delete result.intent;
         if (JSON.stringify(result) === JSON.stringify(previous)) return previous;
@@ -11594,6 +11700,13 @@ class HubInboxService {
         const previous = capture.operation?.input ?? this.input(capture, {});
         if (JSON.stringify(this.input(capture, values)) !== JSON.stringify(previous)) {
             throw Error("This item has a saved action to retry. Retry its original content and files; keep any new content in a separate item.");
+        }
+    }
+    assertNoteInsertionValues(operation, values) {
+        if ((values.workspaceId !== undefined && values.workspaceId !== operation.workspaceId) ||
+            (values.noteAction !== undefined && values.noteAction !== "existing") ||
+            (values.noteLocation !== undefined && JSON.stringify(noteLocation(values.noteLocation)) !== JSON.stringify(noteLocation(operation.noteLocation)))) {
+            throw Error("Retry the original note and position before changing this item's destination.");
         }
     }
     changedFileDestination(operation, values) {
@@ -11745,7 +11858,7 @@ class HubInboxService {
     }
     attachmentPath(ref) {
         if (this.app.vault.getAbstractFileByPath(ref?.path)) return ref.path;
-        for (const capture of this.captures) {
+        for (const capture of [...this.captures, this.currentQuickDraft].filter(Boolean)) {
             const move = capture.operation?.moves?.find(item => item.from === ref?.path);
             if (move && this.app.vault.getAbstractFileByPath(move.to)) return move.to;
         }
@@ -11782,36 +11895,41 @@ class HubInboxService {
         const path = relative.replace(/\\/g, "/"), file = this.app.vault.getAbstractFileByPath(path);
         return file && !isFolderLike(file) ? file : null;
     }
-    stageFiles(sources) { return this.enqueue(async () => {
+    stageFiles(sources, checkpoint) { return this.enqueue(async () => {
         const refs = [], imported = [], folder = INBOX_ATTACHMENT_ROOT + "/" + randomUUID();
         try {
             for (const source of Array.from(sources ?? [])) {
                 if (!source || typeof source.arrayBuffer !== "function") throw Error("Drop files or images, rather than a folder.");
                 const name = String(source.name ?? "").trim();
-                if (!name || /[\\/:*?\"<>|]/.test(name) || name === "." || name === "..") throw Error("An attachment has an invalid filename. Rename it before importing.");
+                if (!name || /[\\/:*?"<>|\u0000-\u001f]/.test(name) || /[. ]$/.test(name) || /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(name) || name === "." || name === "..") throw Error("An attachment has an invalid filename. Rename it before importing.");
                 const sourcePath = this.sourcePath(source), existing = this.vaultSource(source, sourcePath);
                 if (existing) {
                     refs.push({ id: randomUUID(), path: existing.path, name: existing.name || name, ownership: "reference", size: Number(source.size) || existing.stat?.size || 0, mime: source.type || "", originalPath: existing.path });
+                    if (checkpoint) await checkpoint([...refs]);
                     continue;
                 }
                 await this.ensureFolder(folder);
                 const path = this.files.availableExternalFilePath(folder, name);
+                const ref = { id: randomUUID(), path, name, ownership: "inbox", size: Number(source.size) || 0,
+                    mime: source.type || "", ...(sourcePath ? { originalPath: sourcePath } : {}) };
+                // Journal the planned vault path before copying bytes. A crash can
+                // leave a missing-file reference, never an undiscoverable draft copy.
+                if (checkpoint) await checkpoint([...refs, ref]);
                 // Keep Markdown text and other bytes on the same native import paths as Files.
                 const file = /\.md$/i.test(name) && typeof source.text === "function" ?
                     await this.app.vault.create(path, await source.text()) : await this.app.vault.createBinary(path, await source.arrayBuffer());
                 imported.push(file);
-                refs.push({ id: randomUUID(), path, name, ownership: "inbox", size: Number(source.size) || file.stat?.size || 0,
-                    mime: source.type || "", ...(sourcePath ? { originalPath: sourcePath } : {}) });
+                refs.push(ref);
             }
             return refs;
         } catch (error) {
-            for (const file of imported) { try { await this.app.vault.delete(file); } catch (_) { /* Preserve a failed-cleanup copy rather than its original. */ } }
+            if (!checkpoint) for (const file of imported) { try { await this.app.vault.delete(file); } catch (_) { /* Preserve a failed-cleanup copy rather than its original. */ } }
             throw error;
         }
     }); }
     async releaseAttachments(refs) {
         for (const ref of refs ?? []) {
-            if (!isInboxOwned(ref) || this.captures.some(capture => capture.attachments?.some(item => item.path === ref.path))) continue;
+            if (!isInboxOwned(ref) || [...this.captures, this.currentQuickDraft].filter(Boolean).some(capture => capture.attachments?.some(item => item.path === ref.path) || capture.operation?.moves?.some(move => move.from === ref.path || move.to === ref.path))) continue;
             const file = this.app.vault.getAbstractFileByPath(ref.path);
             if (file && !isFolderLike(file)) { try { await this.app.vault.delete(file); } catch (error) { console.warn("Could not remove unused Inbox copy", error); } }
         }
@@ -11865,7 +11983,7 @@ class HubInboxService {
                 mime: ref.mime, hash: digest(await this.app.vault.readBinary(file)) });
         }
         const source = capture.source ?? {}, operationId = randomUUID();
-        const needsNote = kind === "note" || !!capture.text.trim() || !!(source.url || source.pageUrl || source.path || source.workspaceName);
+        const needsNote = kind === "note" || !!capture.text.trim() || (!values.filesOnly && !!(source.url || source.pageUrl || source.path || source.workspaceName));
         let note = null;
         if (needsNote) {
             const proposed = projectItemPath(folder, "note", values.title || (kind === "files" ? "Captured files" : "Untitled"));
@@ -11935,13 +12053,18 @@ class HubInboxService {
     }
     async finish(capture) {
         const moves = capture.operation?.state === "ready" ? capture.operation.moves ?? [] : [];
-        await this.save(this.captures.filter(item => item.id !== capture.id).map(other => {
+        const quick = this.currentQuickDraft, isQuick = quick?.id === capture.id;
+        const remap = other => {
             const attachments = other.attachments.map(ref => {
                 const move = moves.find(item => item.from === ref.path);
                 return move ? { ...ref, path: move.to, ownership: "reference" } : ref;
             });
             return { ...other, attachments };
-        }));
+        };
+        await this.save(this.captures.filter(item => item.id !== capture.id).map(remap),
+            isQuick ? { quickAddDraft: null } : quick ? { quickAddDraft: remap(quick) } : {});
+        if (isQuick) this.draftSession = this.newQuickDraft(capture.source);
+        else if (quick) this.draftSession = remap(quick);
         await this.releaseAttachments(capture.attachments);
     }
     createNote(values, captureId) { return this.enqueue(() => {
@@ -12078,6 +12201,7 @@ class HubInboxService {
     makeTask(values, captureId, attempt) { return this.enqueue(()=>__hubRequire("lib/services/native-inbox-task.js").submit(this,values,captureId,attempt)); }
 }
 
+Object.defineProperties(HubInboxService.prototype, Object.getOwnPropertyDescriptors(__hubRequire("lib/services/quick-add-draft.js")));
 module.exports = { HubInboxService };
 
 },
@@ -12527,7 +12651,7 @@ function sourceDestination(service,source={}){const context=source.path&&service
 function draft(service,values={},capture={}){const text=String(values.text??capture.text??''),lines=text.split(/\r?\n/),first=lines.findIndex(l=>l.trim()),initial=sourceDestination(service,capture.source??values.source);if(values.workspaceId&&initial.workspaceId!==values.workspaceId)delete initial.location;return{...initial,...values,text,taskTitle:values.taskTitle??taskTitle(text),description:values.description??(first<0?'':lines.slice(first+1).join('\n'))};}
 function payload(service,values,capture){const v=draft(service,values,capture),workspace=workspaces(service).find(w=>w.id===v.workspaceId);if(!workspace)throw Error('Choose an available task workspace');const owner=ownerOf(workspace);if(!service.plugin.nativeTaskHost.matches(owner))throw Error('Task workspace unavailable');if(service.plugin.nativeTaskHost.nativeTasks.availabilityFor(owner)!=='current')throw Error('Tasks are still loading. Try again shortly.');if(service.plugin.oath?.canOpen(workspace)===false)throw Error('This workspace is unavailable during your Oath');if(v.attachments?.length||capture?.attachments?.length)throw Error('Organize files as notes before creating a task');if(v.steps?.some(s=>s.parentStepId!=null))throw Error('Nested Steps require review; native Tasks use flat Steps');if(v.recurrence&&!v.recurrenceDraft)throw Error('Choose daily or weekly recurrence in the task editor');const fields=taskFormValues({...v,text:v.taskTitle}),locations=createNativeTaskLocations(service.plugin);let location=null;
  if(v.nativeLocation){const selected=locations.resolveId(owner,v.nativeLocation);if(!selected)throw Error('Choose an available task location');location=selected.reference;}
- else if(v.location){const f=service.app.vault.getAbstractFileByPath(v.location);if(!f)throw Error('Choose an available task location');location=locations.select(owner,v.location,Array.isArray(f.children)?'folder':'note').reference;}
+ else if(!Object.hasOwn(values,"nativeLocation")&&v.location){const f=service.app.vault.getAbstractFileByPath(v.location);if(!f)throw Error('Choose an available task location');location=locations.select(owner,v.location,Array.isArray(f.children)?'folder':'note').reference;}
  const data={text:fields.text,description:v.description??'',necessity:fields.necessity??null,fromDate:fields.fromDate??null,fromTime:fields.fromTime??null,dueDate:fields.dueDate??null,dueTime:fields.dueTime??null,completed:!!v.completed,steps:fields.steps.map(s=>({text:s.text,completed:!!s.completed})),phaseId:v.phaseId??null,nativeLocation:location?.id??'',...(v.recurrenceDraft?{recurrenceDraft:v.recurrenceDraft}:{})};return{workspace,owner,location,data};}
 function sameValues(operation,values){if(values.workspaceId!==undefined&&values.workspaceId!==operation.workspaceId)throw Error('Retry the original task destination');for(const k of ['description','necessity','fromDate','fromTime','dueDate','dueTime','steps','completed','phaseId'])if(values[k]!==undefined&&canonical(values[k])!==canonical(operation.values[k]))throw Error('Retry the original task details');if(values.taskTitle!==undefined&&values.taskTitle!==operation.values.text||values.nativeLocation!==undefined&&values.nativeLocation!==(operation.location?.id??''))throw Error('Retry the original task title and location');}
 async function submit(service,values,captureId,attempt={}){let capture=captureId?service.required(captureId):null,operation=capture?.operation??attempt.operation;
@@ -13238,6 +13362,7 @@ class StrictOathCoordinator {
         this.health = { status: "disabled", warnings: [] }; this.listener = null; this.polling = false;
         this.host?.onLost?.(() => { void this.release(this.current?.id).catch(() => {}); });
     }
+    setColors(payload) { this.host?.setColors?.(payload); }
     onHealth(listener) { this.listener = listener; }
     configureEnabled(value) { this.enabled = !!value; }
     update(health) { this.health = health; try { this.host?.updateDock?.(health); } catch (_) {} try { this.listener?.(health); } catch (_) {} }
@@ -13830,7 +13955,7 @@ class HubPresets {
             folders, order: m.app.metadataCache.getFileCache(file)?.frontmatter?.folder_order ?? []
         };
         return copy({ contextId: context.projectId, hubPath: context.path, root: context.root,
-            layout, folderState, railState: m.noteRailState ?? "full" });
+            layout, folderState, railState: m.noteRailState ?? "full", railWidth: m.noteRailWidth });
     }
     create(name) {
         const snapshot = this.snapshot();
@@ -13906,6 +14031,7 @@ class HubPresets {
                     await m.app.fileManager.processFrontMatter(file, fm => { fm.folder_order = [...folderState.order]; });
                 }
                 m.noteRailState = ["full", "half", "closed"].includes(item.railState) ? item.railState : "full";
+                m.noteRailWidth = item.railWidth;
                 const restored = await m.applyNoteLayout(context, layout);
                 if (allowActivation && restored && missing > 0) ownNoticeColors(new Notice(`Preset restored; ${missing} unavailable tab${missing === 1 ? " was" : "s were"} skipped.`));
                 return restored;
@@ -14107,6 +14233,93 @@ class ProjectPlanningService {
     }
 }
 module.exports = { ProjectPlanningService };
+
+},
+"lib/services/quick-add-draft.js": function (module, exports, __hubRequire) {
+"use strict";
+const { randomUUID } = require("node:crypto");
+const { attachmentReference, captureIntent, captureKind, sourceMetadata } = __hubRequire("lib/domain/inbox.js");
+const clone = value => JSON.parse(JSON.stringify(value));
+
+// The draft is a private sibling of captures, never a visible Inbox entry.
+module.exports = {
+    newQuickDraft(source = {}) {
+        return { version: 1, id: randomUUID(), revision: 0, createdAt: Date.now(), text: "", attachments: [], source: sourceMetadata(source), actionDrafts: {} };
+    },
+    get currentQuickDraft() { return this.draftSession ?? this.state.quickAddDraft ?? null; },
+    quickDraft(source = {}) {
+        if (this.currentQuickDraft && this.currentQuickDraft.version !== 1) throw Error("This Quick Add draft requires a newer version of Itacan.");
+        this.draftSession ??= clone(this.state.quickAddDraft ?? this.newQuickDraft(source));
+        if (Object.keys(source).length && this.draftSession.revision === 0 && !this.draftSession.text && !this.draftSession.attachments.length) this.draftSession.source = sourceMetadata(source);
+        return clone(this.draftSession);
+    },
+    saveQuickDraft(values, id = this.quickDraft().id) {
+        const previous = this.quickDraft();
+        if (previous.id !== id) return Promise.reject(Error("This draft has already been submitted or cleared."));
+        const next = { ...previous, ...clone(values), id, version: 1, revision: previous.revision + 1 };
+        next.text = String(next.text ?? ""); next.attachments = (next.attachments ?? []).map(attachmentReference);
+        next.source = sourceMetadata(next.source);
+        if (next.text.trim() && next.attachments.length) return Promise.reject(Error("Write something or add a file. Clear the text or remove the file first."));
+        if (previous.operation && previous.operation.state !== "done") {
+            try { this.assertInput(previous, next); if (JSON.stringify(next.source) !== JSON.stringify(previous.source)) throw Error("Retry the original source before changing this draft."); } catch (error) { return Promise.reject(error); }
+            next.operation = previous.operation;
+        }
+        // Keep the latest text immediately even when a disk checkpoint fails.
+        this.draftSession = next;
+        return this.enqueue(async () => {
+            if (this.currentQuickDraft?.id !== id || this.currentQuickDraft.revision > next.revision) return;
+            await this.save(this.captures, { quickAddDraft: next });
+        });
+    },
+    flushQuickDraft(id = this.quickDraft().id) { return this.saveQuickDraft({}, id); },
+    saveQuickAction(id, mode, values) {
+        const draft = this.quickDraft(), keys = ["text", "taskTitle", "description", "steps", "pendingStep", "necessity", "fromDate", "fromTime", "dueDate", "dueTime", "completed", "completedAt", "phaseId", "nativeOwner", "nativeLocation", "nativeLocationType", "workspaceId", "folder", "title", "noteAction", "noteLocation", "recurrence", "recurrenceDraft"];
+        const action = Object.fromEntries(keys.filter(key => values[key] !== undefined).map(key => [key, clone(values[key])]));
+        action.type = mode === "text" ? "note" : mode;
+        return this.saveQuickDraft({ actionDrafts: { ...draft.actionDrafts, [mode]: action }, lastAction: mode }, id);
+    },
+    async stageQuickFiles(files, id) {
+        const before = this.quickDraft();
+        if (before.id !== id || before.text.trim() || before.operation) throw Error("Clear the text before adding a file.");
+        await this.stageFiles(files, async refs => {
+            const current = this.quickDraft();
+            if (current.id !== id) throw Error("This draft has changed.");
+            const next = { ...current, revision: current.revision + 1, attachments: [...before.attachments, ...refs] };
+            await this.save(this.captures, { quickAddDraft: next }); this.draftSession = next;
+        });
+        await this.flushQuickDraft(id);
+    },
+    removeQuickAttachment(id, attachmentId) { return this.enqueue(async () => {
+        const previous = this.quickDraft();
+        if (previous.id !== id || previous.operation) throw Error("Finish the saved action before removing its files.");
+        const removed = previous.attachments.filter(ref => ref.id === attachmentId);
+        const next = { ...previous, revision: previous.revision + 1, attachments: previous.attachments.filter(ref => ref.id !== attachmentId), actionDrafts: {} };
+        await this.save(this.captures, { quickAddDraft: next }); this.draftSession = next;
+        await this.releaseAttachments(removed);
+    }); },
+    clearQuickDraft(id) { return this.enqueue(async () => {
+        const previous = this.quickDraft();
+        if (previous.id !== id) return;
+        if (previous.operation && previous.operation.state !== "done") throw Error("Finish or review the saved action before clearing this draft.");
+        await this.save(this.captures, { quickAddDraft: null }); this.draftSession = this.newQuickDraft(previous.source);
+        await this.releaseAttachments(previous.attachments);
+    }); },
+    sendQuickDraft(id) { return this.enqueue(async () => {
+        const existing = this.captures.find(item => item.id === id);
+        if (existing) return existing; // A lost acknowledgement must not create another item.
+        const draft = this.quickDraft();
+        if (draft.id !== id) throw Error("This draft has already been submitted or cleared.");
+        if (!draft.text.trim() && !draft.attachments.length) throw Error("Add some text or a file first.");
+        if (draft.text.trim() && draft.attachments.length) throw Error("Write something or add a file.");
+        for (const ref of draft.attachments) if (!this.attachmentExists(ref)) throw Error('"' + ref.name + '" is no longer available.');
+        const intent = captureIntent(draft.actionDrafts?.[draft.lastAction] ?? {}, draft.attachments);
+        const { version, revision, ...capture } = clone(draft);
+        capture.kind = captureKind(capture.text, capture.attachments);
+        if (intent) capture.intent = intent;
+        await this.save([...this.captures, capture], { quickAddDraft: null });
+        this.draftSession = this.newQuickDraft(draft.source); return capture;
+    }); }
+};
 
 },
 "lib/services/shared-projects.js": function (module, exports, __hubRequire) {
@@ -15242,6 +15455,54 @@ function mountAppShortcuts(plugin, left) {
 module.exports = { mountAppShortcuts };
 
 },
+"lib/ui/appearance-controls.js": function (module, exports, __hubRequire) {
+"use strict";
+const { PALETTES, DEFAULT_PREFERENCES } = __hubRequire("lib/ui/color-palettes.js");
+function mountAppearanceColors(parent, service, { row, section, note }) {
+    const doc=parent.ownerDocument, group=section(parent,"Color");
+    const control=row(group,"Color palette"), name=control.createSpan({cls:"hub-settings-palette-name"});
+    control.classList.add("hub-settings-palette-control");
+    const swatches=control.createDiv({cls:"hub-settings-swatches",attr:{role:"radiogroup","aria-label":"Color palette"}});
+    let snapshot=service.snapshot(), disposed=false;
+    const enabled=()=>snapshot.available && doc.body.classList.contains("theme-dark");
+    const choose=id=>{ if(enabled()) void service.set({...snapshot,paletteId:id}); };
+    const buttons=PALETTES.map(palette=>{
+        const button=swatches.createEl("button",{cls:"hub-settings-swatch",attr:{type:"button",role:"radio","aria-label":palette.label}});
+        button.style.backgroundColor=`var(${palette.previewToken})`;
+        button.addEventListener("click",()=>choose(palette.id)); return button;
+    });
+    swatches.addEventListener("keydown",event=>{
+        if(!enabled()) return;
+        const index=buttons.indexOf(event.target); if(index<0) return;
+        const next=event.key==="ArrowRight"||event.key==="ArrowDown"?(index+1)%buttons.length:event.key==="ArrowLeft"||event.key==="ArrowUp"?(index+buttons.length-1)%buttons.length:event.key==="Home"?0:event.key==="End"?buttons.length-1:null;
+        if(next===null) return; event.preventDefault(); buttons[next].focus(); choose(PALETTES[next].id);
+    });
+    swatches.createEl("button",{cls:"hub-settings-custom-color",text:"+",attr:{type:"button",disabled:"","aria-label":"Custom colors are not available yet"}});
+    const toggleHost=row(group,"Coordinate interface colors","Coordinate surfaces, Oath treatments, and the dock; turn off to keep their Default colors.");
+    const toggle=toggleHost.createEl("button",{cls:"checkbox-container hub-settings-toggle hub-settings-color-toggle",attr:{type:"button",role:"switch","aria-label":"Coordinate interface colors"}});
+    toggle.addEventListener("click",()=>{ if(enabled()) void service.set({...snapshot,coordinateInterfaceColors:!snapshot.coordinateInterfaceColors}); });
+    const reset=row(group,"Reset colors").createEl("button",{text:"Reset colors to Default",attr:{type:"button"}});
+    reset.addEventListener("click",()=>{ if(enabled()) void service.set(DEFAULT_PREFERENCES); });
+    const status=group.createEl("p",{cls:"hub-settings-description",attr:{role:"status","aria-live":"polite"}});
+    function render(value=service.snapshot()) {
+        if(disposed) return; snapshot=value;
+        const dark=doc.body.classList.contains("theme-dark"), available=enabled();
+        note.textContent=dark?"Color changes apply immediately. Other Appearance controls are not available yet.":"Color customization currently applies in Obsidian Dark mode. Your saved choice will return when Dark mode is enabled.";
+        name.textContent=PALETTES.find(p=>p.id===value.paletteId)?.label || PALETTES[0].label;
+        buttons.forEach((button,index)=>{ const selected=PALETTES[index].id===value.paletteId; button.classList.toggle("is-selected",selected); button.setAttribute("aria-checked",String(selected)); button.tabIndex=selected?0:-1; button.disabled=!available; });
+        toggle.disabled=!available; toggle.classList.toggle("is-enabled",value.coordinateInterfaceColors); toggle.setAttribute("aria-checked",String(value.coordinateInterfaceColors));
+        reset.disabled=!available || value.paletteId==="default" && value.coordinateInterfaceColors;
+        status.textContent=value.error || (value.pending?"Saving colors…":value.coordinateInterfaceColors?"Coordinated interface colors enabled.":"Accent only. Interface surfaces and specialized colors use Default.");
+        const modes=parent.querySelector('[aria-label="Theme mode"].hub-settings-segments');
+        modes?.querySelectorAll("button").forEach(button=>{const selected=button.textContent===(dark?"Dark":"Light");button.classList.toggle("is-selected",selected);button.setAttribute("aria-pressed",String(selected));});
+    }
+    const unsubscribe=service.subscribe(render), mode=()=>render(); doc.addEventListener("hub-color-mode-change",mode);
+    queueMicrotask(()=>render());
+    return ()=>{disposed=true;unsubscribe();doc.removeEventListener("hub-color-mode-change",mode);};
+}
+module.exports={mountAppearanceColors};
+
+},
 "lib/ui/attention.js": function (module, exports, __hubRequire) {
 "use strict";
 
@@ -15253,6 +15514,8 @@ function mountTransientEffects(root) {
     const canvas = root.ownerDocument.createElement("canvas"); canvas.width = canvas.height = 1;
     const paint = canvas.getContext("2d");
     let disposed = false;
+    const cancelAll = () => { for (const effect of [...effects.values()]) effect.finish(); };
+    const releaseColors = __hubRequire("lib/ui/color-system.js").registerColorEffect(root, cancelAll);
     const reducedMotion = () => view.matchMedia("(prefers-reduced-motion: reduce)").matches;
     function surfaceBackground(node) {
         // Transparent buttons and muted selections need their visible resting
@@ -15323,9 +15586,9 @@ function mountTransientEffects(root) {
         if (field.top < bounds.top + 6 || field.bottom > bounds.bottom - 6)
             container.scrollTo({ top: Math.max(0, container.scrollTop + field.top - bounds.top - 8), behavior });
     }
-    return { run, cancel, cancelAll: () => { for (const effect of [...effects.values()]) effect.finish(); }, reveal,
+    return { run, cancel, cancelAll, reveal,
         pulse(element, container, done) { reveal(element, container); run(element, "hub-attention", done); },
-        destroy() { disposed = true; for (const effect of [...effects.values()]) effect.finish(); }
+        destroy() { disposed = true; releaseColors(); for (const effect of [...effects.values()]) effect.finish(); }
     };
 }
 
@@ -15377,7 +15640,7 @@ function mountCaptureControls(plugin, service, host) {
         if (quick) { quick.input?.focus(); return; }
         if (host.ownerDocument.querySelector(".modal-container")) return;
         quick = new QuickAddModal(plugin.app, service, { source: currentSource(plugin),
-            returnFocus: host.ownerDocument.activeElement, onClose: () => { quick = null; } });
+            returnFocus: host.ownerDocument.activeElement, onResume: () => openQuickAdd(), onClose: () => { quick = null; } });
         quick.open();
     };
     const openLink = async url => {
@@ -15389,13 +15652,13 @@ function mountCaptureControls(plugin, service, host) {
             plugin.app.workspace.setActiveLeaf?.(leaf, { focus: true });
         } else await plugin.app.workspace.openLinkText(browser.url, "", true);
     };
-    const openInbox = () => {
+    const openInbox = (resumeState = null) => {
         if (disposed) return;
         if (plugin.oath?.active) { ownNoticeColors(new Notice("Inbox is unavailable during an active Oath.")); return; }
         if (inbox) { inbox.filterButtons[0].button.focus(); return; }
         if (host.ownerDocument.querySelector(".modal-container")) return;
         inbox = new InboxModal(plugin.app, service, { openLink, workspaceId: plugin.workspaceModes?.currentContext()?.projectId,
-            returnFocus: host.ownerDocument.activeElement, onClose: () => { inbox = null; } });
+            returnFocus: host.ownerDocument.activeElement, resumeState, onResume: state => openInbox(state), onClose: () => { inbox = null; } });
         inbox.open();
     };
     plugin.registerDomEvent(quickButton, "click", openQuickAdd);
@@ -15407,253 +15670,103 @@ function mountCaptureControls(plugin, service, host) {
 module.exports = { mountCaptureControls, currentSource };
 
 },
-"lib/ui/capture-form.js": function (module, exports, __hubRequire) {
+"lib/ui/capture-flow.js": function (module, exports, __hubRequire) {
 "use strict";
-const { setHubIcon } = __hubRequire("lib/ui/icons.js");
-const { projectItemPath } = __hubRequire("lib/domain/files.js");
-const { openCaptureWorkspacePicker, openCaptureLocationPicker } = __hubRequire("lib/ui/capture-pickers.js");
-const { mountWorkspaceThumbnail } = __hubRequire("lib/ui/workspace-thumbnail.js");
-const { createCapturePickerTrigger } = __hubRequire("lib/ui/capture-picker-trigger.js");
-const { openNotePositionPicker } = __hubRequire("lib/ui/note-position-picker.js");
-const { noteLocation, noteLocationSummary, resolveNoteLocation } = __hubRequire("lib/domain/note-insertion.js");
+const N = __hubRequire("lib/services/native-inbox-task.js");
+const { captureDraft, noteTitle } = __hubRequire("lib/domain/inbox.js");
+const { createNativeTaskLocations, workspaceRef } = __hubRequire("lib/services/native-task-locations.js");
+const { openLocationPicker } = __hubRequire("lib/ui/task-location-picker.js");
 
-const MODES = [["task", "Task", "square"], ["note", "Note", "notebook-text"]];
-function mountCaptureTypeControl({ host, selectedType = null, disabledTypes = [], onSelect, file = false }) {
-    return mountChoices({ host, label: "Type", options: file ? [["file", "File", "file"]] : MODES, selected: selectedType, disabled: disabledTypes, onSelect, cls: "hub-capture-types" });
+// Reuse the physical browser, with capture eligibility independent of SQLite readiness.
+function createCaptureLocations(service) {
+    const base = createNativeTaskLocations(service.plugin);
+    const rows = () => service.destinations().map(w => ({ ...w, owner: workspaceRef(w), available: service.plugin.oath?.canOpen(w) !== false }));
+    const check = owner => { const w = rows().find(w => w.owner.type === owner?.type && w.owner.id === owner?.id); if (!w?.available) throw Error("Choose an available workspace."); return w; };
+    return { ...base, workspaces: rows,
+        resolve(owner, reference) { check(owner); return base.resolve(owner, reference); },
+        browse(owner, path) { check(owner); return base.browse(owner, path); },
+        select(owner, path, type) { check(owner); return base.select(owner, path, type); }
+    };
 }
-function mountChoices({ host, label, options, selected, disabled = [], onSelect, cls }) {
-    const field = host.createDiv({ cls: "hub-capture-field", attr: { "data-capture-field": label } });
-    field.createSpan({ cls: "hub-capture-field-title", text: label });
-    const types = field.createDiv({ cls: "hub-capture-choices hub-equal-selectors hub-option-group " + cls, attr: { role: "group", "aria-label": label } });
-    for (const [type, title, icon] of options) {
-        const button = types.createEl("button", { cls: "hub-capture-type" + (selected === type ? " is-active" : ""), attr: {
-            type: "button", "aria-label": title, "aria-pressed": String(selected === type)
-        } });
-        button.disabled = disabled.includes(type);
-        const graphic = button.createSpan({ attr: { "aria-hidden": "true" } });
-        if (icon === "notebook-plus") {
-            graphic.classList.add("hub-capture-notebook-plus");
-            setHubIcon(graphic.createSpan(), "notebook");
-            setHubIcon(graphic.createSpan({ cls: "hub-capture-notebook-plus-mark" }), "plus");
-        } else setHubIcon(graphic, icon);
-        button.createSpan({ text: title });
-        button.addEventListener("click", () => onSelect(type));
-    }
-    return types;
+function operationMode(capture) {
+    const operation = capture.operation?.state !== "done" ? capture.operation : null;
+    return operation ? ({ "native-task": "task", task: "task", "note-insertion": "text", files: "file", note: "note" }[operation.kind]) : null;
 }
-const firstLine = text => String(text ?? "").split(/\r?\n/).find(line => line.trim())?.trim() ?? "";
-function noteTitle(draft) {
-    const proposed = firstLine(draft.text) || String(draft.attachments?.[0]?.name ?? "").replace(/\.[^./\\]+$/, "");
-    const title = proposed.replace(/[\\/:*?"<>|\u0000-\u001f]/g, " ").replace(/\s+/g, " ").trim().slice(0, 120).replace(/[. ]+$/, "") || "Untitled";
-    projectItemPath("", "note", title);
-    return title;
-}
-
-// Both overlays retain their content and attachment controls. A fixed Inbox
-// form owns one type at a time; Inbox can confirm and remount a different type.
-function mountCaptureForm({ host, service, draft = {}, onChange = () => {}, onSubmit = () => {}, fixedType = null, captureId = () => null }) {
-    const element = host.createDiv({ cls: "hub-capture-form hub-task-form" });
-    const lockedType = ["task", "note", "file"].includes(fixedType) ? fixedType : null;
-    let state = { ...draft, ...(lockedType ? { type: lockedType } : {}), steps: (draft.steps ?? []).map(step => ({ ...step })) };
-    let disposed = false, picker = null, checkingNote = null, taskFields = null;
-    const disposers = [];
-    const destinations = () => service.destinations();
-    const workspace = () => destinations().find(item => item.id === state.workspaceId);
-    const locations = () => {
-        const current = workspace(); if (!current) return [];
-        return state.type === "note" ? (service.noteLocations?.(state.workspaceId) ?? service.taskLocations(state.workspaceId)) : service.taskLocations(state.workspaceId);
+function openCaptureAction(service, { captureId, mode, onClose = () => {} }) {
+    const capture = service.required(captureId), pending = operationMode(capture);
+    if (pending && pending !== mode) throw Error("Retry the saved action before choosing another action.");
+    if (capture.attachments.length && ["task", "text"].includes(mode)) throw Error("Native tasks and existing-note insertion cannot accept attachments.");
+    const type = mode === "text" ? "note" : mode;
+    const draft = { ...captureDraft(capture, type), ...(!pending ? capture.actionDrafts?.[mode] : {}), type };
+    const quick = service.currentQuickDraft?.id === captureId;
+    let modal, lastSave = Promise.resolve();
+    const finished = result => {
+        if (service.captureAction === modal) service.captureAction = null;
+        if (!service.destroyed) onClose(result);
     };
-    const folders = () => {
-        const current = workspace(); if (!current) return [];
-        return service.folders(state.workspaceId);
+    const track = value => { service.captureAction = value; value.ready?.then(() => { if (value.closed && service.captureAction === value) service.captureAction = null; }); return value; };
+    const report = error => { const target = modal?.contentEl.querySelector(".hub-task-error"); if (target) target.textContent = error.message; };
+    const persist = values => {
+        if (!values || !service.get(captureId)) return Promise.resolve();
+        lastSave = quick ? service.saveQuickAction(captureId, mode, values) : service.updateCapture(captureId, { ...values, actionMode: mode });
+        lastSave.catch(report); return lastSave;
     };
-    const notify = () => { if (!disposed) onChange(value()); };
-    const initializeTitle = () => {
-        if (state.type === "note") {
-            state.noteAction = state.noteAction === "existing" ? "existing" : "new";
-            if (state.title == null) state.title = noteTitle(state);
+    if (mode === "task") {
+        const initial = N.draft(service, draft, capture);
+        const toCapture = values => {
+            const owner = values.nativeOwner, workspace = N.workspaces(service).find(w => { const o = N.ownerOf(w); return o.type === owner?.type && o.id === owner?.id; });
+            const { location, operation, ...fields } = values;
+            return { ...fields, text: capture.text, taskTitle: values.text, type: "task", workspaceId: workspace?.id ?? initial.workspaceId, attachments: capture.attachments };
+        };
+        const options = { text: initial.taskTitle, description: initial.description, steps: initial.steps ?? [],
+            ...Object.fromEntries(["necessity", "fromDate", "fromTime", "dueDate", "dueTime", "phaseId", "pendingStep", "nativeLocation", "nativeLocationType", "completed", "recurrence", "recurrenceDraft"].filter(k => Object.hasOwn(draft,k)).map(k => [k,draft[k]])),
+            onDraftChange: values => { void persist(toCapture(values)); },
+            beforeClose: values => values ? persist(toCapture(values)) : lastSave,
+            submit: async values => { const mapped = toCapture(values); await persist(mapped); return service.makeTask(mapped, captureId); },
+            onDismiss: finished
+        };
+        const workspace = N.workspaces(service).find(w => w.id === initial.workspaceId);
+        const savedOwner = draft.nativeOwner ?? (workspace ? N.ownerOf(workspace) : initial.workspaceId ?
+            { type: initial.workspaceId.startsWith("resource:") ? "resource" : "project", id: initial.workspaceId.replace(/^resource:/, "") } : null);
+        if (savedOwner && service.plugin.nativeTaskHost.matches(savedOwner)) options.owner = savedOwner;
+        else if (savedOwner) {
+            options.nativeOwner = savedOwner; options.nativeLocation ??= "";
+            options.initialError = "Saved workspace is unavailable. Choose a replacement through Task location.";
         }
+        modal = service.plugin.nativeTaskHost.create(options);
+        return track(modal);
+    }
+    const locations = createCaptureLocations(service);
+    const source = N.sourceDestination(service, capture.source);
+    const workspace = service.workspace(draft.workspaceId ?? source.workspaceId);
+    const owner = workspace ? workspaceRef(workspace) : null;
+    const path = mode === "text" ? draft.noteLocation?.path ?? source.location ?? workspace?.root : draft.folder ?? (workspace?.id === source.workspaceId ? source.location : workspace?.root);
+    let reference = null;
+    if (owner && path) { try { reference = locations.select(owner, path, mode === "text" && /\.md$/i.test(path) ? "note" : "folder").reference; } catch (_) { reference = { type: mode === "text" ? "note" : "folder", id: "unavailable:" + path }; } }
+    const valuesFor = (selected, committing = false) => {
+        const w = service.destinations().find(w => { const o = workspaceRef(w); return o.type === selected.owner?.type && o.id === selected.owner?.id; });
+        const values = { ...draft, text: capture.text, attachments: capture.attachments, workspaceId: w?.id ?? draft.workspaceId, type };
+        if (mode === "text") Object.assign(values, { noteAction: "existing", noteLocation: pending ? capture.operation.noteLocation : !committing && (!selected.selected || (draft.noteLocation?.targetType !== "note" && draft.noteLocation?.path === selected.selected?.path)) ? draft.noteLocation ?? null : selected.selected?.type === "note" ? { path: selected.selected.path, targetType: "note", position: "end" } : null });
+        else Object.assign(values, { folder: selected.selected?.path ?? draft.folder, title: selected.title, noteAction: "new" });
+        return values;
     };
-    // Preserve unavailable saved choices; submission validates them and the
-    // existing pickers let the user explicitly choose a replacement.
-    const clearInvalidDestinations = () => {};
-
-    const group = title => {
-        const section = element.createEl("section", { cls: "hub-capture-form-group" });
-        if (title) section.createEl("h3", { cls: "hub-capture-section-heading", text: title });
-        return section;
-    };
-    const fieldHost = (parent, label) => {
-        const wrap = parent.createDiv({ cls: "hub-capture-field", attr: { "data-capture-field": label === "Save to" ? "Workspace" : label } });
-        wrap.createSpan({ cls: "hub-capture-field-title", text: label }); return wrap;
-    };
-    const field = (parent, label, type, key, required = false) => {
-        const wrap = parent.createEl("label", { cls: "hub-capture-field", attr: { "data-capture-field": label } });
-        wrap.createSpan({ cls: "hub-capture-field-title", text: label });
-        const input = wrap.createEl("input", { type, attr: { "aria-label": label, ...(required ? { required: "" } : {}) } });
-        input.value = state[key] ?? "";
-        input.addEventListener("input", () => { state[key] = input.value; notify(); }); return input;
-    };
-    const pickerTrigger = (parent, label, title, subtitle, icon, open, disabled = false, imageWorkspace = null) => {
-        return createCapturePickerTrigger(fieldHost(parent, label), {
-            label, title, subtitle, icon, disabled,
-            renderIcon: imageWorkspace ? button => mountWorkspaceThumbnail(button, service.plugin, imageWorkspace) : null,
-            onOpen: () => { if (!picker && !disposed) open(); }
-        }).button;
-    };
-    const restorePickerFocus = label => {
-        picker = null;
-        if (!disposed) [...element.querySelectorAll("button")].find(button => button.getAttribute("aria-label") === label)?.focus({ preventScroll: true });
-    };
-    function workspaceControl() {
-        const current = workspace();
-        const category = current?.contextKind === "project" ? service.plugin.projectWizard.getCategories?.().find(item => item.id === current.categoryId || item.name === current.categoryId) : null;
-        return { title: current?.name ?? "Choose project or resource…",
-            subtitle: current ? (current.contextKind === "resource" ? "Resource" : category?.name ? "Project · " + category.name : "Project") : null,
-            icon: current?.contextKind === "resource" ? current.icon ?? "library" : "folder",
-            renderIcon: current ? button => mountWorkspaceThumbnail(button, service.plugin, current) : null,
-            onOpen: () => {
-                if (picker || disposed) return;
-                picker = openCaptureWorkspacePicker(service, {
-                    selectedId: state.workspaceId,
-                    onSelect: selected => {
-                        if (disposed) return;
-                        if (selected.id !== state.workspaceId) { state.folder = selected.root; state.location = ""; state.noteLocation = null; }
-                        state.workspaceId = selected.id; render(); notify();
-                    },
-                    restoreFocus: () => restorePickerFocus("Save to")
-                });
-            } };
-    }
-    function workspaceField(parent) {
-        createCapturePickerTrigger(fieldHost(parent, "Save to"), { ...workspaceControl(), label: "Save to" });
-    }
-    function locationControl(task) {
-        const label = task ? "Location" : "Destination folder", current = workspace();
-        const items = task ? locations() : folders(), path = state[task ? "location" : "folder"];
-        const selected = items.find(item => item.path === path);
-        return { label, title: selected?.label ?? selected?.name ?? (task ? "Choose a note or folder…" : "Choose a folder…"),
-            subtitle: !selected && path ? "Saved destination unavailable: " + path : selected && task ? selected.folder ? "Folder · Tasks note" : "Markdown note · " + selected.path.split("/").pop() : null,
-            icon: selected && task && !selected.folder ? "notebook-text" : "folder", disabled: !current,
-            onOpen: () => {
-                if (picker || disposed) return;
-                picker = openCaptureLocationPicker(service, {
-                    workspace: current, task, selectedPath: path, getItems: task ? locations : folders,
-                    onSelect: selected => { if (!disposed) { state[task ? "location" : "folder"] = selected.path; render(); notify(); } },
-                    restoreFocus: () => restorePickerFocus(label)
-                });
-            } };
-    }
-    function locationField(parent, task) {
-        createCapturePickerTrigger(fieldHost(parent, task ? "Location" : "Folder"), locationControl(task));
-    }
-    function renderTask() {
-        taskFields=__hubRequire("lib/ui/native-capture-task.js").mountNativeCaptureTask({host:element,service,draft:state,captureId,details:true,onSubmit,onChange:value=>{state=value;notify()}});
-    }
-    function existingNoteField(parent) {
-        const current = workspace();
-        pickerTrigger(parent, "Location", noteLocationSummary(state.noteLocation), null, "notebook-text", () => {
-            picker = openNotePositionPicker(service, { workspace: current, selectedLocation: state.noteLocation,
-                onSelect: selected => { if (!disposed) { state.noteLocation = selected; render(); notify(); } },
-                restoreFocus: () => restorePickerFocus("Location") });
-        }, !current);
-    }
-    function checkNoteLocation() {
-        const location = noteLocation(state.noteLocation);
-        if (!location || state.noteAction !== "existing" || checkingNote || service.noteCache.has(location.path) ||
-            service.get(captureId())?.operation?.kind === "note-insertion" || element.closest("[aria-busy=true]")) return;
-        const id = state.workspaceId;
-        checkingNote = service.readNotePositions(id, location.path).then(parsed => {
-            if (disposed || element.closest("[aria-busy=true]") || service.get(captureId())?.operation?.kind === "note-insertion" ||
-                id !== state.workspaceId || JSON.stringify(location) !== JSON.stringify(state.noteLocation)) return;
-            if (!resolveNoteLocation(parsed, location)) state.noteLocationUnavailable = true;
-        }).catch(() => {
-            if (!disposed && !element.closest("[aria-busy=true]") && service.get(captureId())?.operation?.kind !== "note-insertion" &&
-                id === state.workspaceId && JSON.stringify(location) === JSON.stringify(state.noteLocation)) state.noteLocationUnavailable = true;
-        }).finally(() => {
-            checkingNote = null;
-            if (!disposed && !element.closest("[aria-busy=true]")) refresh();
-        });
-    }
-    function render() {
-        taskFields?.destroy(); taskFields = null;
-        initializeTitle(); if(state.type!=="task" && state.workspaceId && !state.folder) state.folder=workspace()?.root??""; clearInvalidDestinations(); element.replaceChildren();
-        const placement = group();
-        if (!lockedType && state.inputPath !== "file" && !state.attachments?.length) {
-            mountCaptureTypeControl({ host: placement, selectedType: state.type, onSelect: type => {
-                state.type = type; render(); notify(); element.querySelector("button[aria-pressed=true]")?.focus();
-            } });
-        }
-        if (!state.type) return;
-        if (state.type === "note") mountChoices({ host: placement, label: "Action", cls: "hub-capture-note-actions", selected: state.noteAction,
-            disabled: state.attachments?.length ? ["existing"] : [],
-            options: [["new", "New note", "notebook-plus"], ["existing", "Add text to existing note", "notebook-pen"]],
-            onSelect: action => { state.noteAction = action; render(); notify();
-                element.querySelector(".hub-capture-note-actions button[aria-pressed=true]")?.focus(); } });
-        if (state.type === "task") renderTask();
-        else {
-            workspaceField(placement);
-            if (state.type === "note" && state.noteAction === "existing") { existingNoteField(placement); checkNoteLocation(); }
-            else {
-                locationField(placement, false);
-                if (state.type === "note") {
-                    const title = field(placement, "Title", "text", "title", true); title.classList.add("hub-task-title-input");
-                    title.setAttribute("aria-label", "Note title");
-                }
-            }
-        }
-    }
-    function value() { if(state.type === "task" && taskFields?.value) return taskFields.value(); return { ...state, attachments: [...(state.attachments ?? [])], steps: state.steps.map(step => ({ ...step })) }; }
-    function valid() {
-        return service.completion(value(), captureId()).complete;
-    }
-    const refresh = () => {
-        if (disposed) return;
-        if (!element.closest("[aria-busy=true]")) {
-            const active = element.ownerDocument.activeElement, label = element.contains(active) ? active.getAttribute("aria-label") : null;
-            const index = label ? [...element.querySelectorAll("button,input,select")].filter(input => input.getAttribute("aria-label") === label).indexOf(active) : -1;
-            const selection = active && typeof active.selectionStart === "number" ? [active.selectionStart, active.selectionEnd] : null;
-            render();
-            const target = index >= 0 ? [...element.querySelectorAll("button,input,select")].filter(input => input.getAttribute("aria-label") === label)[index] : null;
-            target?.focus({ preventScroll: true }); if (target && selection && target.type === "text") target.setSelectionRange(...selection);
-        }
-        notify();
-    };
-    const listen = (emitter, event) => {
-        if (!emitter?.on || !emitter.offref) return;
-        const reference = emitter.on(event, refresh); disposers.push(() => emitter.offref(reference));
-    };
-    render();
-    for (const event of ["create", "delete", "rename"]) listen(service.plugin.app.vault, event);
-    if (service.plugin.app.vault.on && service.plugin.app.vault.offref) {
-        const reference = service.plugin.app.vault.on("modify", file => { if (file.path === state.noteLocation?.path) refresh(); });
-        disposers.push(() => service.plugin.app.vault.offref(reference));
-    }
-    listen(service.plugin.app.metadataCache, "changed");
-    service.plugin.planning?.subscribe?.({ register: dispose => disposers.push(dispose) }, refresh);
-    return {
-        value, valid, refresh, prepare: () => taskFields?.prepare?.() !== false,
-        update(patch) {
-            const layoutChanged = (!lockedType && patch.type !== undefined && patch.type !== state.type) ||
-                (patch.workspaceId !== undefined && patch.workspaceId !== state.workspaceId) ||
-                (patch.noteAction !== undefined && patch.noteAction !== state.noteAction) || patch.noteLocation !== undefined ||
-                (patch.location !== undefined && patch.location !== state.location) || patch.phaseId !== undefined ||
-                (patch.inputPath !== undefined && patch.inputPath !== state.inputPath);
-            if (patch.workspaceId !== undefined && patch.workspaceId !== state.workspaceId) {
-                state.folder = destinations().find(w=>w.id===patch.workspaceId)?.root ?? ""; state.location = ""; state.noteLocation = null;
-            }
-            Object.assign(state, patch, lockedType ? { type: lockedType } : {});
-            if (patch.steps) state.steps = patch.steps.map(step => ({ ...step }));
-            initializeTitle(); clearInvalidDestinations();
-            if (layoutChanged) render();
-            else if(state.type === "task") taskFields?.update?.(patch);
-            notify();
+    const title = mode === "note" ? draft.title ?? noteTitle(capture) : "";
+    modal = openLocationPicker(service.app, { locations, owner, reference, allowOwnerChange: true, mode, noteTitle: title,
+        contextTitle: mode === "note" ? title : mode === "text" ? capture.text.trim().replace(/\s+/g," ") : capture.attachments.length === 1 ? capture.attachments[0].name : capture.attachments[0].name + " (+" + (capture.attachments.length-1) + (capture.attachments.length === 2 ? " file)" : " files)"),
+        confirmLabel: mode === "file" && capture.attachments.length > 1 ? "Add files" : undefined,
+        onDraftChange: value => { void persist(valuesFor(value)); },
+        beforeClose: value => persist(valuesFor(value)),
+        onChoose: async selected => {
+            if (pending === "text" && selected.path !== capture.operation.noteLocation.path) throw Error("Retry the original note before choosing a different destination.");
+            const values = valuesFor({ owner: selected.owner, selected, title: selected.title }, true);
+            await persist(values);
+            return mode === "file" ? service.addFiles({ ...values, filesOnly: !capture.text.trim() }, captureId) : service.createNote(values, captureId);
         },
-        focus() { element.querySelector("button.is-active,button,input,select")?.focus(); },
-        destroy() { disposed = true; picker?.close(); taskFields?.destroy(); for (const dispose of disposers) dispose(); element.remove(); }
-    };
+        onClose: finished
+    });
+    return track(modal);
 }
-module.exports = { mountCaptureForm, mountCaptureTypeControl, noteTitle };
+module.exports = { openCaptureAction, createCaptureLocations, operationMode };
 
 },
 "lib/ui/capture-modal.js": function (module, exports, __hubRequire) {
@@ -15758,246 +15871,6 @@ function attachments(host, refs, service, { remove, open } = {}) {
 }
 
 module.exports = { CaptureModal, CaptureConfirmation, action, attachments };
-
-},
-"lib/ui/capture-picker-trigger.js": function (module, exports, __hubRequire) {
-"use strict";
-const { setHubIcon } = __hubRequire("lib/ui/icons.js");
-
-// Shared presentation only: each form keeps its own destination provider/state.
-function createCapturePickerTrigger(host, { label, title, subtitle, icon, onOpen, disabled = false, renderIcon }) {
-    const button = host.createEl("button", { cls: "hub-capture-picker-trigger", attr: {
-        type: "button", "aria-label": label, "aria-haspopup": "dialog"
-    } });
-    button.disabled = disabled;
-    const graphic = renderIcon ? null : button.createSpan({ cls: "hub-capture-icon", attr: { "aria-hidden": "true" } });
-    if (renderIcon) renderIcon(button);
-    const copy = button.createSpan({ cls: "hub-capture-picker-copy" });
-    const name = copy.createSpan();
-    let detail = null;
-    setHubIcon(button.createSpan({ cls: "hub-capture-icon", attr: { "aria-hidden": "true" } }), "chevron-down");
-    const update = ({ title, subtitle, icon }) => {
-        name.textContent = title ?? "";
-        if (subtitle) {
-            if (!detail) detail = copy.createSpan({ cls: "hub-capture-muted" });
-            detail.textContent = subtitle;
-        } else { detail?.remove(); detail = null; }
-        if (graphic && icon) setHubIcon(graphic, icon);
-        button.title = [title, subtitle].filter(Boolean).join(" · ");
-    };
-    update({ title, subtitle, icon });
-    button.addEventListener("click", () => onOpen());
-    return { button, update };
-}
-module.exports = { createCapturePickerTrigger };
-
-},
-"lib/ui/capture-pickers.js": function (module, exports, __hubRequire) {
-"use strict";
-const { ownModalColors } = __hubRequire("lib/ui/color-system.js");
-
-const { Modal, Component } = require("obsidian");
-const { createWorkspaceCards } = __hubRequire("lib/ui/workspace-cards.js");
-const { createCardImageRenderer } = __hubRequire("lib/ui/card-images.js");
-const { setHubIcon } = __hubRequire("lib/ui/icons.js");
-const { mountCaptureLocationTree } = __hubRequire("lib/ui/capture-tree.js");
-
-let pickerId = 0;
-function preparePicker(modal, title, classes) {
-    const id = `hub-capture-picker-${++pickerId}`;
-    modal.modalEl.classList.add("hub-oath-dialog", ...classes);
-    modal.contentEl.classList.add("hub-button-scope", "hub-capture-form-scope");
-    modal.contentEl.createEl("h2", { text: title, attr: { id } });
-    modal.modalEl.setAttribute("aria-labelledby", id);
-    const close = modal.modalEl.querySelector(".modal-close-button");
-    close?.setAttribute("aria-label", "Close " + title); close?.setAttribute("title", "Close " + title);
-    modal.owner = new Component(); modal.owner.load();
-}
-function cancelAction(modal) {
-    const actions = modal.contentEl.createDiv({ cls: "hub-oath-actions hub-capture-picker-actions" });
-    actions.createEl("button", { text: "Cancel", attr: { type: "button" } }).addEventListener("click", () => modal.close());
-}
-function listen(owner, emitter, event, render) {
-    if (!emitter?.on || !emitter.offref) return;
-    const reference = emitter.on(event, render);
-    owner.register(() => emitter.offref(reference));
-}
-
-// Reuse the same card markup, artwork crop, category subtitles, order, and Oath
-// eligibility as Home and Select project/resource. Choosing never navigates.
-function openCaptureWorkspacePicker(service, { selectedId, onSelect, restoreFocus } = {}) {
-    class WorkspacePicker extends Modal {
-        onOpen() { ownModalColors(this);
-            preparePicker(this, "Save to", ["hub-oath-workspace-picker", "hub-capture-workspace-picker"]);
-            const search = this.contentEl.createEl("input", { type: "search", cls: "hub-oath-search",
-                attr: { placeholder: "Search projects and resources…", "aria-label": "Search destinations" } });
-            const body = this.contentEl.createDiv({ cls: "hub-capture-workspace-groups" });
-            const error = this.contentEl.createDiv({ cls: "hub-task-error", attr: { role: "alert" } });
-            const paintImage = createCardImageRenderer(body, this.owner,
-                key => ({ initial: service.plugin.projectWizard.data.headerImagePlacements?.[key] }), service.plugin.cardImageCache);
-            const cards = createWorkspaceCards({ app: service.app, root: body, component: this.owner,
-                renderImage: (element, url, options) => paintImage(element, url, { ...options, readOnly: true }),
-                categories: () => service.plugin.projectWizard.getCategories?.() ?? [], oath: service.plugin.oath });
-            const render = () => {
-                body.empty();
-                const query = search.value.toLocaleLowerCase().trim();
-                const all = service.destinations().filter(context => [context.name, context.label].filter(Boolean).join(" ").toLocaleLowerCase().includes(query));
-                const positions = service.plugin.projectWizard.data.projectCardOrder?.active ?? [];
-                for (const [kind, label] of [["project", "Projects"], ["resource", "Resources"]]) {
-                    const contexts = all.filter(context => context.contextKind === kind);
-                    if (kind === "project") contexts.sort((a, b) =>
-                        (positions.indexOf(a.projectId) < 0 ? Infinity : positions.indexOf(a.projectId)) -
-                        (positions.indexOf(b.projectId) < 0 ? Infinity : positions.indexOf(b.projectId)));
-                    if (!contexts.length) continue;
-                    const group = body.createEl("section", { cls: "hub-capture-workspace-group" });
-                    group.createEl("h3", { text: label, cls: "hub-capture-picker-heading" });
-                    const grid = group.createDiv({ cls: "hub-oath-workspace-grid is-" + kind });
-                    for (const context of contexts) {
-                        const card = cards.render(grid, context, () => {
-                            const current = service.destinations().find(item => item.id === context.id);
-                            if (!current) { error.textContent = "This destination is no longer available."; render(); return; }
-                            onSelect?.(current); this.close();
-                        });
-                        card.dataset.captureWorkspaceId = context.id;
-                        card.title = context.name ?? context.label;
-                        card.classList.toggle("is-selected", context.id === selectedId);
-                        card.setAttribute("aria-pressed", String(context.id === selectedId));
-                    }
-                }
-                if (!all.length) body.createEl("p", { cls: "hub-oath-muted", text: "No matching projects or resources." });
-            };
-            search.addEventListener("input", render);
-            for (const event of ["create", "delete", "rename"]) listen(this.owner, service.app.vault, event, render);
-            cancelAction(this); render(); search.focus();
-        }
-        onClose() { this.owner?.unload(); this.contentEl.empty(); restoreFocus?.(); }
-    }
-    const modal = new WorkspacePicker(service.app); modal.open(); return modal;
-}
-
-// The placement view is intentionally a picker, using the Files row/icon and
-// nested group language without mounting the explorer's editing/navigation UI.
-function openCaptureLocationPicker(service, { workspace, task = false, selectedPath, getItems, onSelect, restoreFocus } = {}) {
-    class LocationPicker extends Modal {
-        onOpen() { ownModalColors(this);
-            preparePicker(this, task ? "Choose task location" : "Choose a folder", ["hub-capture-location-picker"]);
-            if (workspace?.name) this.contentEl.createEl("p", { cls: "hub-oath-muted", text: workspace.name });
-            const searchBox = this.contentEl.createDiv({ cls: "hub-explorer-search" });
-            setHubIcon(searchBox.createSpan({ cls: "hub-explorer-icon", attr: { "aria-hidden": "true" } }), "search");
-            const search = searchBox.createEl("input", { type: "search", cls: "hub-explorer-search-input",
-                attr: { placeholder: task ? "Search notes and folders…" : "Search folders…", "aria-label": task ? "Search task locations" : "Search folders" } });
-            const tree = this.contentEl.createDiv({ cls: "hub-capture-location-tree", attr: { role: "tree", "aria-label": task ? "Task locations" : "Destination folders" } });
-            const error = this.contentEl.createDiv({ cls: "hub-task-error", attr: { role: "alert" } });
-            const hierarchy = mountCaptureLocationTree({ tree, search, getItems, foldersOnly: !task, showKind: task,
-                selectedPath: () => selectedPath,
-                onSelect: current => { onSelect?.(current); this.close(); },
-                onMissing: () => { error.textContent = "This location is no longer available."; }
-            });
-            this.owner.register(() => hierarchy.destroy());
-            for (const event of ["create", "delete", "rename"]) listen(this.owner, service.app.vault, event, hierarchy.render);
-            cancelAction(this); search.focus();
-        }
-        onClose() { this.owner?.unload(); this.contentEl.empty(); restoreFocus?.(); }
-    }
-    const modal = new LocationPicker(service.app); modal.open(); return modal;
-}
-module.exports = { openCaptureWorkspacePicker, openCaptureLocationPicker, preparePicker, listen };
-
-},
-"lib/ui/capture-tree.js": function (module, exports, __hubRequire) {
-"use strict";
-const { setHubIcon } = __hubRequire("lib/ui/icons.js");
-const { fileIcon } = __hubRequire("lib/ui/file-icons.js");
-
-// Shared location hierarchy, search and keyboard routing. The task/folder
-// picker still commits a clicked row; the note-position picker keeps notes
-// selected while folders only expand/collapse for navigation.
-function mountCaptureLocationTree({ tree, search, getItems, selectedPath = () => null, onSelect,
-    onMissing = () => {}, foldersOnly = false, showKind = true, collapsible = false }) {
-    let focusPath = selectedPath();
-    const collapsed = new Set();
-    const rows = () => [...tree.querySelectorAll("button[role=treeitem]")];
-    function focus(path) {
-        focusPath = path;
-        for (const button of rows()) button.tabIndex = button.dataset.capturePath === path ? 0 : -1;
-        const target = rows().find(button => button.dataset.capturePath === path);
-        target?.focus({ preventScroll: true }); target?.scrollIntoView({ block: "nearest" });
-    }
-    function render() {
-        const active = tree.contains(tree.ownerDocument.activeElement), scroll = tree.scrollTop;
-        tree.empty();
-        const entries = getItems().map(item => foldersOnly ? { ...item, folder: true } : item);
-        const nodes = new Map(entries.map(item => [item.path, { item, children: [] }])), roots = [];
-        for (const node of nodes.values()) {
-            const parent = nodes.get(node.item.path.slice(0, node.item.path.lastIndexOf("/")));
-            if (parent) parent.children.push(node); else roots.push(node);
-        }
-        const sort = nodes => nodes.sort((a, b) => Number(!!b.item.folder) - Number(!!a.item.folder) || a.item.path.localeCompare(b.item.path, undefined, { numeric: true }));
-        const query = search.value.trim().toLocaleLowerCase(), visible = new Set();
-        for (const item of entries) if (!query || [item.path, item.label, item.name].filter(Boolean).join(" ").toLocaleLowerCase().includes(query)) {
-            for (let path = item.path; nodes.has(path); path = path.slice(0, path.lastIndexOf("/"))) visible.add(path);
-        }
-        const branch = (parent, node, depth, index, count) => {
-            const item = node.item, folder = !!item.folder;
-            const wrapper = parent.createDiv({ cls: "hub-capture-location-item" });
-            const selected = item.path === selectedPath() && (!collapsible || !folder);
-            const row = wrapper.createEl("button", { cls: "hub-button-plain hub-explorer-tree-row hub-capture-location-row" + (selected ? " is-selected" : ""), attr: {
-                type: "button", role: "treeitem", "aria-level": String(depth + 1), "aria-posinset": String(index + 1), "aria-setsize": String(count),
-                "aria-selected": String(selected), "aria-label": (item.label ?? item.path) + (folder ? ", Folder" : ", Markdown note")
-            } });
-            row.dataset.capturePath = item.path; row.dataset.captureDepth = String(depth); row.style.setProperty("--hub-tree-depth", depth);
-            row.title = item.path;
-            const children = sort(node.children.filter(child => visible.has(child.item.path)));
-            const expanded = !collapsible || !!query || !collapsed.has(item.path);
-            if (collapsible) {
-                const chevron = row.createSpan({ cls: "hub-capture-tree-chevron", attr: { "aria-hidden": "true" } });
-                if (folder) setHubIcon(chevron, expanded ? "chevron-down" : "chevron-right");
-            }
-            setHubIcon(row.createSpan({ cls: "hub-explorer-icon", attr: { "aria-hidden": "true" } }), folder ? "folder" : fileIcon(item.file ?? item.path));
-            row.createSpan({ cls: "hub-explorer-name", text: item.name ?? item.file?.name?.replace(/\.md$/i, "") ?? item.path.split("/").pop().replace(/\.md$/i, "") });
-            if (showKind) row.createSpan({ cls: "hub-capture-location-kind", text: folder ? "Folder" : "Markdown note" });
-            row.addEventListener("click", () => {
-                const current = getItems().find(candidate => candidate.path === item.path);
-                if (!current) { onMissing(); render(); return; }
-                focusPath = item.path;
-                if (collapsible && folder) { toggle(item.path); return; }
-                onSelect(current);
-            });
-            if (folder && (children.length || collapsible)) row.setAttribute("aria-expanded", String(expanded));
-            if (children.length && expanded) {
-                const group = wrapper.createDiv({ cls: "hub-explorer-group hub-capture-location-group", attr: { role: "group" } });
-                group.style.setProperty("--hub-tree-depth", depth);
-                children.forEach((child, i) => branch(group, child, depth + 1, i, children.length));
-            }
-        };
-        const shownRoots = sort(roots.filter(node => visible.has(node.item.path)));
-        shownRoots.forEach((node, i) => branch(tree, node, 0, i, shownRoots.length));
-        const buttons = rows();
-        if (!buttons.length) tree.createDiv({ cls: "hub-explorer-empty", text: query ? "No matching locations." : "No available workspace folders." });
-        if (!buttons.some(row => row.dataset.capturePath === focusPath)) focusPath = buttons[0]?.dataset.capturePath;
-        buttons.forEach(row => { row.tabIndex = row.dataset.capturePath === focusPath ? 0 : -1; });
-        tree.scrollTop = scroll; if (active && focusPath) focus(focusPath);
-    }
-    function toggle(path) {
-        if (collapsed.has(path)) collapsed.delete(path); else collapsed.add(path);
-        render(); focus(path);
-    }
-    const key = event => {
-        const buttons = rows(), index = buttons.indexOf(event.target);
-        if (index < 0) return;
-        const path = event.target.dataset.capturePath, expanded = event.target.getAttribute("aria-expanded");
-        if (collapsible && !search.value.trim() && (event.key === "ArrowLeft" && expanded === "true" || event.key === "ArrowRight" && expanded === "false")) {
-            event.preventDefault(); toggle(path); return;
-        }
-        let next = event.key === "ArrowDown" ? buttons[Math.min(buttons.length - 1, index + 1)] : event.key === "ArrowUp" ? buttons[Math.max(0, index - 1)] : event.key === "Home" ? buttons[0] : event.key === "End" ? buttons.at(-1) : null;
-        if (event.key === "ArrowLeft") next = buttons.find(row => row.dataset.capturePath === path.slice(0, path.lastIndexOf("/")));
-        if (event.key === "ArrowRight" && Number(buttons[index + 1]?.dataset.captureDepth) > Number(event.target.dataset.captureDepth)) next = buttons[index + 1];
-        if (next) { event.preventDefault(); focus(next.dataset.capturePath); }
-    };
-    tree.addEventListener("keydown", key); search.addEventListener("input", render); render();
-    return { render, focus, destroy() { tree.removeEventListener("keydown", key); search.removeEventListener("input", render); } };
-}
-module.exports = { mountCaptureLocationTree };
 
 },
 "lib/ui/card-images.js": function (module, exports, __hubRequire) {
@@ -16241,6 +16114,104 @@ function createCardImageRenderer(root, component, placementStorage = null, share
 module.exports = { createCardImageRenderer, createCardImageCache };
 
 },
+"lib/ui/color-palettes.js": function (module, exports, __hubRequire) {
+"use strict";
+// Curated Dark contracts. Default remains authoritative in styles.css.
+const freeze = value => { if (value && typeof value === "object") { Object.values(value).forEach(freeze); Object.freeze(value); } return value; };
+const DEFAULT_PREFERENCES = freeze({ version: 1, paletteId: "default", coordinateInterfaceColors: true });
+const DEFAULT_DOCK = freeze({ background: "#242329", text: "#eeeeee", button: "#37353f", border: "#55515e", focus: "#b4a5ed" });
+const ramp = ["00", "05", "10", "20", "25", "30", "35", "40", "50", "60", "70", "100"];
+const oathRoles = ["active-text", "active-background", "active-border", "focus", "selection-border", "selection-tint", "action-background", "action-hover", "action-text", "pledge-border", "pledge-tint", "pledge-divider", "pledge-icon", "pinned-border", "pinned-tint", "pinned-title", "workspace-badge"];
+function family(id, label, h, s, l, action, neutrals, oath, phase, dock) {
+    const accent = {
+        "--hub-palette-accent-h": String(h), "--hub-palette-accent-s": s + "%", "--hub-palette-accent-l": l + "%",
+        "--hub-color-accent": `hsl(${h}, ${s}%, ${l}%)`,
+        "--hub-color-accent-hover": `hsl(${h}, ${s}%, ${l + 5}%)`,
+        "--hub-color-accent-text": `hsl(${h}, ${s}%, ${l}%)`,
+        "--hub-color-accent-text-hover": `hsl(${h}, ${s}%, ${l + 5}%)`,
+        "--hub-color-primary-action-background": action[0], "--hub-color-primary-action-background-hover": action[1],
+        "--hub-color-primary-action-text": "#ffffff", "--hub-color-text-on-accent": "#151719", "--hub-color-checkbox-marker": "#151719"
+    };
+    const coordinated = Object.fromEntries(ramp.map((key, index) => ["--hub-palette-neutral-" + key, neutrals[index]]));
+    oathRoles.forEach((key, index) => { coordinated["--hub-oath-" + key] = oath[index]; });
+    coordinated["--hub-roadmap-phase-start"] = phase[0]; coordinated["--hub-roadmap-phase-end"] = phase[1];
+    return { id, label, previewToken: "--hub-color-preview-" + id, accent, coordinated,
+        dock: Object.fromEntries(Object.keys(DEFAULT_DOCK).map((key, i) => [key, dock[i]])) };
+}
+const PALETTES = freeze([
+    { id: "default", label: "Default — Purple", previewToken: "--hub-color-preview-purple", accent: {}, coordinated: {}, dock: DEFAULT_DOCK },
+    family("blue", "Blue", 210, 75, 72, ["#245fa5", "#2b68ae"],
+        ["#191d23", "#1e2229", "#20252c", "#252b33", "#2b323b", "#303943", "#3c4653", "#515f70", "#687687", "#9eacc0", "#b3bfd0", "#dce2eb"],
+        ["#c4dcf7", "#284f76", "#6b98c4", "#9ebfe8", "#9ebfe8", "#6193ca", "#305c90", "#39669a", "#ffffff", "#6784a7", "#6193ca", "#9ebfe8", "#a0c4ed", "#526f99", "#6188bd", "#b2c9ec", "#bacfea"],
+        ["#8aafe0", "#b7d7dd"], ["#202630", "#e6edf5", "#303d4c", "#52647c", "#afc9ef"]),
+    family("green", "Green", 165, 45, 68, ["#246957", "#2c7260"],
+        ["#191f1d", "#1e2422", "#202724", "#252d29", "#2b342f", "#303b35", "#3c4941", "#526357", "#697d70", "#9eb6a8", "#b6c8bd", "#dce7e0"],
+        ["#c4eddf", "#285b4b", "#6aab92", "#9cd4bf", "#9cd4bf", "#5aab90", "#2d6655", "#35705e", "#ffffff", "#658d7b", "#5aab90", "#9cd4bf", "#a1dcc6", "#507f6c", "#609d87", "#acd9c7", "#b9dfd0"],
+        ["#88bfae", "#b1cae2"], ["#202a25", "#e6efe9", "#303f36", "#526f5f", "#afdac5"]),
+    family("amber", "Amber", 40, 65, 70, ["#78551e", "#825e26"],
+        ["#211d18", "#26221c", "#29241e", "#2e2922", "#352f27", "#3c352c", "#4b4236", "#655947", "#80725e", "#bbaa90", "#cec0aa", "#e9e2d6"],
+        ["#f2dfb9", "#635025", "#b49a62", "#d9bd82", "#d9bd82", "#b58d49", "#75551f", "#7f5e27", "#ffffff", "#9b835b", "#b58d49", "#d9bd82", "#e4c894", "#8c754f", "#ac925d", "#ddc79b", "#e6d3af"],
+        ["#d2af72", "#c4b8db"], ["#2b251d", "#f0e9dd", "#40372a", "#77654a", "#dfc494"]),
+    family("gray", "Gray", 220, 5, 74, ["#555b66", "#5f6570"],
+        ["#1b1d20", "#202225", "#222427", "#27292d", "#2d2f34", "#33363b", "#40444a", "#575c64", "#707680", "#a8afb9", "#bbc0c8", "#dfe2e7"],
+        ["#e0e4ec", "#454b56", "#929dac", "#b7c2d2", "#b7c2d2", "#929daa", "#535b68", "#5d6572", "#ffffff", "#8993a1", "#929daa", "#b7c2d2", "#c2cbd8", "#77818f", "#8b97a9", "#c4cddc", "#d0d7e2"],
+        ["#a4b3ca", "#c1cad0"], ["#25272c", "#e8ebf0", "#383c44", "#636b79", "#c0cbdd"])
+]);
+const ACCENT_KEYS = freeze(Object.keys(PALETTES[1].accent));
+const COORDINATED_KEYS = freeze(Object.keys(PALETTES[1].coordinated));
+const TOKEN_KEYS = freeze([...ACCENT_KEYS, ...COORDINATED_KEYS]);
+function luminance(value) {
+    let rgb;
+    if (/^#[0-9a-f]{6}$/i.test(value)) rgb = value.slice(1).match(/../g).map(x => parseInt(x, 16) / 255);
+    else {
+        const match = /^hsl\((\d+), (\d+)%, (\d+)%\)$/.exec(value);
+        if (!match) throw Error("Unsupported palette color: " + value);
+        const h = +match[1] / 60, s = +match[2] / 100, l = +match[3] / 100;
+        const c = (1 - Math.abs(2 * l - 1)) * s, x = c * (1 - Math.abs(h % 2 - 1)), m = l - c / 2;
+        rgb = (h < 1 ? [c,x,0] : h < 2 ? [x,c,0] : h < 3 ? [0,c,x] : h < 4 ? [0,x,c] : h < 5 ? [x,0,c] : [c,0,x]).map(v => v + m);
+    }
+    const a = rgb.map(v => v <= .04045 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4);
+    return a[0] * .2126 + a[1] * .7152 + a[2] * .0722;
+}
+const contrast = (a,b) => { const x=luminance(a),y=luminance(b); return (Math.max(x,y)+.05)/(Math.min(x,y)+.05); };
+function validatePalette(palette) {
+    if (!palette || !/^(default|blue|green|amber|gray)$/.test(palette.id)) throw Error("Unknown palette");
+    for (const [group, keys] of [[palette.accent, ACCENT_KEYS], [palette.coordinated, COORDINATED_KEYS]]) {
+        if (!group || Object.keys(group).some(key => !keys.includes(key)) || (palette.id !== "default" && keys.some(key => !Object.hasOwn(group,key)))) throw Error("Incomplete palette roles");
+        for (const [key,value] of Object.entries(group)) {
+            if (key.startsWith("--hub-palette-accent-")) { if (!/^\d+%?$/.test(value) || parseInt(value) > (key.endsWith("-h") ? 359 : 100)) throw Error("Invalid accent channel"); }
+            else luminance(value);
+        }
+    }
+    if (Object.keys(palette.dock).sort().join() !== Object.keys(DEFAULT_DOCK).sort().join()) throw Error("Invalid dock roles");
+    Object.values(palette.dock).forEach(luminance);
+    if (palette.id === "default") { if (Object.keys(palette.accent).length || Object.keys(palette.coordinated).length) throw Error("Default cannot override CSS"); return; }
+    const a=palette.accent,c=palette.coordinated;
+    if(a["--hub-color-accent"] !== `hsl(${a["--hub-palette-accent-h"]}, ${a["--hub-palette-accent-s"]}, ${a["--hub-palette-accent-l"]})`) throw Error("Native accent channels disagree with accent fill");
+    for (const fill of ["--hub-color-primary-action-background","--hub-color-primary-action-background-hover"]) if (contrast(a[fill],a["--hub-color-primary-action-text"])<4.5) throw Error("Primary contrast");
+    if(luminance(a["--hub-color-primary-action-background-hover"])<=luminance(a["--hub-color-primary-action-background"])) throw Error("Primary hover must brighten");
+    for(const fill of ["--hub-color-accent","--hub-color-accent-hover"]) if(contrast(a[fill],a["--hub-color-text-on-accent"])<4.5 || contrast(a[fill],a["--hub-color-checkbox-marker"])<3) throw Error("Selection contrast");
+    for(const bg of ["#1c1c1c","#282828","#2e2e2e",c["--hub-palette-neutral-00"],c["--hub-palette-neutral-20"],c["--hub-palette-neutral-25"]]) {
+        if(contrast(a["--hub-color-accent-text"],bg)<4.5 || contrast(c["--hub-palette-neutral-70"],bg)<4.5 || contrast(c["--hub-palette-neutral-60"],bg)<3) throw Error("Surface contrast");
+    }
+    for(const fill of ["action-background","action-hover"]) if(contrast(c["--hub-oath-"+fill],c["--hub-oath-action-text"])<4.5) throw Error("Oath action contrast");
+    if(contrast(c["--hub-oath-active-text"],c["--hub-oath-active-background"])<4.5) throw Error("Oath active contrast");
+    if(contrast(palette.dock.text,palette.dock.background)<4.5 || contrast(palette.dock.text,palette.dock.button)<4.5 || contrast(palette.dock.focus,palette.dock.button)<3) throw Error("Dock contrast");
+}
+if (new Set(PALETTES.map(p=>p.id)).size !== PALETTES.length) throw Error("Duplicate palette identifier");
+PALETTES.forEach(validatePalette);
+function normalizePreferences(value) {
+    if (value == null) return { ...DEFAULT_PREFERENCES };
+    if (value.version !== 1 || typeof value.paletteId !== "string" || typeof value.coordinateInterfaceColors !== "boolean" || Object.keys(value).some(k=>!Object.hasOwn(DEFAULT_PREFERENCES,k))) throw Error("Unsupported Appearance preferences");
+    return { ...value, paletteId: PALETTES.some(p=>p.id===value.paletteId) ? value.paletteId : "default" };
+}
+function resolvePalette(value) {
+    const preferences=normalizePreferences(value), palette=PALETTES.find(p=>p.id===preferences.paletteId);
+    return freeze({ preferences, tokens: { ...palette.accent, ...(preferences.coordinateInterfaceColors ? palette.coordinated : {}) }, dock: preferences.coordinateInterfaceColors ? palette.dock : DEFAULT_DOCK });
+}
+module.exports = { PALETTES, DEFAULT_PREFERENCES, DEFAULT_DOCK, TOKEN_KEYS, ACCENT_KEYS, COORDINATED_KEYS, normalizePreferences, resolvePalette, validatePalette, luminance, contrast };
+
+},
 "lib/ui/color-system.js": function (module, exports, __hubRequire) {
 "use strict";
 
@@ -16408,6 +16379,61 @@ const NATIVE_COLOR_PROPERTIES = Object.freeze([
 ]);
 const SCOPE = "hub-color-scope", ISLAND = "hub-color-host-island";
 const roots = new WeakMap(), documents = new WeakMap(), modals = new WeakMap(), activeDocuments = new Set();
+// Palette sheets have document lifetime, including marker-only native tooltips.
+const paletteDocuments = new Map(), colorEffects = new Set();
+let activePaletteCss = "", paletteRevision = 0, coordinatedSurroundings = false;
+function registerColorEffect(root, cancelAll) {
+    const record = { root, cancelAll }; colorEffects.add(record);
+    return () => colorEffects.delete(record);
+}
+function cancelColorEffects(doc) {
+    for (const effect of [...colorEffects]) if ((!doc || effect.root.ownerDocument === doc) && hasColorOwner(effect.root)) effect.cancelAll();
+}
+// Two paint-only corrections. Resolve roles through the existing contract;
+// never put its native-variable bridge on the shared/native paint surfaces.
+function refreshDocumentPalette(state) {
+    state.sheet.textContent = activePaletteCss;
+    if (!coordinatedSurroundings) return;
+    const style = state.reference.ownerDocument.defaultView.getComputedStyle(state.reference);
+    const page = style.getPropertyValue("--hub-color-surface-page").trim();
+    const panel = style.getPropertyValue("--hub-color-surface-panel").trim();
+    const border = style.getPropertyValue("--hub-color-border").trim();
+    if (![page, panel, border].every(value => value && state.reference.ownerDocument.defaultView.CSS.supports("background-color", value))) return;
+    const hosts = '.workspace-leaf-content[data-type="markdown"][data-mode="preview"] > .view-content, .workspace-leaf-content:is([data-type="hub-prepared-home"],[data-type="hub-prepared-note-rail"]) > .view-content';
+    const eligible = `:is(${hosts}):has([data-hub-dashboard-page]):where(:not(.hub-color-host-island,.hub-color-host-island *))`;
+    state.sheet.textContent += `\nbody.theme-dark ${eligible}, body.theme-dark ${eligible} :is(.markdown-reading-view,.markdown-preview-view):has([data-hub-dashboard-page]){background-color:${page};}\nbody.theme-dark .app-container .hub-oath-statusbar:where(:not(.hub-color-host-island,.hub-color-host-island *)){background-color:${panel};border-top-color:${border};}`;
+}
+function attachColorDocument(doc) {
+    if (!doc?.defaultView || paletteDocuments.has(doc)) return paletteDocuments.get(doc)?.dispose || (() => {});
+    const sheet = doc.createElement("style"); sheet.dataset.hubPalette = "";
+    const reference = doc.createElement("div"); reference.className = SCOPE; reference.hidden = true;
+    reference.setAttribute("aria-hidden", "true"); doc.body.appendChild(reference);
+    (doc.head || doc.documentElement).appendChild(sheet);
+    let dark = doc.body?.classList.contains("theme-dark");
+    const observer = new doc.defaultView.MutationObserver(() => {
+        const next = doc.body.classList.contains("theme-dark");
+        if (next !== dark) { dark = next; cancelColorEffects(doc); doc.dispatchEvent(new doc.defaultView.Event("hub-color-mode-change")); }
+    });
+    if (doc.body) observer.observe(doc.body, { attributes: true, attributeFilter: ["class"] });
+    const dispose = () => { observer.disconnect(); sheet.remove(); reference.remove(); doc.defaultView.removeEventListener("pagehide", dispose); paletteDocuments.delete(doc); };
+    const state = { sheet, reference, dispose }; paletteDocuments.set(doc, state); refreshDocumentPalette(state); doc.defaultView.addEventListener("pagehide", dispose);
+    return dispose;
+}
+function applyResolvedColors(contract) {
+    const { TOKEN_KEYS } = __hubRequire("lib/ui/color-palettes.js");
+    for (const [key,value] of Object.entries(contract.tokens)) if (!TOKEN_KEYS.includes(key) || typeof value !== "string" || /[;{}<>]/.test(value)) throw Error("Invalid palette declaration");
+    const declarations = Object.entries(contract.tokens).map(([key,value]) => `${key}:${value};`).join("\n");
+    // Verified Itacan pages were transparent in Default. Paint only coordinated
+    // alternatives; native Markdown leaves and note-editor hosts stay unowned.
+    const backdrop = Object.hasOwn(contract.tokens, "--hub-palette-neutral-00")
+        ? "body.theme-dark .hub-color-scope:is(.hub-color-page,.home-dashboard,.project-dashboard,.hub-athena-view,.daily-project-list,.daily-project-empty):where(:not(.hub-color-host-island,.hub-color-host-island *)){background-color:var(--hub-color-surface-page);}" : "";
+    const css = declarations ? `body.theme-dark .hub-color-scope:where(:not(.hub-color-host-island, .hub-color-host-island *)){\n${declarations}\n}${backdrop}` : "";
+    cancelColorEffects(); activePaletteCss = css;
+    coordinatedSurroundings = Object.hasOwn(contract.tokens, "--hub-palette-neutral-00");
+    for (const state of paletteDocuments.values()) refreshDocumentPalette(state);
+    for (const doc of activeDocuments) for (const island of documents.get(doc)?.islands || []) island.refresh();
+    return ++paletteRevision;
+}
 const ownedPrefix = name => /^--hub-(?:palette-|color-|oath-(?:active|focus|selection|action|pledge|pinned|workspace-badge)|progress-(?:rgb|today-border)|roadmap-phase-|effect-)/.test(name);
 function hasColorOwner(element) {
     if (element?.closest?.("." + ISLAND)) return false;
@@ -16445,10 +16471,11 @@ function documentState(doc) {
     doc.defaultView.addEventListener("pagehide", state.release);
     state.refresh = queue; state.refreshHost = () => queue(true); documents.set(doc, state); activeDocuments.add(doc); return state;
 }
-function ownColorRoot(root) {
+function ownColorRoot(root, release = null) {
     if (!root?.classList || !root.ownerDocument?.defaultView || root.closest("." + ISLAND)) return () => {};
-    if (roots.has(root)) return roots.get(root).dispose;
+    if (roots.has(root)) { const item = roots.get(root); if (release) item.releases.add(release); return item.dispose; }
     const added = !root.classList.contains(SCOPE), origins = new Map();
+    attachColorDocument(root.ownerDocument);
     root.classList.add(SCOPE);
     const doc = root.ownerDocument, state = documentState(doc);
     let disposed = false;
@@ -16481,8 +16508,9 @@ function ownColorRoot(root) {
             origins.delete(node);
         }
     });
-    const item = { root, attached: root.isConnected, dispose() {
+    const item = { root, releases: new Set(release ? [release] : []), attached: root.isConnected, dispose() {
         if (disposed) return; disposed = true; observer.disconnect();
+        for (const cleanup of item.releases) cleanup(); item.releases.clear();
         for (const node of origins.keys()) {
             const classes = (node.getAttribute("data-tooltip-classes") || "").split(/\s+/).filter(x => x && x !== SCOPE);
             if (classes.length) node.setAttribute("data-tooltip-classes", classes.join(" ")); else node.removeAttribute("data-tooltip-classes");
@@ -16544,11 +16572,14 @@ function hostColorIsland(root) {
     };
     island.dispose = dispose; return dispose;
 }
-function refreshHostColorReferences(doc) { documents.get(doc)?.refreshHost(); }
+function refreshHostColorReferences(doc) { documents.get(doc)?.refreshHost(); const state = paletteDocuments.get(doc); if (state) refreshDocumentPalette(state); }
 function disposeColorSystem() {
+    cancelColorEffects(); colorEffects.clear();
+    for (const state of [...paletteDocuments.values()]) state.dispose();
+    activePaletteCss = ""; paletteRevision = 0; coordinatedSurroundings = false;
     for (const doc of [...activeDocuments]) documents.get(doc)?.release();
 }
-module.exports = { disposeColorSystem, ownColorRoot, ownModalColors, ownMenuColors, ownNoticeColors, inheritColorOwner, hasColorOwner, hostColorIsland, refreshHostColorReferences, NATIVE_COLOR_PROPERTIES };
+module.exports = { attachColorDocument, applyResolvedColors, registerColorEffect, disposeColorSystem, ownColorRoot, ownModalColors, ownMenuColors, ownNoticeColors, inheritColorOwner, hasColorOwner, hostColorIsland, refreshHostColorReferences, NATIVE_COLOR_PROPERTIES };
 
 },
 "lib/ui/completion-audio.js": function (module, exports, __hubRequire) {
@@ -17061,12 +17092,38 @@ module.exports = { reportTitle, DailyReportModal, renderDailyReport, renderRepor
 const { ownColorRoot } = __hubRequire("lib/ui/color-system.js");
 const frames = new WeakMap();
 
-function createDashboardFrame(container, component, className) {
+function createDashboardFrame(container, component, className, page = null) {
     frames.get(container)?.abort();
     const controller = new AbortController();
     const root = container.ownerDocument.createElement("div");
     root.className = className;
-    const disposeColors = ownColorRoot(root);
+    let releasePage = () => {};
+    const disposeColors = ownColorRoot(root, () => releasePage());
+    let pageReleased = false;
+    // A real frame plus its source/view identity is proof of a dashboard page.
+    // Embedded dashboards and source editors must not claim the surrounding note.
+    const refreshPage = () => {
+        if (pageReleased) return;
+        const preview = container.closest(".markdown-preview-view");
+        const native = preview?.closest(".workspace-leaf-content");
+        let eligible = false;
+        if (page?.sourcePath && preview && !container.closest(".hub-color-host-island") &&
+            (!native || ["markdown", "hub-prepared-home", "hub-prepared-note-rail"].includes(native.dataset.type))) {
+            eligible = !!preview.classList.contains("hub-color-page") && ["home", "note"].includes(component.hubDestinationMode);
+            if (!eligible && native?.dataset.type === "markdown") page.app?.workspace?.iterateAllLeaves?.(leaf => {
+                if (leaf.view?.containerEl === native && leaf.view?.getViewType?.() === "markdown" && leaf.view?.file?.path === page.sourcePath) eligible = true;
+            });
+        }
+        root.toggleAttribute("data-hub-dashboard-page", eligible);
+    };
+    const event = page?.app?.workspace?.on && page.app.workspace.offref
+        ? page.app.workspace.on("file-open", refreshPage) : null;
+    releasePage = () => {
+        if (pageReleased) return; pageReleased = true;
+        if (event) page.app.workspace.offref(event);
+        root.removeAttribute("data-hub-dashboard-page");
+    };
+    component.register(releasePage);
     const work = [];
     const layoutWork = [];
     const current = () => !controller.signal.aborted && frames.get(container) === frame && root.isConnected;
@@ -17079,6 +17136,7 @@ function createDashboardFrame(container, component, className) {
         beforePaint: task => layoutWork.push(task),
         prepareLayout() {
             if (!current()) return;
+            refreshPage();
             for (const task of layoutWork.splice(0)) task();
         },
         commit() {
@@ -17353,7 +17411,7 @@ function createDashboardUi({
 
 
     return Object.freeze({
-        createFrame: (container, component, className) => __hubRequire("lib/ui/dashboard-frame.js").createDashboardFrame(container, component, className),
+        createFrame: (container, component, className, page) => __hubRequire("lib/ui/dashboard-frame.js").createDashboardFrame(container, component, className, page),
         el,
         historyHeading,
         makeActionableRow: __hubRequire("lib/ui/row-activation.js").makeActionableRow,
@@ -18191,17 +18249,15 @@ const { Notice, Menu } = require("obsidian");
 const { CaptureModal, CaptureConfirmation, action, attachments } = __hubRequire("lib/ui/capture-modal.js");
 const { setHubIcon } = __hubRequire("lib/ui/icons.js");
 const { formatDateTime } = __hubRequire("lib/domain/dates.js");
-const { captureDraft, captureIntent, sortedCaptures, inboxCounts, INBOX_SORTS } = __hubRequire("lib/domain/inbox.js");
-const { mountCaptureForm } = __hubRequire("lib/ui/capture-form.js");
-const { mountNativeCaptureTask } = __hubRequire("lib/ui/native-capture-task.js");
+const { captureDraft, sortedCaptures, inboxCounts, INBOX_SORTS } = __hubRequire("lib/domain/inbox.js");
+const { openCaptureAction, operationMode } = __hubRequire("lib/ui/capture-flow.js");
 const clone = value => JSON.parse(JSON.stringify(value));
 const preview = capture => capture.text?.trim() || capture.attachments?.map(a=>a.name).join(", ") || "Untitled item";
-const fingerprint = value => JSON.stringify({text:value.text,attachments:value.attachments,intent:captureIntent(value,value.attachments??[])});
 class InboxModal extends CaptureModal {
     onOpen() { ownModalColors(this);
         this.modalEl.classList.add("hub-inbox-dialog");this.header("Inbox","Saved items awaiting organisation","inbox");
-        this.filter="all";this.sortOrder=["most-complete","least-complete"].includes(this.service.sortPreference)?"newest":this.service.sortPreference;
-        this.rows=new Map();this.drafts=new Map();this.actionsByItem=new Map();this.selectedId=null;this.mode=null;this.dirty=false;
+        this.filter=this.options.resumeState?.filter??"all";this.sortOrder=["most-complete","least-complete"].includes(this.service.sortPreference)?"newest":this.service.sortPreference;
+        this.rows=new Map();this.drafts=new Map();this.selectedId=this.options.resumeState?.selectedId??null;this.mode=null;this.dirty=false;
         const body=this.contentEl.createDiv({cls:"hub-inbox-body"}),aside=body.createEl("aside",{cls:"hub-inbox-sidebar",attr:{"aria-label":"Inbox items"}}),toolbar=aside.createDiv({cls:"hub-inbox-toolbar"});
         const filters=toolbar.createDiv({cls:"hub-inbox-filters hub-equal-selectors hub-option-group",attr:{role:"group","aria-label":"Filter items"}});
         this.filterButtons=[["all","All"],["text","Texts"],["files","Files"]].map(([key,label])=>({key,label,button:action(filters,label,null,()=>{void this.changeFilter(key)})}));
@@ -18212,7 +18268,7 @@ class InboxModal extends CaptureModal {
         const footer=this.contentEl.createDiv({cls:"hub-capture-actions hub-inbox-footer"});action(footer,"Close",null,()=>this.close());
         this.stop=this.service.onChange(()=>{if(this.busy)this.needsRefresh=true;else this.refresh()});
         this.deleteKey=e=>{if(e.key==='Delete'&&!e.repeat&&!e.target.closest('input,textarea,select,[contenteditable],.menu')&&!this.busy&&!this.confirmation){e.preventDefault();void this.remove(this.selectedId)}};this.modalEl.addEventListener('keydown',this.deleteKey);
-        this.refresh();this.filterButtons[0].button.focus();
+        this.refresh();if(this.selectedId&&!this.draft)this.loadSelected();this.list.scrollTop=this.options.resumeState?.scrollTop??0;this.filterButtons[0].button.focus();
     }
     visible(){return sortedCaptures(this.service.captures,{filter:this.filter,sort:this.sortOrder})}
     async changeFilter(filter){if(this.busy||!await this.flushEdits())return;this.filter=filter;this.refresh()}
@@ -18227,40 +18283,62 @@ class InboxModal extends CaptureModal {
         });this.list.scrollTop=scroll;
         if(!captures.some(c=>c.id===this.selectedId)){this.resetForm();this.selectedId=captures[0]?.id??null;this.loadSelected();for(const [id,row]of this.rows){row.button.classList.toggle('is-selected',id===this.selectedId);row.button.setAttribute('aria-pressed',String(id===this.selectedId))}}
     }
-    showItemMenu(id,position){const c=this.service.get(id);if(!c||this.busy)return;const menu=ownMenuColors(new Menu());menu.addItem(i=>i.setTitle('Open').setIcon('panel-right-open').onClick(()=>this.select(id)));if(!c.attachments.length)menu.addItem(i=>i.setTitle('Create task').setIcon('square-plus').onClick(async()=>{await this.select(id);await this.createTask()}));menu.addSeparator();menu.addItem(i=>i.setTitle('Delete').setIcon('trash-2').setWarning(true).onClick(()=>this.remove(id)));menu.showAtPosition(position)}
+    showItemMenu(id,position){const c=this.service.get(id);if(!c||this.busy)return;const menu=ownMenuColors(new Menu());menu.addItem(i=>i.setTitle('Open').setIcon('panel-right-open').onClick(()=>this.select(id)));if(!c.attachments.length)menu.addItem(i=>i.setTitle('Create task').setIcon('square-plus').onClick(async()=>{await this.select(id);if(this.selectedId===id)await this.createTask()}));menu.addSeparator();menu.addItem(i=>i.setTitle('Delete').setIcon('trash-2').setWarning(true).onClick(()=>this.remove(id)));menu.showAtPosition(position)}
     async select(id,focus=false){if(this.busy||id===this.selectedId||!await this.flushEdits())return;this.remember();this.resetForm();this.selectedId=id;this.loadSelected();this.refresh();if(focus)this.rows.get(id)?.button.focus({preventScroll:true})}
-    remember(){if(!this.selectedId||!this.draft)return;const value=this.form?.value()??this.draft;this.draft={...this.draft,...value};this.drafts.set(this.selectedId,clone(this.draft));if(this.mode){const choices=this.actionsByItem.get(this.selectedId)??{};choices[this.mode]=clone(this.draft);this.actionsByItem.set(this.selectedId,choices)}}
+    remember(){if(!this.selectedId||!this.draft)return;const value=this.form?.value()??this.draft;this.draft={...this.draft,...value};this.drafts.set(this.selectedId,clone(this.draft));}
     resetForm(){this.form?.destroy();this.form=null;this.mode=null;this.draft=null;this.dirty=false;this.save=null}
     loadSelected(){
-        this.detail.empty();this.detail.classList.add('is-action-form');const c=this.service.get(this.selectedId);if(!c){this.detail.createDiv({cls:'hub-capture-empty',text:'Select an item to organize.'});return;}
-        this.draft=clone(this.drafts.get(c.id)??captureDraft(c));this.detail.createEl('h3',{text:c.attachments.length?'File':'Text',cls:'hub-inbox-detail-title hub-inbox-action-heading'});
+        this.detail.empty();this.detail.classList.add('is-action-form');const c=this.service.get(this.selectedId);
+        if(!c){this.detail.createDiv({cls:'hub-capture-empty',text:'Select an item to organize.'});return;}
+        this.draft=clone(this.drafts.get(c.id)??captureDraft(c));
+        this.detail.createEl('h3',{text:c.attachments.length?'File':'Text',cls:'hub-inbox-detail-title hub-inbox-action-heading'});
         const body=this.detail.createDiv({cls:'hub-inbox-action-body'});this.sourceInput=null;
-        if(c.text || !c.attachments.length){this.sourceInput=body.createEl('textarea',{cls:'hub-quick-add-input',attr:{rows:'4','aria-label':'Captured content'}});this.sourceInput.value=this.draft.text;this.sourceInput.disabled=!!c.operation&&c.operation.state!=='done';this.sourceInput.oninput=()=>{this.draft.text=this.sourceInput.value;this.dirty=true;this.form?.update({text:this.draft.text})};}
-        if(c.attachments.length)attachments(body.createDiv({cls:'hub-capture-attachments'}),c.attachments,this.service,{open:ref=>{void this.run(()=>this.service.openAttachment(ref))}});
-        const actions=body.createDiv({cls:'hub-inbox-organize-actions'});
-        const task=action(actions,'Create task','square-plus',()=>{void this.createTask()},'mod-cta');task.disabled=!!c.attachments.length;if(task.disabled)task.title='Native task attachments are unavailable. Organize the files below.';
-        const newNote=action(actions,'New note','notebook-plus',()=>{void this.showAction('note','new')});const existing=action(actions,'Add to existing note','notebook-pen',()=>{void this.showAction('note','existing')});existing.disabled=!!c.attachments.length;if(existing.disabled)existing.title='Use New note or Organize files to preserve these files.';
-        this.actionHost=body.createDiv({cls:'hub-inbox-form-host'});
-        const footer=this.detail.createDiv({cls:'hub-capture-actions hub-inbox-action-footer'});this.deleteButton=action(footer,'Delete','trash-2',()=>{void this.remove(c.id)},'hub-capture-delete');this.submitHost=footer.createSpan();
-        const pending=c.operation&&c.operation.state!=='done';if(pending){task.disabled=!['native-task','task'].includes(c.operation.kind);newNote.disabled=true;existing.disabled=true;this.detail.createDiv({cls:'hub-capture-muted',text:'This item retains its original destination operation. Retry to confirm its outcome; no duplicate will be created.'});this.deleteButton.disabled=c.operation.kind==='native-task';void this.showAction(c.operation.kind==='native-task'||c.operation.kind==='task'?'task':c.operation.kind==='files'?'file':'note',c.operation.kind==='note-insertion'?'existing':'new',true);}
-        else if(c.attachments.length)void this.showAction('file',null,true);else void this.showAction('task',null,true);
+        if(c.text||!c.attachments.length){this.sourceInput=body.createEl('textarea',{cls:'hub-quick-add-input',attr:{rows:'4','aria-label':'Captured content'}});this.sourceInput.value=this.draft.text;this.sourceInput.disabled=!!operationMode(c);this.sourceInput.oninput=()=>{this.draft.text=this.sourceInput.value;this.dirty=true;};}
+        if(c.attachments.length)attachments(body.createDiv({cls:'hub-capture-attachments'}),c.attachments,this.service,{open:ref=>{void this.run(()=>this.service.openAttachment(ref));}});
+        const actions=body.createDiv({cls:'hub-inbox-organize-actions'}),pending=operationMode(c);
+        const choices=c.attachments.length?[["file","File location"],["note","New note"]]:[["task","Create task"],["note","New note"],["text","Add to existing note"]];
+        for(const[mode,label]of choices){const button=action(actions,label,null,()=>{void this.showAction(mode);},mode==='task'?'mod-cta':'');button.disabled=!!pending&&pending!==mode;}
+        if(pending)body.createDiv({cls:'hub-capture-muted',text:'Retry the saved action to confirm its outcome. Its original content and destination are retained.'});
+        const footer=this.detail.createDiv({cls:'hub-capture-actions hub-inbox-action-footer'});
+        this.deleteButton=action(footer,'Delete','trash-2',()=>{void this.remove(c.id)},'hub-capture-delete');this.deleteButton.disabled=c.operation?.kind==='native-task';
     }
-    async showAction(type,noteAction=null,initial=false){
-        const c=this.service.get(this.selectedId);if(!c||this.busy&&!initial)return;if(!initial&&!await this.flushEdits())return;this.remember();const content=this.draft?.text??c.text,choices=this.actionsByItem.get(c.id)??{};
-        const draft={...captureDraft(c,type),...choices[type],text:content,type,...(noteAction?{noteAction}:{})};this.form?.destroy();this.form=null;this.actionHost.empty();this.submitHost.empty();this.mode=type;this.draft=draft;
-        const changed=value=>{const changed=fingerprint(value)!==fingerprint(this.draft);this.draft=value;this.drafts.set(c.id,clone(value));if(changed)this.dirty=true;this.sync()};
-        this.form=type==='task'&&this.service.plugin.nativeTaskHost?mountNativeCaptureTask({host:this.actionHost,service:this.service,draft,captureId:()=>c.id,onChange:changed,onSubmit:()=>{void this.commit()},details:false}):mountCaptureForm({host:this.actionHost,service:this.service,draft,fixedType:type,captureId:()=>c.id,onChange:changed});
-        this.draft=this.form.value();if(!initial)this.dirty=true;
-        if(type!=='task')this.save=action(this.submitHost,type==='file'?'Organize files':noteAction==='existing'?'Add text':'Create note',null,()=>{void this.commit()},'mod-cta');
-        this.sync();
+    async showAction(mode){
+        if(this.busy||this.closed)return;
+        this.busy=true;
+        try{
+            if(!await this.flushEdits())return;
+            const id=this.selectedId,visible=this.visible(),index=visible.findIndex(c=>c.id===id);
+            const state={filter:this.filter,selectedId:id,scrollTop:this.list.scrollTop};
+            this.remember();this.busy=false;super.close();
+            const resume=result=>Promise.resolve().then(()=>{
+                if(result.status==='created'||result.status==='completed'){
+                    ownNoticeColors(new Notice(result.result?.message??'Item organized.'));
+                    state.selectedId=visible[index+1]?.id??visible[index-1]?.id??null;
+                }else if(result.status==='failed')ownNoticeColors(new Notice(result.error));
+                if(this.options.onResume)this.options.onResume(state);
+                else new InboxModal(this.app,this.service,{...this.options,resumeState:state}).open();
+            });
+            try{openCaptureAction(this.service,{captureId:id,mode,onClose:resume});}catch(error){resume({status:'failed',error:error.message});}
+        }finally{this.busy=false;}
     }
-    async flushEdits(){if(!this.dirty||!this.selectedId)return true;const id=this.selectedId,value=this.form?.value()??this.draft;if(!this.service.get(id)){this.dirty=false;return true}try{await this.service.updateCapture(id,value);this.dirty=false;this.remember();return true}catch(error){this.error.textContent=error.message;return false}}
-    sync(){if(this.needsRefresh&&!this.busy){this.needsRefresh=false;this.refresh()}if(this.save)this.save.disabled=this.busy;const c=this.service.get(this.selectedId);if(c?.operation&&c.operation.state!=='done'&&(['native-task','task','note-insertion'].includes(c.operation.kind)||c.operation.state==='ready')){this.actionHost.querySelectorAll('input,textarea,select,button').forEach(e=>e.disabled=true)}}
-    async createTask(){if(this.busy||this.closed)return;const c=this.service.get(this.selectedId);if(!c||c.attachments.length)return;if(this.mode!=='task'){await this.showAction('task');if(this.mode!=='task')return;}return this.commit()}
-    async commit(){if(this.busy||this.closed||!this.form)return;if(this.form.prepare?.()===false)return;if(!this.service.get(this.selectedId)?.operation&&!this.form.valid()){this.error.textContent=this.service.completion(this.form.value(),this.selectedId).error??'Choose the required destination.';return;}if(!await this.flushEdits())return;
-        return this.run(async()=>{const id=this.selectedId,draft=this.form.value(),result=this.mode==='task'?await this.service.makeTask(draft,id):this.mode==='note'?await this.service.createNote(draft,id):await this.service.addFiles(draft,id);ownNoticeColors(new Notice(result?.message??'Item organized.'));this.drafts.delete(id);this.actionsByItem.delete(id);this.dirty=false;this.resetForm();this.refresh()});}
-    async remove(id){if(this.busy||!this.service.get(id)||this.confirmation)return;const dialog=this.confirmation=new CaptureConfirmation(this.app,null,{title:'Delete this inbox item?',message:'This item will be removed from your Inbox.',confirmLabel:'Delete',destructive:true});const yes=await dialog.ask();this.confirmation=null;if(!yes||this.closed)return;await this.run(async()=>{await this.service.delete(id);this.drafts.delete(id);this.actionsByItem.delete(id);this.resetForm();this.selectedId=null;this.refresh()});}
-    async close(){if(this.busy||this.closed||!await this.flushEdits())return;super.close()}
+    async flushEdits(){
+        if(!this.dirty||!this.selectedId)return true;
+        const id=this.selectedId,value=clone(this.form?.value()??this.draft),input=this.sourceInput,disabled=input?.disabled;
+        if(!this.service.get(id)){this.dirty=false;return true;}
+        if(input)input.disabled=true;
+        try{await this.service.updateCapture(id,value);this.dirty=false;this.remember();return true;}
+        catch(error){this.error.textContent=error.message;return false;}
+        finally{if(input?.isConnected)input.disabled=disabled;}
+    }
+    sync(){if(this.needsRefresh&&!this.busy){this.needsRefresh=false;this.refresh();}}
+    async createTask(){return this.showAction('task');}
+    async remove(id){if(this.busy||!this.service.get(id)||this.confirmation)return;const dialog=this.confirmation=new CaptureConfirmation(this.app,null,{title:'Delete this inbox item?',message:'This item will be removed from your Inbox.',confirmLabel:'Delete',destructive:true});const yes=await dialog.ask();this.confirmation=null;if(!yes||this.closed)return;await this.run(async()=>{await this.service.delete(id);this.drafts.delete(id);this.resetForm();this.selectedId=null;this.refresh()});}
+    async close(){
+        if(this.busy||this.closed||this.closing)return;
+        this.closing=true;this.busy=true;
+        try{if(!await this.flushEdits())return;this.busy=false;super.close();}
+        finally{this.closing=false;this.busy=false;if(!this.closed)this.sync();}
+    }
     onClose(){this.modalEl.removeEventListener('keydown',this.deleteKey);this.confirmation?.close();this.sortMenu?.hide();this.remember();this.service.scheduleNativeRefresh?.();super.onClose()}
 }
 module.exports={InboxModal};
@@ -18941,38 +19019,6 @@ function mountMusicControl(plugin, host) {
 module.exports = { MusicModal, mountMusicControl, formatTime };
 
 },
-"lib/ui/native-capture-task.js": function (module, exports, __hubRequire) {
-"use strict";
-const N = __hubRequire("lib/services/native-inbox-task.js");
-const { createNativeTaskLocations } = __hubRequire("lib/services/native-task-locations.js");
-const { mountLiveTaskForm } = __hubRequire("lib/ui/task-live-form.js");
-function mountNativeCaptureTask({host,service,draft={},captureId=()=>null,onChange=()=>{},onSubmit=()=>{},details=true}) {
-    let full=N.draft(service,draft,service.get(captureId())??{source:draft.source}),disposed=false,picker=null,fields=null;
-    const element=host.createEl("form",{cls:"hub-native-capture-task"}),label=element.createEl("label",{cls:"hub-capture-field",text:"Task workspace"}),select=label.createEl("select",{attr:{"aria-label":"Task workspace"}});
-    element.addEventListener("submit",event=>{event.preventDefault();onSubmit()});
-    select.createEl("option",{value:"",text:"Choose a Project or Resource"});
-    const available=N.workspaces(service);for(const [kind,title]of[["project","Projects"],["resource","Resources"]]){const group=select.createEl("optgroup",{attr:{label:title}});for(const w of available.filter(w=>(w.contextKind==='resource'?'resource':'project')===kind))group.createEl("option",{value:w.id,text:w.name??w.label});}
-    if(full.workspaceId&&!available.some(w=>w.id===full.workspaceId))select.createEl("option",{value:full.workspaceId,text:"Unavailable saved workspace",attr:{disabled:""}});
-    select.value=full.workspaceId??"";
-    const base=createNativeTaskLocations(service.plugin),locations={...base,describe:(owner,ref)=>owner?base.describe(owner,ref):{workspaceName:"Choose workspace",segments:[],available:false},resolveId:(owner,id)=>owner?base.resolveId(owner,id):null};
-    const current=()=>available.find(w=>w.id===full.workspaceId),state={text:full.taskTitle,description:full.description,steps:(full.steps??[]).map(s=>({...s})),necessity:full.necessity??null,fromDate:full.fromDate??null,fromTime:full.fromTime??null,dueDate:full.dueDate??null,dueTime:full.dueTime??null,completed:!!full.completed,phaseId:full.phaseId??null,nativeLocation:full.nativeLocation??""};
-    function setOwner(){state.nativeOwner=current()?N.ownerOf(current()):undefined;}
-    setOwner();if(!Object.hasOwn(full,'nativeLocation')&&full.location&&state.nativeOwner){try{const f=service.app.vault.getAbstractFileByPath(full.location);state.nativeLocation=base.select(state.nativeOwner,full.location,Array.isArray(f?.children)?'folder':'note').reference?.id??'';}catch{state.nativeLocation='unavailable:'+full.location;}}
-    const notice=element.createDiv({cls:"hub-task-error",attr:{role:"status"}}),toggle=element.createEl("button",{text:details?"Hide task details":"Task details",attr:{type:"button","aria-expanded":String(details)}}),body=element.createDiv({cls:"hub-native-capture-details"});
-    body.hidden=!details;
-    function value(){const steps=state.steps.map(s=>({...s}));if(fields?.steps.hasPending&&fields.steps.draftInput.value.trim())steps.push({text:fields.steps.draftInput.value,completed:fields.steps.pendingCompleted});return{...full,type:'task',taskTitle:state.text,description:state.description,steps,necessity:state.necessity,fromDate:state.fromDate,fromTime:state.fromTime,dueDate:state.dueDate,dueTime:state.dueTime,completed:state.completed,phaseId:full.phaseId??state.phaseId,nativeLocation:state.nativeLocation};}
-    const changed=()=>{if(!disposed)onChange(value())};
-    const openLocation=()=>{if(!state.nativeOwner){notice.textContent='Choose a task workspace first.';select.focus();return;}if(picker)return;fields?.closePopovers();const ref=state.nativeLocation?base.resolveId(state.nativeOwner,state.nativeLocation)?.reference??{type:'folder',id:state.nativeLocation}:null;picker=__hubRequire("lib/ui/task-location-picker.js").openTaskLocationPicker(service.app,{locations:base,owner:state.nativeOwner,reference:ref,allowOwnerChange:true,taskTitle:fields?.input.value??state.text,onChoose:selected=>{const w=available.find(w=>{const o=N.ownerOf(w);return o.type===selected.owner.type&&o.id===selected.owner.id});if(!w)return;full.workspaceId=w.id;full.location='';select.value=w.id;setOwner();state.nativeLocation=selected.reference?.id??'';fields.refresh();notice.textContent='';changed()},onClose:()=>{picker=null;if(!disposed)fields?.presentation.sourceControl?.focus({preventScroll:true})}})};
-    function mount(){if(fields)return;fields=mountLiveTaskForm({host:body,state,service:{app:service.app,nativeLocations:locations,phases:()=>[],context:()=>null},location:()=>current()?.root??'',presentationContext:{sourcePath:null,sourceLabel:'Location'},onLocation:openLocation,initialStepsOpen:state.steps.length>0,text:{placeholder:'What needs doing?'},onChange:changed});fields.resizeTitle();}
-    if(details)mount();
-    if(full.phaseId){notice.textContent='This item has a recorded Phase. Native capture cannot assign Phases.';const clear=element.createEl('button',{text:'Leave Phase unassigned for this task',attr:{type:'button'}});clear.onclick=()=>{state.phaseId=null;full.phaseId=null;notice.textContent='';clear.remove();changed()};}
-    select.onchange=()=>{full.workspaceId=select.value;full.location='';state.nativeLocation='';setOwner();notice.textContent='';fields?.refresh();changed()};
-    toggle.onclick=()=>{body.hidden=!body.hidden;if(!body.hidden)mount();toggle.textContent=body.hidden?'Task details':'Hide task details';toggle.setAttribute('aria-expanded',String(!body.hidden));fields?.resizeTitle()};
-    return{element,workspaceSelect:select,value,valid(){try{N.payload(service,value(),service.get(captureId())??{});return true}catch{return false}},prepare(){fields?.closePopovers();return fields?.commitPending()!==false},refresh(){fields?.refresh()},update(patch){full={...full,...patch};if(Object.hasOwn(patch,'text')&&!Object.hasOwn(draft,'taskTitle')){const v=N.draft(service,{...full,taskTitle:undefined,description:undefined},{});state.text=v.taskTitle;if(!Object.hasOwn(draft,'description'))state.description=v.description;}if(patch.steps)state.steps=patch.steps.map(s=>({...s}));fields?.refresh();changed()},focus(){if(!state.nativeOwner)select.focus();else{mount();fields.input.focus()}},destroy(){disposed=true;picker?.close();fields?.destroy();element.remove()}};
-}
-module.exports={mountNativeCaptureTask};
-
-},
 "lib/ui/native-task-recovery.js": function (module, exports, __hubRequire) {
 "use strict";
 const { ownModalColors, ownNoticeColors } = __hubRequire("lib/ui/color-system.js");
@@ -18985,250 +19031,142 @@ function openNativeTaskRecovery(plugin){
 module.exports={openNativeTaskRecovery};
 
 },
-"lib/ui/note-position-picker.js": function (module, exports, __hubRequire) {
-"use strict";
-const { ownMenuColors, ownModalColors } = __hubRequire("lib/ui/color-system.js");
-
-const { Modal, Menu } = require("obsidian");
-const { preparePicker, listen } = __hubRequire("lib/ui/capture-pickers.js");
-const { mountCaptureLocationTree } = __hubRequire("lib/ui/capture-tree.js");
-const { setHubIcon } = __hubRequire("lib/ui/icons.js");
-const { setHubTooltip } = __hubRequire("lib/ui/tooltips.js");
-const { noteLocation, resolveNoteLocation } = __hubRequire("lib/domain/note-insertion.js");
-
-function openNotePositionPicker(service, { workspace, selectedLocation, onSelect, restoreFocus }) {
-    class NotePositionPicker extends Modal {
-        onOpen() { ownModalColors(this);
-            preparePicker(this, "Choose note and position", ["hub-capture-location-picker", "hub-note-position-picker"]);
-            this.contentEl.createEl("p", { cls: "hub-oath-muted", text: workspace.name });
-            const searchBox = this.contentEl.createDiv({ cls: "hub-explorer-search" });
-            setHubIcon(searchBox.createSpan({ cls: "hub-explorer-icon", attr: { "aria-hidden": "true" } }), "search");
-            const search = searchBox.createEl("input", { type: "search", cls: "hub-explorer-search-input",
-                attr: { placeholder: "Search notes and folders...", "aria-label": "Search notes and folders" } });
-            const body = this.contentEl.createDiv({ cls: "hub-note-position-body" });
-            const tree = body.createDiv({ cls: "hub-capture-location-tree", attr: { role: "tree", "aria-label": "Notes and folders" } });
-            this.positions = body.createDiv({ cls: "hub-note-positions" });
-            this.error = body.createDiv({ cls: "hub-task-error", attr: { role: "alert" } });
-            const actions = this.contentEl.createDiv({ cls: "hub-capture-actions hub-capture-picker-actions" });
-            actions.createEl("button", { text: "Cancel", attr: { type: "button" } }).onclick = () => this.close();
-            this.use = actions.createEl("button", { text: "Use this position", cls: "mod-cta", attr: { type: "button" } });
-            this.use.disabled = true;
-            this.use.onclick = () => { void this.commit(); };
-            this.selection = noteLocation(selectedLocation); this.path = this.selection?.path ?? null;
-            this.request = 0; this.closed = false;
-            this.positionLabelId = this.modalEl.getAttribute("aria-labelledby") + "-position";
-            this.renderPositions();
-            this.hierarchy = mountCaptureLocationTree({ tree, search, collapsible: true,
-                getItems: () => service.taskLocations(workspace.id), selectedPath: () => this.path,
-                onSelect: item => { if (!item.folder) void this.chooseNote(item.path); },
-                onMissing: () => { this.error.textContent = "This note is no longer available."; }
-            });
-            this.owner.register(() => this.hierarchy.destroy());
-            for (const event of ["create", "delete", "rename"]) listen(this.owner, service.app.vault, event, () => {
-                this.hierarchy.render(); if (this.path) void this.readSelected(false);
-            });
-            listen(this.owner, service.app.vault, "modify", file => { if (file.path === this.path) void this.readSelected(false); });
-            if (this.path) void this.readSelected(false);
-            search.focus();
-        }
-        async chooseNote(path) {
-            const changed = path !== this.path;
-            this.path = path;
-            if (changed) this.selection = { path, targetType: "note", position: "end" };
-            this.hierarchy.render(); await this.readSelected(changed);
-        }
-        async readSelected(reset) {
-            const request = ++this.request, path = this.path;
-            this.use.disabled = true; this.parsed = null; this.renderPositions(); this.error.textContent = "";
-            try {
-                const parsed = await service.readNotePositions(workspace.id, path);
-                if (this.closed || request !== this.request) return;
-                this.parsed = parsed;
-                if (reset) this.selection = { path, targetType: "note", position: "end" };
-                if (!resolveNoteLocation(parsed, this.selection)) {
-                    this.selection = null;
-                    this.error.textContent = "The selected position changed. Choose a position again.";
-                }
-                this.renderPositions();
-            } catch (error) {
-                if (!this.closed && request === this.request) { this.selection = null; this.renderPositions(); this.error.textContent = error.message; }
-            }
-        }
-        renderPositions() {
-            this.positionMenu?.hide(); this.positions.empty();
-            this.positions.createEl("h3", { text: "Place in note", cls: "hub-capture-section-heading", attr: { id: this.positionLabelId } });
-            const modes = [
-                { type: "note", position: "end", label: "At the end of the note" },
-                { type: "note", position: "start", label: "At the start of the note", disabled: !!this.parsed?.unclosedFrontmatter },
-                { type: "heading", position: "end", label: "Under heading", disabled: !this.parsed?.headings.length },
-                { type: "list", position: "last", label: "In list", disabled: !this.parsed?.lists.length }
-            ];
-            const selected = modes.find(mode => this.selection?.targetType === mode.type && (mode.type !== "note" || this.selection.position === mode.position));
-            this.selector(this.positions, "mode", !this.path ? "Select a note first" : selected?.label ?? "Choose a position...", modes, mode => {
-                if (mode === selected) return;
-                const target = mode.type === "heading" ? this.parsed.headings[0] : mode.type === "list" ? this.parsed.lists[0] : null;
-                this.selection = { path: this.path, targetType: mode.type, position: mode.position,
-                    ...(target ? { anchor: target.anchor, label: target.label } : {}) };
-                this.error.textContent = ""; this.renderPositions();
-            }, !this.parsed);
-            const type = this.selection?.targetType;
-            if (this.path && type && type !== "note") {
-                const row = this.positions.createDiv({ cls: "hub-note-target-row" });
-                const targets = (type === "heading" ? this.parsed?.headings : this.parsed?.lists) ?? [];
-                const target = targets.find(item => item.anchor === this.selection.anchor);
-                this.selector(row, "target", target?.label ?? this.selection.label ?? (type === "heading" ? "Choose heading..." : "Choose list..."), targets, target => {
-                    this.selection.anchor = target.anchor; this.selection.label = target.label; this.renderPositions();
-                }, !this.parsed);
-                const positions = type === "heading" ? [
-                    { position: "end", label: "End of section" }, { position: "top", label: "Top of section" }
-                ] : [{ position: "last", label: "Last item" }, { position: "first", label: "First item" }];
-                this.selector(row, "position", positions.find(item => item.position === this.selection.position)?.label ?? "Choose position...", positions, item => {
-                    this.selection.position = item.position; this.renderPositions();
-                }, !this.parsed);
-            }
-            this.use.disabled = this.committing || !resolveNoteLocation(this.parsed, this.selection);
-        }
-        selector(host, kind, value, options, onSelect, disabled = false) {
-            const valueId = this.positionLabelId + "-" + kind;
-            const button = host.createEl("button", { cls: "hub-note-position-select", attr: {
-                type: "button", "data-note-selector": kind, "aria-haspopup": "menu", "aria-expanded": "false",
-                "aria-labelledby": kind === "mode" ? this.positionLabelId + " " + valueId : valueId
-            } });
-            button.disabled = disabled;
-            const text = button.createSpan({ text: value, attr: { id: valueId } });
-            setHubIcon(button.createSpan({ cls: "hub-capture-icon", attr: { "aria-hidden": "true" } }), "chevron-down");
-            if (kind === "target") button.addEventListener("pointerover", () => {
-                setHubTooltip(text, text.scrollWidth > text.clientWidth ? value : null);
-            });
-            const open = () => { if (!button.disabled) this.showPositionMenu(button, kind, options, onSelect); };
-            button.onclick = open;
-            button.onkeydown = event => { if (event.key === "ArrowDown") { event.preventDefault(); open(); } };
-            return button;
-        }
-        showPositionMenu(button, kind, options, onSelect) {
-            if (this.positionMenu) { this.positionMenu.hide(); return; }
-            const menu = this.positionMenu = ownMenuColors(new Menu());
-            options.forEach(option => menu.addItem(item => item.setTitle(option.label).setDisabled(!!option.disabled).setChecked(
-                kind === "target" ? option.anchor === this.selection?.anchor : kind === "position" ? option.position === this.selection?.position :
-                    option.type === this.selection?.targetType && (option.type !== "note" || option.position === this.selection.position)
-            ).onClick(() => {
-                if (this.closed) return;
-                onSelect(option);
-                this.positions.querySelector(`[data-note-selector="${kind}"]`)?.focus({ preventScroll: true });
-            })));
-            menu.onHide(() => { if (this.positionMenu === menu) this.positionMenu = null; button.setAttribute("aria-expanded", "false");
-                if (!this.closed && button.isConnected) button.focus({ preventScroll: true }); });
-            button.setAttribute("aria-expanded", "true");
-            const rect = button.getBoundingClientRect(); menu.showAtPosition({ x: rect.left, y: rect.bottom });
-        }
-        async commit() {
-            if (this.use.disabled || this.committing) return;
-            this.committing = true; this.use.disabled = true;
-            const selected = noteLocation(this.selection), request = this.request;
-            try {
-                // Selection is atomic only after checking the current note again.
-                const parsed = await service.readNotePositions(workspace.id, selected.path);
-                if (this.closed || request !== this.request) return;
-                if (!resolveNoteLocation(parsed, selected)) throw Error("The selected position changed. Choose a position again.");
-                onSelect(selected); this.close();
-            } catch (error) {
-                if (!this.closed) { this.selection = null; this.error.textContent = error.message; void this.readSelected(false); }
-            } finally { this.committing = false; }
-        }
-        onClose() { this.closed = true; this.request++; this.positionMenu?.hide(); this.owner?.unload(); this.contentEl.empty(); restoreFocus?.(); }
-    }
-    const modal = new NotePositionPicker(service.app); modal.open(); return modal;
-}
-module.exports = { openNotePositionPicker };
-
-},
 "lib/ui/note-rail.js": function (module, exports, __hubRequire) {
 "use strict";
 const { ownColorRoot } = __hubRequire("lib/ui/color-system.js");
 // Controls the existing structural workspace pane; never creates another leaf.
-function mountNoteRail(pane, initialState = "full", onChange = () => {}) {
+function mountNoteRail(pane, initialState = "full", onChange = () => {}, options = {}) {
     const { setIcon } = require("obsidian");
     const { setHubTooltip } = __hubRequire("lib/ui/tooltips.js");
-    const states = ["closed", "half", "full"];
-    const doc = pane.ownerDocument;
-    let state = states.includes(initialState) ? initialState : "full", drag = null;
-    const controls = doc.createElement("div");
-    controls.className = "hub-rail-controls hub-button-scope";
+    const doc = pane.ownerDocument, win = doc.defaultView, root = pane.parentElement;
+    let closed = initialState === "closed", drag = null, destroyed = false;
+    let preferred = Number.isFinite(options.width) && options.width >= 170 ? options.width : null;
+    let full = 0, maximum = 0, minimum = 170, rootWidth = -1;
+    const overlay = doc.createElement("div");
+    overlay.className = "hub-rail-overlay hub-button-scope";
+    const controls = overlay.appendChild(doc.createElement("div"));
+    controls.className = "hub-rail-controls";
     const button = controls.appendChild(doc.createElement("button"));
     button.type = "button";
     button.className = "hub-rail-toggle clickable-icon";
-    const edge = doc.createElement("div");
+    const edge = overlay.appendChild(doc.createElement("div"));
     edge.className = "hub-rail-resizer";
     edge.tabIndex = 0;
     edge.setAttribute("role", "separator");
     edge.setAttribute("aria-orientation", "vertical");
     edge.setAttribute("aria-label", "Folder bar width");
     edge.setAttribute("aria-valuemin", "0");
-    edge.setAttribute("aria-valuemax", "2");
-    ownColorRoot(controls); ownColorRoot(edge);
-    pane.append(controls, edge);
-
-    function select(next) {
-        state = next;
-        pane.dataset.hubRailState = state;
-        const label = state === "full" ? "Collapse folder bar to half width" :
-            state === "half" ? "Close folder bar" : "Expand folder bar";
-        button.setAttribute("aria-label", label);
-        button.setAttribute("aria-expanded", String(state !== "closed"));
-        setHubTooltip(button, label);
-        setIcon(button, state === "closed" ? "panel-left-open" : "panel-left-close");
-        edge.setAttribute("aria-valuenow", String(states.indexOf(state)));
-        edge.setAttribute("aria-valuetext", state);
-        onChange(state);
+    const disposeColors = ownColorRoot(overlay);
+    const events = new win.AbortController();
+    const listen = (target, type, listener) => target.addEventListener(type, listener, { signal: events.signal });
+    root.append(overlay);
+    // The probe follows the existing CSS responsive width, independent of the pane override.
+    const probe = overlay.appendChild(doc.createElement("div"));
+    probe.style.cssText = "position:absolute;visibility:hidden;pointer-events:none;width:var(--hub-project-rail-width)";
+    const displayed = () => closed ? 0 : Math.min(maximum, Math.max(minimum, preferred));
+    const snapshot = () => ({ state: closed ? "closed" : Math.min(maximum, preferred) <= full / 2 ? "half" : "full", width: preferred });
+    function render() {
+        const width = displayed(), value = snapshot();
+        const left = pane.offsetLeft;
+        pane.style.setProperty("--hub-rail-custom-width", width + "px");
+        pane.dataset.hubRailState = value.state;
+        // Controls follow layout immediately. Button changes intentionally use the same path.
+        overlay.style.setProperty("--hub-rail-edge", (left + width) + "px");
+        overlay.dataset.closed = String(closed);
+        const label = closed ? "Expand folder bar" : "Close folder bar";
+        if (button.getAttribute("aria-expanded") !== String(!closed)) {
+            button.setAttribute("aria-expanded", String(!closed));
+            setHubTooltip(button, label);
+            setIcon(button, closed ? "panel-left-open" : "panel-left-close");
+        }
+        edge.setAttribute("aria-valuemax", String(Math.round(maximum)));
+        edge.setAttribute("aria-valuenow", String(Math.round(width)));
+        edge.setAttribute("aria-valuetext", closed ? "Closed" : Math.round(width) + " pixels");
+        onChange(value.state, preferred);
     }
-    button.addEventListener("click", () => select(state === "full" ? "half" : state === "half" ? "closed" : "full"));
-    edge.addEventListener("keydown", event => {
-        const index = states.indexOf(state);
-        const next = event.key === "ArrowLeft" ? Math.max(0, index - 1) :
-            event.key === "ArrowRight" ? Math.min(2, index + 1) :
-            event.key === "Home" ? 0 : event.key === "End" ? 2 : null;
-        if (next === null) return;
-        event.preventDefault(); event.stopPropagation(); select(states[next]);
-    });
-    function end(event) {
+    function commit() { options.onCommit?.(snapshot()); }
+    function end(event, persist = true) {
         if (!drag || (event && event.pointerId !== drag.id)) return;
-        if (edge.hasPointerCapture(drag.id)) edge.releasePointerCapture(drag.id);
-        drag = null;
-        edge.classList.remove("is-dragging");
+        const id = drag.id;
+        drag = null; // releasePointerCapture may synchronously dispatch lostpointercapture.
+        if (edge.hasPointerCapture(id)) edge.releasePointerCapture(id);
+        overlay.classList.remove("is-dragging");
+        pane.classList.remove("is-hub-rail-dragging");
+        if (persist) commit();
     }
-    edge.addEventListener("pointerdown", event => {
-        if (event.button !== 0) return;
+    function measure(force = false) {
+        if (destroyed) return;
+        const available = root.clientWidth;
+        if (!force && available === rootWidth) return;
+        end();
+        rootWidth = available;
+        full = probe.getBoundingClientRect().width || 448;
+        // Leave usable document space, including in very narrow windows.
+        maximum = Math.max(0, Math.min(full, available - Math.min(170, available / 2)));
+        minimum = Math.min(170, maximum);
+        if (preferred === null) preferred = initialState === "half" ? Math.max(170, full / 2) : full;
+        render();
+    }
+    function choose(width) {
+        end(undefined, false);
+        closed = width === 0;
+        if (!closed) preferred = Math.max(170, width);
+        render(); commit();
+    }
+    listen(button, "click", () => choose(closed ? preferred : 0));
+    listen(edge, "keydown", event => {
+        const width = displayed(), half = Math.min(maximum, Math.max(minimum, full / 2));
+        const next = event.key === "ArrowLeft" ? (width > half + 1 ? half : 0) :
+            event.key === "ArrowRight" ? (closed ? half : maximum) :
+            event.key === "Home" ? 0 : event.key === "End" ? maximum : null;
+        if (next === null) return;
+        event.preventDefault(); event.stopPropagation(); choose(next);
+    });
+    listen(edge, "pointerdown", event => {
+        if (event.button !== 0 || drag) return;
         event.preventDefault(); event.stopPropagation();
-        // Measure the responsive Full width without changing the live pane.
-        const probe = doc.createElement("div");
-        probe.style.cssText = "position:absolute;visibility:hidden;pointer-events:none;width:var(--hub-project-rail-width)";
-        pane.append(probe);
-        const full = probe.getBoundingClientRect().width;
-        probe.remove();
-        const widths = [32, full / 2, full];
-        drag = { id: event.pointerId, x: event.clientX, width: widths[states.indexOf(state)], widths };
+        measure();
+        drag = { id: event.pointerId, x: event.clientX, width: pane.getBoundingClientRect().width };
         edge.setPointerCapture(event.pointerId);
-        edge.classList.add("is-dragging");
+        overlay.classList.add("is-dragging");
+        pane.classList.add("is-hub-rail-dragging");
     });
-    edge.addEventListener("pointermove", event => {
+    listen(edge, "pointermove", event => {
         if (!drag || event.pointerId !== drag.id) return;
-        const width = drag.width + event.clientX - drag.x;
-        const nearest = drag.widths.reduce((best, value, i) =>
-            Math.abs(value - width) < Math.abs(drag.widths[best] - width) ? i : best, 0);
-        if (states[nearest] !== state) select(states[nearest]);
+        const raw = drag.width + event.clientX - drag.x;
+        if (closed) {
+            if (raw < Math.max(0, minimum - 10)) return;
+            closed = false;
+        } else if (raw <= Math.max(0, minimum - 30)) {
+            closed = true; render(); return;
+        }
+        // Moving through a constrained window maximum must not erase a larger preference.
+        if (raw >= minimum && raw <= maximum) preferred = Math.max(170, raw);
+        else if (raw < minimum && maximum >= 170) preferred = 170;
+        else if (raw > maximum) preferred = Math.max(preferred, maximum);
+        render();
     });
-    edge.addEventListener("pointerup", end);
-    edge.addEventListener("pointercancel", end);
-    edge.addEventListener("lostpointercapture", () => { drag = null; edge.classList.remove("is-dragging"); });
-    // Native restored panes may still carry arbitrary split dimensions. Commit
-    // the canonical initial state before enabling interactive resize animation.
-    pane.classList.add("is-hub-rail-initializing");
-    select(state);
-    pane.getBoundingClientRect();
-    pane.classList.remove("is-hub-rail-initializing");
-    return { pane, destroy() { end(); controls.remove(); edge.remove(); delete pane.dataset.hubRailState; } };
+    const finish = event => end(event);
+    const lost = () => end();
+    const resize = () => measure(true);
+    listen(edge, "pointerup", finish);
+    listen(edge, "pointercancel", finish);
+    listen(edge, "lostpointercapture", lost);
+    listen(win, "blur", lost);
+    listen(win, "resize", resize);
+    const observer = new win.ResizeObserver(() => measure());
+    observer.observe(root);
+    measure(true);
+    return { pane, getSnapshot: snapshot, destroy() {
+        end(); destroyed = true;
+        observer.disconnect();
+        events.abort();
+        disposeColors?.();
+        overlay.remove();
+        pane.style.removeProperty("--hub-rail-custom-width");
+        delete pane.dataset.hubRailState;
+    } };
 }
-
 module.exports = { mountNoteRail };
 
 },
@@ -20570,6 +20508,7 @@ module.exports = { createPointerListReorder };
 },
 "lib/ui/prepared-note-rail.js": function (module, exports, __hubRequire) {
 "use strict";
+const { ownColorRoot } = __hubRequire("lib/ui/color-system.js");
 
 const NOTE_RAIL_VIEW = "hub-prepared-note-rail";
 const HOME_VIEW = "hub-prepared-home";
@@ -20685,7 +20624,8 @@ function createPreparedNoteRails(plugin) {
             component.hubOnFrameCommit = value => { frame = value; };
             component.load();
             const host = doc.createElement("div");
-            host.className = "markdown-preview-view markdown-rendered" + (mode === "home" ? " dashboard" : "");
+            host.className = "markdown-preview-view markdown-rendered hub-color-page" + (mode === "home" ? " dashboard" : "");
+            component.register(ownColorRoot(host));
             // Match native Markdown preview layout before the first commit.
             // The existing theme/dashboard variables own the actual width;
             // note-rail CSS continues to override it in Full/Half/Closed mode.
@@ -21780,188 +21720,152 @@ module.exports = { mountProjectRoadmap };
 },
 "lib/ui/quick-add.js": function (module, exports, __hubRequire) {
 "use strict";
-const { ownModalColors, ownNoticeColors } = __hubRequire("lib/ui/color-system.js");
-
-const { Notice } = require("obsidian");
 const { CaptureModal, action, attachments } = __hubRequire("lib/ui/capture-modal.js");
-const { mountCaptureForm } = __hubRequire("lib/ui/capture-form.js");
-
-const { linkFromText } = __hubRequire("lib/domain/inbox.js");
+const { ownModalColors, ownNoticeColors } = __hubRequire("lib/ui/color-system.js");
+const { Notice } = require("obsidian");
 const { mountTaskText } = __hubRequire("lib/ui/task-form.js");
+const { linkFromText } = __hubRequire("lib/domain/inbox.js");
+const { openCaptureAction, operationMode } = __hubRequire("lib/ui/capture-flow.js");
 
 class QuickAddModal extends CaptureModal {
     constructor(app, service, options = {}) {
         super(app, service, options);
-        this.draft = { text: "", attachments: [], inputPath: "text", type: null, source: options.source ?? { origin: "Quick Add" } };
-        this.saved = false;
+        this.draft = service.quickDraft(options.source ?? { origin: "Quick Add" });
         this.pendingImports = 0; this.importQueue = Promise.resolve();
     }
     onOpen() { ownModalColors(this);
         this.modalEl.classList.add("hub-quick-add-dialog");
         this.header("Quick Add", "Write down a thought, or add a file", "zap");
         this.body = this.contentEl.createDiv({ cls: "hub-capture-body" });
-        this.textPath = this.body.createDiv({ cls: "hub-capture-input-path", attr: { "data-capture-field": "Content" } });
-        this.label = this.textPath.createEl("label", { cls: "hub-capture-label", attr: { for: this.prefix + "-input" } }); this.label.hidden = true;
-        this.textEditor = this.textPath.createDiv({ cls: "hub-capture-text-editor" });
-        this.input = mountTaskText(this.textEditor, this.draft, patch => {
-            this.draft.text = patch.text; this.form?.update(patch); this.sync();
-        }, { multiline: true, required: false, placeholder: "Start typing...",
-            attributes: { id: this.prefix + "-input", "aria-label": "Write something" } });
-        this.clear = action(this.textEditor, "", "x", () => {
-            this.input.value = ""; this.draft.text = ""; this.form?.update({ text: "" }); this.sync(); this.input.focus();
-        }, "hub-capture-clear");
-        this.clear.setAttribute("aria-label", "Clear"); this.clear.title = "Clear";
+        this.textPath = this.body.createDiv({ cls: "hub-capture-text-editor" });
+        this.input = mountTaskText(this.textPath, this.draft, patch => { this.checkpoint({ text: patch.text, actionDrafts: {}, lastAction: null }); this.sync(); },
+            { multiline: true, required: false, placeholder: "Start typing...", attributes: { "aria-label": "Write something" } });
         this.input.addEventListener("keydown", event => {
             if (event.key === "Enter" && !event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey && !event.isComposing && event.keyCode !== 229) {
-                event.preventDefault();
-                if (!this.add.hidden && !this.add.disabled && this.add.getAttribute("aria-disabled") !== "true") void this.addDirect();
-                else if (!this.send.disabled) void this.sendInbox();
+                event.preventDefault(); if (!this.send.disabled) void this.sendInbox();
             }
         });
-        this.input.addEventListener("paste", event => {
-            const files = [...(event.clipboardData?.files ?? [])];
-            if (!files.length) return;
+        this.body.addEventListener("paste", event => {
+            const files = [...(event.clipboardData?.files ?? [])]; if (!files.length) return;
             event.preventDefault();
+            if (event.clipboardData.getData("text/plain").trim()) { this.error.textContent = "Paste text or files separately so nothing is discarded."; return; }
             void this.addAttachments(files);
         });
-        this.body.addEventListener("dragover", event => {
-            if ([...(event.dataTransfer?.types ?? [])].some(type => ["Files", "text/uri-list", "text/plain"].includes(type))) {
-                event.preventDefault(); event.dataTransfer.dropEffect = "copy";
-            }
-        });
+        this.body.addEventListener("dragover", event => { event.preventDefault(); event.dataTransfer.dropEffect = "copy"; });
         this.body.addEventListener("drop", event => {
-            const files = [...(event.dataTransfer?.files ?? [])];
-            if (files.length) {
-                event.preventDefault(); event.stopPropagation(); void this.addAttachments(files); return;
-            }
-            const links = (event.dataTransfer?.getData("text/uri-list") ?? "").split(/\r?\n/).filter(line => line && !line.startsWith("#"));
-            const text = links.length ? links.filter(link => linkFromText(link)).join("\n") : event.dataTransfer?.getData("text/plain") ?? "";
-            if (!text) return;
             event.preventDefault(); event.stopPropagation();
-            if (this.busy || this.pendingImports) { this.error.textContent = "Wait for the current save before adding more content."; return; }
-            if (this.draft.attachments.length) { this.error.textContent = "Remove the file before writing something."; return; }
-            const start = event.target === this.input ? this.input.selectionStart : this.input.value.length;
-            const end = event.target === this.input ? this.input.selectionEnd : start;
-            const prefix = event.target !== this.input && this.input.value && !this.input.value.endsWith("\n") ? "\n" : "";
+            const files = [...(event.dataTransfer?.files ?? [])];
+            const links = (event.dataTransfer?.getData("text/uri-list") ?? "").split(/\r?\n/).filter(line => line && !line.startsWith("#"));
+            const text = links.length && !files.length ? links.filter(link => linkFromText(link)).join("\n") : event.dataTransfer?.getData("text/plain") ?? "";
+            if (files.length) {
+                if (text.trim() && !/^file:/i.test(text.trim())) { this.error.textContent = "Drop text or files separately so nothing is discarded."; return; }
+                void this.addAttachments(files); return;
+            }
+            if (!text || this.busy || this.pendingImports) return;
+            if (this.draft.attachments.length) { this.error.textContent = "Remove the files before writing something."; return; }
+            const inside = event.target === this.input, start = inside ? this.input.selectionStart : this.input.value.length, end = inside ? this.input.selectionEnd : start;
+            const prefix = !inside && this.input.value && !this.input.value.endsWith("\n") ? "\n" : "";
             this.input.setRangeText(prefix + text, start, end, "end");
-            this.draft.text = this.input.value; this.form?.update({ text: this.input.value }); this.sync(); this.input.focus();
+            this.checkpoint({ text: this.input.value, actionDrafts: {}, lastAction: null }); this.sync(); this.input.focus();
         });
-        this.attachmentList = this.body.createDiv({ cls: "hub-capture-attachments", attr: { "data-capture-field": "File" } });
+        this.attachmentList = this.body.createDiv({ cls: "hub-capture-attachments" });
         this.fileInput = this.body.createEl("input", { attr: { type: "file", multiple: "", hidden: "", tabindex: "-1", "aria-label": "Choose a file" } });
         this.fileInput.addEventListener("change", () => { void this.addAttachments([...this.fileInput.files]); this.fileInput.value = ""; });
         this.attach = action(this.body, "Add a file", "paperclip", () => this.fileInput.click(), "hub-capture-attach");
-        this.expanded = this.body.createDiv({ cls: "hub-capture-expanded" }); this.expanded.hidden = true;
+        this.chooser = this.body.createDiv({ cls: "hub-capture-specify", attr: { role: "group", "aria-label": "Specify destination" } }); this.chooser.hidden = true;
         const footer = this.contentEl.createDiv({ cls: "hub-capture-actions" });
-        this.cancel = action(footer, "Cancel", null, () => this.close());
-        this.more = action(footer, "More options", null, () => this.expand());
+        this.clear = action(footer, "Clear", null, () => { void this.clearDraft(); });
+        this.more = action(footer, "Specify", null, () => { this.chooser.hidden = !this.chooser.hidden; this.more.setAttribute("aria-expanded", String(!this.chooser.hidden)); if (!this.chooser.hidden) this.chooser.querySelector("button:not(:disabled)")?.focus(); });
+        this.more.setAttribute("aria-expanded", "false");
         this.send = action(footer, "Send to Inbox", null, () => { void this.sendInbox(); }, "mod-cta");
-        this.add = action(footer, "Add to Itacan", null, () => { void this.addDirect(); }, "mod-cta hub-guided-submit"); this.add.hidden = true;
-        this.sync(); this.input.focus();
+        this.feedback = this.contentEl.createDiv({ cls: "hub-capture-feedback", attr: { role: "status", "aria-live": "polite", "aria-atomic": "true" } });
+        if (operationMode(this.draft)) this.feedback.textContent = "Choose Specify to retry the saved action, or send it to Inbox.";
+        this.renderAttachments(); this.sync(); if (!this.draft.attachments.length) this.input.focus();
     }
-    expand() {
-        if (this.form || this.busy || this.pendingImports) return;
-        this.more.hidden = true; this.add.hidden = false;
-        this.expanded.hidden = false; this.modalEl.classList.add("is-expanded");
-        if (this.draft.attachments.length) this.draft.type = "file";
-        this.form = mountCaptureForm({ host: this.expanded, service: this.service, draft: this.draft,
-            captureId: () => this.captureId, onSubmit: () => { void this.addDirect(); },
-            onChange: value => { this.draft = value; this.sync(); } });
-        this.sync(); this.form.focus?.();
+    checkpoint(patch) {
+        this.feedback.textContent = "Saving draft?";
+        const save = this.service.saveQuickDraft(patch, this.draft.id); this.draft = this.service.quickDraft();
+        save.then(() => { if (!this.closed && this.feedback.textContent === "Saving draft?") this.feedback.textContent = ""; }, error => { if (!this.closed) this.error.textContent = "Draft not saved: " + error.message; });
+        return save;
+    }
+    renderAttachments() {
+        attachments(this.attachmentList, this.draft.attachments, this.service, { remove: ref => { void this.run(async () => {
+            await this.service.removeQuickAttachment(this.draft.id, ref.id); this.draft = this.service.quickDraft(); this.renderAttachments();
+        }); } });
+        this.renderChoices();
+    }
+    renderChoices() {
+        this.chooser.empty();
+        const choices = this.draft.attachments.length ? [["file", "File location"]] : [["task", "Task"], ["note", "New note"], ["text", "Add to existing note"]];
+        const pending = operationMode(this.draft);
+        for (const [mode, label] of choices) { const button = action(this.chooser, label, null, () => { void this.specify(mode); }); button.disabled = !!pending && pending !== mode; }
     }
     sync() {
         if (this.closed || !this.send) return;
-        const file = !!this.draft.attachments.length, waiting = this.busy || !!this.pendingImports;
-        const text = !!(this.draft.text.trim() || this.draft.taskTitle?.trim()), content = file || text;
-        const complete = !!this.form?.valid();
-        this.textPath.hidden = file || this.form?.value().type === "task";
-        const pendingNote = this.service.get(this.captureId)?.operation?.kind === "note-insertion";
-        this.input.disabled = waiting || file || pendingNote;
-        this.label.hidden = true;
-        this.input.setAttribute("aria-label", this.draft.type === "task" ? "Task" : this.draft.type === "note" ? "Note content" : "Write something");
-        this.clear.hidden = !this.draft.text.length || file; this.clear.disabled = waiting || pendingNote;
-        this.textEditor.classList.toggle("has-text", !!this.draft.text.length);
-        this.attach.hidden = file || text;
-        this.attach.disabled = waiting || text;
-        this.fileInput.disabled = this.attach.disabled;
-        this.more.disabled = waiting;
-        this.send.disabled = waiting || !content;
-        this.send.classList.toggle("mod-cta", !this.form);
-        this.add.disabled = waiting;
-        this.add.setAttribute("aria-disabled", String(waiting || !complete));
-        if (pendingNote) this.expanded.querySelectorAll("button,input,select,textarea").forEach(control => control.disabled = true);
-        this.guidance?.update();
-    }
-    renderAttachments() {
-        attachments(this.attachmentList, this.draft.attachments, this.service, { remove: ref => {
-            void this.run(async () => {
-                await this.service.releaseAttachments([ref]);
-                this.draft.attachments = this.draft.attachments.filter(item => item.id !== ref.id);
-                if (!this.draft.attachments.length) { this.draft.inputPath = "text"; this.draft.type = null; }
-                this.form?.update({ attachments: this.draft.attachments, inputPath: this.draft.inputPath, type: this.draft.type }); this.renderAttachments();
-            });
-        } });
-        this.form?.update({ attachments: this.draft.attachments }); this.sync();
+        const file = this.draft.attachments.length > 0, text = !!this.draft.text.trim(), waiting = this.busy || !!this.pendingImports || this.closing;
+        const locked = !!this.draft.operation && this.draft.operation.state !== "done";
+        this.textPath.hidden = file; this.input.disabled = !!waiting || locked;
+        this.attach.hidden = file || text; this.attach.disabled = !!waiting; this.fileInput.disabled = !!waiting;
+        this.clear.title = locked ? "Finish or review the saved action before clearing this draft." : "Discard this draft";
+        this.clear.disabled = !!waiting || locked || !(file || this.draft.text.length || Object.keys(this.draft.actionDrafts ?? {}).length);
+        this.more.disabled = !!waiting || !(file || text); this.send.disabled = !!waiting || !(file || text);
+        this.chooser.querySelectorAll("button").forEach(button => { button.disabled = !!waiting || (!!operationMode(this.draft) && button.textContent !== ({ task: "Task", note: "New note", text: "Add to existing note", file: "File location" }[operationMode(this.draft)])); });
+        this.attachmentList.querySelectorAll("button").forEach(button => button.disabled = !!waiting || locked);
     }
     addAttachments(files) {
         if (!files?.length) return Promise.resolve();
-        if (this.draft.text.trim()) {
-            this.error.textContent = "Clear the text before adding a file.";
-            return Promise.resolve();
-        }
-        if (this.busy && !this.pendingImports) {
-            this.error.textContent = "Wait for the current save before adding more files.";
-            return Promise.resolve();
-        }
+        if (this.draft.text.trim() || this.draft.operation) { this.error.textContent = "Clear the text before adding a file."; return Promise.resolve(); }
+        if (this.busy && !this.pendingImports) return Promise.resolve();
         this.pendingImports++; this.sync();
         const operation = this.importQueue.then(() => this.run(async () => {
-            const refs = await this.service.stageFiles(files);
-            if (refs.length) {
-                this.draft.attachments.push(...refs); this.draft.inputPath = "file"; this.draft.type = "file";
-                this.form?.update({ inputPath: "file", type: "file", attachments: this.draft.attachments }); this.renderAttachments();
-            }
+            try { await this.service.stageQuickFiles(files, this.draft.id); }
+            finally { this.draft = this.service.quickDraft(); this.renderAttachments(); }
         })).finally(() => { this.pendingImports--; this.sync(); });
-        this.importQueue = operation.catch(() => {});
-        return operation;
+        this.importQueue = operation.catch(() => {}); return operation;
     }
-    sendInbox() {
-        if (this.busy || this.pendingImports) return;
-        if (!this.draft.text.trim() && !this.draft.taskTitle?.trim() && !this.draft.attachments.length) return;
+    async sendInbox() {
+        if (this.busy || this.pendingImports || this.send.disabled) return;
         return this.run(async () => {
-            const value = this.form?.value() ?? this.draft;
-            if(!value.text.trim()) value.text=[value.taskTitle,value.description].filter(Boolean).join("\n");
-            if (this.captureId) await this.service.updateCapture(this.captureId, value);
-            else await this.service.capture(value);
-            this.saved = true;
-            ownNoticeColors(new Notice("Sent to Inbox.")); this.finish();
+            await this.service.flushQuickDraft(this.draft.id);
+            await this.service.sendQuickDraft(this.draft.id);
+            this.draft = this.service.quickDraft(this.options.source); this.input.value = "";
+            this.chooser.hidden = true; this.more.setAttribute("aria-expanded", "false"); this.renderAttachments();
+            this.feedback.textContent = "? Sent to Inbox.";
+            // run() restores the disabled state before the focus gesture.
+            setTimeout(() => { if (!this.closed) this.input.focus(); }, 0);
         });
     }
-    addDirect() {
+    async clearDraft() {
         if (this.busy || this.pendingImports) return;
-        if(this.form?.prepare?.() === false) return;
-        if (!this.form?.valid()) {
-            // Use the same required-field ordering as Inbox. Optional invalid
-            // edits retain meaningful errors without becoming amber targets.
-            this.error.textContent = this.service.completion(this.form?.value() ?? this.draft, this.captureId).error ?? "";
-            return;
-        }
         return this.run(async () => {
-            const draft = this.form.value();
-            const result = draft.type === "task" ? await this.service.makeTask(draft, this.captureId, this.nativeAttempt ??= {}) : draft.type === "note" ?
-                await this.service.createNote(draft, this.captureId) : await this.service.addFiles(draft, this.captureId);
-            this.saved = true; ownNoticeColors(new Notice(result?.message ?? `Added ${draft.type}.`)); this.finish();
+            await this.service.clearQuickDraft(this.draft.id); this.draft = this.service.quickDraft(); this.input.value = "";
+            this.chooser.hidden = true; this.more.setAttribute("aria-expanded", "false"); this.renderAttachments(); this.feedback.textContent = "Draft cleared.";
+            setTimeout(() => { if (!this.closed) this.input.focus(); }, 0);
         });
     }
-    onProblem(error) {
-        if (error.captureId) this.captureId = error.captureId;
-        if (error.noteLocationInvalid) this.form?.update({ noteLocation: null });
+    async specify(mode) {
+        if (this.busy || this.pendingImports) return;
+        this.busy = true; this.sync();
+        try {
+            await this.service.flushQuickDraft(this.draft.id);
+            const id = this.draft.id;
+            this.busy = false; this.handoff = true; super.close();
+            const resume = result => Promise.resolve().then(() => {
+                if (result.status === "failed") ownNoticeColors(new Notice(result.error));
+                if (this.options.onResume) this.options.onResume(result);
+                else new QuickAddModal(this.app, this.service, this.options).open();
+            });
+            try { this.child = openCaptureAction(this.service, { captureId: id, mode, onClose: resume }); }
+            catch (error) { resume({ status: "failed", error: error.message }); }
+        } catch (error) { this.error.textContent = error.message; this.busy = false; this.sync(); }
     }
-    close() { if (!this.pendingImports) super.close(); }
-    onClose() {
-        this.service.scheduleNativeRefresh?.();
-        if (!this.saved && this.draft.attachments.length) void this.service.releaseAttachments(this.draft.attachments)
-            .catch(error => ownNoticeColors(new Notice(`Could not remove temporary attachment: ${error.message}`)));
-        super.onClose();
+    async close() {
+        if (this.busy || this.pendingImports || this.closed || this.closing) return;
+        this.closing = true; this.sync();
+        try { await this.service.flushQuickDraft(this.draft.id); this.closing = false; super.close(); }
+        catch (error) { this.closing = false; this.error.textContent = "Draft not saved: " + error.message; this.sync(); }
     }
+    onClose() { super.onClose(); }
 }
 module.exports = { QuickAddModal };
 
@@ -22107,10 +22011,12 @@ function section(parent, title) {
     el.createEl("h3", { text: title });
     return el;
 }
-function renderAppearance(parent) {
-    parent.createEl("p", { cls: "hub-settings-preview-note", text: "Preview only. Controls are not active yet." });
+function renderAppearance(parent, plugin) {
+    let dispose;
+    const note = parent.createEl("p", { cls: "hub-settings-preview-note", text: "Preview only. Controls are not active yet." });
     let group = section(parent, "Theme");
-    select(row(group, "Theme pack", "A coordinated visual style, with individual options below."), "Theme pack", "Default");
+    select(row(group, "Theme pack", plugin?.appearance ? "Complete theme packs are not available yet." : "A coordinated visual style, with individual options below."), "Theme pack", "Default");
+    if (!plugin?.appearance) {
     group = section(parent, "Color");
     const colors = row(group, "Accent color");
     const swatches = colors.createDiv({ cls: "hub-settings-swatches", attr: { role: "group", "aria-label": "Accent color preview" } });
@@ -22122,6 +22028,7 @@ function renderAppearance(parent) {
     swatches.createEl("button", { cls: "hub-settings-custom-color", text: "+", attr: { type: "button", disabled: "", "aria-label": "Custom color" } });
     const defaults = row(group, "Interface colors", "Use theme pack defaults");
     defaults.createDiv({ cls: "checkbox-container is-enabled hub-settings-toggle", attr: { role: "switch", "aria-label": "Use theme pack defaults", "aria-checked": "true", "aria-disabled": "true" } });
+    } else dispose = __hubRequire("lib/ui/appearance-controls.js").mountAppearanceColors(parent, plugin.appearance, { row, section, note });
     group = section(parent, "Theme mode");
     segments(row(group, "Theme mode"), "Theme mode", ["System", "Light", "Dark"], "Dark");
     group = section(parent, "Typography");
@@ -22132,13 +22039,14 @@ function renderAppearance(parent) {
     segments(row(group, "Interface density"), "Interface density", ["Comfortable", "Default", "Compact"], "Default");
     select(row(group, "Corner style"), "Corner style", "Default");
     segments(row(group, "Animations"), "Animations", ["Full", "Reduced"], "Full");
+    return dispose;
 }
 function renderSettingsPage(parent, page, plugin) {
     if (page.id === "athena" && plugin?.athena) return plugin.athena.mountSettings(parent);
     if (page.id === "atlas" && plugin?.atlas) return __hubRequire("lib/atlas/obsidian/ui.js").mountAtlasOverview(parent, plugin.atlas);
     parent.createEl("h2", { text: page.title });
     parent.createEl("p", { cls: "hub-settings-description", text: page.description });
-    if (page.id === "appearance") return renderAppearance(parent);
+    if (page.id === "appearance") return renderAppearance(parent, plugin);
     if (page.id === "music" && plugin?.musicLibrary) return __hubRequire("lib/ui/music-settings.js").mountMusicSettings(parent, plugin.musicLibrary);
     if (page.id === "oath" && plugin?.oath) return __hubRequire("lib/ui/oath-settings.js").mountOathSettings(parent, plugin.oath);
     parent.createEl("p", { cls: "hub-settings-preview-note", text: "No options available in this preview." });
@@ -23194,17 +23102,20 @@ function openTaskEditor(service, task, onEdit = () => {}, creation = null) {
                 const reference = state.nativeLocation ? { type: state.nativeLocationType ?? service.nativeLocations.resolveId?.(owner, state.nativeLocation)?.type, id: state.nativeLocation } : null;
                 this.locationPicker = __hubRequire("lib/ui/task-location-picker.js").openTaskLocationPicker(service.app, {
                     locations: service.nativeLocations, owner, reference, allowOwnerChange: true, taskTitle: this.taskFields.input.value,
-                    onChoose: selected => { state.nativeOwner = selected.owner; state.nativeLocation = selected.reference?.id ?? ""; state.nativeLocationType = selected.reference?.type; this.taskFields.phase.refresh(); this.taskFields.refresh(); clearError(); },
+                    onChoose: selected => { state.nativeOwner = selected.owner; state.nativeLocation = selected.reference?.id ?? ""; state.nativeLocationType = selected.reference?.type; this.taskFields.phase.refresh(); this.taskFields.refresh(); changed(); },
                     // Native Modal restores the opener after onClose, including
                     // keyboard focus. Only release our nested-dialog reference.
                     onClose: () => { this.locationPicker = null; }
                 });
             };
+            this.getDraft = () => ({ ...state, text: this.taskFields?.input.value ?? state.text,
+                pendingStep: this.taskFields?.steps.hasPending ? { text: this.taskFields.steps.draftInput.value, completed: this.taskFields.steps.pendingCompleted } : null });
+            const changed = () => { clearError(); creation?.onDraftChange?.(this.getDraft()); };
             this.taskFields = mountLiveTaskForm({ host: form, state, service,
                 initialStepsOpen: !creation && snapshot.steps.length > 0,
                 // Temporarily hide the entry point; retain recurrence state and implementation.
                 showRecurrenceAction: false,
-                onChange: clearError,
+                onChange: changed,
                 text: { placeholder: creation ? "What needs doing?" : "" },
                 location, presentationContext: formContext, onLocation: service.nativeLocations ? openLocation : null });
             if (formContext?.resourceLocations && !service.nativeLocations) {
@@ -23215,8 +23126,10 @@ function openTaskEditor(service, task, onEdit = () => {}, creation = null) {
                 select.value = state.nativeLocation ?? formContext.nativeLocation ?? "";
                 select.onchange = () => { state.nativeLocation = select.value; clearError(); };
             }
+            if (creation?.pendingStep) this.taskFields.restorePendingStep?.(creation.pendingStep);
             const { input, phase } = this.taskFields;
             errorEl = form.createDiv({ cls: "hub-task-error", attr: { role: "alert" } });
+            if (creation?.initialError) errorEl.textContent = creation.initialError;
             const actions = form.createDiv({ cls: "hub-task-dialog-actions" });
             const remove = actions.createEl("button", { text: "Delete task", cls: "hub-task-remove", attr: { type: "button" } });
             const cancel = actions.createEl("button", { text: "Cancel", attr: { type: "button" } });
@@ -23224,7 +23137,7 @@ function openTaskEditor(service, task, onEdit = () => {}, creation = null) {
             if (creation) remove.hidden = true;
             cancel.addEventListener("click", () => this.close());
             const commit = async deleting => {
-                if (this.saving) return;
+                if (this.saving || this.closing) return;
                 this.taskFields.closePopovers();
                 if (!deleting && !this.taskFields.commitPending()) return;
                 if (!deleting && !form.reportValidity()) return;
@@ -23241,8 +23154,10 @@ function openTaskEditor(service, task, onEdit = () => {}, creation = null) {
                     if (!deleting) { validateTaskDates(values); Object.assign(values, taskFormValues(values)); }
                     if (creation) {
                         if (!formContext && !values.location) throw Error("Explorations is unavailable. Open Add task from a valid Project or Resource destination.");
-                        await service.create(formContext ? formContext.destination : values.location, values.text, values);
-                        creation.onCreated?.();
+                        const result = creation.submit ? await creation.submit(values) :
+                            await service.create(formContext ? formContext.destination : values.location, values.text, values);
+                        this.outcome = { status: "created", result };
+                        creation.onCreated?.(result);
                     } else onEdit(await service.save(snapshot, values));
                     this.saving = false; this.close();
                 } catch (error) {
@@ -23269,11 +23184,22 @@ function openTaskEditor(service, task, onEdit = () => {}, creation = null) {
             // Region ownership and scrollbar constraints are final now. Measure
             // the styled title synchronously before Modal.open can present it.
             this.taskFields.resizeTitle();
+            creation?.onDraftChange?.(this.getDraft());
             if (creation) { input.focus({ preventScroll: true }); input.setSelectionRange(input.value.length, input.value.length); }
             else { this.modalEl.tabIndex = -1; this.modalEl.focus({ preventScroll: true }); }
         }
-        close() { if (!this.saving) { this.closed = true; super.close(); } }
-        onClose() { this.closed = true; if (key && editors.get(key) === this) editors.delete(key); this.locationPicker?.close(); this.taskFields?.destroy(); this.contentEl.empty(); }
+        close() {
+            if (this.saving || this.closing || this.closed) return;
+            if (creation?.beforeClose && !this.outcome) {
+                this.closing = true;
+                const controls = [...this.contentEl.querySelectorAll("button,input,select,textarea")], disabled = controls.map(c => c.disabled);
+                controls.forEach(c => c.disabled = true);
+                Promise.resolve().then(() => creation.beforeClose(this.getDraft?.())).then(() => {
+                    this.closing = false; this.closed = true; super.close();
+                }, error => { this.closing = false; controls.forEach((c, i) => c.disabled = disabled[i]); const target = this.contentEl.querySelector(".hub-task-error"); if (target) target.textContent = error.message; });
+            } else { this.closed = true; super.close(); }
+        }
+        onClose() { this.closed = true; if (key && editors.get(key) === this) editors.delete(key); this.locationPicker?.close(); this.taskFields?.destroy(); this.contentEl.empty(); creation?.onDismiss?.(this.outcome ?? { status: "cancelled" }); }
     }
     const modal = new TaskModal(service.app);
     if (key) editors.set(key, modal);
@@ -23288,7 +23214,7 @@ function openTaskEditor(service, task, onEdit = () => {}, creation = null) {
             modal.snapshot.nativeLocation = selected.reference?.id ?? ""; modal.snapshot.nativeLocationType = selected.reference?.type;
         }
         modal.open(); return modal; };
-    const failed = error => { if (modal.closed) return null; modal.close(); ownNoticeColors(new Notice(error.message)); return null; };
+    const failed = error => { if (modal.closed) return null; modal.outcome = { status: "failed", error: error.message }; modal.close(); ownNoticeColors(new Notice(error.message)); return null; };
     if (creation) {
         modal.ready = (async () => {
             try {
@@ -23297,7 +23223,7 @@ function openTaskEditor(service, task, onEdit = () => {}, creation = null) {
                 const explicitPath = nativePath && (creation.location != null || creation.path != null || nativePath !== service.context?.()?.root);
                 const defaults = service.defaultCreationLocation && !Object.hasOwn(creation, "nativeLocation") && !explicitPath
                     ? await service.defaultCreationLocation() : {};
-                modal.snapshot = { text: "", steps: [], necessity: null, ...defaults, ...creation, completed: false, ...(service.formContext ? {} : { path: initialComposerTaskLocation(service, creation) }) };
+                modal.snapshot = { text: "", steps: [], necessity: null, ...defaults, ...creation, completed: creation.completed ?? false, ...(service.formContext ? {} : { path: initialComposerTaskLocation(service, creation) }) };
                 return present();
             } catch (error) { return failed(error); }
         })();
@@ -23634,6 +23560,7 @@ function mountTaskSteps({ host: steps, state, onChange = () => {}, emptyPrompt =
     });
     refreshReadiness();
     return { refresh: renderSteps, refreshReadiness, commitPending, list, draftInput, add,
+        restorePending(value) { if (!draft || !value) return; draft.hidden = false; draftInput.value = value.text ?? ""; draftCheckbox.checked = !!value.completed; refreshReadiness(); onChange({ steps: state.steps }); },
         get controls() { return [...editors, ...(draftInput ? [draftInput] : [])]; },
         get hasPending() { return !!draft && !draft.hidden; }, get pendingCompleted() { return !!draftCheckbox?.checked; },
         get meaningfulPending() { return meaningfulPending(); },
@@ -23884,6 +23811,7 @@ function mountLiveTaskForm({ host, state, service, location, text, initialStepsO
     initialized = true;
     return { element, input, completion: parts.checkbox, phase, card: parts, presentation, checklist, steps, state,
         commitPending: steps.commitPending, refresh, resizeTitle: title.resize,
+        restorePendingStep(value) { if (value) { openSteps = true; steps.restorePending(value); refresh(); } },
         closePopovers() { recurrence?.close(false); start.close(false); due.close(false); necessity.close(false); description.close(false); phase.close(false); },
         destroy() { recurrence?.destroy(); start.destroy(); due.destroy(); necessity.destroy(); description.destroy(); phase.destroy(); steps.destroy(); title.destroy();
             accordion.destroy(); presentation.destroy(); effects.destroy(); component.unload(); element.remove(); } };
@@ -23910,16 +23838,34 @@ function focusRow(event, container) {
     const next = event.key === "Home" ? 0 : event.key === "End" ? buttons.length - 1 : Math.max(0, Math.min(buttons.length - 1, index + (event.key === "ArrowDown" ? 1 : -1)));
     buttons[next]?.focus();
 }
-function openTaskLocationPicker(app, { locations, owner, reference = null, allowOwnerChange = false, taskTitle = "", onChoose, onClose = () => {} }) {
+const LOCATION_MODES = {
+    task: { title: "Task location", subtitle: "Choose where this task belongs.", action: "Select location" },
+    note: { title: "Note location", subtitle: "Choose where this note belongs.", action: "Create note" },
+    text: { title: "Text location", subtitle: "Choose where this text belongs.", action: "Add to note" },
+    file: { title: "File location", subtitle: "Choose where this file belongs.", action: "Add file" }
+};
+function openLocationPicker(app, { locations, owner, reference = null, allowOwnerChange = false, taskTitle = "", contextTitle = taskTitle,
+    mode = "task", noteTitle = "", confirmLabel, onDraftChange = () => {}, beforeClose, onChoose, onClose = () => {} }) {
+    const config = LOCATION_MODES[mode];
+    if (!config) throw Error("Unknown location mode.");
+    const accepts = type => mode === "text" ? type === "note" : mode === "task" ? ["folder", "note"].includes(type) : type === "folder";
     class LocationModal extends Modal {
         onOpen() { ownModalColors(this);
             this.modalEl.classList.add("hub-task-location-dialog");
-            this.modalEl.setAttribute("aria-label", "Task location");
+            this.modalEl.setAttribute("aria-label", config.title);
             this.contentEl.classList.add("hub-button-scope");
-            const { heading } = createModalHeader(this.contentEl, { title: "Task location", icon: "map-pin",
-                subtitle: "Choose where this task belongs." });
-            this.renderTaskName(heading, taskTitle);
-            this.owner = { ...owner };
+            const { heading } = createModalHeader(this.contentEl, { title: config.title, icon: "map-pin",
+                subtitle: config.subtitle });
+            this.renderTaskName(heading, contextTitle);
+            this.owner = owner ? { ...owner } : null;
+            try { if (this.owner) locations.workspace(this.owner); } catch (_) { this.owner = null; }
+            this.titleValue = noteTitle;
+            if (mode === "note") {
+                const label = this.contentEl.createEl("label", { cls: "hub-capture-field hub-location-note-title", text: "Title" });
+                this.titleInput = label.createEl("input", { type: "text", attr: { "aria-label": "Note title", required: "" } });
+                this.titleInput.value = noteTitle;
+                this.titleInput.oninput = () => { this.titleValue = this.titleInput.value; if (this.contextText) this.contextText.textContent = this.titleValue; this.changed(); this.updateSelection(); };
+            }
             const workspaceField = this.contentEl.createEl("section", { cls: "hub-oath-section hub-task-location-section hub-task-location-workspace" });
             workspaceField.createEl("h3", { text: "Workspace" });
             this.workspaceButton = workspaceField.createEl("button", { cls: "hub-task-location-workspace-row", attr: { type: "button", "aria-label": "Owning workspace", "aria-haspopup": "dialog", "aria-expanded": "false" } });
@@ -23937,21 +23883,29 @@ function openTaskLocationPicker(app, { locations, owner, reference = null, allow
             this.error = this.contentEl.createDiv({ cls: "hub-task-error", attr: { role: "alert" } });
             const actions = this.contentEl.createDiv({ cls: "hub-task-dialog-actions" });
             actions.createEl("button", { text: "Cancel", attr: { type: "button" } }).onclick = () => this.close();
-            this.confirm = actions.createEl("button", { text: "Select location", cls: "mod-cta", attr: { type: "button" } });
-            this.confirm.onclick = () => {
+            this.confirm = actions.createEl("button", { text: confirmLabel ?? config.action, cls: "mod-cta", attr: { type: "button" } });
+            this.getDraft = () => ({ owner: this.owner, selected: this.proposed, title: this.titleValue });
+            this.changed = () => onDraftChange(this.getDraft());
+            this.confirm.onclick = async () => {
+                if (this.saving || this.closing) return;
+                const controls = [...this.contentEl.querySelectorAll("button,input")], disabled = controls.map(control => control.disabled);
                 try {
                     const accepted = this.proposed && locations.resolve(this.proposed.owner, this.proposed.reference);
-                    if (!accepted || accepted.path !== this.proposed.path || accepted.type !== this.proposed.type) throw Error("Location is no longer available. Choose a replacement.");
-                    onChoose({ ...this.proposed, display: locations.describe(this.proposed.owner, this.proposed.reference) }); this.close();
-                } catch (error) { this.showError(error); this.confirm.disabled = true; }
+                    if (!accepted || !accepts(accepted.type) || accepted.path !== this.proposed.path || accepted.type !== this.proposed.type) throw Error("Location is no longer available. Choose a replacement.");
+                    if (this.titleInput && !this.titleInput.reportValidity()) return;
+                    this.saving = true; this.modalEl.setAttribute("aria-busy", "true"); controls.forEach(control => control.disabled = true);
+                    const result = await onChoose({ ...this.proposed, title: this.titleValue, display: locations.describe(this.proposed.owner, this.proposed.reference) });
+                    this.outcome = { status: "completed", result }; this.saving = false; this.close();
+                } catch (error) { this.showError(error); }
+                finally { this.saving = false; this.modalEl.removeAttribute("aria-busy"); controls.forEach((control, i) => control.disabled = disabled[i]); if (!this.closed) this.updateSelection(); }
             };
             let initial;
-            try { initial = locations.resolve(owner, reference); } catch (_) {}
+            try { if (this.owner) initial = locations.resolve(this.owner, reference); } catch (_) {}
             this.proposed = initial ? { owner: this.owner, reference, path: initial.path, type: initial.type } : null;
-            const workspace = locations.workspace(owner);
-            this.path = initial ? initial.type === "folder" ? initial.path : initial.path.slice(0, initial.path.lastIndexOf("/")) : workspace.root;
+            const workspace = this.owner ? locations.workspace(this.owner) : null;
+            this.path = initial ? initial.type === "folder" ? initial.path : initial.path.slice(0, initial.path.lastIndexOf("/")) : workspace?.root;
             this.renderFolder();
-            if (!initial) this.showError(Error("Saved location is unavailable. Choose a replacement."));
+            if (owner && !initial) this.showError(Error("Saved location is unavailable. Choose a replacement."));
             const body = layoutModal(this, { footer: actions }); body.classList.add("hub-task-location-body");
             // The modal layout establishes the initial breadcrumb viewport.
             this.breadcrumbs.scrollLeft = this.breadcrumbs.scrollWidth;
@@ -23978,7 +23932,7 @@ function openTaskLocationPicker(app, { locations, owner, reference = null, allow
             name.style.font = win.getComputedStyle(heading).font;
             name.style.setProperty("--no-tooltip", "true");
             name.createSpan({ cls: "hub-task-location-task-quote", text: '"', attr: { "aria-hidden": "true" } });
-            const taskText = name.createSpan({ cls: "hub-task-location-task-text", text });
+            const taskText = name.createSpan({ cls: "hub-task-location-task-text", text }); this.contextText = taskText;
             name.createSpan({ cls: "hub-task-location-task-quote", text: '"', attr: { "aria-hidden": "true" } });
             let tooltip = null, hovered = false, focused = false, truncated = false, keyboardNavigation = false, tabNavigation = false;
             const hide = () => { tooltip?.remove(); tooltip = null; name.removeAttribute("aria-describedby"); };
@@ -24041,15 +23995,15 @@ function openTaskLocationPicker(app, { locations, owner, reference = null, allow
             };
         }
         renderWorkspace() {
-            const w = locations.workspace(this.owner), button = this.workspaceButton;
+            const w = this.owner ? locations.workspace(this.owner) : null, button = this.workspaceButton;
             button.empty();
-            locations.mountThumbnail(button, this.owner);
+            if (w) locations.mountThumbnail(button, this.owner);
             const copy = button.createSpan({ cls: "hub-capture-picker-copy" });
-            copy.createEl("strong", { text: w.name ?? w.label });
-            copy.createSpan({ cls: "hub-task-location-workspace-type", text: this.owner.type === "project" ? "Project" : "Resource" });
+            copy.createEl("strong", { text: w?.name ?? w?.label ?? "Choose workspace" });
+            copy.createSpan({ cls: "hub-task-location-workspace-type", text: !this.owner ? "" : this.owner.type === "project" ? "Project" : "Resource" });
             this.workspaceChevron = null;
             if (!button.disabled) {
-                button.title = w.name ?? w.label;
+                button.title = w?.name ?? w?.label ?? "Choose workspace";
                 this.workspaceChevron = button.createSpan({ cls: "hub-task-location-icon", attr: { "aria-hidden": "true" } });
                 this.updateWorkspaceChevron();
             }
@@ -24077,7 +24031,7 @@ function openTaskLocationPicker(app, { locations, owner, reference = null, allow
                                 try {
                                     const root = locations.workspace(w.owner).root, proposed = locations.select(w.owner, root, "folder");
                                     this.owner = { ...w.owner }; this.path = root; this.proposed = proposed;
-                                    this.renderWorkspace(); this.renderFolder(); menu.close();
+                                    this.renderWorkspace(); this.renderFolder(); this.changed(); menu.close();
                                 } catch (error) { this.showError(error); menu.close(); }
                             };
                         }
@@ -24095,19 +24049,19 @@ function openTaskLocationPicker(app, { locations, owner, reference = null, allow
         navigate(path) {
             try {
                 this.proposed = locations.select(this.owner, path, "folder"); this.path = path;
-                this.renderFolder(); this.breadcrumbs.querySelector("[aria-current]")?.focus({ preventScroll: true });
+                this.renderFolder(); this.changed(); this.breadcrumbs.querySelector("[aria-current]")?.focus({ preventScroll: true });
             } catch (error) { this.showError(error); }
         }
         updateSelection() {
             let current;
             try { current = this.proposed && locations.resolve(this.proposed.owner, this.proposed.reference); } catch (_) {}
-            this.confirm.disabled = !current || current.path !== this.proposed.path || current.type !== this.proposed.type;
+            this.confirm.disabled = !!this.saving || !current || !accepts(current.type) || (mode === "note" && !this.titleValue.trim()) || current.path !== this.proposed.path || current.type !== this.proposed.type;
             for (const row of this.list.querySelectorAll("[data-location-path]")) {
                 const selected = !!current && row.dataset.locationType === "note" && row.dataset.locationPath === current.path;
                 row.classList.toggle("is-selected", selected);
                 if (row.dataset.locationType === "note") row.setAttribute("aria-pressed", String(selected));
             }
-            this.renderBreadcrumbs();
+            if (this.owner) this.renderBreadcrumbs(); else this.breadcrumbs.empty();
         }
         renderBreadcrumbs() {
             const w = locations.workspace(this.owner), route = relativePath(w.root, this.path).split("/").filter(Boolean);
@@ -24140,12 +24094,15 @@ function openTaskLocationPicker(app, { locations, owner, reference = null, allow
             this.breadcrumbs.scrollLeft = changed ? this.breadcrumbs.scrollWidth : scrollLeft;
         }
         renderFolder() {
+            if (this.saving) return;
             this.error.textContent = "";
             const focusedPath = this.list.contains(this.contentEl.ownerDocument.activeElement) ? this.contentEl.ownerDocument.activeElement.dataset.locationPath : null;
             this.list.empty();
+            if (!this.owner) { this.list.createDiv({ cls: "hub-task-location-empty", text: "Choose a workspace." }); this.updateSelection(); return; }
             try {
                 const folder = locations.browse(this.owner, this.path);
-                for (const item of folder.rows) {
+                const visibleRows = folder.rows.filter(item => mode === "task" || mode === "text" || item.type === "folder");
+                for (const item of visibleRows) {
                     const row = this.list.createEl("button", { cls: "hub-button-plain hub-task-location-entry", attr: { type: "button", title: item.name } });
                     row.dataset.locationPath = item.path; row.dataset.locationType = item.type;
                     setHubIcon(row.createSpan({ cls: "hub-task-location-icon", attr: { "aria-hidden": "true" } }), item.type === "folder" ? "folder" : "file-text");
@@ -24157,22 +24114,32 @@ function openTaskLocationPicker(app, { locations, owner, reference = null, allow
                             else {
                                 const deselect = this.proposed?.type === "note" && this.proposed.path === item.path;
                                 this.proposed = locations.select(this.owner, deselect ? this.path : item.path, deselect ? "folder" : "note");
-                                this.error.textContent = ""; this.updateSelection();
+                                this.error.textContent = ""; this.updateSelection(); this.changed();
                             }
                         } catch (error) { this.showError(error); }
                     };
                     if (focusedPath === item.path) row.focus({ preventScroll: true });
                 }
-                if (!folder.rows.length) this.list.createDiv({ cls: "hub-task-location-empty", text: "This folder is empty." });
+                if (!visibleRows.length) this.list.createDiv({ cls: "hub-task-location-empty", text: mode === "note" || mode === "file" ? "No subfolders in this folder." : "This folder is empty." });
             } catch (error) { this.showError(error); }
             this.updateSelection();
             if (focusedPath && !this.list.contains(this.contentEl.ownerDocument.activeElement)) this.breadcrumbs.querySelector("button:last-of-type")?.focus({ preventScroll: true });
         }
-        onClose() { this.disposeTaskName?.(); this.workspaceMenu?.close(false); for (const ref of this.refs ?? []) app.vault.offref(ref); this.contentEl.empty(); onClose(); }
+        close() {
+            if (this.saving || this.closing || this.closed) return;
+            if (beforeClose && !this.outcome) {
+                this.closing = true;
+                const controls = [...this.contentEl.querySelectorAll("button,input")], disabled = controls.map(c => c.disabled);
+                controls.forEach(c => c.disabled = true);
+                Promise.resolve().then(() => beforeClose(this.getDraft())).then(() => { this.closing = false; this.closed = true; super.close(); }, error => { this.closing = false; controls.forEach((c, i) => c.disabled = disabled[i]); this.showError(error); });
+            } else { this.closed = true; super.close(); }
+        }
+        onClose() { this.closed = true; this.disposeTaskName?.(); this.workspaceMenu?.close(false); for (const ref of this.refs ?? []) app.vault.offref(ref); this.contentEl.empty(); onClose(this.outcome ?? { status: "cancelled" }); }
     }
     const modal = new LocationModal(app); modal.open(); return modal;
 }
-module.exports = { openTaskLocationPicker };
+function openTaskLocationPicker(app, options) { return openLocationPicker(app, { ...options, mode: "task" }); }
+module.exports = { openTaskLocationPicker, openLocationPicker, LOCATION_MODES };
 
 },
 "lib/ui/task-operation.js": function (module, exports, __hubRequire) {
@@ -33108,6 +33075,8 @@ class HubWorkspaceModeService {
 
         this.state =
             this.loadState();
+        this.noteRailState = this.state.noteRail?.state;
+        this.noteRailWidth = this.state.noteRail?.width;
         this.navigationHistory.initialize();
     }
 
@@ -33282,7 +33251,7 @@ class HubWorkspaceModeService {
         const id = this.mode.project.projectId;
         const configuration = this.plugin.presets?.snapshot() ?? {
             contextId: id, hubPath: this.mode.project.path, root: this.mode.project.root,
-            layout: snapshot, railState: this.noteRailState ?? "full"
+            layout: snapshot, railState: this.noteRailState ?? "full", railWidth: this.noteRailWidth
         };
         this.navigationHistory.rememberConfiguration(this.mode.project, configuration, Date.now(), worked);
         this.state.projects[id] = { ...this.state.projects[id], hubPath: this.mode.project.path, layout: snapshot };
@@ -34453,7 +34422,11 @@ class HubWorkspaceModeService {
         if (pane && this.noteRailControls?.pane !== pane) {
             this.noteRailControls?.destroy();
             this.noteRailControls = mountNoteRail(pane, this.noteRailState,
-                state => { this.noteRailState = state; });
+                (state, width) => {
+                    this.noteRailState = state;
+                    this.noteRailWidth = width;
+                    this.state.noteRail = { state, width };
+                }, { width: this.noteRailWidth, onCommit: () => { this.captureNoteLayout(); this.saveState(); } });
         }
 
 
@@ -37667,6 +37640,14 @@ module.exports = class HubProjectMenu extends Plugin {
     async onload() {
         this.taskStartupClock = performance.now();
         this.register(disposeColorSystem);
+        const { AppearanceService, appearanceFile } = __hubRequire("lib/services/appearance.js");
+        this.appearance = await new AppearanceService({ file: appearanceFile(this),
+            onError: message => ownNoticeColors(new Notice(message)) }).initialize();
+        this.appearance.attachDocument(document);
+        this.app.workspace.iterateAllLeaves(leaf => { if (leaf.containerEl?.ownerDocument) this.appearance.attachDocument(leaf.containerEl.ownerDocument); });
+        this.registerEvent(this.app.workspace.on("window-open", (_workspaceWindow, win) => this.appearance.attachDocument(win.document)));
+        this.register(() => { void this.appearance.destroy(); });
+
         this.registerEvent(this.app.workspace.on("css-change", () => {
             const docs = new Set([document]);
             this.app.workspace.iterateAllLeaves(leaf => { if (leaf.containerEl?.ownerDocument) docs.add(leaf.containerEl.ownerDocument); });
@@ -38380,6 +38361,7 @@ module.exports = class HubProjectMenu extends Plugin {
         }
         this.oath = new HubOathService(this, createOathFullscreen(window, oathNativeModule ?
             require("path").join(oathNativeModule, this.manifest.dir, "lib/services/oath-fullscreen.js") : null), strictOath ? { strict: strictOath } : {});
+        if (strictOath?.setColors) this.appearance.connectDock(payload => strictOath.setColors(payload), document);
         this.oathNavigation = new OathNavigationGuard(this, require("obsidian").WorkspaceLeaf);
         window.hubCreateWorkspaceCards = (root, component, renderImage, categories) =>
             createWorkspaceCards({ app: this.app, root, component, renderImage, categories, oath: this.oath });

@@ -85,12 +85,22 @@ function sortedCaptures(captures, { filter = "all", sort = "newest", completion 
 
 function taskTitle(text) { return String(text ?? "").trim().split(/\r?\n/).find(line => line.trim())?.trim() ?? ""; }
 
+const firstLine = text => String(text ?? "").split(/\r?\n/).find(line => line.trim())?.trim() ?? "";
+function noteTitle(draft) {
+    const proposed = firstLine(draft.text) || String(draft.attachments?.[0]?.name ?? "").replace(/\.[^./\\]+$/, "");
+    const title = proposed.replace(/[\\/:*?"<>|\u0000-\u001f]/g, " ").replace(/\s+/g, " ").trim().slice(0, 120).replace(/[. ]+$/, "") || "Untitled";
+    projectItemPath("", "note", title);
+    return title;
+}
+
 function captureNoteTitle(value) {
     const raw = String(value ?? ""), title = raw.trim();
     if (!title) throw Error("Enter a note title.");
     if (/[\r\n\u0000-\u001f]/.test(raw) || /^\.{1,2}(?:\.md)?$/i.test(title)) {
         throw Error("Enter a valid note title.");
     }
+    const filename = title.replace(/\.md$/i, "");
+    if (/[. ]$/.test(filename) || /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(filename)) throw Error("Enter a valid note title.");
     projectItemPath("", "note", title);
     return title;
 }
@@ -99,10 +109,10 @@ function captureNoteTitle(value) {
 // keeps the decisions that can be resumed in the existing creation forms.
 function captureIntent(values = {}, attachments = []) {
     const input = { ...(values.intent ?? {}), ...values };
-    const type = attachments.length ? (["task", "note", "file"].includes(input.type) || input.workspaceId || input.folder ? "file" : null) : ["task", "note"].includes(input.type) ? input.type : null;
+    const type = attachments.length ? (input.type === "note" && input.noteAction !== "existing" ? "note" : (["task", "note", "file"].includes(input.type) || input.workspaceId || input.folder ? "file" : null)) : ["task", "note"].includes(input.type) ? input.type : null;
     if (!type) return null;
     const intent = { inputPath: attachments.length ? "file" : "text", type };
-    const keys = type === "task" ? ["workspaceId", "nativeLocation", "taskTitle", "description", "necessity", "fromDate", "dueDate", "fromTime", "dueTime", "phaseId"] :
+    const keys = type === "task" ? ["workspaceId", "nativeLocation", "nativeLocationType", "taskTitle", "description", "necessity", "fromDate", "dueDate", "fromTime", "dueTime", "phaseId"] :
         type === "note" ? ["workspaceId", "folder", "title"] : ["workspaceId", "folder"];
     for (const key of keys) {
         if (typeof input[key] === "string" || input[key] === null) intent[key] = input[key];
@@ -113,10 +123,12 @@ function captureIntent(values = {}, attachments = []) {
         if (location || input.noteLocation === null) intent.noteLocation = location;
     }
     if(type === "task") { if(typeof input.completed === "boolean") intent.completed=input.completed; if(Object.hasOwn(input,"completedAt") && (input.completedAt===null || typeof input.completedAt==="number")) intent.completedAt=input.completedAt; }
+    if (type === "task") for (const key of ["recurrence", "recurrenceDraft"]) if (input[key]) intent[key] = JSON.parse(JSON.stringify(input[key]));
+    if (type === "task" && input.pendingStep) intent.pendingStep = { text: String(input.pendingStep.text ?? ""), completed: !!input.pendingStep.completed };
     if (type === "task" && Array.isArray(input.steps)) {
         intent.steps = input.steps.map(step => {
             const result = {};
-            for (const key of ["id", "text", "completed", "completedAt"]) {
+            for (const key of ["id", "text", "completed", "completedAt", "parentStepId"]) {
                 if (["string", "number", "boolean"].includes(typeof step?.[key]) || step?.[key] === null) result[key] = step[key];
             }
             return result;
@@ -148,5 +160,5 @@ function captureDraft(capture = {}, type = null) {
 }
 
 module.exports = { INBOX_VERSION, INBOX_ATTACHMENT_ROOT, linkFromText, isInboxOwned, captureKind,
-    capturePreview, sourceMetadata, attachmentReference, sortedCaptures, taskTitle, captureIntent, captureDraft, captureNoteTitle,
+    capturePreview, sourceMetadata, attachmentReference, sortedCaptures, taskTitle, captureIntent, captureDraft, captureNoteTitle, noteTitle,
     INBOX_SORTS, inboxSort, inboxCounts, inboxItemType };

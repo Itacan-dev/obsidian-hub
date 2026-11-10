@@ -1,0 +1,33 @@
+﻿<!doctype html><meta charset="utf-8"><title>Appearance interaction test</title><link id="native-css" rel="stylesheet"><link rel="stylesheet" href="../../styles.css">
+<style>body{overflow:auto!important}.hub-settings-dialog{width:760px;margin:20px auto;padding:20px}.hub-settings-section{margin-bottom:12px}#result{position:fixed;bottom:0;pointer-events:none}</style>
+<div id="settings" class="hub-settings-dialog hub-button-scope"></div><pre id="result">RUNNING</pre>
+<script type="module">
+const assert=(v,m)=>{if(!v)throw Error(m)},settle=()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+try{
+ const preview=new URLSearchParams(location.search).get('preview');document.querySelector('#native-css').href=new URL('app.css',preview);await new Promise(r=>setTimeout(r,120));document.body.className='theme-dark';
+ for(const [method,tag]of [['createDiv','div'],['createSpan','span']])Element.prototype[method]=function(o={}){return this.createEl(tag,typeof o==='string'?{cls:o}:o)};
+ Element.prototype.createEl=function(tag,o={}){const e=document.createElement(tag);if(o.cls)e.className=o.cls;if(o.text!=null)e.textContent=o.text;for(const [k,v]of Object.entries(o.attr||{}))e.setAttribute(k,v);this.append(e);return e};
+ async function load(file,deps={}){const m={exports:{}};new Function('module','exports','require',await(await fetch('../'+file+'.js')).text())(m,m.exports,n=>{if(!(n in deps))throw Error('Missing dependency '+n);return deps[n]});return m.exports;}
+ const palettes=await load('ui/color-palettes'),colors=await load('ui/color-system',{'./color-palettes':palettes}),files=new Map();let sequence=0;
+ const io={async readFile(p){if(!files.has(p))throw Object.assign(Error('missing'),{code:'ENOENT'});return files.get(p)},async open(p){return {async writeFile(v){files.set(p,v)},async sync(){},async close(){}}},async rename(a,b){files.set(b,files.get(a));files.delete(a)},async unlink(p){files.delete(p)}};
+ const {AppearanceService}=await load('services/appearance',{'fs':{promises:io},path:{},crypto:{randomUUID:()=>String(++sequence)},'../ui/color-palettes':palettes,'../ui/color-system':colors});
+ const controls=await load('ui/appearance-controls',{'./color-palettes':palettes}),pages=await load('ui/settings-pages',{'./appearance-controls':controls});
+ let service=await new AppearanceService({file:'appearance.json',colors,io,onError:e=>{throw Error(e)}}).initialize();service.attachDocument(document);
+ const host=document.querySelector('#settings');colors.ownColorRoot(host);let dispose=pages.renderSettingsPage(host,{id:'appearance',title:'Appearance',description:'Color preferences'},{appearance:service});await settle();
+ const pointer=(e,action)=>new Promise(resolve=>{e.scrollIntoView({block:'center'});const r=e.getBoundingClientRect();window.hubTestPointerDone=resolve;window.hubTestPointerRequest={x:r.x+r.width/2,y:r.y+r.height/2,action}});
+ const click=async e=>{await pointer(e,'down');await pointer(e,'up');await service.queue;await settle()};
+ const key=k=>new Promise(resolve=>{window.hubTestKeyDone=resolve;window.hubTestKeyRequest=k});
+ let buttons=host.querySelectorAll('[role=radio]');assert(buttons.length===5&&!buttons[1].disabled,'Color choices not enabled');assert(!files.size,'Opening preferences wrote data');
+ await click(buttons[1]);assert(service.value.paletteId==='blue','Pointer selection');buttons[1].focus();await key('ArrowRight');await service.queue;await settle();assert(service.value.paletteId==='green'&&document.activeElement===buttons[2],'Keyboard selection/focus');
+ const toggle=host.querySelector('[role=switch]');toggle.focus();await key(' ');await service.queue;await settle();assert(!service.value.coordinateInterfaceColors,'Space toggle');assert(toggle.getAttribute('aria-checked')==='false','Switch ARIA');await click(toggle);assert(service.value.coordinateInterfaceColors,'Pointer switch is inert');await click(toggle);assert(!service.value.coordinateInterfaceColors,'Pointer switch off');
+ assert([...host.querySelectorAll('select,.hub-settings-segments button,.hub-settings-custom-color')].every(e=>e.disabled),'Unrelated settings activated');
+ dispose();host.replaceChildren();assert(service.listeners.size===0,'Page subscription leak');dispose=pages.renderSettingsPage(host,{id:'appearance',title:'Appearance',description:'Color preferences'},{appearance:service});await settle();assert(host.querySelector('[role=radio][aria-checked=true]').getAttribute('aria-label')==='Green','Reopen reset selection');
+ document.body.className='theme-light';await settle();assert([...host.querySelectorAll('[role=radio],[role=switch]')].every(e=>e.disabled),'Light controls enabled');assert(host.textContent.includes('Obsidian Dark mode'),'Light explanation missing');assert([...host.querySelectorAll('.hub-settings-segments button')].find(e=>e.textContent==='Light').classList.contains('is-selected'),'Host mode preview');
+ document.body.className='theme-dark';await settle();assert(!host.querySelector('[role=switch]').disabled,'Dark controls stayed disabled');
+ await click([...host.querySelectorAll('button')].find(e=>e.textContent==='Reset colors to Default'));assert(service.value.paletteId==='default'&&service.value.coordinateInterfaceColors,'Reset');
+ await click(host.querySelector('[aria-label=Blue]'));await click(host.querySelector('[role=switch]'));await click(host.querySelector('[role=switch]'));await service.queue;
+ host.scrollIntoView();await new Promise(resolve=>{window.hubTestScreenshotDone=resolve;window.hubTestScreenshotRequest='appearance-blue'});
+ dispose();host.replaceChildren();await service.destroy();service=await new AppearanceService({file:'appearance.json',colors,io}).initialize();assert(service.value.paletteId==='blue'&&service.value.coordinateInterfaceColors,'Reload persistence');await service.destroy();colors.disposeColorSystem();
+ document.querySelector('#result').textContent='PASS real pointer/keyboard selection, radio focus, Space toggle, ARIA, inactive unrelated controls, no open-time writes, close/reopen, Light/Dark messaging and disabling, reset, reload persistence and cleanup';
+}catch(e){document.querySelector('#result').textContent='FAIL '+e.stack}
+</script>

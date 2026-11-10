@@ -181,7 +181,7 @@ for (const relative of Object.keys(athenaManifest.artifacts).filter(file => file
 // Obsidian's main-process bridge loads these modules by path, outside main.js.
 // Ship an explicit production-only closure, including the sandbox preload/assets.
 const strictAssets = ["lib/services/oath-strict-host.js", "lib/services/oath-strict.js", "lib/services/oath-process-observer.js",
-    "lib/services/oath-dock.js", "lib/domain/oath-strict.js", "lib/ui/oath-dock/preload.cjs", "lib/ui/oath-dock/index.html",
+    "lib/services/oath-dock.js", "lib/domain/oath-strict.js", "lib/domain/oath-dock-colors.js", "lib/ui/oath-dock/preload.cjs", "lib/ui/oath-dock/index.html",
     "lib/ui/oath-dock/dock.js", "lib/ui/oath-dock/dock.css"];
 const strictManifest = {};
 for (const relative of strictAssets) {

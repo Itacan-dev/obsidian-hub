@@ -1,6 +1,6 @@
 "use strict";
 const { setHubIcon } = require("./icons");
-const { projectItemPath } = require("../domain/files");
+const { noteTitle } = require("../domain/inbox");
 const { openCaptureWorkspacePicker, openCaptureLocationPicker } = require("./capture-pickers");
 const { mountWorkspaceThumbnail } = require("./workspace-thumbnail");
 const { createCapturePickerTrigger } = require("./capture-picker-trigger");
@@ -31,14 +31,6 @@ function mountChoices({ host, label, options, selected, disabled = [], onSelect,
     }
     return types;
 }
-const firstLine = text => String(text ?? "").split(/\r?\n/).find(line => line.trim())?.trim() ?? "";
-function noteTitle(draft) {
-    const proposed = firstLine(draft.text) || String(draft.attachments?.[0]?.name ?? "").replace(/\.[^./\\]+$/, "");
-    const title = proposed.replace(/[\\/:*?"<>|\u0000-\u001f]/g, " ").replace(/\s+/g, " ").trim().slice(0, 120).replace(/[. ]+$/, "") || "Untitled";
-    projectItemPath("", "note", title);
-    return title;
-}
-
 // Both overlays retain their content and attachment controls. A fixed Inbox
 // form owns one type at a time; Inbox can confirm and remount a different type.
 function mountCaptureForm({ host, service, draft = {}, onChange = () => {}, onSubmit = () => {}, fixedType = null, captureId = () => null }) {

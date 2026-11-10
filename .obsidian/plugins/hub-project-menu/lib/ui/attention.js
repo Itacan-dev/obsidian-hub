@@ -8,6 +8,8 @@ function mountTransientEffects(root) {
     const canvas = root.ownerDocument.createElement("canvas"); canvas.width = canvas.height = 1;
     const paint = canvas.getContext("2d");
     let disposed = false;
+    const cancelAll = () => { for (const effect of [...effects.values()]) effect.finish(); };
+    const releaseColors = require("./color-system").registerColorEffect(root, cancelAll);
     const reducedMotion = () => view.matchMedia("(prefers-reduced-motion: reduce)").matches;
     function surfaceBackground(node) {
         // Transparent buttons and muted selections need their visible resting
@@ -78,9 +80,9 @@ function mountTransientEffects(root) {
         if (field.top < bounds.top + 6 || field.bottom > bounds.bottom - 6)
             container.scrollTo({ top: Math.max(0, container.scrollTop + field.top - bounds.top - 8), behavior });
     }
-    return { run, cancel, cancelAll: () => { for (const effect of [...effects.values()]) effect.finish(); }, reveal,
+    return { run, cancel, cancelAll, reveal,
         pulse(element, container, done) { reveal(element, container); run(element, "hub-attention", done); },
-        destroy() { disposed = true; for (const effect of [...effects.values()]) effect.finish(); }
+        destroy() { disposed = true; releaseColors(); for (const effect of [...effects.values()]) effect.finish(); }
     };
 }
 

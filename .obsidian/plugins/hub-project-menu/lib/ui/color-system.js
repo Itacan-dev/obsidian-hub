@@ -164,6 +164,61 @@ const NATIVE_COLOR_PROPERTIES = Object.freeze([
 ]);
 const SCOPE = "hub-color-scope", ISLAND = "hub-color-host-island";
 const roots = new WeakMap(), documents = new WeakMap(), modals = new WeakMap(), activeDocuments = new Set();
+// Palette sheets have document lifetime, including marker-only native tooltips.
+const paletteDocuments = new Map(), colorEffects = new Set();
+let activePaletteCss = "", paletteRevision = 0, coordinatedSurroundings = false;
+function registerColorEffect(root, cancelAll) {
+    const record = { root, cancelAll }; colorEffects.add(record);
+    return () => colorEffects.delete(record);
+}
+function cancelColorEffects(doc) {
+    for (const effect of [...colorEffects]) if ((!doc || effect.root.ownerDocument === doc) && hasColorOwner(effect.root)) effect.cancelAll();
+}
+// Two paint-only corrections. Resolve roles through the existing contract;
+// never put its native-variable bridge on the shared/native paint surfaces.
+function refreshDocumentPalette(state) {
+    state.sheet.textContent = activePaletteCss;
+    if (!coordinatedSurroundings) return;
+    const style = state.reference.ownerDocument.defaultView.getComputedStyle(state.reference);
+    const page = style.getPropertyValue("--hub-color-surface-page").trim();
+    const panel = style.getPropertyValue("--hub-color-surface-panel").trim();
+    const border = style.getPropertyValue("--hub-color-border").trim();
+    if (![page, panel, border].every(value => value && state.reference.ownerDocument.defaultView.CSS.supports("background-color", value))) return;
+    const hosts = '.workspace-leaf-content[data-type="markdown"][data-mode="preview"] > .view-content, .workspace-leaf-content:is([data-type="hub-prepared-home"],[data-type="hub-prepared-note-rail"]) > .view-content';
+    const eligible = `:is(${hosts}):has([data-hub-dashboard-page]):where(:not(.hub-color-host-island,.hub-color-host-island *))`;
+    state.sheet.textContent += `\nbody.theme-dark ${eligible}, body.theme-dark ${eligible} :is(.markdown-reading-view,.markdown-preview-view):has([data-hub-dashboard-page]){background-color:${page};}\nbody.theme-dark .app-container .hub-oath-statusbar:where(:not(.hub-color-host-island,.hub-color-host-island *)){background-color:${panel};border-top-color:${border};}`;
+}
+function attachColorDocument(doc) {
+    if (!doc?.defaultView || paletteDocuments.has(doc)) return paletteDocuments.get(doc)?.dispose || (() => {});
+    const sheet = doc.createElement("style"); sheet.dataset.hubPalette = "";
+    const reference = doc.createElement("div"); reference.className = SCOPE; reference.hidden = true;
+    reference.setAttribute("aria-hidden", "true"); doc.body.appendChild(reference);
+    (doc.head || doc.documentElement).appendChild(sheet);
+    let dark = doc.body?.classList.contains("theme-dark");
+    const observer = new doc.defaultView.MutationObserver(() => {
+        const next = doc.body.classList.contains("theme-dark");
+        if (next !== dark) { dark = next; cancelColorEffects(doc); doc.dispatchEvent(new doc.defaultView.Event("hub-color-mode-change")); }
+    });
+    if (doc.body) observer.observe(doc.body, { attributes: true, attributeFilter: ["class"] });
+    const dispose = () => { observer.disconnect(); sheet.remove(); reference.remove(); doc.defaultView.removeEventListener("pagehide", dispose); paletteDocuments.delete(doc); };
+    const state = { sheet, reference, dispose }; paletteDocuments.set(doc, state); refreshDocumentPalette(state); doc.defaultView.addEventListener("pagehide", dispose);
+    return dispose;
+}
+function applyResolvedColors(contract) {
+    const { TOKEN_KEYS } = require("./color-palettes");
+    for (const [key,value] of Object.entries(contract.tokens)) if (!TOKEN_KEYS.includes(key) || typeof value !== "string" || /[;{}<>]/.test(value)) throw Error("Invalid palette declaration");
+    const declarations = Object.entries(contract.tokens).map(([key,value]) => `${key}:${value};`).join("\n");
+    // Verified Itacan pages were transparent in Default. Paint only coordinated
+    // alternatives; native Markdown leaves and note-editor hosts stay unowned.
+    const backdrop = Object.hasOwn(contract.tokens, "--hub-palette-neutral-00")
+        ? "body.theme-dark .hub-color-scope:is(.hub-color-page,.home-dashboard,.project-dashboard,.hub-athena-view,.daily-project-list,.daily-project-empty):where(:not(.hub-color-host-island,.hub-color-host-island *)){background-color:var(--hub-color-surface-page);}" : "";
+    const css = declarations ? `body.theme-dark .hub-color-scope:where(:not(.hub-color-host-island, .hub-color-host-island *)){\n${declarations}\n}${backdrop}` : "";
+    cancelColorEffects(); activePaletteCss = css;
+    coordinatedSurroundings = Object.hasOwn(contract.tokens, "--hub-palette-neutral-00");
+    for (const state of paletteDocuments.values()) refreshDocumentPalette(state);
+    for (const doc of activeDocuments) for (const island of documents.get(doc)?.islands || []) island.refresh();
+    return ++paletteRevision;
+}
 const ownedPrefix = name => /^--hub-(?:palette-|color-|oath-(?:active|focus|selection|action|pledge|pinned|workspace-badge)|progress-(?:rgb|today-border)|roadmap-phase-|effect-)/.test(name);
 function hasColorOwner(element) {
     if (element?.closest?.("." + ISLAND)) return false;
@@ -201,10 +256,11 @@ function documentState(doc) {
     doc.defaultView.addEventListener("pagehide", state.release);
     state.refresh = queue; state.refreshHost = () => queue(true); documents.set(doc, state); activeDocuments.add(doc); return state;
 }
-function ownColorRoot(root) {
+function ownColorRoot(root, release = null) {
     if (!root?.classList || !root.ownerDocument?.defaultView || root.closest("." + ISLAND)) return () => {};
-    if (roots.has(root)) return roots.get(root).dispose;
+    if (roots.has(root)) { const item = roots.get(root); if (release) item.releases.add(release); return item.dispose; }
     const added = !root.classList.contains(SCOPE), origins = new Map();
+    attachColorDocument(root.ownerDocument);
     root.classList.add(SCOPE);
     const doc = root.ownerDocument, state = documentState(doc);
     let disposed = false;
@@ -237,8 +293,9 @@ function ownColorRoot(root) {
             origins.delete(node);
         }
     });
-    const item = { root, attached: root.isConnected, dispose() {
+    const item = { root, releases: new Set(release ? [release] : []), attached: root.isConnected, dispose() {
         if (disposed) return; disposed = true; observer.disconnect();
+        for (const cleanup of item.releases) cleanup(); item.releases.clear();
         for (const node of origins.keys()) {
             const classes = (node.getAttribute("data-tooltip-classes") || "").split(/\s+/).filter(x => x && x !== SCOPE);
             if (classes.length) node.setAttribute("data-tooltip-classes", classes.join(" ")); else node.removeAttribute("data-tooltip-classes");
@@ -300,8 +357,11 @@ function hostColorIsland(root) {
     };
     island.dispose = dispose; return dispose;
 }
-function refreshHostColorReferences(doc) { documents.get(doc)?.refreshHost(); }
+function refreshHostColorReferences(doc) { documents.get(doc)?.refreshHost(); const state = paletteDocuments.get(doc); if (state) refreshDocumentPalette(state); }
 function disposeColorSystem() {
+    cancelColorEffects(); colorEffects.clear();
+    for (const state of [...paletteDocuments.values()]) state.dispose();
+    activePaletteCss = ""; paletteRevision = 0; coordinatedSurroundings = false;
     for (const doc of [...activeDocuments]) documents.get(doc)?.release();
 }
-module.exports = { disposeColorSystem, ownColorRoot, ownModalColors, ownMenuColors, ownNoticeColors, inheritColorOwner, hasColorOwner, hostColorIsland, refreshHostColorReferences, NATIVE_COLOR_PROPERTIES };
+module.exports = { attachColorDocument, applyResolvedColors, registerColorEffect, disposeColorSystem, ownColorRoot, ownModalColors, ownMenuColors, ownNoticeColors, inheritColorOwner, hasColorOwner, hostColorIsland, refreshHostColorReferences, NATIVE_COLOR_PROPERTIES };

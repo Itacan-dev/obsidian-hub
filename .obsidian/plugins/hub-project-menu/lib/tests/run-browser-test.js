@@ -48,7 +48,7 @@ async function run() {
         if (process.env.HUB_TEST_PREVIEW) fixtureUrl.searchParams.set("preview", process.env.HUB_TEST_PREVIEW);
         if (process.env.HUB_TEST_HOME_SOURCE) fixtureUrl.searchParams.set("home-source", process.env.HUB_TEST_HOME_SOURCE);
         await send("Page.navigate", { url: fixtureUrl.href }, sessionId);
-        let text = "";
+        let text = "", pointerButtons = 0;
         for (let attempt = 0; attempt < 720; attempt++) {
             await new Promise(resolve => setTimeout(resolve, 75));
             const motion = await send("Runtime.evaluate", { expression: "window.hubTestMotionRequest || false", returnByValue: true }, sessionId);
@@ -121,14 +121,16 @@ async function run() {
             const pointer = await send("Runtime.evaluate", { expression: "window.hubTestPointerRequest || null", returnByValue: true }, sessionId);
             if (pointer.result?.value) {
                 const { x, y, action } = pointer.result.value;
-                await send("Page.bringToFront", {}, sessionId);
+                if (!pointerButtons) await send("Page.bringToFront", {}, sessionId);
                 await send("Runtime.evaluate", { expression: "window.hubTestPointerRequest = null" }, sessionId);
-                await send("Input.dispatchMouseEvent", { type: "mouseMoved", x, y }, sessionId);
+                await send("Input.dispatchMouseEvent", { type: "mouseMoved", x, y, button: pointerButtons ? "left" : "none", buttons: pointerButtons }, sessionId);
                 if (action !== "move" && action !== "up") {
-                    await send("Input.dispatchMouseEvent", { type: "mousePressed", x, y, button: "left", clickCount: 1 }, sessionId);
+                    pointerButtons = 1;
+                    await send("Input.dispatchMouseEvent", { type: "mousePressed", x, y, button: "left", buttons: pointerButtons, clickCount: 1 }, sessionId);
                 }
                 if (action !== "move" && action !== "down") {
-                    await send("Input.dispatchMouseEvent", { type: "mouseReleased", x, y, button: "left", clickCount: 1 }, sessionId);
+                    pointerButtons = 0;
+                    await send("Input.dispatchMouseEvent", { type: "mouseReleased", x, y, button: "left", buttons: pointerButtons, clickCount: 1 }, sessionId);
                 }
                 await send("Runtime.evaluate", { expression: "window.hubTestPointerDone()" }, sessionId);
             }

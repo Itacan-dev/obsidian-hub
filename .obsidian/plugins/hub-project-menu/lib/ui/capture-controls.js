@@ -42,7 +42,7 @@ function mountCaptureControls(plugin, service, host) {
         if (quick) { quick.input?.focus(); return; }
         if (host.ownerDocument.querySelector(".modal-container")) return;
         quick = new QuickAddModal(plugin.app, service, { source: currentSource(plugin),
-            returnFocus: host.ownerDocument.activeElement, onClose: () => { quick = null; } });
+            returnFocus: host.ownerDocument.activeElement, onResume: () => openQuickAdd(), onClose: () => { quick = null; } });
         quick.open();
     };
     const openLink = async url => {
@@ -54,13 +54,13 @@ function mountCaptureControls(plugin, service, host) {
             plugin.app.workspace.setActiveLeaf?.(leaf, { focus: true });
         } else await plugin.app.workspace.openLinkText(browser.url, "", true);
     };
-    const openInbox = () => {
+    const openInbox = (resumeState = null) => {
         if (disposed) return;
         if (plugin.oath?.active) { ownNoticeColors(new Notice("Inbox is unavailable during an active Oath.")); return; }
         if (inbox) { inbox.filterButtons[0].button.focus(); return; }
         if (host.ownerDocument.querySelector(".modal-container")) return;
         inbox = new InboxModal(plugin.app, service, { openLink, workspaceId: plugin.workspaceModes?.currentContext()?.projectId,
-            returnFocus: host.ownerDocument.activeElement, onClose: () => { inbox = null; } });
+            returnFocus: host.ownerDocument.activeElement, resumeState, onResume: state => openInbox(state), onClose: () => { inbox = null; } });
         inbox.open();
     };
     plugin.registerDomEvent(quickButton, "click", openQuickAdd);

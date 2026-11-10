@@ -27,7 +27,7 @@ async function runCases() {
         }
         async setState() {}
     }
-    const modules = ["ui/note-rail", "ui/tooltips", "ui/prepared-note-rail", "ui/workspace-explorer", "ui/file-icons", "domain/workspace-explorer", "domain/files"];
+    const modules = ["ui/color-system", "ui/note-rail", "ui/tooltips", "ui/prepared-note-rail", "ui/workspace-explorer", "ui/file-icons", "domain/workspace-explorer", "domain/files"];
     const sources = Object.fromEntries(await Promise.all(modules.map(async name => [name, await (await fetch("../" + name + ".js")).text()])));
     const cache = {};
     function load(name) {
@@ -144,7 +144,7 @@ async function runCases() {
             if (route === "Workspace file") measurements[key] = geometry;
             else geometry.forEach((value, index) => check(Math.abs(value - measurements[key][index]) < 1, `${route} ${state}: geometry differs from Workspace file at index ${index} (${value} vs ${measurements[key][index]})`));
             if (state === "closed") {
-                check(p.width === 32 && t.height === 0, route + ": hidden state keeps its 32px handle (pane " + p.width + ", tasks " + t.height + ")");
+                check(p.width === 0 && t.height === 0, route + ": hidden state fully collapses (pane " + p.width + ", tasks " + t.height + ")");
             } else {
                 const gap = parseFloat(getComputedStyle(root.querySelector(".project-main-grid")).rowGap);
                 check(Math.abs(e.height / (grid.height - gap) - .7) < .01 && Math.abs(t.height / (grid.height - gap) - .3) < .01, route + ": 70/30 panel allocation");
@@ -175,6 +175,16 @@ async function runCases() {
                         check(Math.abs(resizedTree.width - resizedTasks.width) < 1 && rect(documentPane).width > 0, "Live resize retains aligned panels and document space");
                     }
                 }
+            }
+            if (state === "full") {
+                service.noteRailControls.destroy();
+                const narrow = mountNoteRail(pane, "half", () => {}, { width: 170 });
+                check(Math.abs(rect(pane).width - 170) < 1, route + ": custom minimum width");
+                const search = root.querySelector(".hub-explorer-search");
+                check(search.scrollWidth <= search.clientWidth + 1, route + ": search fits 170px rail");
+                check(root.scrollWidth <= root.clientWidth + 1, route + ": minimum-width content stays contained");
+                narrow.destroy();
+                service.noteRailControls = mountNoteRail(pane, "full");
             }
             restore?.cancel(); prepared?.dispose();
             // Leave the last full rail visible for the fixture screenshot.

@@ -1,14 +1,15 @@
 {
   "schemaVersion": 1,
   "files": {
-    "lib/services/oath-strict-host.js": "6d3b057edbf7f482c3e47349fc580e81b1b0d8a89813c597ac6067cf49ae46a3",
-    "lib/services/oath-strict.js": "db85d155687ea174cbfcfdfe374262eccbf3affdbeda78ea8c99c153a4a0f4a2",
+    "lib/services/oath-strict-host.js": "ecbba75190f0603060588d29608ee43d575b2cc7c7352fbae27a0b958b01bb37",
+    "lib/services/oath-strict.js": "a1ec46754de77487f796a939aaa7f3e2d0d1a9f9a90314a97d707c10a0e4a644",
     "lib/services/oath-process-observer.js": "2218e8ccf1c482dd182c89bf0ddc4e55cd9ceed767cb737385ae4c459d01f3d4",
-    "lib/services/oath-dock.js": "809807c05df9ceae2f69810fa76eadf6379ca6bb4e86f22c3c99d5dc62c2901c",
+    "lib/services/oath-dock.js": "3d1641bab8a2e7ff0892007b66edc20376b187e01857ee00600afdb9e3735743",
     "lib/domain/oath-strict.js": "7e75432c50ba2edccfb9b81b76fcb4f9348847d48612f4d62eed2b2479d30490",
+    "lib/domain/oath-dock-colors.js": "1f0901c0952233483ca1f2438882b90caa1795f5cde1ba8232567d23aca1b424",
     "lib/ui/oath-dock/preload.cjs": "85a2678083a4e17f650e3191e6059671ea64ae30a6583d0a39576441e9de52aa",
     "lib/ui/oath-dock/index.html": "0a3793b98e3e9535a6b75fb3a914a40d9f6b48cde5a7230dd74d6ae709c95c54",
-    "lib/ui/oath-dock/dock.js": "34bd6855ea81b8b43774627020dc3c779c7dea6f123da9a25412bf6ea308879d",
+    "lib/ui/oath-dock/dock.js": "3ee7022052abbd104f1a2cdacabf529a10a5c4d619a6989075663de63e9e2652",
     "lib/ui/oath-dock/dock.css": "ebb6898d59e1860cf3e5674c124071c19f64a555ddc4bdde669aeca5aff8ba13"
   }
 }

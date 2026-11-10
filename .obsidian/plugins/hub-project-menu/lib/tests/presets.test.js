@@ -61,7 +61,7 @@ async function test() {
         hubCaptureFolders: () => ({ folders, order: ["Folder"] }), hubRestoreFolders(value) { this.restored = value; } };
     let persisted, liveLayout = layout, changes = 0, fm = { folder_order: ["Folder"] }, present = 0;
     const m = Object.create(compiled.exports.Modes.prototype);
-    Object.assign(m, { state: { projects: {} }, mode: { project: context, projectLeaf: {} }, noteRailState: "half",
+    Object.assign(m, { state: { projects: {} }, mode: { project: context, projectLeaf: {} }, noteRailState: "half", noteRailWidth: 303,
         app: { vault: { getName: () => "Test", getAbstractFileByPath: p => files.get(p) },
             internalPlugins: { getEnabledPluginById: () => ({}) },
             workspace: { getLayout: () => liveLayout, changeLayout: async value => { changes++; liveLayout = value; } },
@@ -82,7 +82,9 @@ async function test() {
     });
     const presets = m.plugin.presets = new HubPresets(m);
     const first = presets.create(""), second = presets.create(" ");
-    assert.equal(first.name,"Preset 1"); assert.equal(second.name,"Preset 2");
+    m.captureNoteLayout();
+    assert.equal(m.state.projects[context.projectId].configurations[0].railWidth,303,"Last File configuration includes custom width");
+    assert.equal(first.railWidth,303,"Snapshot includes custom width"); assert.equal(first.name,"Preset 1"); assert.equal(second.name,"Preset 2");
     assert(!first.layout.left); assert.equal(first.layout.main.children[1].children[0].currentTab,1);
     folders[`${kind}/Folder`].search = "changed";
     assert.equal(first.folderState.folders[`${kind}/Folder`].search,"task","Snapshot is detached from live folder state");
@@ -90,7 +92,11 @@ async function test() {
     m.state = JSON.parse(persisted); assert.equal(new HubPresets(m).items.length,2,"Restart uses existing persistent workspace store");
     m.mode = null; assert(!presets.canSave); assert.throws(() => presets.update(first.id),/note-mode/);
     assert(await presets.open(first.id,{})); assert.equal(changes,1); assert.equal(present,1);
-    assert.equal(root.restored.folders[`${kind}/Folder`].search,"task"); assert.equal(m.noteRailState,"half");
+    assert.equal(root.restored.folders[`${kind}/Folder`].search,"task"); assert.equal(m.noteRailState,"half"); assert.equal(m.noteRailWidth,303,"Custom width restored with layout");
+    const legacy = { ...first }; delete legacy.railWidth;
+    await presets.restoreSnapshot(legacy, {});
+    assert.equal(m.noteRailWidth, undefined, "Legacy snapshot clears a previous custom width");
+    await presets.open(first.id, {});
     assert.equal(presets.pending,null); assert.deepEqual(liveLayout.main,first.layout.main);
     const web = (id,url) => ({id,type:"leaf",state:{type:"webviewer",state:{url,title:id,navigate:true}}});
     for (const entries of [[web("web1","https://example.org/one")],
@@ -133,7 +139,7 @@ async function test() {
     history.rememberFile(context);
     assert.equal(JSON.stringify(lastFileMode.state.fileHistory), fileHistory, "Browser-only activity never enters file history");
     await presets.open(first.id,{});
-    m.noteRailState = "closed"; presets.update(first.id); assert.equal(presets.items[0].railState,"closed");
+    m.noteRailState = "closed"; presets.update(first.id); assert.equal(presets.items[0].railWidth,303,"Closed snapshot retains open width"); assert.equal(presets.items[0].railState,"closed");
     assert.equal(presets.items[0].name,"Focused","Update preserves preset identity/name");
     presets.rewritePaths(p => typeof p === "string" ? p.replace(`${kind}/Folder`,`${kind}/Renamed`).replace(`${kind}/A.md`,`${kind}/Moved.md`) : p);
     files.set(`${kind}/Moved.md`,new TFile(`${kind}/Moved.md`)); files.delete(`${kind}/A.md`);

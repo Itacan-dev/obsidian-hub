@@ -4,7 +4,7 @@ function fixture(){
  let calls=0,opened=0;const selections=[],notices=[];
  class Modal{constructor(){this.contentEl={empty(){}}}open(){opened++;}close(){this.closed=true;}}
  const module={exports:{}},code=fs.readFileSync(path.resolve(__dirname,'../../../.obsidian/plugins/hub-project-menu/lib/ui/task-editor.js'),'utf8');
- vm.runInNewContext(code,{module,exports:module.exports,require:id=>id==='obsidian'?{Modal,Notice:class{constructor(message){notices.push(message)}}}:{},console});
+ vm.runInNewContext(code,{module,exports:module.exports,require:id=>id==='./color-system'?{ownNoticeColors:x=>x,ownModalColors:x=>x}:id==='obsidian'?{Modal,Notice:class{constructor(message){notices.push(message)}}}:{},console});
  const owner={type:'project',id:'p'},service={app:{vault:{getAbstractFileByPath:p=>({path:p,...(!p.endsWith('.md')?{children:[]}:{})})}},nativeOwner:owner,context:()=>({root:'Projects/P'}),formContext:s=>({nativeOwner:owner,nativeLocation:s.nativeLocation??''}),nativeLocations:{select:(o,p,type)=>{selections.push({o,p,type});return{reference:{id:p,type}}}},defaultCreationLocation:async()=>{calls++;return{nativeOwner:owner,nativeLocation:'recent',nativeLocationType:'note'}}};
  return{...module.exports,service,selections,notices,get calls(){return calls},get opened(){return opened}};
 }

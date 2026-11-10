@@ -14,6 +14,7 @@ class StrictOathCoordinator {
         this.health = { status: "disabled", warnings: [] }; this.listener = null; this.polling = false;
         this.host?.onLost?.(() => { void this.release(this.current?.id).catch(() => {}); });
     }
+    setColors(payload) { this.host?.setColors?.(payload); }
     onHealth(listener) { this.listener = listener; }
     configureEnabled(value) { this.enabled = !!value; }
     update(health) { this.health = health; try { this.host?.updateDock?.(health); } catch (_) {} try { this.listener?.(health); } catch (_) {} }

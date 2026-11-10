@@ -226,6 +226,7 @@ function mountLiveTaskForm({ host, state, service, location, text, initialStepsO
     initialized = true;
     return { element, input, completion: parts.checkbox, phase, card: parts, presentation, checklist, steps, state,
         commitPending: steps.commitPending, refresh, resizeTitle: title.resize,
+        restorePendingStep(value) { if (value) { openSteps = true; steps.restorePending(value); refresh(); } },
         closePopovers() { recurrence?.close(false); start.close(false); due.close(false); necessity.close(false); description.close(false); phase.close(false); },
         destroy() { recurrence?.destroy(); start.destroy(); due.destroy(); necessity.destroy(); description.destroy(); phase.destroy(); steps.destroy(); title.destroy();
             accordion.destroy(); presentation.destroy(); effects.destroy(); component.unload(); element.remove(); } };

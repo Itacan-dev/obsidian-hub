@@ -1849,8 +1849,9 @@ body.theme-dark .hub-color-scope :is(.hub-athena, .hub-athena-settings) input[ty
  */
 
 .workspace-split.mod-root.hub-project-note-layout {
+    position: relative;
     /* Keep the responsive rail, reclaiming one standard spacing unit for
-     * the document. All entry routes and discrete resize states use this. */
+     * the document. All entry routes and resize controls use this. */
     --hub-project-rail-width:
         calc(clamp(460px, 40vw, 600px) - var(--size-4-3, 12px));
 }
@@ -1863,18 +1864,19 @@ body.theme-dark .hub-color-scope :is(.hub-athena, .hub-athena-settings) input[ty
     --hub-rail-size: var(--hub-project-rail-width);
 
     width:
-        var(--hub-rail-size) !important;
+        var(--hub-rail-custom-width, var(--hub-rail-size)) !important;
 
     min-width:
-        var(--hub-rail-size) !important;
+        var(--hub-rail-custom-width, var(--hub-rail-size)) !important;
 
     max-width:
-        var(--hub-rail-size) !important;
+        var(--hub-rail-custom-width, var(--hub-rail-size)) !important;
 
     flex:
         0 0
-        var(--hub-rail-size) !important;
-    transition: width 180ms ease, min-width 180ms ease, max-width 180ms ease, flex-basis 180ms ease;
+        var(--hub-rail-custom-width, var(--hub-rail-size)) !important;
+    /* Pointer and toggle updates share one immediate sizing path. */
+    transition: none;
 }
 
 .workspace-split.mod-root.hub-project-note-layout > .hub-project-rail-pane.is-hub-rail-initializing {
@@ -1884,18 +1886,22 @@ body.theme-dark .hub-color-scope :is(.hub-athena, .hub-athena-settings) input[ty
     --hub-rail-size: calc(var(--hub-project-rail-width) / 2);
 }
 .workspace-split.mod-root.hub-project-note-layout > .hub-project-rail-pane[data-hub-rail-state="closed"] {
-    --hub-rail-size: 32px;
+    --hub-rail-size: 0px;
 }
 .hub-project-rail-pane[data-hub-rail-state="closed"] > :not(.hub-rail-controls):not(.hub-rail-resizer) {
-    /* Keep the real leaf measurable for the existing destination-ready lifecycle. */
+    /* Retain the structural leaf and renderer when fully collapsed. */
     visibility: hidden !important;
     pointer-events: none !important;
 }
-.hub-rail-controls { position: absolute; top: 8px; right: 4px; z-index: 20; }
+.hub-rail-overlay { position: absolute; inset: 0; z-index: 21; pointer-events: none; }
+.hub-rail-controls { position: absolute; top: 8px; left: max(0px, calc(var(--hub-rail-edge) - 28px)); pointer-events: auto; }
+.hub-rail-overlay[data-closed="true"] .hub-rail-controls { left: calc(var(--hub-rail-edge) + 6px); }
+.hub-rail-overlay.is-dragging { cursor: col-resize; }
+.hub-rail-overlay.is-dragging, .hub-rail-overlay.is-dragging * { user-select: none; }
 .hub-rail-controls .hub-rail-toggle { width: 24px; height: 24px; padding: 4px; }
 .hub-rail-toggle svg { width: 16px; height: 16px; }
 .hub-rail-resizer {
-    position: absolute; inset: 0 0 0 auto; width: 4px; z-index: 21;
+    position: absolute; top: 0; bottom: 0; left: max(0px, calc(var(--hub-rail-edge) - 3px)); width: 6px; z-index: 21; pointer-events: auto;
     cursor: col-resize; touch-action: none;
 }
 .hub-rail-resizer::after {
@@ -2134,6 +2140,12 @@ body.hub-project-note-mode
 .project-nav {
     align-self: center;
     margin: 0;
+}
+
+.hub-project-rail .project-nav-button {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 /* Reuse the Workspace grid and button sizes; only its row count changes. */
@@ -4550,3 +4562,15 @@ body.theme-dark :is(.home-dashboard, .project-dashboard).hub-color-scope { backg
 
 /* Native status items inherit secondary text, unlike dashboard/modal roots. */
 body.theme-dark :where(.hub-color-scope):is(.status-bar-item, .hub-shell-shortcuts) { --hub-color-root-text: var(--hub-color-text-secondary); }
+/* Functional color controls retain the existing Appearance row geometry. */
+.hub-button-scope .hub-settings-color-toggle { padding: 0; min-width: 0; box-shadow: none; border: 0; display: inline-block; border-radius: var(--toggle-radius); pointer-events: auto; opacity: 1; }
+.hub-settings-color-toggle::after { top: 0; }
+.hub-settings-palette-control { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.hub-settings-color-toggle:focus-visible, .hub-settings-swatch:focus-visible { outline: 2px solid var(--hub-color-focus-ring, var(--text-normal)); outline-offset: 3px; }
+.hub-settings-palette-name { color: var(--text-muted); margin-right: 8px; }
+
+/* Compact capture and the shared location modal retain the existing palette. */
+.hub-capture-specify { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.hub-capture-feedback { min-height: 1.4em; margin-top: 8px; color: var(--text-muted); font-size: var(--hub-font-secondary); }
+.hub-location-note-title { margin-top: 16px; }
+.hub-location-note-title input { display: block; width: 100%; margin-top: 8px; }

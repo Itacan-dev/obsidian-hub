@@ -34,4 +34,62 @@ window.__stage2FinishPaint=()=>{const pending=activeCase.colorButton.getAnimatio
 window.__stage2CloseCase=async()=>{activeCase.dirty=false;await activeCase.close();activeCase=null;for(const stop of stops.splice(0))stop()};
 window.__stage2CheckPair=(a,b)=>stage2Tests.checkPrimaryPair(a,b);
 
-const finalModal=new Modal(app);colors.ownModalColors(finalModal);finalModal.open();finalModal.contentEl.innerHTML='<h2>Default color verification</h2><button aria-label="Owned native tooltip">Native tooltip</button>';await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));const rect=finalModal.contentEl.querySelector('button').getBoundingClientRect();return {nativeCases:Object.keys(componentCases),tooltipTarget:{x:rect.left+rect.width/2,y:rect.top+rect.height/2},summary:{nativeColorMatches:matches,nativeAliasMatches,semanticChecks,nativeMenu:true,nativeNotice:true,titleLive:true,settingsPreview:true,taskModal:true,cleanup:true},variables,elements};})()
+// Functional palettes in actual native shells, using only the disposable profile.
+const paletteApi=load(path.join(base,'lib/ui/color-palettes.js'));
+const {AppearanceService}=load(path.join(base,'lib/services/appearance.js'));
+const appearance=await new AppearanceService({file:path.join(process.env.ITACAN_COLOR_NATIVE_ROOT,'appearance-test.json'),colors,onError:message=>{throw Error(message)}}).initialize();appearance.attachDocument(document);
+const paletteSettings=new settings.SettingsModal(app,()=>{},{appearance},'appearance');paletteSettings.open();
+const nativeFields=paletteSettings.contentEl.createDiv({cls:'hub-button-scope'});nativeFields.innerHTML='<input type="checkbox" checked><select><option>Native palette dropdown</option></select><button class="mod-cta">Native palette primary</button>';
+const paletteMenu=colors.ownMenuColors(new Menu());paletteMenu.addItem(item=>item.setTitle('Palette menu'));paletteMenu.showAtPosition({x:10,y:10});
+const paletteNotice=colors.ownNoticeColors(new Notice('Palette notice',0));let paletteNativeChecks=0;
+for(const palette of paletteApi.PALETTES){
+ if(!paletteMenu.dom.isConnected){colors.ownMenuColors(paletteMenu);paletteMenu.showAtPosition({x:10,y:10});}
+ await appearance.set({paletteId:palette.id,coordinateInterfaceColors:true});
+ const actual=getComputedStyle(paletteSettings.containerEl), expected=palette.id==='default'?'#1c1c1c':palette.coordinated['--hub-palette-neutral-00'];
+ if(actual.getPropertyValue('--background-primary').trim()!==expected)throw Error('Native palette shell stale '+palette.id);
+ for(const node of [paletteMenu.dom,paletteNotice.containerEl,nativeFields.querySelector('input'),nativeFields.querySelector('select')])if(getComputedStyle(node).getPropertyValue('--background-primary').trim()!==expected)throw Error('Native palette portal/control stale '+palette.id+' '+node.className+' '+getComputedStyle(node).getPropertyValue('--background-primary'));
+ if(!paletteSettings.contentEl.querySelector('[role=radio][aria-checked=true]'))throw Error('Native Appearance selection missing');
+ const later=new Modal(app);colors.ownModalColors(later);later.open();if(getComputedStyle(later.modalEl).getPropertyValue('--background-primary').trim()!==expected)throw Error('New native modal stale');later.close();paletteNativeChecks+=6;
+}
+await appearance.set(paletteApi.DEFAULT_PREFERENCES);paletteMenu.hide();paletteNotice.hide();paletteSettings.close();await appearance.destroy();
+// Native margin/footer coverage: synthetic dashboard frames in actual leaves.
+const bgFrames=load(path.join(base,'lib/ui/dashboard-frame.js'));
+const bgPlugin=app.plugins.plugins['hub-project-menu'];
+const bgItem=bgPlugin.addStatusBarItem(),bgBar=bgItem.parentElement,bgHadClass=bgBar.classList.contains('hub-oath-statusbar');
+bgItem.textContent='Native status sentinel';const bgWarning=bgItem.createSpan({text:' Warning'});bgWarning.style.color='var(--color-orange)';
+const bgError=bgItem.createSpan({text:' Error'});bgError.style.color='var(--color-red)';bgBar.classList.add('hub-oath-statusbar');
+const bgStatus=[getComputedStyle(bgItem).color,getComputedStyle(bgWarning).color,getComputedStyle(bgError).color];
+const bgOverlay=[...document.querySelectorAll('.modal-container.mod-confirmation')].map(e=>[e,e.getAttribute('style')]);for(const [e]of bgOverlay)e.style.display='none';
+const bgPaint=(x,y)=>{for(let e=document.elementFromPoint(x,y);e;e=e.parentElement){const c=getComputedStyle(e).backgroundColor;if(c!=='rgba(0, 0, 0, 0)')return c}return null};
+const bgRgb=color=>{const e=document.createElement('div');e.style.backgroundColor=color;document.body.append(e);const result=getComputedStyle(e).backgroundColor;e.remove();return result};
+const bgFiles=[app.vault.getAbstractFileByPath('Home.md'),await app.vault.create('Project-dashboard.md','# Synthetic project dashboard'),await app.vault.create('Resource-dashboard.md','# Synthetic resource dashboard')];
+let backgroundNativeChecks=0; const bgLeaf=app.workspace.getLeaf(false);
+for(const [index,file]of bgFiles.entries())for(const prepared of [false,true]){
+ const type=index===0?'hub-prepared-home':'hub-prepared-note-rail';
+ if(prepared && !app.viewRegistry.viewByType[type]){
+  class BackgroundPrepared extends __colorApi.ItemView{getViewType(){return type}getDisplayText(){return 'Synthetic prepared dashboard'}async onOpen(){this.file=file;this.contentEl.replaceChildren();} }
+  bgPlugin.registerView(type,leaf=>new BackgroundPrepared(leaf));
+ }
+ const leaf=bgLeaf;await leaf.setViewState({type:prepared?type:'markdown',state:{file:file.path,mode:'preview'},active:true});await new Promise(r=>setTimeout(r,650));
+ const comp=new __colorApi.Component();comp.load();comp.hubDeferFrameActivation=true;if(prepared)comp.hubDestinationMode=index===0?'home':'note';
+ let preview=leaf.view.containerEl.querySelector('.markdown-preview-view');if(!preview){preview=leaf.view.contentEl.createDiv({cls:'markdown-preview-view markdown-rendered hub-color-page'});comp.register(colors.ownColorRoot(preview));}
+ const sizer=preview.querySelector('.markdown-preview-sizer')||preview.createDiv({cls:'markdown-preview-sizer'});sizer.style.setProperty('max-width','420px','important');sizer.style.marginInline='auto';
+ const block=sizer.createDiv({cls:'block-language-dataviewjs'}),frame=bgFrames.createDashboardFrame(block,comp,(index===0?'home-dashboard':'project-dashboard'+(index===2?' resource-dashboard':''))+' hub-button-scope',{app,sourcePath:file.path});frame.root.textContent='Synthetic dashboard';frame.root.style.minHeight='120px';frame.commit();
+ const view=leaf.view.containerEl.querySelector('.view-content'),header=leaf.view.containerEl.querySelector('.view-header'),tab=leaf.tabHeaderEl;
+ const shape=()=>{const r=frame.root.getBoundingClientRect();return [r.width,r.height,r.x,r.y]};
+ colors.applyResolvedColors(paletteApi.resolvePalette(paletteApi.DEFAULT_PREFERENCES));const geometry=shape(),tabBg=getComputedStyle(tab).backgroundColor,headerBg=header?getComputedStyle(header).backgroundColor:null;
+ if(!frame.root.hasAttribute('data-hub-dashboard-page'))throw Error('Native dashboard source proof missing '+file.path+'/'+prepared);
+ for(const palette of paletteApi.PALETTES)for(const full of [false,true]){
+  colors.applyResolvedColors(paletteApi.resolvePalette({version:1,paletteId:palette.id,coordinateInterfaceColors:full}));
+  const effective=full&&palette.id!=='default',expected=effective?bgRgb(palette.coordinated['--hub-palette-neutral-00']):'rgb(28, 28, 28)',r=view.getBoundingClientRect();
+  if(getComputedStyle(view).backgroundColor!==expected || bgPaint(r.left+4,r.top+70)!==expected || bgPaint(r.left+4,r.bottom-8)!==expected)throw Error('Native outside-dashboard paint mismatch '+file.path+'/'+prepared+'/'+palette.id+'/'+full);
+  if(getComputedStyle(bgBar).backgroundColor!==(effective?bgRgb(palette.coordinated['--hub-palette-neutral-20']):'rgb(40, 40, 40)') || getComputedStyle(bgBar).borderTopColor!==(effective?bgRgb(palette.coordinated['--hub-palette-neutral-30']):'rgb(51, 51, 51)'))throw Error('Native footer paint mismatch');
+  if(JSON.stringify(shape())!==JSON.stringify(geometry))throw Error('Native dashboard geometry changed');
+  if(getComputedStyle(tab).backgroundColor!==tabBg || header&&getComputedStyle(header).backgroundColor!==headerBg)throw Error('Deferred native chrome changed');
+  if(JSON.stringify([getComputedStyle(bgItem).color,getComputedStyle(bgWarning).color,getComputedStyle(bgError).color])!==JSON.stringify(bgStatus))throw Error('Native status meanings changed');backgroundNativeChecks+=7;
+ }
+ if(!prepared){await leaf.setViewState({type:'markdown',state:{file:file.path,mode:'source'},active:true});await new Promise(r=>setTimeout(r,120));const editor=leaf.view.containerEl.querySelector('.cm-content');const original=[getComputedStyle(editor).color,getComputedStyle(view).backgroundColor];colors.applyResolvedColors(paletteApi.resolvePalette({version:1,paletteId:'green',coordinateInterfaceColors:true}));if(JSON.stringify([getComputedStyle(editor).color,getComputedStyle(view).backgroundColor])!==JSON.stringify(original))throw Error('Native source editor recolored');backgroundNativeChecks++;}
+ comp.unload();await leaf.setViewState({type:"empty"});
+}
+colors.applyResolvedColors(paletteApi.resolvePalette(paletteApi.DEFAULT_PREFERENCES));bgItem.remove();if(!bgHadClass)bgBar.classList.remove('hub-oath-statusbar');for(const [e,style]of bgOverlay)if(e.isConnected){if(style===null)e.removeAttribute('style');else e.setAttribute('style',style)}
+const finalModal=new Modal(app);colors.ownModalColors(finalModal);finalModal.open();finalModal.contentEl.innerHTML='<h2>Default color verification</h2><button aria-label="Owned native tooltip">Native tooltip</button>';await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));const rect=finalModal.contentEl.querySelector('button').getBoundingClientRect();return {nativeCases:Object.keys(componentCases),tooltipTarget:{x:rect.left+rect.width/2,y:rect.top+rect.height/2},summary:{backgroundNativeChecks,paletteNativeChecks,nativeColorMatches:matches,nativeAliasMatches,semanticChecks,nativeMenu:true,nativeNotice:true,titleLive:true,settingsPreview:true,taskModal:true,cleanup:true},variables,elements};})()

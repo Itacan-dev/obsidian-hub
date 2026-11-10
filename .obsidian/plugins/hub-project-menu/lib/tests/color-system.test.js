@@ -36,14 +36,14 @@ const files=[path.join(root,"plugin.js")];function walk(dir){for(const e of fs.r
 const entries=[];for(const f of files){const source=fs.readFileSync(f,'utf8');for(const m of source.matchAll(/\bnew\s+(?:Menu|Notice)\s*\(/g)){const kind=m[0].includes('Menu')?'Menu':'Notice';assert(source.slice(Math.max(0,m.index-40),m.index).trimEnd().endsWith('own'+kind+'Colors('),'Unowned '+kind+' in '+f);entries.push({file:path.relative(root,f).split(path.sep).join('/'),kind,line:source.slice(0,m.index).split('\n').length})}if(/extends\s+(?:Modal|FuzzySuggestModal)/.test(source)){for(const m of source.matchAll(/onOpen\(\)\s*\{/g))assert(source.slice(m.index,m.index+100).includes('ownModalColors(this)'),'Unowned modal entry '+f)}}
 assert(css.includes('body.theme-dark :where(.hub-color-scope)'),'Dark ownership gate');assert(!contract.includes('.hub-button-scope'),'Styling class must not confer ownership');
 assert(css.includes('button.mod-warning:not(.hub-color-host-island, .hub-color-host-island *)'),'Destructive consumer must stop at host islands');
-const appearance=fs.readFileSync(path.join(root,'lib/ui/settings-pages.js'),'utf8');assert(appearance.includes('disabled: ""')&&appearance.includes('aria-disabled'), 'Appearance previews remain disabled');
+const appearance=fs.readFileSync(path.join(root,'lib/ui/settings-pages.js'),'utf8');assert(appearance.includes('disabled: ""')&&appearance.includes('aria-disabled'), 'Unrelated Appearance previews remain disabled');
 const athena=fs.readFileSync(path.join(root,'lib/athena/src/integration.ts'),'utf8');assert.equal((athena.match(/options\.ownColors\?\./g)||[]).length,2,'Athena sidebar and source modal are owned');
 // Active numeric literals outside the contract must be documented compatibility
 // fallbacks, not a new component-local color authority. Excluded blocks are skipped.
 let literals=0;for(const m of css.slice(contract.length).matchAll(/([^{}]+)\{([^{}]*)\}/g)){if(/atlas/i.test(m[1])||/atlas/i.test(m[2]))continue;for(const v of m[2].matchAll(/var\((--hub-(?:palette-|color-)[\w-]+)/g))assert(definitions.has(v[1]),'Unknown owned color token '+v[1]);for(const line of m[2].replace(/\/\*[\s\S]*?\*\//g,'').split('\n'))if(/#[\da-f]{3,8}\b|rgba?\([\d\s,.]+\)|(?<![-\w])(?:black|white|red|blue|green|yellow|orange|purple|gray|grey|cyan|magenta|lime)(?![-\w])/i.test(line)){assert(line.includes('var(--hub-'),'Unowned CSS literal: '+line.trim());literals++}}
 const jsCompatibility={'lib/ui/progress-colors.js':['#0dc94f'],'lib/ui/attention.js':['#1e1e1e'],'lib/ui/settings-pages.js':['#8b5cf6','#528dd7','#549d7a','#bb914a','#90949c']};
-for(const f of files){const rel=path.relative(root,f).split(path.sep).join('/'),source=fs.readFileSync(f,'utf8');for(const value of source.match(/#[0-9a-f]{3,8}\b/gi)||[])assert(jsCompatibility[rel]?.includes(value.toLowerCase()),'New component-local JS color '+rel+' '+value)}
-console.log('PASS color source boundaries:',colors.NATIVE_COLOR_PROPERTIES.length,'native aliases,',entries.length,'owned native popups, acyclic token closure, disabled previews, scoped compatibility literals:',literals);
+for(const f of files){const rel=path.relative(root,f).split(path.sep).join('/');if(rel==='lib/ui/color-palettes.js')continue;const source=fs.readFileSync(f,'utf8');for(const value of source.match(/#[0-9a-f]{3,8}\b/gi)||[])assert(jsCompatibility[rel]?.includes(value.toLowerCase()),'New component-local JS color '+rel+' '+value)}
+console.log('PASS color source boundaries:',colors.NATIVE_COLOR_PROPERTIES.length,'native aliases,',entries.length,'owned native popups, acyclic token closure, unrelated previews disabled, scoped compatibility literals:',literals);
 
 // Original goldens are immutable; only reviewed Stage 2 paths may override them.
 const stage2=require('./color-stage2-checks'),patches=JSON.parse(fs.readFileSync(path.join(__dirname,'color-stage2-expectations.json'),'utf8'));
@@ -52,3 +52,11 @@ for(const [kind,changes]of Object.entries(patches.changes))for(const change of c
 assert(definitions.has('--hub-color-primary-action-background')&&definitions.has('--hub-color-primary-action-background-hover')&&definitions.has('--hub-color-primary-action-text')&&definitions.has('--hub-color-focus-ring'));
 assert.equal(colors.NATIVE_COLOR_PROPERTIES.length,158,'Stage 2 does not expand native aliases');
 console.log('PASS immutable baseline hashes and restricted Stage 2 deltas');
+
+const registry=require('../ui/color-palettes');
+for(const palette of registry.PALETTES){registry.validatePalette(palette);for(const name of Object.keys({...palette.accent,...palette.coordinated}))assert(definitions.has(name),'Palette bypasses existing contract '+name);}
+const controls=fs.readFileSync(path.join(root,'lib/ui/appearance-controls.js'),'utf8');
+assert(controls.includes('role:"radiogroup"')&&controls.includes('role:"switch"')&&controls.includes('service.set('));
+assert(controls.includes('classList.contains("theme-dark")'),'Palette UI must gate on host Dark');
+assert(controls.includes('disabled:""')&&controls.includes('Custom colors are not available yet'),'Custom picker stays disabled');
+console.log('PASS registry is restricted to owned tokens and only intended Appearance controls activate');

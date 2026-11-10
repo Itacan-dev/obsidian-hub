@@ -367,14 +367,18 @@ The Full-view contents pane uses the same nodes and existing file sort semantics
 folder timestamps remain unavailable rather than being inferred from children.
 
 Explorer presentation lives in `System/Dashboards/Project/view.css`. The existing
-rail still controls full/half/closed widths; both visible states retain search.
+rail supports continuous resizing and a remembered open/closed toggle; open widths retain search.
 The dashboard retains native opening/split, multi-selection, menus, workspace
 folder ordering, creation, import, moves, trash, and shared-resource detachment.
 
 Note-view geometry is owned by the shared rail rules in `styles.css`. The full
-width retains its responsive clamp, reduced by one `size-4-3` spacing unit; half
-remains half of that width and closed remains a 32px handle. `mountNoteRail`
-commits the initial canonical size without animating from native split sizes.
+width supplies the responsive maximum, reduced by one `size-4-3` spacing unit.
+Dragging continuously reaches 170px, collapses at 140px, and reopens at 160px.
+Closed occupies zero layout width; an external overlay keeps the toggle and
+divider accessible. The toggle restores the last open width. Optional `railWidth`
+snapshot data and `workspaceMode.noteRail` persist that preference separately
+from visibility, with legacy full/half/closed snapshots still readable.
+`mountNoteRail` applies sizes immediately, retaining the actual structural leaf.
 Native Markdown and prepared ItemViews share a zero-padding content wrapper;
 otherwise Obsidian adds padding only to restored rails. The preview supplies one
 `size-4-3` outer inset on each side and at the bottom. The existing flexible 7:3
@@ -384,6 +388,9 @@ and task lists scrolling independently. Guides use one uniform, neutral border.
 Run `node lib/tests/run-browser-test.js note-rail-geometry` for native/prepared
 entry-route parity, startup restoration, stale native dimensions, all rail states,
 live resizing, equal bottom/side insets and panel geometry at multiple window sizes.
+Run `node lib/tests/run-browser-test.js note-rail-pointer` for real browser input,
+capture across iframe boundaries, collapse/reopening, constrained-window width
+memory and interrupted dragging. `note-rail` also covers keyboard and cleanup.
 
 The existing per-workspace `folderUi` path map stores disclosures in `collapsed`,
 sort settings per selected folder, and workspace search/selection in the workspace

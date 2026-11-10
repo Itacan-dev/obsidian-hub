@@ -313,7 +313,8 @@ async function openFileFromHome(path) {
 
 // ---------- ROOT ----------
 
-const frame = createFrame(dv.container, dv.component, "home-dashboard hub-button-scope");
+const frame = createFrame(dv.container, dv.component, "home-dashboard hub-button-scope",
+    { app, sourcePath: dv.current?.()?.file?.path === "Home.md" ? "Home.md" : null });
 const root = frame.root;
 window.hubWatchTooltips?.(root, dv.component);
 // ---------- COVER ----------

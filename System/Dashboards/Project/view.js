@@ -108,7 +108,8 @@ const category =
 // ---------- ROOT ----------
 
 const frame = createFrame(dv.container, dv.component,
-    "project-dashboard hub-button-scope " + (isResourceContext ? "resource-dashboard" : ""));
+    "project-dashboard hub-button-scope " + (isResourceContext ? "resource-dashboard" : ""),
+    { app, sourcePath: current.file.path });
 const root = frame.root;
 root.dataset.hubContextId = contextId;
 window.hubWatchTooltips?.(root, dv.component);

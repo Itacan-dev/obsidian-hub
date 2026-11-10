@@ -33,7 +33,7 @@ class HubPresets {
             folders, order: m.app.metadataCache.getFileCache(file)?.frontmatter?.folder_order ?? []
         };
         return copy({ contextId: context.projectId, hubPath: context.path, root: context.root,
-            layout, folderState, railState: m.noteRailState ?? "full" });
+            layout, folderState, railState: m.noteRailState ?? "full", railWidth: m.noteRailWidth });
     }
     create(name) {
         const snapshot = this.snapshot();
@@ -109,6 +109,7 @@ class HubPresets {
                     await m.app.fileManager.processFrontMatter(file, fm => { fm.folder_order = [...folderState.order]; });
                 }
                 m.noteRailState = ["full", "half", "closed"].includes(item.railState) ? item.railState : "full";
+                m.noteRailWidth = item.railWidth;
                 const restored = await m.applyNoteLayout(context, layout);
                 if (allowActivation && restored && missing > 0) ownNoticeColors(new Notice(`Preset restored; ${missing} unavailable tab${missing === 1 ? " was" : "s were"} skipped.`));
                 return restored;

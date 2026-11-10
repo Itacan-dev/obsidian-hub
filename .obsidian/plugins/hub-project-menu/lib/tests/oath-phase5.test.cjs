@@ -14,10 +14,10 @@ function fixture() {
     win.isDestroyed = () => destroyed; win.focus = () => {};
     screen.getAllDisplays = () => [{ workArea: { x: 0, y: 0, width: 1920, height: 1080 } }];
     const docks = [];
-    const makeDock = async () => {
+    const makeDock = async (_win, _policy, _actions, colors) => {
         const native = new EventEmitter(); let closed = false;
         const handle = nextHandle++; native.getNativeWindowHandle = () => { const b = Buffer.alloc(8); b.writeBigUInt64LE(BigInt(handle)); return b; };
-        const dock = { win: native, positions: 0, healthy: () => !closed, reposition() { this.positions++; }, update() {},
+        const dock = { win: native, colors, setColors(value) { this.colors = value; }, positions: 0, healthy: () => !closed, reposition() { this.positions++; }, update() {},
             dispose() { if (!closed) { closed = true; native.emit("closed"); } } }; docks.push(dock); return dock;
     };
     const host = createStrictHost(win, { desktop: { screen, powerMonitor }, makeDock });
@@ -58,4 +58,18 @@ test("display removal preserves visible bounds and relocates only unreachable wi
     assert.deepEqual(visibleBounds(visible, [area]), visible);
     const moved = visibleBounds({ x: 3000, y: 100, width: 2500, height: 1200 }, [area]);
     assert.deepEqual(moved, area);
+});
+
+test("dock colors survive creation, repair and renderer preference revision resets", async () => {
+    const { PALETTES } = require("../ui/color-palettes");
+    const f=fixture(); const coordinator=new StrictOathCoordinator({host:f.host});
+    coordinator.setColors({version:1,revision:5,colors:PALETTES[1].dock});
+    await f.host.enter(); await f.host.openDock({applications:[]},{});
+    assert.deepEqual(f.docks[0].colors.colors,PALETTES[1].dock);
+    coordinator.setColors({version:1,revision:1,colors:PALETTES[2].dock});
+    assert.deepEqual(f.docks[0].colors.colors,PALETTES[2].dock);
+    f.docks[0].dispose(); await f.host.maintain();
+    assert.deepEqual(f.docks[1].colors.colors,PALETTES[2].dock);
+    assert.throws(()=>coordinator.setColors({version:1,revision:2,colors:{...PALETTES[2].dock,focus:"bad"}}));
+    assert(f.host.healthy());await f.host.release();f.destroy();
 });

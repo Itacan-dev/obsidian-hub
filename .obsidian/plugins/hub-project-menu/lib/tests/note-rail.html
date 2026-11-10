@@ -7,7 +7,7 @@
 .markdown-preview-view{width:100%;height:100%}.hub-rail-toggle svg{display:block}
 </style><div id="fixtures"></div><pre id="result">RUNNING</pre>
 <script>
-window.module={exports:{}};window.require=()=>({setHubTooltip:(e,t)=>e.setAttribute('aria-label',t),setIcon:e=>e.innerHTML='<svg viewBox="0 0 24 24" stroke="currentColor" fill="none"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/></svg>'});
+window.module={exports:{}};window.require=()=>({ownColorRoot:()=>{},setHubTooltip:(e,t)=>e.setAttribute('aria-label',t),setIcon:e=>e.innerHTML='<svg viewBox="0 0 24 24" stroke="currentColor" fill="none"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/></svg>'});
 </script><script src="../ui/note-rail.js"></script><script>
 const check=(ok,m)=>{if(!ok)throw Error(m)};
 const settle=()=>new Promise(resolve=>setTimeout(resolve,240));
@@ -45,7 +45,7 @@ const settle=()=>new Promise(resolve=>setTimeout(resolve,240));
    taskBody.replaceChildren(...nodes);
    extraFolders.hidden=true;check(Math.abs(tasks.getBoundingClientRect().top-t.top)<1,'Short folders preserve task position');extraFolders.hidden=false;
   };
-  const control=module.exports.mountNoteRail(pane),button=pane.querySelector('.hub-rail-toggle'),edge=pane.querySelector('.hub-rail-resizer');
+  const control=module.exports.mountNoteRail(pane),button=layout.querySelector('.hub-rail-toggle'),edge=layout.querySelector('.hub-rail-resizer');
   const header=pane.querySelector('.project-nav-dock'),identity=pane.querySelector('.project-nav-identity'),nav=pane.querySelector('.project-nav');
   const checkHeader=()=>{
    check(getComputedStyle(identity).textAlign==='center','Identity is centered');
@@ -62,26 +62,54 @@ const settle=()=>new Promise(resolve=>setTimeout(resolve,240));
   };
   checkHeader();checkSplit();
   check(pane.getBoundingClientRect().width===full,'Full preserves original width');
-  button.click();await settle();check(Math.abs(pane.getBoundingClientRect().width-full/2)<1,'Half width');checkHeader();checkSplit();
+  edge.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowLeft',bubbles:true}));await settle();check(Math.abs(pane.getBoundingClientRect().width-full/2)<1,'Half width');checkHeader();checkSplit();
   for(const el of pane.querySelectorAll('.project-folder-search,.project-browser-time,.project-browser-column-modified,.project-browser-column-created'))check(getComputedStyle(el).display==='none','Half hides search/date columns');
   const row=pane.querySelector('.project-browser-row');check(Math.abs(row.firstElementChild.getBoundingClientRect().width-row.getBoundingClientRect().width)<1,'Name uses whole row, not clipped date layout');
-  button.click();await settle();check(pane.getBoundingClientRect().width===32,'Closed width');check(tasks.getBoundingClientRect().height===0,'Closed tasks occupy no layout space');
+  button.click();await settle();check(pane.getBoundingClientRect().width===0,'Closed width');check(tasks.getBoundingClientRect().height===0,'Closed tasks occupy no layout space');
   check(getComputedStyle(pane.querySelector('.project-dashboard')).visibility==='hidden','Closed content hidden');
   check(getComputedStyle(button).visibility==='visible','Expand remains visible');
-  button.click();await settle();check(pane.getBoundingClientRect().width===full,'Reopen full');checkSplit();
-  check(getComputedStyle(pane.querySelector('.project-folder-search')).display!=='none','Search restored');
-  // Pointer capture mock for synthetic pointer events (real browser handles physical capture).
+  button.click();await settle();check(pane.getBoundingClientRect().width===full/2,'Reopen remembered half');checkSplit();
+  check(getComputedStyle(pane.querySelector('.project-folder-search')).display==='none','Remembered half presentation restored');
+  // Synthetic events cover state arithmetic; the dedicated physical-input runner covers capture.
   let captured=null;edge.setPointerCapture=id=>captured=id;edge.hasPointerCapture=id=>captured===id;edge.releasePointerCapture=()=>captured=null;
-  const pointer=(type,x)=>edge.dispatchEvent(new PointerEvent(type,{pointerId:1,clientX:x,button:0,bubbles:true}));
-  pointer('pointerdown',full);pointer('pointermove',full*.6);await settle();check(pane.dataset.hubRailState==='half','Drag snaps half');
-  pointer('pointermove',40);await settle();check(pane.dataset.hubRailState==='closed','Same captured drag snaps closed');
-  pointer('pointermove',full);pointer('pointerup',full);await settle();check(pane.dataset.hubRailState==='full','Drag snaps full');
-  edge.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowLeft',bubbles:true}));await settle();check(pane.dataset.hubRailState==='half','Keyboard half');
+  const pointer=(type,x,id=1)=>edge.dispatchEvent(new PointerEvent(type,{pointerId:id,clientX:x,button:0,bubbles:true}));
+  const width=()=>pane.getBoundingClientRect().width;
+  const near=(value,message)=>check(Math.abs(width()-value)<1,message+' ('+width()+')');
+  const key=key=>edge.dispatchEvent(new KeyboardEvent('keydown',{key,bubbles:true}));
+  key('End'); near(full,'Keyboard full');
+  pointer('pointerdown',full);
+  for(const x of [full-20,300,210,180,170]){pointer('pointermove',x);near(x,'Continuous width');}
+  check(getComputedStyle(pane).transitionDuration==='0s','No resize lag');
+  pointer('pointermove',141);near(170,'Minimum plateau');
+  pointer('pointermove',140);near(0,'Collapse threshold');
+  pointer('pointermove',159);near(0,'Hysteresis stays closed');
+  pointer('pointermove',160);near(170,'Same drag reopens at minimum');
+  pointer('pointermove',300);pointer('pointerup',300);near(300,'Custom open width');
+  button.click();near(0,'Toggle closes custom width');button.click();near(300,'Toggle restores custom width');
+  pointer('pointerdown',300);pointer('pointermove',139);pointer('pointerup',139);near(0,'Drag collapse');
+  check(control.getSnapshot().width===300,'Collapse does not erase last rendered open width');
+  button.click();near(300,'Toggle after drag collapse restores last open width');
+  button.click();
+  const b=button.getBoundingClientRect(),h=edge.getBoundingClientRect();
+  check(b.width>0&&h.width>0&&b.left>=layout.getBoundingClientRect().left,'Closed controls retain hit areas');
+  check(document.elementFromPoint(b.left+b.width/2,b.top+b.height/2)===button||button.contains(document.elementFromPoint(b.left+b.width/2,b.top+b.height/2)),'Closed button hit test');
+  pointer('pointerdown',0);pointer('pointermove',159);near(0,'Fresh closed drag threshold');pointer('pointermove',200);pointer('pointerup',200);near(200,'Fresh drag from closed');
+  check(edge.getAttribute('aria-valuenow')==='200','Separator reports pixel width');
+  pointer('pointerdown',200);pointer('pointermove',190);pointer('pointercancel',190);near(190,'Cancel keeps latest width');check(captured===null,'Cancel releases capture');
+  pointer('pointerdown',190);pointer('pointermove',180);window.dispatchEvent(new Event('blur'));near(180,'Blur keeps latest width');check(captured===null,'Blur releases capture');
+  pointer('pointerdown',180);pointer('pointermove',190);button.click();near(0,'Toggle interrupts drag');pointer('pointermove',300);near(0,'Interrupted drag cannot reopen');button.click();near(190,'Interrupted drag width remembered');
+  key('End');key('ArrowLeft');near(full/2,'Keyboard half');key('ArrowLeft');near(0,'Keyboard closed');key('ArrowRight');near(full/2,'Keyboard reopen half');key('ArrowRight');near(full,'Keyboard full');
+  const saved={...control.getSnapshot()}; control.destroy();
+  check(!layout.querySelector('.hub-rail-overlay')&&!pane.hasAttribute('data-hub-rail-state')&&!pane.style.getPropertyValue('--hub-rail-custom-width'),'Cleanup removes overlay and width');
+  pointer('pointerdown',full);pointer('pointermove',200);
+  check(!pane.style.getPropertyValue('--hub-rail-custom-width'),'Destroyed divider listeners cannot resize');
+  const reopened=module.exports.mountNoteRail(pane,'closed',()=>{},{width:300});
+  near(0,'Closed state remount');layout.querySelector('.hub-rail-toggle').click();near(300,'Remembered width survives remount');reopened.destroy();
+  for(const invalid of [NaN,Infinity,-1,0,160,'300']){const test=module.exports.mountNoteRail(pane,'full',()=>{},{width:invalid});near(full,'Invalid width fallback');test.destroy();}
+  const test=module.exports.mountNoteRail(pane,'half');near(full/2,'Legacy half fallback');test.destroy();
   check(layout.querySelector('.sidebar').getBoundingClientRect().width===45,'Native sidebar unchanged');
-  control.destroy();check(!pane.querySelector('.hub-rail-controls,.hub-rail-resizer')&&!pane.hasAttribute('data-hub-rail-state'),'Cleanup removes controls and state');
-  const reopened=module.exports.mountNoteRail(pane,'half');await settle();check(pane.getBoundingClientRect().width===full/2,'State reapplies on reentry without new sidebar');reopened.destroy();
   module.exports.mountNoteRail(pane,kind==='Project'?'full':'half');await settle();
  }
- result.textContent='PASS: Project/Resource Full/Half/Closed, natural single-column rows, hidden search/dates, button cycle, discrete drag, keyboard, sidebar width, reentry and cleanup.';
+ result.textContent='PASS: Project/Resource Full/Half/Closed, natural single-column rows, hidden search/dates, remembered toggle, continuous drag, keyboard, sidebar width, reentry and cleanup.';
 }catch(error){result.textContent='FAIL: '+error.message+'\n'+error.stack}})();
 </script>

@@ -47,10 +47,12 @@ function section(parent, title) {
     el.createEl("h3", { text: title });
     return el;
 }
-function renderAppearance(parent) {
-    parent.createEl("p", { cls: "hub-settings-preview-note", text: "Preview only. Controls are not active yet." });
+function renderAppearance(parent, plugin) {
+    let dispose;
+    const note = parent.createEl("p", { cls: "hub-settings-preview-note", text: "Preview only. Controls are not active yet." });
     let group = section(parent, "Theme");
-    select(row(group, "Theme pack", "A coordinated visual style, with individual options below."), "Theme pack", "Default");
+    select(row(group, "Theme pack", plugin?.appearance ? "Complete theme packs are not available yet." : "A coordinated visual style, with individual options below."), "Theme pack", "Default");
+    if (!plugin?.appearance) {
     group = section(parent, "Color");
     const colors = row(group, "Accent color");
     const swatches = colors.createDiv({ cls: "hub-settings-swatches", attr: { role: "group", "aria-label": "Accent color preview" } });
@@ -62,6 +64,7 @@ function renderAppearance(parent) {
     swatches.createEl("button", { cls: "hub-settings-custom-color", text: "+", attr: { type: "button", disabled: "", "aria-label": "Custom color" } });
     const defaults = row(group, "Interface colors", "Use theme pack defaults");
     defaults.createDiv({ cls: "checkbox-container is-enabled hub-settings-toggle", attr: { role: "switch", "aria-label": "Use theme pack defaults", "aria-checked": "true", "aria-disabled": "true" } });
+    } else dispose = require("./appearance-controls").mountAppearanceColors(parent, plugin.appearance, { row, section, note });
     group = section(parent, "Theme mode");
     segments(row(group, "Theme mode"), "Theme mode", ["System", "Light", "Dark"], "Dark");
     group = section(parent, "Typography");
@@ -72,13 +75,14 @@ function renderAppearance(parent) {
     segments(row(group, "Interface density"), "Interface density", ["Comfortable", "Default", "Compact"], "Default");
     select(row(group, "Corner style"), "Corner style", "Default");
     segments(row(group, "Animations"), "Animations", ["Full", "Reduced"], "Full");
+    return dispose;
 }
 function renderSettingsPage(parent, page, plugin) {
     if (page.id === "athena" && plugin?.athena) return plugin.athena.mountSettings(parent);
     if (page.id === "atlas" && plugin?.atlas) return require("../atlas/obsidian/ui").mountAtlasOverview(parent, plugin.atlas);
     parent.createEl("h2", { text: page.title });
     parent.createEl("p", { cls: "hub-settings-description", text: page.description });
-    if (page.id === "appearance") return renderAppearance(parent);
+    if (page.id === "appearance") return renderAppearance(parent, plugin);
     if (page.id === "music" && plugin?.musicLibrary) return require("./music-settings").mountMusicSettings(parent, plugin.musicLibrary);
     if (page.id === "oath" && plugin?.oath) return require("./oath-settings").mountOathSettings(parent, plugin.oath);
     parent.createEl("p", { cls: "hub-settings-preview-note", text: "No options available in this preview." });

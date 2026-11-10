@@ -1,4 +1,5 @@
 "use strict";
+const { ownColorRoot } = require("./color-system");
 
 const NOTE_RAIL_VIEW = "hub-prepared-note-rail";
 const HOME_VIEW = "hub-prepared-home";
@@ -114,7 +115,8 @@ function createPreparedNoteRails(plugin) {
             component.hubOnFrameCommit = value => { frame = value; };
             component.load();
             const host = doc.createElement("div");
-            host.className = "markdown-preview-view markdown-rendered" + (mode === "home" ? " dashboard" : "");
+            host.className = "markdown-preview-view markdown-rendered hub-color-page" + (mode === "home" ? " dashboard" : "");
+            component.register(ownColorRoot(host));
             // Match native Markdown preview layout before the first commit.
             // The existing theme/dashboard variables own the actual width;
             // note-rail CSS continues to override it in Full/Half/Closed mode.

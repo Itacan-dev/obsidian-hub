@@ -32,8 +32,9 @@ class ItemView extends Component{
 class TFile{constructor(path){this.path=path}}
 const read=async path=>(await fetch(path)).text();
 const frameModule={exports:{}},hostModule={exports:{}},uiModule={exports:{}};
-new Function('module','require',await read('../ui/dashboard-frame.js'))(frameModule,()=>({refreshHeaderImages(){}}));
-new Function('module','require',await read('../ui/prepared-note-rail.js'))(hostModule,()=>({ItemView,Component}));
+const fixtureColors={exports:{}};new Function('module','exports',await(await fetch('../ui/color-system.js')).text())(fixtureColors,fixtureColors.exports);
+new Function('module','require',await read('../ui/dashboard-frame.js'))(frameModule,()=>({refreshHeaderImages(){},ownColorRoot(){return()=>{}}}));
+new Function('module','require',await read('../ui/prepared-note-rail.js'))(hostModule,n=>n==='./color-system'?fixtureColors.exports:({ItemView,Component}));
 new Function('module','require',await read('../ui/dashboard-ui.js'))(uiModule,()=>({}));
 const project=await read('../../../../../System/Dashboards/Project/view.js');
 const selection=project.slice(project.indexOf('selectNavigation(nav,'),project.indexOf(';',project.indexOf('selectNavigation(nav,'))+1);

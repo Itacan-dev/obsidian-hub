@@ -47,17 +47,20 @@ function openTaskEditor(service, task, onEdit = () => {}, creation = null) {
                 const reference = state.nativeLocation ? { type: state.nativeLocationType ?? service.nativeLocations.resolveId?.(owner, state.nativeLocation)?.type, id: state.nativeLocation } : null;
                 this.locationPicker = require("./task-location-picker").openTaskLocationPicker(service.app, {
                     locations: service.nativeLocations, owner, reference, allowOwnerChange: true, taskTitle: this.taskFields.input.value,
-                    onChoose: selected => { state.nativeOwner = selected.owner; state.nativeLocation = selected.reference?.id ?? ""; state.nativeLocationType = selected.reference?.type; this.taskFields.phase.refresh(); this.taskFields.refresh(); clearError(); },
+                    onChoose: selected => { state.nativeOwner = selected.owner; state.nativeLocation = selected.reference?.id ?? ""; state.nativeLocationType = selected.reference?.type; this.taskFields.phase.refresh(); this.taskFields.refresh(); changed(); },
                     // Native Modal restores the opener after onClose, including
                     // keyboard focus. Only release our nested-dialog reference.
                     onClose: () => { this.locationPicker = null; }
                 });
             };
+            this.getDraft = () => ({ ...state, text: this.taskFields?.input.value ?? state.text,
+                pendingStep: this.taskFields?.steps.hasPending ? { text: this.taskFields.steps.draftInput.value, completed: this.taskFields.steps.pendingCompleted } : null });
+            const changed = () => { clearError(); creation?.onDraftChange?.(this.getDraft()); };
             this.taskFields = mountLiveTaskForm({ host: form, state, service,
                 initialStepsOpen: !creation && snapshot.steps.length > 0,
                 // Temporarily hide the entry point; retain recurrence state and implementation.
                 showRecurrenceAction: false,
-                onChange: clearError,
+                onChange: changed,
                 text: { placeholder: creation ? "What needs doing?" : "" },
                 location, presentationContext: formContext, onLocation: service.nativeLocations ? openLocation : null });
             if (formContext?.resourceLocations && !service.nativeLocations) {
@@ -68,8 +71,10 @@ function openTaskEditor(service, task, onEdit = () => {}, creation = null) {
                 select.value = state.nativeLocation ?? formContext.nativeLocation ?? "";
                 select.onchange = () => { state.nativeLocation = select.value; clearError(); };
             }
+            if (creation?.pendingStep) this.taskFields.restorePendingStep?.(creation.pendingStep);
             const { input, phase } = this.taskFields;
             errorEl = form.createDiv({ cls: "hub-task-error", attr: { role: "alert" } });
+            if (creation?.initialError) errorEl.textContent = creation.initialError;
             const actions = form.createDiv({ cls: "hub-task-dialog-actions" });
             const remove = actions.createEl("button", { text: "Delete task", cls: "hub-task-remove", attr: { type: "button" } });
             const cancel = actions.createEl("button", { text: "Cancel", attr: { type: "button" } });
@@ -77,7 +82,7 @@ function openTaskEditor(service, task, onEdit = () => {}, creation = null) {
             if (creation) remove.hidden = true;
             cancel.addEventListener("click", () => this.close());
             const commit = async deleting => {
-                if (this.saving) return;
+                if (this.saving || this.closing) return;
                 this.taskFields.closePopovers();
                 if (!deleting && !this.taskFields.commitPending()) return;
                 if (!deleting && !form.reportValidity()) return;
@@ -94,8 +99,10 @@ function openTaskEditor(service, task, onEdit = () => {}, creation = null) {
                     if (!deleting) { validateTaskDates(values); Object.assign(values, taskFormValues(values)); }
                     if (creation) {
                         if (!formContext && !values.location) throw Error("Explorations is unavailable. Open Add task from a valid Project or Resource destination.");
-                        await service.create(formContext ? formContext.destination : values.location, values.text, values);
-                        creation.onCreated?.();
+                        const result = creation.submit ? await creation.submit(values) :
+                            await service.create(formContext ? formContext.destination : values.location, values.text, values);
+                        this.outcome = { status: "created", result };
+                        creation.onCreated?.(result);
                     } else onEdit(await service.save(snapshot, values));
                     this.saving = false; this.close();
                 } catch (error) {
@@ -122,11 +129,22 @@ function openTaskEditor(service, task, onEdit = () => {}, creation = null) {
             // Region ownership and scrollbar constraints are final now. Measure
             // the styled title synchronously before Modal.open can present it.
             this.taskFields.resizeTitle();
+            creation?.onDraftChange?.(this.getDraft());
             if (creation) { input.focus({ preventScroll: true }); input.setSelectionRange(input.value.length, input.value.length); }
             else { this.modalEl.tabIndex = -1; this.modalEl.focus({ preventScroll: true }); }
         }
-        close() { if (!this.saving) { this.closed = true; super.close(); } }
-        onClose() { this.closed = true; if (key && editors.get(key) === this) editors.delete(key); this.locationPicker?.close(); this.taskFields?.destroy(); this.contentEl.empty(); }
+        close() {
+            if (this.saving || this.closing || this.closed) return;
+            if (creation?.beforeClose && !this.outcome) {
+                this.closing = true;
+                const controls = [...this.contentEl.querySelectorAll("button,input,select,textarea")], disabled = controls.map(c => c.disabled);
+                controls.forEach(c => c.disabled = true);
+                Promise.resolve().then(() => creation.beforeClose(this.getDraft?.())).then(() => {
+                    this.closing = false; this.closed = true; super.close();
+                }, error => { this.closing = false; controls.forEach((c, i) => c.disabled = disabled[i]); const target = this.contentEl.querySelector(".hub-task-error"); if (target) target.textContent = error.message; });
+            } else { this.closed = true; super.close(); }
+        }
+        onClose() { this.closed = true; if (key && editors.get(key) === this) editors.delete(key); this.locationPicker?.close(); this.taskFields?.destroy(); this.contentEl.empty(); creation?.onDismiss?.(this.outcome ?? { status: "cancelled" }); }
     }
     const modal = new TaskModal(service.app);
     if (key) editors.set(key, modal);
@@ -141,7 +159,7 @@ function openTaskEditor(service, task, onEdit = () => {}, creation = null) {
             modal.snapshot.nativeLocation = selected.reference?.id ?? ""; modal.snapshot.nativeLocationType = selected.reference?.type;
         }
         modal.open(); return modal; };
-    const failed = error => { if (modal.closed) return null; modal.close(); ownNoticeColors(new Notice(error.message)); return null; };
+    const failed = error => { if (modal.closed) return null; modal.outcome = { status: "failed", error: error.message }; modal.close(); ownNoticeColors(new Notice(error.message)); return null; };
     if (creation) {
         modal.ready = (async () => {
             try {
@@ -150,7 +168,7 @@ function openTaskEditor(service, task, onEdit = () => {}, creation = null) {
                 const explicitPath = nativePath && (creation.location != null || creation.path != null || nativePath !== service.context?.()?.root);
                 const defaults = service.defaultCreationLocation && !Object.hasOwn(creation, "nativeLocation") && !explicitPath
                     ? await service.defaultCreationLocation() : {};
-                modal.snapshot = { text: "", steps: [], necessity: null, ...defaults, ...creation, completed: false, ...(service.formContext ? {} : { path: initialComposerTaskLocation(service, creation) }) };
+                modal.snapshot = { text: "", steps: [], necessity: null, ...defaults, ...creation, completed: creation.completed ?? false, ...(service.formContext ? {} : { path: initialComposerTaskLocation(service, creation) }) };
                 return present();
             } catch (error) { return failed(error); }
         })();

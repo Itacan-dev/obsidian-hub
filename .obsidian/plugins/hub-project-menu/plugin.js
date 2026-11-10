@@ -7179,6 +7179,8 @@ class HubWorkspaceModeService {
 
         this.state =
             this.loadState();
+        this.noteRailState = this.state.noteRail?.state;
+        this.noteRailWidth = this.state.noteRail?.width;
         this.navigationHistory.initialize();
     }
 
@@ -7353,7 +7355,7 @@ class HubWorkspaceModeService {
         const id = this.mode.project.projectId;
         const configuration = this.plugin.presets?.snapshot() ?? {
             contextId: id, hubPath: this.mode.project.path, root: this.mode.project.root,
-            layout: snapshot, railState: this.noteRailState ?? "full"
+            layout: snapshot, railState: this.noteRailState ?? "full", railWidth: this.noteRailWidth
         };
         this.navigationHistory.rememberConfiguration(this.mode.project, configuration, Date.now(), worked);
         this.state.projects[id] = { ...this.state.projects[id], hubPath: this.mode.project.path, layout: snapshot };
@@ -8524,7 +8526,11 @@ class HubWorkspaceModeService {
         if (pane && this.noteRailControls?.pane !== pane) {
             this.noteRailControls?.destroy();
             this.noteRailControls = mountNoteRail(pane, this.noteRailState,
-                state => { this.noteRailState = state; });
+                (state, width) => {
+                    this.noteRailState = state;
+                    this.noteRailWidth = width;
+                    this.state.noteRail = { state, width };
+                }, { width: this.noteRailWidth, onCommit: () => { this.captureNoteLayout(); this.saveState(); } });
         }
 
 
@@ -11738,6 +11744,14 @@ module.exports = class HubProjectMenu extends Plugin {
     async onload() {
         this.taskStartupClock = performance.now();
         this.register(disposeColorSystem);
+        const { AppearanceService, appearanceFile } = require("./lib/services/appearance");
+        this.appearance = await new AppearanceService({ file: appearanceFile(this),
+            onError: message => ownNoticeColors(new Notice(message)) }).initialize();
+        this.appearance.attachDocument(document);
+        this.app.workspace.iterateAllLeaves(leaf => { if (leaf.containerEl?.ownerDocument) this.appearance.attachDocument(leaf.containerEl.ownerDocument); });
+        this.registerEvent(this.app.workspace.on("window-open", (_workspaceWindow, win) => this.appearance.attachDocument(win.document)));
+        this.register(() => { void this.appearance.destroy(); });
+
         this.registerEvent(this.app.workspace.on("css-change", () => {
             const docs = new Set([document]);
             this.app.workspace.iterateAllLeaves(leaf => { if (leaf.containerEl?.ownerDocument) docs.add(leaf.containerEl.ownerDocument); });
@@ -12451,6 +12465,7 @@ module.exports = class HubProjectMenu extends Plugin {
         }
         this.oath = new HubOathService(this, createOathFullscreen(window, oathNativeModule ?
             require("path").join(oathNativeModule, this.manifest.dir, "lib/services/oath-fullscreen.js") : null), strictOath ? { strict: strictOath } : {});
+        if (strictOath?.setColors) this.appearance.connectDock(payload => strictOath.setColors(payload), document);
         this.oathNavigation = new OathNavigationGuard(this, require("obsidian").WorkspaceLeaf);
         window.hubCreateWorkspaceCards = (root, component, renderImage, categories) =>
             createWorkspaceCards({ app: this.app, root, component, renderImage, categories, oath: this.oath });
