@@ -43,4 +43,10 @@ assert.equal(state["Resources/Knowledge/Math/Topology"].manualHeight, 200, "Lega
 assert(state[resource.path + "Other"], "Renames do not affect similarly prefixed siblings");
 assert.equal(objects.get(notes.path), notes, "All model, filtering, sorting, and state work is read-only on vault data");
 assert.deepEqual(workspaceTree([], () => null).roots, []);
+const full = workspaceTree([{ path: local.path, title: "Meta" }, shared], p => objects.get(p), hub.path,
+    { workspacePath: project.path, fullView: true });
+assert.equal(full.roots[0].path, project.path, "Full view always starts at the physical workspace root");
+assert.deepEqual(full.roots[0].children.map(node => node.path), [local.path, rootNote.path], "Full root includes immediate folders and legacy files, excluding dashboard");
+assert.equal(full.byPath.get(local.path).parent.path, project.path, "Local folders retain their physical hierarchy");
+assert.equal(full.roots[1].item, resource, "Linked Resource root remains canonical and separate");
 console.log("Workspace explorer model checks passed.");

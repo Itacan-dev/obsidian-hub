@@ -104,8 +104,14 @@ function createApplication({plugin,service,authorityId,locations,openEditor,open
  async function history(){await ready;let after=null,events=[];do{const page=await service.readHistory({after,limit:1000});events.push(...page.events);after=page.next;}while(after);const rows=events.filter(e=>e.counted).map(e=>{const r=ownerRecord(e.ownerId),owner=r?.owner??{type:'project',id:'unavailable'};return{id:e.id,kind:e.stepId?'step':'task',text:e.title,...(e.stepId?{parentText:e.parentTitle}:{}),timestamp:e.completedAt,projectId:owner.type==='resource'?'resource:'+owner.id:owner.id,contextKind:owner.type,resourceType:owner.type==='resource'?owner.id:null,projectName:r?.name??r?.label,projectStatus:r?.status??'active',historyReadKey:JSON.stringify(['sqlite-history',authorityId,e.id]),nativeHistory:{authorityId,eventId:e.id,taskId:e.taskId,stepId:e.stepId,owner,navigation:{state:model.tasks.has(e.taskId)?'available':'unavailable'}}}}).sort((a,b)=>b.timestamp-a.timestamp||a.id.localeCompare(b.id));return{records:rows,completions:rows.map(({nativeHistory,historyReadKey,...r})=>r),diagnostics:[]};}
  const completionFeed={read:history,subscribe(fn){historyListeners.add(fn);return()=>historyListeners.delete(fn)},async reveal(row){const ref=row.nativeHistory,t=model.tasks.get(ref.taskId);if(!t)throw Error('Completed task was deleted');return openEditor(formService(view(t).owner,{locationWorkspace:null}),view(t),()=>{})}};
  const nativeTasks={get owners(){return[...records.values()].filter(r=>r.available).map(r=>r.owner)},availability:()=>state==='ready'?'current':state==='opening'?'loading':'unavailable',availabilityFor:owner=>records.get(key(owner))?.available?nativeTasks.availability():'unavailable',createPanelRead,taskKey:t=>JSON.stringify([authorityId,t.id]),mergeHome(accepted,tasks,owner,c,resolve){const w=resolve(owner);if(!w||w.root!==c.root||w.path!==c.dashboard)throw Error('Task owner context changed');return[...accepted.filter(i=>!same(i.task.nativeReference.owner,owner)),...tasks.map(task=>({task,owner:w,phaseLabel:null}))]}};
- const ready=(async()=>{await Promise.race([service.ready,startupStopped]);if(closed)return;await Promise.race([metadataReady,startupStopped]);if(closed)return;if(service.syncStatus){syncState=await service.syncStatus();if(syncState.workspaceId&&syncState.state!=='enrollment-required')authorityId=syncState.authorityId;}await registerOwners();for(const command of pendingStore?.list()??[]){await service.execute(command);pendingStore.remove(command.operationId)}await model.start();if(closed)return;state='ready';notify();})().catch(error=>{state='unavailable';notify();onError(error);throw error});ready.catch(()=>{});
- const host={ready,nativeTasks,completionFeed,runtime,matches:owner=>!!records.get(key(owner))?.available,status:()=>({mode:'sqlite',synchronization:syncState.state,owners:[...records.values()].map(r=>({owner:r.owner,state:state==='ready'&&r.available?'ready':state}))}),
+ const ready=(async()=>{await Promise.race([service.ready,startupStopped]);if(closed)return;await Promise.race([metadataReady,startupStopped]);if(closed)return;if(service.syncStatus){syncState=await service.syncStatus();if(syncState.workspaceId&&syncState.state!=='enrollment-required')authorityId=syncState.authorityId;}await registerOwners();for(const command of pendingStore?.list()??[]){try{await service.execute(command);pendingStore.remove(command.operationId)}catch(error){if(error.code!=='FILE_OPERATION_PENDING')throw error;}}await model.start();if(closed)return;state='ready';notify();})().catch(error=>{state='unavailable';notify();onError(error);throw error});ready.catch(()=>{});
+ const files={
+  async request(input){await ready;const result=await service.fileOperation(input);if(input.action==='commit')model.refresh();return result;},
+  async receipt(id){await ready;return service.getOperation(id);},
+  ownerId,
+  async refresh(){await host.refreshInventory();await model.refresh();}
+ };
+ const host={files,ready,nativeTasks,completionFeed,runtime,matches:owner=>!!records.get(key(owner))?.available,status:()=>({mode:'sqlite',synchronization:syncState.state,owners:[...records.values()].map(r=>({owner:r.owner,state:state==='ready'&&r.available?'ready':state}))}),
   async setSyncStatus(value){const changed=value.authorityId!==authorityId&&value.workspaceId&&value.state!=='enrollment-required';syncState=value;if(changed){authorityId=value.authorityId;await host.refreshInventory();await model.refresh();}return syncState;},
   refreshInventory(){metadataWork=metadataWork.catch(()=>{}).then(async()=>{await ready;await registerOwners();notify();});return metadataWork;},
   create(options={}){V.check(state==='ready','Tasks are still loading. Try again shortly.','TASKS_LOADING');
@@ -129,6 +135,7 @@ class TaskClient {
  receive(message){if(message.event==='ready'){this.versions=message.versions;this.resolveReady(this);return;}if(message.event==='change'){for(const {filter,listener}of [...this.listeners])if((!filter.ownerId||filter.ownerId===message.change.ownerId)&&(!filter.taskId||message.change.taskIds.includes(filter.taskId)))try{listener(message.change)}catch{}return;}if(message.event)return;const p=this.requests.get(message.requestId);if(!p)return;clearTimeout(p.timer);this.requests.delete(message.requestId);message.error?p.reject(Object.assign(Error(message.error.message),{code:message.error.code})):p.resolve(message.result);}
  async call(method,...args){if(this.closing&&method!=='close')throw Object.assign(Error('Client is closing'),{code:'CLOSED'});await this.ready;if(this.exited)throw Object.assign(Error('Service exited'),{code:'SERVICE_EXITED'});if(this.requests.size>=256)throw Object.assign(Error('Client queue full'),{code:'BUSY'});return new Promise((resolve,reject)=>{const requestId=++this.counter,timer=setTimeout(()=>{this.requests.delete(requestId);reject(Object.assign(Error('Response unavailable; retain original operation ID'),{code:'OUTCOME_UNKNOWN'}))},this.timeout);this.requests.set(requestId,{resolve,reject,timer});try{this.send({requestId,method,args})}catch(e){clearTimeout(timer);this.requests.delete(requestId);reject(Object.assign(e,{code:'SERVICE_EXITED'}))}});}
  subscribe(filter,listener){const entry={filter:filter??{},listener};this.listeners.add(entry);return()=>this.listeners.delete(entry);}
+ fileOperation(input){return this.call('fileOperation',input)}
  execute(c){return this.call('execute',c)}listOwners(...a){return this.call('listOwners',...a)}getTask(...a){return this.call('getTask',...a)}listTasks(...a){return this.call('listTasks',...a)}readHistory(...a){return this.call('readHistory',...a)}readStatistics(...a){return this.call('readStatistics',...a)}getOperation(...a){return this.call('getOperation',...a)}readOutbox(...a){return this.call('readOutbox',...a)}getCursor(...a){return this.call('getCursor',...a)}checkpoint(...a){return this.call('checkpoint',...a)}
  syncStatus(){return this.call('syncStatus')}syncConflicts(){return this.call('syncConflicts')}syncResolve(input){return this.call('syncResolve',input)}syncEnroll(choice){return this.call('syncEnroll',choice)}syncNow(){return this.call('syncNow')}
  close(){if(this.closePromise)return this.closePromise;this.closing=true;this.closePromise=this.call('close').finally(()=>this.listeners.clear());return this.closePromise;}
@@ -237,7 +244,7 @@ class TaskModel {
  installTask(task,sequence=0){if(this.disposed)return false;const version=this.versions.get(task.id)??0;if(task.revision<version||task.revision===version&&sequence<(this.sequences.get(task.id)??0))return false;this.versions.set(task.id,task.revision);this.sequences.set(task.id,sequence);if(task.deletedAt!==null||this.ownerId&&task.ownerId!==this.ownerId)this.tasks.delete(task.id);else this.tasks.set(task.id,task);return true;}
  install(result){if((result.sequence??0)<this.floor)return;const ids=[],owners=new Set();for(const task of [result.task,result.successor].filter(Boolean))if(this.installTask(task,result.sequence??0)){ids.push(task.id);owners.add(task.ownerId);}if(ids.length)this.changed({taskIds:ids,ownerIds:[...owners]});}
  refresh(){if(this.disposed)return Promise.resolve();this.dirty=true;if(!this.started)return Promise.resolve();if(this.running)return this.running;if(this.timer)return Promise.resolve();this.timer=setTimeout(()=>{this.timer=null;this.running=this.drain().catch(e=>this.failed(e)).finally(()=>{this.running=null;if(this.dirty&&!this.disposed)this.refresh()});},0);return Promise.resolve();}
- async drain(){this.dirty=false;const page=await this.client.readOutbox({ownerId:this.ownerId,after:this.cursor,limit:100});if(this.disposed)return;const ids=new Set(),owners=new Set();for(const change of page.changes){if(change.ownerId)owners.add(change.ownerId);for(const task of change.generatedTasks??[]){if(this.installTask(task,change.sequence))ids.add(task.id);}if(change.owner){for(const t of this.tasks.values())if(t.ownerId===change.owner.id&&change.sequence>=(this.sequences.get(t.id)??0)){t.ownerAvailable=change.owner.available;this.sequences.set(t.id,change.sequence);ids.add(t.id);}}if(change.taskId){const current=this.tasks.get(change.taskId),revision=this.versions.get(change.taskId)??0;if(change.taskPatch.revision>revision){if(current){const steps=new Map(current.steps.map(s=>[s.id,s]));for(const id of change.deletedStepIds)steps.delete(id);for(const s of change.steps)steps.set(s.id,s);this.installTask({...current,...change.taskPatch,steps:[...steps.values()].sort((a,b)=>a.order-b.order)},change.sequence);}else if(change.taskPatch.deletedAt!==undefined&&change.taskPatch.deletedAt!==null){this.versions.set(change.taskId,change.taskPatch.revision);this.sequences.set(change.taskId,change.sequence);}else{const read=await this.client.getTask(change.taskId,{includeDeleted:true});if(this.disposed)return;if(read.task)this.installTask(read.task,read.sequence);}ids.add(change.taskId);}}this.cursor=change.sequence;}this.changed({taskIds:[...ids],ownerIds:[...owners],available:true});if(page.changes.length===100)this.dirty=true;
+ async drain(){this.dirty=false;const page=await this.client.readOutbox({ownerId:this.ownerId,after:this.cursor,limit:100});if(this.disposed)return;const ids=new Set(),owners=new Set();for(const change of page.changes){if(change.ownerId)owners.add(change.ownerId);for(const task of change.generatedTasks??[]){if(this.installTask(task,change.sequence))ids.add(task.id);}if(change.owner){for(const t of this.tasks.values())if(t.ownerId===change.owner.id&&change.sequence>=(this.sequences.get(t.id)??0)){t.ownerAvailable=change.owner.available;this.sequences.set(t.id,change.sequence);ids.add(t.id);}}if(change.taskId){const current=this.tasks.get(change.taskId),revision=this.versions.get(change.taskId)??0;if(change.taskPatch.revision>revision){if(current){const steps=new Map(current.steps.map(s=>[s.id,s]));for(const id of change.deletedStepIds)steps.delete(id);for(const s of change.steps)steps.set(s.id,s);this.installTask({...current,...change.taskPatch,steps:[...steps.values()].sort((a,b)=>a.order-b.order)},change.sequence);}else if(change.taskPatch.deletedAt!==undefined&&change.taskPatch.deletedAt!==null){this.versions.set(change.taskId,change.taskPatch.revision);this.sequences.set(change.taskId,change.sequence);}else{const read=await this.client.getTask(change.taskId,{includeDeleted:true});if(this.disposed)return;if(read.task)this.installTask(read.task,read.sequence);}ids.add(change.taskId);}}this.cursor=change.sequence;}this.changed({taskIds:[...ids],ownerIds:[...owners],available:true});if(page.more??(page.changes.length===100))this.dirty=true;
  }
  close(){if(this.disposed)return;this.disposed=true;this.stop?.();clearTimeout(this.timer);this.tasks.clear();this.versions.clear();this.sequences.clear();}
 }
@@ -7507,12 +7514,93 @@ function queryHistory(records, { kind = null, workspaceId = null } = {}) {
 module.exports = { historyKind, queryHistory };
 
 },
+"lib/domain/inbox-bulk.js": function (module, exports, __hubRequire) {
+"use strict";
+const { timestampNoteTitle } = __hubRequire("lib/domain/inbox.js");
+
+function bulkKind(capture) {
+    if (!capture) return null;
+    const files = capture.attachments?.length > 0, text = !!capture.text?.trim();
+    return files ? text ? null : "files" : text ? "text" : null;
+}
+function remainingMembers(batch) { return batch?.members.filter(member => member.state !== "done") ?? []; }
+function bulkEligibility(capture, batch) {
+    const kind = bulkKind(capture);
+    if (!kind) return { reason: "Organize mixed or empty items individually." };
+    if (batch && batch.state !== "done") {
+        if (remainingMembers(batch).some(member => member.id === capture.id)) return { kind, group: batch.id };
+        return { reason: "Finish the retained batch before starting another selection." };
+    }
+    if (capture.operation) return { reason: "Review this item's saved operation individually before bulk organization." };
+    return { kind, group: kind };
+}
+function distinctFileCount(captures) { return new Set(captures.flatMap(c => c.attachments ?? []).map(ref => ref.path)).size; }
+function allocateBulkTitles(captures, folder, exists, date = new Date()) {
+    const prefix = timestampNoteTitle("Inbox", date), reserved = new Set(); let number = 1;
+    return captures.map(() => {
+        let title, path;
+        do { title = `${prefix} (${number++})`; path = folder + "/" + title + ".md"; } while (reserved.has(path) || exists(path));
+        reserved.add(path); return title;
+    });
+}
+function appendCapturedTexts(note, texts) {
+    const eol = note.includes("\r\n") ? "\r\n" : "\n";
+    const trailing = (note.match(/[\r\n]*$/)?.[0] ?? "").replace(/\r\n/g, "\n").replace(/\r/g, "\n").length;
+    const boundary = !note || note === "\ufeff" ? "" : eol.repeat(Math.max(0, 2 - trailing));
+    return note + boundary + texts.join(eol + eol);
+}
+function bulkMessage(batch) {
+    const done = batch.members.filter(member => member.state === "done").length;
+    const summary = `${done} of ${batch.members.length} items completed; ${batch.members.length - done} remain.`;
+    return summary + (batch.action === "text" && batch.append?.state === "ready" && batch.state !== "done" ? " Text is already saved; retry will verify it and finish source cleanup." : "");
+}
+module.exports = { bulkKind, bulkEligibility, remainingMembers, distinctFileCount, allocateBulkTitles, appendCapturedTexts, bulkMessage };
+
+},
+"lib/domain/inbox-selection.js": function (module, exports, __hubRequire) {
+"use strict";
+
+function inboxSelection(items, selected, anchor, target, modifiers, eligibility) {
+    const ids = items.map(item => item.id), item = items.find(item => item.id === target);
+    if (!item) return null;
+    const add = !!(modifiers.ctrlKey || modifiers.metaKey), range = !!modifiers.shiftKey;
+    const current = new Set([...selected].filter(id => ids.includes(id)));
+    const result = (set, nextAnchor) => ({ ids: ids.filter(id => set.has(id)), anchor: nextAnchor });
+    if (!add && !range) return result(new Set([target]), target);
+    if (add && !range && current.has(target)) { current.delete(target); return result(current, target); }
+    const first = items.find(c => current.has(c.id)), firstEligibility = first && eligibility(first), endEligibility = eligibility(item);
+    if (firstEligibility?.reason) return { reason: firstEligibility.reason };
+    if (endEligibility.reason) return { reason: endEligibility.reason };
+    const anchorItem = items.find(c => c.id === anchor) ?? first ?? item, anchorEligibility = eligibility(anchorItem);
+    const group = range ? anchorEligibility.group : firstEligibility?.group ?? endEligibility.group;
+    if (range && anchorEligibility.reason) return { reason: anchorEligibility.reason };
+    if (endEligibility.group !== group || add && firstEligibility && firstEligibility.group !== group) return { reason: "Select matching texts or files without unrelated retained operations." };
+    if (!range) { current.add(target); return result(current, target); }
+    const a = ids.indexOf(anchorItem.id), b = ids.indexOf(target), next = add ? current : new Set();
+    for (const candidate of items.slice(Math.min(a, b), Math.max(a, b) + 1)) {
+        const allowed = eligibility(candidate);
+        if (!allowed.reason && allowed.group === group) next.add(candidate.id);
+    }
+    return result(next, anchorItem.id);
+}
+
+function inboxFiles(captures, resolvePath = ref => ref.path) {
+    const seen = new Set(), refs = [];
+    for (const capture of captures) for (const ref of capture.attachments ?? []) {
+        const path = resolvePath(ref);
+        if (!seen.has(path)) { seen.add(path); refs.push(ref); }
+    }
+    return refs;
+}
+module.exports = { inboxSelection, inboxFiles };
+
+},
 "lib/domain/inbox.js": function (module, exports, __hubRequire) {
 "use strict";
 const { projectItemPath } = __hubRequire("lib/domain/files.js");
 const { noteLocation } = __hubRequire("lib/domain/note-insertion.js");
 
-const INBOX_VERSION = 1;
+const INBOX_VERSION = 2;
 const INBOX_ATTACHMENT_ROOT = "Inbox/Attachments";
 const INBOX_SORTS = [
     ["most-complete", "Most complete"], ["least-complete", "Least complete"],
@@ -7603,6 +7691,12 @@ function noteTitle(draft) {
     return title;
 }
 
+function timestampNoteTitle(prefix, date = new Date()) {
+    const pad = value => String(value).padStart(2, "0");
+    return `${prefix} — ${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}-${pad(date.getMinutes())}`;
+}
+function quickNoteTitle(date = new Date()) { return timestampNoteTitle("Quick Add", date); }
+
 function captureNoteTitle(value) {
     const raw = String(value ?? ""), title = raw.trim();
     if (!title) throw Error("Enter a note title.");
@@ -7670,7 +7764,7 @@ function captureDraft(capture = {}, type = null) {
 }
 
 module.exports = { INBOX_VERSION, INBOX_ATTACHMENT_ROOT, linkFromText, isInboxOwned, captureKind,
-    capturePreview, sourceMetadata, attachmentReference, sortedCaptures, taskTitle, captureIntent, captureDraft, captureNoteTitle, noteTitle,
+    capturePreview, sourceMetadata, attachmentReference, sortedCaptures, taskTitle, captureIntent, captureDraft, captureNoteTitle, noteTitle, quickNoteTitle, timestampNoteTitle,
     INBOX_SORTS, inboxSort, inboxCounts, inboxItemType };
 
 },
@@ -7857,6 +7951,10 @@ function locationReference(owner, root, path, type) {
     const hash = require("node:crypto").createHash("sha256").update(JSON.stringify([[owner.type, owner.id], type, relative])).digest("hex");
     return { type, id: "workspace-location:v1:" + hash };
 }
+function resourceReference(owner, path, type) {
+    if (owner.type !== "resource") return null;
+    return { type, id: "resource-location:" + require("node:crypto").createHash("sha256").update(JSON.stringify([owner, type, path])).digest("hex") };
+}
 // null is a display-only omission marker; the original items remain navigable.
 function compactPathSegments(parts) {
     return parts.length > 3
@@ -7873,7 +7971,7 @@ function locationBreadcrumb(task, contextOwner = null) {
     if (!parts.length) parts = ["Workspace root"];
     return { label: compactPathSegments(parts).visible.map(part => part ?? "\u2026").join(" / "), full, available: display.available !== false };
 }
-module.exports = { sameOwner, relativePath, locationReference, compactPathSegments, locationBreadcrumb };
+module.exports = { sameOwner, relativePath, locationReference, resourceReference, compactPathSegments, locationBreadcrumb };
 
 },
 "lib/domain/navigation-history.js": function (module, exports, __hubRequire) {
@@ -9126,7 +9224,11 @@ const compareNames = (a, b) => a.localeCompare(b, undefined, { sensitivity: "bas
 
 // Nodes retain the original vault object and descriptor. Shared roots are views
 // of Resource paths, never copied files or a second store of their metadata.
-function workspaceTree(descriptors, getByPath, dashboardPath) {
+function workspaceTree(descriptors, getByPath, dashboardPath, { workspacePath = null, fullView = false } = {}) {
+    if (fullView) descriptors = [
+        { path: workspacePath, title: getByPath(workspacePath)?.name ?? "Workspace", isRoot: true },
+        ...descriptors.filter(descriptor => descriptor.sharedResource && descriptor.path !== workspacePath)
+    ];
     const byPath = new Map();
     function visit(item, descriptor, parent = null) {
         const folder = isFolderLike(item);
@@ -9134,7 +9236,7 @@ function workspaceTree(descriptors, getByPath, dashboardPath) {
             item, descriptor, parent, folder, children: [] };
         byPath.set(node.path, node);
         if (folder) node.children = item.children
-            .filter(child => child.path !== dashboardPath && !(descriptor.isRoot && !parent && isFolderLike(child)))
+            .filter(child => child.path !== dashboardPath && !(!fullView && descriptor.isRoot && !parent && isFolderLike(child)))
             .map(child => visit(child, descriptor, node))
             .sort((a, b) => Number(b.folder) - Number(a.folder) || compareNames(a.name, b.name));
         return node;
@@ -11291,6 +11393,202 @@ module.exports = {
 };
 
 },
+"lib/services/file-operations.js": function (module, exports, __hubRequire) {
+"use strict";
+// Explicit Itacan operations. Native Obsidian/plugin mutations remain outside
+// this boundary: no FileManager or Vault methods are replaced here.
+const {randomUUID,createHash}=require("node:crypto");
+const L=__hubRequire("lib/domain/native-task-location.js"),{workspaceRef}=__hubRequire("lib/services/native-task-locations.js");
+const folder=file=>Array.isArray(file?.children),parent=path=>path.slice(0,path.lastIndexOf("/")),name=path=>path.split("/").at(-1);
+const inside=(path,root)=>path===root||path.startsWith(root+"/");
+const digest=bytes=>createHash("sha256").update(Buffer.from(bytes)).digest("hex");
+const stable=value=>{const h=digest(JSON.stringify(value));return h.slice(0,8)+"-"+h.slice(8,12)+"-5"+h.slice(13,16)+"-a"+h.slice(17,20)+"-"+h.slice(20,32);};
+const fail=(message,code="FILE_OPERATION_INVALID")=>{throw Object.assign(Error(message),{code});};
+const normalize=paths=>[...new Set(paths)].sort((a,b)=>a.length-b.length||a.localeCompare(b)).filter((p,i,a)=>!a.slice(0,i).some(root=>inside(p,root)));
+function validPath(path){if(typeof path!=="string"||!path||path.startsWith("/")||path.includes("\\")||path.split("/").some(p=>!p||p==="."||p===".."||/[\\/:*?"<>|\u0000-\u001f]/.test(p)||/[. ]$/.test(p)||/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(p)))fail("Choose a valid vault filename.");return path;}
+class FileOperations {
+ constructor(plugin,{bridge=null,boundary=null}={}){this.plugin=plugin;this.app=plugin.app;this.vault=this.app.vault;this.bridge=bridge;this.boundary=boundary;this.tail=Promise.resolve();this.clipboard=null;this.stopped=false;}
+ get db(){const value=this.bridge??this.plugin.nativeTaskHost?.files;if(!value)fail("Native task coordination is unavailable. No files were changed.","TASKS_UNAVAILABLE");return value;}
+ enqueue(run){const result=this.tail.catch(()=>{}).then(async()=>{if(this.stopped)fail("File operations are closing.");await this.db.request({action:"acquire"});try{return await run();}finally{await this.db.request({action:"release"}).catch(()=>{});}});this.tail=result;return result;}
+ workspaces(){return[...this.plugin.projectWizard.getProjectRecords(),...this.plugin.projectWizard.getResourceTypes()].filter(w=>w.root&&!w.deleted).map(w=>({...w,owner:workspaceRef(w)}));}
+ isWorkspaceRoot(path){return this.workspaces().some(w=>w.root===path);}
+ physical(path,all){const found=all.filter(w=>inside(path,w.root)).sort((a,b)=>b.root.length-a.root.length);if(found.length>1&&found[0].root===found[1].root)fail("Ambiguous physical workspace ownership.");return found[0]??null;}
+ endpoint(w,path,type){const ref=L.locationReference(w.owner,w.root,path,type);return{ownerId:this.db.ownerId(w.owner),context:ref?{kind:ref.type,reference:ref.id}:null};}
+ fallback(w,path,excluded){let p=parent(path);while(p&&inside(p,w.root)){if(!inside(p,excluded)&&folder(this.vault.getAbstractFileByPath(p)))return this.endpoint(w,p,"folder");if(p===w.root)break;p=parent(p);}return{ownerId:this.db.ownerId(w.owner),context:null};}
+ async manifest(path){const root=this.vault.getAbstractFileByPath(path);if(!root)fail("The source is no longer available.");const rows=[],visit=async(file,relative)=>{if(folder(file)){rows.push({relative,type:"folder"});for(const child of [...file.children].sort((a,b)=>a.path.localeCompare(b.path)))await visit(child,relative?relative+"/"+child.name:child.name);}else{const bytes=await this.vault.readBinary(file);rows.push({relative,type:"file",hash:digest(bytes),size:bytes.byteLength});}};await visit(root,"");return rows;}
+ async matches(path,expected){try{const actual=await this.manifest(path);return actual.length===expected.length&&actual.every((r,i)=>["relative","type","hash","size"].every(key=>r[key]===expected[i][key]));}catch(_){return false;}}
+ exact(path){const file=this.vault.getAbstractFileByPath(path);return file?.path===path?file:null;}
+ phases(w){return w?.owner.type==="project"?(this.plugin.planning?.phases(w.owner.id)??[]).map(p=>p.id):[];}
+ preflight(kind,from,to,options={},all=this.workspaces()){
+  validPath(from);if(to)validPath(to);const source=this.vault.getAbstractFileByPath(from)??options.recoverySource;if(!source)fail("The source is no longer available.");
+  if(["rename","move","copy"].includes(kind)){
+   if(!to||to===from)fail("Choose a different destination.");
+   if(folder(source)&&inside(to,from))fail("A folder cannot be moved or copied inside itself.");
+   const existing=this.vault.getAbstractFileByPath(to);if(existing&&(existing!==source&&!options.recoverySource||kind==="copy"))fail("An item already exists at the destination.");
+   if(!folder(this.vault.getAbstractFileByPath(parent(to))))fail("The destination folder is unavailable.");
+   if(options.filesView&&!folder(source)&&all.some(w=>w.root===parent(to))&&!(kind==="rename"&&parent(from)===parent(to)))fail("Workspace roots accept folders, not files. Choose a subfolder.");
+  }
+  const structural=all.filter(w=>inside(w.root,from));
+  if(structural.length&&!(options.workspaceRename&&kind==="rename"||options.workspaceDelete&&kind==="trash"))fail("Workspace roots are protected. Use their workspace actions.");
+  const identity=all.some(w=>w.path&&inside(w.path,from));
+  if(identity&&!options.workspaceRename&&!options.workspaceDelete)fail("Workspace dashboard identities cannot be moved, deleted or copied through ordinary file actions.");
+  if(kind==="copy"&&structural.length)fail("Workspace identities cannot be duplicated.");
+  if(from.split("/").some(p=>[".obsidian",".itacan-tasks",".git"].includes(p)))fail("Internal stores are protected.");
+  const origin=this.physical(from,all),destination=to?this.physical(to,all):null;
+  if(origin&&!destination&&["rename","move"].includes(kind)&&!options.workspaceRename&&!options.compensation)fail("Choose a destination inside a Project or Resource.");
+  return{source,origin,destination,all};
+ }
+ async plan(kind,from,to,options,requestHash){
+  const inventory=this.workspaces();
+  if(options.legacyWorkspace)inventory.push({...options.legacyWorkspace,root:from,path:from+"/"+name(options.legacyWorkspace.hubPath??"Hub.md"),owner:{type:"resource",id:options.legacyWorkspace.id}});
+  const recovering=!this.exact(from)&&options.captureRecoveryHash;
+  if(recovering){const destination=this.exact(to);if(!destination||folder(destination)||digest(await this.vault.readBinary(destination))!==options.captureRecoveryHash)fail("Capture recovery evidence differs from the saved attachment.");options={...options,recoverySource:destination};}
+  const {source,all}=this.preflight(kind,from,to,options,inventory),manifest=await this.manifest(recovering?to:from),mappings=[];
+  if(kind==="copy")for(const row of manifest)if(row.relative.split("/").some(p=>[".obsidian",".itacan-tasks",".git"].includes(p)))fail("This folder contains an internal store and cannot be copied.");
+  let requireUnreferenced=false;
+  if(kind!=="copy")for(const row of manifest){const oldPath=row.relative?from+"/"+row.relative:from,type=row.type==="folder"?"folder":/\.md$/i.test(oldPath)?"note":null,w=this.physical(oldPath,all);if(!type||!w)continue;
+   const old=this.endpoint(w,oldPath,type),fallback=this.fallback(w,oldPath,from),newPath=to?(row.relative?to+"/"+row.relative:to):null;
+   let target=fallback;
+   if(kind!=="trash"){
+    const renamed=options.workspaceRename&&inside(w.root,from)?{...w,root:to+w.root.slice(from.length)}:null,dest=renamed??this.physical(newPath,all);
+    if(dest)target=this.endpoint(dest,newPath,type);else requireUnreferenced=true;
+   }
+   const destOwner=all.find(candidate=>this.db.ownerId(candidate.owner)===target.ownerId),map={from:old,to:target,fallback,phases:this.phases(destOwner),path:oldPath,ancestors:this.ancestors(w,oldPath,from)};mappings.push(map);
+   const compat=L.resourceReference(w.owner,oldPath,type);if(compat)mappings.push({...map,from:{ownerId:old.ownerId,context:{kind:type,reference:compat.id}}});
+  }
+  return{kind,from,to:to??null,requestHash,manifest,mappings,requireUnreferenced,workspaceRename:!!options.workspaceRename,workspaceDelete:!!options.workspaceDelete,sourceFolder:folder(source),...(options.compensationReceiptId?{compensationReceiptId:options.compensationReceiptId}:{})};
+ }
+ ancestors(w,path,excluded){const rows=[];let p=parent(path);while(p&&inside(p,w.root)){if(!inside(p,excluded))rows.push({path:p,endpoint:this.endpoint(w,p,"folder")});if(p===w.root)break;p=parent(p);}rows.push({path:null,endpoint:{ownerId:this.db.ownerId(w.owner),context:null}});return rows;}
+ completion(intent,extra={}){const fallbacks={},destinations={};intent.mappings.forEach((m,i)=>{const candidate=m.ancestors?.find(a=>a.path===null||folder(this.exact(a.path)));fallbacks[i]=candidate?.endpoint??m.fallback;if(intent.kind==="trash")destinations[i]=fallbacks[i];});return{phase:"filesystem-complete",fallbacks,destinations,...extra};}
+ async progress(operationId,progress){return this.db.request({action:"progress",operationId,progress});}
+ async execute(kind,from,to=null,options={}){return this.enqueue(async()=>{
+  await this.recoverInside();await this.db.refresh?.();const operationId=options.operationId??randomUUID(),requestHash=digest(JSON.stringify([kind,from,to??null,!!options.workspaceRename,!!options.workspaceDelete]));
+  const old=await this.db.receipt(operationId);if(old){if(!old.fileOperation||old.requestHash!==requestHash)fail("Operation identity was reused.","OPERATION_ID_CONFLICT");if(old.cancelled)fail("This operation was cancelled. Start a new operation.","FILE_OPERATION_CANCELLED");if(old.partial)fail("The previous operation completed only partly. Review retained files.","FILE_OPERATION_PARTIAL");return old;}
+  const intent=await this.plan(kind,from,to,options,requestHash);await this.db.request({action:"prepare",operationId,intent});await this.boundary?.("prepared",operationId);
+  let apiSettled=false;
+  try{
+   if(!this.exact(from)&&options.captureRecoveryHash&&await this.matches(to,intent.manifest)){
+    await this.progress(operationId,this.completion(intent));const result=await this.db.request({action:"commit",operationId});await this.afterCommit(result);return result;
+   }
+   if(!await this.matches(from,intent.manifest))fail("The source changed during preparation. No filesystem action was started.");
+   await this.progress(operationId,{phase:"started"});await this.boundary?.("started",operationId);
+   const source=this.vault.getAbstractFileByPath(from);
+   try {
+    if(kind==="trash")await(options.performTrash?options.performTrash(source):this.app.fileManager.trashFile(source));
+    else if(kind==="copy")await this.copyManifest(operationId,intent);
+    else await this.app.fileManager.renameFile(source,to);
+   } finally { apiSettled=true; }
+   await this.boundary?.("mutated",operationId);
+   if(kind==="trash"){
+    if(this.exact(from))fail("Deletion was not completed. Retained files will be checked.");
+    await this.progress(operationId,this.completion(intent));
+   }else{
+    if(kind!=="copy"&&this.exact(from))fail("The original path still exists. Review the filesystem result.");
+    const result=await this.manifest(to);
+    if(result.length!==intent.manifest.length||result.some((r,i)=>r.relative!==intent.manifest[i].relative||r.type!==intent.manifest[i].type))fail("The destination differs from the prepared subtree.");
+    await this.progress(operationId,this.completion(intent,{result}));
+   }
+   await this.boundary?.("verified",operationId);const result=await this.db.request({action:"commit",operationId});await this.afterCommit(result);return result;
+  }catch(error){
+   // The original ID remains the only retry identity. Reconcile known results;
+   // never compensate by deleting a destination or replaying an uncertain trash.
+   if(apiSettled){const pending=(await this.db.request({action:"list"}).catch(()=>[]))[0];if(pending?.operationId===operationId&&pending.progress.phase==="started")await this.progress(operationId,{phase:"started",apiSettled:true}).catch(()=>{});}
+   const receipt=await this.db.receipt(operationId).catch(()=>null);if(receipt&&!receipt.cancelled&&!receipt.partial){await this.afterCommit(receipt);return receipt;}
+   try{await this.recoverInside();const resolved=await this.db.receipt(operationId);if(resolved&&!resolved.cancelled&&!resolved.partial){await this.afterCommit(resolved);return resolved;}}catch(recovery){error.recovery=recovery.message;error.code=recovery.code??error.code;}
+   error.operationId=operationId;error.message+=(error.recovery?(error.code==="FILE_OPERATION_PARTIAL"?" ":" Recovery required: ")+error.recovery:"");throw error;
+  }
+ });}
+ async afterCommit(result){
+  try{await this.db.refresh?.();}catch(error){this.plugin.fileOperationNotice?.("Files and native tasks were committed locally, but their views could not refresh: "+error.message);}
+  return result;
+ }
+ async copyManifest(operationId,intent,progress={}){
+  let writes=progress.writes??[];
+  for(const row of intent.manifest){const target=row.relative?intent.to+"/"+row.relative:intent.to,existing=this.vault.getAbstractFileByPath(target);
+   if(existing){if(!writes.includes(row.relative))fail("Competing destination data was found; the partial copy is retained.");if(row.type==="folder"?!folder(existing):folder(existing)||digest(await this.vault.readBinary(existing))!==row.hash)fail("A partial copy changed; review is required.");continue;}
+   // Journal the next write before calling Vault. The preflight proved absence;
+   // matching bytes are evidence of this intended copy after an interruption.
+   writes=[...writes,row.relative];await this.progress(operationId,{phase:"started",writes});
+   if(row.type==="folder")await this.vault.createFolder(target);else{const sourcePath=row.relative?intent.from+"/"+row.relative:intent.from,source=this.vault.getAbstractFileByPath(sourcePath);if(!source||digest(await this.vault.readBinary(source))!==row.hash)fail("The copy source changed. Partial results are retained.");await this.vault.copy(source,target);}
+   await this.boundary?.("copyItem",operationId);
+  }
+ }
+ async recoverInside(){
+  const pending=await this.db.request({action:"list"});if(!pending.length)return[];const p=pending[0],{intent,operationId,progress}=p;
+  if(progress.phase==="filesystem-complete"){await this.progress(operationId,this.completion(intent));const result=await this.db.request({action:"commit",operationId});await this.afterCommit(result);return[result];}
+  if(progress.phase==="prepared"){return[await this.db.request({action:"cancel",operationId})];}
+  if(progress.phase==="review")fail(progress.message??"An interrupted file operation needs review.","FILE_OPERATION_UNRESOLVED");
+  const source=this.exact(intent.from),destination=intent.to?this.exact(intent.to):null;
+  if(intent.kind==="copy"){
+   // Resuming a partial copy is allowed only while all original bytes agree.
+   if(await this.matches(intent.from,intent.manifest)){
+    try{await this.copyManifest(operationId,intent,progress);if(!await this.matches(intent.to,intent.manifest))fail("The copied subtree differs from its source.");await this.progress(operationId,this.completion(intent));return this.recoverInside();}catch(error){await this.progress(operationId,{phase:"review",message:error.message});throw error;}
+   }
+  }else if(intent.kind==="trash"){
+   const missing=intent.mappings.map((m,i)=>this.exact(m.path)?-1:i).filter(i=>i>=0);
+   if(!source||missing.length){
+    // No second destructive call: reassign only contexts whose original paths
+    // disappeared, then surface partial completion to the initiating batch.
+
+    await this.progress(operationId,this.completion(intent,{...(source?{indices:missing}:{}),partial:!!source}));const result=await this.db.request({action:"commit",operationId});await this.afterCommit(result);if(source)fail("Deletion completed partly. Retained files were preserved; removed locations were reassigned.","FILE_OPERATION_PARTIAL");return[result];
+   }
+   if(progress.apiSettled&&await this.matches(intent.from,intent.manifest)){await this.progress(operationId,{phase:"started",cancelSafe:true});return[await this.db.request({action:"cancel",operationId})];}
+  }else{
+   if(!source&&destination&&await this.matches(intent.to,intent.manifest)){await this.progress(operationId,this.completion(intent));return this.recoverInside();}
+   if(progress.apiSettled&&source&&!destination&&await this.matches(intent.from,intent.manifest)){await this.progress(operationId,{phase:"started",cancelSafe:true});return[await this.db.request({action:"cancel",operationId})];}
+  }
+  const message="Filesystem evidence is ambiguous for "+intent.kind+" "+intent.from+". Files are preserved; affected tasks remain protected. Review the pending operation before continuing.";
+  await this.progress(operationId,{phase:"review",message});fail(message,"FILE_OPERATION_UNRESOLVED");
+ }
+ recover(){return this.enqueue(()=>this.recoverInside());}
+ list(){return this.db.request({action:"list"});}
+ // Review is explicit and evidence checked. It cannot overwrite or remove data.
+ resolve(decision="recheck"){return this.enqueue(async()=>{
+  const p=(await this.list())[0];if(!p)return[];
+  if(decision==="keep-copy"){
+   if(p.intent.kind!=="copy"||p.progress.phase!=="review")fail("Only a reviewed partial copy can be kept this way.");
+   await this.progress(p.operationId,{phase:"review",cancelSafe:true});return[await this.db.request({action:"cancel",operationId:p.operationId})];
+  }
+  if(decision==="keep-source"){
+   if(p.progress.phase!=="review")fail("Inspect this operation in recovery before choosing a retained source.");
+   if(!["rename","move"].includes(p.intent.kind)||!await this.matches(p.intent.from,p.intent.manifest))fail("The original source evidence does not match. All files remain preserved.");
+   await this.progress(p.operationId,{phase:"review",cancelSafe:true});return[await this.db.request({action:"cancel",operationId:p.operationId})];
+  }
+  if(decision==="use-destination"){
+   if(p.progress.phase!=="review")fail("Inspect this operation in recovery before confirming a destination.");
+   if(!["rename","move"].includes(p.intent.kind)||this.exact(p.intent.from))fail("Confirm a moved destination only after the original source is absent.");
+   const result=await this.manifest(p.intent.to);
+   if(result.length!==p.intent.manifest.length||result.some((r,i)=>r.relative!==p.intent.manifest[i].relative||r.type!==p.intent.manifest[i].type))fail("Destination names or types differ from the original subtree. All files remain preserved.");
+   await this.progress(p.operationId,this.completion(p.intent,{result,userReviewed:true}));return this.recoverInside();
+  }
+  if(decision!=="recheck")fail("Unknown recovery decision.");
+  if(p.progress.phase==="review")await this.progress(p.operationId,{phase:"started",message:"Review requested",apiSettled:true});return this.recoverInside();
+ });}
+
+ async captureMove(captureId,move,reverse=false){
+  await this.recover();let cycle=0;
+  const identity=(direction,n)=>stable(["capture-files",captureId,move.from,move.to,direction,n]);
+  while(await this.db.receipt(identity("reverse",cycle)))cycle++;
+  if(reverse&&!await this.db.receipt(identity("forward",cycle))&&!this.exact(move.to))return;
+  return this.move(reverse?move.to:move.from,reverse?move.from:move.to,{operationId:identity(reverse?"reverse":"forward",cycle),captureRecoveryHash:move.hash,compensation:reverse,...(reverse?{compensationReceiptId:identity("forward",cycle)}:{})});
+ }
+ rename(from,to,options){return this.execute("rename",from,to,options);}
+ move(from,to,options){return this.execute("move",from,to,options);}
+ trash(from,options){return this.execute("trash",from,null,options);}
+ copy(from,to,options){return this.execute("copy",from,to,options);}
+ setClipboard(paths,cut=false){this.clipboard={id:randomUUID(),paths:normalize(paths),cut};return this.db.request({action:"clipboardSet",value:this.clipboard});}
+ clipboardState(){return this.clipboard;}
+ async batch(kind,paths,destination=null,options={}){
+  const roots=normalize(paths),all=this.workspaces(),targets=roots.map(from=>({from,to:destination?destination+"/"+name(from):null}));
+  const keys=new Set();for(const item of targets){this.preflight(kind,item.from,item.to,options,all);const key=item.to?.toLocaleLowerCase();if(key&&keys.has(key))fail("The batch contains duplicate destination names.");if(key)keys.add(key);}
+  const completed=[];for(let i=0;i<targets.length;i++){const item=targets[i];try{await this.execute(kind,item.from,item.to,options);completed.push(item.from);if(this.clipboard?.cut){this.clipboard.paths=this.clipboard.paths.filter(p=>p!==item.from);const latest=await this.db.request({action:"clipboardGet"});if(latest?.id===this.clipboard.id)await this.db.request({action:"clipboardSet",value:this.clipboard});}}catch(error){error.completed=completed;error.pending=item.from;error.untouched=targets.slice(i+1).map(x=>x.from);error.message+=` Completed: ${completed.length}; pending: ${item.from}; untouched: ${error.untouched.length}.`;throw error;}}return{completed};
+ }
+ async paste(destination,options={}){const value=await this.db.request({action:"clipboardGet"});this.clipboard=value;if(!value?.paths.length)fail("The Itacan clipboard is empty.");return this.batch(value.cut?"move":"copy",[...value.paths],destination,options);}
+ close(){this.stopped=true;return this.tail.catch(()=>{});}
+}
+module.exports={FileOperations,normalize,validPath,stable};
+
+},
 "lib/services/home-covers.js": function (module, exports, __hubRequire) {
 "use strict";
 const { ownMenuColors } = __hubRequire("lib/ui/color-system.js");
@@ -11572,6 +11870,127 @@ function createHomeTaskRead({ plugin, component, changed = () => { }, nativeTask
 module.exports = { createHomeTaskRead };
 
 },
+"lib/services/inbox-bulk.js": function (module, exports, __hubRequire) {
+"use strict";
+const { randomUUID, createHash } = require("node:crypto");
+const N = __hubRequire("lib/services/native-inbox-task.js");
+const { bulkKind, remainingMembers, allocateBulkTitles, appendCapturedTexts, bulkMessage } = __hubRequire("lib/domain/inbox-bulk.js");
+const clone = value => JSON.parse(JSON.stringify(value));
+const hash = text => createHash("sha256").update(text).digest("hex");
+
+module.exports = {
+    get bulk() { return this.state.bulk ?? null; },
+    get activeBulk() { return this.bulk && this.bulk.state !== "done" ? this.bulk : null; },
+    bulkMember(id) { return remainingMembers(this.activeBulk).find(member => member.id === id); },
+    assertBulkAccess(id, batchId) {
+        if (this.bulkMember(id) && this.activeBulk.id !== batchId) throw Error("Resume this item's retained batch before editing, deleting, or organizing it separately.");
+    },
+    bulkValues(batch, member) {
+        const values = { ...batch.destination, text: member.input.text, attachments: clone(member.input.attachments), bulkBatchId: batch.id };
+        if (batch.action === "task") {
+            const mapped = N.draft(this, { text: member.input.text }, member.input);
+            Object.assign(values, { type: "task", taskTitle: mapped.taskTitle, description: mapped.description,
+                necessity: null, fromDate: null, fromTime: null, dueDate: null, dueTime: null, phaseId: null, steps: [], completed: false });
+        } else Object.assign(values, { type: batch.action === "file" ? "file" : "note", title: member.title, noteAction: "new", filesOnly: true });
+        return values;
+    },
+    prepareBulk(action, ids, destination, id = randomUUID()) { return this.enqueue(async () => {
+        if (this.bulkExecution) throw Error("A batch is already saving.");
+        if (this.bulk?.id === id) {
+            if (action !== this.bulk.action || JSON.stringify(ids) !== JSON.stringify(this.bulk.members.map(m => m.id)) || JSON.stringify(destination) !== JSON.stringify(this.bulk.destination)) throw Error("Retry the batch's original items, order, and destination.");
+            return clone(this.bulk);
+        }
+        if (this.activeBulk) throw Error("Resume the retained batch before starting another batch.");
+        if (!["task", "note", "text", "file"].includes(action) || ids.length < 2 || new Set(ids).size !== ids.length) throw Error("Select at least two eligible items.");
+        const captures = ids.map(key => { const capture = this.captures.find(c => c.id === key); if (!capture) throw Error("A selected item is no longer in Inbox."); return capture; }), kind = action === "file" ? "files" : "text";
+        for (const c of captures) {
+            if (bulkKind(c) !== kind || c.operation) throw Error("Select matching items without retained operations.");
+            for (const ref of c.attachments) if (!this.attachmentExists(ref)) throw Error('"' + ref.name + '" is no longer available.');
+        }
+        if (action === "text") this.noteDestination({ ...destination, noteAction: "existing" }, false);
+        else if (action !== "task") this.destination(destination);
+        const createdAt = Date.now(), titles = action === "note" ? allocateBulkTitles(captures, destination.folder, path => this.app.vault.getAbstractFileByPath(path), new Date(createdAt)) : [];
+        const batch = { version: 1, id, action, kind, state: "pending", createdAt, destination: clone(destination),
+            members: captures.map((c, index) => ({ id: c.id, state: "pending", input: { text: c.text, attachments: clone(c.attachments), source: clone(c.source) }, ...(titles[index] ? { title: titles[index] } : {}) })) };
+        if (action === "task") for (const member of batch.members) {
+            const values = this.bulkValues(batch, member); N.payload(this, values, this.required(member.id));
+            if (values.taskTitle.length > 10000 || values.description.length > 200000) throw Error("A selected capture exceeds the native task text limit. Organize it individually without truncation.");
+        }
+        await this.save(this.captures, { bulk: batch }); return clone(batch);
+    }); },
+    assertBulkInput(member) {
+        const c = this.required(member.id);
+        if (c.text !== member.input.text || JSON.stringify(c.attachments) !== JSON.stringify(member.input.attachments) || JSON.stringify(c.source) !== JSON.stringify(member.input.source)) throw Error("A selected item changed. Its batch has been retained for review.");
+        return c;
+    },
+    bulkFinishPatch(capture, remap) {
+        const batch = this.activeBulk;
+        if (!this.bulkMember(capture.id)) return batch ? { bulk: { ...batch, members: batch.members.map(m => ({ ...m, input: remap(m.input) })) } } : {};
+        const members = batch.members.map(member => member.id === capture.id ? { ...member, state: "done", receipt: clone(capture.operation ?? {}) } : { ...member, input: remap(member.input) });
+        return { bulk: { ...batch, members, state: members.every(m => m.state === "done") ? "done" : "running", error: null } };
+    },
+    async runBulk(id, onProgress = () => {}) {
+        if (this.bulkExecution) throw Error("A batch is already saving.");
+        const notify = () => { try { onProgress(clone(this.bulk)); } catch (_) {} };
+        const work = async () => {
+            if (this.bulk?.id !== id) throw Error("This batch is no longer available.");
+            if (this.bulk.state === "done") return { batch: clone(this.bulk), message: bulkMessage(this.bulk) };
+            try {
+                if (this.bulk.action === "text") { await this.enqueue(() => this.runBulkAppend(id)); notify(); }
+                else for (const planned of remainingMembers(clone(this.bulk))) {
+                    const member = this.bulk.members.find(m => m.id === planned.id);
+                    await this.enqueue(() => { if (this.bulk?.id !== id) throw Error("Batch changed."); this.assertBulkInput(member); });
+                    const batch = this.bulk, values = this.bulkValues(batch, member);
+                    if (batch.action === "task") await this.makeTask(values, member.id);
+                    else if (batch.action === "note") await this.createNote(values, member.id);
+                    else await this.addFiles(values, member.id);
+                    notify();
+                }
+                return { batch: clone(this.bulk), message: bulkMessage(this.bulk) };
+            } catch (error) {
+                try { await this.enqueue(async () => { if (this.bulk?.id === id) await this.save(this.captures, { bulk: { ...this.bulk, error: error.message, state: this.bulk.state === "done" ? "done" : "failed" } }); }); }
+                catch (checkpoint) { error.message += " Progress checkpoint failed: " + checkpoint.message; }
+                notify(); error.message = bulkMessage(this.bulk) + " " + error.message; error.batchId = id; throw error;
+            }
+        };
+        this.bulkExecution = work();
+        try { return await this.bulkExecution; } finally { this.bulkExecution = null; }
+    },
+    async runBulkAppend(id) {
+        let batch = this.bulk;
+        if (batch?.id !== id || batch.action !== "text") throw Error("Invalid append batch.");
+        for (const member of remainingMembers(batch)) this.assertBulkInput(member);
+        const file = this.noteDestination({ ...batch.destination, noteAction: "existing" }, false).file;
+        for (let attempt = 0; attempt < 3; attempt++) {
+            let fresh = false, transformed = false;
+            if (!batch.append) {
+                const before = await this.app.vault.read(file), after = appendCapturedTexts(before, batch.members.map(m => m.input.text));
+                batch = { ...batch, append: { state: "prepared", beforeHash: hash(before), afterHash: hash(after) } };
+                await this.save(this.captures, { bulk: batch }); fresh = true;
+            }
+            try {
+                if (batch.append.state !== "ready") await this.app.vault.process(file, current => {
+                    if (hash(current) === batch.append.afterHash) return current;
+                    if (hash(current) !== batch.append.beforeHash) { const error = Error("The destination changed; review the retained append before retrying."); error.conflict = true; throw error; }
+                    const next = appendCapturedTexts(current, batch.members.map(m => m.input.text));
+                    if (hash(next) !== batch.append.afterHash) throw Error("The retained append content differs.");
+                    transformed = true; return next;
+                });
+            } catch (error) {
+                if (fresh && error.conflict && !transformed && attempt < 2) { const { append, ...next } = batch; batch = next; await this.save(this.captures, { bulk: batch }); continue; }
+                throw error;
+            }
+            if (hash(await this.app.vault.read(file)) !== batch.append.afterHash) throw Error("The appended note changed; the source items have been retained for review.");
+            if (batch.append.state !== "ready") { batch = { ...batch, append: { ...batch.append, state: "ready" } }; await this.save(this.captures, { bulk: batch }); }
+            const ids = new Set(batch.members.map(m => m.id));
+            await this.save(this.captures.filter(c => !ids.has(c.id)), { bulk: { ...batch, state: "done", error: null, members: batch.members.map(m => ({ ...m, state: "done" })) } });
+            this.plugin.markProjectChangedByPath?.(file.path); this.plugin.scheduleEditedActivity?.(file); this.plugin.notifyProjectFilesChanged?.(file.path);
+            return;
+        }
+    }
+};
+
+},
 "lib/services/inbox.js": function (module, exports, __hubRequire) {
 "use strict";
 
@@ -11592,6 +12011,7 @@ class HubInboxService {
         this.plugin = plugin; this.app = plugin.app; this.listeners = new Set(); this.queue = Promise.resolve();
         const version = Number(plugin.projectWizard.data.inbox?.version) || INBOX_VERSION;
         if (version > INBOX_VERSION) throw Error("This Inbox was saved by a newer version of Itacan.");
+        if (plugin.projectWizard.data.inbox?.bulk && plugin.projectWizard.data.inbox.bulk.version !== 1) throw Error("This Inbox batch requires a newer version of Itacan.");
         this.files = createFileDomain({ getByPath: path => this.app.vault.getAbstractFileByPath(path) });
         this.noteCache = new Map(); this.noteRevisions = new Map(); this.noteEvents = [];
         if (this.app.vault.on && this.app.vault.offref) for (const event of ["modify", "delete", "rename"]) {
@@ -11609,7 +12029,7 @@ class HubInboxService {
     }
     refreshNativeInventory(owner) { const root=this.plugin.nativeTaskHost,host=owner&&root?.ownerHosts?root.ownerHosts().find(h=>h.matches(owner)):root; if(owner&&!host)throw Error("Native task authority is unavailable.");return host?.refreshInventory?.() ?? Promise.resolve(); }
     scheduleNativeRefresh() { this.nativeRefresh = Promise.resolve().then(()=>this.refreshNativeInventory()).catch(error=>{ console.error("Native capture inventory refresh requires review",error); }); return this.nativeRefresh; }
-    get state() { return this.plugin.projectWizard.data.inbox ?? { version: INBOX_VERSION, captures: [] }; }
+    get state() { return this.plugin.projectWizard.data.inbox ?? { version: 1, captures: [] }; }
     get captures() { return (Array.isArray(this.state.captures) ? this.state.captures : []).filter(item => item && typeof item.id === "string"); }
     get count() { return this.captures.length; }
     list(options) { return sortedCaptures(this.captures, { completion: item => this.getInboxCompletion(item), ...options }); }
@@ -11634,7 +12054,7 @@ class HubInboxService {
     async save(captures, patch = {}) {
         await this.plugin.dataStore.writeQueue?.catch(() => {});
         const data = this.plugin.projectWizard.data, previous = data.inbox;
-        const next = { ...this.state, ...patch, version: INBOX_VERSION, captures };
+        const next = { ...this.state, ...patch, version: patch.bulk || this.state.bulk ? INBOX_VERSION : this.state.version, captures };
         data.inbox = next;
         try { await this.plugin.dataStore.save(data); this.plugin.projectWizard.data.inbox = next; }
         catch (error) {
@@ -11662,6 +12082,7 @@ class HubInboxService {
         await this.save([...this.captures, capture]); return capture;
     }
     updateCapture(id, values) { return this.enqueue(async () => {
+        this.assertBulkAccess(id);
         const previous = this.required(id);
         const text = String(values.text ?? previous.text), attachments = (values.attachments ?? previous.attachments).map(attachmentReference);
         if (previous.operation && previous.operation.state !== "done") {
@@ -11895,7 +12316,7 @@ class HubInboxService {
         const path = relative.replace(/\\/g, "/"), file = this.app.vault.getAbstractFileByPath(path);
         return file && !isFolderLike(file) ? file : null;
     }
-    stageFiles(sources, checkpoint) { return this.enqueue(async () => {
+    stageFiles(sources, checkpoint, skip) { return this.enqueue(async () => {
         const refs = [], imported = [], folder = INBOX_ATTACHMENT_ROOT + "/" + randomUUID();
         try {
             for (const source of Array.from(sources ?? [])) {
@@ -11903,6 +12324,7 @@ class HubInboxService {
                 const name = String(source.name ?? "").trim();
                 if (!name || /[\\/:*?"<>|\u0000-\u001f]/.test(name) || /[. ]$/.test(name) || /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(name) || name === "." || name === "..") throw Error("An attachment has an invalid filename. Rename it before importing.");
                 const sourcePath = this.sourcePath(source), existing = this.vaultSource(source, sourcePath);
+                if (skip && await skip(source, { name, sourcePath, existing })) continue;
                 if (existing) {
                     refs.push({ id: randomUUID(), path: existing.path, name: existing.name || name, ownership: "reference", size: Number(source.size) || existing.stat?.size || 0, mime: source.type || "", originalPath: existing.path });
                     if (checkpoint) await checkpoint([...refs]);
@@ -11923,18 +12345,19 @@ class HubInboxService {
             }
             return refs;
         } catch (error) {
-            if (!checkpoint) for (const file of imported) { try { await this.app.vault.delete(file); } catch (_) { /* Preserve a failed-cleanup copy rather than its original. */ } }
+            if (!checkpoint) for (const file of imported) { try { await this.plugin.fileOperations.trash(file.path); } catch (_) { /* Preserve a failed-cleanup copy rather than its original. */ } }
             throw error;
         }
     }); }
     async releaseAttachments(refs) {
         for (const ref of refs ?? []) {
-            if (!isInboxOwned(ref) || [...this.captures, this.currentQuickDraft].filter(Boolean).some(capture => capture.attachments?.some(item => item.path === ref.path) || capture.operation?.moves?.some(move => move.from === ref.path || move.to === ref.path))) continue;
+            if (!isInboxOwned(ref) || [...this.captures, this.currentQuickDraft, ...(this.activeBulk?.members.filter(m => m.state !== "done").map(m => m.input) ?? [])].filter(Boolean).some(capture => capture.attachments?.some(item => item.path === ref.path) || capture.operation?.moves?.some(move => move.from === ref.path || move.to === ref.path))) continue;
             const file = this.app.vault.getAbstractFileByPath(ref.path);
-            if (file && !isFolderLike(file)) { try { await this.app.vault.delete(file); } catch (error) { console.warn("Could not remove unused Inbox copy", error); } }
+            if (file && !isFolderLike(file)) { try { await this.plugin.fileOperations.trash(file.path); } catch (error) { console.warn("Could not remove unused Inbox copy", error); } }
         }
     }
     delete(id) { return this.enqueue(async () => {
+        this.assertBulkAccess(id);
         if(this.required(id).operation?.kind === "native-task") throw Error("Resolve the retained native task operation before deleting its source item.");
         const capture = this.required(id);
         if (["note", "files"].includes(capture.operation?.kind) && capture.operation.state === "prepared") {
@@ -11986,11 +12409,13 @@ class HubInboxService {
         const needsNote = kind === "note" || !!capture.text.trim() || (!values.filesOnly && !!(source.url || source.pageUrl || source.path || source.workspaceName));
         let note = null;
         if (needsNote) {
+            const bulkNote = kind === "note" && this.bulkMember(capture.id) && this.activeBulk.action === "note";
             const proposed = projectItemPath(folder, "note", values.title || (kind === "files" ? "Captured files" : "Untitled"));
+            if (bulkNote && this.app.vault.getAbstractFileByPath(proposed)) throw Error("The allocated bulk note filename was taken. Its source is retained; review the collision before retrying.");
             const path = paths.availableExternalFilePath(folder, proposed.slice(folder.length + 1));
             // Native attachment links are generated after the files have moved,
             // when the actual TFiles can resolve names with the user's preferences.
-            note = { path };
+            note = { path, ...(kind === "note" && (this.currentQuickDraft?.id === capture.id || bulkNote) && !capture.attachments.length ? { verbatim: true } : {}) };
         }
         return { id: operationId, kind, state: "prepared", workspaceId: workspace.id, folder, title: String(values.title ?? ""), moves, note, input: this.input(capture, values) };
     }
@@ -12005,16 +12430,18 @@ class HubInboxService {
         this.fileOperationDestination(operation);
         for (const move of operation.moves) {
             const from = this.app.vault.getAbstractFileByPath(move.from), to = this.app.vault.getAbstractFileByPath(move.to);
-            if (move.from === move.to || !from && to) { await this.checkMove(move, move.to); continue; }
+            if (move.from === move.to) { await this.checkMove(move, move.to); continue; }
+            if (!from && to) { await this.checkMove(move, move.to); await this.plugin.fileOperations.captureMove(operation.id, move); continue; }
             if (to) throw Error(`\"${move.name}\" already exists at the destination.`);
-            await this.app.fileManager.renameFile(await this.checkMove(move, move.from), move.to);
+            await this.checkMove(move, move.from);
+            await this.plugin.fileOperations.captureMove(operation.id, move);
             await this.checkMove(move, move.to);
         }
         if (operation.note) {
             if (operation.note.text === undefined) {
-                // Persist exact content before creating the note. The invisible
-                // receipt marker distinguishes our note from a competing user file.
-                const text = this.noteText({ ...capture, text: operation.input.text }, operation.moves, operation.note.path) +
+                // Quick Add keeps its exact text and receipt hash in metadata.
+                // Other note flows retain their existing attribution and marker.
+                const text = operation.note.verbatim ? operation.input.text : this.noteText({ ...capture, text: operation.input.text }, operation.moves, operation.note.path) +
                     `\n<!-- itacan-capture:${operation.id} -->\n`;
                 operation = { ...operation, note: { ...operation.note, text, hash: digest(text) } };
                 await this.replace({ ...capture, operation });
@@ -12033,10 +12460,13 @@ class HubInboxService {
             if (file) {
                 try {
                     const content = isFolderLike(file) ? "" : await this.app.vault.read(file);
+                    // No inline identity marker exists in a verbatim note. Keep
+                    // the file and source for a hash-checked original retry.
+                    if (operation.note.verbatim) throw Error("The destination note has been retained. Retry the original destination; review it first if its content changed.");
                     if (!content.includes(`<!-- itacan-capture:${operation.id} -->`)) {
                         // A competing file is not ours, even when its name matches.
                     } else if (digest(content) !== operation.note.hash) throw Error("The destination note changed. Check it before retrying this item.");
-                    else await this.app.vault.delete(file);
+                    else await this.plugin.fileOperations.trash(file.path);
                 } catch (error) { failures.push(error); }
             }
         }
@@ -12046,7 +12476,8 @@ class HubInboxService {
                 if (this.app.vault.getAbstractFileByPath(move.from)) { await this.checkMove(move, move.from); continue; }
                 const parent = move.from.slice(0, move.from.lastIndexOf("/"));
                 if (!isFolderLike(this.app.vault.getAbstractFileByPath(parent))) throw Error("The original file folder was removed. The item has been kept in Inbox.");
-                await this.app.fileManager.renameFile(await this.checkMove(move, move.to), move.from);
+                await this.checkMove(move, move.to);
+                await this.plugin.fileOperations.captureMove(operation.id, move, true);
             } catch (error) { failures.push(error); }
         }
         if (failures.length) throw failures[0];
@@ -12062,12 +12493,13 @@ class HubInboxService {
             return { ...other, attachments };
         };
         await this.save(this.captures.filter(item => item.id !== capture.id).map(remap),
-            isQuick ? { quickAddDraft: null } : quick ? { quickAddDraft: remap(quick) } : {});
+            { ...(isQuick ? { quickAddDraft: null } : quick ? { quickAddDraft: remap(quick) } : {}), ...this.bulkFinishPatch(capture, remap) });
         if (isQuick) this.draftSession = this.newQuickDraft(capture.source);
         else if (quick) this.draftSession = remap(quick);
         await this.releaseAttachments(capture.attachments);
     }
     createNote(values, captureId) { return this.enqueue(() => {
+        this.assertBulkAccess(captureId, values.bulkBatchId);
         const saved = this.get(captureId);
         return (values.noteAction ?? saved?.intent?.noteAction) === "existing" || saved?.operation?.kind === "note-insertion" ?
             this.resolveNoteInsertion(values, captureId) : this.resolveFiles("note", values, captureId);
@@ -12144,7 +12576,7 @@ class HubInboxService {
             error.captureId = capture.id; throw error;
         }
     }
-    addFiles(values, captureId) { return this.enqueue(() => this.resolveFiles("files", values, captureId)); }
+    addFiles(values, captureId) { return this.enqueue(() => { this.assertBulkAccess(captureId, values.bulkBatchId); return this.resolveFiles("files", values, captureId); }); }
     async resolveFiles(kind, values, captureId) {
         let capture = captureId ? this.required(captureId) : await this.createCapture({ ...values, type: kind === "files" ? "file" : "note" });
         values = { ...capture.intent, ...values, type: kind === "files" ? "file" : "note" };
@@ -12198,10 +12630,11 @@ class HubInboxService {
             return kind === "note" ? { file, attachments: files } : { files, note: file };
         } catch (error) { error.captureId = capture.id; throw error; }
     }
-    makeTask(values, captureId, attempt) { return this.enqueue(()=>__hubRequire("lib/services/native-inbox-task.js").submit(this,values,captureId,attempt)); }
+    makeTask(values, captureId, attempt) { return this.enqueue(()=>{ this.assertBulkAccess(captureId, values.bulkBatchId); return __hubRequire("lib/services/native-inbox-task.js").submit(this,values,captureId,attempt); }); }
 }
 
 Object.defineProperties(HubInboxService.prototype, Object.getOwnPropertyDescriptors(__hubRequire("lib/services/quick-add-draft.js")));
+Object.defineProperties(HubInboxService.prototype, Object.getOwnPropertyDescriptors(__hubRequire("lib/services/inbox-bulk.js")));
 module.exports = { HubInboxService };
 
 },
@@ -12709,8 +13142,8 @@ function createNativeTaskHost(plugin){
  let timer;const refresh=()=>{clearTimeout(timer);timer=setTimeout(()=>void host.refreshInventory().catch(console.error),50)};
  for(const event of ['create','delete','rename'])plugin.registerEvent(plugin.app.vault.on(event,refresh));
  plugin.registerEvent(plugin.app.metadataCache.on('changed',refresh));
- plugin.registerEvent(plugin.app.workspace.on('quit',tasks=>tasks.add(()=>host.close())));
- plugin.register(()=>{clearTimeout(timer);void host.close().catch(console.error)});
+ plugin.registerEvent(plugin.app.workspace.on('quit',tasks=>tasks.add(async()=>{await plugin.fileOperations?.close();await host.close();})));
+ plugin.register(()=>{clearTimeout(timer);void Promise.resolve(plugin.fileOperations?.close()).then(()=>host.close()).catch(console.error)});
  __hubRequire("lib/services/task-sync.js").mountTaskSync(plugin,host,service);
  return host;
 }
@@ -12757,9 +13190,7 @@ function createNativeTaskLocations(plugin) {
         return { path, type, name: file.name ?? path.split("/").at(-1), reference: L.locationReference(w.owner, w.root, path, type) };
     }
     function resourceReference(w, path, type) {
-        if (w.owner.type !== "resource") return null;
-        const hash = value => require("node:crypto").createHash("sha256").update(JSON.stringify(value)).digest("hex");
-        return { type, id: "resource-location:" + hash([w.owner, type, path]) };
+        return L.resourceReference(w.owner, path, type);
     }
     function index(owner, fresh = false) {
         const key = ownerKey(owner), previous = indexes.get(key);
@@ -14237,9 +14668,15 @@ module.exports = { ProjectPlanningService };
 },
 "lib/services/quick-add-draft.js": function (module, exports, __hubRequire) {
 "use strict";
-const { randomUUID } = require("node:crypto");
+const { randomUUID, createHash } = require("node:crypto");
 const { attachmentReference, captureIntent, captureKind, sourceMetadata } = __hubRequire("lib/domain/inbox.js");
 const clone = value => JSON.parse(JSON.stringify(value));
+function fileCaptureId(draftId, attachmentId) {
+    const hash = createHash("sha256").update(JSON.stringify(["quick-add-file", draftId, attachmentId])).digest("hex");
+    return [hash.slice(0, 8), hash.slice(8, 12), "5" + hash.slice(13, 16),
+        ((parseInt(hash[16], 16) & 3) | 8).toString(16) + hash.slice(17, 20), hash.slice(20, 32)].join("-");
+}
+const promotionResult = captures => captures.length === 1 ? captures[0] : { captures };
 
 // The draft is a private sibling of captures, never a visible Inbox entry.
 module.exports = {
@@ -14286,6 +14723,27 @@ module.exports = {
             if (current.id !== id) throw Error("This draft has changed.");
             const next = { ...current, revision: current.revision + 1, attachments: [...before.attachments, ...refs] };
             await this.save(this.captures, { quickAddDraft: next }); this.draftSession = next;
+        }, async (source, { name, sourcePath, existing }) => {
+            const identity = value => {
+                const path = String(value ?? "").replace(/\\/g, "/");
+                return /^[a-z]:/i.test(path) ? path.toLowerCase() : path;
+            };
+            const candidates = this.quickDraft().attachments.filter(ref => {
+                if (!this.attachmentExists(ref)) return false;
+                if (existing) return identity(this.attachmentPath(ref)) === identity(existing.path);
+                if (sourcePath && ref.originalPath) return identity(sourcePath) === identity(ref.originalPath);
+                return ref.name === name;
+            });
+            if (!candidates.length) return false;
+            if (existing) return true; // The vault reference already follows the same file.
+            const hash = bytes => createHash("sha256").update(typeof bytes === "string" ? bytes : Buffer.from(bytes)).digest("hex");
+            const bytes = /\.md$/i.test(name) && typeof source.text === "function" ? await source.text() : await source.arrayBuffer();
+            const incoming = hash(bytes);
+            for (const ref of candidates) {
+                const file = this.app.vault.getAbstractFileByPath(this.attachmentPath(ref));
+                if (hash(await this.app.vault.readBinary(file)) === incoming) return true;
+            }
+            return false;
         });
         await this.flushQuickDraft(id);
     },
@@ -14305,19 +14763,42 @@ module.exports = {
         await this.releaseAttachments(previous.attachments);
     }); },
     sendQuickDraft(id) { return this.enqueue(async () => {
-        const existing = this.captures.find(item => item.id === id);
-        if (existing) return existing; // A lost acknowledgement must not create another item.
+        const existing = this.captures.filter(item => item.id === id || item.quickAddDraftId === id);
+        if (existing.length) {
+            // A lost acknowledgement must not recreate entries or clear a newer draft.
+            const stale = this.currentQuickDraft;
+            if (stale?.id === id) {
+                const expected = stale.attachments.length ? stale.attachments.map(ref => fileCaptureId(id, ref.id)) : [id];
+                if (!existing.some(item => item.id === id) && !expected.every(key => existing.some(item => item.id === key))) {
+                    throw Error("This submission needs review before its remaining draft can be cleared.");
+                }
+                await this.save(this.captures, { quickAddDraft: null });
+                this.draftSession = this.newQuickDraft(stale.source);
+            }
+            return promotionResult(existing);
+        }
         const draft = this.quickDraft();
         if (draft.id !== id) throw Error("This draft has already been submitted or cleared.");
         if (!draft.text.trim() && !draft.attachments.length) throw Error("Add some text or a file first.");
         if (draft.text.trim() && draft.attachments.length) throw Error("Write something or add a file.");
+        if (draft.attachments.length > 1 && draft.operation && draft.operation.state !== "done") {
+            throw Error("Retry the saved file placement before sending these files separately to Inbox.");
+        }
         for (const ref of draft.attachments) if (!this.attachmentExists(ref)) throw Error('"' + ref.name + '" is no longer available.');
-        const intent = captureIntent(draft.actionDrafts?.[draft.lastAction] ?? {}, draft.attachments);
-        const { version, revision, ...capture } = clone(draft);
-        capture.kind = captureKind(capture.text, capture.attachments);
-        if (intent) capture.intent = intent;
-        await this.save([...this.captures, capture], { quickAddDraft: null });
-        this.draftSession = this.newQuickDraft(draft.source); return capture;
+        const { version, revision, ...base } = clone(draft);
+        const values = draft.actionDrafts?.[draft.lastAction] ?? {};
+        const captures = draft.attachments.length ? draft.attachments.map((ref, index) => ({
+            ...clone(base), id: fileCaptureId(id, ref.id), quickAddDraftId: id,
+            createdAt: base.createdAt + index, attachments: [clone(ref)]
+        })) : [base];
+        for (const capture of captures) {
+            capture.kind = captureKind(capture.text, capture.attachments);
+            const intent = captureIntent(values, capture.attachments);
+            if (intent) capture.intent = intent;
+        }
+        // Every file and the submitted draft change together in the existing atomic store.
+        await this.save([...this.captures, ...captures], { quickAddDraft: null });
+        this.draftSession = this.newQuickDraft(draft.source); return promotionResult(captures);
     }); }
 };
 
@@ -15054,9 +15535,9 @@ const { ownModalColors, ownNoticeColors } = __hubRequire("lib/ui/color-system.js
 
 const {Modal,Notice}=require('obsidian');
 function mountTaskSync(plugin,host,service){
- const item=plugin.addStatusBarItem();item.style.cursor='pointer';item.dataset.taskSyncStatus='';plugin.register(ownColorRoot(item));let closed=false,loading=false,status={state:'starting'};
+ const item=plugin.addStatusBarItem();item.style.cursor='pointer';item.dataset.taskSyncStatus='';plugin.register(ownColorRoot(item));let closed=false,loading=false,status={state:'starting'},scopeNotice=null;
  const labels={starting:'starting',syncing:'working',current:'ready',waiting:'waiting for earlier changes',conflict:'review conflicts','enrollment-required':'review enrollment',error:'needs attention',disabled:'off'};
- async function refresh(){if(closed||loading)return;loading=true;try{status=await service.syncStatus();await host.setSyncStatus(status);const gitError=status.gitProjects?.find(p=>p.state==='error');item.setText('Task sync: '+(gitError?'Git needs attention':labels[status.state]??status.state));item.title=gitError?.error??status.error??'OneDrive synchronizes personal devices; explicitly shared Projects exchange tasks through your manual Git workflow. Click for details.';}catch{item.setText('Task sync: reconnecting');}finally{loading=false;}}
+ async function refresh(){if(closed||loading)return;loading=true;try{status=await service.syncStatus();await host.setSyncStatus(status);const gitError=status.gitProjects?.find(p=>p.state==='error');const scopeError=status.gitProjects?.find(p=>p.state==='error'&&p.code==='GIT_SERIES_SCOPE');const scopeKey=scopeError?scopeError.projectId+':'+scopeError.error:null;if(scopeKey&&scopeKey!==scopeNotice)ownNoticeColors(new Notice('File and task changes remain committed locally. Shared Project publication is paused because a recurring series spans private and shared owners; other changes in that Project stream may also wait. Open Task synchronization for details.',15000));scopeNotice=scopeKey;item.setText('Task sync: '+(gitError?'Git needs attention':labels[status.state]??status.state));item.title=gitError?.error??status.error??'OneDrive synchronizes personal devices; explicitly shared Projects exchange tasks through your manual Git workflow. Click for details.';}catch{item.setText('Task sync: reconnecting');}finally{loading=false;}}
  class SyncModal extends Modal{
   async onOpen(){ ownModalColors(this);const body=this.contentEl;body.empty();body.createEl('h2',{text:'Task synchronization'});body.createEl('p',{text:'Task databases stay on each computer. OneDrive carries committed task changes through Work/.itacan-task-sync. Shared Project tasks also travel through their .itacan-tasks folders using your manual Git commits and pulls. Ready means this device has reconciled the files currently available here.'});
    body.createEl('p',{text:'Status: '+(labels[status.state]??status.state)});if(status.error)body.createEl('p',{text:status.error});for(const project of status.gitProjects??[]){body.createEl('h3',{text:'Git Project: '+(project.path??project.projectId??'configuration')});body.createEl('p',{text:(labels[project.state]??project.state)+(project.error?' ? '+project.error:'')});}
@@ -15595,6 +16076,35 @@ function mountTransientEffects(root) {
 module.exports = { mountTransientEffects };
 
 },
+"lib/ui/capture-actions.js": function (module, exports, __hubRequire) {
+"use strict";
+const { action } = __hubRequire("lib/ui/capture-modal.js");
+
+const CAPTURE_ACTIONS = Object.freeze({
+    task: { mode: "task", label: "Create task...", icon: "square-plus" },
+    note: { mode: "note", label: "Create note...", icon: "notebook-plus" },
+    text: { mode: "text", label: "Add to note...", icon: "notebook-pen" },
+    file: { mode: "file", label: "File location", icon: "folder-input" }
+});
+function captureActions(capture, inbox = false) {
+    if (!capture.attachments?.length) return ["task", "note", "text"].map(key => CAPTURE_ACTIONS[key]);
+    // Retain older mixed/file-note routes, including interrupted note creation.
+    const legacyNote = inbox && (capture.text?.trim() || capture.intent?.type === "note" || capture.operation?.kind === "note");
+    return (legacyNote ? ["file", "note"] : ["file"]).map(key => key === "file"
+        ? { ...CAPTURE_ACTIONS.file, label: capture.attachments.length === 1 ? "Add file to..." : "Add files to..." }
+        : CAPTURE_ACTIONS[key]);
+}
+function captureAction(host, choice, onChoose) {
+    const button = action(host, choice.label, choice.icon, () => {
+        if (!button.disabled) onChoose(choice.mode);
+    }, "hub-capture-destination");
+    button.dataset.captureAction = choice.mode;
+    button.querySelector(".hub-capture-icon")?.setAttribute("aria-hidden", "true");
+    return button;
+}
+module.exports = { CAPTURE_ACTIONS, captureActions, captureAction };
+
+},
 "lib/ui/capture-controls.js": function (module, exports, __hubRequire) {
 "use strict";
 const { ownNoticeColors } = __hubRequire("lib/ui/color-system.js");
@@ -15673,7 +16183,7 @@ module.exports = { mountCaptureControls, currentSource };
 "lib/ui/capture-flow.js": function (module, exports, __hubRequire) {
 "use strict";
 const N = __hubRequire("lib/services/native-inbox-task.js");
-const { captureDraft, noteTitle } = __hubRequire("lib/domain/inbox.js");
+const { captureDraft, noteTitle, quickNoteTitle } = __hubRequire("lib/domain/inbox.js");
 const { createNativeTaskLocations, workspaceRef } = __hubRequire("lib/services/native-task-locations.js");
 const { openLocationPicker } = __hubRequire("lib/ui/task-location-picker.js");
 
@@ -15750,8 +16260,12 @@ function openCaptureAction(service, { captureId, mode, onClose = () => {} }) {
         else Object.assign(values, { folder: selected.selected?.path ?? draft.folder, title: selected.title, noteAction: "new" });
         return values;
     };
+    if (quick && mode === "note" && !pending) {
+        if (!/^Quick Add — \d{4}-\d{2}-\d{2} \d{2}-\d{2}$/.test(draft.title ?? "")) draft.title = quickNoteTitle();
+        void persist(draft);
+    }
     const title = mode === "note" ? draft.title ?? noteTitle(capture) : "";
-    modal = openLocationPicker(service.app, { locations, owner, reference, allowOwnerChange: true, mode, noteTitle: title,
+    modal = openLocationPicker(service.app, { locations, owner, reference, allowOwnerChange: true, mode, noteTitle: title, editNoteTitle: !quick,
         contextTitle: mode === "note" ? title : mode === "text" ? capture.text.trim().replace(/\s+/g," ") : capture.attachments.length === 1 ? capture.attachments[0].name : capture.attachments[0].name + " (+" + (capture.attachments.length-1) + (capture.attachments.length === 2 ? " file)" : " files)"),
         confirmLabel: mode === "file" && capture.attachments.length > 1 ? "Add files" : undefined,
         onDraftChange: value => { void persist(valuesFor(value)); },
@@ -15850,7 +16364,7 @@ class CaptureConfirmation extends CaptureModal {
     onClose() { this.resolve?.(false); this.resolve = null; super.onClose(); }
 }
 
-function attachments(host, refs, service, { remove, open } = {}) {
+function attachments(host, refs, service, { remove, open, removeLabel = "Remove" } = {}) {
     host.empty();
     for (const ref of refs) {
         const row = host.createDiv({ cls: "hub-capture-attachment" });
@@ -15864,8 +16378,8 @@ function attachments(host, refs, service, { remove, open } = {}) {
         if (open && file) action(row, "Open", "external-link", () => open(ref), "hub-capture-small-action");
         if (remove) {
             const button = action(row, "", "x", () => remove(ref), "hub-capture-small-action");
-            button.setAttribute("aria-label", "Remove " + ref.name);
-            button.setAttribute("title", "Remove " + ref.name);
+            button.setAttribute("aria-label", removeLabel + " " + ref.name);
+            button.setAttribute("title", removeLabel + " " + ref.name);
         }
     }
 }
@@ -17650,6 +18164,37 @@ function fileIcon(file) {
 module.exports = { fileIcon };
 
 },
+"lib/ui/file-operation-recovery.js": function (module, exports, __hubRequire) {
+"use strict";
+const {Modal}=require("obsidian"),{ownModalColors}=__hubRequire("lib/ui/color-system.js");
+function openFileOperationRecovery(plugin){
+ plugin.fileOperationRecoveryModal?.close();let disposed=false;
+ const modal=plugin.fileOperationRecoveryModal=new Modal(plugin.app);modal.titleEl.setText("File operation recovery");
+ async function render(){
+  modal.contentEl.empty();const pending=await plugin.fileOperations.list();
+  if(disposed)return;
+  if(!pending.length){modal.contentEl.createEl("p",{text:"No unresolved Itacan file operations."});return;}
+  const item=pending[0],intent=item.intent;
+  modal.contentEl.createEl("p",{text:`${intent.kind}: ${intent.from}${intent.to?" → "+intent.to:""}`});
+  modal.contentEl.createEl("p",{text:"Status: "+item.progress.phase});
+  modal.contentEl.createEl("p",{text:item.progress.message??"Original intent and filesystem evidence are retained. Affected tasks remain protected until reconciliation completes."});
+  modal.contentEl.createEl("p",{text:"Rechecking preserves competing files and never repeats an uncertain deletion. If paths conflict, review the retained source and destination before rechecking."});
+  const status=modal.contentEl.createEl("p",{attr:{role:"status","aria-live":"polite"}}),button=modal.contentEl.createEl("button",{text:"Recheck evidence"});
+  const buttons=[button];
+  const perform=async decision=>{buttons.forEach(b=>b.disabled=true);try{await plugin.fileOperations.resolve(decision);await render();}catch(error){if(!disposed){status.setText(error.message);buttons.forEach(b=>b.disabled=false);}}};
+  button.onclick=()=>void perform("recheck");
+  if(item.progress.phase==="review"){
+   const choices=intent.kind==="copy"?[["Keep partial copy; end operation","keep-copy"]]:["rename","move"].includes(intent.kind)?[["Keep original source and retain other files","keep-source"],["Confirm moved destination for task references","use-destination"]]:[];
+   if(choices.length)modal.contentEl.createEl("p",{text:"After inspecting these paths, choose which retained data the task references should follow. Confirming a changed destination accepts its present contents; no file is overwritten or removed."});
+   for(const [label,decision]of choices){const action=modal.contentEl.createEl("button",{text:label});buttons.push(action);action.onclick=()=>void perform(decision);}
+  }
+ }
+ modal.onClose=()=>{disposed=true;if(plugin.fileOperationRecoveryModal===modal)plugin.fileOperationRecoveryModal=null;};
+ modal.onOpen=()=>void render().catch(error=>{if(!disposed)modal.contentEl.setText(error.message);});ownModalColors(modal);modal.open();return modal;
+}
+module.exports={openFileOperationRecovery};
+
+},
 "lib/ui/focus-restoration.js": function (module, exports, __hubRequire) {
 "use strict";
 
@@ -18231,7 +18776,10 @@ const missingSortIcons = {
     "list-sort-ascending": '<path d="M3 19h18"/><path d="M15 12H3"/><path d="M9 5H3"/>'
 };
 function ensureHubIcon(name) {
-    const key = name.replace(/^lucide-/, ""), svg = missingSortIcons[key];
+    // Original fallback: notebook binding and a full-size plus, using Lucide's grid/strokes.
+    const key = name.replace(/^lucide-/, ""), svg = key === "notebook-plus" ?
+        '<path d="M17 10V4a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h5"/><path d="M2 6h4M2 10h4M2 14h4M2 18h4"/><path d="M18 13v8M14 17h8"/>' :
+        missingSortIcons[key];
     if (svg && !getIcon("lucide-" + key) && !getIcon(key)) {
         // Native custom icons use a 100-unit viewBox; Lucide uses 24 units.
         addIcon(key, `<g transform="scale(${100 / 24})" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${svg}</g>`);
@@ -18241,6 +18789,59 @@ function ensureHubIcon(name) {
 module.exports = { setHubIcon, ensureHubIcon };
 
 },
+"lib/ui/inbox-bulk-flow.js": function (module, exports, __hubRequire) {
+"use strict";
+const { randomUUID } = require("node:crypto");
+const { createCaptureLocations } = __hubRequire("lib/ui/capture-flow.js");
+const { createNativeTaskLocations, workspaceRef } = __hubRequire("lib/services/native-task-locations.js");
+const { openLocationPicker } = __hubRequire("lib/ui/task-location-picker.js");
+const { remainingMembers, distinctFileCount, bulkMessage } = __hubRequire("lib/domain/inbox-bulk.js");
+
+function bulkLabel(mode, count, navigation = false) {
+    const text = mode === "task" ? `Create ${count} task${count === 1 ? "" : "s"}` : mode === "note" ? `Create ${count} note${count === 1 ? "" : "s"}` :
+        mode === "text" ? `Add ${count} text${count === 1 ? "" : "s"} to note` : `Add ${count} file${count === 1 ? "" : "s"}`;
+    return text + (navigation ? mode === "file" ? " to..." : "..." : "");
+}
+function openBulkAction(service, { ids, mode, batchId, draft, onDraftChange = () => {}, onClose }) {
+    let batch = batchId ? service.bulk : null, modal;
+    const attemptId = batch?.id ?? randomUUID(), locations = mode === "task" ? createNativeTaskLocations(service.plugin) : createCaptureLocations(service);
+    const first = service.required(ids[0]), saved = batch?.destination;
+    const initialWorkspace = saved ? service.workspace(saved.workspaceId) : draft?.owner ? service.destinations().find(w => { const o = workspaceRef(w); return o.type === draft.owner.type && o.id === draft.owner.id; }) :
+        service.workspace(first.source?.workspaceId) ?? (first.source?.path ? service.plugin.projectWizard.getContextForPath(first.source.path) : null) ?? service.destinations()[0];
+    const owner = initialWorkspace ? workspaceRef(initialWorkspace) : saved ? { type: saved.workspaceId.startsWith('resource:') ? 'resource' : 'project', id: saved.workspaceId.replace(/^resource:/,'') } : null;
+    let reference = draft?.selected?.reference ?? null;
+    if (saved && owner) {
+        try { reference = mode === "task" ? saved.nativeLocation ? locations.resolveId(owner, saved.nativeLocation).reference : null : locations.select(owner, mode === "text" ? saved.noteLocation.path : saved.folder, mode === "text" ? "note" : "folder").reference; }
+        catch (_) { reference = { type: mode === "text" ? "note" : "folder", id: "unavailable" }; }
+    }
+    const count = () => mode === "file" ? distinctFileCount(batch ? remainingMembers(batch).map(m => m.input) : ids.map(id => service.required(id))) : batch ? remainingMembers(batch).length : ids.length;
+    const progress = value => {
+        batch = value;
+        if (modal?.contextText) modal.contextText.textContent = bulkMessage(value);
+        if (modal?.confirm) modal.confirm.textContent = bulkLabel(mode, count());
+    };
+    modal = openLocationPicker(service.app, { locations, owner, reference, mode, allowOwnerChange: !batch, editNoteTitle: false,
+        noteTitle: "Inbox batch", contextTitle: batch ? bulkMessage(batch) : `${ids.length} selected item${ids.length === 1 ? "" : "s"}`,
+        confirmLabel: bulkLabel(mode, count()), selectionLocked: () => !!service.activeBulk && service.activeBulk.id === attemptId,
+        onDraftChange, beforeClose: value => { onDraftChange(value); },
+        onChoose: async selected => {
+            const workspace = service.destinations().find(w => { const o = workspaceRef(w); return o.type === selected.owner.type && o.id === selected.owner.id; });
+            if (!workspace) throw Error("The selected workspace is unavailable.");
+            const destination = mode === "task" ? { workspaceId: workspace.id, nativeLocation: selected.reference?.id ?? "" } : mode === "text" ?
+                { workspaceId: workspace.id, noteLocation: { path: selected.path, targetType: "note", position: "end" } } : { workspaceId: workspace.id, folder: selected.path };
+            batch = service.bulk?.id === attemptId ? service.bulk : batch;
+            if (batch && JSON.stringify(destination) !== JSON.stringify(batch.destination)) throw Error("Retry the batch at its original destination.");
+            if (!batch) batch = await service.prepareBulk(mode, ids, destination, attemptId);
+            return service.runBulk(batch.id, progress);
+        },
+        onClose: result => { if (service.captureAction === modal) service.captureAction = null; onClose(result); }
+    });
+    service.captureAction = modal;
+    return modal;
+}
+module.exports = { openBulkAction, bulkLabel };
+
+},
 "lib/ui/inbox.js": function (module, exports, __hubRequire) {
 "use strict";
 const { ownMenuColors, ownModalColors, ownNoticeColors } = __hubRequire("lib/ui/color-system.js");
@@ -18248,67 +18849,149 @@ const { ownMenuColors, ownModalColors, ownNoticeColors } = __hubRequire("lib/ui/
 const { Notice, Menu } = require("obsidian");
 const { CaptureModal, CaptureConfirmation, action, attachments } = __hubRequire("lib/ui/capture-modal.js");
 const { setHubIcon } = __hubRequire("lib/ui/icons.js");
+const { fileIcon } = __hubRequire("lib/ui/file-icons.js");
+const { bindMenuToggle } = __hubRequire("lib/ui/menu-toggle.js");
 const { formatDateTime } = __hubRequire("lib/domain/dates.js");
 const { captureDraft, sortedCaptures, inboxCounts, INBOX_SORTS } = __hubRequire("lib/domain/inbox.js");
 const { openCaptureAction, operationMode } = __hubRequire("lib/ui/capture-flow.js");
+const { captureActions, captureAction } = __hubRequire("lib/ui/capture-actions.js");
+const { bulkEligibility, remainingMembers, distinctFileCount, bulkMessage } = __hubRequire("lib/domain/inbox-bulk.js");
+const { openBulkAction, bulkLabel } = __hubRequire("lib/ui/inbox-bulk-flow.js");
+const { inboxSelection, inboxFiles } = __hubRequire("lib/domain/inbox-selection.js");
 const clone = value => JSON.parse(JSON.stringify(value));
 const preview = capture => capture.text?.trim() || capture.attachments?.map(a=>a.name).join(", ") || "Untitled item";
 class InboxModal extends CaptureModal {
     onOpen() { ownModalColors(this);
         this.modalEl.classList.add("hub-inbox-dialog");this.header("Inbox","Saved items awaiting organisation","inbox");
         this.filter=this.options.resumeState?.filter??"all";this.sortOrder=["most-complete","least-complete"].includes(this.service.sortPreference)?"newest":this.service.sortPreference;
+        if(['newest','oldest','type'].includes(this.options.resumeState?.sortOrder))this.sortOrder=this.options.resumeState.sortOrder;
         this.rows=new Map();this.drafts=new Map();this.selectedId=this.options.resumeState?.selectedId??null;this.mode=null;this.dirty=false;
+        this.checkedIds=new Set(this.options.resumeState?.checkedIds??remainingMembers(this.service.activeBulk).map(m=>m.id));this.bulkDrafts=this.options.resumeState?.bulkDrafts??{};
+        this.selectionAnchor=this.options.resumeState?.selectionAnchor??this.selectedId;this.selectionEmpty=this.options.resumeState?.selectionEmpty??false;
+        this.bulkFileScroll=this.options.resumeState?.bulkFileScroll??0;
         const body=this.contentEl.createDiv({cls:"hub-inbox-body"}),aside=body.createEl("aside",{cls:"hub-inbox-sidebar",attr:{"aria-label":"Inbox items"}}),toolbar=aside.createDiv({cls:"hub-inbox-toolbar"});
         const filters=toolbar.createDiv({cls:"hub-inbox-filters hub-equal-selectors hub-option-group",attr:{role:"group","aria-label":"Filter items"}});
         this.filterButtons=[["all","All"],["text","Texts"],["files","Files"]].map(([key,label])=>({key,label,button:action(filters,label,null,()=>{void this.changeFilter(key)})}));
-        this.sort=action(toolbar,"Sort","arrow-down-wide-narrow",()=>this.showSortMenu(),"hub-panel-action hub-inbox-sort-button");this.sort.setAttribute("aria-label","Sort items");
+        this.sort=action(toolbar,"Sort by","arrow-up-down",()=>this.showSortMenu(),"hub-panel-action hub-inbox-sort-button");
+        this.sort.setAttribute("aria-label","Sort by");this.sort.setAttribute("aria-haspopup","menu");this.sort.setAttribute("aria-expanded","false");
+        this.sortChevron=this.sort.createSpan({cls:'hub-capture-icon',attr:{'aria-hidden':'true'}});setHubIcon(this.sortChevron,'chevron-right');
+        this.stopSortToggle=bindMenuToggle(this.sort,{isOpen:()=>!!this.sortMenu,close:()=>this.sortMenu?.hide()});
         this.list=aside.createDiv({cls:"hub-inbox-list",attr:{role:"group","aria-label":"Inbox items"}});
-        this.list.addEventListener("keydown",event=>{const rows=[...this.list.querySelectorAll('[data-capture-id]')],at=rows.indexOf(event.target);if(at<0)return;const n=event.key==='ArrowDown'?Math.min(rows.length-1,at+1):event.key==='ArrowUp'?Math.max(0,at-1):event.key==='Home'?0:event.key==='End'?rows.length-1:null;if(n!==null){event.preventDefault();void this.select(rows[n].dataset.captureId,true)}});
+        this.list.addEventListener("keydown",event=>{const rows=[...this.list.querySelectorAll('[data-capture-id]')],at=rows.indexOf(event.target);if(at<0)return;const n=event.key==='ArrowDown'?Math.min(rows.length-1,at+1):event.key==='ArrowUp'?Math.max(0,at-1):event.key==='Home'?0:event.key==='End'?rows.length-1:[' ','Enter'].includes(event.key)?at:null;if(n!==null){event.preventDefault();if((event.ctrlKey||event.metaKey)&&!event.shiftKey&&![' ','Enter'].includes(event.key))rows[n].focus();else void this.changeSelection(rows[n].dataset.captureId,event,true)}});
         this.detail=body.createEl("section",{cls:"hub-inbox-detail",attr:{"aria-label":"Item details",tabindex:"-1"}});
         const footer=this.contentEl.createDiv({cls:"hub-capture-actions hub-inbox-footer"});action(footer,"Close",null,()=>this.close());
         this.stop=this.service.onChange(()=>{if(this.busy)this.needsRefresh=true;else this.refresh()});
-        this.deleteKey=e=>{if(e.key==='Delete'&&!e.repeat&&!e.target.closest('input,textarea,select,[contenteditable],.menu')&&!this.busy&&!this.confirmation){e.preventDefault();void this.remove(this.selectedId)}};this.modalEl.addEventListener('keydown',this.deleteKey);
-        this.refresh();if(this.selectedId&&!this.draft)this.loadSelected();this.list.scrollTop=this.options.resumeState?.scrollTop??0;this.filterButtons[0].button.focus();
+        this.deleteKey=e=>{if(e.key==='Delete'&&!e.repeat&&!e.target.closest('input,textarea,select,[contenteditable],.menu')&&!this.busy&&!this.confirmation&&this.checkedIds.size<2){e.preventDefault();void this.remove(this.selectedId)}};this.modalEl.addEventListener('keydown',this.deleteKey);
+        this.refresh();this.list.scrollTop=this.options.resumeState?.scrollTop??0;this.filterButtons[0].button.focus();
     }
     visible(){return sortedCaptures(this.service.captures,{filter:this.filter,sort:this.sortOrder})}
-    async changeFilter(filter){if(this.busy||!await this.flushEdits())return;this.filter=filter;this.refresh()}
-    showSortMenu(){if(this.busy)return;const menu=this.sortMenu=ownMenuColors(new Menu());for(const [key,label]of INBOX_SORTS.filter(([key])=>!key.includes('complete')))menu.addItem(i=>i.setTitle(label).setChecked(key===this.sortOrder).onClick(async()=>{if(!await this.flushEdits())return;await this.service.setSortPreference(key);this.sortOrder=key;this.refresh()}));menu.onHide(()=>{this.sortMenu=null;this.sort.focus()});const r=this.sort.getBoundingClientRect();menu.showAtPosition({x:r.left,y:r.bottom})}
+    async changeFilter(filter){if(this.busy||!await this.flushEdits())return;this.filter=filter;this.selectionEmpty=false;this.refresh()}
+    showSortMenu(){
+        if(this.busy||this.sortMenu)return;
+        const menu=this.sortMenu=ownMenuColors(new Menu());
+        for(const [key,label]of INBOX_SORTS.filter(([key])=>!key.includes('complete')))menu.addItem(i=>i.setTitle(label).setChecked(key===this.sortOrder).onClick(async()=>{if(!await this.flushEdits())return;await this.service.setSortPreference(key);this.sortOrder=key;this.refresh()}));
+        const win=this.sort.ownerDocument.defaultView;
+        let verticalGap=0;
+        const center=()=>{if(this.sortMenu!==menu)return;const r=this.sort.getBoundingClientRect(),width=menu.dom.offsetWidth,left=Math.max(4,Math.min(win.innerWidth-width-4,(r.left+r.right-width)/2)),top=r.bottom+verticalGap;if(!(Math.abs(parseFloat(menu.dom.style.left)-left)<.01))menu.dom.style.left=left+'px';if(!(Math.abs(parseFloat(menu.dom.style.top)-top)<.01))menu.dom.style.top=top+'px';};
+        const observer=new win.ResizeObserver(center),resize=()=>win.requestAnimationFrame(center);
+        menu.onHide(()=>{observer.disconnect();win.removeEventListener('resize',resize);this.sortMenu=null;this.sort.setAttribute('aria-expanded','false');setHubIcon(this.sortChevron,'chevron-right');this.sort.focus()});
+        this.sort.setAttribute('aria-expanded','true');setHubIcon(this.sortChevron,'chevron-down');
+        const r=this.sort.getBoundingClientRect();menu.showAtPosition({x:r.left,y:r.bottom});verticalGap=menu.dom.offsetTop-r.bottom;center();observer.observe(menu.dom);observer.observe(this.sort.parentElement);win.addEventListener('resize',resize);
+    }
+    onEscapeKey(event){if(this.sortMenu){this.sortMenu.hide();return;}super.onEscapeKey(event);}
     refresh(){
-        if(this.closed)return;const captures=this.visible(),scroll=this.list.scrollTop,counts=inboxCounts(this.service.captures);
+        if(this.closed)return;const captures=this.visible(),counts=inboxCounts(this.service.captures);
+        const single=this.checkedIds.size===1;
+        this.checkedIds=new Set(captures.filter(c=>this.checkedIds.has(c.id)&&(single||!bulkEligibility(c,this.service.activeBulk).reason)).map(c=>c.id));
+        if(!this.checkedIds.size&&!this.selectionEmpty){const initial=captures.find(c=>c.id===this.selectedId)??captures[0];if(initial)this.checkedIds.add(initial.id);}
+        if(this.checkedIds.size&&!this.checkedIds.has(this.selectedId)){this.resetForm();this.selectedId=[...this.checkedIds][0];}
+        if(!this.checkedIds.size&&this.selectionEmpty){this.resetForm();this.selectedId=null;}
+        const missingSelection=!captures.some(c=>c.id===this.selectedId);
+        if(missingSelection&&!this.selectionEmpty){this.resetForm();this.selectedId=captures[0]?.id??null;}
+        if(!captures.some(c=>c.id===this.selectionAnchor))this.selectionAnchor=this.selectedId;
         for(const f of this.filterButtons){f.button.querySelector('span').textContent=f.label+' ('+counts[f.key]+')';f.button.classList.toggle('is-selected',f.key===this.filter);f.button.setAttribute('aria-pressed',String(f.key===this.filter))}
+        if(missingSelection||!this.draft)this.loadSelected();
+        // Select and populate details before scroll reads force initial layout.
+        const scroll=this.list.scrollTop;
         for(const [id,row]of this.rows)if(!captures.some(c=>c.id===id)){row.button.remove();this.rows.delete(id)}
         this.list.querySelector('.hub-capture-empty')?.remove();if(!captures.length)this.list.createDiv({cls:'hub-capture-empty',text:this.service.count?'No items match this filter.':'Your Inbox is empty. Use Quick Add to save something for later.'});
-        captures.forEach((capture,index)=>{let row=this.rows.get(capture.id);if(!row){const button=this.list.createEl('button',{cls:'hub-inbox-row',attr:{type:'button','data-capture-id':capture.id}}),icon=button.createSpan({cls:'hub-capture-icon'}),copy=button.createDiv({cls:'hub-inbox-row-copy'}),title=copy.createDiv({cls:'hub-inbox-row-title'}),date=copy.createDiv({cls:'hub-capture-muted'});row={button,icon,title,date};this.rows.set(capture.id,row);button.onclick=()=>{void this.select(capture.id)};button.oncontextmenu=e=>{e.preventDefault();this.showItemMenu(capture.id,{x:e.clientX,y:e.clientY})};}
-            setHubIcon(row.icon,capture.attachments.length?'file':'file-text');row.title.textContent=preview(capture);row.title.title=row.title.textContent;row.date.textContent=formatDateTime(new Date(capture.createdAt));row.button.classList.toggle('is-selected',capture.id===this.selectedId);row.button.setAttribute('aria-pressed',String(capture.id===this.selectedId));if(this.list.children[index]!==row.button)this.list.insertBefore(row.button,this.list.children[index]??null);
+        captures.forEach((capture,index)=>{let row=this.rows.get(capture.id);if(!row){const button=this.list.createEl('button',{cls:'hub-inbox-row',attr:{type:'button','data-capture-id':capture.id}}),icon=button.createSpan({cls:'hub-capture-icon'}),copy=button.createDiv({cls:'hub-inbox-row-copy'}),title=copy.createDiv({cls:'hub-inbox-row-title'}),date=copy.createDiv({cls:'hub-capture-muted'});row={button,icon,title,date};this.rows.set(capture.id,row);button.onmousedown=e=>{if(e.shiftKey)e.preventDefault();};button.onclick=e=>{void this.changeSelection(capture.id,e,true)};button.oncontextmenu=async e=>{e.preventDefault();await this.openItem(capture.id);if(this.checkedIds.size===1&&this.selectedId===capture.id)this.showItemMenu(capture.id,{x:e.clientX,y:e.clientY})};}
+            setHubIcon(row.icon,capture.attachments.length?fileIcon(capture.attachments[0].name||capture.attachments[0].path):'file-text');row.title.textContent=preview(capture);row.title.title=row.title.textContent;row.date.textContent=formatDateTime(new Date(capture.createdAt));row.button.classList.toggle('is-selected',this.checkedIds.has(capture.id));row.button.setAttribute('aria-pressed',String(this.checkedIds.has(capture.id)));if(this.list.children[index]!==row.button)this.list.insertBefore(row.button,this.list.children[index]??null);
         });this.list.scrollTop=scroll;
-        if(!captures.some(c=>c.id===this.selectedId)){this.resetForm();this.selectedId=captures[0]?.id??null;this.loadSelected();for(const [id,row]of this.rows){row.button.classList.toggle('is-selected',id===this.selectedId);row.button.setAttribute('aria-pressed',String(id===this.selectedId))}}
+        this.syncSelection();
+    }
+    syncSelection(){
+        const first=this.service.get([...this.checkedIds][0]),group=first?bulkEligibility(first,this.service.activeBulk).group:null;
+        for(const [id,row]of this.rows){const eligibility=bulkEligibility(this.service.get(id),this.service.activeBulk),reason=eligibility.reason??(group&&eligibility.group!==group?'Select texts or files separately.':'');row.button.setAttribute('aria-description',reason||'Ctrl-click toggles selection. Shift-click selects a range.');row.button.classList.toggle('is-selected',this.checkedIds.has(id));row.button.setAttribute('aria-pressed',String(this.checkedIds.has(id)));}
+    }
+    async changeSelection(id,modifiers={},focus=false){
+        if(this.busy||!await this.flushEdits())return;
+        const next=inboxSelection(this.visible(),this.checkedIds,this.selectionAnchor,id,modifiers,c=>bulkEligibility(c,this.service.activeBulk));
+        if(!next||next.reason){this.syncSelection();return;}
+        this.remember();this.checkedIds=new Set(next.ids);this.selectionAnchor=next.anchor;this.selectionEmpty=!next.ids.length;
+        this.selectedId=this.checkedIds.has(id)?id:next.ids[0]??null;
+        this.resetForm();this.loadSelected();this.refresh();if(focus)this.rows.get(id)?.button.focus({preventScroll:modifiers.type!=="keydown"});
+    }
+    async openItem(id,focus=false){return this.changeSelection(id,{},focus);}
+    renderBulk(){
+        const captures=this.visible().filter(c=>this.checkedIds.has(c.id)),files=captures[0].attachments.length>0,batch=this.service.activeBulk,refs=files?inboxFiles(captures,ref=>this.service.attachmentPath(ref)):[];
+        this.draft=null;this.sourceInput=null;
+        this.detail.createEl('h3',{text:`${files?refs.length:captures.length} ${files?'file'+(refs.length===1?'':'s'):'texts'} selected`,cls:'hub-inbox-detail-title'});
+        const body=this.detail.createDiv({cls:'hub-inbox-action-body hub-inbox-bulk-body '+(files?'hub-inbox-bulk-files':'hub-inbox-bulk-texts')});
+        if(batch){body.createDiv({text:bulkMessage(batch),cls:'hub-capture-muted',attr:{role:'status'}});if(batch.error)body.createDiv({text:batch.error,cls:'hub-task-error'});}
+        if(batch)body.createDiv({text:'Retry keeps all remaining batch items and their original order.',cls:'hub-capture-muted'});
+        if(files){this.bulkFilesList=body.createDiv({cls:'hub-capture-attachments hub-inbox-bulk-files-list'});attachments(this.bulkFilesList,refs,this.service,{remove:ref=>{void this.deselectFile(ref,refs.indexOf(ref));},removeLabel:'Deselect'});if(batch)for(const button of this.bulkFilesList.querySelectorAll('button')){button.disabled=true;button.title='Finish the retained batch before changing its selection.';}this.bulkFilesList.scrollTop=this.bulkFileScroll;}
+        const actions=body.createDiv({cls:'hub-inbox-organize-actions'});
+        for(const choice of captureActions(captures[0])){
+            const inputs=batch?remainingMembers(batch).map(m=>m.input):captures,count=choice.mode==='file'?distinctFileCount(inputs):inputs.length,button=captureAction(actions,{...choice,label:bulkLabel(choice.mode,count,true)},mode=>{void this.showBulkAction(mode,batch?.id)});
+            button.disabled=!!batch&&choice.mode!==batch.action;
+        }
+        action(this.detail.createDiv({cls:'hub-capture-actions hub-inbox-action-footer'}),'Clear selection',null,()=>{this.checkedIds.clear();this.selectionEmpty=true;this.selectedId=null;this.resetForm();this.loadSelected();this.refresh();});
+    }
+    async deselectFile(ref,index){
+        if(this.busy||this.service.activeBulk||!await this.flushEdits())return;
+        const path=this.service.attachmentPath(ref),removed=new Set(this.visible().filter(c=>this.checkedIds.has(c.id)&&c.attachments.some(a=>this.service.attachmentPath(a)===path)).map(c=>c.id));
+        if(!removed.size)return;
+        this.checkedIds=new Set([...this.checkedIds].filter(id=>!removed.has(id)));
+        this.selectionEmpty=!this.checkedIds.size;
+        if(!this.checkedIds.has(this.selectedId))this.selectedId=[...this.checkedIds][0]??null;
+        if(removed.has(this.selectionAnchor))this.selectionAnchor=this.selectedId;
+        this.resetForm();this.loadSelected();this.refresh();
+        const buttons=this.bulkFilesList?.querySelectorAll('[aria-label^="Deselect "]');
+        (buttons?.[Math.min(index,buttons.length-1)]??this.rows.get(this.selectedId)?.button??this.filterButtons.find(f=>f.key===this.filter)?.button)?.focus({preventScroll:true});
     }
     showItemMenu(id,position){const c=this.service.get(id);if(!c||this.busy)return;const menu=ownMenuColors(new Menu());menu.addItem(i=>i.setTitle('Open').setIcon('panel-right-open').onClick(()=>this.select(id)));if(!c.attachments.length)menu.addItem(i=>i.setTitle('Create task').setIcon('square-plus').onClick(async()=>{await this.select(id);if(this.selectedId===id)await this.createTask()}));menu.addSeparator();menu.addItem(i=>i.setTitle('Delete').setIcon('trash-2').setWarning(true).onClick(()=>this.remove(id)));menu.showAtPosition(position)}
-    async select(id,focus=false){if(this.busy||id===this.selectedId||!await this.flushEdits())return;this.remember();this.resetForm();this.selectedId=id;this.loadSelected();this.refresh();if(focus)this.rows.get(id)?.button.focus({preventScroll:true})}
+    async select(id,focus=false){return this.changeSelection(id,{},focus);}
     remember(){if(!this.selectedId||!this.draft)return;const value=this.form?.value()??this.draft;this.draft={...this.draft,...value};this.drafts.set(this.selectedId,clone(this.draft));}
     resetForm(){this.form?.destroy();this.form=null;this.mode=null;this.draft=null;this.dirty=false;this.save=null}
     loadSelected(){
+        this.bulkFileScroll=this.bulkFilesList?.scrollTop??this.bulkFileScroll;this.bulkFilesList=null;
         this.detail.empty();this.detail.classList.add('is-action-form');const c=this.service.get(this.selectedId);
+        if(this.checkedIds.size>=2){this.renderBulk();return;}
         if(!c){this.detail.createDiv({cls:'hub-capture-empty',text:'Select an item to organize.'});return;}
         this.draft=clone(this.drafts.get(c.id)??captureDraft(c));
         this.detail.createEl('h3',{text:c.attachments.length?'File':'Text',cls:'hub-inbox-detail-title hub-inbox-action-heading'});
         const body=this.detail.createDiv({cls:'hub-inbox-action-body'});this.sourceInput=null;
-        if(c.text||!c.attachments.length){this.sourceInput=body.createEl('textarea',{cls:'hub-quick-add-input',attr:{rows:'4','aria-label':'Captured content'}});this.sourceInput.value=this.draft.text;this.sourceInput.disabled=!!operationMode(c);this.sourceInput.oninput=()=>{this.draft.text=this.sourceInput.value;this.dirty=true;};}
+        if(c.text||!c.attachments.length){this.sourceInput=body.createEl('textarea',{cls:'hub-quick-add-input',attr:{rows:'4','aria-label':'Captured content'}});this.sourceInput.value=this.draft.text;this.sourceInput.disabled=!!operationMode(c)||!!this.service.bulkMember(c.id);this.sourceInput.oninput=()=>{this.draft.text=this.sourceInput.value;this.dirty=true;};}
         if(c.attachments.length)attachments(body.createDiv({cls:'hub-capture-attachments'}),c.attachments,this.service,{open:ref=>{void this.run(()=>this.service.openAttachment(ref));}});
-        const actions=body.createDiv({cls:'hub-inbox-organize-actions'}),pending=operationMode(c);
-        const choices=c.attachments.length?[["file","File location"],["note","New note"]]:[["task","Create task"],["note","New note"],["text","Add to existing note"]];
-        for(const[mode,label]of choices){const button=action(actions,label,null,()=>{void this.showAction(mode);},mode==='task'?'mod-cta':'');button.disabled=!!pending&&pending!==mode;}
+        const actions=body.createDiv({cls:'hub-inbox-organize-actions'+(!c.attachments.length?' hub-capture-action-row':'')}),pending=operationMode(c);
+        for(const choice of captureActions(c,true)){
+            const button=captureAction(actions,choice,mode=>{void this.showAction(mode);});
+            button.disabled=this.service.bulkMember(c.id)?this.service.activeBulk.action!==choice.mode:!!pending&&pending!==choice.mode;
+        }
         if(pending)body.createDiv({cls:'hub-capture-muted',text:'Retry the saved action to confirm its outcome. Its original content and destination are retained.'});
+        if(this.service.bulkMember(c.id))body.createDiv({cls:'hub-capture-muted',text:bulkMessage(this.service.activeBulk)+(this.service.activeBulk.error?' '+this.service.activeBulk.error:'')});
         const footer=this.detail.createDiv({cls:'hub-capture-actions hub-inbox-action-footer'});
-        this.deleteButton=action(footer,'Delete','trash-2',()=>{void this.remove(c.id)},'hub-capture-delete');this.deleteButton.disabled=c.operation?.kind==='native-task';
+        this.deleteButton=action(footer,'Delete','trash-2',()=>{void this.remove(c.id)},'hub-capture-delete');this.deleteButton.disabled=c.operation?.kind==='native-task'||!!this.service.bulkMember(c.id);
     }
     async showAction(mode){
         if(this.busy||this.closed)return;
+        if(this.service.bulkMember(this.selectedId)){if(mode===this.service.activeBulk.action)return this.showBulkAction(mode,this.service.activeBulk.id);return;}
         this.busy=true;
         try{
             if(!await this.flushEdits())return;
             const id=this.selectedId,visible=this.visible(),index=visible.findIndex(c=>c.id===id);
-            const state={filter:this.filter,selectedId:id,scrollTop:this.list.scrollTop};
+            const state={filter:this.filter,sortOrder:this.sortOrder,selectedId:id,scrollTop:this.list.scrollTop,checkedIds:[...this.checkedIds],selectionAnchor:this.selectionAnchor,bulkDrafts:this.bulkDrafts};
             this.remember();this.busy=false;super.close();
             const resume=result=>Promise.resolve().then(()=>{
                 if(result.status==='created'||result.status==='completed'){
@@ -18321,6 +19004,24 @@ class InboxModal extends CaptureModal {
             try{openCaptureAction(this.service,{captureId:id,mode,onClose:resume});}catch(error){resume({status:'failed',error:error.message});}
         }finally{this.busy=false;}
     }
+    async showBulkAction(mode,batchId){
+        if(this.busy||this.closed)return;this.busy=true;
+        try{
+            if(!await this.flushEdits())return;
+            const ids=batchId?remainingMembers(this.service.activeBulk).map(m=>m.id):this.visible().filter(c=>this.checkedIds.has(c.id)).map(c=>c.id);
+            if(!batchId&&ids.length<2)return;
+            const state={filter:this.filter,sortOrder:this.sortOrder,selectedId:this.selectedId,scrollTop:this.list.scrollTop,checkedIds:ids,selectionAnchor:this.selectionAnchor,bulkFileScroll:this.bulkFilesList?.scrollTop??this.bulkFileScroll,bulkDrafts:this.bulkDrafts};
+            this.remember();this.busy=false;super.close();
+            const resume=result=>Promise.resolve().then(()=>{
+                state.checkedIds=this.service.activeBulk?remainingMembers(this.service.activeBulk).map(m=>m.id):ids.filter(id=>this.service.get(id));
+                if(result.status==='completed')ownNoticeColors(new Notice(result.result.message));
+                else if(result.status==='failed')ownNoticeColors(new Notice(result.error));
+                if(this.options.onResume)this.options.onResume(state);else new InboxModal(this.app,this.service,{...this.options,resumeState:state}).open();
+            });
+            try{this.bulkChild=openBulkAction(this.service,{ids,mode,batchId,draft:this.bulkDrafts[mode],onDraftChange:value=>{this.bulkDrafts[mode]=value;},onClose:resume});}
+            catch(error){resume({status:'failed',error:error.message});}
+        }finally{this.busy=false;}
+    }
     async flushEdits(){
         if(!this.dirty||!this.selectedId)return true;
         const id=this.selectedId,value=clone(this.form?.value()??this.draft),input=this.sourceInput,disabled=input?.disabled;
@@ -18330,16 +19031,16 @@ class InboxModal extends CaptureModal {
         catch(error){this.error.textContent=error.message;return false;}
         finally{if(input?.isConnected)input.disabled=disabled;}
     }
-    sync(){if(this.needsRefresh&&!this.busy){this.needsRefresh=false;this.refresh();}}
+    sync(){if(this.needsRefresh&&!this.busy){this.needsRefresh=false;this.refresh();}this.syncSelection();}
     async createTask(){return this.showAction('task');}
-    async remove(id){if(this.busy||!this.service.get(id)||this.confirmation)return;const dialog=this.confirmation=new CaptureConfirmation(this.app,null,{title:'Delete this inbox item?',message:'This item will be removed from your Inbox.',confirmLabel:'Delete',destructive:true});const yes=await dialog.ask();this.confirmation=null;if(!yes||this.closed)return;await this.run(async()=>{await this.service.delete(id);this.drafts.delete(id);this.resetForm();this.selectedId=null;this.refresh()});}
+    async remove(id){if(this.busy||!this.service.get(id)||this.confirmation||this.checkedIds.size>=2||this.service.bulkMember(id))return;const dialog=this.confirmation=new CaptureConfirmation(this.app,null,{title:'Delete this inbox item?',message:'This item will be removed from your Inbox.',confirmLabel:'Delete',destructive:true});const yes=await dialog.ask();this.confirmation=null;if(!yes||this.closed)return;await this.run(async()=>{await this.service.delete(id);this.drafts.delete(id);this.resetForm();this.selectedId=null;this.refresh()});}
     async close(){
         if(this.busy||this.closed||this.closing)return;
         this.closing=true;this.busy=true;
         try{if(!await this.flushEdits())return;this.busy=false;super.close();}
         finally{this.closing=false;this.busy=false;if(!this.closed)this.sync();}
     }
-    onClose(){this.modalEl.removeEventListener('keydown',this.deleteKey);this.confirmation?.close();this.sortMenu?.hide();this.remember();this.service.scheduleNativeRefresh?.();super.onClose()}
+    onClose(){this.modalEl.removeEventListener('keydown',this.deleteKey);this.confirmation?.close();this.sortMenu?.hide();this.stopSortToggle?.();this.remember();this.service.scheduleNativeRefresh?.();super.onClose()}
 }
 module.exports={InboxModal};
 
@@ -21726,6 +22427,7 @@ const { Notice } = require("obsidian");
 const { mountTaskText } = __hubRequire("lib/ui/task-form.js");
 const { linkFromText } = __hubRequire("lib/domain/inbox.js");
 const { openCaptureAction, operationMode } = __hubRequire("lib/ui/capture-flow.js");
+const { captureActions, captureAction } = __hubRequire("lib/ui/capture-actions.js");
 
 class QuickAddModal extends CaptureModal {
     constructor(app, service, options = {}) {
@@ -21735,9 +22437,11 @@ class QuickAddModal extends CaptureModal {
     }
     onOpen() { ownModalColors(this);
         this.modalEl.classList.add("hub-quick-add-dialog");
-        this.header("Quick Add", "Write down a thought, or add a file", "zap");
+        this.header("Quick Add", "Write down a thought, or choose files", "zap");
         this.body = this.contentEl.createDiv({ cls: "hub-capture-body" });
-        this.textPath = this.body.createDiv({ cls: "hub-capture-text-editor" });
+        this.captureRegion = this.body.createDiv({ cls: "hub-quick-capture-region" });
+        this.textCapture = this.captureRegion.createDiv({ cls: "hub-quick-text-capture" });
+        this.textPath = this.textCapture.createDiv({ cls: "hub-capture-text-editor" });
         this.input = mountTaskText(this.textPath, this.draft, patch => { this.checkpoint({ text: patch.text, actionDrafts: {}, lastAction: null }); this.sync(); },
             { multiline: true, required: false, placeholder: "Start typing...", attributes: { "aria-label": "Write something" } });
         this.input.addEventListener("keydown", event => {
@@ -21768,48 +22472,64 @@ class QuickAddModal extends CaptureModal {
             this.input.setRangeText(prefix + text, start, end, "end");
             this.checkpoint({ text: this.input.value, actionDrafts: {}, lastAction: null }); this.sync(); this.input.focus();
         });
-        this.attachmentList = this.body.createDiv({ cls: "hub-capture-attachments" });
-        this.fileInput = this.body.createEl("input", { attr: { type: "file", multiple: "", hidden: "", tabindex: "-1", "aria-label": "Choose a file" } });
+        this.destinations = this.textCapture.createDiv({ cls: "hub-quick-capture-actions", attr: { role: "group", "aria-label": "Capture actions" } });
+        this.attachmentList = this.captureRegion.createDiv({ cls: "hub-capture-attachments" });
+        this.attachmentList.hidden = true;
+        this.fileInput = this.body.createEl("input", { attr: { type: "file", multiple: "", hidden: "", tabindex: "-1", "aria-label": "Choose files" } });
         this.fileInput.addEventListener("change", () => { void this.addAttachments([...this.fileInput.files]); this.fileInput.value = ""; });
-        this.attach = action(this.body, "Add a file", "paperclip", () => this.fileInput.click(), "hub-capture-attach");
-        this.chooser = this.body.createDiv({ cls: "hub-capture-specify", attr: { role: "group", "aria-label": "Specify destination" } }); this.chooser.hidden = true;
+        this.attach = action(this.body, "Choose files", "paperclip", () => { if (!this.attach.disabled) this.fileInput.click(); }, "hub-capture-attach");
         const footer = this.contentEl.createDiv({ cls: "hub-capture-actions" });
         this.clear = action(footer, "Clear", null, () => { void this.clearDraft(); });
-        this.more = action(footer, "Specify", null, () => { this.chooser.hidden = !this.chooser.hidden; this.more.setAttribute("aria-expanded", String(!this.chooser.hidden)); if (!this.chooser.hidden) this.chooser.querySelector("button:not(:disabled)")?.focus(); });
-        this.more.setAttribute("aria-expanded", "false");
+        this.fileAction = action(footer, "Add files to...", "folder-input", () => { void this.launchAction("file"); });
+        this.fileAction.dataset.captureAction = "file"; this.fileAction.hidden = true;
         this.send = action(footer, "Send to Inbox", null, () => { void this.sendInbox(); }, "mod-cta");
-        this.feedback = this.contentEl.createDiv({ cls: "hub-capture-feedback", attr: { role: "status", "aria-live": "polite", "aria-atomic": "true" } });
-        if (operationMode(this.draft)) this.feedback.textContent = "Choose Specify to retry the saved action, or send it to Inbox.";
-        this.renderAttachments(); this.sync(); if (!this.draft.attachments.length) this.input.focus();
+        this.renderActions();
+        // Size once from the existing empty text layout, including current fonts.
+        const height = this.captureRegion.getBoundingClientRect().height;
+        if (height > 0) this.captureRegion.style.setProperty("--hub-quick-capture-height", height + "px");
+        this.captureRegion.classList.add("is-sized");
+        const dialogHeight = this.modalEl.getBoundingClientRect().height;
+        if (dialogHeight > 0) this.modalEl.style.setProperty("--hub-quick-dialog-height", dialogHeight + "px");
+        this.renderAttachments({ revealNewest: true }); this.sync(); if (!this.draft.attachments.length) this.input.focus();
     }
     checkpoint(patch) {
-        this.feedback.textContent = "Saving draft?";
         const save = this.service.saveQuickDraft(patch, this.draft.id); this.draft = this.service.quickDraft();
-        save.then(() => { if (!this.closed && this.feedback.textContent === "Saving draft?") this.feedback.textContent = ""; }, error => { if (!this.closed) this.error.textContent = "Draft not saved: " + error.message; });
+        save.then(() => {
+            if (!this.closed && this.error.textContent.startsWith("Draft not saved:")) this.error.textContent = "";
+        }, error => { if (!this.closed) this.error.textContent = "Draft not saved: " + error.message; });
         return save;
     }
-    renderAttachments() {
-        attachments(this.attachmentList, this.draft.attachments, this.service, { remove: ref => { void this.run(async () => {
+    renderAttachments({ revealNewest = false } = {}) {
+        const scroll = this.attachmentList.scrollTop;
+        attachments(this.attachmentList, [...this.draft.attachments].reverse(), this.service, { remove: ref => { void this.run(async () => {
             await this.service.removeQuickAttachment(this.draft.id, ref.id); this.draft = this.service.quickDraft(); this.renderAttachments();
         }); } });
-        this.renderChoices();
+        this.attachmentList.scrollTop = revealNewest ? 0 : scroll;
     }
-    renderChoices() {
-        this.chooser.empty();
-        const choices = this.draft.attachments.length ? [["file", "File location"]] : [["task", "Task"], ["note", "New note"], ["text", "Add to existing note"]];
-        const pending = operationMode(this.draft);
-        for (const [mode, label] of choices) { const button = action(this.chooser, label, null, () => { void this.specify(mode); }); button.disabled = !!pending && pending !== mode; }
+    renderActions() {
+        this.destinations.empty();
+        this.actionButtons = captureActions({ attachments: [] }).map(choice =>
+            captureAction(this.destinations, choice, mode => { void this.launchAction(mode); }));
     }
     sync() {
         if (this.closed || !this.send) return;
         const file = this.draft.attachments.length > 0, text = !!this.draft.text.trim(), waiting = this.busy || !!this.pendingImports || this.closing;
         const locked = !!this.draft.operation && this.draft.operation.state !== "done";
-        this.textPath.hidden = file; this.input.disabled = !!waiting || locked;
-        this.attach.hidden = file || text; this.attach.disabled = !!waiting; this.fileInput.disabled = !!waiting;
+        this.textCapture.hidden = file; this.textPath.hidden = file; this.destinations.hidden = file;
+        this.attachmentList.hidden = !file; this.input.disabled = !!waiting || locked;
+        this.attach.querySelector("span:last-child").textContent = file ? "Choose more files" : "Choose files";
+        this.attach.disabled = !!waiting || locked || text; this.fileInput.disabled = this.attach.disabled;
         this.clear.title = locked ? "Finish or review the saved action before clearing this draft." : "Discard this draft";
         this.clear.disabled = !!waiting || locked || !(file || this.draft.text.length || Object.keys(this.draft.actionDrafts ?? {}).length);
-        this.more.disabled = !!waiting || !(file || text); this.send.disabled = !!waiting || !(file || text);
-        this.chooser.querySelectorAll("button").forEach(button => { button.disabled = !!waiting || (!!operationMode(this.draft) && button.textContent !== ({ task: "Task", note: "New note", text: "Add to existing note", file: "File location" }[operationMode(this.draft)])); });
+        const pendingBatch = file && this.draft.attachments.length > 1 && locked;
+        this.send.disabled = !!waiting || !(file || text) || pendingBatch;
+        this.send.title = pendingBatch ? "Retry the saved file placement before sending files separately to Inbox." : "";
+        const pending = operationMode(this.draft);
+        this.fileAction.hidden = !file;
+        this.fileAction.disabled = !!waiting || !file || (!!pending && pending !== "file");
+        this.actionButtons.forEach(button => {
+            button.disabled = !!waiting || file || !text || (!!pending && button.dataset.captureAction !== pending);
+        });
         this.attachmentList.querySelectorAll("button").forEach(button => button.disabled = !!waiting || locked);
     }
     addAttachments(files) {
@@ -21819,7 +22539,7 @@ class QuickAddModal extends CaptureModal {
         this.pendingImports++; this.sync();
         const operation = this.importQueue.then(() => this.run(async () => {
             try { await this.service.stageQuickFiles(files, this.draft.id); }
-            finally { this.draft = this.service.quickDraft(); this.renderAttachments(); }
+            finally { this.draft = this.service.quickDraft(); this.renderAttachments({ revealNewest: true }); }
         })).finally(() => { this.pendingImports--; this.sync(); });
         this.importQueue = operation.catch(() => {}); return operation;
     }
@@ -21829,8 +22549,8 @@ class QuickAddModal extends CaptureModal {
             await this.service.flushQuickDraft(this.draft.id);
             await this.service.sendQuickDraft(this.draft.id);
             this.draft = this.service.quickDraft(this.options.source); this.input.value = "";
-            this.chooser.hidden = true; this.more.setAttribute("aria-expanded", "false"); this.renderAttachments();
-            this.feedback.textContent = "? Sent to Inbox.";
+            this.renderAttachments();
+            ownNoticeColors(new Notice("Sent to Inbox."));
             // run() restores the disabled state before the focus gesture.
             setTimeout(() => { if (!this.closed) this.input.focus(); }, 0);
         });
@@ -21839,12 +22559,13 @@ class QuickAddModal extends CaptureModal {
         if (this.busy || this.pendingImports) return;
         return this.run(async () => {
             await this.service.clearQuickDraft(this.draft.id); this.draft = this.service.quickDraft(); this.input.value = "";
-            this.chooser.hidden = true; this.more.setAttribute("aria-expanded", "false"); this.renderAttachments(); this.feedback.textContent = "Draft cleared.";
+            this.renderAttachments();
             setTimeout(() => { if (!this.closed) this.input.focus(); }, 0);
         });
     }
-    async specify(mode) {
-        if (this.busy || this.pendingImports) return;
+    async launchAction(mode) {
+        const choice = mode === "file" ? this.fileAction : this.actionButtons.find(button => button.dataset.captureAction === mode);
+        if (!choice || choice.hidden || choice.disabled || this.busy || this.pendingImports || this.closing) return;
         this.busy = true; this.sync();
         try {
             await this.service.flushQuickDraft(this.draft.id);
@@ -23845,7 +24566,7 @@ const LOCATION_MODES = {
     file: { title: "File location", subtitle: "Choose where this file belongs.", action: "Add file" }
 };
 function openLocationPicker(app, { locations, owner, reference = null, allowOwnerChange = false, taskTitle = "", contextTitle = taskTitle,
-    mode = "task", noteTitle = "", confirmLabel, onDraftChange = () => {}, beforeClose, onChoose, onClose = () => {} }) {
+    mode = "task", noteTitle = "", editNoteTitle = true, confirmLabel, selectionLocked = () => false, onDraftChange = () => {}, beforeClose, onChoose, onClose = () => {} }) {
     const config = LOCATION_MODES[mode];
     if (!config) throw Error("Unknown location mode.");
     const accepts = type => mode === "text" ? type === "note" : mode === "task" ? ["folder", "note"].includes(type) : type === "folder";
@@ -23860,7 +24581,7 @@ function openLocationPicker(app, { locations, owner, reference = null, allowOwne
             this.owner = owner ? { ...owner } : null;
             try { if (this.owner) locations.workspace(this.owner); } catch (_) { this.owner = null; }
             this.titleValue = noteTitle;
-            if (mode === "note") {
+            if (mode === "note" && editNoteTitle) {
                 const label = this.contentEl.createEl("label", { cls: "hub-capture-field hub-location-note-title", text: "Title" });
                 this.titleInput = label.createEl("input", { type: "text", attr: { "aria-label": "Note title", required: "" } });
                 this.titleInput.value = noteTitle;
@@ -24062,6 +24783,10 @@ function openLocationPicker(app, { locations, owner, reference = null, allowOwne
                 if (row.dataset.locationType === "note") row.setAttribute("aria-pressed", String(selected));
             }
             if (this.owner) this.renderBreadcrumbs(); else this.breadcrumbs.empty();
+            if (selectionLocked()) {
+                this.workspaceButton.disabled = true;
+                for (const button of this.contentEl.querySelectorAll('.hub-task-location-entries button,.hub-task-location-breadcrumbs button')) button.disabled = true;
+            }
         }
         renderBreadcrumbs() {
             const w = locations.workspace(this.owner), route = relativePath(w.root, this.path).split("/").filter(Boolean);
@@ -25420,6 +26145,85 @@ function createWorkspaceCards({ app, root, component, renderImage, categories = 
 module.exports = { createWorkspaceCards };
 
 },
+"lib/ui/workspace-explorer-menu.js": function (module, exports, __hubRequire) {
+"use strict";
+
+const { Menu, Notice } = require("obsidian");
+const { ownMenuColors, ownNoticeColors } = __hubRequire("lib/ui/color-system.js");
+
+// Full-view menus deliberately omit Obsidian's file-menu contribution hook.
+// Existing callbacks route structural actions through the Itacan coordinator.
+function createExplorerHost(plugin, { FolderPicker, confirm }) {
+    const app = plugin.app;
+    const error = value => ownNoticeColors(new Notice(value?.message ?? String(value)));
+    function populate(menu, entries, rootMenu = menu) {
+        for (const entry of entries) {
+            if (!entry) { menu.addSeparator(); continue; }
+            menu.addItem(item => {
+                item.setTitle(entry.title).setDisabled(!!entry.disabled);
+                if (entry.icon) item.setIcon(entry.icon);
+                if (entry.checked !== undefined) item.setChecked(entry.checked);
+                if (entry.warning) item.setWarning(true);
+                if (entry.items && typeof item.setSubmenu === "function") populate(item.setSubmenu(), entry.items, rootMenu);
+                else if (entry.items) item.onClick(() => {
+                    const bounds = rootMenu.dom?.getBoundingClientRect(); rootMenu.hide();
+                    const submenu = ownMenuColors(new Menu()); populate(submenu, entry.items);
+                    submenu.showAtPosition({ x: bounds?.left ?? 0, y: bounds?.top ?? 0 });
+                });
+                else item.onClick(() => { rootMenu.hide(); void Promise.resolve().then(entry.run).catch(error); });
+            });
+        }
+    }
+    function desktop() {
+        try {
+            const base = app.vault.adapter.getBasePath?.();
+            const shell = require("electron").shell;
+            return base && typeof shell?.showItemInFolder === "function" ? { base, shell } : null;
+        } catch (_) { return null; }
+    }
+    return {
+        showMenu(event, entries) {
+            event.preventDefault?.(); event.stopPropagation?.();
+            const menu = ownMenuColors(new Menu()); populate(menu, entries);
+            const trigger = event.currentTarget?.closest?.("button") ?? event.target?.closest?.("button");
+            if (trigger) {
+                trigger.setAttribute("aria-expanded", "true");
+                menu.onHide(() => trigger.setAttribute("aria-expanded", "false"));
+            }
+            const target = event.currentTarget?.getBoundingClientRect?.() ?? event.target?.getBoundingClientRect?.();
+            if (event.type === "click" && target) menu.showAtPosition({ x: target.left, y: target.bottom });
+            else menu.showAtMouseEvent(event);
+            return menu;
+        },
+        canReveal: () => !!desktop(),
+        reveal(path, openFolder = false) {
+            const host = desktop();
+            if (!host || !app.vault.getAbstractFileByPath(path)) throw Error("System explorer is unavailable for this location.");
+            const fullPath = require("path").join(host.base, path);
+            if (openFolder && host.shell.openPath) return host.shell.openPath(fullPath).then(message => { if (message) throw Error(message); });
+            host.shell.showItemInFolder(fullPath);
+        },
+        copyPaths: paths => navigator.clipboard.writeText(paths.join("\n")),
+        renameFile: path => plugin.renameProjectFile(app.vault.getAbstractFileByPath(path)),
+        deleteFile: path => plugin.deleteProjectFile(app.vault.getAbstractFileByPath(path)),
+        duplicateFile: path => plugin.duplicateProjectFile(app.vault.getAbstractFileByPath(path)),
+        openWindow: path => app.workspace.getLeaf("window").openFile(app.vault.getAbstractFileByPath(path)),
+        async renameFolder(name, run) {
+            const api = app.plugins.plugins.quickadd?.api;
+            if (!api) throw Error("QuickAdd is not enabled.");
+            let value; try { value = await api.inputPrompt("Folder name", "", name); } catch (_) { return; }
+            if (value) await run(value);
+        },
+        async deleteFolder(name, run) {
+            if (await confirm(app, "Delete folder?", `Delete "${name}" and everything inside it?`)) await run();
+        },
+        moveTo(run) { new FolderPicker(app, async target => { try { await run(target); } catch (value) { error(value); } }).open(); }
+    };
+}
+
+module.exports = { createExplorerHost };
+
+},
 "lib/ui/workspace-explorer.js": function (module, exports, __hubRequire) {
 "use strict";
 
@@ -25428,7 +26232,7 @@ const { fileIcon } = __hubRequire("lib/ui/file-icons.js");
 const { formatDateTime } = __hubRequire("lib/domain/dates.js");
 
 function mountWorkspaceExplorer({ parent, workspacePath, dashboardPath, descriptors, getByPath,
-    states, persist, setIcon, openFile, createItem, contextMenu, decorateRow = () => {},
+    states, persist, setIcon, openFile, createItem, renameItem = null, clipboard = null, contextMenu, showMenu = () => {}, canSelect = () => true, canCreateNote = path => path !== workspacePath, decorateRow = () => {},
     selectItem = () => false, clearSelection = () => {}, selectedPaths = new Set(),
     decorateFolder = () => {}, isNoteView = () => !!parent.closest(".hub-project-rail"), formatTime = value => formatDateTime(new Date(value)) }) {
     const doc = parent.ownerDocument;
@@ -25465,6 +26269,11 @@ function mountWorkspaceExplorer({ parent, workspacePath, dashboardPath, descript
     search.placeholder = "Search files...";
     search.setAttribute("aria-label", "Search files in this workspace");
     const body = el(shell, "div", "hub-explorer-body");
+    const toolbar = el(body, "div", "hub-explorer-toolbar");
+    const createNote = button(toolbar, "hub-explorer-create-note", "New note", "file-plus-2");
+    const createFolder = button(toolbar, "hub-explorer-create-folder", "New folder", "folder-plus");
+    const sortButton = button(toolbar, "hub-explorer-sort", "Sort by", "list-sort-descending");
+    sortButton.setAttribute("aria-haspopup", "menu"); sortButton.setAttribute("aria-expanded", "false");
     const tree = el(body, "div", "hub-explorer-tree");
     tree.setAttribute("role", "tree");
     tree.setAttribute("aria-label", "Workspace folders and files");
@@ -25472,6 +26281,12 @@ function mountWorkspaceExplorer({ parent, workspacePath, dashboardPath, descript
     const details = el(body, "div", "hub-explorer-details");
     const location = el(details, "div", "hub-explorer-location");
     const breadcrumb = el(location, "nav", "hub-explorer-breadcrumb");
+    body.insertBefore(location, tree);
+    const splitter = el(body, "div", "hub-explorer-splitter");
+    splitter.tabIndex = 0;
+    splitter.setAttribute("role", "separator");
+    splitter.setAttribute("aria-orientation", "vertical");
+    splitter.setAttribute("aria-label", "Folder navigation width");
     breadcrumb.setAttribute("aria-label", "Selected folder");
     const columns = el(details, "div", "hub-explorer-columns");
     const contents = el(details, "div", "hub-explorer-contents");
@@ -25485,19 +26300,57 @@ function mountWorkspaceExplorer({ parent, workspacePath, dashboardPath, descript
     const editor = el(shell, "div", "hub-explorer-editor");
     editor.hidden = true;
     let model, filtered, currentPath = null, activePath = null, focusPath = null;
-    let query = "", editing = null, disposed = false;
+    let query = "", editing = null, disposed = false, repainting = false;
+    let selectionPane = null, selectionAnchor = null, detailFocusPath = null;
+    const events = new doc.defaultView.AbortController();
     // currentPath belongs to Full-view; activePath only describes the open Note file.
     let noteView = isNoteView(), rememberedFolder = false;
     const searchCollapsed = new Set();
     const activeQuery = () => isNoteView() ? query : "";
     const ui = path => states()[path] ?? {};
+    const fullState = () => ui(workspacePath).fullExplorer ?? {};
+    function saveFull(changes) { save(workspacePath, { fullExplorer: { ...fullState(), ...changes } }); }
+    const sortState = () => fullState().sort ?? { sortKey: "name", sortDirection: "asc" };
+    const treeChildren = node => {
+        const children = node.children.filter(child => filtered.visible.has(child.path) && (isNoteView() || child.folder));
+        return isNoteView() ? children : sortExplorerChildren(children, sortState());
+    };
+    const selectable = node => !!node?.parent && canSelect(node.path);
+    function paneRows(pane) { return [...pane.querySelectorAll("[data-path]")].filter(row => selectable(model.byPath.get(row.dataset.path))); }
+    function clearFullSelection() { selectedPaths.clear(); selectionAnchor = null; syncSelection(); }
+    function selectFull(node, event = {}, pane = contents) {
+        if (selectionPane !== pane) { selectedPaths.clear(); selectionAnchor = null; selectionPane = pane; }
+        if (!selectable(node)) { clearFullSelection(); return; }
+        const modifier = event.ctrlKey || event.metaKey;
+        if (event.shiftKey && selectionAnchor) {
+            const paths = paneRows(pane).map(row => row.dataset.path), a = paths.indexOf(selectionAnchor), b = paths.indexOf(node.path);
+            if (!modifier) selectedPaths.clear();
+            if (a >= 0 && b >= 0) paths.slice(Math.min(a, b), Math.max(a, b) + 1).forEach(path => selectedPaths.add(path));
+            else selectedPaths.add(node.path);
+        } else {
+            if (!modifier) selectedPaths.clear();
+            if (modifier && selectedPaths.has(node.path)) selectedPaths.delete(node.path); else selectedPaths.add(node.path);
+            selectionAnchor = node.path;
+        }
+        syncSelection();
+    }
+    function focusDetail(path) {
+        detailFocusPath = path;
+        const row = [...contents.querySelectorAll("[data-path]")].find(row => row.dataset.path === path);
+        row?.focus({ preventScroll: true }); row?.scrollIntoView({ block: "nearest" });
+    }
+    function setSort(next) {
+        if (editing?.committing) return;
+        cancelDraft(); saveFull({ sort: next }); render();
+    }
     function save(path, changes) {
         states()[path] = { ...ui(path), ...changes };
         persist();
     }
     function selectedFolder() { return model.byPath.get(currentPath); }
     function isExpanded(node) {
-        return node.children.length > 0 && (activeQuery() ? !searchCollapsed.has(node.path) : ui(node.path).collapsed === false);
+        return treeChildren(node).length > 0 && (activeQuery() ? !searchCollapsed.has(node.path) :
+            ui(node.path).collapsed === false || (!isNoteView() && node.path === workspacePath && ui(node.path).collapsed === undefined));
     }
     function lineage(node) {
         const result = [];
@@ -25510,7 +26363,10 @@ function mountWorkspaceExplorer({ parent, workspacePath, dashboardPath, descript
         }
     }
     function selectFolder(node, expandAncestors = false) {
+        if (editing?.committing) return;
+        cancelDraft();
         if (currentPath !== node.path) contents.scrollTop = 0;
+        if (!isNoteView() && currentPath !== node.path) { clearFullSelection(); detailFocusPath = null; }
         currentPath = node.path;
         rememberedFolder = true;
         if (expandAncestors) reveal(node);
@@ -25518,6 +26374,11 @@ function mountWorkspaceExplorer({ parent, workspacePath, dashboardPath, descript
         render();
     }
     function activate(node, event, row) {
+        if (!isNoteView()) {
+            if (node.folder) { selectFolder(node, true); if (row.closest(".hub-explorer-tree")) focusNode(node.path); else contents.focus({ preventScroll: true }); }
+            else { const file = getByPath(node.path); if (file) Promise.resolve(openFile(file)).catch(showError); }
+            return;
+        }
         if (node.parent && selectItem(event, row, node.path)) { syncSelection(); return; }
         clearSelection();
         if (node.folder) {
@@ -25535,7 +26396,7 @@ function mountWorkspaceExplorer({ parent, workspacePath, dashboardPath, descript
         }
     }
     function toggle(node, repaint = true) {
-        if (!node.children.length) return;
+        if (!treeChildren(node).length) return;
         if (activeQuery()) {
             if (searchCollapsed.has(node.path)) searchCollapsed.delete(node.path);
             else searchCollapsed.add(node.path);
@@ -25559,10 +26420,30 @@ function mountWorkspaceExplorer({ parent, workspacePath, dashboardPath, descript
     function bindRow(row, node, kind) {
         row.dataset.path = node.path;
         decorateRow(row, node, kind);
-        row.addEventListener("click", event => activate(node, event, row));
+        row.addEventListener("pointerdown", event => {
+            const pane = kind === "tree" ? tree : contents;
+            if (!isNoteView() && event.button === 0 && selectionPane !== pane) { clearFullSelection(); selectionPane = pane; }
+        });
+        row.addEventListener("click", event => {
+            if (isNoteView()) { activate(node, event, row); return; }
+            const pane = kind === "tree" ? tree : contents;
+            if (kind === "tree" && !event.ctrlKey && !event.metaKey && !event.shiftKey) {
+                selectFolder(node, true); selectFull(model.byPath.get(node.path), event, tree); focusNode(node.path);
+            } else {
+                selectFull(node, event, pane);
+                if (kind === "details") focusDetail(node.path);
+            }
+        });
+        row.addEventListener("dblclick", event => {
+            if (!isNoteView() && kind === "details" && !event.ctrlKey && !event.metaKey && !event.shiftKey) activate(node, event, row);
+        });
         row.addEventListener("contextmenu", event => {
             event.preventDefault(); event.stopPropagation();
-            contextMenu(event, node, beginCreate);
+            if (!isNoteView()) {
+                const pane = kind === "tree" ? tree : contents;
+                if (selectionPane !== pane || !selectedPaths.has(node.path)) selectFull(node, {}, pane);
+            }
+            contextMenu(event, node, beginCreate, { kind: "item" });
         });
     }
     function focusNode(path) {
@@ -25589,10 +26470,10 @@ function mountWorkspaceExplorer({ parent, workspacePath, dashboardPath, descript
             item.setAttribute("aria-level", String(depth + 1));
             item.setAttribute("aria-posinset", String(index + 1));
             item.setAttribute("aria-setsize", String(count));
-            if (node.children.length) item.setAttribute("aria-expanded", String(isExpanded(node)));
+            if (treeChildren(node).length) item.setAttribute("aria-expanded", String(isExpanded(node)));
             const row = el(item, "div", "hub-explorer-tree-row" + (node.parent ? " project-browser-row" : ""));
             row.style.setProperty("--hub-tree-depth", depth);
-            if (node.children.length) {
+            if (treeChildren(node).length) {
                 const disclosure = button(row, "hub-explorer-disclosure", `${isExpanded(node) ? "Collapse" : "Expand"} ${node.name}`,
                     isExpanded(node) ? "chevron-down" : "chevron-right");
                 disclosure.tabIndex = -1;
@@ -25610,7 +26491,7 @@ function mountWorkspaceExplorer({ parent, workspacePath, dashboardPath, descript
                 const group = el(item, "div", "hub-explorer-group");
                 group.setAttribute("role", "group");
                 group.style.setProperty("--hub-tree-depth", depth);
-                const children = node.children.filter(child => filtered.visible.has(child.path));
+                const children = treeChildren(node);
                 children.forEach((child, i) => branch(group, child, depth + 1, i, children.length));
             }
         }
@@ -25637,7 +26518,7 @@ function mountWorkspaceExplorer({ parent, workspacePath, dashboardPath, descript
             crumb.addEventListener("click", () => selectFolder(ancestor, true));
         }
         contents.setAttribute("aria-label", `Contents of ${node.name}`);
-        const sort = { ...ui(node.descriptor.path), ...ui(node.path) };
+        const sort = isNoteView() ? { ...ui(node.descriptor.path), ...ui(node.path) } : sortState();
         for (const [key, label] of [["name", "Name"], ["modified", "Modified"], ["created", "Created"]]) {
             const heading = button(columns, "hub-explorer-column", `Sort by ${label.toLowerCase()}`);
             heading.dataset.sortKey = key;
@@ -25649,8 +26530,8 @@ function mountWorkspaceExplorer({ parent, workspacePath, dashboardPath, descript
                 icon(heading, ascending ? "chevron-up" : "chevron-down");
             }
             heading.addEventListener("click", () => {
-                save(node.path, { sortKey: key, sortDirection: active ? (sort.sortDirection === "asc" ? "desc" : "asc") : key === "name" ? "asc" : "desc" });
-                renderDetails();
+                const next = { sortKey: key, sortDirection: active ? (sort.sortDirection === "asc" ? "desc" : "asc") : key === "name" ? "asc" : "desc" };
+                if (isNoteView()) { save(node.path, next); renderDetails(); } else setSort(next);
                 columns.querySelector(`[data-sort-key="${key}"]`)?.focus();
             });
         }
@@ -25678,12 +26559,12 @@ function mountWorkspaceExplorer({ parent, workspacePath, dashboardPath, descript
     function syncMode() {
         if (disposed || noteView === isNoteView()) return;
         noteView = isNoteView();
-        contextualFolder(); render();
+        cancelDraft(); clearFullSelection(); selectionPane = null; refresh({ restore: !noteView });
     }
     function syncSelection() {
         const inNoteView = isNoteView();
         for (const row of shell.querySelectorAll("[data-path]")) {
-            const selected = selectedPaths.has(row.dataset.path);
+            const selected = selectedPaths.has(row.dataset.path) && (inNoteView || row.closest(".hub-explorer-tree,.hub-explorer-contents") === selectionPane);
             row.classList.toggle("is-selected", selected);
             const currentFolder = !inNoteView && row.dataset.path === currentPath;
             const activeFile = inNoteView && row.dataset.path === activePath;
@@ -25696,15 +26577,30 @@ function mountWorkspaceExplorer({ parent, workspacePath, dashboardPath, descript
         }
     }
     function render() {
+        const draftFocused = !!editing?.inline && !!doc.activeElement?.closest(".hub-explorer-draft");
+        const draftSelection = draftFocused ? [doc.activeElement.selectionStart, doc.activeElement.selectionEnd] : null;
+        repainting = true;
         const hadFocus = tree.contains(doc.activeElement);
+        const detailFocused = contents.contains(doc.activeElement) ? doc.activeElement.closest("[data-path]")?.dataset.path : null;
         filtered = filterWorkspaceTree(model.roots, activeQuery());
         renderTree(hadFocus); renderDetails();
         shell.classList.toggle("is-note-explorer", isNoteView());
+        tree.setAttribute("aria-label", isNoteView() ? "Workspace folders and files" : "Workspace folders");
+        syncToolbar();
+        applyWidth();
+        if (detailFocused) focusDetail(detailFocused);
+        if (editing?.inline) renderDraft();
         status.textContent = activeQuery() ? `${filtered.matches.size} matches` : "";
+        repainting = false;
+        if (draftFocused) {
+            const field = contents.querySelector(".project-create-input");
+            if (field && !field.disabled) { field.focus(); field.setSelectionRange(...draftSelection); }
+        }
     }
     function refresh({ restore = false } = {}) {
         if (disposed) return;
-        model = workspaceTree(descriptors(), getByPath, dashboardPath);
+        if (restore) preferredWidth = null;
+        model = workspaceTree(descriptors(), getByPath, dashboardPath, { workspacePath, fullView: !isNoteView() });
         if (restore || currentPath === null) {
             query = ui(workspacePath).search ?? "";
             search.value = query;
@@ -25719,10 +26615,33 @@ function mountWorkspaceExplorer({ parent, workspacePath, dashboardPath, descript
         while (currentPath && !model.byPath.get(currentPath)?.folder) currentPath = currentPath.includes("/") ? currentPath.slice(0, currentPath.lastIndexOf("/")) : null;
         contextualFolder();
         currentPath ??= model.roots[0]?.path ?? null;
+        for (const path of selectedPaths) if (!model.byPath.has(path)) selectedPaths.delete(path);
+        if (!isNoteView() && !fullState().sort) {
+            const legacy = [ui(currentPath), ui(model.byPath.get(currentPath)?.descriptor.path), ui(workspacePath)]
+                .find(state => ["name", "modified", "created"].includes(state.sortKey));
+            if (legacy) saveFull({ sort: { sortKey: legacy.sortKey, sortDirection: legacy.sortDirection === "asc" ? "asc" : "desc" } });
+        }
         render();
     }
     function showError(error) { status.textContent = error?.message ?? "Could not open this file."; }
+    function syncToolbar() {
+        const busy = !!editing?.committing, allowed = canCreateNote(currentPath ?? workspacePath);
+        createNote.disabled = busy || !allowed; createFolder.disabled = busy; sortButton.disabled = busy;
+        createNote.title = allowed ? "New note" : "Create notes inside a workspace folder";
+        shell.setAttribute("aria-busy", String(busy));
+    }
     function beginCreate(kind, path = currentPath ?? workspacePath) {
+        if (editing?.committing) return;
+        if (!isNoteView()) {
+            if (kind === "note" && !canCreateNote(path)) return;
+            const target = model.byPath.get(path);
+            if (!target?.folder) return;
+            selectFolder(target, true);
+            editing = { inline: true, kind, path, value: kind === "folder" ? "New folder" : "Untitled", committing: false, error: "" };
+            clearFullSelection(); selectionPane = contents; renderDraft();
+            const input = contents.querySelector(".project-create-input"); input.focus(); input.select();
+            return;
+        }
         editing = { kind, path };
         editor.replaceChildren(); editor.hidden = false;
         const label = el(editor, "label", "hub-explorer-create-label", `${kind === "folder" ? "New folder" : "New note"} in ${model.byPath.get(path)?.name ?? "workspace"}`);
@@ -25764,6 +26683,191 @@ function mountWorkspaceExplorer({ parent, workspacePath, dashboardPath, descript
         cancel.addEventListener("click", close);
         input.focus();
     }
+    function beginRename(path = [...selectedPaths][0]) {
+        if (isNoteView() || editing?.committing || !renameItem || selectedPaths.size > 1) return;
+        const node = model.byPath.get(path);
+        if (!node?.parent || !canSelect(path)) return;
+        const returnPath = currentPath, originPane = selectionPane;
+        selectFolder(node.parent, true);
+        editing = { returnPath, originPane, inline: true, renamePath: path, kind: node.folder ? "folder" : "note", path: node.parent.path, value: node.name, committing: false, error: "" };
+        selectionPane = contents; selectedPaths.clear(); selectedPaths.add(path);
+        renderDraft(); const input = contents.querySelector(".project-create-input"); input.focus(); input.select();
+    }
+    function cancelDraft() {
+        if (editing?.committing) return;
+        const renaming = !!editing?.renamePath;
+        if (renaming && model.byPath.has(editing.returnPath)) currentPath = editing.returnPath;
+        editing = null;
+        editor.hidden = true; editor.replaceChildren();
+        if (renaming) { save(workspacePath, { currentPath }); render(); } else contents.querySelector(".hub-explorer-draft")?.remove();
+    }
+    function renderDraft() {
+        if (!editing?.inline) return;
+        const previousRepaint = repainting; repainting = true;
+        contents.querySelector(".hub-explorer-draft")?.remove();
+        const draft = editing;
+        const original = draft.renamePath && [...contents.querySelectorAll("[data-path]")].find(row => row.dataset.path === draft.renamePath);
+        const row = original ?? el(contents, "div", "hub-explorer-detail-row");
+        row.replaceChildren(); row.classList.add("hub-explorer-draft");
+        const name = el(row, "div", "hub-explorer-detail-name");
+        icon(name, draft.kind === "folder" ? "folder" : "file-text");
+        const input = el(name, "input", "project-create-input");
+        input.value = draft.value; input.spellcheck = false; input.disabled = draft.committing;
+        input.setAttribute("aria-label", draft.renamePath ? "Rename item" : draft.kind === "folder" ? "New folder name" : "New note name");
+        const errorText = el(row, "span", "hub-explorer-create-error", draft.error);
+        errorText.setAttribute("role", "alert");
+        if (draft.error) input.setAttribute("aria-invalid", "true");
+        if (!original) contents.prepend(row);
+        input.addEventListener("input", () => { draft.value = input.value; });
+        input.addEventListener("blur", () => {
+            if (!repainting && editing === draft && !draft.committing && input.isConnected) cancelDraft();
+        });
+        input.addEventListener("keydown", event => {
+            event.stopPropagation();
+            if (event.key === "Escape" && !draft.committing) { event.preventDefault(); cancelDraft(); contents.focus(); }
+            if (event.key !== "Enter" || event.isComposing || draft.committing) return;
+            event.preventDefault(); draft.value = input.value;
+            if (!draft.value.trim() || [".", ".."].includes(draft.value.trim())) {
+                draft.error = "Enter a valid name."; errorText.textContent = draft.error; input.setAttribute("aria-invalid", "true"); return;
+            }
+            draft.committing = true; input.disabled = true;
+            syncToolbar();
+            status.textContent = "Creating…";
+            void (async () => {
+                try {
+                    const path = draft.renamePath ? await renameItem(draft.renamePath, draft.value) : await createItem(draft.path, draft.kind, draft.value);
+                    if (disposed) return;
+                    editing = null; refresh();
+                    if (draft.renamePath && draft.returnPath) {
+                        const restored = draft.returnPath === draft.renamePath || draft.returnPath.startsWith(draft.renamePath + "/") ? path + draft.returnPath.slice(draft.renamePath.length) : draft.returnPath;
+                        if (model.byPath.get(restored)?.folder) currentPath = restored;
+                    }
+                    const node = model.byPath.get(path);
+                    if (node) { reveal(node); persist(); }
+                    selectionPane = draft.originPane ?? contents; selectionAnchor = path; selectedPaths.clear(); selectedPaths.add(path);
+                    save(workspacePath, { currentPath }); render();
+                    if (draft.originPane === tree) focusNode(path); else focusDetail(path);
+                } catch (error) {
+                    if (disposed) return;
+                    draft.committing = false; draft.error = error.message ?? "Could not create item.";
+                    status.textContent = ""; syncToolbar();
+                    renderDraft(); const field = contents.querySelector(".project-create-input"); field?.focus();
+                }
+            })();
+        });
+        repainting = previousRepaint;
+    }
+    let preferredWidth = null, dragWidth = null;
+    function applyWidth() {
+        if (isNoteView()) return;
+        const available = body.clientWidth || 600;
+        const minimum = Math.min(160, available * .4), maximum = Math.max(minimum, available - 165);
+        const stored = fullState().treeWidth;
+        const value = Math.min(maximum, Math.max(minimum, preferredWidth ?? (Number.isFinite(stored) ? stored : available / 3)));
+        body.style.setProperty("--hub-explorer-tree-width", value + "px");
+        splitter.setAttribute("aria-valuemin", String(Math.round(minimum)));
+        splitter.setAttribute("aria-valuemax", String(Math.round(maximum)));
+        splitter.setAttribute("aria-valuenow", String(Math.round(value)));
+    }
+    function commitWidth() { if (preferredWidth !== null) saveFull({ treeWidth: preferredWidth }); }
+    splitter.addEventListener("pointerdown", event => {
+        if (event.button !== 0) return;
+        event.preventDefault(); cancelDraft();
+        dragWidth = { id: event.pointerId, x: event.clientX, width: tree.getBoundingClientRect().width };
+        splitter.setPointerCapture(event.pointerId); shell.classList.add("is-resizing");
+    });
+    splitter.addEventListener("pointermove", event => {
+        if (!dragWidth || dragWidth.id !== event.pointerId) return;
+        preferredWidth = dragWidth.width + event.clientX - dragWidth.x; applyWidth();
+    });
+    function endResize(event) {
+        if (!dragWidth || dragWidth.id !== event.pointerId) return;
+        const id = dragWidth.id; dragWidth = null; shell.classList.remove("is-resizing");
+        preferredWidth = Number(splitter.getAttribute("aria-valuenow"));
+        if (splitter.hasPointerCapture(id)) splitter.releasePointerCapture(id);
+        commitWidth();
+    }
+    for (const type of ["pointerup", "pointercancel", "lostpointercapture"]) splitter.addEventListener(type, endResize);
+    splitter.addEventListener("keydown", event => {
+        const current = Number(splitter.getAttribute("aria-valuenow"));
+        const value = event.key === "ArrowLeft" ? current - 16 : event.key === "ArrowRight" ? current + 16 :
+            event.key === "Home" ? Number(splitter.getAttribute("aria-valuemin")) : event.key === "End" ? Number(splitter.getAttribute("aria-valuemax")) : null;
+        if (value === null) return;
+        event.preventDefault(); event.stopPropagation(); preferredWidth = value; applyWidth();
+        preferredWidth = Number(splitter.getAttribute("aria-valuenow")); commitWidth();
+    });
+    const resize = new doc.defaultView.ResizeObserver(applyWidth); resize.observe(body);
+    createNote.addEventListener("click", () => beginCreate("note"));
+    createFolder.addEventListener("click", () => beginCreate("folder"));
+    sortButton.addEventListener("click", event => {
+        const current = sortState(), entries = [];
+        for (const [sortKey, label] of [["name", "Name"], ["modified", "Modified"], ["created", "Created"]]) {
+            for (const sortDirection of ["asc", "desc"]) entries.push({
+                title: `${label}: ${sortKey === "name" ? (sortDirection === "asc" ? "Ascending" : "Descending") : (sortDirection === "asc" ? "Oldest" : "Newest")}`,
+                checked: current.sortKey === sortKey && current.sortDirection === sortDirection,
+                run: () => setSort({ sortKey, sortDirection })
+            });
+        }
+        entries.push(null, { title: "Folders use Name ascending for date sorts", disabled: true });
+        showMenu(event, entries);
+    });
+    contents.tabIndex = 0;
+    shell.addEventListener("focusin", event => {
+        if (isNoteView()) return;
+        const pane = event.target.closest(".hub-explorer-tree,.hub-explorer-contents");
+        if (pane && selectionPane && selectionPane !== pane) { clearFullSelection(); selectionPane = pane; }
+    });
+    contents.addEventListener("click", event => {
+        if (!isNoteView() && !event.target.closest("[data-path],input")) clearFullSelection();
+    });
+    shell.addEventListener("keydown", event => {
+        if (isNoteView() || event.isComposing || event.target.closest("input,textarea,select,[contenteditable=true]")) return;
+        const mod = event.ctrlKey || event.metaKey;
+        if (event.key === "F2" || mod && !event.altKey && !event.shiftKey && ["c", "x", "v"].includes(event.key.toLowerCase())) {
+            event.preventDefault(); event.stopPropagation();
+            if (event.key === "F2") beginRename();
+            else if (clipboard) {
+                const key = event.key.toLowerCase();
+                void Promise.resolve(key === "v" ? clipboard.paste(currentPath ?? workspacePath) : clipboard.set([...selectedPaths], key === "x")).then(() => { refresh(); }).catch(showError);
+            }
+            return;
+        }
+        if (mod && event.shiftKey && event.key.toLowerCase() === "n") {
+            event.preventDefault(); event.stopPropagation(); beginCreate("folder"); return;
+        }
+        if (event.key === "Escape") { clearFullSelection(); event.preventDefault(); event.stopPropagation(); return; }
+        const pane = event.target.closest(".hub-explorer-tree,.hub-explorer-contents");
+        if (!pane) return;
+        if (mod && event.key.toLowerCase() === "a") {
+            selectedPaths.clear(); selectionPane = pane;
+            paneRows(pane).forEach(row => selectedPaths.add(row.dataset.path)); syncSelection();
+        } else if (pane === contents) {
+            const rows = [...contents.querySelectorAll("[data-path]")];
+            const row = event.target.closest("[data-path]");
+            const node = row && model.byPath.get(row.dataset.path);
+            if (event.key === "Enter" && node) activate(node, event, row);
+            else if ((event.key === "ContextMenu" || event.key === "F10" && event.shiftKey) && node) {
+                const r = row.getBoundingClientRect();
+                row.dispatchEvent(new doc.defaultView.MouseEvent("contextmenu", { bubbles: true, clientX: r.left + 20, clientY: r.top + r.height / 2 }));
+            } else if (event.key === " " && node) selectFull(node, { ctrlKey: true }, contents);
+            else if (["ArrowUp", "ArrowDown", "Home", "End"].includes(event.key) && rows.length) {
+                const index = rows.indexOf(row), target = event.key === "Home" ? rows[0] : event.key === "End" ? rows.at(-1) :
+                    rows[Math.max(0, Math.min(rows.length - 1, index + (event.key === "ArrowDown" ? 1 : -1)))];
+                if (!mod || event.shiftKey) selectFull(model.byPath.get(target.dataset.path), event, contents);
+                focusDetail(target.dataset.path);
+            } else return;
+        } else return;
+        event.preventDefault(); event.stopPropagation();
+    });
+    doc.addEventListener("click", event => {
+        if (!isNoteView() && !shell.contains(event.target) && !event.target.closest(".menu")) clearFullSelection();
+    }, { signal: events.signal });
+    tree.addEventListener("contextmenu", event => {
+        if (isNoteView() || event.target.closest("[data-path]")) return;
+        event.preventDefault(); event.stopPropagation(); clearFullSelection();
+        const node = model.byPath.get(workspacePath);
+        if (node) contextMenu(event, node, beginCreate, { kind: "left-background" });
+    });
     search.addEventListener("input", () => {
         query = search.value; searchCollapsed.clear();
         save(workspacePath, { search: query }); render();
@@ -25774,6 +26878,7 @@ function mountWorkspaceExplorer({ parent, workspacePath, dashboardPath, descript
     });
     newFolder.addEventListener("click", () => beginCreate("folder", workspacePath));
     tree.addEventListener("keydown", event => {
+        if (event.isComposing || event.target.closest("input,textarea,[contenteditable=true]")) return;
         const item = event.target.closest("[role=treeitem]");
         if (!item) return;
         const node = model.byPath.get(item.dataset.treePath), row = item.firstElementChild;
@@ -25783,24 +26888,32 @@ function mountWorkspaceExplorer({ parent, workspacePath, dashboardPath, descript
         else if (event.key === "ArrowUp") target = items[Math.max(0, index - 1)];
         else if (event.key === "Home") target = items[0];
         else if (event.key === "End") target = items.at(-1);
-        else if (event.key === "ArrowRight" && node.children.length) {
+        else if (event.key === "ArrowRight" && treeChildren(node).length) {
             if (!isExpanded(node)) toggle(node); else target = items[index + 1];
         } else if (event.key === "ArrowLeft") {
             if (isExpanded(node)) toggle(node); else if (node.parent) focusNode(node.parent.path);
         } else if (event.key === "Enter") activate(node, event, row);
         else if (event.key === " " && node.parent) {
-            selectItem({ ctrlKey: true, preventDefault() {}, stopPropagation() {} }, row, node.path); syncSelection();
-        } else if (event.key === "F10" && event.shiftKey) {
+            if (isNoteView()) selectItem({ ctrlKey: true, preventDefault() {}, stopPropagation() {} }, row, node.path);
+            else selectFull(node, { ctrlKey: true }, tree);
+            syncSelection();
+        } else if (event.key === "ContextMenu" || event.key === "F10" && event.shiftKey) {
             const bounds = row.getBoundingClientRect();
-            contextMenu(new doc.defaultView.MouseEvent("contextmenu", {
-                clientX: bounds.left + 20, clientY: bounds.top + bounds.height / 2
-            }), node, beginCreate);
+            const context = new doc.defaultView.MouseEvent("contextmenu", {
+                bubbles: true, clientX: bounds.left + 20, clientY: bounds.top + bounds.height / 2
+            });
+            if (isNoteView()) contextMenu(context, node, beginCreate); else row.dispatchEvent(context);
         }
         else return;
         if (target) {
             if (event.shiftKey && model.byPath.get(target.dataset.treePath).parent) {
-                if (!selectedPaths.size && node.parent) selectItem({ ctrlKey: true, preventDefault() {}, stopPropagation() {} }, row, node.path);
-                selectItem(event, target.firstElementChild, target.dataset.treePath);
+                if (isNoteView()) {
+                    if (!selectedPaths.size && node.parent) selectItem({ ctrlKey: true, preventDefault() {}, stopPropagation() {} }, row, node.path);
+                    selectItem(event, target.firstElementChild, target.dataset.treePath);
+                } else {
+                    if (!selectionAnchor && node.parent) selectionAnchor = node.path;
+                    selectFull(model.byPath.get(target.dataset.treePath), event, tree);
+                }
             }
             focusNode(target.dataset.treePath); syncSelection();
         }
@@ -25811,11 +26924,12 @@ function mountWorkspaceExplorer({ parent, workspacePath, dashboardPath, descript
         element.addEventListener("contextmenu", event => {
             if (event.target.closest("[data-path], button") || !selectedFolder()) return;
             event.preventDefault(); event.stopPropagation();
-            contextMenu(event, selectedFolder(), beginCreate);
+            if (!isNoteView()) clearFullSelection();
+            contextMenu(event, selectedFolder(), beginCreate, { kind: "background" });
         });
     }
     refresh({ restore: true });
-    return { refresh, beginCreate, syncSelection, syncMode,
+    return { refresh, beginCreate, beginRename, syncSelection, syncMode,
         selectFolderPath(path) {
             const node = model.byPath.get(path);
             if (!node?.folder) return false;
@@ -25826,6 +26940,7 @@ function mountWorkspaceExplorer({ parent, workspacePath, dashboardPath, descript
             rewriteExplorerPaths(states(), oldPath, newPath);
             const rewrite = path => path && (path === oldPath || path.startsWith(oldPath + "/")) ? newPath + path.slice(oldPath.length) : path;
             activePath = rewrite(activePath); focusPath = rewrite(focusPath);
+            selectionAnchor = rewrite(selectionAnchor); detailFocusPath = rewrite(detailFocusPath);
             currentPath = rewrite(currentPath);
             for (const path of [...selectedPaths]) {
                 selectedPaths.delete(path); selectedPaths.add(rewrite(path));
@@ -25842,7 +26957,9 @@ function mountWorkspaceExplorer({ parent, workspacePath, dashboardPath, descript
             }
             else syncSelection();
         },
-        destroy() { disposed = true; shell.remove(); }
+        isFullView: () => !isNoteView(),
+        reportError: showError,
+        destroy() { disposed = true; events.abort(); resize.disconnect(); shell.remove(); }
     };
 }
 
@@ -30596,11 +31713,9 @@ class ProjectWizardService {
 
         if (!oldExists || newExists) return false;
 
-        if (oldEntry) {
-            await this.app.fileManager.renameFile(oldEntry, newPath);
-        } else {
-            await this.app.vault.adapter.rename(oldPath, newPath);
-        }
+        if (!oldEntry) throw Error("Resource migration is waiting for Obsidian to index the source folder. No files were changed.");
+        await this.plugin.fileOperations.rename(oldPath, newPath, { workspaceRename: true,
+            legacyWorkspace: RESOURCE_TYPES.find(resource => resource.legacyRoots?.some(legacy => legacy.root === oldPath)) });
 
         await yieldToObsidian();
         return true;
@@ -30634,11 +31749,12 @@ class ProjectWizardService {
     }
 
 
-    async ensureResources() {
+    async ensureResources({ deferLegacy = false } = {}) {
         await this.ensureFolder(RESOURCE_ROOT);
 
         for (const resource of RESOURCE_TYPES) {
-            await this.migrateLegacyResource(resource);
+            if (deferLegacy && (await Promise.all((resource.legacyRoots ?? []).map(legacy => this.app.vault.adapter.exists(legacy.root)))).some(Boolean) && !await this.app.vault.adapter.exists(resource.root)) continue;
+            if (!deferLegacy) await this.migrateLegacyResource(resource);
             await this.ensureFolder(resource.root);
 
             const existing = this.app.vault.getAbstractFileByPath(
@@ -33031,9 +34147,7 @@ class ProjectWizardService {
                     try {
                         // Roll back only the root this failed creation just made.
                         // This is not a user-requested deletion of an existing project.
-                        await this.plugin.projectDeletion.originalTrash.call(
-                            this.app.fileManager, folder
-                        );
+                        await this.plugin.fileOperations.trash(folder.path, { workspaceDelete: true, performTrash: item => this.plugin.projectDeletion.originalTrash.call(this.app.fileManager, item) });
                     } catch (_) {}
                 }
             }
@@ -37707,7 +38821,7 @@ module.exports = class HubProjectMenu extends Plugin {
 
         try {
             await this.projectWizard
-                .ensureResources();
+                .ensureResources({ deferLegacy: !this.fileOperations });
         } catch (error) {
             /*
              * Resource folders can be created by OneDrive or another
@@ -38346,6 +39460,9 @@ module.exports = class HubProjectMenu extends Plugin {
             createDashboardUi;
 
         window.hubMountWorkspaceExplorer = __hubRequire("lib/ui/workspace-explorer.js").mountWorkspaceExplorer;
+        window.hubExplorerHost = __hubRequire("lib/ui/workspace-explorer-menu.js").createExplorerHost(this, {
+            FolderPicker: ProjectFolderPickerModal, confirm: confirmAction
+        });
 
         window.hubCreateFileDomain =
             createFileDomain;
@@ -38389,6 +39506,17 @@ module.exports = class HubProjectMenu extends Plugin {
         this.inbox = new HubInboxService(this);
         await __hubRequire("lib/services/native-task-host.js").authorizeNativeTaskActivation(this);
         this.nativeTaskHost = __hubRequire("lib/services/native-task-host.js").createNativeTaskHost(this);
+        this.fileOperations = new (__hubRequire("lib/services/file-operations.js").FileOperations)(this);
+        window.hubFileOperations = this.fileOperations;
+        this.fileOperationNotice = message => ownNoticeColors(new Notice(message, 15000));
+        this.addCommand({ id: "file-operation-recovery", name: "File operation recovery",
+            callback: () => __hubRequire("lib/ui/file-operation-recovery.js").openFileOperationRecovery(this) });
+        void this.nativeTaskHost.ready.then(async () => { await this.fileOperations.recover(); await this.projectWizard.ensureResources(); await this.nativeTaskHost.refreshInventory(); }).catch(error => {
+            console.error("Itacan filesystem recovery", error);
+            this.fileOperationNotice(error.message + " Run File operation recovery to review retained work.");
+        });
+        this.register(() => { delete window.hubFileOperations; void this.fileOperations.close(); });
+
         if (this.nativeTaskHost) {
             __hubRequire("lib/services/native-task-report-evidence.js").attachNativeReportEvidence(this, this.nativeTaskHost);
             // Initial native admission waits for layout/metadata readiness.
@@ -38537,7 +39665,8 @@ module.exports = class HubProjectMenu extends Plugin {
     }
     onunload() {
         this.nativeTaskRecoveryModal?.close();
-        this.nativeTaskStopping = this.nativeTaskHost?.close();
+        this.fileOperationRecoveryModal?.close();
+        this.nativeTaskStopping = this.fileOperations ? this.fileOperations.close().then(() => this.nativeTaskHost?.close()) : this.nativeTaskHost?.close();
         this.nativeTaskStopping?.catch(error => console.error("Native task shutdown failed", error));
         this.athena?.destroy();
         this.atlas?.destroy();
@@ -38602,6 +39731,7 @@ module.exports = class HubProjectMenu extends Plugin {
         delete window.hubGetHomeCover;
         delete window.hubMountHomeCover;
         delete window.hubMountWorkspaceExplorer;
+        delete window.hubExplorerHost;
         delete window.hubCreateFileDomain;
         delete window.hubCreateTaskUi;
         delete window.hubCreateTaskPanelRead;
@@ -40865,11 +41995,7 @@ module.exports = class HubProjectMenu extends Plugin {
         );
 
 
-        await this.app.vault
-            .copy(
-                file,
-                path
-            );
+        await this.fileOperations.copy(file.path, path);
     }
 
 
@@ -42116,7 +43242,7 @@ module.exports = class HubProjectMenu extends Plugin {
                     );
 
 
-            if (existing) {
+            if (existing && existing !== file) {
 
                 ownNoticeColors(new Notice(
                     "A file with that name already exists."
@@ -42126,11 +43252,7 @@ module.exports = class HubProjectMenu extends Plugin {
             }
 
 
-            await this.app.fileManager
-                .renameFile(
-                    file,
-                    newPath
-                );
+            await this.fileOperations.rename(file.path, newPath);
 
 
         } catch (error) {
@@ -42139,10 +43261,8 @@ module.exports = class HubProjectMenu extends Plugin {
             * Closing QuickAdd should not
             * become a visible error.
             */
-            console.debug(
-                "File rename cancelled.",
-                error
-            );
+            console.debug("File rename", error);
+            if (error.operationId || error.code) ownNoticeColors(new Notice(error.message));
         }
     }
 
@@ -42170,10 +43290,7 @@ module.exports = class HubProjectMenu extends Plugin {
 
         try {
 
-            await this.app.fileManager
-                .trashFile(
-                    file
-                );
+            await this.fileOperations.trash(file.path);
 
 
         } catch (error) {
@@ -42186,7 +43303,7 @@ module.exports = class HubProjectMenu extends Plugin {
 
 
             ownNoticeColors(new Notice(
-                "Could not delete file."
+                error.message || "Could not delete file."
             ));
         }
     }
@@ -42446,10 +43563,7 @@ module.exports = class HubProjectMenu extends Plugin {
                     );
 
 
-                await this.app.fileManager.renameFile(
-                    folder,
-                    newFolderPath
-                );
+                await this.fileOperations.rename(folder.path, newFolderPath, { workspaceRename: true });
 
 
                 const movedFile =
@@ -42466,17 +43580,11 @@ module.exports = class HubProjectMenu extends Plugin {
                 }
 
 
-                await this.app.fileManager.renameFile(
-                    movedFile,
-                    newFilePath
-                );
+                await this.fileOperations.rename(movedFile.path, newFilePath, { workspaceRename: true });
 
             } else {
 
-                await this.app.fileManager.renameFile(
-                    file,
-                    newFilePath
-                );
+                await this.fileOperations.rename(file.path, newFilePath, { workspaceRename: true });
             }
 
 
@@ -42513,30 +43621,35 @@ module.exports = class HubProjectMenu extends Plugin {
             );
 
 
-            // Roll back immediate visual change.
+            // A folder rename can already be committed when the hub-file rename
+            // fails. Point the card at the surviving file instead of inventing
+            // a filesystem rollback or restoring stale task metadata.
+            const surviving = this.app.vault.getAbstractFileByPath(file.path) === file ? file : null;
+            const survivingPath = surviving?.path ?? oldPath;
+            const survivingName = surviving?.basename ?? oldName;
 
             if (card.isConnected) {
-                card.dataset.projectPath = oldPath;
+                card.dataset.projectPath = survivingPath;
 
                 if (dashboard.isConnected) {
                     dashboard.dispatchEvent(
                         new CustomEvent("hub-project-rename", {
                             detail: {
                                 oldPath: newFilePath,
-                                newPath: oldPath,
-                                name: oldName
+                                newPath: survivingPath,
+                                name: survivingName
                             }
                         })
                     );
                 }
 
                 if (title) {
-                    title.textContent = oldDisplayName;
+                    title.textContent = survivingName === oldName ? oldDisplayName : survivingName;
                 }
             }
 
             ownNoticeColors(new Notice(
-                "Could not rename project."
+                (error.message || "Could not rename project.") + " Current project: " + survivingPath
             ));
         }
     }
@@ -42586,7 +43699,7 @@ module.exports = class HubProjectMenu extends Plugin {
 
         try {
 
-            await this.projectDeletion.trash(target, { onApproved, requiredProject: file });
+            await this.fileOperations.trash(target.path, { workspaceDelete: true, performTrash: item => this.projectDeletion.trash(item, { onApproved, requiredProject: file }) });
 
             this.logProjectActivity(
                 "deleted",

@@ -14,19 +14,28 @@ export interface Outcome {operationId:string;sequence:number;taskId:string|null;
 export interface Result extends Omit<Outcome,'owner'> {operationSequence:number;owner?:Owner|null;task:Task|null;successor:Task|null;history?:HistoryEvent[];replayed:boolean;timing:{queueMs:number;transactionMs:number;serviceMs:number}}
 export interface Change {sequence:number;operationId:string;ownerId:string;taskIds:string[];stepIds:string[];historyIds:string[];kind:string}
 export interface OutboxChange extends Change {taskId:string|null;baseRevision:number|null;taskPatch:Partial<Task>|null;steps:Step[];deletedStepIds:string[];owner:Owner|null;generatedTasks:Task[];history:HistoryEvent[]}
+/** Device-local coordination only: raw paths/intent never enter task sync payloads. */
+export interface FileEndpoint {ownerId:string;context:NonNullable<Metadata['context']>|null}
+export interface FileMapping {from:FileEndpoint;to:FileEndpoint;fallback:FileEndpoint;phases:string[];path?:string;ancestors?:Array<{path:string|null;endpoint:FileEndpoint}>}
+export interface FileIntent {kind:'rename'|'move'|'trash'|'copy';requestHash:string;from:string;to:string|null;mappings:FileMapping[];manifest?:Array<{relative:string;type:'file'|'folder';hash?:string;size?:number}>;requireUnreferenced?:boolean;compensationReceiptId?:string}
+export interface FileProgress {phase:'prepared'|'started'|'filesystem-complete'|'review';indices?:number[];writes?:string[];partial?:boolean;cancelSafe?:boolean;apiSettled?:boolean;message?:string;destinations?:Record<string,FileEndpoint>;fallbacks?:Record<string,FileEndpoint>}
+export interface PendingFileOperation {operationId:string;intent:FileIntent;progress:FileProgress;createdAt:number;updatedAt:number}
+export interface FileReceipt extends Outcome {fileOperation:true;requestHash:string;kind:FileIntent['kind'];taskIds:string[];taskRevisions:Record<string,number>;seriesRevisions:Record<string,number>;partial:boolean;cancelled:boolean;replayed?:boolean}
+export type FileRequest={action:'list'}|{action:'prepare';operationId:string;intent:FileIntent}|{action:'progress';operationId:string;progress:Partial<FileProgress>&{phase:FileProgress['phase']}}|{action:'commit'|'cancel';operationId:string};
 export interface TaskService {
+ fileOperation(request:FileRequest):Promise<PendingFileOperation[]|PendingFileOperation|FileReceipt|{operationId:string;cancelled:true}>;
  execute(command:Command):Promise<Result>;
  listOwners():Promise<{sequence:number;owners:Owner[]}>;
  getTask(id:string,options?:{includeDeleted?:boolean}):Promise<{sequence:number;task:Task|null}>;
  listTasks(options?:{ownerId?:string|null;completed?:boolean|null;afterId?:string;limit?:number;dueFrom?:string|null;dueTo?:string|null}):Promise<{sequence:number;tasks:Task[];total:number;next:string|null}>;
  readHistory(options?:{ownerId?:string|null;taskId?:string|null;from?:number;to?:number;after?:{time:number;id:string}|null;limit?:number}):Promise<{sequence:number;events:HistoryEvent[];next:{time:number;id:string}|null}>;
  readStatistics(options?:{ownerId?:string|null;from?:number;to?:number}):Promise<{sequence:number;completedTasks:number;completedSteps:number;totalCompletions:number}>;
- getOperation(operationId:string):Promise<Outcome|null>;
- readOutbox(options?:{ownerId?:string|null;after?:number;limit?:number}):Promise<{sequence:number;changes:OutboxChange[];next:number}>;
+ getOperation(operationId:string):Promise<Outcome|FileReceipt|null>;
+ readOutbox(options?:{ownerId?:string|null;after?:number;limit?:number}):Promise<{sequence:number;changes:OutboxChange[];next:number;more:boolean}>;
  getCursor(consumerId:string,ownerId:string):Promise<number>;checkpoint(consumerId:string,ownerId:string,sequence:number):Promise<number>;
  subscribe(filter:{ownerId?:string;taskId?:string},listener:(change:Change)=>void):()=>void;close():Promise<void>;
 }
-export class TaskEngine implements TaskService {constructor(file:string,options?:{busyTimeout?:number;clock?:()=>number;diagnostic?:(event:object)=>void;readOnly?:boolean});execute:TaskService['execute'];listOwners:TaskService['listOwners'];getTask:TaskService['getTask'];listTasks:TaskService['listTasks'];readHistory:TaskService['readHistory'];readStatistics:TaskService['readStatistics'];getOperation:TaskService['getOperation'];readOutbox:TaskService['readOutbox'];getCursor:TaskService['getCursor'];checkpoint:TaskService['checkpoint'];subscribe:TaskService['subscribe'];close:TaskService['close']}
+export class TaskEngine implements TaskService {constructor(file:string,options?:{busyTimeout?:number;clock?:()=>number;diagnostic?:(event:object)=>void;readOnly?:boolean});fileOperation:TaskService['fileOperation'];execute:TaskService['execute'];listOwners:TaskService['listOwners'];getTask:TaskService['getTask'];listTasks:TaskService['listTasks'];readHistory:TaskService['readHistory'];readStatistics:TaskService['readStatistics'];getOperation:TaskService['getOperation'];readOutbox:TaskService['readOutbox'];getCursor:TaskService['getCursor'];checkpoint:TaskService['checkpoint'];subscribe:TaskService['subscribe'];close:TaskService['close']}
 export class TaskError extends Error {code:string}
 export interface TaskSyncStatus {state:'disabled'|'starting'|'syncing'|'current'|'waiting'|'conflict'|'enrollment-required'|'error';authorityId?:string;workspaceId?:string;deviceId?:string;error?:string|null;code?:string|null;conflicts?:number;pending?:number;lastSuccess?:number;gitProjects?:Array<{projectId?:string;path?:string;state:TaskSyncStatus['state'];error?:string|null;conflicts?:number;pending?:number}>}
 /** The installed utility adds personal and shared Project synchronization; the SQLite engine stays transport-independent. */

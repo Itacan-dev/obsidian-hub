@@ -38,6 +38,10 @@ for (const name of ['list-sort-descending', 'list-sort-ascending']) {
     assert.equal((registered.get(name).match(/<path /g) || []).length, 3, 'Exact official Lucide icon keeps all three list strokes');
     assert(registered.get(name).includes('scale(4.166666666666667)') && registered.get(name).includes('stroke="currentColor"'), 'Custom icon uses native 100-unit viewBox scaling and foreground color');
 }
+setHubIcon({}, "notebook-plus"); setHubIcon({}, "notebook-plus");
+assert.equal(rendered.at(-1), "notebook-plus", "Notebook-plus fallback is reusable by both capture surfaces");
+assert(registered.get("notebook-plus").includes('M18 13v8M14 17h8'), "Notebook-plus retains its prominent plus");
+assert(registered.get("notebook-plus").includes('stroke-width="2"'), "Notebook-plus uses the shared Lucide stroke");
 canonical.add("goal");
 setHubIcon({}, "goal");
 assert.equal(rendered.at(-1), "goal", "Use native Goal when available");

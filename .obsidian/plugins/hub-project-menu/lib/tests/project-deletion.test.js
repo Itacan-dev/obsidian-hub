@@ -70,7 +70,7 @@ async function run() {
     const fs = require("fs"), path = require("path");
     const source = fs.readFileSync(path.resolve(__dirname, "../../plugin.js"), "utf8");
     const cardDelete = source.slice(source.indexOf("async deleteProject(file, dashboard)"), source.indexOf("async openAppShortcut("));
-    assert.ok(cardDelete.includes("this.projectDeletion.trash(target, { onApproved, requiredProject: file })"));
+    assert.ok(cardDelete.includes("this.fileOperations.trash(target.path, { workspaceDelete: true") && cardDelete.includes("this.projectDeletion.trash(item, { onApproved, requiredProject: file })"), "Cards coordinate task references and retain the same required-project deletion guard");
     assert.ok(!cardDelete.includes("confirmAction("), "Project cards have one shared strong confirmation, not the old dialog");
     assert.ok(source.includes("this.projectDeletion?.destroy()") && source.includes("this.projectDeletionModal?.close()"));
     console.log("Project deletion tests passed: all statuses, card/file/folder/ancestor targets, shared trash boundary, cancellation, unchanged ordinary files, arguments, path changes and unload.");

@@ -687,6 +687,10 @@ async function importExternalFiles(
     files
 ) {
 
+    if (workspaceExplorer?.isFullView() && explorerIsWorkspaceRoot(folderPath)) {
+        throw new Error("Files belong inside a workspace folder. Create a folder first.");
+    }
+
     const folder =
         app.vault
             .getAbstractFileByPath(
@@ -909,6 +913,7 @@ function makeExternalFileDropTarget(
 
             } catch (error) {
 
+                workspaceExplorer?.reportError(error);
                 console.error(
                     "Could not import external files:",
                     error
@@ -971,6 +976,10 @@ async function moveProjectItem(
     sourcePath,
     targetFolderPath
 ) {
+
+    if (workspaceExplorer?.isFullView() && explorerIsWorkspaceRoot(targetFolderPath) && !isFolder(app.vault.getAbstractFileByPath(sourcePath))) {
+        throw Error("Files belong inside a workspace folder.");
+    }
 
     const item =
         app.vault
@@ -1053,11 +1062,7 @@ async function moveProjectItem(
     }
 
 
-    await app.fileManager
-        .renameFile(
-            item,
-            newPath
-        );
+    await window.hubFileOperations.move(item.path, newPath, { filesView: workspaceExplorer?.isFullView() });
 
 
     return newPath;
@@ -1067,6 +1072,10 @@ async function moveProjectItemsTo(
     paths,
     targetFolderPath
 ) {
+
+    if (workspaceExplorer?.isFullView() && explorerIsWorkspaceRoot(targetFolderPath) && paths.some(path => !isFolder(app.vault.getAbstractFileByPath(path)))) {
+        throw Error("Files belong inside a workspace folder.");
+    }
 
     const sourcePaths =
         selectedRootPaths(
@@ -1164,34 +1173,8 @@ async function moveProjectItemsTo(
     }
 
 
-    // ---------- MOVE ----------
+    await window.hubFileOperations.batch("move", sourcePaths.filter(path => app.vault.getAbstractFileByPath(path)?.parent?.path !== targetFolderPath), targetFolderPath, { filesView: workspaceExplorer?.isFullView() });
 
-    for (
-        const sourcePath
-        of sourcePaths
-    ) {
-
-        const source =
-            app.vault
-                .getAbstractFileByPath(
-                    sourcePath
-                );
-
-
-        if (
-            !source ||
-            source.parent?.path ===
-                targetFolderPath
-        ) {
-            continue;
-        }
-
-
-        await moveProjectItem(
-            sourcePath,
-            targetFolderPath
-        );
-    }
 }
 
 async function renameProjectFolder(
@@ -1246,7 +1229,7 @@ async function renameProjectFolder(
         app.vault
             .getAbstractFileByPath(
                 newPath
-            )
+            ) && app.vault.getAbstractFileByPath(newPath) !== folder
     ) {
 
         throw new Error(
@@ -1255,11 +1238,7 @@ async function renameProjectFolder(
     }
 
 
-    await app.fileManager
-        .renameFile(
-            folder,
-            newPath
-        );
+    await window.hubFileOperations.rename(folder.path, newPath, { filesView: workspaceExplorer?.isFullView() });
 
 
     return newPath;
@@ -1399,10 +1378,7 @@ async function deleteTopLevelProjectFolder(
     }
 
 
-    await app.fileManager
-        .trashFile(
-            folder
-        );
+    await window.hubFileOperations.trash(folder.path);
 
 
     // Remove stale ordering entry.
@@ -1778,6 +1754,8 @@ dv.component.registerDomEvent(
     "click",
     event => {
 
+        if (workspaceExplorer?.isFullView()) return;
+
         if (
             selectedProjectItemPaths
                 .size === 0
@@ -1808,7 +1786,8 @@ dv.component.registerDomEvent(
 );
 
 dv.component.registerDomEvent(folderStack, "keydown", event => {
-    if (event.target.closest("input, textarea, select, [contenteditable=true]")) return;
+    if (workspaceExplorer?.isFullView() && (event.key !== "Delete" || !event.target.closest(".hub-explorer-tree,.hub-explorer-contents"))) return;
+    if (event.isComposing || event.target.closest("input, textarea, select, [contenteditable=true]")) return;
     const scope = event.target.closest(".hub-explorer-tree, .hub-explorer-contents") ?? folderStack;
     const rows = [...scope.querySelectorAll(".project-browser-row[data-path]")]
         .filter(item => item.getClientRects().length);
@@ -1820,7 +1799,7 @@ dv.component.registerDomEvent(folderStack, "keydown", event => {
         syncProjectItemSelection();
     } else if (key === "Delete" && selectedProjectItemPaths.size) {
         deleteSelectedProjectItems().catch(error => {
-            if (error?.name !== "HubProjectDeletionCancelled") console.error("Could not delete selected Hub files", error);
+            if (error?.name !== "HubProjectDeletionCancelled") { console.error("Could not delete selected Hub files", error); workspaceExplorer?.reportError(error); }
         });
     } else if (row && key === "Enter") row.click();
     else if (row && key === " ") {
@@ -1868,29 +1847,7 @@ async function deleteSelectedProjectItems() {
         );
 
 
-    for (
-        const path
-        of paths
-    ) {
-
-        const item =
-            app.vault
-                .getAbstractFileByPath(
-                    path
-                );
-
-
-        if (!item) {
-            continue;
-        }
-
-
-        await app.fileManager
-            .trashFile(
-                item
-            );
-    }
-
+    await window.hubFileOperations.batch("trash", paths);
 
     selectedProjectItemPaths
         .clear();
@@ -2285,6 +2242,9 @@ function makeProjectItemDropTarget(
         const targetPath =
             getTargetPath();
 
+        if (workspaceExplorer?.isFullView() && explorerIsWorkspaceRoot(targetPath) &&
+            draggedProjectItemPaths.some(path => !isFolder(app.vault.getAbstractFileByPath(path)))) return false;
+
 
         const target =
             app.vault
@@ -2488,6 +2448,7 @@ function makeProjectItemDropTarget(
 
             } catch (error) {
 
+                workspaceExplorer?.reportError(error);
                 console.error(
                     "Could not move project items:",
                     error
@@ -2517,6 +2478,72 @@ function clearFolderDropIndicators() {
 // ---------- UNIFIED WORKSPACE EXPLORER ----------
 
 let workspaceExplorer = null;
+let explorerMenu = null;
+
+function explorerIsNoteView() {
+    return !!root.closest(".hub-project-rail") || (!root.isConnected && dv.component.hubDestinationMode === "note");
+}
+
+function explorerIsWorkspaceRoot(path) {
+    return !!window.hubFileOperations?.isWorkspaceRoot?.(path) || path === projectRoot || window.hubTaskOwner?.(path)?.root === path || resourceTypes.some(resource => resource.root === path);
+}
+
+function showExplorerMenu(event, entries) {
+    explorerMenu?.hide();
+    explorerMenu = window.hubExplorerHost?.showMenu(event, entries);
+    return explorerMenu;
+}
+
+function fullExplorerContextMenu(event, node, beginCreate, { kind = "item" } = {}) {
+    const host = window.hubExplorerHost;
+    if (!host) return;
+    const entries = [], add = (title, icon, run, disabled = false, warning = false) => entries.push({ title, icon, run, disabled, warning });
+    const selected = selectedRootPaths([...selectedProjectItemPaths]);
+    if (kind === "item" && selectedProjectItemPaths.size > 1) {
+        add("Move items to…", "folder-input", () => host.moveTo(async target => { await moveProjectItemsTo(selected, target); clearProjectItemSelection(); renderFolderPanels(); }));
+        add("Cut", "scissors", () => window.hubFileOperations.setClipboard(selected, true));
+        add("Copy", "copy", () => window.hubFileOperations.setClipboard(selected));
+        add("Copy paths", "copy", () => host.copyPaths(selected));
+        add("Delete", "trash-2", deleteSelectedProjectItems, false, true);
+        showExplorerMenu(event, entries); return;
+    }
+    const background = kind !== "item";
+    if (kind === "left-background") {
+        add("New folder", "folder-plus", () => beginCreate("folder", projectRoot));
+        showExplorerMenu(event, entries); return;
+    }
+    if (!background) {
+        add("Open", node.folder ? "folder-open" : "file-text", () => node.folder ? workspaceExplorer.selectFolderPath(node.path) : openProjectNote(node.item));
+        if (!node.folder) entries.push({ title: "Open in…", icon: "external-link", items: [
+            { title: "New tab", run: () => openProjectNote(node.item, "tab") },
+            { title: "Right split", run: () => openProjectNote(node.item, "split") },
+            { title: "New window", run: () => host.openWindow(node.path) }
+        ] });
+    }
+    if (node.folder) {
+        add("New note", "file-plus-2", () => beginCreate("note", node.path), explorerIsWorkspaceRoot(node.path));
+        add("New folder", "folder-plus", () => beginCreate("folder", node.path));
+    }
+    if (background || node.folder) add("Paste", "clipboard-paste", async () => { await window.hubFileOperations.paste(node.path, { filesView: true }); renderFolderPanels(); });
+    add(background ? "Show current folder in system explorer" : "Show in system explorer", "folder-search", () => host.reveal(node.path, background), !host.canReveal());
+    if (!background) {
+        const actions = node.folder ? explorerFolderActions(node, beginCreate) : null;
+        if (!node.folder || actions.rename) {
+            entries.push(null);
+            add("Rename", "pencil", () => workspaceExplorer.beginRename(node.path));
+        }
+        const move = node.folder ? actions.moveTo : target => moveProjectItemsTo([node.path], target);
+        if (move) add("Move to…", "folder-input", () => host.moveTo(move));
+        if (!node.folder || actions.rename || actions.moveTo) {
+            add("Cut", "scissors", () => window.hubFileOperations.setClipboard([node.path], true));
+            add("Copy", "copy", () => window.hubFileOperations.setClipboard([node.path]));
+        }
+        add("Copy path", "copy", () => host.copyPaths([node.path]));
+        if (!node.folder || actions.delete) add("Delete", "trash-2", () => node.folder ? host.deleteFolder(node.name, actions.delete) : host.deleteFile(node.path), false, true);
+        if (actions?.detach) add("Detach from project", "unlink", actions.detach);
+    }
+    showExplorerMenu(event, entries);
+}
 
 function explorerFolderActions(node, beginCreate) {
     const { descriptor, path, parent } = node;
@@ -2526,6 +2553,7 @@ function explorerFolderActions(node, beginCreate) {
         newNote: () => beginCreate("note", path),
         newFolder: () => beginCreate("folder", path)
     };
+    if (parent && workspaceExplorer?.isFullView() && explorerIsWorkspaceRoot(path)) return actions;
     if (!parent) {
         if (!descriptor.isRoot && !descriptor.sharedResource) {
             actions.rename = name => renameTopLevelProjectFolder(descriptor, name);
@@ -2541,12 +2569,14 @@ function explorerFolderActions(node, beginCreate) {
             clearProjectItemSelection(); renderFolderPanels();
         };
         actions.rename = async name => {
-            await renameProjectFolder(path, name);
+            if (parent.path === projectRoot) await renameTopLevelProjectFolder({ path, title: node.name }, name);
+            else await renameProjectFolder(path, name);
             clearProjectItemSelection(); renderFolderPanels();
         };
         actions.delete = async () => {
+            if (parent.path === projectRoot) { await deleteTopLevelProjectFolder({ path, title: node.name }); clearProjectItemSelection(); return; }
             const folder = app.vault.getAbstractFileByPath(path);
-            if (isFolder(folder)) await app.fileManager.trashFile(folder);
+            if (isFolder(folder)) await window.hubFileOperations.trash(folder.path);
             clearProjectItemSelection(); renderFolderPanels();
         };
     }
@@ -2554,7 +2584,7 @@ function explorerFolderActions(node, beginCreate) {
 }
 
 function decorateExplorerRow(row, node, presentation) {
-    if (node.parent) makeProjectItemDraggable(row, node.path);
+    if (node.parent && (explorerIsNoteView() || !explorerIsWorkspaceRoot(node.path))) makeProjectItemDraggable(row, node.path);
     if (node.folder) {
         makeProjectItemDropTarget(row, () => node.path);
         makeExternalFileDropTarget(row, () => node.path);
@@ -2592,6 +2622,7 @@ function decorateExplorerRow(row, node, presentation) {
 }
 
 async function createExplorerItem(parentPath, kind, name) {
+    if (workspaceExplorer?.isFullView() && kind === "note" && explorerIsWorkspaceRoot(parentPath)) throw Error("Create notes inside a workspace folder.");
     const isWorkspaceFolder = parentPath === projectRoot && kind === "folder";
     if (isWorkspaceFolder && !folderOrder.length) folderOrder = projectFolderDescriptors()
         .filter(descriptor => !descriptor.isRoot && !descriptor.sharedResource).map(descriptor => descriptor.title);
@@ -2613,12 +2644,29 @@ function renderFolderPanels() {
         descriptors: projectFolderDescriptors,
         getByPath: path => app.vault.getAbstractFileByPath(path),
         states: () => savedFolderUiState,
-        isNoteView: () => !!root.closest(".hub-project-rail") ||
-            (!root.isConnected && dv.component.hubDestinationMode === "note"),
+        isNoteView: explorerIsNoteView,
         persist: persistFolderUiState,
         setIcon: (element, icon) => window.hubSetIcon?.(element, icon),
         openFile: openProjectNote,
+        showMenu: showExplorerMenu,
+        canCreateNote: path => !explorerIsWorkspaceRoot(path),
+        canSelect: path => !explorerIsWorkspaceRoot(path),
         createItem: createExplorerItem,
+        renameItem: async (path, value) => {
+            const item = app.vault.getAbstractFileByPath(path);
+            if (!item) throw Error("The item is no longer available.");
+            if (isFolder(item)) {
+                const next = projectItemPath(item.parent.path, "folder", value);
+                if (item.parent.path === projectRoot) await renameTopLevelProjectFolder({ path, title: item.name }, value);
+                else await renameProjectFolder(path, value);
+                return next;
+            }
+            const next = item.extension === "md" ? projectItemPath(item.parent.path, "note", value) : projectChildPath(item.parent.path, value);
+            if (next !== path) await window.hubFileOperations.rename(path, next, { filesView: true });
+            return next;
+        },
+        clipboard: { set: (paths, cut) => window.hubFileOperations.setClipboard(paths, cut),
+            paste: path => window.hubFileOperations.paste(path, { filesView: true }) },
         formatTime: formatFileTime,
         selectedPaths: selectedProjectItemPaths,
         selectItem: handleProjectItemSelection,
@@ -2628,7 +2676,8 @@ function renderFolderPanels() {
             makeProjectItemDropTarget(element, path);
             makeExternalFileDropTarget(element, path);
         },
-        contextMenu: (event, node, beginCreate) => {
+        contextMenu: (event, node, beginCreate, context) => {
+            if (workspaceExplorer?.isFullView()) { fullExplorerContextMenu(event, node, beginCreate, context); return; }
             const single = () => {
                 if (node.folder) window.hubShowProjectFolderMenu?.(event, explorerFolderActions(node, beginCreate));
                 else window.hubShowProjectFileMenu?.(event, node.path, {
@@ -2642,7 +2691,7 @@ function renderFolderPanels() {
             else handleProjectItemContextMenu(event, node.path, single);
         }
     });
-    dv.component.register(() => workspaceExplorer?.destroy());
+    dv.component.register(() => { explorerMenu?.hide(); workspaceExplorer?.destroy(); });
     const syncActiveFile = file => workspaceExplorer.setActive(file?.path ?? "");
     dv.component.registerEvent(app.workspace.on("file-open", syncActiveFile));
     // Seed remounted views from existing scoped history without opening a file
@@ -2651,7 +2700,7 @@ function renderFolderPanels() {
     const activeFile = app.workspace.getActiveFile?.();
     if (activeFile) syncActiveFile(activeFile);
     // Mode changes reuse this renderer; file-open alone does not signal them.
-    const syncExplorerMode = () => workspaceExplorer?.syncMode();
+    const syncExplorerMode = () => { explorerMenu?.hide(); workspaceExplorer?.syncMode(); };
     const modeObserver = new MutationObserver(syncExplorerMode);
     modeObserver.observe(root.ownerDocument.body, { attributes: true, attributeFilter: ["class"] });
     dv.component.registerEvent(app.workspace.on("layout-change", () => queueMicrotask(syncExplorerMode)));

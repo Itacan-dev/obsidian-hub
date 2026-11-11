@@ -14,6 +14,10 @@ function locationReference(owner, root, path, type) {
     const hash = require("node:crypto").createHash("sha256").update(JSON.stringify([[owner.type, owner.id], type, relative])).digest("hex");
     return { type, id: "workspace-location:v1:" + hash };
 }
+function resourceReference(owner, path, type) {
+    if (owner.type !== "resource") return null;
+    return { type, id: "resource-location:" + require("node:crypto").createHash("sha256").update(JSON.stringify([owner, type, path])).digest("hex") };
+}
 // null is a display-only omission marker; the original items remain navigable.
 function compactPathSegments(parts) {
     return parts.length > 3
@@ -30,4 +34,4 @@ function locationBreadcrumb(task, contextOwner = null) {
     if (!parts.length) parts = ["Workspace root"];
     return { label: compactPathSegments(parts).visible.map(part => part ?? "\u2026").join(" / "), full, available: display.available !== false };
 }
-module.exports = { sameOwner, relativePath, locationReference, compactPathSegments, locationBreadcrumb };
+module.exports = { sameOwner, relativePath, locationReference, resourceReference, compactPathSegments, locationBreadcrumb };

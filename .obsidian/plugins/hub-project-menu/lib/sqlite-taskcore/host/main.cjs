@@ -22,12 +22,27 @@ function attach(windowId,file,syncOptions=null){
   })().finally(()=>{workspace.opening=null});
   return workspace.opening;
  }
- const methods=new Set(['execute','getTask','listOwners','listTasks','readHistory','readStatistics','getOperation','readOutbox','getCursor','checkpoint','syncStatus','syncConflicts','syncResolve','syncEnroll','syncNow']);
+ const methods=new Set(['fileOperation','execute','getTask','listOwners','listTasks','readHistory','readStatistics','getOperation','readOutbox','getCursor','checkpoint','syncStatus','syncConflicts','syncResolve','syncEnroll','syncNow']);
  ipcMain.handle(channel,async(event,message)=>{
   if(event.sender!==window.webContents||connection.closed)return{error:{code:'CLOSED',message:'Task channel unavailable'}};
   try{
    if(!message||typeof message.method!=='string'||!Array.isArray(message.args))throw Error('Invalid request');
    if(message.method==='close'){await release();return{result:true};}
+   if(message.method==='fileOperation'){
+    const action=message.args[0]?.action;
+    if(action==='clipboardSet'){
+     const value=message.args[0].value;
+     if(!value||!Array.isArray(value.paths)||value.paths.some(p=>typeof p!=='string')||typeof value.cut!=='boolean')throw Error('Invalid file clipboard');
+     workspace.fileClipboard=value;return{result:value};
+    }
+    if(action==='clipboardGet')return{result:workspace.fileClipboard??null};
+    if(action==='acquire'){
+     if(workspace.fileActor&&workspace.fileActor!==channel)throw Object.assign(Error('Another Itacan window is operating on files.'),{code:'FILE_OPERATION_BUSY'});
+     workspace.fileActor=channel;return{result:true};
+    }
+    if(action==='release'){if(workspace.fileActor===channel)workspace.fileActor=null;return{result:true};}
+    if(action!=='list'&&workspace.fileActor!==channel)throw Object.assign(Error('Filesystem operation admission required.'),{code:'FILE_OPERATION_BUSY'});
+   }
    const s=await service();
    if(message.method==='versions')return{result:s.client.versions};
    if(!methods.has(message.method))throw Error('Unsupported task method');
@@ -35,7 +50,7 @@ function attach(windowId,file,syncOptions=null){
   }catch(error){return{error:{code:error.code??'INVALID_REQUEST',message:error.message}}}
  });
  async function release(){
-  if(connection.closed){await workspace.closing;return;}connection.closed=true;workspace.connections.delete(channel);
+  if(connection.closed){await workspace.closing;return;}connection.closed=true;workspace.connections.delete(channel);if(workspace.fileActor===channel)workspace.fileActor=null;
   if(!workspace.connections.size){
    workspace.closing??=(async()=>{await workspace.previousDrain;await workspace.opening?.catch(()=>{});const s=workspace.service;if(s&&!s.client.exited){const exit=new Promise(r=>s.child.once('exit',r));await s.client.close();const code=await exit;if(code!==0)throw Error('Task utility did not close cleanly');}if(workspaces.get(file)===workspace)workspaces.delete(file);})();
    await workspace.closing;

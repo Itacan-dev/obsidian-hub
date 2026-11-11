@@ -73,6 +73,7 @@ async function runCases() {
         const left = grid.createDiv({ cls: "project-left-column" });
         const folderStack = left.createDiv({ cls: "project-folder-stack" });
         const explorer = mountWorkspaceExplorer({ parent: folderStack, workspacePath: "Resources/Knowledge", dashboardPath: dv.path,
+            isNoteView: () => true,
             descriptors: () => [math, "Resources/Knowledge/Physics"].map(path => ({ path, name: path.split("/").pop() })),
             getByPath: path => objects.get(path), states: () => states, persist() {},
             setIcon: load("obsidian").setIcon, openFile() {}, createItem() {}, contextMenu() {} });

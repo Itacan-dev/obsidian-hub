@@ -1,6 +1,6 @@
 "use strict";
 const N = require("../services/native-inbox-task");
-const { captureDraft, noteTitle } = require("../domain/inbox");
+const { captureDraft, noteTitle, quickNoteTitle } = require("../domain/inbox");
 const { createNativeTaskLocations, workspaceRef } = require("../services/native-task-locations");
 const { openLocationPicker } = require("./task-location-picker");
 
@@ -77,8 +77,12 @@ function openCaptureAction(service, { captureId, mode, onClose = () => {} }) {
         else Object.assign(values, { folder: selected.selected?.path ?? draft.folder, title: selected.title, noteAction: "new" });
         return values;
     };
+    if (quick && mode === "note" && !pending) {
+        if (!/^Quick Add — \d{4}-\d{2}-\d{2} \d{2}-\d{2}$/.test(draft.title ?? "")) draft.title = quickNoteTitle();
+        void persist(draft);
+    }
     const title = mode === "note" ? draft.title ?? noteTitle(capture) : "";
-    modal = openLocationPicker(service.app, { locations, owner, reference, allowOwnerChange: true, mode, noteTitle: title,
+    modal = openLocationPicker(service.app, { locations, owner, reference, allowOwnerChange: true, mode, noteTitle: title, editNoteTitle: !quick,
         contextTitle: mode === "note" ? title : mode === "text" ? capture.text.trim().replace(/\s+/g," ") : capture.attachments.length === 1 ? capture.attachments[0].name : capture.attachments[0].name + " (+" + (capture.attachments.length-1) + (capture.attachments.length === 2 ? " file)" : " files)"),
         confirmLabel: mode === "file" && capture.attachments.length > 1 ? "Add files" : undefined,
         onDraftChange: value => { void persist(valuesFor(value)); },

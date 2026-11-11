@@ -1905,6 +1905,42 @@
     .hub-explorer-tree { --hub-tree-indent: 14px; }
 }
 
+/* Full explorer shares a header row; the Note rail retains its mixed tree. */
+.hub-workspace-explorer:not(.is-note-explorer) .hub-explorer-body {
+    position: relative;
+    grid-template-columns: minmax(0, var(--hub-explorer-tree-width, 33.333%)) 5px minmax(0, 1fr);
+    grid-template-rows: 40px minmax(0, 1fr);
+}
+.hub-workspace-explorer:not(.is-note-explorer) .hub-explorer-body::after {
+    content: ""; position: absolute; top: 39px; left: 0; right: 0;
+    border-bottom: 1px solid var(--background-modifier-border); pointer-events: none;
+}
+.hub-explorer-toolbar { display: flex; align-items: center; justify-content: center; grid-column: 1; grid-row: 1; padding: 0 8px; }
+.hub-workspace-explorer .hub-explorer-toolbar > button {
+    display: flex; align-items: center; justify-content: center; flex: 1 1 0;
+    height: 30px; min-width: 24px; margin: 0; padding: 0; border: 0; border-radius: 4px;
+    background: transparent; box-shadow: none; color: var(--text-muted);
+}
+.hub-workspace-explorer .hub-explorer-toolbar > button:hover:not(:disabled) { background: var(--background-modifier-hover); color: var(--text-normal); }
+.hub-workspace-explorer .hub-explorer-toolbar > button:disabled { opacity: .4; cursor: default; }
+.hub-workspace-explorer:not(.is-note-explorer) .hub-explorer-location { grid-column: 3; grid-row: 1; border: 0; padding: 7px 10px; min-width: 0; }
+.hub-workspace-explorer:not(.is-note-explorer) .hub-explorer-breadcrumb { overflow-x: auto; white-space: nowrap; scrollbar-width: thin; }
+.hub-workspace-explorer:not(.is-note-explorer) .hub-explorer-crumb { flex: 0 0 auto; }
+.hub-workspace-explorer:not(.is-note-explorer) .hub-explorer-tree { grid-column: 1; grid-row: 2; }
+.hub-workspace-explorer:not(.is-note-explorer) .hub-explorer-details { grid-column: 3; grid-row: 2; border-left: 0; }
+.hub-explorer-splitter { grid-column: 2; grid-row: 1 / 3; cursor: col-resize; border-left: 1px solid var(--background-modifier-border); touch-action: none; }
+.hub-explorer-splitter:hover, .hub-explorer-splitter:focus-visible, .is-resizing .hub-explorer-splitter { background: var(--background-modifier-hover); outline: 1px solid var(--interactive-accent); outline-offset: -1px; }
+.hub-workspace-explorer.is-resizing { user-select: none; cursor: col-resize; }
+.hub-workspace-explorer:not(.is-note-explorer) .hub-explorer-new-folder { display: none; }
+.hub-workspace-explorer:not(.is-note-explorer) .hub-explorer-footer:has(.hub-explorer-status:empty) { display: none; }
+.hub-workspace-explorer .hub-explorer-draft { grid-template-columns: minmax(0, 1fr); }
+.hub-explorer-draft .project-create-input { min-width: 0; width: 100%; }
+.hub-explorer-draft .hub-explorer-create-error { grid-column: 1 / -1; padding: 0 8px; }
+.hub-workspace-explorer.is-note-explorer :is(.hub-explorer-toolbar, .hub-explorer-location, .hub-explorer-splitter) { display: none; }
+.hub-workspace-explorer.is-note-explorer .hub-explorer-body { display: flex; flex-direction: column; }
+.hub-workspace-explorer.is-note-explorer .hub-explorer-details { display: none; }
+.hub-workspace-explorer.is-note-explorer .hub-explorer-tree { flex: 1 1 0; }
+
 /* Full-view vertical contract: one viewport boundary, natural header sizes.
    The explicit rail exclusion also protects the transition before JS runs. */
 .project-dashboard.hub-full-view:not(.hub-project-rail *) {

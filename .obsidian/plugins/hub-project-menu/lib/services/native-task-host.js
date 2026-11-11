@@ -35,8 +35,8 @@ function createNativeTaskHost(plugin){
  let timer;const refresh=()=>{clearTimeout(timer);timer=setTimeout(()=>void host.refreshInventory().catch(console.error),50)};
  for(const event of ['create','delete','rename'])plugin.registerEvent(plugin.app.vault.on(event,refresh));
  plugin.registerEvent(plugin.app.metadataCache.on('changed',refresh));
- plugin.registerEvent(plugin.app.workspace.on('quit',tasks=>tasks.add(()=>host.close())));
- plugin.register(()=>{clearTimeout(timer);void host.close().catch(console.error)});
+ plugin.registerEvent(plugin.app.workspace.on('quit',tasks=>tasks.add(async()=>{await plugin.fileOperations?.close();await host.close();})));
+ plugin.register(()=>{clearTimeout(timer);void Promise.resolve(plugin.fileOperations?.close()).then(()=>host.close()).catch(console.error)});
  require('./task-sync').mountTaskSync(plugin,host,service);
  return host;
 }

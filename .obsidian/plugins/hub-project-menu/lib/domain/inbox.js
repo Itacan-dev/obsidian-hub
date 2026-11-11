@@ -2,7 +2,7 @@
 const { projectItemPath } = require("./files");
 const { noteLocation } = require("./note-insertion");
 
-const INBOX_VERSION = 1;
+const INBOX_VERSION = 2;
 const INBOX_ATTACHMENT_ROOT = "Inbox/Attachments";
 const INBOX_SORTS = [
     ["most-complete", "Most complete"], ["least-complete", "Least complete"],
@@ -93,6 +93,12 @@ function noteTitle(draft) {
     return title;
 }
 
+function timestampNoteTitle(prefix, date = new Date()) {
+    const pad = value => String(value).padStart(2, "0");
+    return `${prefix} — ${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}-${pad(date.getMinutes())}`;
+}
+function quickNoteTitle(date = new Date()) { return timestampNoteTitle("Quick Add", date); }
+
 function captureNoteTitle(value) {
     const raw = String(value ?? ""), title = raw.trim();
     if (!title) throw Error("Enter a note title.");
@@ -160,5 +166,5 @@ function captureDraft(capture = {}, type = null) {
 }
 
 module.exports = { INBOX_VERSION, INBOX_ATTACHMENT_ROOT, linkFromText, isInboxOwned, captureKind,
-    capturePreview, sourceMetadata, attachmentReference, sortedCaptures, taskTitle, captureIntent, captureDraft, captureNoteTitle, noteTitle,
+    capturePreview, sourceMetadata, attachmentReference, sortedCaptures, taskTitle, captureIntent, captureDraft, captureNoteTitle, noteTitle, quickNoteTitle, timestampNoteTitle,
     INBOX_SORTS, inboxSort, inboxCounts, inboxItemType };

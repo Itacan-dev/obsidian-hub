@@ -17,6 +17,7 @@ class HubInboxService {
         this.plugin = plugin; this.app = plugin.app; this.listeners = new Set(); this.queue = Promise.resolve();
         const version = Number(plugin.projectWizard.data.inbox?.version) || INBOX_VERSION;
         if (version > INBOX_VERSION) throw Error("This Inbox was saved by a newer version of Itacan.");
+        if (plugin.projectWizard.data.inbox?.bulk && plugin.projectWizard.data.inbox.bulk.version !== 1) throw Error("This Inbox batch requires a newer version of Itacan.");
         this.files = createFileDomain({ getByPath: path => this.app.vault.getAbstractFileByPath(path) });
         this.noteCache = new Map(); this.noteRevisions = new Map(); this.noteEvents = [];
         if (this.app.vault.on && this.app.vault.offref) for (const event of ["modify", "delete", "rename"]) {
@@ -34,7 +35,7 @@ class HubInboxService {
     }
     refreshNativeInventory(owner) { const root=this.plugin.nativeTaskHost,host=owner&&root?.ownerHosts?root.ownerHosts().find(h=>h.matches(owner)):root; if(owner&&!host)throw Error("Native task authority is unavailable.");return host?.refreshInventory?.() ?? Promise.resolve(); }
     scheduleNativeRefresh() { this.nativeRefresh = Promise.resolve().then(()=>this.refreshNativeInventory()).catch(error=>{ console.error("Native capture inventory refresh requires review",error); }); return this.nativeRefresh; }
-    get state() { return this.plugin.projectWizard.data.inbox ?? { version: INBOX_VERSION, captures: [] }; }
+    get state() { return this.plugin.projectWizard.data.inbox ?? { version: 1, captures: [] }; }
     get captures() { return (Array.isArray(this.state.captures) ? this.state.captures : []).filter(item => item && typeof item.id === "string"); }
     get count() { return this.captures.length; }
     list(options) { return sortedCaptures(this.captures, { completion: item => this.getInboxCompletion(item), ...options }); }
@@ -59,7 +60,7 @@ class HubInboxService {
     async save(captures, patch = {}) {
         await this.plugin.dataStore.writeQueue?.catch(() => {});
         const data = this.plugin.projectWizard.data, previous = data.inbox;
-        const next = { ...this.state, ...patch, version: INBOX_VERSION, captures };
+        const next = { ...this.state, ...patch, version: patch.bulk || this.state.bulk ? INBOX_VERSION : this.state.version, captures };
         data.inbox = next;
         try { await this.plugin.dataStore.save(data); this.plugin.projectWizard.data.inbox = next; }
         catch (error) {
@@ -87,6 +88,7 @@ class HubInboxService {
         await this.save([...this.captures, capture]); return capture;
     }
     updateCapture(id, values) { return this.enqueue(async () => {
+        this.assertBulkAccess(id);
         const previous = this.required(id);
         const text = String(values.text ?? previous.text), attachments = (values.attachments ?? previous.attachments).map(attachmentReference);
         if (previous.operation && previous.operation.state !== "done") {
@@ -320,7 +322,7 @@ class HubInboxService {
         const path = relative.replace(/\\/g, "/"), file = this.app.vault.getAbstractFileByPath(path);
         return file && !isFolderLike(file) ? file : null;
     }
-    stageFiles(sources, checkpoint) { return this.enqueue(async () => {
+    stageFiles(sources, checkpoint, skip) { return this.enqueue(async () => {
         const refs = [], imported = [], folder = INBOX_ATTACHMENT_ROOT + "/" + randomUUID();
         try {
             for (const source of Array.from(sources ?? [])) {
@@ -328,6 +330,7 @@ class HubInboxService {
                 const name = String(source.name ?? "").trim();
                 if (!name || /[\\/:*?"<>|\u0000-\u001f]/.test(name) || /[. ]$/.test(name) || /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(name) || name === "." || name === "..") throw Error("An attachment has an invalid filename. Rename it before importing.");
                 const sourcePath = this.sourcePath(source), existing = this.vaultSource(source, sourcePath);
+                if (skip && await skip(source, { name, sourcePath, existing })) continue;
                 if (existing) {
                     refs.push({ id: randomUUID(), path: existing.path, name: existing.name || name, ownership: "reference", size: Number(source.size) || existing.stat?.size || 0, mime: source.type || "", originalPath: existing.path });
                     if (checkpoint) await checkpoint([...refs]);
@@ -348,18 +351,19 @@ class HubInboxService {
             }
             return refs;
         } catch (error) {
-            if (!checkpoint) for (const file of imported) { try { await this.app.vault.delete(file); } catch (_) { /* Preserve a failed-cleanup copy rather than its original. */ } }
+            if (!checkpoint) for (const file of imported) { try { await this.plugin.fileOperations.trash(file.path); } catch (_) { /* Preserve a failed-cleanup copy rather than its original. */ } }
             throw error;
         }
     }); }
     async releaseAttachments(refs) {
         for (const ref of refs ?? []) {
-            if (!isInboxOwned(ref) || [...this.captures, this.currentQuickDraft].filter(Boolean).some(capture => capture.attachments?.some(item => item.path === ref.path) || capture.operation?.moves?.some(move => move.from === ref.path || move.to === ref.path))) continue;
+            if (!isInboxOwned(ref) || [...this.captures, this.currentQuickDraft, ...(this.activeBulk?.members.filter(m => m.state !== "done").map(m => m.input) ?? [])].filter(Boolean).some(capture => capture.attachments?.some(item => item.path === ref.path) || capture.operation?.moves?.some(move => move.from === ref.path || move.to === ref.path))) continue;
             const file = this.app.vault.getAbstractFileByPath(ref.path);
-            if (file && !isFolderLike(file)) { try { await this.app.vault.delete(file); } catch (error) { console.warn("Could not remove unused Inbox copy", error); } }
+            if (file && !isFolderLike(file)) { try { await this.plugin.fileOperations.trash(file.path); } catch (error) { console.warn("Could not remove unused Inbox copy", error); } }
         }
     }
     delete(id) { return this.enqueue(async () => {
+        this.assertBulkAccess(id);
         if(this.required(id).operation?.kind === "native-task") throw Error("Resolve the retained native task operation before deleting its source item.");
         const capture = this.required(id);
         if (["note", "files"].includes(capture.operation?.kind) && capture.operation.state === "prepared") {
@@ -411,11 +415,13 @@ class HubInboxService {
         const needsNote = kind === "note" || !!capture.text.trim() || (!values.filesOnly && !!(source.url || source.pageUrl || source.path || source.workspaceName));
         let note = null;
         if (needsNote) {
+            const bulkNote = kind === "note" && this.bulkMember(capture.id) && this.activeBulk.action === "note";
             const proposed = projectItemPath(folder, "note", values.title || (kind === "files" ? "Captured files" : "Untitled"));
+            if (bulkNote && this.app.vault.getAbstractFileByPath(proposed)) throw Error("The allocated bulk note filename was taken. Its source is retained; review the collision before retrying.");
             const path = paths.availableExternalFilePath(folder, proposed.slice(folder.length + 1));
             // Native attachment links are generated after the files have moved,
             // when the actual TFiles can resolve names with the user's preferences.
-            note = { path };
+            note = { path, ...(kind === "note" && (this.currentQuickDraft?.id === capture.id || bulkNote) && !capture.attachments.length ? { verbatim: true } : {}) };
         }
         return { id: operationId, kind, state: "prepared", workspaceId: workspace.id, folder, title: String(values.title ?? ""), moves, note, input: this.input(capture, values) };
     }
@@ -430,16 +436,18 @@ class HubInboxService {
         this.fileOperationDestination(operation);
         for (const move of operation.moves) {
             const from = this.app.vault.getAbstractFileByPath(move.from), to = this.app.vault.getAbstractFileByPath(move.to);
-            if (move.from === move.to || !from && to) { await this.checkMove(move, move.to); continue; }
+            if (move.from === move.to) { await this.checkMove(move, move.to); continue; }
+            if (!from && to) { await this.checkMove(move, move.to); await this.plugin.fileOperations.captureMove(operation.id, move); continue; }
             if (to) throw Error(`\"${move.name}\" already exists at the destination.`);
-            await this.app.fileManager.renameFile(await this.checkMove(move, move.from), move.to);
+            await this.checkMove(move, move.from);
+            await this.plugin.fileOperations.captureMove(operation.id, move);
             await this.checkMove(move, move.to);
         }
         if (operation.note) {
             if (operation.note.text === undefined) {
-                // Persist exact content before creating the note. The invisible
-                // receipt marker distinguishes our note from a competing user file.
-                const text = this.noteText({ ...capture, text: operation.input.text }, operation.moves, operation.note.path) +
+                // Quick Add keeps its exact text and receipt hash in metadata.
+                // Other note flows retain their existing attribution and marker.
+                const text = operation.note.verbatim ? operation.input.text : this.noteText({ ...capture, text: operation.input.text }, operation.moves, operation.note.path) +
                     `\n<!-- itacan-capture:${operation.id} -->\n`;
                 operation = { ...operation, note: { ...operation.note, text, hash: digest(text) } };
                 await this.replace({ ...capture, operation });
@@ -458,10 +466,13 @@ class HubInboxService {
             if (file) {
                 try {
                     const content = isFolderLike(file) ? "" : await this.app.vault.read(file);
+                    // No inline identity marker exists in a verbatim note. Keep
+                    // the file and source for a hash-checked original retry.
+                    if (operation.note.verbatim) throw Error("The destination note has been retained. Retry the original destination; review it first if its content changed.");
                     if (!content.includes(`<!-- itacan-capture:${operation.id} -->`)) {
                         // A competing file is not ours, even when its name matches.
                     } else if (digest(content) !== operation.note.hash) throw Error("The destination note changed. Check it before retrying this item.");
-                    else await this.app.vault.delete(file);
+                    else await this.plugin.fileOperations.trash(file.path);
                 } catch (error) { failures.push(error); }
             }
         }
@@ -471,7 +482,8 @@ class HubInboxService {
                 if (this.app.vault.getAbstractFileByPath(move.from)) { await this.checkMove(move, move.from); continue; }
                 const parent = move.from.slice(0, move.from.lastIndexOf("/"));
                 if (!isFolderLike(this.app.vault.getAbstractFileByPath(parent))) throw Error("The original file folder was removed. The item has been kept in Inbox.");
-                await this.app.fileManager.renameFile(await this.checkMove(move, move.to), move.from);
+                await this.checkMove(move, move.to);
+                await this.plugin.fileOperations.captureMove(operation.id, move, true);
             } catch (error) { failures.push(error); }
         }
         if (failures.length) throw failures[0];
@@ -487,12 +499,13 @@ class HubInboxService {
             return { ...other, attachments };
         };
         await this.save(this.captures.filter(item => item.id !== capture.id).map(remap),
-            isQuick ? { quickAddDraft: null } : quick ? { quickAddDraft: remap(quick) } : {});
+            { ...(isQuick ? { quickAddDraft: null } : quick ? { quickAddDraft: remap(quick) } : {}), ...this.bulkFinishPatch(capture, remap) });
         if (isQuick) this.draftSession = this.newQuickDraft(capture.source);
         else if (quick) this.draftSession = remap(quick);
         await this.releaseAttachments(capture.attachments);
     }
     createNote(values, captureId) { return this.enqueue(() => {
+        this.assertBulkAccess(captureId, values.bulkBatchId);
         const saved = this.get(captureId);
         return (values.noteAction ?? saved?.intent?.noteAction) === "existing" || saved?.operation?.kind === "note-insertion" ?
             this.resolveNoteInsertion(values, captureId) : this.resolveFiles("note", values, captureId);
@@ -569,7 +582,7 @@ class HubInboxService {
             error.captureId = capture.id; throw error;
         }
     }
-    addFiles(values, captureId) { return this.enqueue(() => this.resolveFiles("files", values, captureId)); }
+    addFiles(values, captureId) { return this.enqueue(() => { this.assertBulkAccess(captureId, values.bulkBatchId); return this.resolveFiles("files", values, captureId); }); }
     async resolveFiles(kind, values, captureId) {
         let capture = captureId ? this.required(captureId) : await this.createCapture({ ...values, type: kind === "files" ? "file" : "note" });
         values = { ...capture.intent, ...values, type: kind === "files" ? "file" : "note" };
@@ -623,8 +636,9 @@ class HubInboxService {
             return kind === "note" ? { file, attachments: files } : { files, note: file };
         } catch (error) { error.captureId = capture.id; throw error; }
     }
-    makeTask(values, captureId, attempt) { return this.enqueue(()=>require("./native-inbox-task").submit(this,values,captureId,attempt)); }
+    makeTask(values, captureId, attempt) { return this.enqueue(()=>{ this.assertBulkAccess(captureId, values.bulkBatchId); return require("./native-inbox-task").submit(this,values,captureId,attempt); }); }
 }
 
 Object.defineProperties(HubInboxService.prototype, Object.getOwnPropertyDescriptors(require("./quick-add-draft")));
+Object.defineProperties(HubInboxService.prototype, Object.getOwnPropertyDescriptors(require("./inbox-bulk")));
 module.exports = { HubInboxService };

@@ -6,7 +6,11 @@ const compareNames = (a, b) => a.localeCompare(b, undefined, { sensitivity: "bas
 
 // Nodes retain the original vault object and descriptor. Shared roots are views
 // of Resource paths, never copied files or a second store of their metadata.
-function workspaceTree(descriptors, getByPath, dashboardPath) {
+function workspaceTree(descriptors, getByPath, dashboardPath, { workspacePath = null, fullView = false } = {}) {
+    if (fullView) descriptors = [
+        { path: workspacePath, title: getByPath(workspacePath)?.name ?? "Workspace", isRoot: true },
+        ...descriptors.filter(descriptor => descriptor.sharedResource && descriptor.path !== workspacePath)
+    ];
     const byPath = new Map();
     function visit(item, descriptor, parent = null) {
         const folder = isFolderLike(item);
@@ -14,7 +18,7 @@ function workspaceTree(descriptors, getByPath, dashboardPath) {
             item, descriptor, parent, folder, children: [] };
         byPath.set(node.path, node);
         if (folder) node.children = item.children
-            .filter(child => child.path !== dashboardPath && !(descriptor.isRoot && !parent && isFolderLike(child)))
+            .filter(child => child.path !== dashboardPath && !(!fullView && descriptor.isRoot && !parent && isFolderLike(child)))
             .map(child => visit(child, descriptor, node))
             .sort((a, b) => Number(b.folder) - Number(a.folder) || compareNames(a.name, b.name));
         return node;

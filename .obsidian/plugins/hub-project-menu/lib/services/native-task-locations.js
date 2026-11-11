@@ -35,9 +35,7 @@ function createNativeTaskLocations(plugin) {
         return { path, type, name: file.name ?? path.split("/").at(-1), reference: L.locationReference(w.owner, w.root, path, type) };
     }
     function resourceReference(w, path, type) {
-        if (w.owner.type !== "resource") return null;
-        const hash = value => require("node:crypto").createHash("sha256").update(JSON.stringify(value)).digest("hex");
-        return { type, id: "resource-location:" + hash([w.owner, type, path]) };
+        return L.resourceReference(w.owner, path, type);
     }
     function index(owner, fresh = false) {
         const key = ownerKey(owner), previous = indexes.get(key);

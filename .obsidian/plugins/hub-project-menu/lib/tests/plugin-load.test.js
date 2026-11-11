@@ -116,6 +116,18 @@ try {
                 assert.deepStrictEqual(errors, outcome === "reject" ? [["Native task shutdown failed", failure]] : []);
             });
         }
+        test(label + ": filesystem drain precedes native closure without delaying other cleanup", async t => {
+            const previousWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
+            Object.defineProperty(globalThis, "window", { configurable: true, writable: true, value: {} });
+            t.after(() => { if (previousWindow) Object.defineProperty(globalThis, "window", previousWindow); else delete globalThis.window; });
+            const calls=[];let drained;const pending=new Promise(resolve=>drained=resolve);
+            const plugin=Object.assign(Object.create(HubPlugin.prototype),{
+                fileOperations:{close(){calls.push("files.close");return pending;}},nativeTaskHost:{async close(){calls.push("native.close");}},
+                athena:{destroy(){calls.push("athena.destroy");}},atlas:{destroy(){calls.push("atlas.destroy");}}
+            });
+            plugin.onunload();assert.deepStrictEqual(calls,["files.close","athena.destroy","atlas.destroy"]);
+            drained();await plugin.nativeTaskStopping;assert.deepStrictEqual(calls,["files.close","athena.destroy","atlas.destroy","native.close"]);
+        });
         test(label + ": shutdown tolerates absent native-task and Athena services", async t => {
             const previousWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
             Object.defineProperty(globalThis, "window", { configurable: true, writable: true, value: {} });

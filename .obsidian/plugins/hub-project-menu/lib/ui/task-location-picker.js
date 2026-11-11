@@ -22,7 +22,7 @@ const LOCATION_MODES = {
     file: { title: "File location", subtitle: "Choose where this file belongs.", action: "Add file" }
 };
 function openLocationPicker(app, { locations, owner, reference = null, allowOwnerChange = false, taskTitle = "", contextTitle = taskTitle,
-    mode = "task", noteTitle = "", confirmLabel, onDraftChange = () => {}, beforeClose, onChoose, onClose = () => {} }) {
+    mode = "task", noteTitle = "", editNoteTitle = true, confirmLabel, selectionLocked = () => false, onDraftChange = () => {}, beforeClose, onChoose, onClose = () => {} }) {
     const config = LOCATION_MODES[mode];
     if (!config) throw Error("Unknown location mode.");
     const accepts = type => mode === "text" ? type === "note" : mode === "task" ? ["folder", "note"].includes(type) : type === "folder";
@@ -37,7 +37,7 @@ function openLocationPicker(app, { locations, owner, reference = null, allowOwne
             this.owner = owner ? { ...owner } : null;
             try { if (this.owner) locations.workspace(this.owner); } catch (_) { this.owner = null; }
             this.titleValue = noteTitle;
-            if (mode === "note") {
+            if (mode === "note" && editNoteTitle) {
                 const label = this.contentEl.createEl("label", { cls: "hub-capture-field hub-location-note-title", text: "Title" });
                 this.titleInput = label.createEl("input", { type: "text", attr: { "aria-label": "Note title", required: "" } });
                 this.titleInput.value = noteTitle;
@@ -239,6 +239,10 @@ function openLocationPicker(app, { locations, owner, reference = null, allowOwne
                 if (row.dataset.locationType === "note") row.setAttribute("aria-pressed", String(selected));
             }
             if (this.owner) this.renderBreadcrumbs(); else this.breadcrumbs.empty();
+            if (selectionLocked()) {
+                this.workspaceButton.disabled = true;
+                for (const button of this.contentEl.querySelectorAll('.hub-task-location-entries button,.hub-task-location-breadcrumbs button')) button.disabled = true;
+            }
         }
         renderBreadcrumbs() {
             const w = locations.workspace(this.owner), route = relativePath(w.root, this.path).split("/").filter(Boolean);

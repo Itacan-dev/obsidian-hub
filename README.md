@@ -82,6 +82,15 @@ an unverified development candidate. See [architecture, setup and release gates]
 
 ## Development
 
+The Files explorer uses a shared Itacan operation service to coordinate native
+task references with rename, move and trash actions. It includes internal
+Cut/Copy/Paste, atomic task/recurrence migration, and durable local recovery.
+See [Stage 2 implementation and validation](System/Hub-files-explorer-stage2.md)
+and the [approved staged plan](System/Hub-files-explorer-stage1.md).
+Native Obsidian/third-party mutations bypassing this service remain outside its
+coordination guarantee. Restart Obsidian fully after installing this build so
+all windows use the new SQLite utility and additive schema migration.
+
 For macOS installation, personal OneDrive enrollment and the pending physical
 acceptance checks, see [Itacan on macOS](System/Hub-macos.md).
 

@@ -5,6 +5,7 @@ const { Notice } = require("obsidian");
 const { mountTaskText } = require("./task-form");
 const { linkFromText } = require("../domain/inbox");
 const { openCaptureAction, operationMode } = require("./capture-flow");
+const { captureActions, captureAction } = require("./capture-actions");
 
 class QuickAddModal extends CaptureModal {
     constructor(app, service, options = {}) {
@@ -14,9 +15,11 @@ class QuickAddModal extends CaptureModal {
     }
     onOpen() { ownModalColors(this);
         this.modalEl.classList.add("hub-quick-add-dialog");
-        this.header("Quick Add", "Write down a thought, or add a file", "zap");
+        this.header("Quick Add", "Write down a thought, or choose files", "zap");
         this.body = this.contentEl.createDiv({ cls: "hub-capture-body" });
-        this.textPath = this.body.createDiv({ cls: "hub-capture-text-editor" });
+        this.captureRegion = this.body.createDiv({ cls: "hub-quick-capture-region" });
+        this.textCapture = this.captureRegion.createDiv({ cls: "hub-quick-text-capture" });
+        this.textPath = this.textCapture.createDiv({ cls: "hub-capture-text-editor" });
         this.input = mountTaskText(this.textPath, this.draft, patch => { this.checkpoint({ text: patch.text, actionDrafts: {}, lastAction: null }); this.sync(); },
             { multiline: true, required: false, placeholder: "Start typing...", attributes: { "aria-label": "Write something" } });
         this.input.addEventListener("keydown", event => {
@@ -47,48 +50,64 @@ class QuickAddModal extends CaptureModal {
             this.input.setRangeText(prefix + text, start, end, "end");
             this.checkpoint({ text: this.input.value, actionDrafts: {}, lastAction: null }); this.sync(); this.input.focus();
         });
-        this.attachmentList = this.body.createDiv({ cls: "hub-capture-attachments" });
-        this.fileInput = this.body.createEl("input", { attr: { type: "file", multiple: "", hidden: "", tabindex: "-1", "aria-label": "Choose a file" } });
+        this.destinations = this.textCapture.createDiv({ cls: "hub-quick-capture-actions", attr: { role: "group", "aria-label": "Capture actions" } });
+        this.attachmentList = this.captureRegion.createDiv({ cls: "hub-capture-attachments" });
+        this.attachmentList.hidden = true;
+        this.fileInput = this.body.createEl("input", { attr: { type: "file", multiple: "", hidden: "", tabindex: "-1", "aria-label": "Choose files" } });
         this.fileInput.addEventListener("change", () => { void this.addAttachments([...this.fileInput.files]); this.fileInput.value = ""; });
-        this.attach = action(this.body, "Add a file", "paperclip", () => this.fileInput.click(), "hub-capture-attach");
-        this.chooser = this.body.createDiv({ cls: "hub-capture-specify", attr: { role: "group", "aria-label": "Specify destination" } }); this.chooser.hidden = true;
+        this.attach = action(this.body, "Choose files", "paperclip", () => { if (!this.attach.disabled) this.fileInput.click(); }, "hub-capture-attach");
         const footer = this.contentEl.createDiv({ cls: "hub-capture-actions" });
         this.clear = action(footer, "Clear", null, () => { void this.clearDraft(); });
-        this.more = action(footer, "Specify", null, () => { this.chooser.hidden = !this.chooser.hidden; this.more.setAttribute("aria-expanded", String(!this.chooser.hidden)); if (!this.chooser.hidden) this.chooser.querySelector("button:not(:disabled)")?.focus(); });
-        this.more.setAttribute("aria-expanded", "false");
+        this.fileAction = action(footer, "Add files to...", "folder-input", () => { void this.launchAction("file"); });
+        this.fileAction.dataset.captureAction = "file"; this.fileAction.hidden = true;
         this.send = action(footer, "Send to Inbox", null, () => { void this.sendInbox(); }, "mod-cta");
-        this.feedback = this.contentEl.createDiv({ cls: "hub-capture-feedback", attr: { role: "status", "aria-live": "polite", "aria-atomic": "true" } });
-        if (operationMode(this.draft)) this.feedback.textContent = "Choose Specify to retry the saved action, or send it to Inbox.";
-        this.renderAttachments(); this.sync(); if (!this.draft.attachments.length) this.input.focus();
+        this.renderActions();
+        // Size once from the existing empty text layout, including current fonts.
+        const height = this.captureRegion.getBoundingClientRect().height;
+        if (height > 0) this.captureRegion.style.setProperty("--hub-quick-capture-height", height + "px");
+        this.captureRegion.classList.add("is-sized");
+        const dialogHeight = this.modalEl.getBoundingClientRect().height;
+        if (dialogHeight > 0) this.modalEl.style.setProperty("--hub-quick-dialog-height", dialogHeight + "px");
+        this.renderAttachments({ revealNewest: true }); this.sync(); if (!this.draft.attachments.length) this.input.focus();
     }
     checkpoint(patch) {
-        this.feedback.textContent = "Saving draft?";
         const save = this.service.saveQuickDraft(patch, this.draft.id); this.draft = this.service.quickDraft();
-        save.then(() => { if (!this.closed && this.feedback.textContent === "Saving draft?") this.feedback.textContent = ""; }, error => { if (!this.closed) this.error.textContent = "Draft not saved: " + error.message; });
+        save.then(() => {
+            if (!this.closed && this.error.textContent.startsWith("Draft not saved:")) this.error.textContent = "";
+        }, error => { if (!this.closed) this.error.textContent = "Draft not saved: " + error.message; });
         return save;
     }
-    renderAttachments() {
-        attachments(this.attachmentList, this.draft.attachments, this.service, { remove: ref => { void this.run(async () => {
+    renderAttachments({ revealNewest = false } = {}) {
+        const scroll = this.attachmentList.scrollTop;
+        attachments(this.attachmentList, [...this.draft.attachments].reverse(), this.service, { remove: ref => { void this.run(async () => {
             await this.service.removeQuickAttachment(this.draft.id, ref.id); this.draft = this.service.quickDraft(); this.renderAttachments();
         }); } });
-        this.renderChoices();
+        this.attachmentList.scrollTop = revealNewest ? 0 : scroll;
     }
-    renderChoices() {
-        this.chooser.empty();
-        const choices = this.draft.attachments.length ? [["file", "File location"]] : [["task", "Task"], ["note", "New note"], ["text", "Add to existing note"]];
-        const pending = operationMode(this.draft);
-        for (const [mode, label] of choices) { const button = action(this.chooser, label, null, () => { void this.specify(mode); }); button.disabled = !!pending && pending !== mode; }
+    renderActions() {
+        this.destinations.empty();
+        this.actionButtons = captureActions({ attachments: [] }).map(choice =>
+            captureAction(this.destinations, choice, mode => { void this.launchAction(mode); }));
     }
     sync() {
         if (this.closed || !this.send) return;
         const file = this.draft.attachments.length > 0, text = !!this.draft.text.trim(), waiting = this.busy || !!this.pendingImports || this.closing;
         const locked = !!this.draft.operation && this.draft.operation.state !== "done";
-        this.textPath.hidden = file; this.input.disabled = !!waiting || locked;
-        this.attach.hidden = file || text; this.attach.disabled = !!waiting; this.fileInput.disabled = !!waiting;
+        this.textCapture.hidden = file; this.textPath.hidden = file; this.destinations.hidden = file;
+        this.attachmentList.hidden = !file; this.input.disabled = !!waiting || locked;
+        this.attach.querySelector("span:last-child").textContent = file ? "Choose more files" : "Choose files";
+        this.attach.disabled = !!waiting || locked || text; this.fileInput.disabled = this.attach.disabled;
         this.clear.title = locked ? "Finish or review the saved action before clearing this draft." : "Discard this draft";
         this.clear.disabled = !!waiting || locked || !(file || this.draft.text.length || Object.keys(this.draft.actionDrafts ?? {}).length);
-        this.more.disabled = !!waiting || !(file || text); this.send.disabled = !!waiting || !(file || text);
-        this.chooser.querySelectorAll("button").forEach(button => { button.disabled = !!waiting || (!!operationMode(this.draft) && button.textContent !== ({ task: "Task", note: "New note", text: "Add to existing note", file: "File location" }[operationMode(this.draft)])); });
+        const pendingBatch = file && this.draft.attachments.length > 1 && locked;
+        this.send.disabled = !!waiting || !(file || text) || pendingBatch;
+        this.send.title = pendingBatch ? "Retry the saved file placement before sending files separately to Inbox." : "";
+        const pending = operationMode(this.draft);
+        this.fileAction.hidden = !file;
+        this.fileAction.disabled = !!waiting || !file || (!!pending && pending !== "file");
+        this.actionButtons.forEach(button => {
+            button.disabled = !!waiting || file || !text || (!!pending && button.dataset.captureAction !== pending);
+        });
         this.attachmentList.querySelectorAll("button").forEach(button => button.disabled = !!waiting || locked);
     }
     addAttachments(files) {
@@ -98,7 +117,7 @@ class QuickAddModal extends CaptureModal {
         this.pendingImports++; this.sync();
         const operation = this.importQueue.then(() => this.run(async () => {
             try { await this.service.stageQuickFiles(files, this.draft.id); }
-            finally { this.draft = this.service.quickDraft(); this.renderAttachments(); }
+            finally { this.draft = this.service.quickDraft(); this.renderAttachments({ revealNewest: true }); }
         })).finally(() => { this.pendingImports--; this.sync(); });
         this.importQueue = operation.catch(() => {}); return operation;
     }
@@ -108,8 +127,8 @@ class QuickAddModal extends CaptureModal {
             await this.service.flushQuickDraft(this.draft.id);
             await this.service.sendQuickDraft(this.draft.id);
             this.draft = this.service.quickDraft(this.options.source); this.input.value = "";
-            this.chooser.hidden = true; this.more.setAttribute("aria-expanded", "false"); this.renderAttachments();
-            this.feedback.textContent = "? Sent to Inbox.";
+            this.renderAttachments();
+            ownNoticeColors(new Notice("Sent to Inbox."));
             // run() restores the disabled state before the focus gesture.
             setTimeout(() => { if (!this.closed) this.input.focus(); }, 0);
         });
@@ -118,12 +137,13 @@ class QuickAddModal extends CaptureModal {
         if (this.busy || this.pendingImports) return;
         return this.run(async () => {
             await this.service.clearQuickDraft(this.draft.id); this.draft = this.service.quickDraft(); this.input.value = "";
-            this.chooser.hidden = true; this.more.setAttribute("aria-expanded", "false"); this.renderAttachments(); this.feedback.textContent = "Draft cleared.";
+            this.renderAttachments();
             setTimeout(() => { if (!this.closed) this.input.focus(); }, 0);
         });
     }
-    async specify(mode) {
-        if (this.busy || this.pendingImports) return;
+    async launchAction(mode) {
+        const choice = mode === "file" ? this.fileAction : this.actionButtons.find(button => button.dataset.captureAction === mode);
+        if (!choice || choice.hidden || choice.disabled || this.busy || this.pendingImports || this.closing) return;
         this.busy = true; this.sync();
         try {
             await this.service.flushQuickDraft(this.draft.id);

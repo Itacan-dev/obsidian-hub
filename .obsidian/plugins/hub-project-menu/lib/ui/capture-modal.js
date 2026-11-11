@@ -78,7 +78,7 @@ class CaptureConfirmation extends CaptureModal {
     onClose() { this.resolve?.(false); this.resolve = null; super.onClose(); }
 }
 
-function attachments(host, refs, service, { remove, open } = {}) {
+function attachments(host, refs, service, { remove, open, removeLabel = "Remove" } = {}) {
     host.empty();
     for (const ref of refs) {
         const row = host.createDiv({ cls: "hub-capture-attachment" });
@@ -92,8 +92,8 @@ function attachments(host, refs, service, { remove, open } = {}) {
         if (open && file) action(row, "Open", "external-link", () => open(ref), "hub-capture-small-action");
         if (remove) {
             const button = action(row, "", "x", () => remove(ref), "hub-capture-small-action");
-            button.setAttribute("aria-label", "Remove " + ref.name);
-            button.setAttribute("title", "Remove " + ref.name);
+            button.setAttribute("aria-label", removeLabel + " " + ref.name);
+            button.setAttribute("title", removeLabel + " " + ref.name);
         }
     }
 }

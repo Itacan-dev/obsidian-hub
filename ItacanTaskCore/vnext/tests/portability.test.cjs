@@ -102,6 +102,7 @@ test('plugin host remains available for diagnostics and retains pending commands
   if(name.endsWith('/host/storage.cjs'))return require('../host/storage.cjs');
   if(name==='./native-task-locations')return{createNativeTaskLocations:()=>({})};
   if(name==='../ui/task-editor')return{};
+  if(name==='../ui/color-system')return{ownNoticeColors:value=>value};
   if(name==='./task-sync')return{mountTaskSync(){}};
   if(name==='obsidian')return{Notice:class{constructor(message){notices.push(message)}}};
   throw Error('Missing fixture capability: '+name);

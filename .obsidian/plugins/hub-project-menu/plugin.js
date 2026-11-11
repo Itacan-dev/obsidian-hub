@@ -4700,11 +4700,9 @@ class ProjectWizardService {
 
         if (!oldExists || newExists) return false;
 
-        if (oldEntry) {
-            await this.app.fileManager.renameFile(oldEntry, newPath);
-        } else {
-            await this.app.vault.adapter.rename(oldPath, newPath);
-        }
+        if (!oldEntry) throw Error("Resource migration is waiting for Obsidian to index the source folder. No files were changed.");
+        await this.plugin.fileOperations.rename(oldPath, newPath, { workspaceRename: true,
+            legacyWorkspace: RESOURCE_TYPES.find(resource => resource.legacyRoots?.some(legacy => legacy.root === oldPath)) });
 
         await yieldToObsidian();
         return true;
@@ -4738,11 +4736,12 @@ class ProjectWizardService {
     }
 
 
-    async ensureResources() {
+    async ensureResources({ deferLegacy = false } = {}) {
         await this.ensureFolder(RESOURCE_ROOT);
 
         for (const resource of RESOURCE_TYPES) {
-            await this.migrateLegacyResource(resource);
+            if (deferLegacy && (await Promise.all((resource.legacyRoots ?? []).map(legacy => this.app.vault.adapter.exists(legacy.root)))).some(Boolean) && !await this.app.vault.adapter.exists(resource.root)) continue;
+            if (!deferLegacy) await this.migrateLegacyResource(resource);
             await this.ensureFolder(resource.root);
 
             const existing = this.app.vault.getAbstractFileByPath(
@@ -7135,9 +7134,7 @@ class ProjectWizardService {
                     try {
                         // Roll back only the root this failed creation just made.
                         // This is not a user-requested deletion of an existing project.
-                        await this.plugin.projectDeletion.originalTrash.call(
-                            this.app.fileManager, folder
-                        );
+                        await this.plugin.fileOperations.trash(folder.path, { workspaceDelete: true, performTrash: item => this.plugin.projectDeletion.originalTrash.call(this.app.fileManager, item) });
                     } catch (_) {}
                 }
             }
@@ -11811,7 +11808,7 @@ module.exports = class HubProjectMenu extends Plugin {
 
         try {
             await this.projectWizard
-                .ensureResources();
+                .ensureResources({ deferLegacy: !this.fileOperations });
         } catch (error) {
             /*
              * Resource folders can be created by OneDrive or another
@@ -12450,6 +12447,9 @@ module.exports = class HubProjectMenu extends Plugin {
             createDashboardUi;
 
         window.hubMountWorkspaceExplorer = require("./lib/ui/workspace-explorer").mountWorkspaceExplorer;
+        window.hubExplorerHost = require("./lib/ui/workspace-explorer-menu").createExplorerHost(this, {
+            FolderPicker: ProjectFolderPickerModal, confirm: confirmAction
+        });
 
         window.hubCreateFileDomain =
             createFileDomain;
@@ -12493,6 +12493,17 @@ module.exports = class HubProjectMenu extends Plugin {
         this.inbox = new HubInboxService(this);
         await require("./lib/services/native-task-host").authorizeNativeTaskActivation(this);
         this.nativeTaskHost = require("./lib/services/native-task-host").createNativeTaskHost(this);
+        this.fileOperations = new (require("./lib/services/file-operations").FileOperations)(this);
+        window.hubFileOperations = this.fileOperations;
+        this.fileOperationNotice = message => ownNoticeColors(new Notice(message, 15000));
+        this.addCommand({ id: "file-operation-recovery", name: "File operation recovery",
+            callback: () => require("./lib/ui/file-operation-recovery").openFileOperationRecovery(this) });
+        void this.nativeTaskHost.ready.then(async () => { await this.fileOperations.recover(); await this.projectWizard.ensureResources(); await this.nativeTaskHost.refreshInventory(); }).catch(error => {
+            console.error("Itacan filesystem recovery", error);
+            this.fileOperationNotice(error.message + " Run File operation recovery to review retained work.");
+        });
+        this.register(() => { delete window.hubFileOperations; void this.fileOperations.close(); });
+
         if (this.nativeTaskHost) {
             require("./lib/services/native-task-report-evidence").attachNativeReportEvidence(this, this.nativeTaskHost);
             // Initial native admission waits for layout/metadata readiness.
@@ -12641,7 +12652,8 @@ module.exports = class HubProjectMenu extends Plugin {
     }
     onunload() {
         this.nativeTaskRecoveryModal?.close();
-        this.nativeTaskStopping = this.nativeTaskHost?.close();
+        this.fileOperationRecoveryModal?.close();
+        this.nativeTaskStopping = this.fileOperations ? this.fileOperations.close().then(() => this.nativeTaskHost?.close()) : this.nativeTaskHost?.close();
         this.nativeTaskStopping?.catch(error => console.error("Native task shutdown failed", error));
         this.athena?.destroy();
         this.atlas?.destroy();
@@ -12706,6 +12718,7 @@ module.exports = class HubProjectMenu extends Plugin {
         delete window.hubGetHomeCover;
         delete window.hubMountHomeCover;
         delete window.hubMountWorkspaceExplorer;
+        delete window.hubExplorerHost;
         delete window.hubCreateFileDomain;
         delete window.hubCreateTaskUi;
         delete window.hubCreateTaskPanelRead;
@@ -14969,11 +14982,7 @@ module.exports = class HubProjectMenu extends Plugin {
         );
 
 
-        await this.app.vault
-            .copy(
-                file,
-                path
-            );
+        await this.fileOperations.copy(file.path, path);
     }
 
 
@@ -16220,7 +16229,7 @@ module.exports = class HubProjectMenu extends Plugin {
                     );
 
 
-            if (existing) {
+            if (existing && existing !== file) {
 
                 ownNoticeColors(new Notice(
                     "A file with that name already exists."
@@ -16230,11 +16239,7 @@ module.exports = class HubProjectMenu extends Plugin {
             }
 
 
-            await this.app.fileManager
-                .renameFile(
-                    file,
-                    newPath
-                );
+            await this.fileOperations.rename(file.path, newPath);
 
 
         } catch (error) {
@@ -16243,10 +16248,8 @@ module.exports = class HubProjectMenu extends Plugin {
             * Closing QuickAdd should not
             * become a visible error.
             */
-            console.debug(
-                "File rename cancelled.",
-                error
-            );
+            console.debug("File rename", error);
+            if (error.operationId || error.code) ownNoticeColors(new Notice(error.message));
         }
     }
 
@@ -16274,10 +16277,7 @@ module.exports = class HubProjectMenu extends Plugin {
 
         try {
 
-            await this.app.fileManager
-                .trashFile(
-                    file
-                );
+            await this.fileOperations.trash(file.path);
 
 
         } catch (error) {
@@ -16290,7 +16290,7 @@ module.exports = class HubProjectMenu extends Plugin {
 
 
             ownNoticeColors(new Notice(
-                "Could not delete file."
+                error.message || "Could not delete file."
             ));
         }
     }
@@ -16550,10 +16550,7 @@ module.exports = class HubProjectMenu extends Plugin {
                     );
 
 
-                await this.app.fileManager.renameFile(
-                    folder,
-                    newFolderPath
-                );
+                await this.fileOperations.rename(folder.path, newFolderPath, { workspaceRename: true });
 
 
                 const movedFile =
@@ -16570,17 +16567,11 @@ module.exports = class HubProjectMenu extends Plugin {
                 }
 
 
-                await this.app.fileManager.renameFile(
-                    movedFile,
-                    newFilePath
-                );
+                await this.fileOperations.rename(movedFile.path, newFilePath, { workspaceRename: true });
 
             } else {
 
-                await this.app.fileManager.renameFile(
-                    file,
-                    newFilePath
-                );
+                await this.fileOperations.rename(file.path, newFilePath, { workspaceRename: true });
             }
 
 
@@ -16617,30 +16608,35 @@ module.exports = class HubProjectMenu extends Plugin {
             );
 
 
-            // Roll back immediate visual change.
+            // A folder rename can already be committed when the hub-file rename
+            // fails. Point the card at the surviving file instead of inventing
+            // a filesystem rollback or restoring stale task metadata.
+            const surviving = this.app.vault.getAbstractFileByPath(file.path) === file ? file : null;
+            const survivingPath = surviving?.path ?? oldPath;
+            const survivingName = surviving?.basename ?? oldName;
 
             if (card.isConnected) {
-                card.dataset.projectPath = oldPath;
+                card.dataset.projectPath = survivingPath;
 
                 if (dashboard.isConnected) {
                     dashboard.dispatchEvent(
                         new CustomEvent("hub-project-rename", {
                             detail: {
                                 oldPath: newFilePath,
-                                newPath: oldPath,
-                                name: oldName
+                                newPath: survivingPath,
+                                name: survivingName
                             }
                         })
                     );
                 }
 
                 if (title) {
-                    title.textContent = oldDisplayName;
+                    title.textContent = survivingName === oldName ? oldDisplayName : survivingName;
                 }
             }
 
             ownNoticeColors(new Notice(
-                "Could not rename project."
+                (error.message || "Could not rename project.") + " Current project: " + survivingPath
             ));
         }
     }
@@ -16690,7 +16686,7 @@ module.exports = class HubProjectMenu extends Plugin {
 
         try {
 
-            await this.projectDeletion.trash(target, { onApproved, requiredProject: file });
+            await this.fileOperations.trash(target.path, { workspaceDelete: true, performTrash: item => this.projectDeletion.trash(item, { onApproved, requiredProject: file }) });
 
             this.logProjectActivity(
                 "deleted",

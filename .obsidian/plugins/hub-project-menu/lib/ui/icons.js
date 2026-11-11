@@ -76,7 +76,10 @@ const missingSortIcons = {
     "list-sort-ascending": '<path d="M3 19h18"/><path d="M15 12H3"/><path d="M9 5H3"/>'
 };
 function ensureHubIcon(name) {
-    const key = name.replace(/^lucide-/, ""), svg = missingSortIcons[key];
+    // Original fallback: notebook binding and a full-size plus, using Lucide's grid/strokes.
+    const key = name.replace(/^lucide-/, ""), svg = key === "notebook-plus" ?
+        '<path d="M17 10V4a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h5"/><path d="M2 6h4M2 10h4M2 14h4M2 18h4"/><path d="M18 13v8M14 17h8"/>' :
+        missingSortIcons[key];
     if (svg && !getIcon("lucide-" + key) && !getIcon(key)) {
         // Native custom icons use a 100-unit viewBox; Lucide uses 24 units.
         addIcon(key, `<g transform="scale(${100 / 24})" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${svg}</g>`);
