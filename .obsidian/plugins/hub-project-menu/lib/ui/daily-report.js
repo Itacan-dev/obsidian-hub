@@ -7,7 +7,7 @@ const { renderReportWorkspaceHeader } = require("./report-workspace-header");
 
 const { Modal, Component, setIcon } = require("obsidian");
 const { parseLocalISODate, formatDate, formatTime, formatDateTime } = require("../domain/dates");
-const { activitySummary } = require("../domain/report-context");
+const { activitySummary, recordedWorkSummary } = require("../domain/report-context");
 const { createHubMarkdown } = require("./markdown");
 const { renderHistoryIcon } = require("./dashboard-ui");
 const { setHubIcon } = require("./icons");
@@ -74,6 +74,14 @@ function renderTaskProgress(parent, items, markdown, { heading = "Task progress"
 }
 
 function renderReportEvidence(parent, context, markdown, component) {
+    const disclosure = parent.createEl("details", { cls: "hub-report-recorded-work" });
+    disclosure.createEl("summary", { text: recordedWorkSummary(context) });
+    const body = disclosure.createDiv();
+    renderReportEvidenceDetails(body, context, markdown, component);
+    for (const oath of context.oaths ?? []) body.createDiv({ cls: "hub-report-evidence-row", text: "Oath fulfilled \u00b7 " + formatTime(new Date(oath.fulfilledAt)) });
+    return disclosure;
+}
+function renderReportEvidenceDetails(parent, context, markdown, component) {
     const evidence = parent.createDiv({ cls: "hub-report-evidence" });
     renderTaskProgress(evidence, context.tasks, markdown, { hideEmptyHeading: true, component, availability: context.tasksAvailability ?? "current" });
 

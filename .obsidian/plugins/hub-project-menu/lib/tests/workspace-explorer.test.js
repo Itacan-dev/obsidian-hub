@@ -50,3 +50,11 @@ assert.deepEqual(full.roots[0].children.map(node => node.path), [local.path, roo
 assert.equal(full.byPath.get(local.path).parent.path, project.path, "Local folders retain their physical hierarchy");
 assert.equal(full.roots[1].item, resource, "Linked Resource root remains canonical and separate");
 console.log("Workspace explorer model checks passed.");
+
+const { availableDefaultItemPath } = require('../domain/files');
+const occupied = new Set(['P/New note.md', 'P/New note (2).md', 'P/New folder', 'P/New folder (2)']);
+assert.equal(availableDefaultItemPath('P', 'note', p=>occupied.has(p)), 'P/New note (3).md');
+assert.equal(availableDefaultItemPath('P', 'folder', p=>occupied.has(p)), 'P/New folder (3)');
+assert.equal(availableDefaultItemPath('Empty', 'note', ()=>false), 'Empty/New note.md');
+
+assert.equal(availableDefaultItemPath('P','note',p=>p==='P'?{children:[{name:'new NOTE.md'}]}:null),'P/New note (2).md');

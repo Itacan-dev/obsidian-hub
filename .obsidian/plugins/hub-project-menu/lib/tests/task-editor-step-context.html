@@ -7,7 +7,7 @@ window.testDone=(async()=>{
  const native=document.createElement('link');native.rel='stylesheet';native.href='native-app.css';document.head.prepend(native);await new Promise((r,j)=>{native.onload=r;native.onerror=j});
  const source=await(await fetch('inbox-browser.js')).text();
  const bootstrap=source.slice(0,source.indexOf('window.onload = async'))
-  .replace('["ui/quick-add", "ui/inbox", "ui/capture-controls", "services/inbox", "services/task-editor"]','["ui/task-editor", "ui/task-card", "ui/text-field-focus"]')
+  .replace('["ui/quick-add", "ui/inbox", "ui/capture-controls", "services/inbox", "ui/task-editor"]','["ui/task-editor", "ui/task-card", "ui/text-field-focus"]')
   .replace('const preload = name => {','const preload = name => { name=name.replace(/^node:/, "");')
   .replace('const load = name => {','const load = name => { name=name.replace(/^node:/, "");');
  const {load,obsidian}=await new (Object.getPrototypeOf(async function(){}).constructor)(bootstrap+';return {load:await modules(),obsidian};')();

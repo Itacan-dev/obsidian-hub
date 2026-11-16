@@ -69,7 +69,7 @@ class CaptureConfirmation extends CaptureModal {
         this.modalEl.classList.add("hub-capture-confirmation");
         this.header(this.options.title, this.options.message);
         const actions = this.contentEl.createDiv({ cls: "hub-capture-actions" });
-        const cancel = action(actions, "Cancel", null, () => this.close());
+        const cancel = action(actions, this.options.cancelLabel ?? "Cancel", null, () => this.close());
         action(actions, this.options.confirmLabel, null, () => {
             this.resolve?.(true); this.resolve = null; this.close();
         }, this.options.destructive ? "mod-warning" : "mod-cta");

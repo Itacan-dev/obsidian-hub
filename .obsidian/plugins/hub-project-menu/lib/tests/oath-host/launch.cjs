@@ -8,21 +8,26 @@ if (process.type === "browser") {
 }
 const plugin = path.resolve(__dirname, "../../.."), token = randomUUID();
 const binary = path.join(plugin, "lib/atlas/tests/native/node_modules/electron/dist/electron.exe");
-const archive = "C:\\Program Files\\Obsidian\\resources\\obsidian.asar";
-if (process.platform !== "win32" || !fs.existsSync(binary) || !fs.existsSync(archive)) throw Error("Requires Windows and the existing Obsidian / native-test Electron installations; nothing will be installed");
-const allowedArgs = new Set(["--alt-tab", "--safety-only", "--windows-adapter", "--strict-lifecycle", "--strict-ui", "--strict-release", "--strict-preview", "--preview-smoke"]);
+const archive = [path.join(process.env.ProgramFiles || "C:\\Program Files", "Obsidian/resources/obsidian.asar"),
+    path.join(process.env.LOCALAPPDATA || "", "Programs/Obsidian/resources/obsidian.asar")].find(file => fs.existsSync(file));
+if (process.platform !== "win32" || !fs.existsSync(binary) || !archive) throw Error("Requires Windows and the existing Obsidian / native-test Electron installations; nothing will be installed");
+const allowedArgs = new Set(["--alt-tab", "--safety-only", "--windows-adapter", "--strict-lifecycle", "--strict-ui", "--strict-release", "--strict-preview", "--preview-smoke", "--installed-prototype-smoke", "--oath-reminder", "--oath-reminder-smoke"]);
 for (const arg of process.argv.slice(2)) if (!allowedArgs.has(arg)) throw Error("Unknown argument: " + arg);
+if (process.argv.some(arg => arg.startsWith("--oath-reminder")) && process.argv.slice(2).length !== 1) throw Error("Use reminder experiments alone");
 if (process.argv.includes("--windows-adapter") && process.argv.includes("--alt-tab")) throw Error("Phase 2 does not inject global keyboard input");
-if (process.argv.some(arg => ["--strict-lifecycle", "--strict-ui", "--strict-release", "--strict-preview", "--preview-smoke"].includes(arg)) && process.argv.slice(2).length !== 1) throw Error("Use each Strict experiment alone");
+if (process.argv.some(arg => ["--strict-lifecycle", "--strict-ui", "--strict-release", "--strict-preview", "--preview-smoke", "--installed-prototype-smoke", "--oath-reminder", "--oath-reminder-smoke"].includes(arg)) && process.argv.slice(2).length !== 1) throw Error("Use each Strict experiment alone");
 const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "itacan-oath-phase1-"));
 const vault = path.join(scratch, "vault"), profile = path.join(scratch, "profile");
 const output = path.join(os.tmpdir(), "itacan-oath-phase1-report-" + token + ".json");
 const marker = { token, scratch, vault, profile, archive, altTab: process.argv.includes("--alt-tab"), safetyOnly: process.argv.includes("--safety-only"), windowsAdapter: process.argv.includes("--windows-adapter") };
+marker.reminder = process.argv.includes("--oath-reminder") || process.argv.includes("--oath-reminder-smoke");
+marker.reminderSmoke = process.argv.includes("--oath-reminder-smoke");
 marker.strictLifecycle = process.argv.includes("--strict-lifecycle");
 marker.strictUI = process.argv.includes("--strict-ui");
 marker.strictRelease = process.argv.includes("--strict-release");
-marker.preview = process.argv.includes("--strict-preview") || process.argv.includes("--preview-smoke");
-marker.previewSmoke = process.argv.includes("--preview-smoke");
+marker.installedBundleCheck = process.argv.includes("--installed-prototype-smoke");
+marker.preview = process.argv.includes("--strict-preview") || process.argv.includes("--preview-smoke") || marker.installedBundleCheck;
+marker.previewSmoke = process.argv.includes("--preview-smoke") || marker.installedBundleCheck;
 const fingerprints = new Map();
 function remember(file) { fingerprints.set(file, createHash("sha256").update(fs.readFileSync(file)).digest("hex")); }
 let child, finished = false, watchdog, killTimer, log = "", report = null, restarting = false;
@@ -61,7 +66,7 @@ try {
         filter: source => { const parts = path.relative(path.join(plugin, "lib"), source).split(path.sep);
             if (parts.includes("tests") || parts.includes("node_modules")) return false;
             if (fs.statSync(source).isFile()) remember(source); return true; } });
-    if (marker.strictLifecycle || marker.strictUI || marker.strictRelease || marker.preview) {
+    if (!marker.installedBundleCheck && (marker.strictLifecycle || marker.strictUI || marker.strictRelease || marker.preview)) {
         remember(path.join(plugin, "plugin.js")); remember(path.join(plugin, "build.js"));
         execFileSync(binary, [path.join(plugin, "build.js"), "--output-dir", copied],
             { env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" }, windowsHide: true, timeout: 30000, stdio: "pipe" });
@@ -90,6 +95,6 @@ try {
     });
     };
     startHost();
-    watchdog = setTimeout(abort, marker.preview && !marker.previewSmoke ? 21 * 60000 : 180000);
+    watchdog = setTimeout(abort, (marker.preview && !marker.previewSmoke || marker.reminder && !marker.reminderSmoke) ? 21 * 60000 : 180000);
     process.on("SIGINT", abort); process.on("SIGTERM", abort);
 } catch (error) { log += error.stack; finish(1); }

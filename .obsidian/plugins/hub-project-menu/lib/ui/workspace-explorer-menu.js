@@ -34,17 +34,44 @@ function createExplorerHost(plugin, { FolderPicker, confirm }) {
         } catch (_) { return null; }
     }
     return {
-        showMenu(event, entries) {
+        showMenu(event, entries, { compactSort = false } = {}) {
             event.preventDefault?.(); event.stopPropagation?.();
             const menu = ownMenuColors(new Menu()); populate(menu, entries);
+            if (compactSort) menu.dom?.classList.add("hub-explorer-sort-menu");
+            let anchorObserver = null;
             const trigger = event.currentTarget?.closest?.("button") ?? event.target?.closest?.("button");
             if (trigger) {
                 trigger.setAttribute("aria-expanded", "true");
-                menu.onHide(() => trigger.setAttribute("aria-expanded", "false"));
+                menu.onHide(() => {
+                    trigger.setAttribute("aria-expanded", "false");
+                    anchorObserver?.disconnect();
+                });
             }
             const target = event.currentTarget?.getBoundingClientRect?.() ?? event.target?.getBoundingClientRect?.();
-            if (event.type === "click" && target) menu.showAtPosition({ x: target.left, y: target.bottom });
-            else menu.showAtMouseEvent(event);
+            if (event.type === "click" && target) {
+                menu.showAtPosition({ x: target.left, y: target.bottom });
+                if (compactSort && menu.dom) {
+                    const anchor = trigger ?? event.currentTarget ?? event.target;
+                    const centerMenu = () => {
+                        if (menu.dom.isConnected === false) return;
+                        const button = anchor.getBoundingClientRect();
+                        const bounds = menu.dom.getBoundingClientRect();
+                        const viewport = menu.dom.ownerDocument.defaultView.innerWidth;
+                        const centered = button.left + button.width / 2 - bounds.width / 2;
+                        const left = Math.max(0, Math.min(centered, viewport - bounds.width));
+                        const scale = bounds.width / menu.dom.offsetWidth;
+                        menu.dom.style.left = (parseFloat(menu.dom.style.left) + (left - bounds.left) / scale) + "px";
+                    };
+                    centerMenu();
+                    const ResizeObserver = menu.dom.ownerDocument.defaultView.ResizeObserver;
+                    if (ResizeObserver && trigger?.parentElement) {
+                        anchorObserver = new ResizeObserver(centerMenu);
+                        anchorObserver.observe(trigger.parentElement);
+                    }
+                    // Native positioning and zoom styles finish on the next frame.
+                    menu.dom.ownerDocument.defaultView.requestAnimationFrame?.(centerMenu);
+                }
+            } else menu.showAtMouseEvent(event);
             return menu;
         },
         canReveal: () => !!desktop(),
@@ -56,6 +83,7 @@ function createExplorerHost(plugin, { FolderPicker, confirm }) {
             host.shell.showItemInFolder(fullPath);
         },
         copyPaths: paths => navigator.clipboard.writeText(paths.join("\n")),
+        addToPlan: (paths, context) => window.hubPlan?.files(paths, context),
         renameFile: path => plugin.renameProjectFile(app.vault.getAbstractFileByPath(path)),
         deleteFile: path => plugin.deleteProjectFile(app.vault.getAbstractFileByPath(path)),
         duplicateFile: path => plugin.duplicateProjectFile(app.vault.getAbstractFileByPath(path)),

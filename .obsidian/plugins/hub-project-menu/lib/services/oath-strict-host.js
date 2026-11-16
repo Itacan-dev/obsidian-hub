@@ -133,7 +133,9 @@ function visibleBounds(bounds, areas) {
 }
 function getStrictCoordinator(win, options = {}) {
     const key = "__hubStrictOathCoordinator";
-    if (!win[key]) win[key] = new StrictOathCoordinator({ ...options, host: createStrictHost(win), observer: options.observer ?? new OathProcessObserver() });
+    if (!win[key]) win[key] = new StrictOathCoordinator({ ...options, host: createStrictHost(win), observer: options.observer ?? new OathProcessObserver({
+        getSources: settings => require("electron").desktopCapturer.getSources(settings)
+    }) });
     else if (options.enabled === true && !win[key].enabled && !win[key].current) {
         // Test injection can explicitly configure this factory. Product opt-in is
         // applied by the lifecycle service after reading its device bucket.

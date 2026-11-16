@@ -31,6 +31,18 @@ const plugin = { app: { vault: { adapter: { getBasePath: () => "C:/Fixture" }, g
     renameProjectFile: item => calls.push(["rename", item]), deleteProjectFile: item => calls.push(["delete", item]), duplicateProjectFile: item => calls.push(["duplicate", item]) };
 async function run() {
     const host = compiled.exports.createExplorerHost(plugin, { FolderPicker: class { constructor(app, callback) { this.callback = callback; } open() { this.callback("Projects/P"); } }, confirm: async () => true });
+    for (const left of [100, 250, 400]) {
+        const trigger = { closest: () => null, getBoundingClientRect: () => ({ left, width: 32, bottom: 80 }) };
+        const original = Menu.prototype.showAtPosition;
+        Menu.prototype.showAtPosition = function(point) {
+            original.call(this, point);
+            this.dom = { style: { left:point.x+"px" }, offsetWidth:160, getBoundingClientRect: () => ({ left:point.x,width: 160 }), ownerDocument: { defaultView: { innerWidth: 1000 } } };
+        };
+        const popup = host.showMenu({type:'click',currentTarget:trigger},[{title:'Name: Ascending'}],{compactSort:true});
+        assert.equal(parseFloat(popup.dom.style.left)+80,left+16,'Sort centers follow resized trigger positions');
+        assert.equal(popup.point.y,80,'Vertical anchor is preserved');
+        Menu.prototype.showAtPosition=original;
+    }
     const menu = host.showMenu({ type: "contextmenu" }, [
         { title: "Open", run: () => calls.push("opened") }, null,
         { title: "Open in…", items: [{ title: "New tab", run: () => calls.push("tab") }] },

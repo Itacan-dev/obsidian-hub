@@ -41,7 +41,8 @@ function attach(windowId,file,syncOptions=null){
      workspace.fileActor=channel;return{result:true};
     }
     if(action==='release'){if(workspace.fileActor===channel)workspace.fileActor=null;return{result:true};}
-    if(action!=='list'&&workspace.fileActor!==channel)throw Object.assign(Error('Filesystem operation admission required.'),{code:'FILE_OPERATION_BUSY'});
+    // Receipt inspection is read-only, like listing pending operations.
+    if(action!=='list'&&action!=='receiptsSince'&&workspace.fileActor!==channel)throw Object.assign(Error('Filesystem operation admission required.'),{code:'FILE_OPERATION_BUSY'});
    }
    const s=await service();
    if(message.method==='versions')return{result:s.client.versions};

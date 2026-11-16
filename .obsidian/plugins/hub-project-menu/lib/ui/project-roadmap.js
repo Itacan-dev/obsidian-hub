@@ -77,7 +77,7 @@ function mountProjectRoadmap({ plugin, component, dv, host, workspace, state }) 
             menu.onHide(() => { if (activeMenu === menu) activeMenu = null; });
             menu.showAtPosition({ x: event.clientX, y: event.clientY });
         });
-        const scroller = panel.createDiv({ cls: "hub-roadmap-scroll" });
+        const scroller = panel.createDiv({ cls: "hub-roadmap-scroll hub-scrollbar" });
         const timeline = scroller.createDiv({ cls: "hub-roadmap-timeline" });
         const scaleWidth = state.roadmapZoom === "all" ? 0 : Math.max(530, Number(state.roadmapZoom) * 85);
         timeline.style.setProperty("--hub-roadmap-scale-width", scaleWidth + "px");

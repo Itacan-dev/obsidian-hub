@@ -42,12 +42,12 @@ async function stop(error) {
     if (stopping) return; stopping = true; clearTimeout(deadline);
     if (error) { report.fatal = error.stack ?? String(error); console.error(report.fatal); }
     try { await experiment?.cleanup(); } catch (problem) { report.cleanupError = problem.stack; }
-    report.feasibilityMet = !report.fatal && !report.cleanupError && report.checks.length > 0 && report.checks.every(check => check.status === "pass") && !fixture.safetyOnly;
+    report.feasibilityMet = !report.fatal && !report.cleanupError && report.checks.length > 0 && report.checks.every(check => check.status === "pass") && !fixture.safetyOnly && !fixture.reminder;
     const code = report.fatal || report.cleanupError || report.checks.some(check => check.status === "fail") ? 1 : 0;
     if (process.connected) process.send({ type: "report", token, report }, () => app.exit(code));
     else app.exit(1);
 }
-const deadline = setTimeout(() => void stop(fixture.preview && !fixture.previewSmoke ? undefined : Error("Host deadline reached")), fixture.preview && !fixture.previewSmoke ? 20 * 60000 : 160000);
+const deadline = setTimeout(() => void stop((fixture.preview && !fixture.previewSmoke || fixture.reminder && !fixture.reminderSmoke) ? undefined : Error("Host deadline reached")), (fixture.preview && !fixture.previewSmoke || fixture.reminder && !fixture.reminderSmoke) ? 20 * 60000 : 160000);
 process.on("message", message => { if (message?.type === "abort" && message.token === token) void stop(Error("Launcher requested cleanup")); });
 process.on("disconnect", () => { void stop(Error("Launcher disconnected")); setTimeout(() => app.exit(1), 2000); });
 process.on("uncaughtException", error => void stop(error)); process.on("unhandledRejection", error => void stop(error));
@@ -55,7 +55,7 @@ app.on("window-all-closed", event => { /* runner owns termination */ });
 app.whenReady().then(async () => {
     try {
         const { createExperiment } = require("./experiment.cjs");
-        const { run } = require(fixture.preview ? "../oath-phase5/preview.cjs" : fixture.strictRelease ? "../oath-phase5/experiment.cjs" : fixture.strictUI ? "../oath-phase4/experiment.cjs" : fixture.strictLifecycle ? "../oath-lifecycle/experiment.cjs" : fixture.windowsAdapter ? "../oath-windows/experiment.cjs" : "./experiment.cjs");
+        const { run } = require(fixture.reminder ? "../oath-reminder/experiment.cjs" : fixture.preview ? "../oath-phase5/preview.cjs" : fixture.strictRelease ? "../oath-phase5/experiment.cjs" : fixture.strictUI ? "../oath-phase4/experiment.cjs" : fixture.strictLifecycle ? "../oath-lifecycle/experiment.cjs" : fixture.windowsAdapter ? "../oath-windows/experiment.cjs" : "./experiment.cjs");
         experiment = createExperiment({ electron, ownedWindows, fixture, report, stop });
         await run(experiment); await stop();
     } catch (error) { await stop(error); }

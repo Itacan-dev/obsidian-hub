@@ -116,6 +116,7 @@ function createTaskUi({ app, component, body, mutate, onEdit, editTask, createTa
             if (event.target.closest("textarea, input:not([type=checkbox])")) return;
             event.preventDefault(); event.stopPropagation();
             const menu = ownMenuColors(new Menu());
+            if (window.hubPlan) menu.addItem(item => item.setTitle("Add to plan").setIcon("list-plus").onClick(() => void window.hubPlan.add([window.hubPlan.task(task)])));
             menu.addItem(item => item.setTitle("Edit").setIcon("pencil")
                 .onClick(() => editTask(task, onEdit)));
             menu.addItem(item => item.setTitle("Delete").setIcon("trash-2").setWarning(true)

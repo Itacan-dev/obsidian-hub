@@ -1,0 +1,23 @@
+<!doctype html><meta charset="utf-8"><title>Unified Home and Workspace geometry</title>
+<link rel="stylesheet" href="obsidian-heatmap-host.css">
+<link rel="stylesheet" href="../../../heatmap-calendar/styles.css">
+<link rel="stylesheet" href="../../../../snippets/heatmap-fix.css">
+<link rel="stylesheet" href="../../../../snippets/dashbboard.css">
+<link rel="stylesheet" href="../../styles.css">
+<link rel="stylesheet" href="../../../../../System/Dashboards/Home/view.css">
+<link rel="stylesheet" href="../../../../../System/Dashboards/Project/view.css">
+<style>
+html{font-size:17px}body{margin:0;background:#1e1e1e;color:#dadada;font:17px/1.5 system-ui;--background-primary:#1e1e1e;--background-secondary:#262626;--text-normal:#dadada;--text-muted:#aaa;--text-faint:#777;--background-modifier-border:#343434;--background-modifier-hover:#ffffff08;--interactive-accent:#8b5cf6;--text-on-accent:white}
+*{box-sizing:border-box}.markdown-preview-view{position:fixed;inset:0;padding:40px;overflow:auto}
+.markdown-preview-view.is-readable-line-width .markdown-preview-sizer{max-width:var(--file-line-width,700px);margin-inline:auto}
+button,input{font:inherit;color:inherit;background:#1e1e1e;border:1px solid #343434;border-radius:5px;padding:4px 12px}
+.home-cover,.project-cover{background:linear-gradient(120deg,#27617b,#215943)}
+.home-panel-title,.project-progress-title{display:flex;align-items:center;gap:8px}
+.status-bar{position:fixed;bottom:0;left:0;right:0;height:28px;background:#262626}
+#result{position:fixed;bottom:0;left:8px;z-index:100;font:11px monospace;white-space:pre-wrap;margin:0;max-width:95vw}
+</style>
+<body class="theme-dark">
+<div class="markdown-preview-view markdown-rendered dashboard"><div class="markdown-preview-sizer"><div id="fixture"></div></div></div>
+<div class="status-bar"></div><pre id="result">RUNNING</pre>
+<script src="unified-dashboard-browser.js"></script>
+<script src="desktop-progress-browser.js"></script>

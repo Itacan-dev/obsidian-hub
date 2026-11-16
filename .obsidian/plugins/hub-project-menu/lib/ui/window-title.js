@@ -2,24 +2,25 @@
 const { setIcon } = require("obsidian");
 
 const headers = new WeakMap();
-// Keep native heading/undertext styles while moving their outer margins to the
-// shared grid. Reading the existing styles also preserves the user's theme.
+// Native h2 styles resolve inside one UI-font context. Supporting text stays
+// outside that context and retains each window's existing content typography.
 function createWindowTitle(parent, text, icon, options = {}) {
     const { date, ...titleOptions } = options;
-    const title = parent.createEl("h2", { ...titleOptions, text });
+    const context = parent.createDiv({ cls: "hub-window-title-context" });
+    const title = context.createEl("h2", { ...titleOptions, text });
     const style = parent.ownerDocument.defaultView.getComputedStyle(title);
     const margins = [style.marginTop, style.marginRight, style.marginBottom, style.marginLeft];
     const color = style.color;
     const header = parent.createEl("div", { cls: "hub-window-header" });
-    parent.insertBefore(header, title);
+    parent.insertBefore(header, context);
     header.style.margin = margins.join(" ");
     const graphic = header.createEl("span", { cls: "hub-window-title-icon", attr: { "aria-hidden": "true", "data-icon": icon } });
     graphic.style.color = `var(--hub-color-window-title, ${color})`;
     setIcon(graphic, icon);
     const copy = header.createEl("div", { cls: "hub-window-header-copy" });
-    copy.append(title);
+    copy.append(context);
     if (date) {
-        const row = copy.createEl("div", { cls: "hub-window-title-row" });
+        const row = context.createEl("div", { cls: "hub-window-title-row" });
         row.append(title);
         const dateEl = row.createEl("time", { cls: "hub-window-header-date",
             text: date.label, attr: { datetime: date.value } });
@@ -58,7 +59,8 @@ function setWindowUndertext(title, undertext) {
 function createModalHeader(parent, { title, subtitle, icon, titleId, descriptionId }) {
     const header = parent.createEl("header", { cls: "hub-capture-header" });
     const options = titleId ? { attr: { id: titleId } } : {};
-    const heading = icon ? createWindowTitle(header, title, icon, options) : header.createEl("h2", { text: title, ...options });
+    const heading = icon ? createWindowTitle(header, title, icon, options)
+        : header.createDiv({ cls: "hub-window-title-context" }).createEl("h2", { text: title, ...options });
     const description = subtitle == null ? null : header.createEl("p", { text: subtitle, cls: "hub-oath-muted",
         ...(descriptionId ? { attr: { id: descriptionId } } : {}) });
     if (icon && description) setWindowUndertext(heading, description);
@@ -80,7 +82,7 @@ function layoutModal(modal, { container = modal.contentEl, headerEnd, footer, bo
         container.insertBefore(body, contents[0] ?? footer ?? null);
         body.append(...contents);
     }
-    body.classList.add("hub-modal-body");
+    body.classList.add("hub-modal-body", "hub-scrollbar");
     if (bodyClass) body.classList.add(bodyClass);
     root.classList.add("hub-modal-layout");
     modal.modalEl.classList.add("hub-modal-window");

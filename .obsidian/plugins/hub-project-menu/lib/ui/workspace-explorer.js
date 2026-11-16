@@ -1,6 +1,7 @@
 "use strict";
 
 const { workspaceTree, filterWorkspaceTree, sortExplorerChildren, rewriteExplorerPaths } = require("../domain/workspace-explorer");
+const { availableDefaultItemPath } = require("../domain/files");
 const { fileIcon } = require("./file-icons");
 const { formatDateTime } = require("../domain/dates");
 
@@ -34,7 +35,7 @@ function mountWorkspaceExplorer({ parent, workspacePath, dashboardPath, descript
     shell.setAttribute("aria-label", "Workspace files");
     const heading = el(shell, "div", "project-panel-title hub-explorer-heading");
     icon(heading, "folder-tree");
-    el(heading, "span", "", "Files");
+    el(heading, "h2", "hub-panel-heading-label", "Files");
     const searchBox = el(shell, "div", "hub-explorer-search");
     icon(searchBox, "search");
     const search = el(searchBox, "input", "hub-explorer-search-input");
@@ -43,11 +44,11 @@ function mountWorkspaceExplorer({ parent, workspacePath, dashboardPath, descript
     search.setAttribute("aria-label", "Search files in this workspace");
     const body = el(shell, "div", "hub-explorer-body");
     const toolbar = el(body, "div", "hub-explorer-toolbar");
-    const createNote = button(toolbar, "hub-explorer-create-note", "New note", "file-plus-2");
+    const createNote = button(toolbar, "hub-explorer-create-note", "New note", "notebook-plus");
     const createFolder = button(toolbar, "hub-explorer-create-folder", "New folder", "folder-plus");
-    const sortButton = button(toolbar, "hub-explorer-sort", "Sort by", "list-sort-descending");
+    const sortButton = button(toolbar, "hub-explorer-sort", "Sort by", "arrow-up-down");
     sortButton.setAttribute("aria-haspopup", "menu"); sortButton.setAttribute("aria-expanded", "false");
-    const tree = el(body, "div", "hub-explorer-tree");
+    const tree = el(body, "div", "hub-explorer-tree hub-scrollbar");
     tree.setAttribute("role", "tree");
     tree.setAttribute("aria-label", "Workspace folders and files");
     tree.setAttribute("aria-multiselectable", "true");
@@ -62,7 +63,7 @@ function mountWorkspaceExplorer({ parent, workspacePath, dashboardPath, descript
     splitter.setAttribute("aria-label", "Folder navigation width");
     breadcrumb.setAttribute("aria-label", "Selected folder");
     const columns = el(details, "div", "hub-explorer-columns");
-    const contents = el(details, "div", "hub-explorer-contents");
+    const contents = el(details, "div", "hub-explorer-contents hub-scrollbar");
     contents.setAttribute("role", "listbox");
     contents.setAttribute("aria-multiselectable", "true");
     const footer = el(shell, "div", "hub-explorer-footer");
@@ -73,7 +74,8 @@ function mountWorkspaceExplorer({ parent, workspacePath, dashboardPath, descript
     const editor = el(shell, "div", "hub-explorer-editor");
     editor.hidden = true;
     let model, filtered, currentPath = null, activePath = null, focusPath = null;
-    let query = "", editing = null, disposed = false, repainting = false;
+    let query = "", editing = null, disposed = false, repainting = false, creating = false;
+    let renameCommit = null;
     let selectionPane = null, selectionAnchor = null, detailFocusPath = null;
     const events = new doc.defaultView.AbortController();
     // currentPath belongs to Full-view; activePath only describes the open Note file.
@@ -136,7 +138,10 @@ function mountWorkspaceExplorer({ parent, workspacePath, dashboardPath, descript
         }
     }
     function selectFolder(node, expandAncestors = false) {
-        if (editing?.committing) return;
+        if (editing?.committing) {
+            renameCommit?.then(() => { if (!disposed && !editing) selectFolder(model.byPath.get(node.path) ?? node, expandAncestors); });
+            return;
+        }
         cancelDraft();
         if (currentPath !== node.path) contents.scrollTop = 0;
         if (!isNoteView() && currentPath !== node.path) { clearFullSelection(); detailFocusPath = null; }
@@ -178,8 +183,10 @@ function mountWorkspaceExplorer({ parent, workspacePath, dashboardPath, descript
         if (repaint) renderTree(true);
     }
     function nameContent(row, node, treeRow = false) {
-        const folderIcon = !node.parent && node.descriptor.sharedResource ? "folder-symlink"
-            : treeRow && isExpanded(node) ? "folder-open" : "folder";
+        const folderIcon = !isNoteView()
+            ? (treeRow && isExpanded(node) ? "folder-open" : "folder-closed")
+            : !node.parent && node.descriptor.sharedResource ? "folder-symlink"
+                : treeRow && isExpanded(node) ? "folder-open" : "folder";
         icon(row, node.folder ? folderIcon : fileIcon(node.item));
         const text = el(row, "span", "hub-explorer-label");
         const name = el(text, "span", "hub-explorer-name", node.name);
@@ -282,11 +289,12 @@ function mountWorkspaceExplorer({ parent, workspacePath, dashboardPath, descript
         breadcrumb.replaceChildren(); columns.replaceChildren(); contents.replaceChildren();
         const node = selectedFolder();
         if (!node) { el(contents, "div", "hub-explorer-empty", "Create a folder to get started."); return; }
-        icon(breadcrumb, !node.parent && node.descriptor.sharedResource ? "folder-symlink" : "folder-open");
+        if (isNoteView()) icon(breadcrumb, !node.parent && node.descriptor.sharedResource ? "folder-symlink" : "folder-open");
         for (const [index, ancestor] of lineage(node).entries()) {
             if (index) icon(breadcrumb, "chevron-right", "hub-explorer-crumb-separator");
             const crumb = button(breadcrumb, "hub-explorer-crumb", ancestor.name);
-            crumb.textContent = ancestor.name;
+            if (isNoteView()) crumb.textContent = ancestor.name;
+            else el(crumb, "span", "hub-explorer-crumb-label", ancestor.name);
             if (ancestor === node) crumb.setAttribute("aria-current", "location");
             crumb.addEventListener("click", () => selectFolder(ancestor, true));
         }
@@ -398,21 +406,15 @@ function mountWorkspaceExplorer({ parent, workspacePath, dashboardPath, descript
     }
     function showError(error) { status.textContent = error?.message ?? "Could not open this file."; }
     function syncToolbar() {
-        const busy = !!editing?.committing, allowed = canCreateNote(currentPath ?? workspacePath);
+        const busy = creating || !!editing?.committing, allowed = canCreateNote(currentPath ?? workspacePath);
         createNote.disabled = busy || !allowed; createFolder.disabled = busy; sortButton.disabled = busy;
         createNote.title = allowed ? "New note" : "Create notes inside a workspace folder";
         shell.setAttribute("aria-busy", String(busy));
     }
     function beginCreate(kind, path = currentPath ?? workspacePath) {
-        if (editing?.committing) return;
+        if (creating || editing?.committing) return;
         if (!isNoteView()) {
-            if (kind === "note" && !canCreateNote(path)) return;
-            const target = model.byPath.get(path);
-            if (!target?.folder) return;
-            selectFolder(target, true);
-            editing = { inline: true, kind, path, value: kind === "folder" ? "New folder" : "Untitled", committing: false, error: "" };
-            clearFullSelection(); selectionPane = contents; renderDraft();
-            const input = contents.querySelector(".project-create-input"); input.focus(); input.select();
+            void createAndRename(kind, path);
             return;
         }
         editing = { kind, path };
@@ -456,13 +458,78 @@ function mountWorkspaceExplorer({ parent, workspacePath, dashboardPath, descript
         cancel.addEventListener("click", close);
         input.focus();
     }
+    async function createAndRename(kind, path) {
+        if (kind === "note" && !canCreateNote(path) || !model.byPath.get(path)?.folder) return;
+        if (editing) { await commitInline(editing); if (editing) return; }
+        creating = true; syncToolbar();
+        selectFolder(model.byPath.get(path), true);
+        try {
+            let createdPath;
+            // Retry only a confirmed competing create at the allocated path.
+            for (let attempt = 0; attempt < 5; attempt++) {
+                const candidate = availableDefaultItemPath(path, kind, getByPath);
+                const filename = candidate.slice(path.length + 1);
+                const name = kind === "note" ? filename.slice(0, -3) : filename;
+                try { createdPath = await createItem(path, kind, name); break; }
+                catch (error) {
+                    if (!error.creationCollision || attempt === 4) throw error;
+                }
+            }
+            if (disposed || isNoteView() || currentPath !== path) return;
+            refresh(); selectedPaths.clear(); selectedPaths.add(createdPath);
+            selectionPane = contents;
+            beginRename(createdPath);
+        } catch (error) { if (!disposed) showError(error); }
+        finally { creating = false; if (!disposed) syncToolbar(); }
+    }
+    async function commitInline(draft, restoreFocus = false) {
+        if (editing !== draft || draft.committing) return renameCommit;
+        draft.value = draft.value.trim() || draft.originalName;
+        if (draft.value === draft.originalName) {
+            cancelDraft();
+            if (restoreFocus) {
+                if (draft.originPane === tree) focusNode(draft.renamePath); else focusDetail(draft.renamePath);
+            }
+            return;
+        }
+        if ([".", ".."].includes(draft.value)) {
+            draft.error = "Enter a valid name.";
+            renderDraft(); contents.querySelector(".project-create-input")?.focus();
+            return;
+        }
+        draft.committing = true;
+        const field = contents.querySelector(".project-create-input"); if (field) field.disabled = true;
+        syncToolbar();
+        renameCommit = (async () => {
+            try {
+                const path = await renameItem(draft.renamePath, draft.value);
+                if (disposed) return;
+                editing = null; refresh();
+                const old = draft.renamePath;
+                const restored = draft.returnPath === old || draft.returnPath?.startsWith(old + "/")
+                    ? path + draft.returnPath.slice(old.length) : draft.returnPath;
+                if (model.byPath.get(restored)?.folder) currentPath = restored;
+                const node = model.byPath.get(path);
+                if (node) reveal(node);
+                selectionPane = draft.originPane ?? contents; selectionAnchor = path;
+                selectedPaths.clear(); selectedPaths.add(path);
+                save(workspacePath, { currentPath }); render();
+                if (restoreFocus) { if (draft.originPane === tree) focusNode(path); else focusDetail(path); }
+            } catch (error) {
+                if (disposed) return;
+                draft.committing = false; draft.error = error.message ?? "Could not rename item.";
+                renderDraft(); syncToolbar(); contents.querySelector(".project-create-input")?.focus();
+            }
+        })();
+        return renameCommit;
+    }
     function beginRename(path = [...selectedPaths][0]) {
         if (isNoteView() || editing?.committing || !renameItem || selectedPaths.size > 1) return;
         const node = model.byPath.get(path);
         if (!node?.parent || !canSelect(path)) return;
         const returnPath = currentPath, originPane = selectionPane;
         selectFolder(node.parent, true);
-        editing = { returnPath, originPane, inline: true, renamePath: path, kind: node.folder ? "folder" : "note", path: node.parent.path, value: node.name, committing: false, error: "" };
+        editing = { returnPath, originPane, inline: true, renamePath: path, kind: node.folder ? "folder" : "note", path: node.parent.path, originalName: node.name, value: node.name, committing: false, error: "" };
         selectionPane = contents; selectedPaths.clear(); selectedPaths.add(path);
         renderDraft(); const input = contents.querySelector(".project-create-input"); input.focus(); input.select();
     }
@@ -483,7 +550,7 @@ function mountWorkspaceExplorer({ parent, workspacePath, dashboardPath, descript
         const row = original ?? el(contents, "div", "hub-explorer-detail-row");
         row.replaceChildren(); row.classList.add("hub-explorer-draft");
         const name = el(row, "div", "hub-explorer-detail-name");
-        icon(name, draft.kind === "folder" ? "folder" : "file-text");
+        icon(name, draft.kind === "folder" ? "folder-closed" : fileIcon(getByPath(draft.renamePath)));
         const input = el(name, "input", "project-create-input");
         input.value = draft.value; input.spellcheck = false; input.disabled = draft.committing;
         input.setAttribute("aria-label", draft.renamePath ? "Rename item" : draft.kind === "folder" ? "New folder name" : "New note name");
@@ -491,42 +558,24 @@ function mountWorkspaceExplorer({ parent, workspacePath, dashboardPath, descript
         errorText.setAttribute("role", "alert");
         if (draft.error) input.setAttribute("aria-invalid", "true");
         if (!original) contents.prepend(row);
-        input.addEventListener("input", () => { draft.value = input.value; });
+        const sizeInput = () => {
+            input.style.width = Math.max(8, input.value.length + 2) + "ch";
+        };
+        sizeInput();
+        input.addEventListener("input", () => { draft.value = input.value; sizeInput(); });
+        for (const type of ["click", "dblclick"]) input.addEventListener(type, event => event.stopPropagation());
         input.addEventListener("blur", () => {
-            if (!repainting && editing === draft && !draft.committing && input.isConnected) cancelDraft();
+            if (!repainting && editing === draft && !draft.committing && input.isConnected) {
+                draft.value = input.value; void commitInline(draft);
+            }
         });
         input.addEventListener("keydown", event => {
             event.stopPropagation();
+            if (event.isComposing) return;
             if (event.key === "Escape" && !draft.committing) { event.preventDefault(); cancelDraft(); contents.focus(); }
-            if (event.key !== "Enter" || event.isComposing || draft.committing) return;
-            event.preventDefault(); draft.value = input.value;
-            if (!draft.value.trim() || [".", ".."].includes(draft.value.trim())) {
-                draft.error = "Enter a valid name."; errorText.textContent = draft.error; input.setAttribute("aria-invalid", "true"); return;
+            if (event.key === "Enter" && !draft.committing) {
+                event.preventDefault(); draft.value = input.value; void commitInline(draft, true);
             }
-            draft.committing = true; input.disabled = true;
-            syncToolbar();
-            status.textContent = "Creating…";
-            void (async () => {
-                try {
-                    const path = draft.renamePath ? await renameItem(draft.renamePath, draft.value) : await createItem(draft.path, draft.kind, draft.value);
-                    if (disposed) return;
-                    editing = null; refresh();
-                    if (draft.renamePath && draft.returnPath) {
-                        const restored = draft.returnPath === draft.renamePath || draft.returnPath.startsWith(draft.renamePath + "/") ? path + draft.returnPath.slice(draft.renamePath.length) : draft.returnPath;
-                        if (model.byPath.get(restored)?.folder) currentPath = restored;
-                    }
-                    const node = model.byPath.get(path);
-                    if (node) { reveal(node); persist(); }
-                    selectionPane = draft.originPane ?? contents; selectionAnchor = path; selectedPaths.clear(); selectedPaths.add(path);
-                    save(workspacePath, { currentPath }); render();
-                    if (draft.originPane === tree) focusNode(path); else focusDetail(path);
-                } catch (error) {
-                    if (disposed) return;
-                    draft.committing = false; draft.error = error.message ?? "Could not create item.";
-                    status.textContent = ""; syncToolbar();
-                    renderDraft(); const field = contents.querySelector(".project-create-input"); field?.focus();
-                }
-            })();
         });
         repainting = previousRepaint;
     }
@@ -541,7 +590,13 @@ function mountWorkspaceExplorer({ parent, workspacePath, dashboardPath, descript
         splitter.setAttribute("aria-valuemin", String(Math.round(minimum)));
         splitter.setAttribute("aria-valuemax", String(Math.round(maximum)));
         splitter.setAttribute("aria-valuenow", String(Math.round(value)));
+        return value;
     }
+    splitter.addEventListener("dblclick", event => {
+        event.preventDefault(); event.stopPropagation();
+        dragWidth = null; preferredWidth = null; shell.classList.remove("is-resizing");
+        saveFull({ treeWidth: null }); applyWidth();
+    });
     function commitWidth() { if (preferredWidth !== null) saveFull({ treeWidth: preferredWidth }); }
     splitter.addEventListener("pointerdown", event => {
         if (event.button !== 0) return;
@@ -556,7 +611,7 @@ function mountWorkspaceExplorer({ parent, workspacePath, dashboardPath, descript
     function endResize(event) {
         if (!dragWidth || dragWidth.id !== event.pointerId) return;
         const id = dragWidth.id; dragWidth = null; shell.classList.remove("is-resizing");
-        preferredWidth = Number(splitter.getAttribute("aria-valuenow"));
+        preferredWidth = applyWidth();
         if (splitter.hasPointerCapture(id)) splitter.releasePointerCapture(id);
         commitWidth();
     }
@@ -567,12 +622,20 @@ function mountWorkspaceExplorer({ parent, workspacePath, dashboardPath, descript
             event.key === "Home" ? Number(splitter.getAttribute("aria-valuemin")) : event.key === "End" ? Number(splitter.getAttribute("aria-valuemax")) : null;
         if (value === null) return;
         event.preventDefault(); event.stopPropagation(); preferredWidth = value; applyWidth();
-        preferredWidth = Number(splitter.getAttribute("aria-valuenow")); commitWidth();
+        preferredWidth = applyWidth(); commitWidth();
     });
     const resize = new doc.defaultView.ResizeObserver(applyWidth); resize.observe(body);
     createNote.addEventListener("click", () => beginCreate("note"));
     createFolder.addEventListener("click", () => beginCreate("folder"));
+    let sortMenu = null, sortOpenAtPointerDown = false;
+    // Native Menu dismisses on outside press, before the trigger's click.
+    doc.addEventListener("pointerdown", event => {
+        sortOpenAtPointerDown = sortButton.contains(event.target) && sortButton.getAttribute("aria-expanded") === "true";
+    }, { capture: true, signal: events.signal });
     sortButton.addEventListener("click", event => {
+        const wasOpen = event.detail ? sortOpenAtPointerDown : sortButton.getAttribute("aria-expanded") === "true";
+        sortOpenAtPointerDown = false;
+        if (wasOpen) { sortMenu?.hide(); return; }
         const current = sortState(), entries = [];
         for (const [sortKey, label] of [["name", "Name"], ["modified", "Modified"], ["created", "Created"]]) {
             for (const sortDirection of ["asc", "desc"]) entries.push({
@@ -581,8 +644,7 @@ function mountWorkspaceExplorer({ parent, workspacePath, dashboardPath, descript
                 run: () => setSort({ sortKey, sortDirection })
             });
         }
-        entries.push(null, { title: "Folders use Name ascending for date sorts", disabled: true });
-        showMenu(event, entries);
+        sortMenu = showMenu(event, entries, { compactSort: true });
     });
     contents.tabIndex = 0;
     shell.addEventListener("focusin", event => {
@@ -732,7 +794,7 @@ function mountWorkspaceExplorer({ parent, workspacePath, dashboardPath, descript
         },
         isFullView: () => !isNoteView(),
         reportError: showError,
-        destroy() { disposed = true; events.abort(); resize.disconnect(); shell.remove(); }
+        destroy() { disposed = true; sortMenu?.hide(); events.abort(); resize.disconnect(); shell.remove(); }
     };
 }
 

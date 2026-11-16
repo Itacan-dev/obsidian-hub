@@ -174,7 +174,7 @@ body.theme-dark :where(.hub-color-scope) {
     --checkbox-marker-color: var(--hub-color-checkbox-marker);
     --checkbox-border-color: var(--hub-color-text-muted);
     --checkbox-border-color-hover: var(--hub-color-text-secondary);
-    --input-placeholder-color: var(--hub-color-text-muted);
+    --input-placeholder-color: var(--hub-color-text-secondary);
     --input-date-separator: var(--hub-color-text-muted);
     --caret-color: var(--hub-color-text-primary);
     --icon-color: var(--hub-color-text-secondary);
@@ -376,7 +376,7 @@ body.theme-dark .hub-color-scope :is(.hub-athena, .hub-athena-settings) input[ty
 
 /* Progress header rhythm shared by Home and Project/Resource workspaces. */
 :is(.home-recent, .project-progress) {
-    --hub-progress-header-line-height: 16px;
+    --hub-progress-header-line-height: 1em;
     --hub-progress-header-gap: 8px;
     /* History scrolls inside its own body. The outer panel needs no reserved
      * scrollbar strip; the heatmap ends at the normal content padding. */
@@ -480,7 +480,7 @@ body.theme-dark .hub-color-scope :is(.hub-athena, .hub-athena-settings) input[ty
 .hub-button-scope .hub-panel-selectors > button,
 .hub-button-scope .hub-panel-action {
     width: auto;
-    height: var(--hub-panel-control-height);
+    height: auto;
     min-height: var(--hub-panel-control-height);
     padding: 1px 10px;
     font-size: var(--hub-font-secondary);
@@ -563,6 +563,11 @@ body.theme-dark .hub-color-scope :is(.hub-athena, .hub-athena-settings) input[ty
 /* Component-specific control sizes and font:inherit still take precedence. */
 :where(.hub-button-scope) :where(button, input, textarea, select) {
     font-size: var(--hub-font-compact);
+}
+
+.hub-button-scope :is(input, textarea)::placeholder {
+    color: var(--text-muted);
+    opacity: 1;
 }
 
 /* Keep modal headings independent of body-copy consolidation. */
@@ -791,11 +796,12 @@ body.theme-dark .hub-color-scope :is(.hub-athena, .hub-athena-settings) input[ty
     padding-left: var(--hub-task-row-inset);
 }
 .hub-planned-task-row + .hub-planned-task-row { border-top: 1px solid var(--background-modifier-border); }
+.hub-task-necessity-bar, .hub-plan-collection { --hub-content-rail-width: 3px; }
 .hub-task-necessity-bar {
     position: absolute;
     left: 0;
     top: var(--size-4-2, 8px);
-    width: 3px;
+    width: var(--hub-content-rail-width);
     height: 32px;
     max-height: calc(100% - 12px);
     border-radius: 2px;
@@ -948,7 +954,8 @@ body.theme-dark .hub-color-scope :is(.hub-athena, .hub-athena-settings) input[ty
 .hub-button-scope button.hub-task-group-toggle:enabled:active { background: var(--background-secondary); }
 .hub-task-group-chevron { display: inline-flex; flex: 0 0 14px; color: inherit; }
 .hub-task-group-chevron svg { width: 14px; height: 14px; stroke-width: 1.5; }
-.hub-button-scope .hub-task-add { flex-shrink: 0; margin-left: 6px; gap: 4px; }
+.hub-button-scope :is(.hub-task-add, .home-focus-edit.hub-panel-add) { flex-shrink:0; gap:4px; }
+.hub-button-scope .hub-task-add { margin-left:6px; }
 .hub-task-add-icon { display: inline-flex; }
 .hub-task-add-icon svg { width: 15px; height: 15px; }
 .home-dashboard .home-upcoming .hub-task-add,
@@ -974,7 +981,7 @@ body.theme-dark .hub-color-scope :is(.hub-athena, .hub-athena-settings) input[ty
  * Match the existing title's first line without enlarging compact cards for
  * the information button's preserved 28px hit area. Other task views opt out. */
 :is(.home-tasks-body, .project-tasks-body, .hub-task-live-dialog) .hub-planned-task-row:not(.hub-full-task-card):not(.hub-oath-task-row) {
-    --hub-task-title-line: calc(var(--hub-font-compact) * 1.3);
+    --hub-task-title-line: calc(var(--hub-font-body) * 1.35);
 }
 :is(.home-tasks-body, .project-tasks-body, .hub-task-live-dialog) .hub-planned-task-row:not(.hub-full-task-card):not(.hub-oath-task-row) :is(.home-task-info, .project-task-info) {
     grid-template-columns: minmax(1em, 1fr) minmax(0, max-content) auto;
@@ -1332,7 +1339,7 @@ body.theme-dark .hub-color-scope :is(.hub-athena, .hub-athena-settings) input[ty
     background: transparent; box-shadow: none; outline: none;
 }
 .modal.hub-task-compact-dialog .hub-task-form .hub-task-title-row > textarea.hub-task-title-input:is(:focus,:focus-visible) { outline: none; box-shadow: none; }
-.hub-task-compact-dialog .hub-task-title-input::placeholder { font: inherit; letter-spacing: inherit; color: var(--text-faint); opacity: 1; }
+.hub-task-compact-dialog .hub-task-title-input::placeholder { font: inherit; letter-spacing: inherit; color: var(--text-muted); opacity: 1; }
 .hub-task-title-row:has(.hub-task-title-input.hub-keyboard-focus:focus-visible) { border-color: var(--text-muted); }
 .hub-task-compact-dialog .hub-task-form .hub-task-title-row > input[type=checkbox]:focus-visible { outline: 1px solid var(--text-muted); outline-offset: 2px; box-shadow: none; }
 .hub-task-title-row.is-completed > .hub-task-title-input:not(:focus) { color: var(--text-muted); text-decoration: line-through; }
@@ -1441,7 +1448,7 @@ body.theme-dark .hub-color-scope :is(.hub-athena, .hub-athena-settings) input[ty
 .hub-task-popover-date input { display: block; width: 100%; min-width: 0; min-height: 36px; font: inherit; }
 .hub-task-date-endpoint .hub-task-date-surface > input { background: var(--background-modifier-form-field); border: 1px solid var(--background-modifier-border); border-radius: var(--input-radius,6px); padding: 4px 8px; }
 .modal.hub-task-live-dialog :is(.hub-task-popover,.hub-task-config-section).hub-task-date-endpoint .hub-task-date-surface > input {
-    position: relative; height: 36px; padding-inline: 28px 27px; font-variant-numeric: tabular-nums;
+    position: relative; height: max(36px, calc(1lh + 10px)); padding-inline: 28px 27px; font-variant-numeric: tabular-nums;
 }
 .modal.hub-task-live-dialog :is(.hub-task-popover,.hub-task-config-section).hub-task-date-endpoint input::-webkit-calendar-picker-indicator {
     position: absolute; left: 6px; right: auto; width: 16px; height: 16px; margin: 0; padding: 0; box-sizing: border-box; opacity: .6; cursor: pointer;
@@ -1501,7 +1508,41 @@ body.theme-dark .hub-color-scope :is(.hub-athena, .hub-athena-settings) input[ty
         box-shadow 120ms ease;
 }
 
-/* Quick Add and Inbox inherit native Modal geometry, controls and scrollbars. */
+/* Opt-in Itacan scroll owners. Reuse the host's quiet scrollbar geometry and
+ * theme tokens without changing overflow, gutters, or scrolling behavior. */
+@media (forced-colors: none) {
+    .hub-scrollbar { scrollbar-width: auto; scrollbar-color: auto; }
+    body .hub-scrollbar::-webkit-scrollbar {
+        display: block; width: var(--scrollbar-width, 12px); height: var(--scrollbar-height, 12px);
+        background: transparent;
+    }
+    body .hub-scrollbar::-webkit-scrollbar-track,
+    body .hub-scrollbar::-webkit-scrollbar-corner { background: transparent; }
+    body .hub-scrollbar::-webkit-scrollbar-thumb {
+        background-color: var(--scrollbar-thumb-bg);
+        background-clip: padding-box;
+        border: solid transparent; border-width: var(--scrollbar-border-width, 3px 3px 3px 2px);
+        border-radius: var(--scrollbar-radius, 8px); min-height: 45px;
+    }
+    body .hub-scrollbar::-webkit-scrollbar-thumb:is(:hover, :active) {
+        background-color: var(--scrollbar-active-thumb-bg);
+    }
+    body .hub-scrollbar::-webkit-scrollbar-button { display: none; width: 0; height: 0; }
+    @supports not selector(::-webkit-scrollbar) {
+        .hub-scrollbar { scrollbar-width: thin; scrollbar-color: var(--scrollbar-thumb-bg) var(--scrollbar-bg, transparent); }
+    }
+}
+@media (forced-colors: active) {
+    .hub-scrollbar { scrollbar-width: auto; scrollbar-color: auto; }
+    body .hub-scrollbar::-webkit-scrollbar,
+    body .hub-scrollbar::-webkit-scrollbar-track,
+    body .hub-scrollbar::-webkit-scrollbar-corner,
+    body .hub-scrollbar::-webkit-scrollbar-thumb,
+    body .hub-scrollbar::-webkit-scrollbar-thumb:is(:hover, :active),
+    body .hub-scrollbar::-webkit-scrollbar-button { all: revert; }
+}
+
+/* Quick Add and Inbox inherit native Modal geometry and controls. */
 /* Ordinary task windows share collapsed Quick Add's desktop/viewport width. */
 .modal:is(.hub-quick-add-dialog,.hub-task-compact-dialog) { width: 560px; max-width: calc(100vw - 32px); }
 .modal.hub-quick-add-dialog { display: flex; flex-direction: column; }
@@ -1665,7 +1706,7 @@ body.theme-dark .hub-color-scope :is(.hub-athena, .hub-athena-settings) input[ty
 .hub-button-scope .hub-inbox-row.is-selected, .hub-button-scope .hub-inbox-row.is-selected:is(:hover,:active) { border-color: transparent; background: color-mix(in srgb, var(--interactive-accent) 17%, transparent); box-shadow: none; transform: none; }
 .hub-inbox-row > .hub-capture-icon { flex: 0 0 32px; width: 32px; height: 32px; justify-content: center; }
 .hub-inbox-row > .hub-capture-icon svg { width: 30px; height: 30px; }
-.hub-inbox-row > .hub-inbox-unsorted-icon { color: var(--text-faint, var(--text-muted)); }
+.hub-inbox-row > .hub-inbox-unsorted-icon { color: var(--text-muted); }
 .hub-inbox-row-copy { flex: 1; min-width: 0; }
 .hub-inbox-row-heading { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; gap: var(--size-4-2, 8px); }
 .hub-inbox-completion-label { display: inline-flex; align-items: center; gap: 4px; color: var(--text-muted); font-size: var(--hub-font-secondary); line-height: 1.5; white-space: nowrap; }
@@ -2445,21 +2486,24 @@ body.hub-project-note-mode
     --hub-heatmap-bottom-gap: 18px;
     --hub-heatmap-label-gap: 4px;
     --hub-heatmap-inline-inset: 4px;
+    --hub-heatmap-axis-overhang: 6px;
     width: 100%; min-width: 0; flex: 0 0 auto;
     padding-top: 8px;
     border-bottom: 1px solid var(--background-modifier-border);
 }
 .home-progress-section { min-width: 0; }
 .hub-heatmap-viewport {
-    /* Share the separator's extent; the controller centers the full assembly. */
-    width: 100%;
+    /* The weekday axis uses part of the panel padding. The separator follows
+     * the calendar's normal content width independently of this viewport. */
+    width: calc(100% + 2 * var(--hub-heatmap-axis-overhang));
+    margin-inline: calc(-1 * var(--hub-heatmap-axis-overhang));
     padding-bottom: var(--hub-heatmap-bottom-gap);
     overflow-x: auto; overflow-y: hidden; scrollbar-width: thin;
 }
 :is(.home-progress-calendar, .project-progress-calendar) .heatmap-calendar-graph {
     position: relative; display: grid; box-sizing: border-box;
     font-family: inherit; line-height: 1.4;
-    grid-template-columns: var(--hub-heatmap-margin) var(--hub-heatmap-weekday) var(--hub-heatmap-weekday-gap) var(--hub-heatmap-inner) var(--hub-heatmap-margin);
+    grid-template-columns: var(--hub-heatmap-margin) var(--hub-heatmap-weekday) var(--hub-heatmap-weekday-gap) var(--hub-heatmap-inner) var(--hub-heatmap-end-margin);
     grid-template-areas: ". . . months ." ". weekdays . boxes .";
     row-gap: var(--hub-heatmap-label-gap); width: var(--hub-heatmap-width); padding: 0;
 }
@@ -2507,7 +2551,7 @@ body.hub-project-note-mode
     /* Use the existing breathing room, never a cell or a reserved side gutter. */
     position: absolute; top: 100%;
     left: calc(var(--hub-heatmap-margin) + var(--hub-heatmap-weekday) + var(--hub-heatmap-weekday-gap));
-    right: var(--hub-heatmap-margin);
+    right: var(--hub-heatmap-end-margin);
     height: var(--hub-heatmap-bottom-gap);
     display: flex; justify-content: space-between; align-items: center;
     pointer-events: none; z-index: 5;
@@ -2688,7 +2732,7 @@ body.hub-project-note-mode
 }
 
 :is(.home-recent-clock, .project-activity-clock) {
-    color: var(--text-faint);
+    color: var(--text-muted);
 }
 
 :is(.home-recent-type, .project-activity-location) {
@@ -2698,10 +2742,12 @@ body.hub-project-note-mode
 /* Shared Home workspace cards and Tasks-panel rows, including Oath pickers. */
 .home-project-card {
     position: relative;
+    display: grid;
+    container: hub-project-card / inline-size;
 
     flex: 0 0 calc((100% - 24px) / 3);
     min-width: 220px;
-    height: 120px;
+    min-height: var(--hub-project-card-height, 120px);
 
     overflow: visible;
 
@@ -2713,8 +2759,9 @@ body.hub-project-note-mode
 }
 
 .home-project-surface {
-    position: absolute;
-    inset: -1px;
+    position: relative;
+    min-width: 0;
+    margin: -1px;
     border: 1px solid var(--background-modifier-border);
     border-radius: inherit;
     overflow: hidden;
@@ -2750,11 +2797,12 @@ body.hub-project-note-mode
 
 .home-resource-card {
     position: relative;
+    display: grid;
     isolation: isolate;
 
-    flex: 0 0 min(248px, calc((100% - 48px) / 4));
+    flex: 0 0 var(--hub-resource-card-basis, min(248px, calc((100% - 48px) / 4)));
     min-width: 205px;
-    height: 100px;
+    min-height: var(--hub-resource-card-height, 100px);
 
     overflow: visible;
     cursor: pointer;
@@ -2811,10 +2859,10 @@ body.hub-project-note-mode
 
     box-sizing: border-box;
     width: 100%;
-    height: 100%;
+    height: auto;
 
     display: grid;
-    grid-template-columns: 78px minmax(0, 1fr);
+    grid-template-columns: var(--hub-resource-thumbnail-size, 78px) minmax(0, 1fr);
     align-items: center;
     gap: 11px;
 
@@ -2871,8 +2919,8 @@ body.hub-project-note-mode
 }
 
 .home-resource-thumbnail {
-    width: 78px;
-    height: 78px;
+    width: var(--hub-resource-thumbnail-size, 78px);
+    height: var(--hub-resource-thumbnail-size, 78px);
 
     display: flex;
     align-items: center;
@@ -2915,7 +2963,7 @@ body.hub-project-note-mode
 
     width: 60%;
 
-    padding: 15px 24px 15px 16px;
+    padding: var(--hub-project-card-padding-block, 15px) 24px var(--hub-project-card-padding-block, 15px) 16px;
 }
 
 .home-project-title {
@@ -2941,6 +2989,13 @@ body.hub-project-note-mode
     line-height: 1.25;
 
     color: var(--text-muted);
+}
+
+/* A narrow card relative to its title size needs a clear text column. This
+   also applies to enlarged rem text in Home and the shared workspace pickers. */
+@container hub-project-card (max-width: 12rem) {
+    .home-project-content { width: 68%; }
+    .home-project-surface > .home-project-image { width: 32%; }
 }
 
 /* IMAGE */
@@ -3009,9 +3064,10 @@ body.hub-project-note-mode
 }
 
 
-.project-task-text {
-    font-size: var(--hub-font-compact);
-    line-height: 1.3;
+:is(.home-task-text, .home-upcoming-title, .project-task-text) {
+    font-size: var(--hub-font-body);
+    font-weight: 400;
+    line-height: 1.35;
 
     overflow-wrap: anywhere;
 }
@@ -3047,7 +3103,7 @@ body.hub-project-note-mode
 @container oath-picker (max-width: 440px) {
     .hub-oath-workspace-grid.is-project { grid-template-columns: 1fr; }
     .hub-oath-workspace-grid.is-resource .home-resource-face { grid-template-columns: 1fr; padding: 8px; gap: 6px; }
-    .hub-oath-workspace-grid.is-resource .home-resource-card { height: 158px; }
+    .hub-oath-workspace-grid.is-resource .home-resource-card { min-height: 158px; }
     .hub-oath-workspace-grid.is-resource .home-resource-thumbnail { justify-self: center; }
 }
 :is(.home-project-card, .home-resource-card):focus-visible { outline: 2px solid var(--interactive-accent); outline-offset: 4px; }
@@ -3578,7 +3634,7 @@ body.hub-project-note-mode
 .hub-report-section h3, .hub-report-section-label, .hub-inbox-actions-heading { margin: 0 0 6px; font-size: var(--hub-font-compact); font-weight: 600; }
 .hub-report-section-label { margin: 0; }
 .hub-report-section > .hub-report-text + .hub-report-text { margin-top: 4px; }
-.hub-report-empty { color: color-mix(in srgb, var(--text-muted) 75%, var(--text-faint, var(--text-muted))); font-size: var(--hub-font-compact); }
+.hub-report-empty { color: var(--text-muted); font-size: var(--hub-font-compact); }
 .hub-report-task-list:empty { display: none; }
 .hub-report-task-list { max-height: 190px; overflow-y: auto; }
 .hub-project-advancement-row .hub-report-task-list { max-height: 132px; }
@@ -3803,9 +3859,12 @@ body.hub-project-note-mode
 .home-dashboard, .project-dashboard {
     --hub-dashboard-gap: 14px;
     --hub-panel-gap: 12px;
-    /* Home owns the desktop content extent; Workspaces reuse these sizes. */
-    --hub-full-view-top-row-height: 245px;
-    --hub-full-view-bottom-row-height: 429px;
+    /* One target for Home rows and every Full-view Workspace surface. */
+    --hub-banner-height: 275px;
+    --hub-full-view-top-row-height: 320px;
+    --hub-full-view-bottom-row-height: 404px;
+    --hub-full-view-top-row-min-height: 245px;
+    --hub-full-view-bottom-row-min-height: 320px;
 }
 /* Prepared Home is an ItemView. Match the native Markdown host so its
  * default 12px/32px padding cannot add a second inset around the preview. */
@@ -3817,7 +3876,7 @@ body.hub-project-note-mode
 /* Match the existing readable-width composition even when native readable
    line width is disabled. Note-view rails keep their own width contract. */
 .markdown-preview-view:has(:is(.home-dashboard, .project-dashboard)):not(.hub-project-rail *) {
-    --hub-desktop-canvas-width: 1560px;
+    --hub-desktop-canvas-width: 1700px;
     --file-line-width: var(--hub-desktop-canvas-width);
     --line-width: var(--hub-desktop-canvas-width);
 }
@@ -3828,7 +3887,7 @@ body.hub-project-note-mode
 }
 :is(.home-dashboard, .project-dashboard):not(.hub-project-rail *) {
     width: 100%;
-    max-width: var(--hub-desktop-canvas-width, 1560px);
+    max-width: var(--hub-desktop-canvas-width, 1700px);
     min-width: 0;
     margin-inline: auto;
     box-sizing: border-box;
@@ -3857,8 +3916,8 @@ body.hub-project-note-mode
     :is(.home-dashboard, .project-dashboard):not(.hub-project-rail *) > :is(.home-main-grid, .project-main-grid) { grid-template-columns: minmax(0, 1fr); }
     .home-dashboard:not(.hub-project-rail *) .home-projects { grid-column: auto; }
     .project-dashboard.hub-full-view:not(.hub-project-rail *) > .project-main-grid {
-        min-height: calc(460px + 245px + 320px + 2 * var(--hub-panel-gap, 12px));
-        grid-template-rows: minmax(460px, 1fr) minmax(calc(245px + 320px + var(--hub-panel-gap, 12px)), 1fr);
+        min-height: calc(460px + var(--hub-full-view-top-row-min-height) + var(--hub-full-view-bottom-row-min-height) + 2 * var(--hub-panel-gap, 12px));
+        grid-template-rows: minmax(460px, 1fr) minmax(calc(var(--hub-full-view-top-row-min-height) + var(--hub-full-view-bottom-row-min-height) + var(--hub-panel-gap, 12px)), 1fr);
     }
 }
 /* Keep the header/search position; only tighten the following content gutter. */
@@ -3875,18 +3934,18 @@ body.hub-project-note-mode
 }
 /* Text-entry focus uses the caret; deliberate choice controls retain their focus treatment. */
 .hub-context-bar .hub-task-mode:focus-visible { outline: 2px solid var(--interactive-accent); outline-offset: -2px; }
-.hub-context-search { position: relative; display: flex; align-items: center; gap: 10px; flex: 1 1 140px; min-width: 0; height: 30px; padding-inline: 6px; }
+.hub-context-search { position: relative; display: flex; align-items: center; gap: 10px; flex: 1 1 140px; min-width: 0; min-height: 30px; padding-inline: 6px; }
 .hub-context-search-icon { display: flex; flex: 0 0 auto; color: var(--text-muted); }
 .hub-context-search-icon svg { width: 18px; height: 18px; }
 /* Specificity also beats Obsidian's native input hover/focus surface. */
 .hub-context-bar .hub-context-search input[type="search"].hub-context-search-input {
-    flex: 1 1 0; width: 100%; min-width: 0; height: 30px; padding: 0;
+    flex: 1 1 0; width: 100%; min-width: 0; height: auto; min-height: 30px; padding: 0;
     background: transparent; border: 0; border-radius: 0; box-shadow: none; outline: none;
     font-size: var(--hub-font-body); color: var(--text-normal);
 }
 .hub-context-bar .hub-task-primary-modes { display: flex; align-items: center; flex: 0 0 var(--hub-project-mode-width, auto); min-width: max-content; box-sizing: border-box; gap: 6px; padding-right: 12px; margin-right: 8px; border-right: 1px solid var(--background-modifier-border); }
 .hub-task-mode-buttons { gap: 6px; flex: 1 1 auto; width: auto; }
-.hub-context-bar .hub-task-mode { height: 29px; min-height: 29px; padding: 3px 6px; font-size: var(--hub-font-compact); white-space: nowrap; }
+.hub-context-bar .hub-task-mode { height: auto; min-height: 29px; padding: 3px 6px; font-size: var(--hub-font-compact); white-space: nowrap; }
 .hub-context-bar .hub-task-mode.is-active { background: var(--interactive-accent); border-color: var(--interactive-accent); color: var(--text-on-accent); }
 .hub-context-results {
     position: absolute; top: calc(100% + 10px); left: -6px; right: -6px;
@@ -3913,7 +3972,7 @@ body.hub-project-note-mode
 .hub-project-rail .hub-context-bar { display: none !important; }
 .hub-task-workspace, .hub-task-view-content { min-width: 0; max-width: 100%; }
 .hub-task-filter-row { display: flex; flex-wrap: wrap; gap: 8px; padding: 6px 8px; margin-bottom: 10px; min-height: 35px; box-sizing: border-box; border-radius: 8px; border: 1px solid var(--background-modifier-border); background: color-mix(in srgb, var(--background-secondary) 60%, transparent); }
-.hub-task-filter-row select { height: 26px; min-width: 130px; max-width: min(260px, 100%); padding-block: 2px; font-size: var(--hub-font-secondary); }
+.hub-task-filter-row select { height: auto; min-height: 26px; min-width: 130px; max-width: min(260px, 100%); padding-block: 2px; font-size: var(--hub-font-secondary); }
 .hub-task-local-scroll { overflow-x: auto; max-width: 100%; min-width: 0; }
 .hub-task-board { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; min-width: 1020px; }
 .hub-task-column { min-width: 0; border: 1px solid var(--background-modifier-border); border-radius: 8px; padding: 10px 8px; background: var(--background-secondary); }
@@ -3921,7 +3980,7 @@ body.hub-project-note-mode
 .hub-task-column-heading h3 { margin: 0; font-size: var(--hub-font-subheading); font-weight: 600; }
 .hub-task-column.is-past h3 { color: var(--color-red); }
 .hub-task-count { margin-left: auto; white-space: nowrap; font-size: var(--hub-font-secondary); color: var(--text-muted); font-weight: 400; }
-.hub-task-column-empty { color: var(--text-faint); font-size: var(--hub-font-secondary); padding: 10px 4px 16px; }
+.hub-task-column-empty { color: var(--text-muted); font-size: var(--hub-font-secondary); padding: 10px 4px 16px; }
 .hub-button-scope .hub-full-task-card { padding: 8px 8px 8px 10px; margin-bottom: 7px; border: 1px solid var(--background-modifier-border); background: var(--background-primary); border-radius: 6px; column-gap: 8px; }
 .hub-full-task-card .project-task-info { display: grid; grid-template-columns: minmax(0, 1fr); row-gap: 3px; }
 .hub-full-task-card .project-task-text { font-size: var(--hub-font-compact); line-height: 1.4; cursor: pointer; }
@@ -3932,7 +3991,7 @@ body.hub-project-note-mode
 .hub-full-task-card .hub-task-steps-toggle { min-height: 20px; padding-block: 0; font-size: var(--hub-font-secondary); }
 .hub-full-location { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; height: auto; padding: 0; border: 0; background: transparent; box-shadow: none; text-align: left; font-size: var(--hub-font-secondary); color: var(--text-muted); cursor: pointer; }
 .hub-full-location:hover { color: var(--text-normal); }
-.hub-full-location span { overflow: hidden; text-overflow: ellipsis; }
+.hub-full-location > span { overflow: hidden; text-overflow: ellipsis; }
 .hub-full-date { white-space: nowrap; color: var(--text-muted); font-size: var(--hub-font-secondary); }
 .hub-full-date.is-overdue { color: var(--color-red); }
 .hub-button-scope button.hub-task-column-add { width: 100%; height: 28px; display: flex; align-items: center; justify-content: center; gap: 6px; background: transparent; border: 1px dashed var(--background-modifier-border); box-shadow: none; font-size: var(--hub-font-secondary); color: var(--text-muted); }
@@ -3988,13 +4047,13 @@ body.hub-project-note-mode
 .hub-task-calendar.is-week .hub-task-calendar-day { min-height: 300px; }
 .hub-task-calendar-day.is-today { background: color-mix(in srgb, var(--interactive-accent) 9%, var(--background-primary)); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--interactive-accent) 50%, transparent); }
 .hub-task-calendar-day.is-other-month { background: var(--background-secondary); }
-.hub-task-calendar-day.is-other-month .hub-task-calendar-day-heading { color: var(--text-faint); }
+.hub-task-calendar-day.is-other-month .hub-task-calendar-day-heading { color: var(--text-muted); }
 .hub-task-calendar-day-heading { display: flex; align-items: center; justify-content: space-between; padding: 0 3px 4px; font-size: var(--hub-font-secondary); }
 .hub-task-calendar-day-heading .hub-task-icon-button { display: grid; place-items: center; width: 22px; height: 22px; padding: 0; border: 0; box-shadow: none; background: transparent; color: var(--text-muted); opacity: .3; }
 .hub-task-calendar-day:hover .hub-task-icon-button, .hub-task-calendar-day:focus-within .hub-task-icon-button { opacity: 1; }
 .hub-task-calendar-day-heading svg { width: 13px; height: 13px; }
 .hub-button-scope .is-calendar-task { padding: 5px 5px 5px 7px; grid-template-columns: 13px minmax(0, 1fr); gap: 6px; }
-.is-calendar-task .project-task-text { font-size: var(--hub-font-secondary); }
+.is-calendar-task .project-task-text { font-size: var(--hub-font-secondary); line-height: 1.3; }
 .is-calendar-task .hub-task-necessity-bar { top: 4px; max-height: calc(100% - 8px); }
 .hub-full-task-time { font-size: var(--hub-font-meta); color: var(--text-muted); }
 .hub-task-timeline { position: relative; min-width: calc(240px + var(--hub-timeline-width)); }
@@ -4058,7 +4117,7 @@ body.hub-project-note-mode
 .hub-roadmap-range-label { display: grid; }
 .hub-roadmap-range-label::after { content: "Entire project"; visibility: hidden; grid-area: 1 / 1; }
 .hub-roadmap-range-current { grid-area: 1 / 1; }
-.hub-planning-toolbar button, .hub-planning-toolbar select, .hub-roadmap-axis-navigation button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: var(--hub-panel-control-height); min-height: var(--hub-panel-control-height); padding: 1px 10px; font-size: var(--hub-font-secondary); white-space: nowrap; }
+.hub-planning-toolbar button, .hub-planning-toolbar select, .hub-roadmap-axis-navigation button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: auto; min-height: var(--hub-panel-control-height); padding: 1px 10px; font-size: var(--hub-font-secondary); white-space: nowrap; }
 .hub-planning-toolbar .hub-task-icon-button, .hub-roadmap-axis-navigation .hub-task-icon-button { width: var(--hub-panel-control-height); min-width: var(--hub-panel-control-height); padding: 0; }
 .hub-planning-toolbar svg, .hub-roadmap-axis-navigation svg { width: 14px; height: 14px; }
 .hub-planning-toolbar h3 { margin: 0 6px; font-size: var(--hub-font-subheading); font-weight: 600; }
@@ -4178,6 +4237,18 @@ body.hub-project-note-mode
     outline: 2px solid var(--interactive-accent); outline-offset: -2px;
 }
 /* Shared feature-window header: the icon always has its own full-size column. */
+.hub-window-title-context {
+    min-width: 0;
+    font-size: var(--font-ui-medium);
+}
+.hub-button-scope .hub-panel-heading-label {
+    margin: 0;
+    min-width: 0;
+    font: inherit;
+    color: inherit;
+    letter-spacing: inherit;
+    text-transform: inherit;
+}
 .hub-window-header {
     --hub-window-subtitle-gap: 6px;
     position: relative;
@@ -4504,12 +4575,13 @@ body.hub-project-note-mode
 .hub-task-location-workspaces h3 { margin: 0 0 var(--size-4-2, 8px); padding: var(--size-4-3, 12px) var(--size-4-2, 8px) var(--size-4-2, 8px); border-bottom: 1px solid var(--background-modifier-border); font-size: var(--hub-font-heading); font-weight: var(--font-semibold, 600); line-height: 20px; color: var(--text-normal); }
 .hub-task-location-workspace-group + .hub-task-location-workspace-group { margin-top: var(--size-2-2, 4px); border-top: 1px solid var(--background-modifier-border); }
 .hub-task-location-workspaces .hub-task-location-entry { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.hub-task-location-breadcrumbs { display: flex; align-items: center; gap: 4px; width: 100%; max-width: 100%; min-width: 0; min-height: 36px; box-sizing: border-box; overflow-x: auto; margin: 0 0 var(--size-4-2, 8px); padding: 4px 6px; border: 1px solid var(--background-modifier-border); border-radius: var(--radius-m); font-size: var(--hub-font-body); font-weight: var(--font-normal, 400); line-height: 20px; white-space: nowrap; }
-.hub-task-location-dialog .hub-task-location-breadcrumbs button, .hub-task-location-note { box-sizing: border-box; display: block; text-align: left; flex: 0 0 auto; max-width: none; min-width: 0; height: 24px; margin: 0; padding: 2px 6px; overflow: visible; white-space: nowrap; border: 0; border-radius: var(--radius-s, 4px); font: inherit; color: var(--text-normal); }
+.hub-task-location-breadcrumbs { display: flex; align-items: center; gap: 2px; width: 100%; max-width: 100%; min-width: 0; min-height: 36px; box-sizing: border-box; overflow-x: auto; margin: 0 0 var(--size-4-2, 8px); padding: 4px 6px; border: 1px solid var(--background-modifier-border); border-radius: var(--radius-m); font-size: var(--hub-font-body); font-weight: var(--font-normal, 400); line-height: 20px; white-space: nowrap; }
+.hub-task-location-dialog .hub-task-location-breadcrumbs button, .hub-task-location-note { box-sizing: border-box; display: flex; align-items: center; text-align: left; flex: 0 0 auto; max-width: none; min-width: 0; height: 24px; margin: 0; padding: 2px 6px; overflow: visible; white-space: nowrap; border: 0; border-radius: var(--radius-s, 4px); font: inherit; color: var(--text-normal); }
+.hub-task-location-segment-label { display: block; text-box-trim: trim-both; text-box-edge: cap alphabetic; }
 .hub-task-location-dialog .hub-task-location-breadcrumbs button:is(:hover, :active, :focus), .hub-task-location-dialog .hub-task-location-breadcrumbs button { background: transparent; box-shadow: none; text-decoration: none; }
 .hub-task-location-dialog .hub-task-location-breadcrumbs button:not([aria-current]):hover { background: var(--background-modifier-hover); }
 .hub-task-location-dialog .hub-task-location-breadcrumbs [aria-current], .hub-task-location-dialog .hub-task-location-breadcrumbs [aria-current]:is(:hover, :focus, :active) { background: color-mix(in srgb, var(--interactive-accent) 17%, transparent); }
-.hub-task-location-separator { flex: 0 0 auto; color: var(--text-muted); font: inherit; }
+.hub-task-location-breadcrumbs > .hub-task-location-separator { width: 16px; height: 16px; flex: 0 0 16px; margin: 0; color: var(--text-muted); }
 .hub-task-location-entries { flex: 0 1 272px; height: 272px; min-height: 64px; overflow-y: auto; overflow-x: hidden; border: 1px solid var(--background-modifier-border); border-radius: var(--radius-m); padding: 4px; }
 /* Explicit plain rows opt out of shared raised-button borders and shadows. */
 .hub-button-scope button.hub-task-location-entry { display: flex; align-items: center; gap: 8px; width: 100%; height: 32px; min-height: 32px; margin: 0; padding: 5px 8px; text-align: left; border: 0; border-radius: var(--radius-s, 4px); box-shadow: none; background: transparent; }
@@ -4539,6 +4611,25 @@ body.hub-project-note-mode
 .hub-task-location-trigger.is-workspace-root .hub-task-location-text { color: var(--text-normal); }
 .hub-task-location-edit-icon { display: inline-flex; flex: 0 0 auto; color: var(--text-normal); }
 .hub-task-location-trigger .hub-task-location-edit-icon svg { width: 14px; height: 14px; color: inherit; opacity: 1; }
+
+/* Inline segments preserve whole-route ellipsis in compact metadata. */
+.hub-route-part { white-space: nowrap; }
+.hub-route-separator {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 10px; height: 10px; flex: 0 0 10px; margin-inline: 3px;
+    vertical-align: middle; color: inherit; line-height: 0;
+}
+.hub-route-separator svg, .hub-task-location-trigger .hub-route-separator svg {
+    display: block; width: 100%; height: 100%; color: inherit; opacity: 1;
+}
+.hub-route-accessible-separator {
+    position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+    overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0;
+}
+.hub-route-wrap .hub-route-part {
+    display: inline-flex; align-items: center; max-width: 100%; vertical-align: middle; white-space: normal;
+}
+.hub-route-wrap .hub-route-label { min-width: 0; overflow-wrap: anywhere; }
 .is-location-unavailable { color: var(--text-warning); }
 
 .hub-task-location-dialog .hub-task-location-entry { color: var(--text-normal); font-size: var(--hub-font-body); }
@@ -4583,21 +4674,15 @@ body.theme-dark :where(.hub-color-scope):is(.status-bar-item, .hub-shell-shortcu
 .hub-location-note-title input { display: block; width: 100%; margin-top: 8px; }
 
 /* Capture launchers use ordinary secondary buttons, never option-group state. */
-:is(.hub-quick-capture-actions, .hub-capture-action-row) { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--size-4-2, 8px); margin-top: var(--size-4-3, 12px); }
+:is(.hub-quick-capture-actions, .hub-capture-action-row) { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 6rem), 1fr)); gap: var(--size-4-2, 8px); margin-top: var(--size-4-3, 12px); }
 .hub-quick-add-dialog .hub-capture-attachments:not(:empty) { margin-top: 0; }
-.hub-button-scope .hub-capture-destination { display: flex; align-items: center; justify-content: flex-start; gap: var(--size-4-2, 8px); width: 100%; min-width: 0; min-height: 44px; height: auto; padding: var(--size-4-3, 12px); font-size: var(--hub-font-body); white-space: normal; text-align: left; }
+.hub-button-scope .hub-capture-destination { display: flex; align-items: center; justify-content: flex-start; gap: var(--size-4-2, 8px); width: 100%; min-width: 0; min-height: 44px; height: auto; padding: var(--size-4-3, 12px); font-size: var(--hub-font-compact); font-weight: 400; line-height: 1.4; white-space: normal; text-align: left; }
 :is(.hub-quick-capture-actions, .hub-capture-action-row) > .hub-capture-destination { flex-direction: column; justify-content: flex-start; text-align: center; }
 :is(.hub-quick-capture-actions, .hub-capture-action-row) > .hub-capture-destination > span:last-child { min-width: 0; overflow-wrap: anywhere; line-height: 1.4; }
 .hub-button-scope :is(.hub-quick-capture-actions, .hub-capture-action-row) > .hub-capture-destination:disabled { opacity: 0.65; }
 .hub-inbox-organize-actions.hub-capture-action-row { container-type: inline-size; margin-top: 0; }
 .hub-inbox-organize-actions > .hub-capture-destination[data-capture-action=file] { justify-content: center; }
 .hub-quick-add-dialog .hub-capture-actions > [data-capture-action=file]:not([hidden]) { display: inline-flex; align-items: center; justify-content: center; gap: var(--size-4-2, 8px); }
-.hub-capture-action-row > .hub-capture-destination > span:last-child {
-    font-size: min(var(--hub-font-body), calc((100cqw - 16px) * 0.038));
-    line-height: calc(var(--hub-font-body) * 1.4);
-    margin-inline: -8px;
-    white-space: nowrap;
-}
 .hub-button-scope.hub-capture-content .hub-capture-attach:disabled { opacity: 0.65; }
 
 /* One capture slot, measured from the empty state; only attachments scroll. */
@@ -4616,10 +4701,218 @@ body.theme-dark :where(.hub-color-scope):is(.status-bar-item, .hub-shell-shortcu
 .hub-quick-add-dialog .hub-capture-actions { flex-wrap: nowrap; }
 @media (max-width: 400px) {
     .hub-quick-add-dialog .hub-capture-actions > button { padding-inline: var(--size-4-2, 8px); }
-    .hub-quick-capture-actions > .hub-capture-destination > span:last-child {
-        font-size: 11px;
-        line-height: calc(var(--hub-font-body) * 1.4);
-        margin-inline: -8px;
-        white-space: nowrap;
-    }
 }
+
+/* Progress reporting shares the established modal and shell palette. */
+.modal.hub-progress-editor { width: min(720px, calc(100vw - 48px)); }
+.hub-progress-card { margin-bottom: 12px; padding: 14px 16px; border: 1px solid var(--background-modifier-border); border-radius: 8px; }
+.hub-progress-card > summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; cursor: pointer; }
+.hub-progress-card > summary::before { content: "\25b8"; color: var(--text-muted); }
+.hub-progress-card[open] > summary::before { content: "\25be"; }
+.hub-progress-card .hub-report-heading { flex: 1; min-width: 0; margin: 0; }
+.hub-progress-ratings { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 12px; }
+.hub-progress-ratings button[aria-pressed=true] { background: var(--interactive-accent); color: var(--text-on-accent); }
+.hub-progress-reflection { display: block; margin-top: 12px; color: var(--text-muted); }
+.hub-progress-reflection textarea { display: block; width: 100%; min-height: 60px; margin-top: 5px; resize: vertical; }
+.hub-progress-reflection textarea:disabled { color: var(--text-muted); opacity: 0.65; cursor: default; }
+.hub-progress-no-work-help { margin: 5px 0 0; color: var(--text-muted); font-size: var(--hub-font-compact); }
+.hub-report-recorded-work, .hub-progress-focus { margin-top: 12px; }
+.hub-report-recorded-work > summary, .hub-progress-focus > summary { cursor: pointer; color: var(--text-muted); }
+.hub-shell-icons-only > .hub-oath-button > span:not(.hub-oath-icon) { display: none; }
+.hub-oath-control .hub-oath-button:focus-visible { outline: 2px solid var(--interactive-accent); outline-offset: -2px; }
+
+/* Plan leading controls follow Home Tasks sizing, including inside native modals. */
+:where(.hub-plan-presentation) { --hub-plan-leading-size:var(--font-preferred-size,16px); --checkbox-size:var(--hub-plan-leading-size); }
+.hub-plan-leading { display:inline-flex; align-items:center; justify-content:center; box-sizing:border-box; flex:0 0 var(--hub-plan-leading-size); width:var(--hub-plan-leading-size); height:var(--hub-plan-leading-size); margin-top:var(--size-4-2,8px); font-size:inherit; line-height:1.35; }
+.hub-plan-native-task .hub-plan-leading { font-size:var(--hub-font-body); }
+.hub-plan-leading > :is(input[type=checkbox],.hub-task-decorative-checkbox) { width:var(--hub-plan-leading-size); height:var(--hub-plan-leading-size); margin:0; flex:none; }
+.hub-plan-leading > svg { display:block; width:var(--hub-plan-leading-size); height:var(--hub-plan-leading-size); }
+
+/* Persistent personal Plan */
+.hub-plan-modal { width:680px; max-width:calc(100vw - 32px); height:auto; }
+.modal.hub-plan-modal:not(.hub-plan-picker) { --hub-modal-max-height:min(680px,calc(100dvh - 48px)); }
+.hub-plan-presentation[data-plan-context="editor"] { display:flex; flex-direction:column; min-height:0; padding-top:12px; overflow:hidden; }
+.hub-plan-presentation[data-plan-context="editor"] > .hub-plan-note-label { flex:0 0 auto; }
+.hub-plan-editor-scroll { flex:1 1 0; min-height:0; overflow-y:auto; overflow-x:hidden; overscroll-behavior:contain; }
+.hub-plan-note-label { display:flex; flex-direction:column; gap:6px; margin:0 0 12px; }
+.hub-plan-note-label textarea { width:100%; min-height:56px; max-height:180px; resize:vertical; }
+.hub-plan-list { position:relative; }
+.hub-plan-row { display:flex; align-items:flex-start; gap:var(--hub-task-card-gap); }
+.hub-plan-content { min-width:0; flex:1; overflow-wrap:anywhere; }
+.hub-plan-title { text-align:left; white-space:normal; }
+.hub-plan-row.is-completed .hub-plan-title { text-decoration:line-through; color:var(--text-muted); }
+.hub-plan-hover { opacity:0; }
+.hub-plan-row:hover .hub-plan-hover,.hub-plan-row:focus-within .hub-plan-hover { opacity:1; }
+.hub-plan-picker-row { display:flex; align-items:center; gap:8px; padding:8px; width:100%; text-align:left; }
+.hub-plan-note-excerpt { display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; white-space:pre-wrap; color:var(--text-muted); margin:0 0 12px; padding:7px 9px; border:1px solid var(--background-modifier-border); border-radius:var(--radius-s,4px); background:var(--background-secondary); font-size:var(--hub-font-body); line-height:1.4; }
+.hub-plan-conflict { max-height:180px; overflow:auto; white-space:pre-wrap; }
+.hub-plan-placeholder { border:1px dashed var(--background-modifier-border); }
+.hub-plan-row.is-pointer-dragging { position:absolute; z-index:5; background:var(--background-primary); }
+.hub-plan-announcement { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); }
+@media (hover:none) { .hub-plan-hover { opacity:1; } }
+
+/* Persistent Plan: one collection accent, native task presentation. */
+.hub-plan-collection { border-left:var(--hub-content-rail-width) solid var(--interactive-accent); padding-left:12px; min-height:36px; }
+.hub-plan-note-excerpt[hidden],.hub-plan-picker [hidden] { display:none !important; }
+.hub-plan-row { position:relative; align-items:flex-start; padding:10px 2px; min-width:0; }
+.hub-plan-row + .hub-plan-row { border-top:1px solid var(--background-modifier-border); }
+.hub-plan-row:hover { background:var(--background-modifier-hover); }
+.hub-plan-title,button.hub-plan-title { vertical-align:top; border:0; background:transparent; box-shadow:none; padding:0; margin:0; height:auto; color:var(--text-normal); font:inherit; text-align:left; cursor:pointer; line-height:1.35; }
+.hub-plan-title:focus-visible { outline:2px solid var(--hub-color-focus-ring,var(--interactive-accent)); outline-offset:2px; }
+.hub-plan-metadata { color:var(--text-muted); font-size:var(--hub-font-secondary); line-height:1.4; margin-top:3px; overflow-wrap:anywhere; }
+.hub-plan-intended { display:block; }
+.hub-plan-native-task { flex:1; min-width:0; }
+.hub-plan-presentation .home-task-row { position:relative; display:grid; grid-template-columns:var(--hub-plan-leading-size) minmax(0,1fr); align-items:start; gap:var(--hub-task-card-gap); padding:0; margin:0; border:0; background:transparent; width:100%; min-width:0; }
+.hub-plan-presentation .home-task-info { display:block; flex:1; min-width:0; }
+.hub-plan-presentation .home-task-text { font-size:var(--hub-font-body); line-height:1.35; overflow-wrap:anywhere; }
+.hub-plan-presentation .home-task-location { color:var(--text-muted); font-size:var(--hub-font-secondary); line-height:1.4; margin-top:3px; }
+.hub-plan-row button.hub-plan-hover { flex:0 0 24px; width:24px; height:24px; padding:3px; background:transparent; border:0; box-shadow:none; }
+.hub-plan-hover svg { width:16px; height:16px; }
+.hub-plan-header-actions { display:flex; gap:8px; margin-left:auto; align-self:center; }
+
+.hub-plan-report-preview { max-height:min(240px,35vh); overflow:auto; overscroll-behavior:contain; margin:10px 0; }
+.hub-plan-picker { height:min(680px,calc(100vh - 48px)); }
+.hub-plan-picker-controls { display:flex; flex:0 0 auto; flex-direction:column; gap:8px; padding-top:16px; margin-bottom:12px; }
+.hub-plan-picker-tabs .is-selected { background:var(--interactive-accent); color:var(--text-on-accent); }
+.hub-plan-picker-controls input { width:100%; min-height:34px; padding:6px 10px; }
+.hub-plan-scope-chevron { margin-left:auto; }
+.hub-plan-picker-row { border-radius:var(--radius-s,4px); min-width:0; cursor:pointer; }
+.hub-plan-picker-row:hover { background:var(--background-modifier-hover); }
+.hub-plan-picker-row.is-in-plan { background:color-mix(in srgb,var(--interactive-accent) 9%,transparent); cursor:default; }
+.hub-plan-picker-row.is-new { background:color-mix(in srgb,var(--interactive-accent) 17%,transparent); }
+.hub-plan-picker-row > .home-task-row { flex:1; }
+.hub-plan-selection-status { flex:0 0 44px; color:var(--text-muted); font-size:var(--hub-font-secondary); }
+.hub-plan-folder { display:flex; align-items:center; gap:10px; width:100%; padding:8px; text-align:left; }
+.hub-plan-folder > :last-child { margin-left:auto; }
+/* Home uses the dashboard's compact supporting type and density. */
+.hub-plan-presentation[data-plan-context="home"] { display:flex; flex-direction:column; min-height:0; min-width:0; overflow:hidden; font-size:var(--hub-font-body); }
+.hub-plan-presentation[data-plan-context="home"] > .hub-plan-collection { flex:0 1 auto; min-height:0; min-width:0; overflow-y:auto; overflow-x:hidden; overscroll-behavior:contain; }
+/* A short collection follows its rows; long collections still shrink and scroll. */
+.hub-plan-presentation[data-plan-context="home"] > .hub-plan-collection:not(:has(.hub-plan-row)) { border-left-color:transparent; }
+.hub-plan-presentation[data-plan-context="home"] > .hub-plan-preview-status { flex:0 0 auto; }
+.hub-plan-presentation[data-plan-context="home"] .hub-plan-row { padding-block:8px; }
+.hub-plan-presentation[data-plan-context="home"] .hub-plan-note-excerpt { display:grid; grid-template-columns:max-content minmax(0,1fr) max-content; align-items:center; column-gap:8px; white-space:normal; flex:0 0 auto; margin-bottom:8px; padding:6px 8px; font-size:var(--hub-font-body); font-weight:400; color:var(--text-normal); text-align:center; overflow:clip; overflow-clip-margin:content-box; }
+/* Matching side tracks keep the note centered across the entire rectangle. */
+.hub-plan-presentation[data-plan-context="home"] .hub-plan-note-caption,
+.hub-plan-presentation[data-plan-context="home"] .hub-plan-note-excerpt::after { font-size:var(--hub-font-secondary); font-weight:500; line-height:1.4; color:var(--text-muted); white-space:nowrap; }
+.hub-plan-presentation[data-plan-context="home"] .hub-plan-note-caption { text-align:left; }
+.hub-plan-presentation[data-plan-context="home"] .hub-plan-note-excerpt::after { content:attr(data-label); visibility:hidden; }
+.hub-plan-home > .is-empty-note .hub-plan-note-text { min-height:calc(var(--hub-plan-note-lines,1) * 1.4em); }
+.hub-plan-presentation[data-plan-context="home"] .hub-plan-note-text { display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; min-width:0; overflow:hidden; overflow-wrap:anywhere; white-space:pre-wrap; }
+.hub-plan-presentation[data-plan-context="home"] :is(.home-task-location,.hub-plan-metadata) { font-size:var(--hub-font-meta); color:var(--text-muted); margin-top:2px; }
+
+.hub-plan-modal .hub-window-header:has(.hub-plan-header-actions) { grid-template-columns:44px minmax(0,1fr) auto; }
+.hub-plan-header-actions { grid-column:3; grid-row:1; }
+
+.home-glance:has(> :is(.hub-plan-home, .hub-plan-presentation)) { display:flex; flex-direction:column; overflow:hidden; }
+.home-glance > :is(.hub-plan-home, .hub-plan-presentation) { flex:1; min-height:0; }
+
+/* Plan notes and native inline controls. */
+.hub-plan-add { display:flex; align-items:center; justify-content:center; gap:8px; width:100%; height:auto; min-height:36px; margin:16px 0 8px; padding:8px 12px; }
+.hub-plan-add > .hub-capture-icon { display:inline-flex; align-items:center; justify-content:center; flex:0 0 16px; width:16px; height:16px; line-height:0; }
+.hub-plan-add > .hub-capture-icon svg { display:block; width:16px; height:16px; }
+button.hub-plan-legacy { display:block; background:transparent; border:0; box-shadow:none; padding:4px 0; margin:4px 0 8px; color:var(--text-muted); font-size:var(--hub-font-secondary); height:auto; }
+.hub-plan-legacy[hidden] { display:none; }
+button.hub-plan-legacy:hover { color:var(--text-normal); text-decoration:underline; }
+.hub-plan-presentation[data-plan-context="editor"] .hub-plan-row { padding-inline-end:var(--size-4-3,12px); }
+.hub-button-scope .hub-plan-row > button.hub-plan-hover { display:inline-flex; align-self:center; align-items:center; justify-content:center; box-sizing:border-box; flex:0 0 28px; width:28px; height:28px; min-height:28px; margin:-4px 0; padding:6px; border:0; border-radius:4px; background:transparent; box-shadow:none; color:var(--text-muted); }
+.hub-button-scope .hub-plan-row > [data-plan-control=grip] { margin-inline-start:auto; margin-inline-end:-4px; cursor:grab; touch-action:none; }
+.hub-button-scope .hub-plan-row > button.hub-plan-hover:enabled:is(:hover,:active,:focus-visible) { background:var(--background-modifier-hover); box-shadow:none; }
+.hub-button-scope .hub-plan-row > button.hub-plan-hover:focus-visible { outline:1px solid var(--text-muted); outline-offset:1px; }
+.hub-plan-row.is-pointer-dragging > [data-plan-control=grip] { cursor:grabbing; }
+.hub-plan-row .hub-plan-hover { transition:opacity 120ms ease,color 120ms ease,background 120ms ease; }
+.hub-plan-row.is-pointer-dragging .hub-plan-hover { opacity:1; }
+.hub-plan-picker-tabs { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); width:100%; gap:0; }
+.hub-plan-picker-tabs button { flex:1; min-width:0; margin:0; border-radius:0; box-shadow:none; }
+.hub-plan-picker-tabs button:first-child { border-radius:6px 0 0 6px; }
+.hub-plan-picker-tabs button:last-child { border-radius:0 6px 6px 0; }
+.hub-plan-picker-tabs button + button { border-left:0; }
+.hub-plan-picker-row { margin:3px 0; box-sizing:border-box; }
+.hub-plan-picker .hub-task-location-breadcrumbs button { box-sizing:border-box; display:flex; align-items:center; flex:0 0 auto; height:24px; margin:0; padding:2px 6px; border:0; border-radius:var(--radius-s,4px); font:inherit; color:var(--text-normal); background:transparent; box-shadow:none; white-space:nowrap; }
+.hub-plan-picker .hub-task-location-breadcrumbs button:not([aria-current]):hover { background:var(--background-modifier-hover); }
+.hub-plan-picker .hub-task-location-breadcrumbs [aria-current],.hub-plan-picker .hub-task-location-breadcrumbs [aria-current]:is(:hover,:focus,:active) { background:color-mix(in srgb,var(--interactive-accent) 17%,transparent); }
+.hub-plan-picker .hub-task-location-breadcrumbs button:focus-visible { outline:1px solid var(--hub-color-focus-ring,var(--background-modifier-border-focus)); outline-offset:0; }
+
+.hub-plan-picker-tabs button { width:100%; box-sizing:border-box; }
+
+/* Add to plan owns selection; native task indicators here are decorative. */
+.hub-task-decorative-checkbox { display:block; box-sizing:border-box; width:var(--checkbox-size,16px); height:var(--checkbox-size,16px); flex-shrink:0; border:var(--checkbox-border-width,1px) solid var(--checkbox-border-color,var(--text-muted)); border-radius:var(--checkbox-radius,4px); pointer-events:none; }
+.hub-plan-picker .hub-task-decorative-checkbox { margin:8px 0 0; }
+.hub-plan-picker .hub-plan-icon { flex:0 0 18px; margin-top:2px; }
+.hub-plan-picker .hub-plan-icon svg { width:16px; height:16px; }
+.hub-plan-picker-row:focus-visible { outline:2px solid var(--hub-color-focus-ring,var(--text-muted)); outline-offset:-2px; }
+.hub-plan-picker-row .hub-plan-selection-status { flex:0 0 auto; margin-left:auto; align-self:center; color:var(--text-muted); font-size:var(--hub-font-secondary); }
+.hub-plan-picker-row > .hub-plan-content { flex:1; min-width:0; overflow-wrap:anywhere; }
+.hub-plan-task-step-summary { margin-top:6px; color:var(--text-muted); font-size:var(--hub-font-secondary); }
+.hub-plan-workspace-copy { display:flex; flex:1; min-width:0; flex-direction:column; gap:2px; }
+.hub-plan-picker-controls .hub-task-location-breadcrumbs { margin:4px 0 -4px; }
+.hub-plan-picker[data-category="file"] .hub-plan-picker-body { border:1px solid var(--background-modifier-border); border-radius:var(--radius-m); padding:4px; margin-inline:0; }
+.hub-plan-picker .hub-plan-picker-body { min-height:64px; }
+.hub-plan-picker .modal-content { max-height:none; }
+.hub-plan-picker .hub-project-advancement-actions { margin-top:12px; }
+.hub-plan-picker .hub-modal-layout > .hub-plan-review { display:flex; flex-direction:column; flex:0 1 auto; min-height:0; margin-top:12px; }
+.hub-plan-review > button { flex:0 0 auto; width:100%; text-align:left; }
+.hub-plan-review-list { min-height:0; flex:0 1 auto; max-height:min(132px,25vh); overflow-y:auto; padding:4px; border:1px solid var(--background-modifier-border); border-radius:var(--radius-s); }
+.hub-plan-review-row { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:6px 4px; }
+.hub-plan-review-row > div { min-width:0; overflow-wrap:anywhere; }
+.hub-plan-review-row > button { flex-shrink:0; }
+@media (forced-colors:active) { .hub-plan-picker-row:is(.is-new,.is-in-plan) { outline:1px solid Highlight; outline-offset:-1px; } }
+
+@media (max-height:600px) {
+ .modal.hub-plan-picker { padding:12px; }
+ .hub-plan-picker .hub-capture-header { padding-bottom:8px; }
+ .hub-plan-picker-controls { padding-top:8px; gap:6px; margin-bottom:8px; }
+ .hub-plan-picker .hub-modal-layout > .hub-plan-review { margin-top:8px; }
+ .hub-plan-picker .hub-project-advancement-actions { margin-top:8px; }
+}
+
+/* Lifecycle controls are fixed siblings of the existing content scroller. */
+.hub-plan-editor-body { display:flex; flex-direction:column; min-height:0; overflow:hidden; }
+.hub-plan-editor-body > .hub-plan-note-excerpt { flex:0 0 auto; }
+.hub-plan-home { display:flex; flex-direction:column; min-height:0; overflow:hidden; }
+.hub-plan-home > :not(.hub-plan-collection):not(.hub-plan-history-list):not(.hub-plan-empty) { flex:0 0 auto; }
+.hub-plan-home-footer { display:grid; grid-template-columns:minmax(0,1fr) auto minmax(0,1fr); align-items:center; margin-top:auto; padding-top:4px; min-height:37px; border-top:1px solid var(--background-modifier-border); }
+.hub-button-scope .hub-plan-home-footer > button { display:inline-flex; align-items:center; justify-content:center; gap:8px; width:auto; min-height:32px; height:auto; padding:6px 10px; margin:0; border:0; border-radius:var(--radius-s); background:transparent; box-shadow:none; color:var(--text-muted); font-size:var(--hub-font-secondary); line-height:1.4; transform:none; transition:color 120ms ease,background-color 120ms ease; }
+.hub-plan-home-footer > :not(.hub-plan-hide) { grid-column:2; grid-row:1; justify-self:center; }
+.hub-button-scope .hub-plan-home-footer > button:enabled:is(:hover,:focus,:active) { color:var(--text-normal); background:var(--background-modifier-hover); border:0; box-shadow:none; transform:none; }
+.hub-plan-finish .hub-capture-icon { display:inline-flex; width:16px; height:16px; align-items:center; justify-content:center; }
+.hub-plan-finish svg,.hub-plan-history-status svg,.hub-plan-finished-status svg { width:16px; height:16px; display:block; }
+.hub-plan-empty { flex:1 1 auto; min-height:0; display:flex; align-items:center; justify-content:center; color:var(--text-muted); }
+.hub-plan-history-list { min-height:0; flex:1 1 auto; overflow-y:auto; overflow-x:hidden; }
+.hub-plan-history-entry + .hub-plan-history-entry { border-top:1px solid var(--background-modifier-border); }
+.hub-button-scope button.hub-plan-history-row { display:block; width:100%; height:auto; margin:0; padding:8px; text-align:left; white-space:normal; background:transparent; border:0; border-radius:0; box-shadow:none; transform:none; color:var(--text-normal); }
+.hub-button-scope button.hub-plan-history-row:enabled:is(:hover,:focus-visible,:active) { background:var(--background-modifier-hover); border:0; box-shadow:none; transform:none; }
+.hub-plan-history-row > :not(:first-child) { margin-top:3px; overflow-wrap:anywhere; }
+.hub-plan-history-status { display:grid; grid-template-columns:16px minmax(0,1fr) 14px; gap:6px; align-items:center; font-size:var(--hub-font-meta); }
+.hub-plan-history-note { font-size:var(--hub-font-secondary); line-height:1.4; }
+.hub-plan-history-toggle-label { display:grid; text-align:left; }
+.hub-plan-history-toggle-label > span { grid-area:1 / 1; justify-self:start; }
+.hub-plan-history-toggle-measure { visibility:hidden; }
+.hub-plan-history-count { font-size:var(--hub-font-meta); }
+.hub-plan-history-content[hidden] { display:none; }
+.hub-plan-history-content[data-plan-context="home"] { padding:0 8px 8px; overflow:visible; }
+.hub-plan-history-content[data-plan-context="home"] > .hub-plan-collection { overflow:visible; max-height:none; height:auto; min-height:0; flex:none; }
+.hub-button-scope .hub-plan-home-footer > button.hub-plan-history-toggle { color:var(--text-muted); }
+.hub-button-scope .hub-plan-home-footer > button.hub-plan-history-toggle:is(:hover,:focus-visible) { color:var(--text-normal); }
+.hub-plan-finished { color:var(--interactive-accent); }
+.hub-plan-footer { justify-content:flex-end; }
+.modal.hub-plan-modal.is-active-plan-editor { height:min(554px,calc(100dvh - 48px)); }
+.hub-plan-editor-body > .hub-plan-add { flex:0 0 auto; margin:12px 0 0; }
+.hub-plan-editor-body > .hub-plan-error { flex:0 0 auto; color:var(--text-error); font-size:var(--hub-font-secondary); margin-top:8px; }
+.hub-plan-error[hidden] { display:none; }
+.hub-plan-editor-scroll:has(> .is-empty-plan) { display:flex; flex-direction:column; }
+.hub-plan-editor-scroll > .hub-plan-collection.is-empty-plan { flex:1; border:0; padding:0; min-height:0; display:flex; align-items:center; justify-content:center; }
+.hub-plan-editor-empty { text-align:center; color:var(--text-muted); font-size:var(--hub-font-secondary); }
+
+
+
+.hub-plan-historical-note { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,2fr) minmax(0,1fr); gap:8px; align-items:center; white-space:normal; }
+.hub-plan-historical-note > :last-child { display:flex; flex-wrap:wrap; gap:4px; align-items:center; justify-content:flex-end; font-size:var(--hub-font-meta); }
+.hub-plan-historical-note > :last-child svg { display:block; width:16px; height:16px; }
+.hub-plan-historical-text { text-align:center; overflow-wrap:anywhere; }
+
+.hub-plan-finished-status { display:inline-flex; align-items:center; justify-content:center; gap:6px; min-height:32px; color:var(--interactive-accent); font-size:var(--hub-font-secondary); line-height:1.4; }
+.hub-plan-home-footer > button.hub-plan-hide { grid-column:3; grid-row:1; justify-self:end; color:var(--text-muted); }
+.hub-plan-home.is-finished-plan :is(.hub-plan-title,.hub-plan-leading,.hub-plan-note-text) { color:var(--text-muted); }
+.hub-plan-home.is-finished-plan .hub-plan-title { cursor:default; }
+.hub-plan-home.is-finished-plan .hub-plan-row:hover { background:transparent; }

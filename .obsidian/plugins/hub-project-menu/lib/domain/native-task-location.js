@@ -32,6 +32,7 @@ function locationBreadcrumb(task, contextOwner = null) {
     const full = [name, ...route].join(" / ");
     let parts = inside ? [...route] : [name, ...route];
     if (!parts.length) parts = ["Workspace root"];
-    return { label: compactPathSegments(parts).visible.map(part => part ?? "\u2026").join(" / "), full, available: display.available !== false };
+    const visibleSegments = compactPathSegments(parts).visible.map(part => part ?? "\u2026");
+    return { label: visibleSegments.join(" / "), full, available: display.available !== false, visibleSegments };
 }
 module.exports = { sameOwner, relativePath, locationReference, resourceReference, compactPathSegments, locationBreadcrumb };

@@ -6,6 +6,7 @@ const { createWindowTitle, setWindowUndertext, layoutModal } = require("./window
 const { Modal, FuzzySuggestModal, Component } = require("obsidian");
 const { PhaseTaskRead, taskKey } = require("../services/phase-task-read");
 const { localISODate } = require("../domain/dates");
+const { renderRouteBreadcrumb } = require("./route-breadcrumb");
 
 function openPlanningEditor(service, projectId, kind, value = null, dv, defaults = {}) {
     const phase = kind === "phases", noun = phase ? "phase" : "milestone";
@@ -38,6 +39,8 @@ function openPlanningEditor(service, projectId, kind, value = null, dv, defaults
                 this.readComponent = new Component();
                 let picker = null, pickerFrame = null, pickerState = state, pickerSnapshot = null;
                 const rows = new Map();
+                const renderTaskLocation = (host, task) => renderRouteBreadcrumb(host,
+                    task.path ? task.path.replace(/\.md$/i, "").split("/").slice(2) : ["Source unavailable"], " › ");
                 const renderTasks = () => {
                     for (const [id, row] of rows) if (!draft.selected.has(id)) { row.remove(); rows.delete(id); }
                     list.querySelector("[data-phase-empty]")?.remove();
@@ -46,7 +49,7 @@ function openPlanningEditor(service, projectId, kind, value = null, dv, defaults
                         let existing = rows.get(id);
                         if (existing) {
                             existing.firstChild.firstChild.textContent = task.text;
-                            existing.firstChild.children[1].textContent = task.path ? task.path.replace(/\.md$/i, "").split("/").slice(2).join(" › ") : "Source unavailable";
+                            renderTaskLocation(existing.firstChild.children[1], task);
                             existing.querySelector("button").setAttribute("aria-label", "Remove phase from " + task.text);
                             existing.querySelector("[data-phase-unavailable]")?.remove();
                             if (!draft.usable(task)) existing.firstChild.createDiv({ cls: "hub-task-help", text: "Source changed or unavailable", attr: { "data-phase-unavailable": "" } });
@@ -55,7 +58,7 @@ function openPlanningEditor(service, projectId, kind, value = null, dv, defaults
                         const row = list.createDiv({ cls: "hub-phase-task-item" });
                         rows.set(id, row);
                         const info = row.createDiv(); info.createDiv({ text: task.text });
-                        info.createDiv({ cls: "hub-task-help", text: task.path ? task.path.replace(/\.md$/i, "").split("/").slice(2).join(" › ") : "Source unavailable" });
+                        renderTaskLocation(info.createDiv({ cls: "hub-task-help hub-route-wrap" }), task);
                         if (!draft.usable(task)) info.createDiv({ cls: "hub-task-help", text: "Source changed or unavailable", attr: { "data-phase-unavailable": "" } });
                         const remove = row.createEl("button", { text: "Remove", attr: { type: "button", "aria-label": "Remove phase from " + task.text } });
                         remove.addEventListener("click", event => {

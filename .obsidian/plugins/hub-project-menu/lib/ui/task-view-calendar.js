@@ -11,7 +11,7 @@ function renderTaskCalendar(host, tasks, context, state) {
     renderScheduleToolbar(panel, context, state);
     const days = calendarRange(state.anchor, state.calendarMode);
     const format = date => formatDate(date);
-    const scroll = panel.createDiv({ cls: "hub-task-local-scroll" });
+    const scroll = panel.createDiv({ cls: "hub-task-local-scroll hub-scrollbar" });
     const grid = scroll.createDiv({ cls: "hub-task-calendar is-" + state.calendarMode });
     grid.style.setProperty("--hub-calendar-weeks", String(days.length / 7));
     for (const day of ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]) grid.createDiv({ cls: "hub-task-weekday", text: day });
@@ -30,7 +30,7 @@ function renderTaskCalendar(host, tasks, context, state) {
         const heading = cell.createDiv({ cls: "hub-task-calendar-day-heading" });
         heading.createSpan({ text: String(day.getDate()) });
         iconButton(heading, "Add task on " + format(day), "plus", () => context.create({ dueDate: iso }));
-        const body = cell.createDiv({ cls: "hub-task-calendar-day-body" });
+        const body = cell.createDiv({ cls: "hub-task-calendar-day-body hub-scrollbar" });
         for (const task of byDate.get(iso) ?? []) taskCard(body, task, context, true);
     }
     const count = tasks.filter(task => !task.dueDate && !task.fromDate).length;

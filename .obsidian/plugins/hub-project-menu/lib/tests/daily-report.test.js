@@ -82,6 +82,7 @@ async function run() {
     wizard.nativeRecords = [];
     assert.deepEqual(reportDay(wizard, date).reports[0].context.tasks, []);
 
+    projects = [{ projectId: "p", name: "Project A" }, { projectId: "q", name: "Project B" }];
     // Today's save refreshes context and preserves the existing rating/removal semantics.
     wizard.nativeRecords = [{ projectId: "p", text: "Today's completed task", timestamp: Date.now() }];
     await wizard.replaceCombinedProgress(today, ["p", "q"], [], { p: 2, q: 1 }, { p: "Today" }, { sourceDate: today, items: [] });
@@ -106,57 +107,7 @@ async function run() {
     wizard.nativeRecords = [];
     await wizard.replaceProjectProgress(progressDay, ["p"], { p: 4 }, { p: "Edited later" });
     assert.deepEqual(reportDay(wizard, progressDay).reports[0].context, snapshot, "Finalized mixed evidence survives source deletion and reflection edits");
-    // Exercise the real exit entry point. Presentation reads the established
-    // completion marker and saved project/resource reports without writing state.
-    projects = [{ projectId: "p", name: "Project A" }];
-    wizard.projectWorkRatings = {}; wizard.projectWorkLogs = {};
-    wizard.resourceWorkRatings = {}; wizard.resourceWorkLogs = {};
-    wizard.dirtyContexts = {};
-    wizard.getPendingFocus = () => null;
-    wizard.getFocusContexts = () => [];
-    const host = Object.assign(Object.create(compiled.exports.prototype), {
-        app: {}, projectWizard: wizard,
-        getChangedProjects: () => projects, getChangedResources: () => [],
-        finishWindowClose: () => { host.finished = true; }
-    });
-    const prompt = () => {
-        host.hubAdvancementPromptOpen = false;
-        const before = JSON.stringify(wizard);
-        host.openProjectAdvancementPrompt({});
-        assert.equal(JSON.stringify(wizard), before, "Header selection cannot mutate report state");
-        assert.equal(openedReport.reportDate, today);
-        assert.equal(openedReport.requireExplicitRatings, true);
-        assert.equal(openedReport.saveLabel, "Save & close");
-        return openedReport;
-    };
-    assert.equal(prompt().title, "Complete progress report");
-    assert.equal(openedReport.reportMode, "complete");
-    wizard.projectWorkRatings.p = { [today]: 3 };
-    assert.equal(prompt().title, "Edit progress report", "Legacy rating alone cannot prove new activity");
-    assert.equal(openedReport.selectedScores.get("p"), 3, "Existing ratings still load");
-    wizard.projectWorkRatings = {};
-    wizard.resourceWorkLogs.study = { [today]: { summary: "Saved resource reflection" } };
-    assert.equal(prompt().title, "Edit progress report", "Resource-only legacy report counts without claiming new activity");
-    const savedAt = Date.now() - 2000;
-    wizard.resourceWorkLogs.study[today].timestamp = savedAt;
-    wizard.activityLog = [{ projectId: "p", action: "edited", title: "Additional work", timestamp: savedAt + 1000 }];
-    assert.equal(prompt().title, "Update progress report", "Existing activity query confirms additional activity after a manual save");
-    wizard.activityLog[0].timestamp = savedAt - 1000;
-    assert.equal(prompt().title, "Edit progress report", "Activity before the manual save does not count as new");
-    wizard.resourceWorkLogs = {};
-    wizard.dirtyContexts[today] = { projects: ["p"], resolvedAt: Date.now() - 1000 };
-    assert.equal(prompt().title, "Update progress report", "Completed all-unrated exit uses existing resolution marker");
-    assert.equal(openedReport.selectedScores.size, 0, "No invented rating defaults");
-    wizard.projectWorkLogs.p = { [today]: { summary: "Manual edit after exit", timestamp: Date.now() } };
-    assert.equal(prompt().title, "Edit progress report", "A newer manual save invalidates the older exit marker as evidence of new activity");
-    wizard.projectWorkLogs = {};
-    wizard.dirtyContexts = {};
-    wizard.projectWorkRatings.p = { [date]: 3 };
-    assert.equal(prompt().title, "Complete progress report", "Other dates do not count as today's report");
-    host.getChangedProjects = () => [];
-    host.hubAdvancementPromptOpen = false;
-    host.openProjectAdvancementPrompt({});
-    assert.equal(host.finished, true, "No activity retains the established no-report exit");
-    console.log("PASS: report save/edit, project/resource scope, actual timestamps, empty states, focus association, source mutation/deletion, reload, legacy fallback, failed saves, zero/rating-only semantics, local dates; real exit header lifecycle, saved/legacy/manual reports, confirmed new activity and all-unrated completion markers without state writes or rating changes.");
+    // The new eligibility controller has dedicated persistence and lifecycle tests.
+    console.log("PASS: daily report scope, snapshots, comments, local dates and failed-save preservation.");
 }
 run().catch(error => { console.error(error); process.exitCode = 1; });

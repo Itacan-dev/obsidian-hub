@@ -36,7 +36,7 @@ function create(kind,id,placement){
 function check(item){
  assert(item.image.complete&&item.image.naturalWidth>0,'Source image is decoded');
  const cover=item.cover.getBoundingClientRect(),image=item.image.getBoundingClientRect();
- assert(cover.width>0&&cover.height===325,'Complete cover restored at its normal height');
+ assert(cover.width>0&&cover.height===275,'Complete cover restored at its shared banner height');
  assert(getComputedStyle(item.cover).display!=='none'&&getComputedStyle(item.cover).visibility==='visible','Cover visible after rail teardown');
  if(item.placement){
   const g=header.exports.imagePlacementGeometry(item.cover.clientWidth,item.cover.clientHeight,item.image.naturalWidth,item.image.naturalHeight,item.placement);

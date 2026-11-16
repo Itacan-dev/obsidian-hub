@@ -68,6 +68,14 @@ function run(e,input){
  V.check(input&&typeof input.action==='string','Filesystem action required');
  return e.enqueue(()=>{
   if(input.action==='list')return pending(e)?[pending(e)]:[];
+  if(input.action==='receiptsSince'){
+   const cursor=input.cursor,anchor=cursor?.operationId?e.one('SELECT sequence FROM operations WHERE operation_id=?',cursor.operationId):null;
+   const valid=!cursor||cursor.operationId===null&&cursor.sequence===0||anchor?.sequence===cursor.sequence;
+   const upper=e.one("SELECT operation_id,sequence FROM operations WHERE json_extract(result_json,'$.fileOperation')=1 ORDER BY sequence DESC LIMIT 1");
+   const after=valid?(cursor?.sequence??0):0;
+   const rows=e.all("SELECT sequence,result_json FROM operations WHERE sequence>? AND sequence<=? AND json_extract(result_json,'$.fileOperation')=1 ORDER BY sequence LIMIT 256",after,upper?.sequence??0);
+   return {valid,receipts:rows.map(r=>({...JSON.parse(r.result_json),sequence:r.sequence})),cursor:rows.length?{operationId:JSON.parse(rows.at(-1).result_json).operationId,sequence:rows.at(-1).sequence}:{operationId:cursor?.operationId??null,sequence:after},head:{operationId:upper?.operation_id??null,sequence:upper?.sequence??0},more:rows.length===256,pending:pending(e)};
+  }
   V.id(input.operationId);const now=e.clock();let committed=false,changes=[];
   e.db.exec('BEGIN IMMEDIATE');
   try{

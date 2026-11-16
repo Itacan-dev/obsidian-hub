@@ -174,6 +174,7 @@ class HubDataStore {
         this.lastRevision =
             normalized[HUB_STATE_META_KEY].revision;
         this.lastDiskSignature = stateSignature(data);
+        this.progressBaseline = clonePluginData(normalized);
 
         return normalized;
     }
@@ -329,9 +330,19 @@ class HubDataStore {
         }
     }
 
-    save(data) {
+    updateProgress(mutator) {
+        return this.save({}, mutator);
+    }
+
+    updatePlan(mutator) {
+        return this.save({}, null, false, mutator);
+    }
+
+    save(data, progressMutation = null, replaceProgress = false, planMutation = null) {
         refuseManaged(this, data);
         const snapshot = clonePluginData(data);
+        const protectedKeys = ["projectWorkRatings", "projectWorkLogs", "resourceWorkRatings", "resourceWorkLogs", "reportEngagementByDevice", "reportFocusByDate", "pendingFocus"];
+        const baseline = clonePluginData(this.progressBaseline ?? {});
 
         const operation = this.writeQueue
             .catch(() => {})
@@ -340,12 +351,43 @@ class HubDataStore {
                 refuseManaged(this, diskData);
                 this.assertDiskRevisionUnchanged(diskData);
 
+                let candidate = snapshot;
+                if (planMutation) {
+                    candidate = clonePluginData(diskData ?? {});
+                    await planMutation(candidate);
+                    for (const key of new Set([...Object.keys(diskData ?? {}), ...Object.keys(candidate)])) {
+                        if (key !== "globalPlan" && JSON.stringify(candidate[key]) !== JSON.stringify(diskData?.[key])) throw new Error("Scoped plan update changed unrelated data.");
+                    }
+                } else if (progressMutation) {
+                    candidate = clonePluginData(diskData ?? {});
+                    await progressMutation(candidate);
+                    for (const key of new Set([...Object.keys(diskData ?? {}), ...Object.keys(candidate)])) {
+                        if (!protectedKeys.includes(key) && JSON.stringify(candidate[key]) !== JSON.stringify(diskData?.[key])) {
+                            throw new Error("Scoped report update changed data outside progress.");
+                        }
+                    }
+                } else if (!replaceProgress) {
+                    if (diskData?.globalPlan === undefined) delete candidate.globalPlan;
+                    else candidate.globalPlan = clonePluginData(diskData.globalPlan);
+                    // Preserve newer scoped commits when an older whole-state save was queued.
+                    for (const key of protectedKeys) {
+                        if (key !== "pendingFocus" || JSON.stringify(snapshot[key]) === JSON.stringify(baseline[key])) {
+                            if (diskData?.[key] === undefined) delete candidate[key];
+                            else candidate[key] = clonePluginData(diskData[key]);
+                        } else if (this.progressBaseline && JSON.stringify(baseline[key]) !== JSON.stringify(diskData?.[key])) {
+                            throw new HubStateConflictError("Focus changed while this update was queued. Retry the action.");
+                        }
+                    }
+                }
+
                 const versioned = this.versionSnapshot(
-                    snapshot,
+                    candidate,
                     diskData
                 );
 
-                const prepared = await this.sharedProjects.prepare(versioned);
+                // Reports mutate private fields on the private disk snapshot. Shared
+                // categories/planning are intentionally absent here; do not re-export them.
+                const prepared = (progressMutation || planMutation) ? null : await this.sharedProjects.prepare(versioned);
                 const local = prepared?.local ?? versioned;
                 await this.atomicWrite(local);
                 try {
@@ -362,6 +404,7 @@ class HubDataStore {
                 this.lastRevision =
                     versioned[HUB_STATE_META_KEY].revision;
                 this.lastDiskSignature = stateSignature(local);
+                this.progressBaseline = clonePluginData(versioned);
 
                 return clonePluginData(versioned);
             });

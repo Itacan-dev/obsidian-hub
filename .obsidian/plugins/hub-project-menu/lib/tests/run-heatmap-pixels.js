@@ -61,7 +61,7 @@ const timeout=setTimeout(()=>{child.kill();process.exitCode=1},120000);
   }
  }
  // Fit the largest whole-device-pixel squares after reserving the optical
- // weekday gap; the complete assembly must remain centered in the separator.
+ // weekday gap. Center the squares while the axis uses the expanded viewport.
  if([1.5,2].includes(dpr))for(const kind of ['home','project']){
   const width=dpr===1.5?482+2/3:482;
   const geometry=await evaluate(`mountHeatmap(${JSON.stringify({kind,width})})`);
@@ -70,9 +70,9 @@ const timeout=setTimeout(()=>{child.kill();process.exitCode=1},120000);
   const weeks=geometry.cells.length/7;
   const available=width-8-geometry.weekdayColumn.width-weekdayGap;
   if(square!==Math.floor((available*dpr-(weeks-1))/weeks+1e-9))throw Error('Full desktop squares do not maximize the reserved width');
-  const left=geometry.weekdayColumn.left-geometry.viewport.left;
+  const left=geometry.cells[0].x-geometry.viewport.left;
   const right=geometry.viewport.right-Math.max(...geometry.cells.map(cell=>cell.x+cell.w));
-  if(Math.abs(left-right)>.04||Math.min(left,right)<4-.04)throw Error('Desktop assembly is not centered within the separator insets');
+  if(Math.abs(left-right)>.04||geometry.weekdayColumn.left<geometry.viewport.left-.04)throw Error('Desktop squares are not centered or the weekday axis is clipped');
   await check(geometry,{kind,width,fullDesktop:true,primary:kind==='home',leftInset:left,rightInset:right});
  }
  const paintedPalettes=[];

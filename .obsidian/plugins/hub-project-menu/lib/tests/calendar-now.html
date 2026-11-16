@@ -1,107 +1,383 @@
-<!doctype html><meta charset="utf-8"><title>Calendar current-time divider</title>
+<!doctype html>
+<meta charset="utf-8">
+<title>Home Calendar presentation and navigation</title>
 <link rel="stylesheet" href="../../styles.css">
 <link rel="stylesheet" href="../../../../../System/Dashboards/Home/view.css">
 <style>
-body{margin:12px;background:#191919;color:#ddd;font:16px system-ui;--background-primary:#191919;--background-secondary:#262626;--background-modifier-border:#383838;--text-normal:#ddd;--text-muted:#aaa;--text-faint:#777;--interactive-accent:#8961ff}
-.host{width:478px;margin-bottom:12px}.home-dashboard{padding:0}.home-panel-title{display:flex}button{background:#222;color:inherit;border:1px solid #333;border-radius:6px}button:disabled{opacity:.42}#result{white-space:pre-wrap}
-</style><div id="fixtures"></div><pre id="result">RUNNING</pre>
-<script>
-HTMLElement.prototype.createEl=function(tag,o={}){const e=document.createElement(tag);e.className=o.cls||'';e.textContent=o.text||'';for(const[k,v]of Object.entries(o.attr||{}))e.setAttribute(k,v);this.append(e);return e};
-HTMLElement.prototype.createDiv=function(o){return this.createEl('div',o)};HTMLElement.prototype.createSpan=function(o){return this.createEl('span',o)};HTMLElement.prototype.addClass=function(cls){this.classList.add(cls)};
-const assert=(ok,message)=>{if(!ok)throw Error(message)};
-const settle=async()=>{for(let i=0;i<3;i++){await new Promise(r=>setTimeout(r,0));await new Promise(r=>requestAnimationFrame(r))}};
-const runtimeErrors=[];window.addEventListener('error',e=>runtimeErrors.push(e.message));window.addEventListener('unhandledrejection',e=>runtimeErrors.push(String(e.reason)));
-// Deterministic local-time adapter for the Moment methods used by the actual
-// agenda. Local Date arithmetic also exercises day/week and DST boundaries.
-let clock=new Date(2026,8,22,14,0).getTime();
-const pad=n=>String(n).padStart(2,'0');
-class LocalMoment {
- constructor(value){this._date=new Date(value instanceof LocalMoment?value.valueOf():value===undefined?clock:typeof value==='string'&&value.length===10?value+'T00:00:00':value)}
- year(){return this._date.getFullYear()} month(){return this._date.getMonth()} date(){return this._date.getDate()} day(){return this._date.getDay()} hour(){return this._date.getHours()} minute(){return this._date.getMinutes()}
- clone(){return new LocalMoment(this)} valueOf(){return this._date.getTime()}
- add(n,unit){assert(unit==='days','Only calendar-day additions');this._date.setDate(this._date.getDate()+n);return this}
- startOf(unit){this._date.setHours(0,0,0,0);if(unit==='isoWeek')this._date.setDate(this._date.getDate()-(this._date.getDay()+6)%7);else assert(unit==='day','Known start unit');return this}
- endOf(unit){assert(unit==='day','Known end unit');this._date.setHours(23,59,59,999);return this}
- isoWeek(){return 39}
- format(pattern){const d=this._date;if(pattern==='YYYY-MM-DD')return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;if(pattern==='HH:mm')return `${pad(d.getHours())}:${pad(d.getMinutes())}`;if(pattern==='ddd')return d.toLocaleDateString('en',{weekday:'short'});if(pattern==='D MMM')return `${d.getDate()} ${d.toLocaleDateString('en',{month:'short'})}`;assert(pattern===undefined,'Known date format');return d.toISOString()}
+body {
+    margin: 12px;
+    background: #191919;
+    color: #ddd;
+    font: 16px system-ui;
+    --background-primary: #191919;
+    --background-secondary: #262626;
+    --background-modifier-border: #383838;
+    --text-normal: #ddd;
+    --text-muted: #aaa;
+    --text-faint: #777;
+    --interactive-accent: #8961ff;
+    --scrollbar-native-width: auto;
 }
-const moment=value=>new LocalMoment(value);
-const timers=new Map();let timerId=0;
-const every=(fn,delay)=>{assert(delay===60000,'Exactly one minute interval');const id=++timerId;timers.set(id,fn);return id};
-const tick=async value=>{clock=new Date(value).getTime();for(const fn of [...timers.values()])fn();await settle()};
-const event=(time,title,extra={})=>({start:moment(`2026-09-22T${time}:00`),title,calendarColor:'#80c8c8',...extra});
-window.onload=async()=>{try{
- const dates={exports:{}};new Function('module',await(await fetch('../domain/dates.js')).text())(dates);
- const source=await(await fetch('../../../../../System/Dashboards/Home/view.js')).text();
- const agenda=source.slice(source.indexOf('calendarTodayButton.disabled = true;'),source.indexOf('// ---------- PROJECTS ----------'));
- const frameModule={exports:{}};new Function('module','require',await(await fetch('../ui/dashboard-frame.js')).text())(frameModule,()=>({refreshHeaderImages(){}}));
- const build=new Function('dv','app','frame','calendar','calendarHeader','calendarTodayButton','moment','el','setInterval','clearInterval','formatTime','formatDateRange','formatWeekday','historyDate',
-  'let homeCalendarEventCount=null;const updateHomeContext=()=>{};'+agenda+';return {body:calendarBody,refresh:refreshCalendarNow,update:updateCalendarNow,render:renderCalendarWeek,get summary(){return homeCalendarEventCount}}');
- const views=[];
- async function mount(events=[],host=null,enabled=true){
-  host??=document.getElementById('fixtures').createDiv({cls:'host'});
-  const cleanups=[],owner={register:fn=>cleanups.push(fn),unload(){cleanups.splice(0).forEach(fn=>fn())}};
-  const frame=frameModule.exports.createDashboardFrame(host,owner,'home-dashboard hub-button-scope');
-  const panel=frame.root.createDiv({cls:'home-panel home-calendar'}),header=panel.createDiv({cls:'home-panel-title',text:'Calendar'}),today=header.createEl('button',{cls:'home-calendar-today hub-panel-action',text:'Today'});
-  const queries=[],scrolls=[];const nativeScroll=panel.scrollTo.bind(panel);panel.scrollTo=options=>{scrolls.push(options);nativeScroll(options)};
-  const app={plugins:{plugins:enabled?{'google-calendar-agenda':{async runQuery(query){queries.push(query);return {events:events.filter(e=>e.start.valueOf()>=query.from.valueOf()&&e.start.valueOf()<=query.to.valueOf()),warnings:[]}}}}:{}}};
-  const controls=build({container:host,component:owner},app,frame,panel,header,today,moment,(p,t,c,text)=>p.createEl(t,{cls:c,text}),every,id=>timers.delete(id),dates.exports.formatTime,dates.exports.formatDateRange,dates.exports.formatWeekday,dates.exports.historyDateLabel);
-  const view={...controls,host,owner,frame,panel,header,today,queries,scrolls,events};views.push(view);frame.commit();await settle();return view;
- }
- const nowRow=v=>v.body.querySelector('.home-calendar-now');
- const day=v=>v.body.querySelector('.home-calendar-day.is-today');
- const order=v=>[...day(v).children].filter(e=>e.matches('.home-calendar-row,.home-calendar-now')).map(e=>e.matches('.home-calendar-now')?'NOW':e.querySelector('.home-calendar-title').textContent).join('|');
- const visible=v=>{const r=nowRow(v).getBoundingClientRect(),p=v.panel.getBoundingClientRect();return r.top>=p.top+v.header.getBoundingClientRect().height&&r.bottom<=p.bottom};
- const originals=[event('09:00','Morning'),event('16:00','Afternoon',{location:'Existing location',link:'https://example.test/event'}),event('16:00','Same start'),event('20:00','Evening')];
- let v=await mount(originals);
- assert(order(v)==='Morning|NOW|Afternoon|Same start|Evening','Divider between timed events, stable event order');
- assert(visible(v)&&v.scrolls.length===1&&v.scrolls[0].behavior==='auto','Initial navigation shows divider once without animation');
- assert(v.queries.length===1&&v.queries[0].allDay==='include'&&v.queries[0].limit===100,'Existing Google query options preserved');
- const row=v.body.querySelector('.home-calendar-row'),divider=nowRow(v);
- assert(row.querySelector('.home-calendar-time').getBoundingClientRect().left===divider.querySelector('time').getBoundingClientRect().left,'Time-column alignment');
- assert(row.querySelector('.home-calendar-info').getBoundingClientRect().left===divider.querySelector('.home-calendar-now-line').getBoundingClientRect().left,'Content-column alignment');
- assert(getComputedStyle(divider).color===getComputedStyle(day(v).querySelector('.home-calendar-day-heading')).color,'Existing accent color');
- assert(divider.textContent==='14:00'&&!divider.querySelector('svg,.home-calendar-dot'),'Time only, no icon or Now label');
- assert(v.panel.scrollWidth===v.panel.clientWidth,'Panel width and horizontal overflow unchanged');
- const rows=[...v.body.querySelectorAll('.home-calendar-row')];
- await tick('2026-09-22T08:00:00');assert(order(v)==='NOW|Morning|Afternoon|Same start|Evening','Before every event');
- await tick('2026-09-22T16:00:00');assert(order(v)==='Morning|Afternoon|Same start|NOW|Evening','Equal starts all precede divider');
- v.panel.scrollTop=0;await settle();const scrollTop=v.panel.scrollTop,calls=v.scrolls.length;
- await tick('2026-09-22T16:01:00');assert(nowRow(v)===divider&&divider.textContent==='16:01','Live minute updates reuse one divider');
- assert(v.panel.scrollTop===scrollTop&&v.scrolls.length===calls,'Minute label never scrolls');
- await tick('2026-09-22T23:05:00');assert(order(v).endsWith('Evening|NOW'),'After final event');
- assert(v.panel.scrollTop===scrollTop&&v.scrolls.length===calls,'Crossing events never navigates');
- assert(rows.every((r,i)=>v.body.querySelectorAll('.home-calendar-row')[i]===r),'Event rows retain their DOM, links, and metadata');
- assert(!v.today.disabled,'Today enabled while divider is out of view');v.today.click();await settle();assert(visible(v)&&v.scrolls.length===calls+1,'Today targets divider, even when part of today was visible');
- const anchor=v.body.querySelector('[data-calendar-date="2026-09-23"]');v.panel.scrollTop+=anchor.getBoundingClientRect().top-v.panel.getBoundingClientRect().top-v.header.getBoundingClientRect().height;await settle();const tomorrowScroll=v.panel.scrollTop;
- await tick('2026-09-22T23:06:00');assert(v.panel.scrollTop===tomorrowScroll,'Looking at tomorrow remains undisturbed');
- await tick('2026-09-23T00:00:00');assert(day(v).dataset.calendarDate==='2026-09-23'&&nowRow(v).parentElement===day(v)&&nowRow(v).textContent==='00:00','Midnight moves one divider and current-day styling');
- assert(v.body.querySelectorAll('.home-calendar-now').length===1&&v.body.querySelectorAll('.is-today').length===1,'No stale prior-day divider');
- assert(v.panel.scrollTop===tomorrowScroll&&v.scrolls.length===calls+1,'Midnight does not navigate');
- v.owner.unload();assert(timers.size===0,'Component unload clears clock');v.host.remove();
- clock=new Date(2026,8,22,14,0).getTime();
- v=await mount([]);assert(day(v).textContent.includes('No events')&&nowRow(v).textContent==='14:00','Empty current day retains heading and shows time');
- const old=v;v=await mount([event('00:00','All day',{allDay:true}),event('13:00','Ongoing',{end:moment('2026-09-22T15:00:00')}),event('16:00','Later')],old.host);
- assert(timers.size===1&&!old.frame.current()&&v.body.querySelectorAll('.home-calendar-now').length===1,'Same-container rerender replaces clock and indicator');
- old.owner.unload();assert(timers.size===1,'Old component cleanup cannot remove the new clock');
- assert(order(v)==='All day|Ongoing|NOW|Later'&&nowRow(v).previousElementSibling.querySelector('.home-calendar-title').textContent==='Ongoing','All-day ordering and divider immediately after ongoing event');
- const lineHeight=nowRow(v).getBoundingClientRect().height;assert(lineHeight<35,'Compact agenda row, no proportional duration gap');
- const root=v.frame.root;root.remove();await tick('2026-09-22T14:01:00');v.host.append(root);await tick('2026-09-22T14:02:00');assert(nowRow(v).textContent==='14:02'&&timers.size===1,'Cached detached/reopened frame resumes its one clock');
- const second=await mount([]);assert(timers.size===2&&nowRow(second).textContent==='14:02','Already initialized elsewhere still initializes a separate view');second.owner.unload();second.host.remove();
- v.owner.unload();v.host.remove();
- clock=new Date(2026,8,27,23,59).getTime();v=await mount([]);const boundaryScroll=v.panel.scrollTop,boundaryCalls=v.scrolls.length;
- await tick('2026-09-28T00:00:00');assert(day(v).dataset.calendarDate==='2026-09-28'&&v.queries.length===2,'Sunday midnight loads next week through existing query');
- assert(v.panel.scrollTop===boundaryScroll&&v.scrolls.length===boundaryCalls,'Week rollover preserves scroll');
- await tick('2026-10-12T10:00:00');assert(day(v).dataset.calendarDate==='2026-10-12'&&v.body.querySelectorAll('.home-calendar-now').length===1,'Wake after multiple weeks catches up without duplicate dividers');
- v.owner.unload();v.host.remove();
- clock=new Date(2026,2,29,1,59).getTime();v=await mount([]);await tick('2026-03-29T03:00:00');assert(day(v).dataset.calendarDate==='2026-03-29'&&nowRow(v).textContent==='03:00','Local daylight-saving transition preserves date and wall time');v.owner.unload();v.host.remove();
- v=await mount([],null,false);assert(v.body.textContent.includes('Google Calendar Agenda is not enabled.')&&!nowRow(v),'Disabled integration retains existing message');v.owner.unload();v.host.remove();
- assert(timers.size===0&&!runtimeErrors.length,'All clocks cleaned up, no runtime errors: '+runtimeErrors.join(';'));
- v=await mount([]);v.host.style.width='320px';v.body.replaceChildren();v.render(moment('2026-12-28'),[]);await settle();
- assert(v.body.querySelector('.home-calendar-week-range').textContent==='28 Dec 2026 \u2013 3 Jan 2027','Home cross-year week identifies both years');assert(v.body.querySelector('.home-calendar-weekday').textContent==='Mon','English calendar weekdays');assert(v.panel.scrollWidth<=v.panel.clientWidth+1,'Cross-year labels fit compact calendar');v.owner.unload();v.host.remove();
- // Leave a compact representative preview using the production rendering/CSS.
- clock=new Date(2026,8,22,23,5).getTime();v=await mount([event('00:30','Clases de ingl\u00e9s'),event('16:00','Lilly',{location:'Skogsfrugr\u00e4nd 36, 167 62 Bromma, Suecia'})]);
- v.panel.scrollTop+=day(v).getBoundingClientRect().top-v.panel.getBoundingClientRect().top-v.header.getBoundingClientRect().height-4;await settle();v.owner.unload();
- document.getElementById('result').textContent='PASS: actual Calendar source/CSS; before/between/after, ties, all-day/ongoing/empty days; event DOM/columns/accent/compactness; initial and Today navigation; silent minute/event/day/week/wake/DST updates; same-container rerender, independent/cached views, timer disposal and disabled integration.';
-}catch(error){document.getElementById('result').textContent='FAIL: '+error.stack}};
+body.theme-light {
+    background: #fff;
+    color: #222;
+    --background-primary: #fff;
+    --background-secondary: #f6f6f6;
+    --background-modifier-border: #ddd;
+    --text-normal: #222;
+    --text-muted: #555;
+    --text-faint: #777;
+    --interactive-accent: #6545b8;
+}
+.host { width: 478px; margin-bottom: 12px; }
+.home-dashboard { padding: 0; }
+.home-panel-title { display: flex; }
+button { background: var(--background-primary); color: inherit; border: 1px solid var(--background-modifier-border); border-radius: 6px; }
+#result { white-space: pre-wrap; }
+</style>
+<body class="theme-dark"><div id="fixtures"></div><pre id="result">RUNNING</pre>
+<script>
+HTMLElement.prototype.createEl = function(tag, options = {}) {
+    const element = document.createElement(tag);
+    element.className = options.cls || '';
+    element.textContent = options.text || '';
+    for (const [key, value] of Object.entries(options.attr || {})) element.setAttribute(key, value);
+    this.append(element);
+    return element;
+};
+HTMLElement.prototype.createDiv = function(options) { return this.createEl('div', options); };
+HTMLElement.prototype.createSpan = function(options) { return this.createEl('span', options); };
+
+let checks = 0;
+function assert(condition, message) {
+    checks++;
+    if (!condition) throw Error(message);
+}
+async function settle() {
+    for (let index = 0; index < 4; index++) {
+        await new Promise(resolve => setTimeout(resolve, 0));
+        await new Promise(resolve => requestAnimationFrame(resolve));
+    }
+}
+const runtimeErrors = [];
+window.addEventListener('error', event => runtimeErrors.push(event.message));
+window.addEventListener('unhandledrejection', event => runtimeErrors.push(String(event.reason)));
+
+// Keep the production date helpers and supply deterministic local calendar arithmetic.
+let clock = new Date(2026, 8, 22, 14).getTime();
+const pad = value => String(value).padStart(2, '0');
+class LocalMoment {
+    constructor(value) {
+        if (value instanceof LocalMoment) value = value.valueOf();
+        if (value === undefined) value = clock;
+        if (typeof value === 'string' && value.length === 10) value += 'T00:00:00';
+        this.dateValue = new Date(value);
+    }
+    year() { return this.dateValue.getFullYear(); }
+    month() { return this.dateValue.getMonth(); }
+    date() { return this.dateValue.getDate(); }
+    day() { return this.dateValue.getDay(); }
+    hour() { return this.dateValue.getHours(); }
+    minute() { return this.dateValue.getMinutes(); }
+    clone() { return new LocalMoment(this); }
+    valueOf() { return this.dateValue.getTime(); }
+    add(count, unit) {
+        assert(unit === 'days', 'Calendar uses local day arithmetic');
+        this.dateValue.setDate(this.dateValue.getDate() + count);
+        return this;
+    }
+    startOf(unit) {
+        this.dateValue.setHours(0, 0, 0, 0);
+        if (unit === 'isoWeek') this.dateValue.setDate(this.dateValue.getDate() - (this.day() + 6) % 7);
+        else assert(unit === 'day', 'Known start boundary');
+        return this;
+    }
+    endOf(unit) {
+        assert(unit === 'day', 'Known end boundary');
+        this.dateValue.setHours(23, 59, 59, 999);
+        return this;
+    }
+    isoWeek() {
+        const date = new Date(Date.UTC(this.year(), this.month(), this.date()));
+        date.setUTCDate(date.getUTCDate() + 4 - (date.getUTCDay() || 7));
+        return Math.ceil(((date - new Date(Date.UTC(date.getUTCFullYear(), 0, 1))) / 86400000 + 1) / 7);
+    }
+    format(pattern) {
+        if (pattern === 'YYYY-MM-DD') return this.year() + '-' + pad(this.month() + 1) + '-' + pad(this.date());
+        assert(pattern === undefined, 'Known date format');
+        return this.dateValue.toISOString();
+    }
+}
+const moment = value => new LocalMoment(value);
+const timers = new Map();
+let timerId = 0;
+function every(callback, delay) {
+    assert(delay === 60000, 'One minute interval');
+    timers.set(++timerId, callback);
+    return timerId;
+}
+async function tick(value) {
+    clock = new Date(value).getTime();
+    await Promise.all([...timers.values()].map(callback => callback()));
+    await settle();
+}
+const observers = new Set();
+class CalendarResizeObserver extends ResizeObserver {
+    constructor(callback) { super(callback); observers.add(this); }
+    disconnect() { super.disconnect(); observers.delete(this); }
+}
+const event = (time, title, extra = {}) => ({
+    start: moment('2026-09-22T' + time + ':00'), title, calendarColor: '#80c8c8', ...extra
+});
+
+window.onload = async () => {
+    try {
+        const read = async file => (await fetch(file)).text();
+        const [dateSource, paletteSource, colorSource, frameSource, homeSource] = await Promise.all([
+            read('../domain/dates.js'), read('../ui/color-palettes.js'), read('../ui/color-system.js'),
+            read('../ui/dashboard-frame.js'), read('../../../../../System/Dashboards/Home/view.js')
+        ]);
+        function load(source, require = () => { throw Error('Unexpected dependency'); }) {
+            const module = { exports: {} };
+            new Function('module', 'require', source)(module, require);
+            return module.exports;
+        }
+        const dates = load(dateSource);
+        const palettes = load(paletteSource);
+        const colors = load(colorSource, request => {
+            assert(request === './color-palettes', 'Color palette dependency');
+            return palettes;
+        });
+        const frames = load(frameSource, request => {
+            if (request === './color-system') return colors;
+            assert(request === './header-image', 'Frame dependency');
+            return { refreshHeaderImages() {} };
+        });
+        const agenda = homeSource.slice(homeSource.indexOf('calendarTodayButton.disabled = true;'), homeSource.indexOf('// ---------- PROJECTS ----------'));
+        const build = new Function('dv', 'app', 'frame', 'calendar', 'calendarHeader', 'calendarTodayButton',
+            'moment', 'el', 'setInterval', 'clearInterval', 'ResizeObserver', 'formatTime', 'formatDate', 'formatDateRange', 'formatWeekday',
+            'let homeCalendarEventCount = null; const updateHomeContext = () => {}; ' + agenda +
+            ';return { body: calendarBody, refresh: refreshCalendarDates, render: renderCalendarWeek, load: loadNextCalendarWeek, get summary() { return homeCalendarEventCount; } };');
+        const originalOpen = window.open;
+        let openings = 0;
+        window.open = () => { openings++; };
+
+        async function mount(events = [], options = {}) {
+            const host = options.host || document.getElementById('fixtures').createDiv({ cls: 'host' });
+            const cleanups = [];
+            const owner = {
+                hubDeferFrameActivation: !!options.prepared,
+                register: callback => cleanups.push(callback),
+                unload() { cleanups.splice(0).forEach(callback => callback()); }
+            };
+            const frame = frames.createDashboardFrame(host, owner, 'home-dashboard hub-button-scope');
+            const panel = frame.root.createDiv({ cls: 'home-panel home-calendar' });
+            const header = panel.createDiv({ cls: 'home-panel-title', text: 'Calendar' });
+            const today = header.createEl('button', { cls: 'home-calendar-today hub-panel-action', text: 'Today' });
+            const queries = [], scrolls = [];
+            const nativeScroll = panel.scrollTo.bind(panel);
+            panel.scrollTo = options => { scrolls.push(options); nativeScroll(options); };
+            const provider = {
+                async runQuery(query) {
+                    queries.push(query);
+                    if (options.error) throw Error(options.error);
+                    return {
+                        events: events.filter(item => item.start.valueOf() >= query.from.valueOf() && item.start.valueOf() <= query.to.valueOf()),
+                        warnings: options.warnings || []
+                    };
+                }
+            };
+            const app = { plugins: { plugins: options.enabled === false ? {} : { 'google-calendar-agenda': provider } } };
+            const controls = build({ container: host, component: owner }, app, frame, panel, header, today,
+                moment, (parent, tag, cls, text) => parent.createEl(tag, { cls, text }), every, id => timers.delete(id), CalendarResizeObserver,
+                dates.formatTime, dates.formatDate, dates.formatDateRange, dates.formatWeekday);
+            const view = Object.assign(controls, { host, owner, frame, panel, header, today, queries, scrolls });
+            frame.commit();
+            await settle();
+            return view;
+        }
+        const day = view => view.body.querySelector('.home-calendar-day.is-today');
+        const heading = view => day(view).querySelector('.home-calendar-day-heading');
+        const order = view => [...day(view).querySelectorAll('.home-calendar-title')].map(title => title.textContent).join('|');
+        const visible = view => {
+            const target = heading(view).getBoundingClientRect();
+            const panel = view.panel.getBoundingClientRect();
+            return target.top >= view.header.getBoundingClientRect().bottom && target.bottom <= panel.bottom - view.panel.clientTop;
+        };
+        const dispose = view => { view.owner.unload(); view.host.remove(); };
+        const originals = [
+            event('00:00', 'All day', { allDay: true }),
+            event('09:00', 'Morning'),
+            event('16:00', 'Afternoon', { location: 'Existing location', link: 'https://example.test/event' }),
+            event('16:00', 'Same start', { meetUrl: 'https://meet.example.test/meeting' }),
+            event('20:00', 'Evening', { link: 'invalid URL' })
+        ];
+        let view = await mount(originals);
+        assert(order(view) === 'All day|Morning|Afternoon|Same start|Evening', 'Start-time ordering including ties and all-day events');
+        assert(heading(view).textContent === 'Today \u00b7 Tue 22 Sep', 'Relative heading uses English presentation helpers');
+        assert(view.body.querySelector('[data-calendar-date="2026-09-23"] .home-calendar-day-heading').textContent === 'Tomorrow \u00b7 Wed 23 Sep', 'Tomorrow heading');
+        assert(visible(view) && view.today.disabled && view.scrolls.length === 1 && view.scrolls[0].behavior === 'auto', 'Initial navigation positions today once');
+        assert(day(view).querySelector('.home-calendar-row').getBoundingClientRect().bottom <= view.panel.getBoundingClientRect().bottom, 'Initial view includes all-day events');
+        assert(view.queries.length === 1 && view.queries[0].allDay === 'include' && view.queries[0].limit === 100 &&
+            view.queries[0].hideDeclined && view.queries[0].hideCancelled && view.queries[0].refresh === 0, 'Google query options');
+        assert(view.summary === 4, 'Summary retains all-day, upcoming, and equal-start events');
+        assert(!view.body.querySelector('.home-calendar-now,.home-calendar-dot'), 'No time indicator or colored bars');
+        assert(!view.body.querySelector('a,button,[tabindex],[role=button],[role=link]'), 'Events add no interactive elements or tab stops');
+        const rows = [...day(view).querySelectorAll('.home-calendar-row')];
+        for (const row of rows) {
+            const title = row.querySelector('.home-calendar-title');
+            assert(title.tagName === 'SPAN' && title.title === title.textContent, 'Static title retains full tooltip text');
+            assert(getComputedStyle(title).cursor !== 'pointer' && getComputedStyle(row).cursor !== 'pointer', 'Static cursors');
+            title.click();
+            for (const key of ['Enter', ' ']) title.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
+            row.click();
+        }
+        assert(openings === 0, 'URLs never activate event opening');
+        assert(getComputedStyle(rows[0], '::before').content === 'none' && getComputedStyle(rows[1], '::before').borderTopWidth === '1px', 'Only adjacent events have dividers');
+        assert(Math.abs(rows[0].querySelector('.home-calendar-time').getBoundingClientRect().left - heading(view).getBoundingClientRect().left - 5) < 1, 'Heading and row use one inset');
+        view.panel.scrollTop = 0;
+        await settle();
+        const scrollTop = view.panel.scrollTop, calls = view.scrolls.length;
+        await tick('2026-09-22T23:05:00');
+        assert(view.panel.scrollTop === scrollTop && view.scrolls.length === calls, 'Clock updates never navigate');
+        assert(rows.every((row, index) => day(view).querySelectorAll('.home-calendar-row')[index] === row), 'Clock retains event DOM');
+        view.panel.scrollTop = view.panel.scrollHeight;
+        await settle();
+        assert(!view.today.disabled, 'Today enabled when heading is out of view');
+        const beforeToday = view.scrolls.length;
+        view.today.click();
+        await settle();
+        assert(visible(view) && view.today.disabled && view.scrolls.length === beforeToday + 1, 'Today returns to heading');
+        view.panel.style.height = '40px';
+        await settle();
+        assert(!view.today.disabled, 'Resize observer enables Today when heading cannot fit');
+        view.panel.style.height = '320px';
+        await settle();
+        assert(view.today.disabled === visible(view), 'Resize observer restores correct Today state');
+        const nextDay = view.body.querySelector('[data-calendar-date="2026-09-23"]');
+        view.panel.scrollTop += nextDay.getBoundingClientRect().top - view.header.getBoundingClientRect().bottom;
+        await settle();
+        const rolloverScroll = view.panel.scrollTop, rolloverCalls = view.scrolls.length;
+        await tick('2026-09-23T00:00:00');
+        assert(day(view).dataset.calendarDate === '2026-09-23' && heading(view).textContent === 'Today \u00b7 Wed 23 Sep', 'Midnight updates today');
+        assert(view.body.querySelector('[data-calendar-date="2026-09-22"] .home-calendar-day-heading').textContent === 'Tue 22 Sep', 'Previous relative heading cleared');
+        assert(view.body.querySelector('[data-calendar-date="2026-09-24"] .home-calendar-day-heading').textContent === 'Tomorrow \u00b7 Thu 24 Sep', 'Tomorrow advances at midnight');
+        assert(view.panel.scrollTop === rolloverScroll && view.scrolls.length === rolloverCalls, 'Midnight preserves viewport');
+        dispose(view);
+        assert(timers.size === 0 && observers.size === 0, 'Unload clears clock and resize observation');
+
+        clock = new Date(2026, 8, 22, 14).getTime();
+        view = await mount([]);
+        assert(day(view).textContent.includes('No events'), 'Empty today remains visible');
+        const empty = day(view).querySelector('.home-calendar-day-empty');
+        assert(getComputedStyle(empty).paddingLeft === '62px', 'Empty state aligns with event content column');
+        const old = view;
+        view = await mount(originals, { host: old.host });
+        old.owner.unload();
+        assert(timers.size === 1 && observers.size === 1 && !old.frame.current(), 'Same-container rerender replaces clock and observer');
+        const root = view.frame.root;
+        root.remove();
+        await tick('2026-09-22T23:59:00');
+        view.host.append(root);
+        await tick('2026-09-23T00:00:00');
+        assert(heading(view).textContent === 'Today \u00b7 Wed 23 Sep' && timers.size === 1, 'Cached detached frame catches up');
+        const second = await mount([]);
+        assert(timers.size === 2 && observers.size === 2, 'Separate leaves own separate resources');
+        dispose(second);
+        dispose(view);
+
+        clock = new Date(2026, 8, 27, 23, 59).getTime();
+        view = await mount([]);
+        const boundaryScroll = view.panel.scrollTop, boundaryCalls = view.scrolls.length;
+        await tick('2026-09-28T00:00:00');
+        assert(day(view).dataset.calendarDate === '2026-09-28' && view.queries.length === 2, 'Sunday midnight loads next week');
+        assert(view.panel.scrollTop === boundaryScroll && view.scrolls.length === boundaryCalls, 'Week rollover preserves viewport');
+        await tick('2026-10-12T10:00:00');
+        assert(day(view).dataset.calendarDate === '2026-10-12' && view.body.querySelectorAll('.is-today').length === 1, 'Wake catches up across weeks');
+        dispose(view);
+        clock = new Date(2026, 2, 29, 1, 59).getTime();
+        view = await mount([]);
+        await tick('2026-03-29T03:00:00');
+        assert(day(view).dataset.calendarDate === '2026-03-29' && heading(view).textContent === 'Today \u00b7 Sun 29 Mar', 'DST keeps local calendar day');
+        dispose(view);
+        view = await mount([], { enabled: false });
+        assert(view.body.textContent.includes('Google Calendar Agenda is not enabled.') && view.today.disabled, 'Missing plugin message');
+        dispose(view);
+        view = await mount([], { error: 'Synthetic calendar failure' });
+        await view.load();
+        assert(view.body.querySelectorAll('.home-empty').length === 1 && view.today.disabled, 'Query failure stops duplicate loading');
+        dispose(view);
+        view = await mount([], { warnings: ['Synthetic provider warning'] });
+        assert(view.body.querySelector('.home-calendar-warning').textContent === 'Synthetic provider warning', 'Provider warnings retained');
+        dispose(view);
+
+        clock = new Date(2026, 11, 31, 23, 59).getTime();
+        view = await mount([]);
+        assert(view.body.querySelector('.home-calendar-week-range').textContent === '28 Dec 2026 \u2013 3 Jan 2027', 'Cross-year week range');
+        assert(view.body.querySelector('[data-calendar-date="2027-01-01"] .home-calendar-day-heading').textContent === 'Tomorrow \u00b7 Fri 1 Jan 2027', 'Future year appears in heading');
+        await tick('2027-01-01T00:00:00');
+        assert(heading(view).textContent === 'Today \u00b7 Fri 1 Jan', 'Year rollover refreshes headings');
+        assert(view.body.querySelector('[data-calendar-date="2026-12-31"] .home-calendar-day-heading').textContent === 'Thu 31 Dec 2026', 'Prior year remains explicit');
+        dispose(view);
+
+        clock = new Date(2026, 8, 22, 14).getTime();
+        const longTitle = 'Review ' + 'unbroken'.repeat(25) + ' with a long event description';
+        const longLocation = 'An exceptionally long location that must remain on one line in a compact Calendar panel';
+        view = await mount([event('09:00', longTitle, { location: longLocation }), ...originals]);
+        const long = [...view.body.querySelectorAll('.home-calendar-title')].find(title => title.textContent === longTitle);
+        for (const zoom of [1, 1.25, 1.75]) {
+            view.host.style.width = '320px';
+            view.frame.root.style.zoom = zoom;
+            await settle();
+            assert(view.panel.scrollWidth <= view.panel.clientWidth + 1, 'No horizontal overflow at zoom ' + zoom);
+            assert(long.offsetHeight <= parseFloat(getComputedStyle(long).lineHeight) * 2 + 1, 'Title limited to two lines at zoom ' + zoom);
+            assert(long.offsetHeight > parseFloat(getComputedStyle(long).lineHeight), 'Long title wraps at zoom ' + zoom);
+            const location = long.parentElement.querySelector('.home-calendar-location');
+            assert(location.title === longLocation && location.scrollWidth > location.clientWidth, 'Full location retained behind ellipsis');
+            view.panel.scrollTop = view.panel.scrollHeight;
+            await settle();
+            view.today.click();
+            await settle();
+            assert(visible(view), 'Today navigation respects CSS zoom ' + zoom);
+        }
+        view.frame.root.style.zoom = 1;
+        const colorProbe = document.createElement('span');
+        view.frame.root.append(colorProbe);
+        for (const palette of palettes.PALETTES) {
+            for (const coordinated of [false, true]) {
+                colors.applyResolvedColors(palettes.resolvePalette({ version: 1, paletteId: palette.id, coordinateInterfaceColors: coordinated }));
+                for (const theme of ['theme-dark', 'theme-light']) {
+                    document.body.className = theme;
+                    await settle();
+                    colorProbe.style.color = 'var(--text-normal)';
+                    assert(getComputedStyle(long).color === getComputedStyle(colorProbe).color, 'Neutral title in ' + palette.id + ' ' + theme);
+                    colorProbe.style.color = 'var(--text-muted)';
+                    assert(getComputedStyle(heading(view)).color === getComputedStyle(colorProbe).color, 'Subdued heading in ' + palette.id + ' ' + theme);
+                    assert(getComputedStyle(view.panel).scrollbarWidth === 'auto', 'Host Calendar scrollbar in ' + theme);
+                }
+            }
+        }
+        colors.applyResolvedColors(palettes.resolvePalette(null));
+        document.body.className = 'theme-dark';
+        colorProbe.remove();
+        dispose(view);
+
+        const detached = document.createElement('div');
+        detached.className = 'host';
+        view = await mount(originals, { host: detached, prepared: true });
+        assert(view.queries.length === 0 && timers.size === 0, 'Prepared Home waits for activation');
+        document.getElementById('fixtures').append(detached);
+        view.frame.activate();
+        await settle();
+        assert(visible(view) && view.scrolls.length === 1 && timers.size === 1, 'Prepared Home positions once after attachment');
+        dispose(view);
+        assert(timers.size === 0 && observers.size === 0 && runtimeErrors.length === 0, 'All resources cleaned up without runtime errors');
+        window.open = originalOpen;
+        view = await mount([event('00:00', 'All day', { allDay: true }), event('09:00', longTitle, { location: longLocation }), event('16:00', 'Afternoon appointment')]);
+        view.owner.unload();
+        document.getElementById('result').textContent = 'PASS: ' + checks + ' checks of production Calendar source and CSS, static events, headings, Today navigation, zoom, rollover, query states, frame lifecycle, and all palette/theme combinations.';
+    } catch (error) {
+        document.getElementById('result').textContent = 'FAIL: ' + error.stack;
+    }
+};
 </script>

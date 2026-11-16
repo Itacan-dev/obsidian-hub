@@ -10,6 +10,7 @@ function create(tag, options = {}) {
     element.className = Array.isArray(options.cls) ? options.cls.join(" ") : options.cls || "";
     if (options.text != null) element.textContent = options.text;
     for (const [key, value] of Object.entries(options.attr || {})) element.setAttribute(key, value);
+    if (options.type) element.type = options.type;
     options.parent?.append(element);
     return element;
 }
@@ -69,7 +70,11 @@ window.onload = async () => {
                 panel = create("div", { cls: "home-panel home-recent", parent: grid });
                 const projects = grid.querySelector(".home-projects");
                 projects.textContent = "";
-                create("div", { cls: "home-panel-title", text: "Projects", parent: projects });
+                const tabs = create("div", { cls: "home-project-tabs", parent: projects });
+                create("div", { cls: "home-project-heading", text: "Projects", parent: tabs });
+                const selectors = create("div", { cls: "home-project-tab-buttons", parent: tabs });
+                const statuses = create("div", { cls: "hub-panel-selectors", parent: selectors });
+                for (const text of ["Active", "Shelved", "Completed"]) create("button", { text, parent: statuses });
                 const rail = create("div", { cls: "home-project-rail", parent: projects });
                 const projectCards = create("div", { cls: "home-project-grid", parent: rail });
                 const resources = create("div", { cls: "home-resource-section", parent: projects });
@@ -140,7 +145,7 @@ window.onload = async () => {
             }
             near(rect(f.boxes).left, rect(f.months).left, "Common calendar area");
             const weekdays = graph.querySelector(".hub-progress-weekdays"), scrollViewport = f.calendar.querySelector(".hub-heatmap-viewport");
-            near(rect(weekdays).left - rect(graph).left, rect(graph).right - rect(f.boxes).right, "Weekdays and calendar form one centered block");
+            near((rect(f.boxes).left + rect(f.boxes).right) / 2, (rect(graph).left + rect(graph).right) / 2, "Squares center within the scrollable graph");
             assert(!graph.querySelector(".hub-heatmap-year, .heatmap-calendar-year"), "No year label for any displayed year");
             near(rect(f.calendar).left, rect(f.scroller).left, "Calendar uses History's full left boundary");
             near(rect(f.calendar).right, rect(f.scroller).right, "Calendar includes History's scrollbar allocation");
@@ -151,6 +156,14 @@ window.onload = async () => {
             const labelGap = parseFloat(getComputedStyle(f.calendar).getPropertyValue("--hub-heatmap-label-gap"));
             const extraLeading = Math.max(0, parseFloat(getComputedStyle(f.months).lineHeight) - parseFloat(getComputedStyle(weekdays).lineHeight)) / 2;
             const inset = parseFloat(getComputedStyle(f.calendar).getPropertyValue("--hub-heatmap-inline-inset"));
+            const axisOverhang = parseFloat(getComputedStyle(f.calendar).getPropertyValue("--hub-heatmap-axis-overhang"));
+            near(rect(scrollViewport).left, rect(f.calendar).left - axisOverhang * scale, "Axis viewport extends into left panel padding");
+            near(rect(scrollViewport).right, rect(f.calendar).right + axisOverhang * scale, "Axis viewport extends equally on the right");
+            const panelStyle = getComputedStyle(f.panel);
+            const panelInset = parseFloat(panelStyle.paddingLeft) + parseFloat(panelStyle.borderLeftWidth);
+            near(rect(f.calendar).left, rect(f.panel).left + panelInset * scale, "Separator follows standard left panel padding");
+            near(rect(f.calendar).right, rect(f.panel).right - panelInset * scale, "Separator follows standard right panel padding");
+            assert(rect(weekdays).left >= rect(f.panel).left + (parseFloat(panelStyle.borderLeftWidth) + 8) * scale - .04, "Weekday axis retains eight pixels of panel clearance");
             const available = Math.max(0, f.contentWidth - 2 * inset - weekdayWidth - labelGap - extraLeading);
             const rows = [...weekdays.children].map(label => Number(label.style.gridRow)).sort((a, b) => a - b);
             const rowDistance = Math.min(...rows.slice(1).map((row, index) => row - rows[index]));
@@ -190,15 +203,11 @@ window.onload = async () => {
             for (let i = 1; i < labels.length; i++) assert(rect(labels[i - 1]).right < rect(labels[i]).left, "Readable separated labels");
             assert(rect(labels.at(-1)).right < rect(graph).right, "December fits");
             if (rect(graph).width <= rect(scrollViewport).width + .1) {
-                near((rect(weekdays).left + rect(f.boxes).right) / 2, (rect(f.panel).left + rect(f.panel).right) / 2, "Entire weekday/month/grid assembly centers inside the panel");
+                near((rect(f.boxes).left + rect(f.boxes).right) / 2, (rect(f.panel).left + rect(f.panel).right) / 2, "Square grid centers inside the panel independently of its axis");
                 const assemblyLeft = Math.min(rect(weekdays).left, ...[...f.months.children].map(label => rect(label).left));
                 const assemblyRight = Math.max(rect(f.boxes).right, ...[...f.months.children].map(label => rect(label).right));
-                const leftInset = assemblyLeft - rect(f.calendar).left, rightInset = rect(f.calendar).right - assemblyRight;
-                // Compare centers: subtracting both independently rounded edges
-                // doubles the browser's subpixel rounding error in the insets.
-                near(leftInset / 2, rightInset / 2, "Complete assembly centers within separator endpoints");
-                assert(Math.min(leftInset, rightInset) >= inset * scale - .04, "All labels and squares fit inside separator with minimum inset");
-                assert(leftInset + rightInset - 2 * inset * scale < weeks / devicePixelRatio + .04, "Residual width cannot fit the next whole-device-pixel square size");
+                assert(assemblyLeft >= rect(scrollViewport).left - .04 && assemblyRight <= rect(scrollViewport).right + .04, "All labels and squares fit inside the expanded viewport");
+                assert((available - expectedGeometry.innerWidth) * scale < weeks / devicePixelRatio + .04, "Existing sizing budget cannot fit the next whole-device-pixel square size");
                 assert(scrollViewport.scrollWidth <= scrollViewport.clientWidth + 1, "No hidden measurement or navigation overflow");
                 assert(rect(weekdays).left >= rect(scrollViewport).left - .04 && rect(f.boxes).right <= rect(scrollViewport).right + .04, "Combined calendar fits within panel viewport");
             }
@@ -233,7 +242,6 @@ window.onload = async () => {
             f.heightSync();
             near(rect(f.panel).bottom, panelBottom, "Panel bottom preserved");
             assert(f.scroller.scrollHeight > f.scroller.clientHeight, "History retains scrolling");
-            const panelStyle = getComputedStyle(f.panel);
             const bottom = rect(f.panel).bottom - (parseFloat(panelStyle.paddingBottom) + parseFloat(panelStyle.borderBottomWidth)) * scale;
             assert(rect(f.scroller).bottom <= bottom + .1 && rect(f.scroller).bottom >= bottom - 2 * scale, "History ends at panel bottom padding under zoom");
             // Scroll fallback is local to the calendar; the final month remains reachable.
@@ -302,6 +310,10 @@ window.onload = async () => {
             f.root.classList.add("hub-full-view");
             f.root.style.setProperty("--hub-full-view-height", "1000px");
         };
+        if (window.hubTestUnifiedDashboard) {
+            await window.hubTestUnifiedDashboard({ mount, settle, check, panelWidths });
+            return;
+        }
         window.panelWidthMeasurements = [];
         // Existing whole-dashboard canvas contract, before exercising panel resizes.
         for (const readable of [false, true]) {
@@ -309,7 +321,7 @@ window.onload = async () => {
             for (const kind of ["Home", "Project", "Knowledge", "Research"]) {
                 const f = mount(kind); useWorkspaceHeight(f); await settle();
                 const bounds = rect(f.root), outer = rect(viewport), style = getComputedStyle(viewport);
-                near(bounds.width, Math.min(1560, outer.width - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight)), "Shared capped canvas");
+                near(bounds.width, Math.min(1700, outer.width - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight)), "Shared capped canvas");
                 near(rect(f.grid).width, bounds.width, "Panels follow canvas");
                 near(rect(f.search).width, bounds.width, "Search follows canvas");
                 panelWidths(f);
@@ -326,24 +338,18 @@ window.onload = async () => {
                         rightInset: rect(f.calendar).right - rect(f.boxes).right,
                         cardWidths: [...f.root.querySelectorAll(".home-project-card:first-child,.home-resource-card:first-child")].map(card => rect(card).width),
                         controls: [...f.root.querySelectorAll("button")].map(button => [rect(button).width, rect(button).height, getComputedStyle(button).fontSize]) });
-                    f.root.style.maxWidth = "1500px";
+                    f.root.style.maxWidth = "1560px";
                     await settle(); const before = measure();
                     f.root.style.maxWidth = "";
                     await settle(); const after = measure();
                     assert(after.top === before.top, "Structural width redistribution preserves exact heatmap top");
-                    assert(after.span - before.span <= 60.04, "Canvas expansion is at most 60px");
+                    assert(after.span - before.span <= 140.04, "Canvas expansion is at most 140px");
                     near(after.panelTop, before.panelTop, "Panel vertical position preserved");
                     near(after.panelBottom, before.panelBottom, "Panel bottom preserved");
                     assert(after.right >= before.right && after.left >= before.left, "All columns follow the shared canvas naturally");
                     assert(after.squarePixels >= before.squarePixels - .04, "Existing squares never shrink at desktop width");
                     assert(JSON.stringify(after.controls) === JSON.stringify(before.controls), "Control dimensions and font sizes unchanged");
-                    if (Math.abs(after.span - 1560) < .04 && [1.5, 2].includes(devicePixelRatio)) {
-                        const desktop = devicePixelRatio === 1.5;
-                        near(after.right, 512, "Full-width equal panel size");
-                        near(after.squarePixels, desktop ? 12 : 16, "Preserve the actual pre-change square size at both primary DPRs");
-                        near(after.assembly, desktop ? 473 + 1 / 3 : 464.5, "Complete assembly retains its pre-change width");
-                        near(after.leftInset, desktop ? 4 + 2 / 3 : 8.75, "Agreed separator inset including integer remainder");
-                    }
+                    if (Math.abs(after.span - 1700) < .04) near(after.right, (1700 - 24) / 3, "Full-width equal panel size");
                     window.panelWidthMeasurements.push({ kind, before, after });
                     check(f);
                 }
@@ -356,7 +362,7 @@ window.onload = async () => {
             for (const kind of ["Home", "Project", "Knowledge", "Research"]) {
                 const f = mount(kind);
                 useWorkspaceHeight(f);
-                for (const width of [1560, 1500, 1400, 1100, 960, 680]) {
+                for (const width of [1700, 1560, 1400, 1100, 960, 680]) {
                     f.root.style.width = width + "px";
                     await settle(); panelWidths(f); check(f);
                 }

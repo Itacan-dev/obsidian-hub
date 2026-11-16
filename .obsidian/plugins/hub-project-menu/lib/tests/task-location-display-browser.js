@@ -6,7 +6,7 @@ window.testDone=(async()=>{
  HTMLElement.prototype.createEl=function(tag,options={}){const e=document.createElement(tag);if(options.cls)e.className=options.cls;if(options.type)e.type=options.type;if(options.text!=null)e.textContent=options.text;for(const [k,v]of Object.entries(options.attr??{}))e.setAttribute(k,v);this.append(e);return e;};
  HTMLElement.prototype.createDiv=function(o={}){return this.createEl('div',o)};HTMLElement.prototype.createSpan=function(o={}){return this.createEl('span',o)};HTMLElement.prototype.empty=function(){this.replaceChildren()};
  class Modal{constructor(app){this.app=app;this.containerEl=document.body.createDiv({cls:'modal-container'});this.modalEl=this.containerEl.createDiv({cls:'modal'});this.contentEl=this.modalEl.createDiv({cls:'modal-content'});this.closeButton=this.modalEl.createEl('button',{cls:'modal-close-button',text:'?',attr:{'aria-label':'Close'}});this.closeButton.onclick=()=>this.close();}open(){this.onOpen()}close(){this.onClose();this.containerEl.remove()}}
- const drawIcon=(e,name)=>{e.dataset.icon=name;e.innerHTML='<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="4" y="5" width="16" height="14" rx="2"/></svg>'};
+ const drawIcon=(e,name)=>{e.dataset.icon=name;e.innerHTML='<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'+(name.endsWith('chevron-right')?'<path d="m9 5 7 7-7 7"/>':'<rect x="4" y="5" width="16" height="14" rx="2"/>')+'</svg>'};
  const originalDrawIcon=drawIcon;
  const renderIcon=(el,name)=>{originalDrawIcon(el,name);if(name.endsWith('map-pin-pen'))el.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'+[[6,"M17.97 9.304A8 8 0 0 0 2 10c0 4.69 4.887 9.562 7.022 11.468"],[6,"M21.378 16.626a1 1 0 0 0-3.004-3.004l-4.01 4.012a2 2 0 0 0-.506.854l-.837 2.87a.5.5 0 0 0 .62.62l2.87-.837a2 2 0 0 0 .854-.506z"],[1,10,10,3]].map(shape=>'<path d="'+shape[1]+'"/>').join('')+'</svg>'};
  const svgDefaults=document.createElement('style');svgDefaults.textContent='.svg-icon {color:var(--icon-color,var(--text-muted));opacity:.6}';document.head.append(svgDefaults);
@@ -72,6 +72,16 @@ window.testDone=(async()=>{
   check(text.textContent===(segments.length?locationBreadcrumb({...task,nativeLocationDisplay:display},owner).label:'Edit task location'),'Shared formatting for root/folder/note/deep route');
   check(icon.getBoundingClientRect().right<=parts.source.getBoundingClientRect().right+1,'Icon stays within card');
   check(button.scrollWidth<=button.clientWidth+1,'Long control has no horizontal overflow');
+  const separators=[...text.querySelectorAll('.hub-route-separator')];
+  const labels=[...text.querySelectorAll('.hub-route-label')].map(e=>e.textContent);
+  check(JSON.stringify(labels)===JSON.stringify(segments.length?locationBreadcrumb({...task,nativeLocationDisplay:display},owner).visibleSegments:['Edit task location']),'Rendered segments preserve context and abbreviation');
+  check(separators.length===Math.max(0,labels.length-1),'Exactly one chevron between adjacent segments');
+  for(const separator of separators){
+   const svg=separator.querySelector('svg'),size=svg.getBoundingClientRect(),style=getComputedStyle(separator);
+   check(separator.dataset.icon.endsWith('chevron-right')&&separator.getAttribute('aria-hidden')==='true'&&svg.querySelector('path').getAttribute('d')==='m9 5 7 7-7 7','Decorative Lucide chevron geometry');
+   check(size.width===10&&size.height===10&&style.marginLeft==='3px'&&style.marginRight==='3px','Compact icon size and balanced spacing survive editor SVG rules');
+   check(getComputedStyle(svg).color===getComputedStyle(text).color&&getComputedStyle(svg).opacity==='1','Chevron follows metadata color without native SVG dimming');
+  }
  }
 
  for(const type of ['project','resource']){
@@ -118,6 +128,129 @@ window.testDone=(async()=>{
  check(text.textContent==='Other project / Folder / Note.md','Changed draft owner includes workspace name');
  task.nativeOwner=owner;display={workspaceName:'Knowledge',segments:['Physics','SI2215 Symmetries in Physics']};card.update(task);
  check(JSON.stringify(task)===before,'Presentation preserves task data');
+ // Cover the independent route consumers through their current UI entry points.
+ modules.set('ui/tasks.js', {exports: {createTaskRow}});
+ obsidian.Notice = class {};
+ await preload('ui/task-view-primitives.js');
+ const fullHost = host.createDiv(), fullTask = {...task, nativeLocationDisplay: display};
+ load('ui/task-view-primitives.js').source(fullHost, fullTask, {
+  workspace: {projectId: 'p'},
+  locationLabel: () => locationBreadcrumb(fullTask, {type: 'project', id: 'p'}).label
+ });
+ const fullLocation = fullHost.querySelector('.hub-full-location');
+ check(fullLocation.disabled && fullLocation.title === locationBreadcrumb(fullTask).full, 'Full-view route retains disabled state and complete tooltip');
+ check(fullLocation.querySelectorAll('.hub-route-separator').length === 2 && getComputedStyle(fullLocation).textOverflow === 'ellipsis', 'Full-view location uses compact chevrons within existing clipping');
+ fullHost.remove();
+
+ obsidian.Component = class {
+  constructor() { this.stops = []; }
+  register(stop) { this.stops.push(stop); }
+  unload() { this.stops.splice(0).forEach(stop => stop()); }
+ };
+ obsidian.FuzzySuggestModal = Modal;
+ await preload('ui/planning-editor.js');
+ const phaseTask = {id: 'phase-task', text: 'Associated task', phaseId: 'phase', nativeReference: {taskRevision: 1}};
+ const phaseBefore = JSON.stringify(phaseTask);
+ const phaseService = {
+  plugin: {
+   app: {}, register() {},
+   nativeTaskHost: {nativeTasks: {createPanelRead: () => ({
+    read: async () => ({availability: 'current', tasks: [phaseTask]}), close() {}
+   })}}
+  },
+  read: () => ({revision: 1, phases: [], milestones: []}), subscribe() {}
+ };
+ const phaseModal = load('ui/planning-editor.js').openPlanningEditor(phaseService, 'p', 'phases', {
+  id: 'phase', name: 'Research', start: '2026-11-01', end: '2026-11-30'
+ }, {});
+ await phaseModal.ready;
+ const phaseEntry = phaseModal.phaseRead.selected.get(phaseTask.id);
+ check(phaseModal.contentEl.querySelector('.hub-task-help.hub-route').textContent === 'Source unavailable', 'Native Phase entries retain their existing path availability display');
+ phaseEntry.path = 'Projects/P/A › B/Note.md';
+ await phaseModal.refreshPhaseTasks();
+ const phaseRoute = phaseModal.contentEl.querySelector('.hub-task-help.hub-route');
+ check(phaseRoute.textContent === 'A › B › Note' && phaseRoute.querySelectorAll('.hub-route-separator').length === 1, 'Phase refresh renders structured legacy path segments');
+ check(phaseRoute.querySelector('.hub-route-label').textContent === 'A › B', 'Phase segment punctuation is preserved');
+ phaseEntry.path = 'Projects/P/Folder/Deep/Note.md';
+ await phaseModal.refreshPhaseTasks();
+ check(phaseRoute.querySelectorAll('.hub-route-separator').length === 2 && phaseModal.contentEl.querySelectorAll('.hub-phase-task-item').length === 1, 'Repeated Phase updates replace only route content');
+ check(JSON.stringify(phaseTask) === phaseBefore, 'Phase presentation preserves native task references');
+ phaseModal.close();
+
+ await preload('services/context-search.js');
+ await preload('ui/context-search.js');
+ const workspace = {projectId: 'p', root: 'Projects/P', path: 'Projects/P/P.md', name: 'Research / Notes', contextKind: 'project'};
+ const searchFile = {path: 'Projects/P/A › B/Note.md', name: 'Note.md', basename: 'Note', extension: 'md', parent: {path: 'Projects/P/A › B'}};
+ const snapshotService = Object.create(load('services/context-search.js').ContextSearchService.prototype);
+ snapshotService.plugin = {
+  projectWizard: {getProjectRecords: () => [workspace]},
+  app: {vault: {getAllLoadedFiles: () => [searchFile]}, metadataCache: {getFileCache: () => null}}
+ };
+ const result = snapshotService.fileSnapshot().files[0], resultBefore = JSON.stringify(result);
+ check(JSON.stringify(result.contextSegments) === JSON.stringify(['Research / Notes', 'A › B']) && result.context === 'Research / Notes › A › B', 'Search snapshot supplies structured labels alongside its existing scoring text');
+ let opened = null;
+ const searchHost = host.createDiv(), toolbar = searchHost.createDiv(), component = new obsidian.Component();
+ const search = load('ui/context-search.js').mountContextSearch({
+  root: searchHost, toolbar, component,
+  service: {
+   subscribe() {},
+   search: async () => [
+    {kind: 'files', items: [result]},
+    {kind: 'milestones', items: [{kind: 'milestones', title: 'Launch', context: '2026-11-30', path: workspace.path}]}
+   ],
+   open: async value => { opened = value; }
+  }
+ });
+ search.input.focus();
+ search.input.value = 'Note';
+ search.input.dispatchEvent(new Event('input', {bubbles: true}));
+ await new Promise(resolve => setTimeout(resolve, 150));
+ await frame();
+ const searchRoute = searchHost.querySelector('.hub-context-result-path');
+ check(searchRoute.textContent === result.context && searchRoute.querySelectorAll('.hub-route-separator').length === 1, 'File search uses chevrons while preserving route text');
+ check(searchHost.querySelectorAll('.hub-context-result-path')[1].textContent === '2026-11-30', 'Search keeps ordinary date metadata readable');
+ search.input.dispatchEvent(new KeyboardEvent('keydown', {key: 'ArrowDown', bubbles: true}));
+ search.input.dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter', bubbles: true}));
+ await frame();
+ check(opened === result && JSON.stringify(result) === resultBefore, 'Search keyboard activation preserves the original result and path');
+ component.unload();
+ searchHost.remove();
+
+ const legacyHost = host.createDiv();
+ const renderHistory = new Function('item', 'projectRoot', 'current', 'isResourceContext', 'el', 'info', window.historyRouteSource);
+ const dashboardElement = (parent, tag, cls, value) => parent.createEl(tag, {cls, text: value});
+ window.hubSetIcon = obsidian.setIcon;
+ for (const [record, expected] of [
+  [{path: 'Projects/P/A › B/Note.md'}, ['A › B', 'Note']],
+  [{path: 'Projects/P/', projectPath: 'Projects/P/P.md'}, ['Project Root']],
+  [{path: 'Projects/P/P.md', projectPath: 'Projects/P/P.md'}, ['Project Hub']],
+  [{path: 'Other/Note.md'}, ['Note']],
+  [{nativeHistory: {}, projectName: 'Native / Project'}, ['Native / Project']]
+ ]) {
+  legacyHost.replaceChildren();
+  const original = JSON.stringify(record);
+  renderHistory(record, 'Projects/P', {file: {path: 'Projects/P/P.md'}}, false, dashboardElement, legacyHost);
+  const labels = [...legacyHost.querySelectorAll('.hub-route-label')].map(label => label.textContent);
+  check(JSON.stringify(labels) === JSON.stringify(expected), 'Completed history retains existing path branches and literal names');
+  check(legacyHost.textContent === expected.join(' › ') && legacyHost.querySelectorAll('.hub-route-separator').length === expected.length - 1, 'Completed history displays decorative chevrons with accessible separators');
+  check(JSON.stringify(record) === original, 'History presentation preserves its saved record');
+ }
+ legacyHost.remove();
+
+ for (const zoom of [1, 1.25, 1.5]) {
+  document.body.style.zoom = zoom;
+  for (const color of ['rgb(120, 70, 160)', 'rgb(60, 130, 110)']) {
+   parts.source.style.color = color;
+   parts.source.style.opacity = '0.7';
+   await frame();
+   const svg = text.querySelector('.hub-route-separator svg');
+   check(getComputedStyle(svg).color === color && getComputedStyle(svg).opacity === '1', 'Palette foreground and ancestor opacity compose once');
+   check(Math.abs(svg.getBoundingClientRect().width / zoom - 10) < 0.1, 'Chevron dimensions track application zoom');
+  }
+ }
+ document.body.style.zoom = '';
+ parts.source.style.removeProperty('color');
+ parts.source.style.removeProperty('opacity');
  const alignmentTask={text:'Workspace root task',steps:[],nativeReference:{owner},nativeLocationDisplay:{workspaceName:'Knowledge',segments:[]}};
  const alignmentParts=createTaskRow(host,alignmentTask);
  const alignmentCard=mountTaskCardPresentation(alignmentParts.row,alignmentParts.textEl,alignmentTask,()=>'',{description:false,dates:false,locationWorkspace:owner});

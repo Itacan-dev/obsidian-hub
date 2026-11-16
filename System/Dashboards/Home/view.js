@@ -197,13 +197,15 @@ function heading(
 
     if (icon) {
         const iconEl = heading.createSpan({
-            cls: "home-heading-icon"
+            cls: "home-heading-icon",
+            attr: { "aria-hidden": "true" }
         });
 
         window.hubSetIcon?.(iconEl, icon);
     }
 
-    heading.createSpan({
+    heading.createEl("h2", {
+        cls: "hub-panel-heading-label",
         text: title
     });
 
@@ -516,24 +518,6 @@ el(
 );
 
 const dailyPath = `Daily Notes/${todayISO}.md`;
-const savedFocusToday =
-    window.hubGetDailyFocus?.(
-        todayISO
-    );
-
-let focusToday =
-    Array.isArray(savedFocusToday)
-        ? savedFocusToday
-        : [];
-frame.defer(async () => {
-    await window.hubActivatePendingFocus?.(todayISO);
-    const saved = window.hubGetDailyFocus?.(todayISO);
-    const focus = Array.isArray(saved) ? saved : await getSectionItems(dailyPath, "Focus");
-    if (!frame.current()) return;
-    focusToday = focus;
-    renderTodayFocus();
-});
-
 // ---------- CONTEXT SEARCH ----------
 const contextBar = root.createDiv({ cls: "home-context-bar" });
 markDashboardRow(contextBar, 3);
@@ -549,7 +533,7 @@ const grid = root.createDiv({
 
 const glance = panel(
     grid,
-    "Today's Focus",
+    "Plan",
     "home-glance",
     "goal"
 );
@@ -579,14 +563,7 @@ const editFocusButton =
     );
 
 
-editFocusButton.addEventListener(
-    "click",
-    () => {
-        window.hubOpenDailyFocusEditor?.(
-            todayISO
-        );
-    }
-);
+
 
 
 const focusBody =
@@ -596,120 +573,7 @@ const focusBody =
     });
 
 
-function renderTodayFocus() {
-
-    focusBody.empty();
-
-
-    if (focusToday.length === 0) {
-        el(
-            focusBody,
-            "div",
-            "home-empty",
-            "No focus set for today."
-        );
-        return;
-    }
-
-
-    const focusList =
-        focusBody.createDiv({
-            cls:
-                "home-focus-list"
-        });
-
-
-    for (const item of focusToday) {
-
-        const focusText =
-            typeof item === "string"
-                ? item
-                : item?.text ?? "";
-
-        const projectName =
-            typeof item === "object"
-                ? item?.projectName
-                : null;
-
-        const row =
-            focusList.createDiv({
-                cls:
-                    "home-focus-row"
-            });
-
-
-        el(
-            row,
-            "span",
-            "home-focus-dot",
-            "◆"
-        );
-
-        const content =
-            row.createDiv({
-                cls:
-                    "home-focus-content"
-            });
-
-
-        el(
-            content,
-            "div",
-            "home-focus-text",
-            focusText
-        );
-
-
-        if (projectName) {
-            el(
-                content,
-                "div",
-                "home-focus-project",
-                displayProjectName(
-                    projectName
-                )
-            );
-        }
-    }
-}
-
-
-renderTodayFocus();
-
-
-root.addEventListener(
-    "hub-focus-changed",
-    event => {
-
-        if (
-            event.detail?.date ===
-                todayISO
-        ) {
-
-            focusToday =
-                window.hubGetDailyFocus?.(
-                    todayISO
-                ) ?? [];
-
-
-            renderTodayFocus();
-        }
-
-
-        if (
-            typeof progressView !==
-                "undefined" &&
-            progressView === "reports"
-        ) {
-            renderActiveProgressView();
-        }
-    }
-);
-
-
-
-// FOCUS
-
+window.hubPlan?.mountPresentation(focusBody, dv.component);
 
 // ---------- Tasks to Do ----------
 
@@ -737,7 +601,7 @@ const upcomingHeader =
 const upcomingBody =
     upcoming.createDiv({
         cls:
-            "home-tasks-body"
+            "home-tasks-body hub-scrollbar"
     });
 
 let homeTaskDisposed = false, homeTaskGeneration = 0, homeTaskStatus = null;
@@ -921,7 +785,7 @@ function renderTasksToDo(
 const calendar = panel(
     grid,
     "Calendar",
-    "home-calendar",
+    "home-calendar hub-scrollbar",
     "calendar-days"
 );
 
@@ -1015,8 +879,14 @@ let calendarHasPositionedToday = false;
 // the same component. Separate leaves retain their own Calendar and clock.
 dv.container.hubCalendarClockDispose?.();
 let calendarClock = null;
+const calendarResizeObserver = new ResizeObserver(() => {
+    if (frame.current()) updateCalendarTodayButton();
+});
+calendarResizeObserver.observe(calendar);
+calendarResizeObserver.observe(calendarHeader);
 const disposeCalendarClock = () => {
     clearInterval(calendarClock);
+    calendarResizeObserver.disconnect();
     if (dv.container.hubCalendarClockDispose === disposeCalendarClock) {
         delete dv.container.hubCalendarClockDispose;
     }
@@ -1024,47 +894,33 @@ const disposeCalendarClock = () => {
 dv.container.hubCalendarClockDispose = disposeCalendarClock;
 dv.component.register(disposeCalendarClock);
 
-const calendarNowRow = calendarBody.ownerDocument.createElement("div");
-calendarNowRow.className = "home-calendar-now";
-calendarNowRow.setAttribute("role", "separator");
-const calendarNowTime = calendarNowRow.createEl("time", { cls: "home-calendar-time" });
-calendarNowRow.createSpan({ cls: "home-calendar-now-line", attr: { "aria-hidden": "true" } });
-
-function updateCalendarNow() {
-    const now = moment(), date = now.format("YYYY-MM-DD");
+function updateCalendarDates() {
+    const now = moment();
+    const todayDate = now.format("YYYY-MM-DD");
+    const tomorrowDate = now.clone().add(1, "days").format("YYYY-MM-DD");
     const scrollTop = calendar.scrollTop;
-    let todayGroup = null;
+
     for (const group of calendarBody.querySelectorAll(".home-calendar-day")) {
-        const isToday = group.dataset.calendarDate === date;
+        const date = group.dataset.calendarDate;
+        const day = moment(date);
+        const isToday = date === todayDate;
+        const prefix = isToday ? "Today \u00b7 " : date === tomorrowDate ? "Tomorrow \u00b7 " : "";
+        const label = prefix + formatWeekday(day, true) + " " +
+            formatDate(day, "compact", day.year() !== now.year());
+        const heading = group.querySelector(".home-calendar-day-heading");
         group.classList.toggle("is-today", isToday);
-        if (isToday) todayGroup = group;
+        if (heading.textContent !== label) heading.textContent = label;
     }
-    if (todayGroup) {
-        const next = [...todayGroup.querySelectorAll(".home-calendar-row")].find(row =>
-            row.dataset.calendarStart && Number(row.dataset.calendarStart) > now.valueOf()
-        ) ?? todayGroup.querySelector(".home-calendar-day-empty");
-        calendarNowTime.textContent = formatTime(now);
-        calendarNowTime.dateTime = now.format();
-        calendarNowRow.setAttribute("aria-label", `Current time ${formatTime(now)}`);
-        // An ongoing event remains a single entry. All-day rows keep their
-        // existing positions; only timed start instants determine insertion.
-        if (calendarNowRow.parentElement !== todayGroup || calendarNowRow.nextSibling !== next) {
-            todayGroup.insertBefore(calendarNowRow, next);
-        }
-    } else {
-        calendarNowRow.remove();
-    }
-    // Insertion/removal can trigger browser scroll anchoring. Clock changes
-    // never navigate, even when the divider changes day or passes an event.
+
+    // Relative labels can change height at midnight. Preserve the reader's position.
     calendar.scrollTop = scrollTop;
     updateCalendarTodayButton();
 }
 
-async function refreshCalendarNow() {
+async function refreshCalendarDates() {
     if (!frame.current()) return;
-    updateCalendarNow();
+    updateCalendarDates();
     // A midnight rollover or wake can put today beyond the loaded weeks.
-    // Reuse the existing paged query; never scroll as part of this refresh.
     while (frame.current() && gcal && !calendarLoading && calendarCanLoadMore &&
         calendarNextWeekStart.valueOf() <= moment().valueOf() &&
         !calendarBody.querySelector(".home-calendar-day.is-today")) {
@@ -1072,100 +928,43 @@ async function refreshCalendarNow() {
     }
 }
 
-
 function updateCalendarTodayButton() {
-
-    const todayGroup =
-        calendarBody.querySelector(
-            ".home-calendar-day.is-today .home-calendar-now"
-        );
-
-
-    if (!todayGroup) {
+    const heading = calendarBody.querySelector(
+        ".home-calendar-day.is-today .home-calendar-day-heading"
+    );
+    if (!heading) {
         calendarTodayButton.disabled = true;
         return;
     }
 
-
-    const calendarRect =
-        calendar.getBoundingClientRect();
-
-
-    const headerRect =
-        calendarHeader.getBoundingClientRect();
-
-
-    const todayRect =
-        todayGroup.getBoundingClientRect();
-
-
-    const visibleTop =
-        calendarRect.top +
-        headerRect.height;
-
-
+    const calendarRect = calendar.getBoundingClientRect();
+    const headerRect = calendarHeader.getBoundingClientRect();
+    const todayRect = heading.getBoundingClientRect();
+    const scale = calendarRect.height / calendar.offsetHeight || 1;
     calendarTodayButton.disabled =
-        todayRect.top >= visibleTop &&
-        todayRect.bottom <= calendarRect.bottom;
+        todayRect.top >= headerRect.bottom &&
+        todayRect.bottom <= calendarRect.bottom - calendar.clientTop * scale;
 }
 
+function scrollCalendarToToday(behavior = "auto") {
+    const heading = calendarBody.querySelector(
+        ".home-calendar-day.is-today .home-calendar-day-heading"
+    );
+    if (!heading) return;
 
-function scrollCalendarToToday(
-    behavior = "auto"
-) {
-
-    const todayGroup =
-        calendarBody.querySelector(
-            ".home-calendar-day.is-today .home-calendar-now"
-        );
-
-
-    if (!todayGroup) {
-        return;
-    }
-
-
-    const calendarRect =
-        calendar.getBoundingClientRect();
-
-
-    const headerRect =
-        calendarHeader.getBoundingClientRect();
-
-
-    const todayRect =
-        todayGroup.getBoundingClientRect();
-
-
-    const targetTop =
-        calendar.scrollTop +
-        todayRect.top -
-        calendarRect.top -
-        headerRect.height -
-        4;
-
-
-    calendar.scrollTo({
-        top:
-            Math.max(
-                0,
-                targetTop
-            ),
-
-        behavior:
-            behavior
-    });
+    const calendarRect = calendar.getBoundingClientRect();
+    const headerRect = calendarHeader.getBoundingClientRect();
+    const todayRect = heading.getBoundingClientRect();
+    const scale = calendarRect.height / calendar.offsetHeight || 1;
+    const targetTop = calendar.scrollTop + (todayRect.top - headerRect.bottom) / scale - 4;
+    calendar.scrollTo({ top: Math.max(0, targetTop), behavior });
+    updateCalendarTodayButton();
 }
 
-
-calendarTodayButton.addEventListener(
-    "click",
-    () => {
-        updateCalendarNow();
-        scrollCalendarToToday();
-    }
-);
-
+calendarTodayButton.addEventListener("click", () => {
+    updateCalendarDates();
+    scrollCalendarToToday();
+});
 
 function renderCalendarEvent(
     parent,
@@ -1178,8 +977,6 @@ function renderCalendarEvent(
                 "home-calendar-row"
         });
 
-
-    if (!event.allDay) row.dataset.calendarStart = String(event.start.valueOf());
 
     const time =
         event.allDay
@@ -1202,67 +999,18 @@ function renderCalendarEvent(
         });
 
 
-    const url =
-        event.meetUrl ||
-        event.link;
-
-    let linkUrl = null;
-    if (typeof url === "string") {
-        try { new URL(url); linkUrl = url; } catch {}
-    }
-
-    const title =
-        info.createEl(
-            linkUrl ? "a" : "span",
-            {
-                cls:
-                    "home-calendar-title",
-
-                text:
-                    event.title
-            }
-        );
-
-
-    if (linkUrl) {
-        title.setAttribute("href", linkUrl);
-        title.addEventListener(
-            "click",
-            event => {
-                event.preventDefault();
-                window.open(
-                    url,
-                    "_blank"
-                );
-            }
-        );
-
-        title.addClass(
-            "is-clickable"
-        );
-    }
-
+    info.createEl("span", {
+        cls: "home-calendar-title",
+        text: event.title,
+        attr: { title: event.title }
+    });
 
     if (event.location) {
-        el(
-            info,
-            "div",
-            "home-calendar-location",
-            event.location
-        );
-    }
-
-
-    const dot =
-        row.createDiv({
-            cls:
-                "home-calendar-dot"
+        info.createDiv({
+            cls: "home-calendar-location",
+            text: event.location,
+            attr: { title: event.location }
         });
-
-
-    if (event.calendarColor) {
-        dot.style.backgroundColor =
-            event.calendarColor;
     }
 }
 
@@ -1362,27 +1110,7 @@ function renderCalendarWeek(
 
         dayGroup.dataset.calendarDate = key;
 
-        const dayHeading =
-            dayGroup.createDiv({
-                cls:
-                    "home-calendar-day-heading"
-            });
-
-
-        el(
-            dayHeading,
-            "span",
-            "home-calendar-weekday",
-            formatWeekday(day, true)
-        );
-
-
-        el(
-            dayHeading,
-            "span",
-            "home-calendar-day-date",
-            historyDate(day)
-        );
+        dayGroup.createDiv({ cls: "home-calendar-day-heading" });
 
 
         const dayEvents =
@@ -1424,7 +1152,7 @@ function renderCalendarWeek(
     }
 
 
-    updateCalendarNow();
+    updateCalendarDates();
 
 
     if (
@@ -1674,8 +1402,8 @@ calendar.addEventListener(
 
 
 frame.defer(() => {
-    void loadNextCalendarWeek().then(() => refreshCalendarNow());
-    calendarClock = setInterval(() => { void refreshCalendarNow(); }, 60000);
+    void loadNextCalendarWeek().then(() => refreshCalendarDates());
+    calendarClock = setInterval(() => { void refreshCalendarDates(); }, 60000);
 });
 // ---------- PROJECTS ----------
 
@@ -2689,6 +2417,9 @@ projectGrid.addEventListener(
                 state.dragging = true;
                 state.ghost = card.cloneNode(true);
                 ownColorRoot?.(state.ghost);
+                // The portaled drag card loses Home's inherited compact inset.
+                state.ghost.style.setProperty("--hub-project-card-padding-block",
+                    getComputedStyle(card).getPropertyValue("--hub-project-card-padding-block"));
                 state.ghost.addClass("is-dragging");
                 Object.assign(state.ghost.style, {
                     position: "fixed", width: `${state.initialRect.width}px`,
@@ -3675,7 +3406,7 @@ let progressView =
 const recentBody =
     recent.createDiv({
         cls:
-            "home-progress-history-body home-progress-activity-body"
+            "home-progress-history-body home-progress-activity-body hub-scrollbar"
     });
 recentBody.hubMarkdown = window.hubCreateMarkdown?.(dv.component);
 const historyPager = createHistoryPager(recentBody, dv.component);
@@ -4154,7 +3885,7 @@ function renderRecentReports() {
     recentBody.empty();
 
 
-    const visibleReports = progressReports;
+    const visibleReports = progressReports.filter(report => Number.isInteger(report.score) && report.score >= 1 && report.score <= 4);
 
 
     if (

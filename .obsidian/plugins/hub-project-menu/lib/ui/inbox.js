@@ -31,7 +31,7 @@ class InboxModal extends CaptureModal {
         this.sort.setAttribute("aria-label","Sort by");this.sort.setAttribute("aria-haspopup","menu");this.sort.setAttribute("aria-expanded","false");
         this.sortChevron=this.sort.createSpan({cls:'hub-capture-icon',attr:{'aria-hidden':'true'}});setHubIcon(this.sortChevron,'chevron-right');
         this.stopSortToggle=bindMenuToggle(this.sort,{isOpen:()=>!!this.sortMenu,close:()=>this.sortMenu?.hide()});
-        this.list=aside.createDiv({cls:"hub-inbox-list",attr:{role:"group","aria-label":"Inbox items"}});
+        this.list=aside.createDiv({cls:"hub-inbox-list hub-scrollbar",attr:{role:"group","aria-label":"Inbox items"}});
         this.list.addEventListener("keydown",event=>{const rows=[...this.list.querySelectorAll('[data-capture-id]')],at=rows.indexOf(event.target);if(at<0)return;const n=event.key==='ArrowDown'?Math.min(rows.length-1,at+1):event.key==='ArrowUp'?Math.max(0,at-1):event.key==='Home'?0:event.key==='End'?rows.length-1:[' ','Enter'].includes(event.key)?at:null;if(n!==null){event.preventDefault();if((event.ctrlKey||event.metaKey)&&!event.shiftKey&&![' ','Enter'].includes(event.key))rows[n].focus();else void this.changeSelection(rows[n].dataset.captureId,event,true)}});
         this.detail=body.createEl("section",{cls:"hub-inbox-detail",attr:{"aria-label":"Item details",tabindex:"-1"}});
         const footer=this.contentEl.createDiv({cls:"hub-capture-actions hub-inbox-footer"});action(footer,"Close",null,()=>this.close());
@@ -92,10 +92,10 @@ class InboxModal extends CaptureModal {
         const captures=this.visible().filter(c=>this.checkedIds.has(c.id)),files=captures[0].attachments.length>0,batch=this.service.activeBulk,refs=files?inboxFiles(captures,ref=>this.service.attachmentPath(ref)):[];
         this.draft=null;this.sourceInput=null;
         this.detail.createEl('h3',{text:`${files?refs.length:captures.length} ${files?'file'+(refs.length===1?'':'s'):'texts'} selected`,cls:'hub-inbox-detail-title'});
-        const body=this.detail.createDiv({cls:'hub-inbox-action-body hub-inbox-bulk-body '+(files?'hub-inbox-bulk-files':'hub-inbox-bulk-texts')});
+        const body=this.detail.createDiv({cls:'hub-inbox-action-body hub-scrollbar hub-inbox-bulk-body '+(files?'hub-inbox-bulk-files':'hub-inbox-bulk-texts')});
         if(batch){body.createDiv({text:bulkMessage(batch),cls:'hub-capture-muted',attr:{role:'status'}});if(batch.error)body.createDiv({text:batch.error,cls:'hub-task-error'});}
         if(batch)body.createDiv({text:'Retry keeps all remaining batch items and their original order.',cls:'hub-capture-muted'});
-        if(files){this.bulkFilesList=body.createDiv({cls:'hub-capture-attachments hub-inbox-bulk-files-list'});attachments(this.bulkFilesList,refs,this.service,{remove:ref=>{void this.deselectFile(ref,refs.indexOf(ref));},removeLabel:'Deselect'});if(batch)for(const button of this.bulkFilesList.querySelectorAll('button')){button.disabled=true;button.title='Finish the retained batch before changing its selection.';}this.bulkFilesList.scrollTop=this.bulkFileScroll;}
+        if(files){this.bulkFilesList=body.createDiv({cls:'hub-capture-attachments hub-inbox-bulk-files-list hub-scrollbar'});attachments(this.bulkFilesList,refs,this.service,{remove:ref=>{void this.deselectFile(ref,refs.indexOf(ref));},removeLabel:'Deselect'});if(batch)for(const button of this.bulkFilesList.querySelectorAll('button')){button.disabled=true;button.title='Finish the retained batch before changing its selection.';}this.bulkFilesList.scrollTop=this.bulkFileScroll;}
         const actions=body.createDiv({cls:'hub-inbox-organize-actions'});
         for(const choice of captureActions(captures[0])){
             const inputs=batch?remainingMembers(batch).map(m=>m.input):captures,count=choice.mode==='file'?distinctFileCount(inputs):inputs.length,button=captureAction(actions,{...choice,label:bulkLabel(choice.mode,count,true)},mode=>{void this.showBulkAction(mode,batch?.id)});
@@ -126,7 +126,7 @@ class InboxModal extends CaptureModal {
         if(!c){this.detail.createDiv({cls:'hub-capture-empty',text:'Select an item to organize.'});return;}
         this.draft=clone(this.drafts.get(c.id)??captureDraft(c));
         this.detail.createEl('h3',{text:c.attachments.length?'File':'Text',cls:'hub-inbox-detail-title hub-inbox-action-heading'});
-        const body=this.detail.createDiv({cls:'hub-inbox-action-body'});this.sourceInput=null;
+        const body=this.detail.createDiv({cls:'hub-inbox-action-body hub-scrollbar'});this.sourceInput=null;
         if(c.text||!c.attachments.length){this.sourceInput=body.createEl('textarea',{cls:'hub-quick-add-input',attr:{rows:'4','aria-label':'Captured content'}});this.sourceInput.value=this.draft.text;this.sourceInput.disabled=!!operationMode(c)||!!this.service.bulkMember(c.id);this.sourceInput.oninput=()=>{this.draft.text=this.sourceInput.value;this.dirty=true;};}
         if(c.attachments.length)attachments(body.createDiv({cls:'hub-capture-attachments'}),c.attachments,this.service,{open:ref=>{void this.run(()=>this.service.openAttachment(ref));}});
         const actions=body.createDiv({cls:'hub-inbox-organize-actions'+(!c.attachments.length?' hub-capture-action-row':'')}),pending=operationMode(c);

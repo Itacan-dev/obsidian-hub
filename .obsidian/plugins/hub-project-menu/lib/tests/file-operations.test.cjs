@@ -102,3 +102,17 @@ test("review can preserve a partial copy or accept an inspected destination with
 test("a post-commit view refresh failure preserves the successful receipt and clears a completed cut",async t=>{
  const f=await fixture(t),messages=[];f.plugin.fileOperationNotice=message=>messages.push(message);let refreshes=0;f.bridge.refresh=async()=>{if(++refreshes>1)throw Error('Injected view refresh failure');};const source='Projects/P/A/Nested/One.md',task=await f.task(source);await f.service.setClipboard([source],true);const result=await f.service.paste('Projects/P/B');assert.deepEqual(result.completed,[source]);assert.equal((await f.bridge.request({action:'clipboardGet'})).paths.length,0);assert.deepEqual((await f.engine.getTask(task.id)).task.context,f.context('Projects/P/B/One.md'));assert.equal(messages.length,1);assert.equal((await f.service.list()).length,0);
 });
+
+test("Plan observer failures never veto valid filesystem operations or native task migrations",async t=>{
+ const f=await fixture(t),task=await f.task("Projects/P/A/Nested/One.md");
+ f.plugin.globalPlan={references:{observe(){throw Error("Plan checkpoint storage unavailable");}}};
+ await f.service.move("Projects/P/A","Resources/R/Dest/A");
+ assert(f.files.has("Resources/R/Dest/A/Nested/One.md"));assert.equal((await f.engine.getTask(task.id)).task.ownerId,f.ids.r);
+ f.plugin.globalPlan.references.observe=()=>new Promise(()=>{});
+ await f.service.rename("Resources/R/Dest/A","Resources/R/Dest/B");
+ assert(f.files.has("Resources/R/Dest/B/Nested/Bytes.bin"));
+ const page=await f.engine.fileOperation({action:"receiptsSince",cursor:null});
+ assert(page.receipts.some(r=>r.fileOperation&&r.kind==="move"));
+ const empty=await f.engine.fileOperation({action:"receiptsSince",cursor:page.head});assert.equal(empty.receipts.length,0);
+ const invalid=await f.engine.fileOperation({action:"receiptsSince",cursor:{operationId:randomUUID(),sequence:page.head.sequence}});assert.equal(invalid.valid,false);
+});

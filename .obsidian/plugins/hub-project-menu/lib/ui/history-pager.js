@@ -17,7 +17,8 @@ function createHistoryPager(container, component) {
     component.register(() => { reset(); container.removeEventListener("scroll", scroll); });
     return {
         reset,
-        render(items, renderer) { reset(); records = items; renderRow = renderer; append(); }
+        get renderedCount() { return cursor; },
+        render(items, renderer, minimumCount = 50) { reset(); records = items; renderRow = renderer; do { append(); } while (cursor < Math.min(minimumCount, records.length)); }
     };
 }
 module.exports = { createHistoryPager };

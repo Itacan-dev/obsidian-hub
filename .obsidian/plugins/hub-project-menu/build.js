@@ -180,9 +180,13 @@ for (const relative of Object.keys(athenaManifest.artifacts).filter(file => file
 
 // Obsidian's main-process bridge loads these modules by path, outside main.js.
 // Ship an explicit production-only closure, including the sandbox preload/assets.
-const strictAssets = ["lib/services/oath-strict-host.js", "lib/services/oath-strict.js", "lib/services/oath-process-observer.js",
+const strictAssets = ['lib/services/oath-reminder.js', 'lib/services/oath-reminder-state.cjs', 'lib/services/oath-reminder-placement.cjs', 'lib/services/oath-foreground-supervisor.cjs', 'lib/services/oath-foreground-worker.cjs', 'lib/services/oath-foreground-identity.cjs', 'lib/ui/oath-reminder/preload.cjs', 'lib/ui/oath-reminder/reminder.html', 'lib/ui/oath-reminder/reminder.js', 'lib/ui/oath-reminder/style.css', 'lib/native/oath-foreground/get-windows.node', 'lib/native/oath-foreground/manifest.json', 'lib/native/oath-foreground/LICENSE', "lib/services/oath-prototype-host.js", "lib/ui/oath-prototype/preload.cjs", "lib/ui/oath-prototype/index.html", "lib/ui/oath-prototype/recovery.js", "lib/ui/oath-prototype/recovery.css", "lib/services/oath-strict-host.js", "lib/services/oath-strict.js", "lib/services/oath-process-observer.js",
     "lib/services/oath-dock.js", "lib/domain/oath-strict.js", "lib/domain/oath-dock-colors.js", "lib/ui/oath-dock/preload.cjs", "lib/ui/oath-dock/index.html",
     "lib/ui/oath-dock/dock.js", "lib/ui/oath-dock/dock.css"];
+const foregroundRoot = path.join(pluginRoot, "lib/native/oath-foreground");
+const foregroundManifest = JSON.parse(fs.readFileSync(path.join(foregroundRoot, "manifest.json"), "utf8"));
+if (require("crypto").createHash("sha256").update(fs.readFileSync(path.join(foregroundRoot,"get-windows.node"))).digest("hex") !== foregroundManifest.sha256)
+    throw Error("Pinned foreground binary integrity mismatch");
 const strictManifest = {};
 for (const relative of strictAssets) {
     const source = path.join(pluginRoot, relative), target = path.join(outputDirectory, relative);

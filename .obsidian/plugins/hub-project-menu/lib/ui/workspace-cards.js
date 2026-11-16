@@ -55,6 +55,13 @@ function createWorkspaceCards({ app, root, component, renderImage, categories = 
             card.classList.add("has-icon-fallback");
             setIcon(thumbnail.createSpan({ cls: "home-resource-icon" }), context.icon ?? "library");
         }
+        if (resource) card.addEventListener("contextmenu", event => {
+            if (!window.hubPlan) return;
+            event.preventDefault(); event.stopPropagation();
+            const menu=require("./color-system").ownMenuColors(new (require("obsidian").Menu)());
+            menu.addItem(item=>item.setTitle("Add to plan").setIcon("list-plus").onClick(()=>void window.hubPlan.workspace(context)));
+            menu.showAtMouseEvent(event);
+        });
         card.addEventListener("click", event => {
             if (oath?.canOpen(context) === false) { event.preventDefault(); event.stopImmediatePropagation(); return; }
             activate?.(event, card);

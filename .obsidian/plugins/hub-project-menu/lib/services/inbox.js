@@ -503,6 +503,9 @@ class HubInboxService {
         if (isQuick) this.draftSession = this.newQuickDraft(capture.source);
         else if (quick) this.draftSession = remap(quick);
         await this.releaseAttachments(capture.attachments);
+        if (["note", "note-insertion", "files"].includes(capture.operation?.kind)) {
+            this.plugin.reportEligibility?.observe(capture.operation.workspaceId, "files");
+        }
     }
     createNote(values, captureId) { return this.enqueue(() => {
         this.assertBulkAccess(captureId, values.bulkBatchId);

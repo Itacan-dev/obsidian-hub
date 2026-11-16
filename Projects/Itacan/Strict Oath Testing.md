@@ -1,100 +1,162 @@
-# Test Strict Oath safely
+# Test Strict Oath in the Itacan prototype
 
-Use the isolated preview first. Installing the build does not enable Strict Oath
-in your everyday vault. No preview development shortcut is shipped in the
-production plugin.
+The current Obsidian installation includes the latest preflight and development
+recovery controls. Strict is off by default. Existing settings and permitted
+applications are retained.
 
-## Open the preview
+## Start a manual test
 
-1. Double-click **[Strict Oath Preview.cmd](Strict%20Oath%20Preview.cmd)** in this
-   folder. It uses the already installed test Electron and Obsidian archive;
-   nothing is downloaded. Allow a few seconds for its automatic recovery checks.
-2. Look for the blue **ISOLATED STRICT OATH PREVIEW** banner, the separate
-   **Strict Oath preview recovery** window, and the green external test window.
-   This is a disposable vault/profile containing synthetic projects and tasks.
-   Your everyday Obsidian window and applications remain separate.
-3. Before starting, try **Release restrictions** in the recovery window, or
-   **Ctrl+Alt+Shift+F12** with a preview window focused. Finish and relaunch the
-   preview afterward. Every launch also automatically verifies native shortcut
-   recovery and saved-window-state restoration before allowing restrictions.
+1. Save work and fully quit and reopen Obsidian to load the installed bundles and
+   main-process modules. A plugin toggle alone can retain cached modules.
+2. Open **Settings ? The Oath**. Under **Prototype development recovery**, choose
+   **Verify development recovery**. The independent **Itacan prototype recovery**
+   window opens and verifies its local keyboard handler.
+3. Enable **Strict Oath on this device** when ready. This makes Strict available
+   in Oath setup. Choose permitted executable paths for applications you need.
+   Closing real documents is optional; do not discard unsaved work for preflight.
+4. Open **The Oath**, choose **Strict**, a workspace and task, and a one-minute
+   duration. Review blockers and uncertainty, then acknowledge and take the Oath.
+   Recovery is verified again before fullscreen restrictions are applied.
+5. Use permitted applications with Alt+Tab. Use the dock to launch permitted
+   executables or return to Itacan. Fulfill and end the Oath normally to test
+   ordinary completion and history.
 
-The shortcut is local to the preview's Electron windows. While an external
-application has focus, **Alt+Tab back to the recovery window or preview Itacan**,
-then use the shortcut or **Release restrictions**. The recovery window stays
-available independently of the Itacan renderer. Restrictive guards automatically
-release after **two minutes**; the entire preview closes and cleans up after
-**twenty minutes**. **Finish and clean up**, or closing the recovery window,
-also releases restrictions and ends only the disposable session.
+## Development recovery
 
-## Inspect Settings and applications
+**Ctrl+Alt+Shift+F12** releases restrictions while the Itacan host or recovery
+window has focus. From an external application or an embedded page that does
+not deliver the shortcut, Alt+Tab to the recovery window first.
 
-1. Settings opens at **The Oath**, with Strict disabled. Inspect the opt-in and
-   application list. **Browse** or **Add path** selects an application's `.exe`;
-   paths are verified before saving. Remove an entry and add it again.
-2. To avoid closing applications from your normal desktop, click **Permit
-   currently open apps (test only)** in the recovery window. Close and reopen
-   Settings to see the resulting list. This changes only disposable data and
-   grants permission only to executable identities the observer can verify.
-3. Enable Strict in the **preview** Settings, then close Settings. Open **The
-   Oath** from the bottom bar. Select **Strict**, the synthetic project, and at
-   least one synthetic task. Choose **Custom → 1 minute** and commit the value.
-   Inspect the per-Oath application override; leave it inheriting defaults for
-   the first test.
-4. Choose **Review Oath**. Inspect blockers, unknown identities and coverage
-   warnings. Refresh after changing applications; acknowledge the restrictions
-   again. Take the Oath only when the immediate-start checks are ready.
+You can also press **Release Strict Oath** in the recovery window or
+**Release Strict Oath (development)** in Settings. Closing the recovery window
+or losing its renderer during a test releases restrictions. A main-process
+watchdog releases restrictions after two minutes even if the Itacan renderer
+cannot respond. This two-minute limit applies to the prototype test session.
 
-Never close a document with unsaved work just to pass preflight. Add its
-application to the test permissions and review again, or cancel the test.
-Some Windows dialogs and packaged apps are not observable; permission checks
-are best effort. The preview's synthetic workspace/index adapters let you test
-the real Oath UI and lifecycle without importing your vault or Dataview data.
+Emergency recovery disarms guards before restoring the saved window state.
+The existing lifecycle records an interruption rather than fulfillment. If an
+activation was still preparing, its scheduled record can remain waiting; cancel
+it through The Oath or the Settings development release button. Verify recovery
+again before starting another test after emergency release.
 
-## Exercise the desktop behavior
+If restoration fails, guards remain disarmed. Use **Restore window** in Settings
+? The Oath to retry. A fresh Obsidian process records an interrupted active
+commitment without automatically entering fullscreen. Save work and wait for
+pending writes before plugin reloads or restarts.
 
-- Confirm Itacan becomes fullscreen and its ordinary close/minimize/fullscreen
-  exit actions are discouraged. Try Alt+Tab to the green test application and
-  your permitted applications. Confirm Itacan stays fullscreen underneath.
-- Minimize and restore an external application using its normal Windows
-  controls. Confirm you can keep working and switch normally. The Oath dock
-  should remain visible above ordinary external windows on the host display.
-- Try **Return to Itacan** on the dock. Its application buttons **launch** an
-  allowed executable; they may open another window. Use Alt+Tab to focus an
-  already open application. Arbitrary external focus/minimize/restore buttons
-  are deliberately unavailable. The preview's `electron.exe` entry identifies
-  the green companion; switch to that existing window rather than launching
-  another Electron instance.
-- Optionally open an unpermitted application: detection can warn and attempt a
-  bounded focus nudge while leaving the Oath active. It does not close the app
-  or guarantee foreground control. Return to Itacan yourself if necessary.
-- After one minute, use the ordinary fulfilled **End Oath** action and inspect
-  history. Alternatively, use preview recovery and observe interruption instead.
-  Finish the preview; its profile and synthetic files are removed.
+The recovery timer and shortcut require a responsive Electron main process.
+Windows controls and deliberate process termination remain available. Device
+sleep can delay timer delivery until wake. Physical display changes, embedded
+page focus, and third-party stacking still need personal acceptance.
 
-Optional acceptance checks: another display, changing scaling, Windows sleep
-and wake, another Obsidian vault/popout, and your usual Atlas pages. Save work
-first and keep this to the isolated preview. Physical Alt+Tab, third-party
-stacking, actual sleep/wake and unplugged-display behavior require your own
-observation; automated event tests do not establish these guarantees.
+## Compare preflight with Windows
 
-## Everyday installation after review
+Matched process and Electron windows are possible non-permitted application
+candidates whose switchability is unverified. Automatic review requires resolving
+these candidates. Unmatched process windows have uncertain switchability, and
+additional source windows have unknown executable identity. Both warn and permit
+acknowledged activation. A failed primary process query prevents activation.
+Supplemental failure reports limited coverage and allows uncertainty.
 
-The rebuilt files are installed, but a running Obsidian process may still have
-the old renderer and main-process modules loaded. **Save work and fully quit
-and reopen Obsidian** when ready; a plugin toggle alone cannot refresh cached
-main-process modules. Inspect Settings with Strict still off. Do not enable
-Strict on your everyday installation until you are satisfied with the preview.
+Compare review findings with the physical Alt+Tab switcher for these cases.
 
-For a first everyday commitment, verify your permitted executables, select a
-short duration, and read the final confirmation. The production build has
-**no development escape or automatic two-minute release**. Windows controls
-and deliberate OS-level escape remain possible. A fresh process records an
-interrupted commitment without automatically re-entering fullscreen.
+- Code and Firefox with normal, minimized and multiple windows, plus dialogs.
+- Explorer with no folders open, then normal and minimized folder windows.
+- NVIDIA overlay, Windows Input Experience and tray utilities inactive and open.
+- Other Obsidian windows, permitted applications and available packaged apps.
+- Existing virtual desktops and secondary displays, without changing settings.
 
-If restoration fails, guards are disarmed and Settings → The Oath offers
-**Restore window** to retry. No external application is forcibly closed.
-Wait for saves to finish before a plugin reload. Reloading while an old plugin
-instance is still writing can trigger Itacan's existing data-conflict protection;
-do not bypass that check. Save work and restart Obsidian if this occurs.
-Use the release report for the installed artifact hashes, backup location and
-remaining verification limits: [Phase 5 report](../../System/Hub-oath-phase5.md).
+Record false blockers and missed entries separately. Capture eligibility is an
+approximation of switchability, and no executable-name exemption is applied.
+
+With Itacan and a permitted application focused, try the Windows key, Ctrl+Esc,
+Windows+Tab, Windows+D, Windows+E, Windows+R, taskbar clicks and Atlas guest focus.
+Verify Oath continuity, permitted application usability, return and recovery.
+Windows shell actions remain available.
+
+## Internal automated verification
+
+Automated tests use disposable profiles and synthetic tasks. Manual testing
+uses the existing Itacan installation. The existing preview launcher remains
+available as an internal diagnostic harness.
+
+From the vault root, run the focused suites with
+`node --test .obsidian/plugins/hub-project-menu/lib/tests/oath-preflight.test.cjs .obsidian/plugins/hub-project-menu/lib/tests/oath-prototype.test.cjs .obsidian/plugins/hub-project-menu/lib/tests/oath-phase5.test.cjs .obsidian/plugins/hub-project-menu/lib/tests/oath-host/recovery.test.cjs .obsidian/plugins/hub-project-menu/lib/tests/settings-navigation.test.js`.
+
+Run installed bundles in isolation with
+`node .obsidian/plugins/hub-project-menu/lib/tests/oath-host/launch.cjs --installed-prototype-smoke`.
+This copies installed artifacts without rebuilding them. It verifies recovery,
+live corroboration, diagnostic rendering, activation, emergency interruption and
+restoration. It does not activate an Oath in the normal profile.
+
+Standalone Itacan can remove `oath-prototype-host.js` and its recovery assets,
+use the core `getStrictCoordinator` entrypoint, and omit the capability-based
+Settings recovery controls. The ordinary Oath lifecycle uses its existing paths.
+
+## Use manual application review for a persistent false blocker
+
+In the final Strict review, select **Use manual application review for this
+Oath** when application candidates prevent starting. Inspect the physical
+Alt+Tab switcher, including minimized windows, and close or permit the
+non-permitted applications you can switch to. Check the separate manual-review
+acknowledgment, then accept the Strict restrictions and take the Oath.
+
+This choice allows application findings through activation, including scheduled
+activation. New version-3 confirmations disclose bounded return-to-Itacan attempts
+for newly observed known applications. Version-2 manual commitments retain their
+original nudge-free behavior. Baseline overlays and their same-path restarts do
+not cause application focus attempts. Findings
+remain visible in Oath status. The user is responsible for the manual check.
+Refreshing checks resets to automatic review and clears acknowledgments.
+Each new Oath starts in automatic review. Executable launch permissions continue
+to come from the confirmed permitted-application list.
+
+For acceptance, leave NVIDIA Overlay running and compare it with Alt+Tab. Start
+a one-minute manual-review Oath and observe a natural overlay restart if it
+occurs. Repeat with actual Explorer folders, minimized Code/Firefox windows,
+Windows Input Experience, dialogs, tray utilities and existing virtual desktops.
+Verify that findings are visible, permitted work remains usable, and development
+recovery records interruption. Detection cannot establish exact switchability.
+
+## Verify bounded application nudges
+
+Save work and fully restart Obsidian after installation. Verify development
+recovery before each restrictive test and use short Oaths within the two-minute
+watchdog. Local Ctrl+Alt+Shift+F12 works in Itacan or the recovery window. Return
+from external applications before using it.
+
+In both automatic and manual review, inspect Oath status for application focus
+attempts, the last event time, executable paths and outcome. Record actual desktop
+foreground changes separately from focus requests. Windows may refuse requests.
+
+- Start with NVIDIA observed and verify restarts cause zero attempts.
+- Open Discord, Spotify and Riot Client from Start or the tray. If their known
+  paths were absent from the baseline and remain observed for two polls, expect
+  one grouped attempt. Uncertain switchability remains eligible.
+- Repeat while using a permitted application. Record unwanted interruptions.
+- Check minimized windows, Explorer shell-only and folder states, dialogs,
+  multiple windows, input experience and existing virtual desktops.
+- Confirm same-path disappearance, restart and new windows cause no second attempt.
+- Open different applications during cooldown. Suppressed events stay consumed.
+  At most three attempts occur per Oath, at least sixty seconds apart. Test the
+  complete budget in automated time-controlled fixtures within recovery limits.
+- Confirm dock permissions, completion, recovery interruption and restored window
+  state. Record latency, false nudges and successful physical returns.
+
+A baseline window from Explorer or a tray application suppresses later windows
+from its executable path. Source-only windows, unreadable paths and short-lived
+windows can be missed. Promote only if returns provide useful friction while
+ordinary permitted work remains usable.
+
+
+## Centered Oath Reminder prototype ? 13 November 2026
+
+New confirmation version 4 replaces inventory-triggered focus nudges with the foreground-dependent Oath Reminder in both automatic and manual review. Versions 1?3 keep their confirmed behavior. Automatic/manual activation checks, executable permissions and dock launch authority are unchanged. Strict remains disabled by default; existing device settings are preserved.
+
+The reminder appears after three continuous observed seconds in known non-permitted foreground applications, centered in that display's work area. Invalid/missing/offscreen geometry falls back to Itacan's display, then primary. It is non-movable, non-modal, normally always-on-top and has no ordinary dismissal. It hides on permitted return or stale/unknown observation. It never automatically requests focus; Return to Itacan is explicit.
+
+This is a narrowly scoped exception to the earlier test-only native-provider decision: only the pinned get-windows 9.3.0 foreground observer is packaged for the Obsidian development prototype, in a disposable utility process with integrity verification, 2.5-second request bound, parent lease and 125-second absolute lifetime. No native application controls or custom Win32 bindings are added. The two-minute prototype recovery watchdog remains mandatory. Upstream cleanup and packaged-app attribution concerns prevent claiming sustained/standalone readiness.
+
+Before testing in Settings ? The Oath, save work and verify the independent recovery window. Ctrl+Alt+Shift+F12 works locally in Itacan, recovery and the registered reminder; from an external application, return to one of these windows first. Recovery removes reminder, helper and fullscreen guards. No separate preview application is required for manual testing. Restart Obsidian after installing to replace cached main-process modules; do not reload during an active commitment.
+
+Physical acceptance: at least 30 transitions; no appearance before three seconds, 95% within 3.0?3.5 seconds of first qualifying sample; hide within 500 ms under normal sampling. Check negative display coordinates, mixed DPI, straddling windows, display removal and invalid-bounds fallback. Confirm no dragging, no automatic focus changes, no background NVIDIA restart reminder, continued permitted-app/dock use, and shortcut/independent-window/watchdog recovery. Recheck actual stacking; Electron flags alone do not establish physical visibility. Long-session soak and the actual installed launcher runtime remain separate acceptance work.

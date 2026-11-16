@@ -53,13 +53,14 @@ async function run() {
     assert.equal(next.target.stepId, "s2");
     assert.equal(next.target.kind, "native-task"); assert.equal(next.target.taskId,task.id);
     const explicit = build(source({ history: [event()], focus: { [day]: { items: [{ projectId: "a", text: "2b" }] } } }), { tasks: [task] });
-    assert.equal(provider.getRecommendation(explicit).reason, "recorded-focus");
+    assert.equal(provider.getRecommendation(explicit).reason, "unfinished-progress", "Historical Focus no longer selects current work");
     assert.equal(provider.getRecommendation(explicit).target.stepId, "s2");
     const mixed = build(source({ history: [event(), { ...event("task", "b"), hubTaskId: "other-task", text: "Review notes" }], focus: { [day]: { items: [{ projectId: "a", text: "2b" }] } } }), { tasks: [task] });
-    assert.equal(provider.getRecommendation(mixed).actionLabel, "Continue 2b", "Unrelated completions cannot turn a continuation into new work");
+    assert.equal(provider.getRecommendation(mixed).reason, "unfinished-progress");
     const finished = build(source({ history: [event("task")], focus: { [day]: { items: [{ projectId: "b", text: "Exercise Sheet 3" }] } } }), { tasks: [{ ...task, completed: true }] });
-    assert.equal(provider.getRecommendation(finished).actionLabel, "Start Exercise Sheet 3");
-    assert.ok(provider.getRecommendation(finished).explanation.includes("You completed Assignment 5"));
+    assert.equal(provider.getRecommendation(finished).reason, "no-clear-action");
+    explicit.planRecommendation={title:"Read PDF",target:{kind:"file",path:"Research/a.pdf"},reason:"global-plan"};
+    assert.equal(provider.getRecommendation(explicit).target.path,"Research/a.pdf");
     assert.equal(provider.getRecommendation(build(source({ history: [event("task")] }), { tasks: [{ ...task, completed: true }] })).reason, "no-clear-action");
     assert.equal(provider.getRecommendation(build(source({ reports: [report("a", "Worked on ideas")] }))).actionLabel, "View today's tasks");
     assert.equal(provider.getRecommendation(build(source())), null);

@@ -46,6 +46,7 @@ function reduceActivityLog(
             item =>
                 item.action === "edited" &&
                 item.path === entry.path &&
+                (item.reportWorkspaceId ?? item.projectId) === (entry.reportWorkspaceId ?? entry.projectId) &&
                 timestamp - item.timestamp <
                     EDIT_MERGE_WINDOW_MS
         );

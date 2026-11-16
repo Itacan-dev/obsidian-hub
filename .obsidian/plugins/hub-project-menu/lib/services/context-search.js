@@ -1,6 +1,6 @@
 "use strict";
 const { taskWorkspaces } = require("./task-locations");
-const { normalize, nameScore, ownerOf, inScope, contextLabel, groupResults } = require("../domain/context-search");
+const { normalize, nameScore, ownerOf, inScope, contextLabel, contextSegments, groupResults } = require("../domain/context-search");
 const { workspaceRef, sameWorkspace } = require("../domain/workspace");
 function taskSearchMessage(error, reveal = false) {
     if (error?.code === "INDEX_UNAVAILABLE")
@@ -76,10 +76,11 @@ class ContextSearchService {
                     return [];
                 const folder = Array.isArray(file.children);
                 const aliases = !folder && this.plugin.app.metadataCache.getFileCache?.(file)?.frontmatter?.aliases;
+                const parentPath = file.parent?.path ?? file.path.slice(0, file.path.lastIndexOf("/"));
                 return [{ kind: folder ? "folders" : "files", path: file.path, file, owner,
                         title: folder ? file.name : file.extension?.toLowerCase() === "md" ? file.basename : file.name,
                         aliases: Array.isArray(aliases) ? aliases : typeof aliases === "string" ? [aliases] : [],
-                        context: contextLabel(file.parent?.path ?? file.path.slice(0, file.path.lastIndexOf("/")), owner) }];
+                        context: contextLabel(parentPath, owner), contextSegments: contextSegments(parentPath, owner) }];
             });
         }
         return { workspaces: this.workspaces, files: this.files };

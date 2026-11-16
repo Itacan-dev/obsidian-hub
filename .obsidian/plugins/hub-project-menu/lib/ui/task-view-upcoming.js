@@ -5,7 +5,7 @@ const headingIcons = { past: "clock-alert", today: "sun", tomorrow: "clock-arrow
 const { taskCard } = require("./task-view-primitives");
 
 function renderUpcoming(host, tasks, context) {
-    const scroll = host.createDiv({ cls: "hub-task-local-scroll" });
+    const scroll = host.createDiv({ cls: "hub-task-local-scroll hub-scrollbar" });
     const board = scroll.createDiv({ cls: "hub-task-board" });
     const groups = upcomingGroups(tasks, context.now);
     for (const [id, label] of BUCKETS) {
@@ -18,7 +18,7 @@ function renderUpcoming(host, tasks, context) {
         }
         title.createSpan({ text: label });
         heading.createSpan({ cls: "hub-task-count", text: String(groups[id].length) });
-        const body = column.createDiv({ cls: "hub-task-column-body" });
+        const body = column.createDiv({ cls: "hub-task-column-body hub-scrollbar" });
         for (const task of groups[id]) taskCard(body, task, context);
         if (!groups[id].length) body.createDiv({ cls: "hub-task-column-empty", text: "No tasks" });
     }

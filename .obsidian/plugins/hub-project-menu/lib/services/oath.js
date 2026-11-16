@@ -20,7 +20,7 @@ class HubOathService {
         this.strict = options.strict ?? new StrictOathCoordinator();
         if (typeof this.bucket.strictEnabled === "boolean") this.strict.configureEnabled(this.bucket.strictEnabled || this.isStrict && this.committed);
         this.strictReviews = new Map(); this.strictStatus = this.strict.health ?? { status: "idle", warnings: [] };
-        this.strict.onHealth(health => { this.strictStatus = health; this.emit(); });
+        this.strict.onHealth(health => { this.strictStatus = health; this.emit(); if (health.developmentRecoveryReleased) void this.refresh(); });
     }
     get bucket() { return this.plugin.projectWizard.data.oathsByDevice?.[this.deviceId] ?? { current: null, history: [] }; }
     get current() { return normalizeOath(this.bucket.current); }
@@ -54,7 +54,7 @@ class HubOathService {
     }
     strictSignature(draft) {
         return JSON.stringify([draft.mode, draft.start, draft.scheduledAt, draft.durationMs, draft.workspace,
-            draft.tasks?.map(taskKey), draft.applications ?? null]);
+            draft.tasks?.map(taskKey), draft.applications ?? null, draft.applicationCheckMode ?? "automatic", draft.manualApplicationReviewAcknowledged === true]);
     }
     async reviewStrict(draft) {
         this.validateDraft(draft);
@@ -255,7 +255,9 @@ class HubOathService {
         if (!this.active || this.current.fulfilledAt != null || this.pendingFulfilment?.id !== this.current.id) return false;
         // Retain the latch if saving fails, even if a task is subsequently unchecked.
         await this.persist({ ...this.current, fulfilledAt: this.pendingFulfilment.at });
+        this.plugin.reportEligibility?.observe(this.workspace, "oath-fulfilled");
         this.pendingFulfilment = null;
+        if (this.isStrict) this.strict.fulfill?.(this.current.id);
         this.emit(); return true;
     }
     async activate() {
@@ -267,6 +269,7 @@ class HubOathService {
             if (!this.resolveWorkspace(this.current.workspace)) { await this.invalidateWorkspace(); return false; }
             await this.persist({ ...this.current, state: "active", startedAt: this.now(), fullscreenOwned: owned });
         } catch (error) { await this.fullscreen.exit(); throw error; }
+        this.plugin.reportEligibility?.observe(this.workspace, "oath-started");
         await this.enterWorkspace();
         this.emit();
     }
@@ -285,7 +288,7 @@ class HubOathService {
                 const preflight = await this.strict.preflight(policy);
                 if (draft.start !== "scheduled" && !preflight.ready) {
                     this.strictStatus = { ...preflight, status: "waiting" }; this.emit();
-                    throw Error(preflight.blockers.length ? "Close the detected unpermitted applications and retry." : preflight.warnings.join(" "));
+                    throw Error(preflight.blockers.length ? "Resolve the possible non-permitted applications or confirm manual review, then retry." : preflight.warnings.join(" "));
                 }
             }
             if (!this.ready(draft.workspace)) throw Error("Wait for native tasks to finish loading.");
@@ -370,11 +373,12 @@ class HubOathService {
             await this.strict.release(oath.id);
             this.strictStatus = { status: "waiting", warnings: [error.message] }; this.emit(); throw error;
         }
+        this.plugin.reportEligibility?.observe(this.workspace, "oath-started");
         await this.enterWorkspace(); this.emit(); return true;
     }
     async recoverStrict() {
         const oath = this.current;
-        if (this.strict.owns(oath.id, oath.strictSessionId)) { this.strictStatus = this.strict.health; return; }
+        if (this.strict.owns(oath.id, oath.strictSessionId)) { this.strictStatus = this.strict.health; if (oath.fulfilledAt != null) this.strict.fulfill?.(oath.id); return; }
         // Detect process interruption; never re-enter lockdown on startup.
         const record = { ...oath, state: "interrupted", completedAt: oath.lastObservedAt ?? oath.startedAt ?? this.now(), interruptionDetectedAt: this.now(), interruptionTimeUnknown: true,
             interruptionReason: "strict-host-session-unavailable", fullscreenOwned: false };

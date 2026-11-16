@@ -270,6 +270,9 @@ function openOathSetup(service) {
         }
         setup() {
             const draft = this.draft;
+            draft.applicationCheckMode = "automatic";
+            draft.manualApplicationReviewAcknowledged = false;
+            delete draft.strictConfirmation;
             this.clearSetupEffects(); this.taskOwner?.unload(); this.updateNext = null; this.contentEl.empty();
             this.effects = mountTransientEffects(this.contentEl);
             this.contentEl.classList.remove("hub-oath-review");
@@ -669,7 +672,7 @@ function openOathSetup(service) {
                 const group = this.section(heading).createDiv({ cls: "hub-oath-row-group" });
                 for (const [icon, text] of rows) oathRow(group, icon, text);
             }
-            let accepted = null, refresh = null;
+            let accepted = null, refresh = null, manualChoice = null, manualAck = null, manualOptions = null, manualAcknowledgment = null;
             if (draft.mode === "strict") {
                 if (!strictReview) throw Error("Refresh the Strict review before confirming.");
                 const section = this.section("Strict Oath confirmation");
@@ -677,19 +680,31 @@ function openOathSetup(service) {
                 section.createEl("p", { text: "The dock opens permitted applications and returns to Itacan. Use Alt+Tab to switch existing windows; external minimize and restore controls are unavailable.", cls: "hub-oath-muted" });
                 const findings = section.createDiv({ cls: "hub-oath-preflight", attr: { role: "status", "aria-live": "polite" } });
                 this.paintStrictReview = review => {
+                    if (manualOptions) manualOptions.hidden = !(review.preflight.blockers?.length || draft.applicationCheckMode === "manual-review");
                     strictReview = review; draft.strictConfirmation = review.confirmation;
                     findings.empty();
                     findings.createEl("p", { text: review.policy.applications.length ? "Permitted: " + review.policy.applications.join(", ") : "Permitted: Itacan only." });
                     const grouped = new Map();
-                    for (const blocker of review.preflight.blockers ?? []) {
+                    for (const blocker of review.preflight.candidates ?? review.preflight.blockers ?? []) {
                         const key = blocker.executable;
                         grouped.set(key, [...(grouped.get(key) ?? []), blocker.title || "Untitled window"]);
                     }
-                    for (const [executable, titles] of grouped) findings.createEl("p", { text: "Close before starting: " + executable + " — " + titles.join(", ") });
+                    for (const [executable, titles] of grouped) findings.createEl("p", { text: "Possible non-permitted application (switchability unverified): " + executable + " — " + titles.join(", ") });
                     for (const warning of review.preflight.warnings ?? []) findings.createEl("p", { text: warning });
                     for (const unknown of review.preflight.unknown ?? []) findings.createEl("p", { text: "Identity unavailable: " + (unknown.title || "Untitled window") });
-                    findings.createEl("p", { text: review.preflight.ready ? "No known blockers detected. Applications will be checked again at activation." : draft.start === "scheduled" ? "This scheduled Oath will wait for checks to succeed and known blockers to close." : "Resolve blockers, then refresh these checks before taking the Oath." });
+                    for (const uncertain of review.preflight.uncertain ?? []) findings.createEl("p", { text: "Could not confirm switchability: " + uncertain.executable + " — " + (uncertain.title || "Untitled window") });
+                    findings.createEl("p", { text: review.preflight.ready ? draft.applicationCheckMode === "manual-review" ? "Manual review confirmed. The Oath Reminder appears during sustained non-permitted foreground activity." : "Application checks allow starting. They will run again at activation." : draft.start === "scheduled" ? "This scheduled Oath will wait for checks to succeed and known blockers to close." : "Close or permit the listed candidates, or choose manual application review, then confirm again." });
                 };
+                manualOptions = section.createDiv();
+                const manualLabel = manualOptions.createEl("label");
+                manualChoice = manualLabel.createEl("input", { type: "checkbox", attr: { "aria-label": "Use manual application review for this Oath" } });
+                manualChoice.checked = draft.applicationCheckMode === "manual-review";
+                manualLabel.createSpan({ text: "Use manual application review for this Oath" });
+                manualOptions.createEl("p", { text: "Application findings allow activation for this Oath. Newly observed non-permitted application paths may still trigger a return-to-Itacan attempt after two checks, up to three attempts at least 60 seconds apart. A scheduled Oath keeps this choice even if applications change before it starts." });
+                manualAcknowledgment = manualOptions.createEl("label");
+                manualAck = manualAcknowledgment.createEl("input", { type: "checkbox", attr: { "aria-label": "I checked Alt+Tab and accept incomplete application detection" } });
+                manualAcknowledgment.createSpan({ text: "I checked Alt+Tab and closed or permitted the non-permitted applications I can switch to. I accept incomplete application detection and the foreground-dependent Oath Reminder during this Oath." });
+                manualAcknowledgment.hidden = !manualChoice.checked;
                 this.paintStrictReview(strictReview);
                 refresh = section.createEl("button", { text: "Refresh application checks", attr: { type: "button" } });
                 const label = section.createEl("label", { cls: "hub-oath-strict-accept" });
@@ -705,12 +720,29 @@ function openOathSetup(service) {
             const take = actions.createEl("button", { text: "Take the Oath", cls: "mod-cta" });
             const updateTake = () => { take.disabled = !!accepted && (!accepted.checked || !draft.strictConfirmation || !strictReview.preflight.ready && draft.start !== "scheduled"); };
             accepted?.addEventListener("change", updateTake); updateTake();
-            refresh?.addEventListener("click", async () => {
+            const renewStrictReview = async () => {
                 if (this.saving || this.reviewing) return;
-                this.reviewing = true; refresh.disabled = take.disabled = back.disabled = true; accepted.checked = false;
+                accepted.checked = false;
+                delete draft.strictConfirmation;
+                draft.applicationCheckMode = manualChoice.checked ? "manual-review" : "automatic";
+                draft.manualApplicationReviewAcknowledged = manualAck.checked;
+                manualAcknowledgment.hidden = !manualChoice.checked;
+                if (manualChoice.checked && !manualAck.checked) { updateTake(); return; }
+                this.reviewing = true;
+                refresh.disabled = take.disabled = back.disabled = manualChoice.disabled = manualAck.disabled = accepted.disabled = true;
                 try { this.paintStrictReview(await service.reviewStrict(draft)); error.textContent = ""; }
                 catch (problem) { delete draft.strictConfirmation; error.textContent = problem.message; }
-                finally { this.reviewing = false; refresh.disabled = back.disabled = false; updateTake(); }
+                finally {
+                    this.reviewing = false;
+                    refresh.disabled = back.disabled = manualChoice.disabled = manualAck.disabled = accepted.disabled = false;
+                    updateTake();
+                }
+            };
+            manualChoice?.addEventListener("change", () => { manualAck.checked = false; void renewStrictReview(); });
+            manualAck?.addEventListener("change", () => void renewStrictReview());
+            refresh?.addEventListener("click", () => {
+                manualChoice.checked = false; manualAck.checked = false;
+                void renewStrictReview();
             });
             layoutModal(this, { headerEnd, footer: actions });
             back.addEventListener("click", () => this.setup());
@@ -754,8 +786,18 @@ function openOathStatus(service) {
             setWindowUndertext(heading, this.contentEl.createEl("p", { text: fulfilmentLabel(oath), cls: "hub-oath-muted" }));
             if (service.isStrict) {
                 this.contentEl.createEl("p", { text: "Strict Oath: ordinary exit becomes available after fulfillment. Desktop application checks are best effort.", cls: "hub-oath-muted" });
+                const monitoring = service.strictStatus?.monitoring;
+                if (monitoring) {
+                    this.contentEl.createEl("p", { text: `Application focus attempts ${monitoring.attempts} of ${monitoring.limit}. Windows may refuse a request.`, cls: "hub-oath-muted" });
+                    const event = monitoring.lastEvent;
+                    if (event) {
+                        const outcomes = { attempted: "Return requested", "focus-error": "Focus request failed", cooldown: "Cooldown suppressed return", "budget-exhausted": "Session limit suppressed return" };
+                        this.contentEl.createEl("p", { text: `${outcomes[event.outcome]} | ${new Date(event.observedAt).toLocaleTimeString()} | ${event.applications.join(", ")}`, cls: "hub-oath-muted" });
+                    }
+                }
                 for (const warning of service.strictStatus?.warnings ?? []) this.contentEl.createEl("p", { text: warning, cls: "hub-oath-muted" });
-                for (const blocker of service.strictStatus?.blockers ?? []) this.contentEl.createEl("p", { text: `Close before starting: ${blocker.title || blocker.executable || "Unknown application"}`, cls: "hub-oath-muted" });
+                for (const blocker of service.strictStatus?.candidates ?? service.strictStatus?.blockers ?? []) this.contentEl.createEl("p", { text: `Possible non-permitted application (switchability unverified): ${blocker.title || blocker.executable || "Unknown application"}`, cls: "hub-oath-muted" });
+                for (const uncertain of service.strictStatus?.uncertain ?? []) this.contentEl.createEl("p", { text: `Could not confirm switchability: ${uncertain.title || uncertain.executable || "Untitled window"}`, cls: "hub-oath-muted" });
             }
             const work = this.contentEl.createDiv({ cls: "hub-oath-status-work" });
             for (const ref of oath.tasks) {

@@ -42,7 +42,7 @@ function createApplication({plugin,service,authorityId,locations,openEditor,open
   if(closed)throw Error('Task application closed');await ready;
   // A small saved original command lets a lost acknowledgement/restart retry its ID.
   pendingStore?.put(command);
-  try{const result=await service.execute(command);if(model.started)state='ready';model.install(result);pendingStore?.remove(command.operationId);return result;}
+  try{const result=await service.execute(command);if(model.started)state='ready';model.install(result);pendingStore?.remove(command.operationId);{const task=result.task??model.tasks.get(command.taskId??command.task?.id);const owner=ownerRecord(task?.ownerId??command.task?.ownerId);if(owner)plugin.reportEligibility?.observe(owner.owner.type==='resource'?'resource:'+owner.owner.id:owner.owner.id,'task',command.operationId);}return result;}
   catch(error){error.operationId=command.operationId;if(!['SERVICE_EXITED','OUTCOME_UNKNOWN','BUSY'].includes(error.code))pendingStore?.remove(command.operationId);throw error;}
  }
  function currentTask(input){const id=input.nativeReference?.taskId??input.id,t=model.tasks.get(id);if(!t)throw Error('Task no longer available');const revision=input.nativeReference?.taskRevision??input.revision;V.check(revision===t.revision,'Task changed; reopen it','STALE_REVISION');return t;}
@@ -103,7 +103,8 @@ function createApplication({plugin,service,authorityId,locations,openEditor,open
  }
  async function history(){await ready;let after=null,events=[];do{const page=await service.readHistory({after,limit:1000});events.push(...page.events);after=page.next;}while(after);const rows=events.filter(e=>e.counted).map(e=>{const r=ownerRecord(e.ownerId),owner=r?.owner??{type:'project',id:'unavailable'};return{id:e.id,kind:e.stepId?'step':'task',text:e.title,...(e.stepId?{parentText:e.parentTitle}:{}),timestamp:e.completedAt,projectId:owner.type==='resource'?'resource:'+owner.id:owner.id,contextKind:owner.type,resourceType:owner.type==='resource'?owner.id:null,projectName:r?.name??r?.label,projectStatus:r?.status??'active',historyReadKey:JSON.stringify(['sqlite-history',authorityId,e.id]),nativeHistory:{authorityId,eventId:e.id,taskId:e.taskId,stepId:e.stepId,owner,navigation:{state:model.tasks.has(e.taskId)?'available':'unavailable'}}}}).sort((a,b)=>b.timestamp-a.timestamp||a.id.localeCompare(b.id));return{records:rows,completions:rows.map(({nativeHistory,historyReadKey,...r})=>r),diagnostics:[]};}
  const completionFeed={read:history,subscribe(fn){historyListeners.add(fn);return()=>historyListeners.delete(fn)},async reveal(row){const ref=row.nativeHistory,t=model.tasks.get(ref.taskId);if(!t)throw Error('Completed task was deleted');return openEditor(formService(view(t).owner,{locationWorkspace:null}),view(t),()=>{})}};
- const nativeTasks={get owners(){return[...records.values()].filter(r=>r.available).map(r=>r.owner)},availability:()=>state==='ready'?'current':state==='opening'?'loading':'unavailable',availabilityFor:owner=>records.get(key(owner))?.available?nativeTasks.availability():'unavailable',createPanelRead,taskKey:t=>JSON.stringify([authorityId,t.id]),mergeHome(accepted,tasks,owner,c,resolve){const w=resolve(owner);if(!w||w.root!==c.root||w.path!==c.dashboard)throw Error('Task owner context changed');return[...accepted.filter(i=>!same(i.task.nativeReference.owner,owner)),...tasks.map(task=>({task,owner:w,phaseLabel:null}))]}};
+ function createReferenceRead({component,changed=()=>{}}){const close=subscribe(null,changed);component.register(close);return {close,async read(refs){await ready;return refs.map(ref=>{if(ref.authorityId!==authorityId)return {availability:"authority-mismatch"};if(state!=="ready")return {availability:state==="opening"?"loading":"unavailable"};const t=model.tasks.get(ref.taskId);return t?{availability:"current",task:view(t)}:{availability:"missing"};});},async all(){await ready;V.check(state==='ready','Native tasks are temporarily unavailable');return [...model.tasks.values()].map(view);},async toggle(task,completed){const panel=createPanelRead({component:{register(){}},workspace:task.owner});try{return await panel.toggle(task,completed);}finally{panel.close();}},edit(task){return openEditor(formService(task.owner,{locationWorkspace:null}),task,changed);}};}
+ const nativeTasks={createReferenceRead,get owners(){return[...records.values()].filter(r=>r.available).map(r=>r.owner)},availability:()=>state==='ready'?'current':state==='opening'?'loading':'unavailable',availabilityFor:owner=>records.get(key(owner))?.available?nativeTasks.availability():'unavailable',createPanelRead,taskKey:t=>JSON.stringify([authorityId,t.id]),mergeHome(accepted,tasks,owner,c,resolve){const w=resolve(owner);if(!w||w.root!==c.root||w.path!==c.dashboard)throw Error('Task owner context changed');return[...accepted.filter(i=>!same(i.task.nativeReference.owner,owner)),...tasks.map(task=>({task,owner:w,phaseLabel:null}))]}};
  const ready=(async()=>{await Promise.race([service.ready,startupStopped]);if(closed)return;await Promise.race([metadataReady,startupStopped]);if(closed)return;if(service.syncStatus){syncState=await service.syncStatus();if(syncState.workspaceId&&syncState.state!=='enrollment-required')authorityId=syncState.authorityId;}await registerOwners();for(const command of pendingStore?.list()??[]){try{await service.execute(command);pendingStore.remove(command.operationId)}catch(error){if(error.code!=='FILE_OPERATION_PENDING')throw error;}}await model.start();if(closed)return;state='ready';notify();})().catch(error=>{state='unavailable';notify();onError(error);throw error});ready.catch(()=>{});
  const files={
   async request(input){await ready;const result=await service.fileOperation(input);if(input.action==='commit')model.refresh();return result;},
@@ -6139,9 +6140,9 @@ const WORK_RATING_OPTIONS = [
 const PROJECT_ADVANCEMENT_OPTIONS = [
     {
         score: 1,
-        title: "At most polished, not clearly advanced.",
+        title: "Showed up.",
         description:
-            "Refined, reorganized, fixed a minor issue, or added a small detail."
+            "Read, thought about the project, refined something, or took a small step, even if progress was limited."
     },
     {
         score: 2,
@@ -6165,12 +6166,12 @@ const PROJECT_ADVANCEMENT_OPTIONS = [
 
 const PROGRESS_RATING_OPTIONS = {
     project: [
-        { score: 0, title: 'No progress', description: 'No meaningful work was done on the project.' },
+        { score: 0, title: 'No work', description: 'No work was done on this project.' },
         ...PROJECT_ADVANCEMENT_OPTIONS
     ],
     resource: [
-        { score: 0, title: 'No engagement', description: 'No meaningful work was done with the resource.' },
-        { score: 1, title: 'Light engagement.', description: 'Reviewed, annotated, organized, collected, or briefly studied material.' },
+        { score: 0, title: 'No work', description: 'No work was done with this resource.' },
+        { score: 1, title: 'Showed up.', description: 'Reviewed, annotated, organized, collected, or briefly studied material.' },
         { score: 2, title: 'Meaningful engagement.', description: 'Studied a meaningful amount, developed an idea, added useful material, or improved your understanding.' },
         { score: 3, title: 'Substantial engagement.', description: 'Worked through material in depth, gained a nontrivial insight, made meaningful connections, or added several substantial pieces.' },
         { score: 4, title: 'Major engagement.', description: 'Reached an important new understanding, produced a major synthesis, completed a large body of study, or substantially developed the resource.' }
@@ -6252,6 +6253,7 @@ function reduceActivityLog(
             item =>
                 item.action === "edited" &&
                 item.path === entry.path &&
+                (item.reportWorkspaceId ?? item.projectId) === (entry.reportWorkspaceId ?? entry.projectId) &&
                 timestamp - item.timestamp <
                     EDIT_MERGE_WINDOW_MS
         );
@@ -6789,20 +6791,7 @@ const { matchesProgress } = __hubRequire("lib/domain/daily-brief.js");
 class RulesRecommendationProvider {
     getRecommendation(context) {
         if (!context.lastWorkDate) return null;
-        const completed = context.workspaces.flatMap(workspace => workspace.taskProgress).find(event =>
-            event.kind !== "step" && !context.relevantTasks.some(task => !task.completed &&
-                matchesProgress(task, event)));
-        for (const workspace of context.workspaces) {
-            const focus = workspace.nextFocus.find(item => item.available && item.target);
-            if (!focus) continue;
-            const continuing = workspace.continuations.some(({ task }) => focus.target.kind === "native-task" && focus.target.taskId === task.id && focus.target.authorityId === task.nativeReference.authorityId);
-            const transition = completed && !continuing;
-            return { title: focus.text, explanation: transition
-                ? `You completed ${completed.text}. Your next recorded focus is ${focus.text}.`
-                : `${focus.text} was your recorded next focus.`,
-                actionLabel: `${transition ? "Start" : "Continue"} ${focus.text}`, secondaryLabel: workspace.workspaceName,
-                target: focus.target, continuation: !transition, reason: "recorded-focus" };
-        }
+        if (context.planRecommendation) return context.planRecommendation;
         for (const workspace of context.workspaces) {
             const continuation = workspace.continuations[0];
             if (!continuation) continue;
@@ -6851,9 +6840,12 @@ function inScope(entry, scope, workspaces) {
     if (!scope) return !!ownerOf(entry.path, workspaces);
     return validLocation(entry.path, scope);
 }
-function contextLabel(path, owner) {
+function contextSegments(path, owner) {
     const relative = path.slice(owner.root.length).replace(/^\//, "").replace(/\.md$/i, "");
-    return [owner.name ?? owner.label ?? owner.root.split("/").at(-1), ...relative.split("/").filter(Boolean)].join(" › ");
+    return [owner.name ?? owner.label ?? owner.root.split("/").at(-1), ...relative.split("/").filter(Boolean)];
+}
+function contextLabel(path, owner) {
+    return contextSegments(path, owner).join(" › ");
 }
 function groupResults(results, limit = 8) {
     const groups = new Map();
@@ -6865,7 +6857,7 @@ function groupResults(results, limit = 8) {
     }
     return [...groups].map(([kind, items]) => ({ kind, items }));
 }
-module.exports = { normalize, nameScore, ownerOf, inScope, contextLabel, groupResults };
+module.exports = { normalize, nameScore, ownerOf, inScope, contextLabel, contextSegments, groupResults };
 
 },
 "lib/domain/contexts.js": function (module, exports, __hubRequire) {
@@ -6977,7 +6969,7 @@ const { localISODate, parseLocalISODate, itacanDay } = __hubRequire("lib/domain/
 const { reportDay, captureReportContext } = __hubRequire("lib/domain/report-context.js");
 const { taskIsFuture, taskIsOverdue } = __hubRequire("lib/domain/task-planning.js");
 
-/** @typedef {{kind: 'home'|'workspace'|'file'|'configuration'|'native-task', workspaceId?: string, path?: string, taskId?: string, stepId?: string, authorityId?:string, owner?:Object}} BriefTarget */
+/** @typedef {{kind: 'home'|'workspace'|'file'|'configuration'|'native-task'|'plan', workspaceId?: string, path?: string, taskId?: string, stepId?: string, authorityId?:string, owner?:Object}} BriefTarget */
 /**
  * @typedef {Object} DailyBriefContext
  * @property {string} briefDate Local 06:00 day key; report dates keep their existing midnight boundary.
@@ -7359,6 +7351,19 @@ function projectItemPath(parentPath, kind, rawName) {
     );
 }
 
+function availableDefaultItemPath(parentPath, kind, getByPath) {
+    const base = kind === "folder" ? "New folder" : "New note";
+    let number = 1;
+    let path;
+    do {
+        const name = number === 1 ? base : `${base} (${number})`;
+        path = projectItemPath(parentPath, kind, name);
+        number++;
+    } while (getByPath(path) || (getByPath(parentPath)?.children ?? []).some(item =>
+        item.name.toLocaleLowerCase() === path.slice(parentPath.length + 1).toLocaleLowerCase()));
+    return path;
+}
+
 function selectedRootPaths(paths) {
     const sorted = [...new Set(paths)].sort(
         (a, b) => a.length - b.length
@@ -7412,6 +7417,7 @@ function createFileDomain({ getByPath }) {
 }
 
 module.exports = {
+    availableDefaultItemPath,
     createFileDomain,
     directFiles,
     directFolders,
@@ -7493,6 +7499,35 @@ module.exports = {
     normalizeFocusItems,
     validateFocusItems
 };
+
+},
+"lib/domain/global-plan.js": function (module, exports, __hubRequire) {
+"use strict";
+const { randomUUID } = require("node:crypto");
+const clone = value => JSON.parse(JSON.stringify(value));
+const emptyPlan = () => ({ version:1, revision:0, entries:[], note:"", legacyReview:"pending", fileOperationCursor:null });
+function normalize(value) {
+    if (!value) return emptyPlan();
+    if (value.version !== 1) throw Error("This plan requires a newer version of Itacan.");
+    if (!Array.isArray(value.entries) || typeof value.note !== "string" || !Number.isInteger(value.revision)) throw Error("The saved plan is invalid. Its data has been preserved.");
+    const ids = new Set(), keys = new Set();
+    for (const entry of value.entries) {
+        const key = identity(entry);
+        if (!entry.id || ids.has(entry.id) || keys.has(key)) throw Error("The saved plan contains duplicate entries.");
+        ids.add(entry.id); keys.add(key);
+    }
+    return { ...emptyPlan(), ...clone(value) };
+}
+function identity(entry) {
+    const r=entry.reference;
+    if(entry.kind==="task" && r?.authorityId && r.taskId) return JSON.stringify(["task",r.authorityId,r.taskId]);
+    if(entry.kind==="file" && typeof r?.path==="string" && r.path && !r.path.startsWith("/") && !r.path.includes("\\") && !r.path.split("/").some(p=>p===".."||p===".")) return JSON.stringify(["file",r.path]);
+    if(entry.kind==="workspace" && ["project","resource"].includes(r?.type) && r.id) return JSON.stringify(["workspace",r.type,r.id]);
+    throw Error("Invalid plan reference.");
+}
+const entryFor = (kind,reference,values={}) => ({id:randomUUID(),kind,reference:clone(reference),...values});
+const refOf = w => w.contextKind === "resource" ? {type:"resource",id:w.resourceType??w.id} : {type:"project",id:w.projectId};
+module.exports={clone,emptyPlan,normalize,identity,entryFor,refOf};
 
 },
 "lib/domain/history.js": function (module, exports, __hubRequire) {
@@ -7969,7 +8004,8 @@ function locationBreadcrumb(task, contextOwner = null) {
     const full = [name, ...route].join(" / ");
     let parts = inside ? [...route] : [name, ...route];
     if (!parts.length) parts = ["Workspace root"];
-    return { label: compactPathSegments(parts).visible.map(part => part ?? "\u2026").join(" / "), full, available: display.available !== false };
+    const visibleSegments = compactPathSegments(parts).visible.map(part => part ?? "\u2026");
+    return { label: visibleSegments.join(" / "), full, available: display.available !== false, visibleSegments };
 }
 module.exports = { sameOwner, relativePath, locationReference, resourceReference, compactPathSegments, locationBreadcrumb };
 
@@ -8321,8 +8357,8 @@ module.exports = { NoteLocationError, noteLocation, parseNotePositions, resolveN
 "lib/domain/oath-strict.js": function (module, exports, __hubRequire) {
 "use strict";
 const path = require("path");
-const STRICT_CONFIRMATION_VERSION = 1;
-const STRICT_TERMS = "Strict Oath keeps Itacan fullscreen and removes ordinary early exit until the timer or selected tasks fulfill it. Permitted desktop applications remain ordinary windows; Alt+Tab is available. Close detected unpermitted applications yourself. Application detection and returning focus are best effort; websites, notifications and Windows controls are not restricted. A scheduled Oath waits for detected blockers to clear and may then activate without another confirmation.";
+const STRICT_CONFIRMATION_VERSION = 4;
+const STRICT_TERMS = "Strict Oath keeps Itacan fullscreen and removes ordinary early exit until the timer or selected tasks fulfill it. Permitted desktop applications remain ordinary windows; Alt+Tab is available. Detected windows are possible non-permitted applications with unverified Alt+Tab switchability. Overlays and system components can appear. Resolve candidates or explicitly choose manual application review for this Oath. Application detection and returning focus are best effort; websites, notifications and Windows controls are not restricted. After about three observed seconds in a known non-permitted foreground application, a centered, non-movable Oath Reminder appears without automatically taking focus. It hides when permitted work resumes. This applies in automatic and manual review. Unknown identity or observer failure can prevent reminders. Development recovery releases restrictions after two minutes in this prototype. A scheduled Oath uses its confirmed application-check mode and may activate without another confirmation.";
 function applications(values) {
     if (!Array.isArray(values)) throw Error("Applications must be a list of absolute executable paths.");
     const result = new Set();
@@ -8336,26 +8372,72 @@ function applications(values) {
 function strictPolicy(draft, defaults = []) {
     if (draft.mode != null && !["ordinary", "strict"].includes(draft.mode)) throw Error("Unknown Oath mode.");
     if (draft.mode !== "strict") return { mode: "ordinary" };
-    return { mode: "strict", confirmationVersion: STRICT_CONFIRMATION_VERSION,
+    const applicationCheckMode = draft.applicationCheckMode ?? "automatic";
+    if (!["automatic", "manual-review"].includes(applicationCheckMode)) throw Error("Unknown application check mode.");
+    if (applicationCheckMode === "manual-review" && draft.manualApplicationReviewAcknowledged !== true)
+        throw Error("Check Alt+Tab and acknowledge manual application review before confirming.");
+    return { mode: "strict", applicationCheckMode, confirmationVersion: STRICT_CONFIRMATION_VERSION,
         applications: applications(draft.applications === undefined ? defaults : draft.applications) };
 }
 function validPolicy(policy) {
-    if (policy?.mode !== "strict" || policy.confirmationVersion !== STRICT_CONFIRMATION_VERSION) return false;
+    if (policy?.mode !== "strict" || ![1, 2, 3, STRICT_CONFIRMATION_VERSION].includes(policy.confirmationVersion)) return false;
+    if (policy.confirmationVersion === 1 && policy.applicationCheckMode != null && policy.applicationCheckMode !== "automatic") return false;
+    if (policy.confirmationVersion >= 2 && !["automatic", "manual-review"].includes(policy.applicationCheckMode)) return false;
     try { return JSON.stringify(policy.applications) === JSON.stringify(applications(policy.applications)); } catch { return false; }
 }
-function classifyWindows(records, policy, host) {
+function windowHandle(value) {
+    if (typeof value !== "string" || !/^-?\d+$/.test(value)) return null;
+    const integer = BigInt(value);
+    if (integer < -(1n << 63n) || integer >= (1n << 64n)) return null;
+    const handle = BigInt.asUintN(64, integer);
+    return handle === 0n ? null : handle.toString();
+}
+function classifyWindows(observation, policy, host) {
+    // Legacy injected arrays have no corroboration and therefore cannot block.
+    const records = Array.isArray(observation) ? observation : observation?.records;
     if (!Array.isArray(records)) throw Error("Application observation unavailable.");
-    const allowed = new Set(policy.applications), blockers = [], unknown = [];
+    const sources = observation?.sources;
+    const sourceHandles = new Map();
+    let invalidSources = false;
+    for (const source of sources?.status === "ok" ? sources.records : []) {
+        const match = /^window:(-?\d+):[01]$/.exec(source.id);
+        const handle = match && windowHandle(match[1]);
+        if (handle) sourceHandles.set(handle, source);
+        else invalidSources = true;
+    }
+    const allowed = new Set(policy.applications), candidates = [], unknown = [], uncertain = [];
+    const observed = new Set();
+    const isHost = handle => handle && (handle === windowHandle(host?.handle) || handle === windowHandle(host?.dockHandle) || handle === windowHandle(host?.reminderHandle));
     for (const record of records) {
-        if (record.pid === host?.pid && (String(record.handle) === String(host?.handle) || host?.dockHandle && String(record.handle) === String(host.dockHandle))) continue;
+        const handle = windowHandle(record.handle);
+        if (handle) observed.add(handle);
+        if (record.pid === host?.pid && isHost(handle)) continue;
         let executable;
         try { executable = applications([record.executable])[0]; } catch { unknown.push(record); continue; }
-        if (!allowed.has(executable)) blockers.push({ ...record, executable });
+        if (allowed.has(executable)) continue;
+        if (sourceHandles.has(handle)) candidates.push({ ...record, executable, switchability: "unverified" });
+        else uncertain.push({ ...record, executable });
     }
-    return { blockers, unknown, warnings: ["Only one main window per process is observed; some dialogs, packaged apps and inaccessible windows may be missed.",
-        ...(unknown.length ? ["Some application identities could not be read."] : [])] };
+    for (const [handle, source] of sourceHandles) {
+        if (!observed.has(handle) && !isHost(handle)) unknown.push({ handle, title: source.title, sourceOnly: true });
+    }
+    const manual = policy.confirmationVersion >= 2 && policy.applicationCheckMode === "manual-review";
+    const blockers = manual ? [] : candidates;
+    const coverageLimited = manual || sources?.status !== "ok" || invalidSources || !!observation?.warnings?.length;
+    return { blockers, candidates, unknown, uncertain, coverageLimited, warnings: [
+        "Window checks approximate switchable applications. Only one process window has executable identity; minimized windows, dialogs, packaged apps and virtual desktops may be incomplete.",
+        ...(observation?.warnings ?? []),
+        ...(candidates.length ? ["Possible non-permitted applications were detected. Their Alt+Tab switchability is unverified; overlays and system components can appear."] : []),
+        ...(policy.confirmationVersion === 4 ? ["The Oath Reminder follows known non-permitted foreground activity after three observed seconds. It does not automatically take focus."] : []),
+        ...(policy.confirmationVersion === 3 ? ["Newly observed application paths may trigger a bounded return-to-Itacan attempt after two checks. Baseline paths are suppressed, with at most three attempts, 60 seconds apart, per Oath."] : []),
+        ...(manual && policy.confirmationVersion === 2 ? ["This legacy manual-review Oath does not trigger application focus nudges."] : []),
+        ...(manual ? ["Manual application review applies to this entire Oath, including applications opened later. Application findings are advisory for activation."] : []),
+        ...(sources?.status !== "ok" ? ["Window source checks are unavailable. Switchability is uncertain; these findings do not prevent starting."] : []),
+        ...(invalidSources ? ["Some window source identifiers could not be read."] : []),
+        ...(unknown.length ? ["Some application identities could not be read."] : []),
+        ...(uncertain.length ? ["Some windows could not be confirmed as switchable. You may start after acknowledging these limits."] : [])] };
 }
-module.exports = { applications, strictPolicy, validPolicy, classifyWindows, STRICT_CONFIRMATION_VERSION, STRICT_TERMS };
+module.exports = { applications, strictPolicy, validPolicy, classifyWindows, windowHandle, STRICT_CONFIRMATION_VERSION, STRICT_TERMS };
 
 },
 "lib/domain/oath-workspace.js": function (module, exports, __hubRequire) {
@@ -8372,7 +8454,8 @@ function validWorkspace(ref) {
 }
 function sameWorkspace(a, b) { return validWorkspace(a) && validWorkspace(b) && a.type === b.type && a.id === b.id; }
 function taskKey(task) { const ref = task.nativeReference ?? task; return JSON.stringify([ref.authorityId, ref.taskId ?? ref.id]); }
-module.exports = { workspaceRef, validWorkspace, sameWorkspace, taskKey };
+function oathTaskOrder(current) { return new Map((current?.tasks ?? []).map((task,index)=>[taskKey(task),index])); }
+module.exports = { oathTaskOrder, workspaceRef, validWorkspace, sameWorkspace, taskKey };
 
 },
 "lib/domain/oath.js": function (module, exports, __hubRequire) {
@@ -8438,6 +8521,90 @@ function oathDuration(ms) {
     return `${hours} hours${remainder ? ` ${remainder} ${remainder === 1 ? "minute" : "minutes"}` : ""}`;
 }
 module.exports = { isCommitted, validateOath, oathRequirements, oathTime, oathProgress, shortOathTime, fulfilmentLabel, oathDuration, DEFAULT_DURATION_MS, validDuration, normalizeOath, fulfilmentTime };
+
+},
+"lib/domain/plan-lifecycle.js": function (module, exports, __hubRequire) {
+"use strict";
+const {createHash,randomUUID}=require('node:crypto');
+const {clone,normalize:normalizeLegacy,identity}=__hubRequire("lib/domain/global-plan.js");
+const {localISODate}=__hubRequire("lib/domain/dates.js");
+const iso=value=>new Date(value).toISOString();
+function boundary(now=new Date()) {
+ const date=new Date(now);if(!Number.isFinite(date.getTime()))throw Error('Invalid Plan clock.');
+ const end=new Date(date);end.setHours(24,0,0,0);
+ return {createdAt:date.toISOString(),calendarDate:localISODate(date),timeZone:Intl.DateTimeFormat().resolvedOptions().timeZone,endsAt:end.toISOString()};
+}
+function empty(){return {version:2,revision:0,activePlanId:null,plansById:{},legacyReview:'pending',fileOperationCursor:null};}
+function newRecord({now=new Date(),id=randomUUID(),content={note:'',entries:[]},provenance='created'}={}) {
+ return {id,...boundary(now),creationProvenance:provenance,status:'active',touched:false,content:clone(content),navigation:clone(content.entries)};
+}
+function normalize(value) {
+ if(!value)return empty();
+ if(value.version!==2)throw Error('Unsupported Plan lifecycle version. Data has been preserved.');
+ const result=clone(value);
+ if(!Number.isInteger(result.revision)||result.revision<0||!result.plansById||Array.isArray(result.plansById)||typeof result.plansById!=='object')throw Error('Invalid Plan lifecycle data.');
+ let active=0;
+ for(const [id,p]of Object.entries(result.plansById)){
+  if(p.id!==id||!['active','finished','day-ended'].includes(p.status)||!Number.isFinite(Date.parse(p.createdAt))||!Number.isFinite(Date.parse(p.endsAt))||Date.parse(p.endsAt)<=Date.parse(p.createdAt)||!/^\d{4}-\d{2}-\d{2}$/.test(p.calendarDate)||typeof p.timeZone!=='string'||typeof p.touched!=='boolean')throw Error('Invalid Plan record.');
+  new Intl.DateTimeFormat('en',{timeZone:p.timeZone});
+  const c=p.status==='active'?p.content:p.snapshot;
+  if(!c||typeof c.note!=='string'||!Array.isArray(c.entries)||!Array.isArray(p.navigation))throw Error('Invalid Plan content.');
+  const ids=new Set(),keys=new Set();
+  for(const e of c.entries){const key=identity(e);if(!e.id||ids.has(e.id)||keys.has(key))throw Error('Duplicate Plan entry.');ids.add(e.id);keys.add(key);}
+  if(p.navigation.length!==c.entries.length||p.navigation.some(e=>!ids.has(e.id)))throw Error('Invalid Plan navigation bindings.');
+  const navIds=new Set();for(const e of p.navigation){identity(e);if(navIds.has(e.id))throw Error('Duplicate Plan navigation binding.');navIds.add(e.id);}
+  if(p.status==='active'){active++;if(result.activePlanId!==id)throw Error('Conflicting active Plans require review.');}
+  else if(!Number.isFinite(Date.parse(p.endedAt))||!Number.isFinite(Date.parse(p.recordedAt))||!p.transitionId)throw Error('Invalid ended Plan.');
+ }
+ if(active>1||Boolean(result.activePlanId)!==Boolean(active))throw Error('Conflicting active Plans require review.');
+ return result;
+}
+function migrate(value,{now=new Date()}={}) {
+ if(value?.version===2)return normalize(value);
+ const old=normalizeLegacy(value),result=empty();result.revision=old.revision;result.legacyReview=old.legacyReview;result.fileOperationCursor=clone(old.fileOperationCursor);
+ if(old.note.trim()||old.entries.length){const id='legacy-'+createHash('sha256').update(JSON.stringify(old)).digest('hex');const p=newRecord({now,id,content:{note:old.note,entries:old.entries},provenance:'migration-original-start-unknown'});p.touched=true;result.activePlanId=id;result.plansById[id]=p;}
+ return normalize(result);
+}
+function migrateRecovery(record,{now=new Date()}={}) {
+ if(!record)return null;
+ if(record.version===2){normalize(record.desired);return clone(record);}
+ if(record.version!==1)throw Error('Unsupported Plan recovery version.');
+ const base=migrate(record.base,{now}),desired=migrate(record.desired,{now});
+ // The baseline and its edited draft represent one Plan, even though hashing
+ // their different legacy contents independently produces different IDs.
+ const id=base.activePlanId||desired.activePlanId;
+ if(id){
+  const current=desired.activePlanId?desired.plansById[desired.activePlanId]:newRecord({now,id});
+  current.id=id;current.touched=true;desired.plansById={[id]:current};desired.activePlanId=id;
+ }
+ return {version:2,base:clone(record.base??null),desired:normalize(desired),pending:null,deferredInput:null,sequence:record.sequence??0,pendingFile:clone(record.pendingFile??null),legacyInflight:record.inflight??null};
+}
+function create(state,{now=new Date(),id=randomUUID(),entries=[]}={}) {
+ const next=normalize(state);if(next.activePlanId)throw Error('Finish the active Plan before starting another.');
+ const p=newRecord({now,id,content:{note:'',entries}});p.touched=entries.length>0;next.activePlanId=id;next.plansById[id]=p;return normalize(next);
+}
+function end(state,{planId,status='finished',now=new Date(),snapshot,transitionId}={}) {
+ const next=normalize(state),p=next.plansById[planId];
+ if(p&&p.status!=='active'){if(p.transitionId===transitionId)return next;throw Error('This Plan already ended.');}
+ if(!p||next.activePlanId!==planId)throw Error('The active Plan changed.');
+ if(!['finished','day-ended'].includes(status))throw Error('Invalid Plan transition.');
+ if(status==='day-ended'&&Date.parse(iso(now))<Date.parse(p.endsAt))throw Error('The Plan day has not ended.');
+ if(status==='finished'&&Date.parse(iso(now))>=Date.parse(p.endsAt))throw Error('The Plan day ended. Apply rollover first.');
+ next.activePlanId=null;
+ if(status==='day-ended'&&!p.touched&&!p.content.note.trim()&&!p.content.entries.length){delete next.plansById[planId];return normalize(next);}
+ if(!snapshot||snapshot.note!==p.content.note||snapshot.entries.length!==p.content.entries.length||snapshot.entries.some((e,i)=>e.id!==p.content.entries[i].id||identity(e)!==identity(p.content.entries[i])))throw Error('Snapshot does not match the protected Plan draft.');
+ p.status=status;p.endedAt=status==='day-ended'?p.endsAt:iso(now);p.recordedAt=iso(now);p.transitionId=transitionId||planId+':'+status;p.snapshot=clone(snapshot);p.navigation=clone(p.content.entries);delete p.content;
+ return normalize(next);
+}
+function abandon(state,planId){
+ const next=normalize(state),p=next.plansById[planId];
+ if(!p)return next;
+ if(p.status!=='active'||next.activePlanId!==planId)throw Error('The active Plan changed.');
+ if(p.content.entries.length)throw Error('This Plan still contains planned items.');
+ delete next.plansById[planId];next.activePlanId=null;return normalize(next);
+}
+function history(state){return Object.values(state.plansById).filter(p=>p.status!=='active').sort((a,b)=>b.endedAt.localeCompare(a.endedAt)||b.createdAt.localeCompare(a.createdAt)||a.id.localeCompare(b.id));}
+module.exports={boundary,empty,newRecord,normalize,migrate,migrateRecovery,create,end,abandon,history};
 
 },
 "lib/domain/progress.js": function (module, exports, __hubRequire) {
@@ -8577,7 +8744,7 @@ function onDay(record, date) {
 
 // Select by recorded identity, never by today's file location or workspace name.
 function workspaceId(record) {
-    return record.projectId || (record.resourceType ? `resource:${record.resourceType}` : null);
+    return record.reportWorkspaceId || record.projectId || (record.resourceType ? `resource:${record.resourceType}` : null);
 }
 
 function captureReportContext(service, date, id) {
@@ -8596,8 +8763,13 @@ function captureReportContext(service, date, id) {
         })).sort((a, b) => a.timestamp - b.timestamp),
         activity: select(service.activityLog).map(item => ({
             action: item.action, title: item.title, oldTitle: item.oldTitle ?? null,
-            timestamp: item.timestamp
+            ...(item.path ? { path: item.path } : {}), timestamp: item.timestamp
         })).sort((a, b) => b.timestamp - a.timestamp),
+        oaths: [...new Map(Object.values(service.data?.oathsByDevice ?? {}).flatMap(bucket => [...(bucket.history ?? []), bucket.current].filter(Boolean)).filter(oath => {
+            const ref = oath.workspace;
+            const owner = ref?.kind === "resource" || ref?.type === "resource" ? "resource:" + (ref.id ?? ref.resourceType) : ref?.projectId ?? ref?.id;
+            return owner === id && oath.fulfilledAt && localISODate(new Date(oath.fulfilledAt)) === date;
+        }).map(oath => [oath.id, { id: oath.id, fulfilledAt: oath.fulfilledAt }])).values()],
         focus: normalizeFocusItems(service.dailyFocus?.[date])
             .filter(item => item.projectId === id).map(item => item.text)
     };
@@ -8626,13 +8798,32 @@ const activityLabels = {
     "project-created": "projects created", "project-renamed": "projects renamed",
     "project-deleted": "projects deleted"
 };
+function recordedWorkSummary(context) {
+    const tasks = new Set(), steps = new Set();
+    for (const task of context.tasks ?? []) {
+        const key = task.nativeHistory ? JSON.stringify([task.nativeHistory.authorityId, task.nativeHistory.taskId, task.nativeHistory.stepId ?? null]) : task.id ?? JSON.stringify([task.kind, task.text, task.timestamp]);
+        (task.kind === "step" ? steps : tasks).add(key);
+    }
+    const parts = [];
+    const add = (n, singular, plural = singular + "s", suffix = "") => { if (n) parts.push(`${n} ${n === 1 ? singular : plural}${suffix}`); };
+    if (context.tasksAvailability !== "unavailable") { add(tasks.size, "task", "tasks", " completed"); add(steps.size, "step", "steps", " completed"); }
+    else parts.push("Task evidence unavailable");
+    for (const action of ["edited", "created", "renamed", "deleted"]) {
+        const items = (context.activity ?? []).filter(e => e.action === action);
+        if (!items.length) continue;
+        if (items.every(e => e.path)) add(new Set(items.map(e => e.path)).size, "file", "files", " " + action);
+        else add(items.length, action === "edited" ? "edit event" : action + " event");
+    }
+    add(new Set((context.oaths ?? []).map(o => o.id)).size, "Oath", "Oaths", " fulfilled");
+    return parts.join(" \u00b7 ") || "No recorded activity";
+}
 function activitySummary(entries) {
     const counts = new Map();
     for (const entry of entries) counts.set(entry.action, (counts.get(entry.action) ?? 0) + 1);
     return [...counts].map(([action, count]) => `${count} ${activityLabels[action] ?? action}`).join(" · ");
 }
 
-module.exports = { captureReportContext, savedReportContext, reportDay, activitySummary };
+module.exports = { captureReportContext, savedReportContext, reportDay, activitySummary, recordedWorkSummary };
 
 },
 "lib/domain/roadmap-milestones.js": function (module, exports, __hubRequire) {
@@ -10315,7 +10506,7 @@ module.exports={createManagedApplicationStore};
 "lib/services/context-search.js": function (module, exports, __hubRequire) {
 "use strict";
 const { taskWorkspaces } = __hubRequire("lib/services/task-locations.js");
-const { normalize, nameScore, ownerOf, inScope, contextLabel, groupResults } = __hubRequire("lib/domain/context-search.js");
+const { normalize, nameScore, ownerOf, inScope, contextLabel, contextSegments, groupResults } = __hubRequire("lib/domain/context-search.js");
 const { workspaceRef, sameWorkspace } = __hubRequire("lib/domain/workspace.js");
 function taskSearchMessage(error, reveal = false) {
     if (error?.code === "INDEX_UNAVAILABLE")
@@ -10391,10 +10582,11 @@ class ContextSearchService {
                     return [];
                 const folder = Array.isArray(file.children);
                 const aliases = !folder && this.plugin.app.metadataCache.getFileCache?.(file)?.frontmatter?.aliases;
+                const parentPath = file.parent?.path ?? file.path.slice(0, file.path.lastIndexOf("/"));
                 return [{ kind: folder ? "folders" : "files", path: file.path, file, owner,
                         title: folder ? file.name : file.extension?.toLowerCase() === "md" ? file.basename : file.name,
                         aliases: Array.isArray(aliases) ? aliases : typeof aliases === "string" ? [aliases] : [],
-                        context: contextLabel(file.parent?.path ?? file.path.slice(0, file.path.lastIndexOf("/")), owner) }];
+                        context: contextLabel(parentPath, owner), contextSegments: contextSegments(parentPath, owner) }];
             });
         }
         return { workspaces: this.workspaces, files: this.files };
@@ -10823,6 +11015,8 @@ class DailyBriefService {
                 if (!context) return null;
                 if (generation !== this.availabilityGeneration) continue;
                 if (!context.lastWorkDate) return null;
+                context.planRecommendation = await this.plugin.globalPlan?.references.recommendation();
+                const planSignature=JSON.stringify(this.plugin.globalPlan?.readState());
                 let recommendation = await this.provider.getRecommendation(context);
                 if (recommendation?.continuation) {
                     const workspace = context.workspaces.find(item => item.workspaceId === recommendation.target.workspaceId);
@@ -10837,7 +11031,7 @@ class DailyBriefService {
                 }
                 if (generation !== this.availabilityGeneration) continue;
                 const current = () => !this.disposed && this.ready() && !this.oathBlocked() &&
-                    activation === this.trigger.activation && generation === this.availabilityGeneration && dailyBriefDay(this.now()) === context.briefDate;
+                    activation === this.trigger.activation && generation === this.availabilityGeneration && planSignature===JSON.stringify(this.plugin.globalPlan?.readState()) && (!this.plugin.globalPlan?.active() || this.now().getTime()<Date.parse(this.plugin.globalPlan.active().endsAt)) && dailyBriefDay(this.now()) === context.briefDate;
                 if (!current()) return null;
                 const snapshot = dailyBriefSnapshot(context, recommendation);
                 if (await this.persistSnapshot(snapshot, current) === false) return null;
@@ -10878,7 +11072,7 @@ class DailyBriefService {
                 return task && !task.completed && !task.nativeReadOnly && (!target.stepId || task.steps.some(s => s.id === target.stepId && !s.completed)) && !this.plugin.oath.active ? { ...target, task, runtime: r } : null;
             } catch (_) { return null; }
         }
-        let path = this.resolvePath(target.path);
+        let path = target.kind === "file" && target.path && this.app.vault.getAbstractFileByPath(target.path) && !Array.isArray(this.app.vault.getAbstractFileByPath(target.path).children) ? target.path : this.resolvePath(target.path);
         if (!path || !this.plugin.oath.canOpen(path, false)) return null;
         const owner = this.plugin.projectWizard.getContextForPath(path);
         if (!this.eligible(owner)) return null;
@@ -10920,6 +11114,7 @@ class DailyBriefService {
         return this.navigate(null);
     }
     async navigate(requested) {
+        if (requested?.kind === "plan") { this.modal?.close(); __hubRequire("lib/ui/plan.js").openPlan(this.plugin,requested.planId); return true; }
         if (requested?.kind === "configuration") return this.navigateConfiguration(requested);
         let target = await this.validateTarget(requested);
         if (!target) {
@@ -11128,6 +11323,7 @@ class HubDataStore {
         this.lastRevision =
             normalized[HUB_STATE_META_KEY].revision;
         this.lastDiskSignature = stateSignature(data);
+        this.progressBaseline = clonePluginData(normalized);
 
         return normalized;
     }
@@ -11283,9 +11479,19 @@ class HubDataStore {
         }
     }
 
-    save(data) {
+    updateProgress(mutator) {
+        return this.save({}, mutator);
+    }
+
+    updatePlan(mutator) {
+        return this.save({}, null, false, mutator);
+    }
+
+    save(data, progressMutation = null, replaceProgress = false, planMutation = null) {
         refuseManaged(this, data);
         const snapshot = clonePluginData(data);
+        const protectedKeys = ["projectWorkRatings", "projectWorkLogs", "resourceWorkRatings", "resourceWorkLogs", "reportEngagementByDevice", "reportFocusByDate", "pendingFocus"];
+        const baseline = clonePluginData(this.progressBaseline ?? {});
 
         const operation = this.writeQueue
             .catch(() => {})
@@ -11294,12 +11500,43 @@ class HubDataStore {
                 refuseManaged(this, diskData);
                 this.assertDiskRevisionUnchanged(diskData);
 
+                let candidate = snapshot;
+                if (planMutation) {
+                    candidate = clonePluginData(diskData ?? {});
+                    await planMutation(candidate);
+                    for (const key of new Set([...Object.keys(diskData ?? {}), ...Object.keys(candidate)])) {
+                        if (key !== "globalPlan" && JSON.stringify(candidate[key]) !== JSON.stringify(diskData?.[key])) throw new Error("Scoped plan update changed unrelated data.");
+                    }
+                } else if (progressMutation) {
+                    candidate = clonePluginData(diskData ?? {});
+                    await progressMutation(candidate);
+                    for (const key of new Set([...Object.keys(diskData ?? {}), ...Object.keys(candidate)])) {
+                        if (!protectedKeys.includes(key) && JSON.stringify(candidate[key]) !== JSON.stringify(diskData?.[key])) {
+                            throw new Error("Scoped report update changed data outside progress.");
+                        }
+                    }
+                } else if (!replaceProgress) {
+                    if (diskData?.globalPlan === undefined) delete candidate.globalPlan;
+                    else candidate.globalPlan = clonePluginData(diskData.globalPlan);
+                    // Preserve newer scoped commits when an older whole-state save was queued.
+                    for (const key of protectedKeys) {
+                        if (key !== "pendingFocus" || JSON.stringify(snapshot[key]) === JSON.stringify(baseline[key])) {
+                            if (diskData?.[key] === undefined) delete candidate[key];
+                            else candidate[key] = clonePluginData(diskData[key]);
+                        } else if (this.progressBaseline && JSON.stringify(baseline[key]) !== JSON.stringify(diskData?.[key])) {
+                            throw new HubStateConflictError("Focus changed while this update was queued. Retry the action.");
+                        }
+                    }
+                }
+
                 const versioned = this.versionSnapshot(
-                    snapshot,
+                    candidate,
                     diskData
                 );
 
-                const prepared = await this.sharedProjects.prepare(versioned);
+                // Reports mutate private fields on the private disk snapshot. Shared
+                // categories/planning are intentionally absent here; do not re-export them.
+                const prepared = (progressMutation || planMutation) ? null : await this.sharedProjects.prepare(versioned);
                 const local = prepared?.local ?? versioned;
                 await this.atomicWrite(local);
                 try {
@@ -11316,6 +11553,7 @@ class HubDataStore {
                 this.lastRevision =
                     versioned[HUB_STATE_META_KEY].revision;
                 this.lastDiskSignature = stateSignature(local);
+                this.progressBaseline = clonePluginData(versioned);
 
                 return clonePluginData(versioned);
             });
@@ -11461,10 +11699,12 @@ class FileOperations {
  ancestors(w,path,excluded){const rows=[];let p=parent(path);while(p&&inside(p,w.root)){if(!inside(p,excluded))rows.push({path:p,endpoint:this.endpoint(w,p,"folder")});if(p===w.root)break;p=parent(p);}rows.push({path:null,endpoint:{ownerId:this.db.ownerId(w.owner),context:null}});return rows;}
  completion(intent,extra={}){const fallbacks={},destinations={};intent.mappings.forEach((m,i)=>{const candidate=m.ancestors?.find(a=>a.path===null||folder(this.exact(a.path)));fallbacks[i]=candidate?.endpoint??m.fallback;if(intent.kind==="trash")destinations[i]=fallbacks[i];});return{phase:"filesystem-complete",fallbacks,destinations,...extra};}
  async progress(operationId,progress){return this.db.request({action:"progress",operationId,progress});}
+ observePlan(stage,operationId,intent,result){try{const observed=this.plugin.globalPlan?.references?.observe(stage,operationId,intent,result);if(observed?.catch)observed.catch(error=>console.error("Plan file observer failed",error));}catch(error){console.error("Plan file observer failed",error);}}
+ async cancelPlanOperation(operationId){const result=await this.db.request({action:"cancel",operationId});this.observePlan("cancelled",operationId);return result;}
  async execute(kind,from,to=null,options={}){return this.enqueue(async()=>{
   await this.recoverInside();await this.db.refresh?.();const operationId=options.operationId??randomUUID(),requestHash=digest(JSON.stringify([kind,from,to??null,!!options.workspaceRename,!!options.workspaceDelete]));
-  const old=await this.db.receipt(operationId);if(old){if(!old.fileOperation||old.requestHash!==requestHash)fail("Operation identity was reused.","OPERATION_ID_CONFLICT");if(old.cancelled)fail("This operation was cancelled. Start a new operation.","FILE_OPERATION_CANCELLED");if(old.partial)fail("The previous operation completed only partly. Review retained files.","FILE_OPERATION_PARTIAL");return old;}
-  const intent=await this.plan(kind,from,to,options,requestHash);await this.db.request({action:"prepare",operationId,intent});await this.boundary?.("prepared",operationId);
+  const old=await this.db.receipt(operationId);if(old){if(!old.fileOperation||old.requestHash!==requestHash)fail("Operation identity was reused.","OPERATION_ID_CONFLICT");if(old.cancelled)fail("This operation was cancelled. Start a new operation.","FILE_OPERATION_CANCELLED");if(old.partial)fail("The previous operation completed only partly. Review retained files.","FILE_OPERATION_PARTIAL");this.observePlan("committed",operationId,null,old);return old;}
+  const intent=await this.plan(kind,from,to,options,requestHash);await this.db.request({action:"prepare",operationId,intent});this.observePlan("prepared",operationId,intent);await this.boundary?.("prepared",operationId);
   let apiSettled=false;
   try{
    if(!this.exact(from)&&options.captureRecoveryHash&&await this.matches(to,intent.manifest)){
@@ -11499,6 +11739,7 @@ class FileOperations {
   }
  });}
  async afterCommit(result){
+  this.observePlan("committed",result.operationId,null,result);
   try{await this.db.refresh?.();}catch(error){this.plugin.fileOperationNotice?.("Files and native tasks were committed locally, but their views could not refresh: "+error.message);}
   return result;
  }
@@ -11514,9 +11755,9 @@ class FileOperations {
   }
  }
  async recoverInside(){
-  const pending=await this.db.request({action:"list"});if(!pending.length)return[];const p=pending[0],{intent,operationId,progress}=p;
+  const pending=await this.db.request({action:"list"});if(!pending.length)return[];const p=pending[0],{intent,operationId,progress}=p;this.observePlan("prepared",operationId,intent);
   if(progress.phase==="filesystem-complete"){await this.progress(operationId,this.completion(intent));const result=await this.db.request({action:"commit",operationId});await this.afterCommit(result);return[result];}
-  if(progress.phase==="prepared"){return[await this.db.request({action:"cancel",operationId})];}
+  if(progress.phase==="prepared"){return[await this.cancelPlanOperation(operationId)];}
   if(progress.phase==="review")fail(progress.message??"An interrupted file operation needs review.","FILE_OPERATION_UNRESOLVED");
   const source=this.exact(intent.from),destination=intent.to?this.exact(intent.to):null;
   if(intent.kind==="copy"){
@@ -11532,10 +11773,10 @@ class FileOperations {
 
     await this.progress(operationId,this.completion(intent,{...(source?{indices:missing}:{}),partial:!!source}));const result=await this.db.request({action:"commit",operationId});await this.afterCommit(result);if(source)fail("Deletion completed partly. Retained files were preserved; removed locations were reassigned.","FILE_OPERATION_PARTIAL");return[result];
    }
-   if(progress.apiSettled&&await this.matches(intent.from,intent.manifest)){await this.progress(operationId,{phase:"started",cancelSafe:true});return[await this.db.request({action:"cancel",operationId})];}
+   if(progress.apiSettled&&await this.matches(intent.from,intent.manifest)){await this.progress(operationId,{phase:"started",cancelSafe:true});return[await this.cancelPlanOperation(operationId)];}
   }else{
    if(!source&&destination&&await this.matches(intent.to,intent.manifest)){await this.progress(operationId,this.completion(intent));return this.recoverInside();}
-   if(progress.apiSettled&&source&&!destination&&await this.matches(intent.from,intent.manifest)){await this.progress(operationId,{phase:"started",cancelSafe:true});return[await this.db.request({action:"cancel",operationId})];}
+   if(progress.apiSettled&&source&&!destination&&await this.matches(intent.from,intent.manifest)){await this.progress(operationId,{phase:"started",cancelSafe:true});return[await this.cancelPlanOperation(operationId)];}
   }
   const message="Filesystem evidence is ambiguous for "+intent.kind+" "+intent.from+". Files are preserved; affected tasks remain protected. Review the pending operation before continuing.";
   await this.progress(operationId,{phase:"review",message});fail(message,"FILE_OPERATION_UNRESOLVED");
@@ -11547,12 +11788,12 @@ class FileOperations {
   const p=(await this.list())[0];if(!p)return[];
   if(decision==="keep-copy"){
    if(p.intent.kind!=="copy"||p.progress.phase!=="review")fail("Only a reviewed partial copy can be kept this way.");
-   await this.progress(p.operationId,{phase:"review",cancelSafe:true});return[await this.db.request({action:"cancel",operationId:p.operationId})];
+   await this.progress(p.operationId,{phase:"review",cancelSafe:true});return[await this.cancelPlanOperation(p.operationId)];
   }
   if(decision==="keep-source"){
    if(p.progress.phase!=="review")fail("Inspect this operation in recovery before choosing a retained source.");
    if(!["rename","move"].includes(p.intent.kind)||!await this.matches(p.intent.from,p.intent.manifest))fail("The original source evidence does not match. All files remain preserved.");
-   await this.progress(p.operationId,{phase:"review",cancelSafe:true});return[await this.db.request({action:"cancel",operationId:p.operationId})];
+   await this.progress(p.operationId,{phase:"review",cancelSafe:true});return[await this.cancelPlanOperation(p.operationId)];
   }
   if(decision==="use-destination"){
    if(p.progress.phase!=="review")fail("Inspect this operation in recovery before confirming a destination.");
@@ -11587,6 +11828,77 @@ class FileOperations {
  close(){this.stopped=true;return this.tail.catch(()=>{});}
 }
 module.exports={FileOperations,normalize,validPath,stable};
+
+},
+"lib/services/global-plan.js": function (module, exports, __hubRequire) {
+"use strict";
+const {clone,normalize,identity,emptyPlan}=__hubRequire("lib/domain/global-plan.js");
+const lifecycle=__hubRequire("lib/domain/plan-lifecycle.js");
+const {PlanDraft}=__hubRequire("lib/services/plan-draft.js");
+class GlobalPlanService {
+ constructor(plugin,{storage=globalThis.localStorage,vault=plugin.app.vault.adapter.getBasePath(),now=()=>new Date()}={}) {
+  this.plugin=plugin;this.store=plugin.dataStore??plugin.projectWizard.store;this.now=now;this.listeners=new Set();this.sequence=0;this.status="Saved";this.recovery=new PlanDraft(storage,vault);this.nativeOperations=new Set();
+  this.rawBase=clone(plugin.projectWizard.data.globalPlan??null);
+  try{this.state=lifecycle.migrate(this.rawBase,{now:this.now()});}catch(error){this.state=lifecycle.empty();this.readOnly=true;this.error=error;this.status=error.message;}
+  this.baseState=clone(this.state);
+  try{const saved=this.recovery.read();if(saved&&!this.readOnly){
+   const r=lifecycle.migrateRecovery(saved,{now:this.now()});this.sequence=r.sequence;this.pendingFile=r.pendingFile;this.deferredInput=r.deferredInput;
+   if(JSON.stringify(r.desired)===JSON.stringify(this.rawBase)){if(!this.pendingFile&&!this.deferredInput)this.recovery.clear();}
+   else if(JSON.stringify(r.base)===JSON.stringify(this.rawBase)||saved.inflight===JSON.stringify(this.rawBase)){this.state=lifecycle.normalize(r.desired);this.pendingTransition=r.pending;this.protected=true;this.status="Changes kept locally - Retry";}
+   else{this.conflict=r;this.protected=true;this.status="Recovered changes need review";}
+  }}catch(error){this.error=error;this.status=error.message;}
+ }
+ projection(state=this.state){const p=state.plansById[state.activePlanId];return {...clone(p?.content??{entries:[],note:""}),version:1,revision:state.revision,legacyReview:state.legacyReview,fileOperationCursor:clone(state.fileOperationCursor)};}
+ get draft(){return this.projection();}
+ set draft(value){const p=this.state.plansById[this.state.activePlanId];if(p)p.content={note:value.note,entries:clone(value.entries)};}
+ get base(){return this.projection(this.baseState);}
+ read(){return this.projection();}
+ readState(){return clone(this.state);}
+ active(){const state=this.pendingTransition?this.baseState:this.state;return state.plansById[state.activePlanId]??null;}
+ listHistorical(date){return lifecycle.history((this.transitioning||this.pendingTransition)?this.baseState:this.state).filter(p=>!date||p.calendarDate===date);}
+ readPlan(id){return clone(((this.transitioning||this.pendingTransition)?this.baseState:this.state).plansById[id]??null);}
+ selected(date){const state=(this.transitioning||this.pendingTransition)?this.baseState:this.state,p=state.plansById[state.activePlanId];return p&&(!date||p.calendarDate===date)?clone(p):this.listHistorical(date)[0]??null;}
+ bind(id){const service=this;return {get draft(){const p=service.readPlan(id);return p?.content??p?.snapshot??{note:"",entries:[]};},get status(){return service.status;},get busy(){return !!(service.transitioning||service.pendingTransition||service.conflict||service.readOnly);},assertEditable:()=>service.assertEditable(id),subscribe:(c,f)=>service.subscribe(c,f),references:{resolve:()=>service.resolvePlan(id),open:i=>service.references.open(i),workspace:r=>service.references.workspace(r),tasks:service.references.tasks},trackNative:p=>service.trackNative(p),move:(entry,to)=>{service.assertEditable(id);service.move(entry,to);},remove:entry=>{service.assertEditable(id);service.remove(entry);}};}
+ assertEditable(id=this.state.activePlanId){if(this.restoring)throw Error("Plan is restarting after backup restoration.");if(this.readOnly)throw this.error;if(this.conflict)throw Error("Resolve the recovered Plan first.");if(this.transitioning||this.pendingTransition)throw Error("Resolve the pending Plan transition first.");const p=this.active();if(!p||p.id!==id)throw Error("The original Plan is no longer active.");if(this.now().getTime()>=Date.parse(p.endsAt)){void this.ensureLifecycle().catch(()=>{});throw Error("The Plan day ended. Your text has been preserved.");}}
+ async resolvePlan(id){const p=this.readPlan(id);if(!p)return [];if(p.status==='active')return this.references.resolve(p.content.entries);const live=await this.references.resolve(p.navigation);return p.snapshot.entries.map((e,i)=>({...live[i],entry:clone(p.navigation[i]),label:e.label??e.lastKnownLabel,historical:true,planId:p.id,snapshot:clone(e),task:e.kind==='task'?{text:e.label??e.lastKnownLabel,completed:e.taskState==='completed',nativeReadOnly:true,nativeLocationDisplay:{available:true,workspaceName:e.route??'',segments:[]}}:null}));}
+ async capture(p,{status,observedAt}){let items=[];try{items=await this.references.resolve(p.content.entries);}catch{}return {note:p.content.note,entries:p.content.entries.map((e,i)=>{const item=items[i],route=item?.task?.nativeLocationDisplay;const source=this.references.workspace?.(e.reference.sourceWorkspace);return {...clone(e),label:item?.label??e.lastKnownLabel??'Unavailable reference',route:route?[route.workspaceName,...(route.segments??[])].filter(Boolean).join(' / '):e.kind==='workspace'?(e.reference.type==='resource'?'Resource':'Project'):[source?.name??source?.label??'Vault',...e.reference.path?.split('/').slice(0,-1)??[]].join(' / '),taskState:e.kind==='task'?(status==='finished'&&item?.availability==='current'&&item.task?(item.task.completed?'completed':'incomplete'):'unknown'):undefined,observedAt};})};}
+ trackNative(promise){this.nativeOperations.add(promise);promise.finally(()=>this.nativeOperations.delete(promise)).catch(()=>{});return promise;}
+ async createPlan(entries=[]){await this.ensureLifecycle();if(this.active())return this.active().id;return this.transition(async()=>{this.state=lifecycle.create(this.state,{now:this.now(),entries});this.pendingTransition={kind:"create",planId:this.state.activePlanId};this.sequence++;this.checkpoint();await this.flush();this.pendingTransition=null;this.finishedPreviewPlanId=null;return this.state.activePlanId;});}
+ async transition(work){if(this.transitioning)throw Error('A Plan transition is already in progress.');if(this.readOnly)throw this.error;if(this.conflict)throw Error('Resolve the recovered Plan first.');this.transitioning=true;this.emit();try{return await work();}catch(error){this.error=error;this.status=error.message;throw error;}finally{this.transitioning=false;this.emit();this.schedule();}}
+ async endPlan(id,status){if(this.pendingTransition)return this.transition(async()=>{await this.flush();this.pendingTransition=null;});return this.transition(async()=>{await this.flush();await Promise.all([...this.nativeOperations]);const p=this.active();if(!p||p.id!==id)throw Error('The active Plan changed.');let now=this.now();if(now.getTime()>=Date.parse(p.endsAt))status='day-ended';let snapshot=await this.capture(p,{status,observedAt:now.toISOString()});now=this.now();if(status==='finished'&&now.getTime()>=Date.parse(p.endsAt)){status='day-ended';snapshot=await this.capture(p,{status,observedAt:now.toISOString()});}this.state=lifecycle.end(this.state,{planId:id,status,now,snapshot,transitionId:id+':'+status});this.pendingTransition={planId:id,kind:status};this.undoAction=null;this.sequence++;this.checkpoint();await this.flush();this.pendingTransition=null;});}
+ async finishPlan(id){this.requestedFinishId=id;await this.endPlan(id,'finished');if(this.readPlan(id)?.status==='finished'){this.finishedPreviewPlanId=id;this.emit();}}
+ async abandonEmptyPlan(id){
+  if(this.pendingTransition?.kind==='abandon'){if(this.pendingTransition.planId!==id)throw Error('The active Plan changed.');return this.endPlan(id,'abandon');}
+  return this.transition(async()=>{
+   await this.flush();await Promise.all([...this.nativeOperations]);
+   const p=this.state.plansById[id];if(!p||p.status!=='active')return;
+   this.state=lifecycle.abandon(this.state,id);this.pendingTransition={kind:'abandon',planId:id};this.undoAction=null;this.sequence++;this.checkpoint();await this.flush();this.pendingTransition=null;
+  });
+ }
+ async ensureLifecycle(){if(this.transitioning)return;if(this.pendingTransition){await this.endPlan(this.pendingTransition.planId,this.pendingTransition.kind);if(this.requestedFinishId&&this.readPlan(this.requestedFinishId)?.status==='finished'){this.finishedPreviewPlanId=this.requestedFinishId;this.emit();}return;}const p=this.active();if(p&&this.now().getTime()>=Date.parse(p.endsAt))await this.endPlan(p.id,'day-ended');}
+ schedule(){clearTimeout(this.dayTimer);if(this.disposed)return;const p=this.active();if(p&&!this.error)this.dayTimer=setTimeout(()=>void this.ensureLifecycle().catch(()=>{}),Math.min(2147483647,Math.max(1,Date.parse(p.endsAt)-this.now().getTime())));this.dayTimer?.unref?.();}
+ start(){const resume=()=>void this.ensureLifecycle().then(()=>this.schedule()).catch(e=>{this.error=e;this.status=e.message;this.emit();});globalThis.document?.addEventListener('visibilitychange',resume);globalThis.window?.addEventListener('focus',resume);this.plugin.register(()=>{this.disposed=true;clearTimeout(this.dayTimer);globalThis.document?.removeEventListener('visibilitychange',resume);globalThis.window?.removeEventListener('focus',resume);});resume();}
+ dismissHomePlan(id){if(this.finishedPreviewPlanId===id)this.finishedPreviewPlanId=null;this.emit();}
+ subscribe(component,fn){this.listeners.add(fn);const stop=()=>this.listeners.delete(fn);component?.register(stop);return stop;}
+ emit(){for(const fn of [...this.listeners])try{fn();}catch(error){console.error(error);}}
+ checkpoint(){if(this.restoring)return true;try{this.recovery.put({version:2,base:this.rawBase,desired:this.state,sequence:this.sequence,inflight:this.inflight,pendingFile:this.pendingFile,pending:this.pendingTransition,deferredInput:this.deferredInput});this.protected=true;return true;}catch(error){this.protected=false;this.error=error;return false;}}
+ mutate(change,{note=false,undo=null,system=false}={}){if(!system)this.assertEditable();else if(this.readOnly||this.conflict||this.restoring)throw this.error??Error('Plan recovery needs review.');const next=this.read();change(next);normalize(next);const p=this.active();if(p){p.content={note:next.note,entries:clone(next.entries)};p.navigation=clone(next.entries);if(!system)p.touched=true;}this.state.fileOperationCursor=next.fileOperationCursor;this.state.legacyReview=next.legacyReview;lifecycle.normalize(this.state);this.sequence++;if(undo)this.undoAction=undo;this.checkpoint();this.status="Saving...";this.emit();clearTimeout(this.timer);if(note&&this.protected)this.timer=setTimeout(()=>void this.flush().catch(()=>{}),500);else void this.flush().catch(()=>{});}
+ referenceEntries(){return Object.values(this.state.plansById).flatMap(p=>p.status==='active'?p.content.entries:p.navigation);}
+ mutateReferences(change){if(this.readOnly||this.conflict||this.restoring)throw Error('Plan recovery needs review.');const state=clone(this.state),entries=Object.values(state.plansById).flatMap(p=>p.status==='active'?p.content.entries:p.navigation),projection={entries,fileOperationCursor:state.fileOperationCursor};change(projection);state.fileOperationCursor=projection.fileOperationCursor;for(const p of Object.values(state.plansById))if(p.status==='active')p.navigation=clone(p.content.entries);lifecycle.normalize(state);this.state=state;this.sequence++;this.checkpoint();void this.flush().catch(()=>{});}
+ setNote(text,id=this.state.activePlanId){try{this.assertEditable(id);this.mutate(p=>p.note=text,{note:true});}catch(error){this.deferredInput={planId:id,text,observedAt:this.now().toISOString()};this.checkpoint();throw error;}}
+ add(entries){const added=[];this.mutate(p=>{const keys=new Set(p.entries.map(identity));for(const entry of entries)if(!keys.has(identity(entry))){keys.add(identity(entry));p.entries.push(clone(entry));added.push(entry.id);}},{undo:p=>p.entries=p.entries.filter(e=>!added.includes(e.id))});return added.length;}
+ remove(id){const i=this.draft.entries.findIndex(e=>e.id===id),entry=this.draft.entries[i];if(!entry)return;const after=this.draft.entries[i+1]?.id;this.mutate(p=>p.entries=p.entries.filter(e=>e.id!==id),{undo:p=>{if(!p.entries.some(e=>identity(e)===identity(entry)))p.entries.splice(after?Math.max(0,p.entries.findIndex(e=>e.id===after)):p.entries.length,0,clone(entry));}});}
+ move(id,to){const before=this.draft.entries.map(e=>e.id);this.mutate(p=>{const i=p.entries.findIndex(e=>e.id===id);if(i<0)return;const [entry]=p.entries.splice(i,1);p.entries.splice(Math.max(0,Math.min(to,p.entries.length)),0,entry);},{undo:p=>{p.entries.sort((a,b)=>{const ai=before.indexOf(a.id),bi=before.indexOf(b.id);return (ai<0?Infinity:ai)-(bi<0?Infinity:bi);});}});}
+ undo(){const action=this.undoAction;this.undoAction=null;if(action)this.mutate(action);}
+ async flush(){if(this.restoring)return;if(this.readOnly)throw this.error;clearTimeout(this.timer);if(this.conflict)throw Error('Resolve the recovered Plan first.');if(this.saving){await this.saving;return this.flush();}if(JSON.stringify(this.state)===JSON.stringify(this.rawBase))return;
+ const target=clone(this.state),seq=this.sequence;target.revision=this.baseState.revision+1;this.inflight=JSON.stringify(target);this.checkpoint();
+ this.saving=this.store.updatePlan(data=>{if(JSON.stringify(data.globalPlan??null)!==JSON.stringify(this.rawBase))throw Object.assign(Error('Plan changed on disk. Reload to review your recovered draft.'),{code:'PLAN_CONFLICT'});data.globalPlan=target;}).then(data=>{this.error=null;this.rawBase=clone(data.globalPlan);this.baseState=lifecycle.normalize(data.globalPlan);this.plugin.projectWizard.data.globalPlan=clone(this.baseState);this.state.revision=this.baseState.revision;this.inflight=null;if(seq===this.sequence&&!this.pendingFile&&!this.deferredInput){try{this.recovery.clear();this.protected=true;}catch(error){this.error=error;}this.status='Saved';}else{this.checkpoint();this.status='Saving...';}}).catch(error=>{this.error=error;this.status=this.checkpoint()?'Changes kept locally - Retry':'Could not protect these changes';throw error;}).finally(()=>{this.saving=null;this.emit();});await this.saving;if(seq!==this.sequence)return this.flush();
+ }
+ async resolveConflict(restore){const recovered=this.conflict;if(!recovered)return;if(restore){const desired=lifecycle.normalize(recovered.desired);if(desired.activePlanId&&this.baseState.activePlanId&&desired.activePlanId!==this.baseState.activePlanId)throw Error('Competing active Plans require Audit Hub data review; both drafts are preserved.');for(const [id,p]of Object.entries(this.baseState.plansById)){const other=desired.plansById[id];if(!other){if(p.status==='active')throw Error('Resolve competing Plan drafts in Audit Hub data.');desired.plansById[id]=clone(p);}else if(p.status!=='active'&&JSON.stringify(p)!==JSON.stringify(other))throw Error('Historical Plan versions conflict. Both copies need Audit Hub data review.');}this.state=lifecycle.normalize(desired);this.sequence++;}else this.state=clone(this.baseState);this.conflict=null;this.checkpoint();await this.flush();}
+ async closeSafe(){if(this.readOnly)return true;try{await this.flush();return true;}catch{return this.protected;}}
+ async directAdd(entries){try{await this.ensureLifecycle();if(entries.some(e=>e.kind==="file"))await this.references.audit();if(!this.active())await this.createPlan(entries);else {const count=this.add(entries);await this.flush();}const count=entries.length;const {Notice}=require("obsidian");const notice=new Notice(count?`${count} added to plan` : "Already in plan");if(count&&notice.noticeEl){const button=notice.noticeEl.createEl("button",{text:"Undo"});button.onclick=()=>this.undo();}}catch{new(require("obsidian").Notice)(this.status);}}
+}
+module.exports={GlobalPlanService};
 
 },
 "lib/services/home-covers.js": function (module, exports, __hubRequire) {
@@ -12497,6 +12809,9 @@ class HubInboxService {
         if (isQuick) this.draftSession = this.newQuickDraft(capture.source);
         else if (quick) this.draftSession = remap(quick);
         await this.releaseAttachments(capture.attachments);
+        if (["note", "note-insertion", "files"].includes(capture.operation?.kind)) {
+            this.plugin.reportEligibility?.observe(capture.operation.workspaceId, "files");
+        }
     }
     createNote(values, captureId) { return this.enqueue(() => {
         this.assertBulkAccess(captureId, values.bulkBatchId);
@@ -13781,8 +14096,8 @@ module.exports = { OathNavigationGuard };
 const { randomUUID } = require("crypto");
 const { applications, validPolicy, classifyWindows } = __hubRequire("lib/domain/oath-strict.js");
 class StrictOathCoordinator {
-    constructor({ enabled = false, host = null, observer = null, now = Date.now, verifyExecutable = null } = {}) {
-        this.enabled = enabled; this.host = host; this.observer = observer; this.now = now;
+    constructor({ enabled = false, host = null, observer = null, now = Date.now, verifyExecutable = null, createReminder = null } = {}) {
+        this.createReminder = createReminder; this.enabled = enabled; this.host = host; this.observer = observer; this.now = now;
         this.sessionId = randomUUID(); this.current = null; this.lastFocus = -Infinity; this.generation = 0;
         this.verifyExecutable = verifyExecutable ?? (async value => {
             const fs = require("fs").promises;
@@ -13796,7 +14111,9 @@ class StrictOathCoordinator {
     setColors(payload) { this.host?.setColors?.(payload); }
     onHealth(listener) { this.listener = listener; }
     configureEnabled(value) { this.enabled = !!value; }
-    update(health) { this.health = health; try { this.host?.updateDock?.(health); } catch (_) {} try { this.listener?.(health); } catch (_) {} }
+    update(health) {
+        if (this.current?.policy.confirmationVersion === 4 && this.reminderUnavailable) health = { ...health, reminder: "unavailable", status: "degraded", warnings: [...(health.warnings ?? []).filter(w => !w.startsWith("The Oath Reminder is unavailable")), "The Oath Reminder is unavailable. Your Oath remains active."] };
+        this.health = health; try { this.host?.updateDock?.(health); } catch (_) {} try { this.listener?.(health); } catch (_) {} }
     async retryRestoration() {
         if (this.current) throw Error("An active Strict Oath still owns this window.");
         await this.release();
@@ -13835,50 +14152,103 @@ class StrictOathCoordinator {
         if (!preflight.ready) return { ready: false, preflight };
         try {
             if (generation !== this.generation) throw Error("Strict preparation was released.");
+            if (oath.policy.confirmationVersion === 4) {
+                this.reminderUnavailable = false;
+                if (!this.createReminder) throw Error("Oath Reminder is unavailable in this host.");
+                this.reminder = await this.createReminder(oath.policy);
+                if (generation !== this.generation) throw Error("Strict preparation was released.");
+            }
             await this.host.enter();
             // Close the gap between the preflight and native preparation.
             const recheck = classifyWindows(await this.observer.listWindows(), oath.policy, this.host.identity);
             if (generation !== this.generation) throw Error("Strict preparation was released.");
-            if (recheck.blockers.length) { await this.host.release(); return { ready: false, preflight: { ...recheck, ready: false } }; }
+            if (recheck.blockers.length) { this.reminder?.dispose(); this.reminder = null; await this.host.release(); return { ready: false, preflight: { ...recheck, ready: false } }; }
             this.current = JSON.parse(JSON.stringify(oath)); this.committed = false; this.seen = new Set();
+            this.monitor = {
+                baseline: this.applicationPaths(recheck), previous: new Set(), handled: new Set(),
+                attempts: 0, lastAttempt: -Infinity, lastEvent: null
+            };
             await this.host.openDock?.(oath.policy, { launch: executable => this.launch(executable), focus: () => this.host.focus() });
             if (generation !== this.generation) throw Error("Strict preparation was released.");
-            this.update({ status: "prepared", warnings: recheck.warnings });
+            this.update({ ...recheck, status: "prepared" });
             return { ready: true, sessionId: this.sessionId };
-        } catch (error) { this.current = null; await this.host.release(); throw error; }
+        } catch (error) { this.reminder?.dispose(); this.reminder = null; this.current = null; this.monitor = null; await this.host.release(); throw error; }
     }
     commit(id) {
         if (this.current?.id !== id) throw Error("Strict preparation lost.");
         this.committed = true;
-        this.update({ status: "best-effort", warnings: this.health.warnings });
+        if (this.current.fulfilledAt == null) this.reminder?.start();
+        else this.fulfill(id);
+        this.update({ ...this.health, status: this.health.unknown?.length || this.health.uncertain?.length || this.health.coverageLimited ? "degraded" : "best-effort" });
         this.schedule();
+    }
+    fulfill(id) {
+        if (this.current?.id !== id) return;
+        this.reminder?.dispose(); this.reminder = null;
     }
     schedule() {
         clearTimeout(this.timer);
         if (this.current) { this.timer = setTimeout(() => void this.poll(), 5000); this.timer.unref?.(); }
     }
+    applicationPaths(result) {
+        return new Set([...result.candidates, ...result.uncertain].map(item => item.executable));
+    }
+    monitorApplications(result) {
+        const monitor = this.monitor;
+        const paths = this.applicationPaths(result);
+        const eligible = [...paths].filter(executable =>
+            !monitor.baseline.has(executable) && !monitor.handled.has(executable) && monitor.previous.has(executable));
+        monitor.previous = paths;
+        if (!eligible.length) return;
+        for (const executable of eligible) monitor.handled.add(executable);
+        const now = this.now();
+        let outcome = "attempted";
+        if (monitor.attempts >= 3) outcome = "budget-exhausted";
+        else if (now - monitor.lastAttempt < 60000) outcome = "cooldown";
+        monitor.lastEvent = { observedAt: now, applications: eligible, outcome };
+        if (outcome !== "attempted") return;
+        monitor.attempts++;
+        monitor.lastAttempt = now;
+        try { this.host.focus(); }
+        catch { monitor.lastEvent.outcome = "focus-error"; }
+    }
+    monitoringStatus() {
+        const monitor = this.monitor;
+        return { attempts: monitor.attempts, limit: 3, lastEvent: monitor.lastEvent };
+    }
     async poll() {
-        if (!this.current || this.polling) return;
+        if (!this.current || !this.committed || this.polling) return;
         this.polling = true; const current = this.current;
         try {
             await this.host.maintain?.();
             if (this.current !== current) return;
             const result = classifyWindows(await this.observer.listWindows(), current.policy, this.host.identity);
             if (this.current !== current) return;
-            const keys = new Set(result.blockers.map(item => `${item.pid}:${item.executable}`));
-            const newlyDetected = [...keys].some(key => !this.seen.has(key)); this.seen = keys;
+            const bounded = current.policy.confirmationVersion === 3;
+            let newlyDetected = false;
+            if (bounded) this.monitorApplications(result);
+            else if (current.policy.confirmationVersion < 4) {
+                const keys = new Set(result.blockers.map(item => `${item.pid}:${item.executable}`));
+                newlyDetected = [...keys].some(key => !this.seen.has(key));
+                this.seen = keys;
+            }
             const hostHealthy = this.host.healthy?.() ?? true;
-            this.update({ status: result.blockers.length || result.unknown.length || !hostHealthy ? "degraded" : "best-effort",
+            this.update({ ...result, ...(bounded ? { monitoring: this.monitoringStatus() } : {}), status: result.blockers.length || result.unknown.length || result.uncertain.length || result.coverageLimited || !hostHealthy ? "degraded" : "best-effort",
                 warnings: [...result.warnings, ...(!hostHealthy ? ["Fullscreen or the Oath dock could not be maintained. Your Oath remains active."] : []),
-                    ...(result.blockers.length ? ["An unpermitted application is open. Return to your work when ready."] : [])] });
+                    ...(result.blockers.length ? ["A possible non-permitted application was detected. Its switchability is unverified. Return to your work when ready."] : [])] });
             // This is a nudge for a newly detected app, not a claim about foreground.
             if (newlyDetected && this.now() - this.lastFocus >= 15000) { this.lastFocus = this.now(); this.host.focus(); }
-        } catch (error) { if (this.current === current) this.update({ status: "degraded", warnings: [error.message] }); }
+        } catch (error) {
+            if (this.current === current) {
+                if (this.monitor) this.monitor.previous.clear();
+                this.update({ ...this.health, status: "degraded", warnings: [error.message] });
+            }
+        }
         finally { this.polling = false; this.schedule(); }
     }
     async release(id) {
         if (this.current && this.current.id !== id) throw Error("Strict session mismatch.");
-        this.generation++; this.current = null; this.committed = false; clearTimeout(this.timer); this.observer?.cancel?.();
+        this.generation++; this.reminder?.dispose(); this.reminder = null; this.current = null; this.committed = false; this.monitor = null; this.seen = null; clearTimeout(this.timer); this.observer?.cancel?.();
         try { await this.host?.release(); this.update({ status: "idle", warnings: [] }); }
         catch (error) { this.update({ status: "recovery-required", warnings: [error.message, "Window guards are released. Retry restoration in Settings → The Oath."] }); throw error; }
     }
@@ -13910,7 +14280,7 @@ class HubOathService {
         this.strict = options.strict ?? new StrictOathCoordinator();
         if (typeof this.bucket.strictEnabled === "boolean") this.strict.configureEnabled(this.bucket.strictEnabled || this.isStrict && this.committed);
         this.strictReviews = new Map(); this.strictStatus = this.strict.health ?? { status: "idle", warnings: [] };
-        this.strict.onHealth(health => { this.strictStatus = health; this.emit(); });
+        this.strict.onHealth(health => { this.strictStatus = health; this.emit(); if (health.developmentRecoveryReleased) void this.refresh(); });
     }
     get bucket() { return this.plugin.projectWizard.data.oathsByDevice?.[this.deviceId] ?? { current: null, history: [] }; }
     get current() { return normalizeOath(this.bucket.current); }
@@ -13944,7 +14314,7 @@ class HubOathService {
     }
     strictSignature(draft) {
         return JSON.stringify([draft.mode, draft.start, draft.scheduledAt, draft.durationMs, draft.workspace,
-            draft.tasks?.map(taskKey), draft.applications ?? null]);
+            draft.tasks?.map(taskKey), draft.applications ?? null, draft.applicationCheckMode ?? "automatic", draft.manualApplicationReviewAcknowledged === true]);
     }
     async reviewStrict(draft) {
         this.validateDraft(draft);
@@ -14145,7 +14515,9 @@ class HubOathService {
         if (!this.active || this.current.fulfilledAt != null || this.pendingFulfilment?.id !== this.current.id) return false;
         // Retain the latch if saving fails, even if a task is subsequently unchecked.
         await this.persist({ ...this.current, fulfilledAt: this.pendingFulfilment.at });
+        this.plugin.reportEligibility?.observe(this.workspace, "oath-fulfilled");
         this.pendingFulfilment = null;
+        if (this.isStrict) this.strict.fulfill?.(this.current.id);
         this.emit(); return true;
     }
     async activate() {
@@ -14157,6 +14529,7 @@ class HubOathService {
             if (!this.resolveWorkspace(this.current.workspace)) { await this.invalidateWorkspace(); return false; }
             await this.persist({ ...this.current, state: "active", startedAt: this.now(), fullscreenOwned: owned });
         } catch (error) { await this.fullscreen.exit(); throw error; }
+        this.plugin.reportEligibility?.observe(this.workspace, "oath-started");
         await this.enterWorkspace();
         this.emit();
     }
@@ -14175,7 +14548,7 @@ class HubOathService {
                 const preflight = await this.strict.preflight(policy);
                 if (draft.start !== "scheduled" && !preflight.ready) {
                     this.strictStatus = { ...preflight, status: "waiting" }; this.emit();
-                    throw Error(preflight.blockers.length ? "Close the detected unpermitted applications and retry." : preflight.warnings.join(" "));
+                    throw Error(preflight.blockers.length ? "Resolve the possible non-permitted applications or confirm manual review, then retry." : preflight.warnings.join(" "));
                 }
             }
             if (!this.ready(draft.workspace)) throw Error("Wait for native tasks to finish loading.");
@@ -14260,11 +14633,12 @@ class HubOathService {
             await this.strict.release(oath.id);
             this.strictStatus = { status: "waiting", warnings: [error.message] }; this.emit(); throw error;
         }
+        this.plugin.reportEligibility?.observe(this.workspace, "oath-started");
         await this.enterWorkspace(); this.emit(); return true;
     }
     async recoverStrict() {
         const oath = this.current;
-        if (this.strict.owns(oath.id, oath.strictSessionId)) { this.strictStatus = this.strict.health; return; }
+        if (this.strict.owns(oath.id, oath.strictSessionId)) { this.strictStatus = this.strict.health; if (oath.fulfilledAt != null) this.strict.fulfill?.(oath.id); return; }
         // Detect process interruption; never re-enter lockdown on startup.
         const record = { ...oath, state: "interrupted", completedAt: oath.lastObservedAt ?? oath.startedAt ?? this.now(), interruptionDetectedAt: this.now(), interruptionTimeUnknown: true,
             interruptionReason: "strict-host-session-unavailable", fullscreenOwned: false };
@@ -14348,6 +14722,53 @@ class PhaseTaskRead {
     }
 }
 module.exports = { PhaseTaskRead, taskKey };
+
+},
+"lib/services/plan-draft.js": function (module, exports, __hubRequire) {
+"use strict";
+const {clone}=__hubRequire("lib/domain/global-plan.js");
+class PlanDraft {
+ constructor(storage,vault){this.storage=storage;this.key="itacan-plan-draft:"+vault;}
+ read(){const text=this.storage.getItem(this.key);return text?JSON.parse(text):null;}
+ put(record){this.storage.setItem(this.key,JSON.stringify(clone(record)));}
+ clear(){this.storage.removeItem(this.key);}
+}
+module.exports={PlanDraft};
+
+},
+"lib/services/plan-references.js": function (module, exports, __hubRequire) {
+"use strict";
+const {entryFor,refOf,clone}=__hubRequire("lib/domain/global-plan.js");
+const same=(a,b)=>a?.type===b?.type&&a?.id===b?.id;
+class PlanReferences {
+ constructor(plugin,plan){this.plugin=plugin;this.plan=plan;this.known=new Map();this.verified=false;this.tasks=plugin.nativeTaskHost.nativeTasks.createReferenceRead({component:plugin,changed:()=>plan.emit()});
+  if(plugin.app.vault.on){for(const event of ["rename","delete"])plugin.registerEvent(plugin.app.vault.on(event,(file,oldPath)=>{
+   try{const from=event==="rename"?oldPath:file.path;if(!from)return;const coordinated=[...this.known.values()].some(i=>from===i.from||from.startsWith(i.from+"/"));if(coordinated)return;const affected=plan.referenceEntries().some(e=>e.kind==="file"&&(e.reference.path===from||e.reference.path.startsWith(from+"/")));if(!affected)return;plan.mutateReferences(p=>{for(const e of p.entries){if(e.kind!=="file"||e.unavailableReason)continue;const path=e.reference.path;if(path!==from&&!path.startsWith(from+"/"))continue;if(event==="delete")e.unavailableReason="deleted";else{e.reference.path=file.path+path.slice(from.length);const source=plugin.projectWizard.getContextForPath(e.reference.path);e.reference.sourceWorkspace=source?refOf(source):null;}}});}catch(error){console.error("Plan external file event",error);}
+  }));}
+}
+ workspaces(){return [...this.plugin.projectWizard.getProjectRecords(),...this.plugin.projectWizard.getResourceTypes()];}
+ workspace(ref){return this.workspaces().find(w=>same(refOf(w),ref));}
+ taskEntry(task){return entryFor("task",{authorityId:task.nativeReference.authorityId,taskId:task.id,ownerHint:task.owner},{lastKnownLabel:task.text});}
+ fileEntry(file,context){const source=this.plugin.projectWizard.getContextForPath(file.path);return entryFor("file",{path:file.path,sourceWorkspace:source?refOf(source):null},{intendedContext:context??(source?refOf(source):undefined),lastKnownLabel:file.name});}
+ workspaceEntry(w){return entryFor("workspace",refOf(w),{lastKnownLabel:w.name??w.label});}
+ observe(stage,operationId,intent,result){try{if(stage==="prepared"){const saved=this.plan.pendingFile?.operationId===operationId?this.plan.pendingFile.intent:null;const tracked=saved??{...clone(intent),planBindings:this.plan.referenceEntries().filter(e=>e.kind==="file"&&(e.reference.path===intent.from||e.reference.path.startsWith(intent.from+"/"))).map(e=>({id:e.id,path:e.reference.path}))};this.known.set(operationId,tracked);this.plan.pendingFile={operationId,intent:tracked};this.plan.checkpoint();}else if(stage==="cancelled"){this.known.delete(operationId);if(this.plan.pendingFile?.operationId===operationId){this.plan.pendingFile=null;this.plan.checkpoint();}}else{if(intent&&!this.known.has(operationId))this.known.set(operationId,clone(intent));void this.audit().catch(error=>{this.verified=false;console.error("Plan reference audit",error);this.plan.emit();});}}catch(error){console.error("Plan observer",error);}}
+ async audit(){if(this.auditing)return this.auditing;this.auditing=this.auditInside().catch(error=>{this.verified=false;this.plan.emit();throw error;}).finally(()=>{this.auditing=null;});return this.auditing;}
+ async auditInside(){const authority=this.plugin.nativeTaskHost.runtime(this.plugin.nativeTaskHost.nativeTasks.owners[0]).info().authority.authorityId;let cursor=this.plan.draft.fileOperationCursor;const wrong=cursor&&cursor.authorityId!==authority;
+  let page=await this.plugin.nativeTaskHost.files.request({action:"receiptsSince",cursor:wrong?null:cursor});
+  if(!cursor&&(!this.plan.referenceEntries().some(e=>e.kind==="file")||page.head.sequence===0)){this.plan.mutateReferences(p=>p.fileOperationCursor={...page.head,authorityId:authority});this.pending=page.pending;this.verified=true;this.plan.emit();return;}
+  if(wrong||!page.valid||!cursor){this.plan.mutateReferences(p=>{for(const e of p.entries)if(e.kind==="file")e.unavailableReason="unresolved";p.fileOperationCursor={...page.head,authorityId:authority};});this.pending=page.pending;this.verified=true;this.plan.emit();return;}
+  do{for(const receipt of page.receipts){const intent=this.known.get(receipt.operationId)??(this.plan.pendingFile?.operationId===receipt.operationId?this.plan.pendingFile.intent:null);
+    this.plan.mutateReferences(p=>{if(receipt.fileOperation&&receipt.kind!=="copy")for(const e of p.entries){if(e.kind!=="file")continue;if(!intent){e.unavailableReason="unresolved";continue;}const old=e.reference.path;if(intent.planBindings&&!intent.planBindings.some(b=>b.id===e.id&&b.path===old))continue;if(old!==intent.from&&!old.startsWith(intent.from+"/"))continue;if(receipt.kind==="trash"){if(!this.plugin.app.vault.getAbstractFileByPath(old))e.unavailableReason="deleted";}else if(!receipt.partial){e.reference.path=intent.to+old.slice(intent.from.length);const owner=this.plugin.projectWizard.getContextForPath(e.reference.path);e.reference.sourceWorkspace=owner?refOf(owner):null;}}p.fileOperationCursor={authorityId:authority,operationId:receipt.operationId,sequence:receipt.sequence};});
+    this.known.delete(receipt.operationId);if(this.plan.pendingFile?.operationId===receipt.operationId)this.plan.pendingFile=null;
+   }if(!page.more)break;page=await this.plugin.nativeTaskHost.files.request({action:"receiptsSince",cursor:this.plan.draft.fileOperationCursor});}while(true);
+  this.pending=page.pending;this.verified=true;this.plan.checkpoint();this.plan.emit();
+ }
+ async resolve(entries=this.plan.draft.entries){const taskEntries=entries.filter(e=>e.kind==="task"),tasks=await this.tasks.read(taskEntries.map(e=>e.reference)).catch(()=>taskEntries.map(()=>({availability:"unavailable"})));let ti=0;return entries.map(entry=>{if(entry.kind==="task"){const result=tasks[ti++];return {entry,...result,label:result.task?.text??entry.lastKnownLabel,context:this.workspace(result.task?.owner??entry.reference.ownerHint)};}if(entry.kind==="workspace"){const context=this.workspace(entry.reference);return {entry,context,label:context?.name??context?.label??entry.lastKnownLabel,availability:context?"current":"missing"};}const file=this.plugin.app.vault.getAbstractFileByPath(entry.reference.path),pending=this.pending?.intent;const affected=pending&&(entry.reference.path===pending.from||entry.reference.path.startsWith(pending.from+"/"));const fileState=entry.unavailableReason??(!this.verified||affected?"temporary":!file||Array.isArray(file.children)?"missing":"available");return {entry,file,context:this.workspace(entry.intendedContext),label:file?.name??entry.lastKnownLabel,fileState,availability:fileState==="available"?"current":fileState==="temporary"?"unavailable":"missing"};});}
+ async open(item){if(item.entry.kind==="file")await this.audit();const [fresh]=await this.resolve([item.historical?(this.plan.readPlan(item.planId)?.navigation.find(e=>e.id===item.entry.id)??item.entry):(this.plan.draft.entries.find(e=>e.id===item.entry.id)??item.entry)]);if(fresh.availability!=="current")throw Error("This reference is unavailable. Retry or relink it in Plan.");if(fresh.entry.kind==="task")return this.tasks.edit(fresh.task);const path=fresh.entry.kind==="file"?fresh.entry.reference.path:fresh.context.path;if(this.plugin.oath?.canOpen(path)===false)return;if(fresh.entry.kind==="workspace"&&this.plugin.workspaceModes)return this.plugin.workspaceModes.openProjectFull(fresh.context);if(this.plugin.workspaceModes)return this.plugin.workspaceModes.openProjectNote(path);await this.plugin.app.workspace.getLeaf(false).openFile(this.plugin.app.vault.getAbstractFileByPath(path));}
+ async recommendation(){await this.plan.ensureLifecycle();if(!this.plan.active())return null;await this.audit();await this.plan.flush();const committed=clone(this.plan.base);const items=await this.resolve(committed.entries);for(const item of items){if(item.availability!=="current"||item.task?.completed)continue;const context=item.context,path=item.entry.kind==="file"?item.entry.reference.path:context?.path;if(this.plugin.oath?.active&&(item.entry.kind==="task"||this.plugin.oath.canOpen(path,false)===false))continue;const workspaceId=context?(context.contextKind==="resource"?"resource:"+context.resourceType:context.projectId):null;const target=item.entry.kind==="task"?{kind:"native-task",authorityId:item.task.nativeReference.authorityId,taskId:item.task.id,owner:item.task.owner,workspaceId}:item.entry.kind==="file"?{kind:"file",path:item.entry.reference.path,workspaceId}:{kind:"workspace",workspaceId};return {title:item.label,explanation:"From your saved plan.",actionLabel:"Open "+item.label,target,reason:"global-plan"};}if(committed.note||committed.entries.length)return {title:"Your plan",explanation:committed.note.slice(0,300)||"Review your completed or unavailable planned items.",actionLabel:"Review plan",target:{kind:"plan",planId:this.plan.active()?.id},reason:"global-plan"};return null;}
+ async candidates(){await this.audit().catch(()=>{this.verified=false;});const tasks=await this.tasks.all().catch(error=>{this.taskError=error;return [];}),workspaces=this.workspaces();return [...tasks.map(t=>({entry:this.taskEntry(t),label:t.text,workspace:t.owner,completed:t.completed,task:t})),...this.plugin.contextSearch.fileSnapshot().files.filter(f=>f.kind==="files").map(f=>({entry:this.fileEntry(f.file),label:f.title,workspace:refOf(f.owner),path:f.path})),...workspaces.map(w=>({entry:this.workspaceEntry(w),label:w.name??w.label,workspace:refOf(w)}))];}
+}
+module.exports={PlanReferences};
 
 },
 "lib/services/presets.js": function (module, exports, __hubRequire) {
@@ -14472,6 +14893,180 @@ class HubPresets {
 }
 
 module.exports = { HubPresets };
+
+},
+"lib/services/progress-report.js": function (module, exports, __hubRequire) {
+"use strict";
+// Reporting eligibility only. No interaction history, duration, or productivity scoring.
+const { localISODate, parseLocalISODate } = __hubRequire("lib/domain/dates.js");
+const { savedReportContext } = __hubRequire("lib/domain/report-context.js");
+const { validateFocusItems } = __hubRequire("lib/domain/focus.js");
+const clone = value => JSON.parse(JSON.stringify(value ?? {}));
+const has = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
+const validScore = n => Number.isInteger(n) && n >= 0 && n <= 4;
+const idOf = w => w?.contextKind === "resource" ? `resource:${w.resourceType}` : w?.projectId;
+const fields = id => id.startsWith("resource:")
+    ? ["resourceWorkRatings", "resourceWorkLogs", id.slice(9)] : ["projectWorkRatings", "projectWorkLogs", id];
+function stored(data, date, id) {
+    const [ratings, logs, key] = fields(id);
+    return { rating: data[ratings]?.[key]?.[date] ?? null, log: data[logs]?.[key]?.[date] ?? null };
+}
+function publish(wizard, data) {
+    // Keep unrelated state that may have advanced while persistence was pending.
+    for (const key of ["projectWorkRatings", "projectWorkLogs", "resourceWorkRatings", "resourceWorkLogs", "reportEngagementByDevice", "reportFocusByDate", "pendingFocus"]) {
+        if (has(data, key)) { wizard.data[key] = data[key]; if (key in wizard) wizard[key] = data[key]; }
+    }
+}
+async function saveProgress(wizard, input) {
+    const { date, entries = [], cutoffs = {}, dismiss = {}, deviceId = wizard.store.deviceId, focus } = input;
+    if (!parseLocalISODate(date) || date > localISODate()) throw Error("Choose today or an earlier date.");
+    const seen = new Set();
+    for (const entry of entries) {
+        if (seen.has(entry.id)) throw Error("Duplicate report workspace."); seen.add(entry.id);
+        if (has(entry, "rating") && entry.rating !== null && !validScore(entry.rating)) throw Error("Invalid progress rating.");
+        if (has(entry, "summary") && (typeof entry.summary !== "string" || entry.summary.length > 1000)) throw Error("Reflection must contain at most 1000 characters.");
+    }
+    const focusItems = focus === undefined ? undefined : validateFocusItems(focus);
+    const mutate = data => {
+        for (const entry of entries) {
+            const previous = stored(data, date, entry.id);
+            if (entry.expected && JSON.stringify(previous) !== JSON.stringify(entry.expected)) {
+                const error = Error("This report changed. Review the latest saved value before retrying.");
+                error.code = "REPORT_CONFLICT"; error.workspaceId = entry.id; error.latest = previous; throw error;
+            }
+            const workspace = entry.id.startsWith("resource:") ? wizard.getResourceById(entry.id.slice(9)) : wizard.getProjectById(entry.id);
+            if (!workspace && !previous.log && previous.rating === null) throw Error("Workspace is no longer available.");
+            const rating = has(entry, "rating") ? entry.rating : previous.rating;
+            const summary = has(entry, "summary") ? entry.summary.trim() : previous.log?.summary ?? "";
+            const [rk, lk, key] = fields(entry.id);
+            data[rk] ??= {}; data[lk] ??= {}; data[rk][key] ??= {}; data[lk][key] ??= {};
+            delete data[rk][key][date]; delete data[lk][key][date];
+            if (validScore(rating)) data[rk][key][date] = rating;
+            if (validScore(rating) || summary) {
+                const context = savedReportContext(wizard, date, entry.id, previous.log?.context);
+                // A cache refresh is not evidence that previously recorded completions disappeared.
+                if (context.tasksAvailability !== "current" && previous.log?.context?.tasksAvailability === "current") {
+                    context.tasks = clone(previous.log.context.tasks); context.tasksAvailability = "current";
+                }
+                data[lk][key][date] = { ...previous.log, summary, context,
+                    [entry.id.startsWith("resource:") ? "resourceName" : "projectName"]: previous.log?.resourceName ?? previous.log?.projectName ?? workspace?.label ?? workspace?.name ?? "Unavailable workspace",
+                    timestamp: previous.log?.timestamp || Date.now(), updatedAt: Date.now() };
+            }
+        }
+        if (focusItems !== undefined) {
+            data.reportFocusByDate = { ...data.reportFocusByDate, [date]: { items: focusItems } };
+            if (date === localISODate()) data.pendingFocus = { sourceDate: date, items: focusItems };
+        }
+        const buckets = data.reportEngagementByDevice ??= {};
+        const days = buckets[deviceId] ??= {};
+        const day = days[date] ??= {};
+        for (const [id, cutoff] of Object.entries(cutoffs)) {
+            const value = stored(data, date, id);
+            if (!seen.has(id) || (!validScore(value.rating) && !value.log?.summary)) continue;
+            const row = day[id] ??= {};
+            row.observedRevision = Math.max(row.observedRevision || 0, cutoff);
+            row.reportedThrough = Math.max(row.reportedThrough || 0, cutoff);
+        }
+        for (const [id, cutoff] of Object.entries(dismiss)) {
+            const row = day[id] ??= {};
+            row.observedRevision = Math.max(row.observedRevision || 0, cutoff);
+            row.dismissedThrough = Math.max(row.dismissedThrough || 0, cutoff);
+        }
+    };
+    let result;
+    if (wizard.store.updateProgress) result = await wizard.store.updateProgress(mutate);
+    else { result = clone(wizard.data); mutate(result); await wizard.store.save(result); }
+    publish(wizard, result);
+    return result;
+}
+class ReportEligibility {
+    constructor(plugin) {
+        this.plugin = plugin; this.wizard = plugin.projectWizard; this.deviceId = plugin.dataStore.deviceId;
+        this.state = clone(this.wizard.data.reportEngagementByDevice?.[this.deviceId]);
+        this.receiptKey = "itacan-report-dismissal:" + (plugin.app.vault.adapter.getBasePath?.() ?? plugin.app.vault.getName()) + ":" + this.deviceId;
+        try {
+            const receipts = JSON.parse(globalThis.localStorage?.getItem(this.receiptKey) || "{}");
+            for (const [date, rows] of Object.entries(receipts)) for (const [id, revision] of Object.entries(rows)) {
+                if (!Number.isSafeInteger(revision) || revision < 0 || !parseLocalISODate(date)) continue;
+                const row = (this.state[date] ??= {})[id] ??= {};
+                row.observedRevision = Math.max(row.observedRevision || 0, revision);
+                row.dismissedThrough = Math.max(row.dismissedThrough || 0, revision);
+            }
+        } catch (_) { /* Corrupt local recovery metadata never prevents opening Itacan. */ }
+        // Capture startup counters once per plugin activation. Service reconstruction
+        // during an audit keeps the same baseline; no session history is persisted.
+        this.sessionBaseline = plugin.reportSessionBaseline ??= Object.fromEntries(
+            Object.entries(this.state).map(([date, rows]) => [date, Object.fromEntries(
+                Object.entries(rows).map(([id, row]) => [id, row.observedRevision || 0])
+            )])
+        );
+        this.tail = Promise.resolve();
+        plugin.register?.(() => this.destroy());
+    }
+    observe(workspace, reason, operationId = null) {
+        const id = typeof workspace === "string" ? workspace : idOf(workspace);
+        if (!id || !(id.startsWith("resource:") ? this.wizard.getResourceById(id.slice(9)) : this.wizard.getProjectById(id))) return;
+        const day = this.state[localISODate()] ??= {}, row = day[id] ??= {};
+        // Retain only the latest local task receipt, never a task interaction log.
+        if (operationId && row.lastTaskOperation === operationId) return;
+        if (operationId) row.lastTaskOperation = operationId;
+        row.observedRevision = (row.observedRevision || 0) + 1; row.lastObservedAt = Date.now();
+        row.reasons = [...new Set([...(row.reasons ?? []), reason])];
+        if (!this.timer) this.timer = setTimeout(() => { this.timer = null; this.flush().catch(error => console.error("Could not persist report eligibility", error)); }, 100);
+    }
+    cutoff(date, ids = Object.keys(this.state[date] ?? {})) {
+        return Object.fromEntries(ids.map(id => [id, this.state[date]?.[id]?.observedRevision || 0]));
+    }
+    pending(date, { currentSession = false } = {}) {
+        const persisted = this.wizard.data.reportEngagementByDevice?.[this.deviceId]?.[date] ?? {};
+        return Object.keys(this.state[date] ?? {}).filter(id => {
+            const row = this.state[date][id], saved = persisted[id] ?? {};
+            return row.observedRevision > Math.max(
+                currentSession ? this.sessionBaseline[date]?.[id] || 0 : 0,
+                row.reportedThrough || 0, row.dismissedThrough || 0, saved.reportedThrough || 0, saved.dismissedThrough || 0
+            );
+        });
+    }
+    flush() {
+        clearTimeout(this.timer); this.timer = null;
+        const snapshot = clone(this.state);
+        this.tail = this.tail.catch(() => {}).then(async () => {
+            const data = await this.plugin.dataStore.updateProgress(data => {
+                const days = (data.reportEngagementByDevice ??= {})[this.deviceId] ??= {};
+                for (const [date, rows] of Object.entries(snapshot)) for (const [id, source] of Object.entries(rows)) {
+                    const target = (days[date] ??= {})[id] ??= {};
+                    for (const key of ["observedRevision", "reportedThrough", "dismissedThrough", "lastObservedAt"]) target[key] = Math.max(target[key] || 0, source[key] || 0);
+                    target.reasons = [...new Set([...(target.reasons ?? []), ...(source.reasons ?? [])])];
+                    if (source.lastTaskOperation) target.lastTaskOperation = source.lastTaskOperation;
+                }
+            });
+            publish(this.wizard, data);
+            // The receipt has now reached the durable store; a later skip writes a new one.
+            try {
+                const receipts = JSON.parse(globalThis.localStorage?.getItem(this.receiptKey) || "{}");
+                for (const [date, rows] of Object.entries(receipts)) for (const [id, revision] of Object.entries(rows)) {
+                    if ((data.reportEngagementByDevice?.[this.deviceId]?.[date]?.[id]?.dismissedThrough || 0) >= revision) delete rows[id];
+                }
+                globalThis.localStorage?.setItem(this.receiptKey, JSON.stringify(receipts));
+            } catch (_) {}
+        });
+        return this.tail;
+    }
+    dismiss(date, cutoffs) {
+        try {
+            const receipts = JSON.parse(globalThis.localStorage?.getItem(this.receiptKey) || "{}");
+            const day = receipts[date] ??= {};
+            for (const [id, revision] of Object.entries(cutoffs)) day[id] = Math.max(day[id] || 0, revision);
+            globalThis.localStorage?.setItem(this.receiptKey, JSON.stringify(receipts));
+        } catch (error) { console.error("Could not persist report dismissal", error); }
+        for (const [id, revision] of Object.entries(cutoffs)) {
+            const row = (this.state[date] ??= {})[id] ??= {};
+            row.dismissedThrough = Math.max(row.dismissedThrough || 0, revision);
+        }
+    }
+    destroy() { clearTimeout(this.timer); this.timer = null; }
+}
+module.exports = { saveProgress, ReportEligibility, stored, idOf, validScore };
 
 },
 "lib/services/project-deletion.js": function (module, exports, __hubRequire) {
@@ -14801,6 +15396,80 @@ module.exports = {
         this.draftSession = this.newQuickDraft(draft.source); return promotionResult(captures);
     }); }
 };
+
+},
+"lib/services/report-eligibility-hooks.js": function (module, exports, __hubRequire) {
+"use strict";
+function installReportEligibilityHooks(plugin) {
+    let userActivation = false;
+    const trackDocument = doc => {
+        const activation = event => {
+            if (!event.isTrusted) return;
+            userActivation = true; queueMicrotask(() => { userActivation = false; });
+        };
+        for (const type of ["click", "keydown"]) plugin.registerDomEvent(doc, type, activation, true);
+        const reading = event => {
+            if (!event.isTrusted || event.target.closest?.(".modal-container")) return;
+            if (!event.target.closest?.(".markdown-source-view, .markdown-preview-view, .pdf-container")) return;
+            const leaf = plugin.app.workspace.activeLeaf;
+            if (!leaf?.containerEl?.contains(event.target)) return;
+            plugin.reportEligibility.observe(plugin.workspaceModes.currentContext(), "content");
+        };
+        for (const type of ["pointerdown", "wheel", "keydown"]) plugin.registerDomEvent(doc, type, reading, true);
+        plugin.registerDomEvent(doc, "click", event => {
+            if (!event.isTrusted || !event.target.closest?.(".workspace-tab-header")) return;
+            queueMicrotask(() => plugin.reportEligibility.observe(plugin.workspaceModes.currentContext(), "navigation"));
+        });
+    };
+    trackDocument(document);
+    plugin.registerEvent(plugin.app.workspace.on("window-open", (_workspace, win) => trackDocument(win.document)));
+    plugin.registerEvent(plugin.app.workspace.on("file-open", file => {
+        if (userActivation && plugin.workspaceModes.internalDepth === 0 && plugin.app.workspace.getActiveFile()?.path === file?.path) {
+            plugin.reportEligibility.observe(plugin.workspaceModes.contextForFile(file.path), "navigation");
+        }
+    }));
+    const mountExplorer = window.hubMountWorkspaceExplorer;
+    if (mountExplorer) {
+        const wrapped = options => mountExplorer({ ...options, createItem: async (...args) => {
+            const workspace = plugin.workspaceModes.contextFor(options.dashboardPath);
+            const result = await options.createItem(...args);
+            if (result) plugin.reportEligibility.observe(workspace, "files");
+            return result;
+        } });
+        window.hubMountWorkspaceExplorer = wrapped;
+        plugin.register(() => { if (window.hubMountWorkspaceExplorer === wrapped) window.hubMountWorkspaceExplorer = mountExplorer; });
+    }
+    // Explicit shell entry points, rather than internal restoration/navigation callbacks.
+    for (const name of ["hubOpenWorkspace", "hubOpenLastProject", "hubOpenLastResource", "hubOpenResourceFull", "hubOpenLastFile", "hubOpenProjectFull", "hubOpenProjectNote", "hubOpenFile"]) {
+        const original = window[name]; if (typeof original !== "function") continue;
+        const wrapped = function(...args) {
+            const intentional = userActivation;
+            const result = original.apply(this, args);
+            if (intentional) Promise.resolve(result).then(ok => {
+                if (ok !== false) plugin.reportEligibility.observe(plugin.workspaceModes.currentContext(), "navigation");
+            }).catch(() => {});
+            return result;
+        };
+        window[name] = wrapped;
+        plugin.register(() => { if (window[name] === wrapped) window[name] = original; });
+    }
+    // Mutations made through the existing explicit file-command boundary only.
+    const files = plugin.fileOperations;
+    if (files) {
+        const execute = files.execute;
+        files.execute = function(kind, from, to, options = {}) {
+            const workspace = plugin.workspaceModes.contextForFile(from);
+            return execute.call(this, kind, from, to, options).then(result => {
+                if (!options.compensation && !options.captureRecoveryHash) {
+                    plugin.reportEligibility.observe(kind === "copy" ? plugin.workspaceModes.contextForFile(to) : workspace, "files");
+                }
+                return result;
+            });
+        };
+        plugin.register(() => { files.execute = execute; });
+    }
+}
+module.exports = { installReportEligibilityHooks };
 
 },
 "lib/services/shared-projects.js": function (module, exports, __hubRequire) {
@@ -16355,7 +17024,7 @@ class CaptureConfirmation extends CaptureModal {
         this.modalEl.classList.add("hub-capture-confirmation");
         this.header(this.options.title, this.options.message);
         const actions = this.contentEl.createDiv({ cls: "hub-capture-actions" });
-        const cancel = action(actions, "Cancel", null, () => this.close());
+        const cancel = action(actions, this.options.cancelLabel ?? "Cancel", null, () => this.close());
         action(actions, this.options.confirmLabel, null, () => {
             this.resolve?.(true); this.resolve = null; this.close();
         }, this.options.destructive ? "mod-warning" : "mod-cta");
@@ -17176,6 +17845,7 @@ module.exports = { createCompletionAudio, bindCompletionSound, ...completionAudi
 "lib/ui/context-search.js": function (module, exports, __hubRequire) {
 "use strict";
 const { setHubIcon: setIcon } = __hubRequire("lib/ui/icons.js");
+const { renderRouteBreadcrumb } = __hubRequire("lib/ui/route-breadcrumb.js");
 const { taskDateLabel } = __hubRequire("lib/domain/dates.js");
 let sequence = 0;
 const labels = { projects: "Projects", resources: "Resources", folders: "Folders", files: "Files", tasks: "Tasks", notes: "Note matches", phases: "Phases", milestones: "Milestones" };
@@ -17228,7 +17898,9 @@ function mountContextSearch({ service, component, dv, root, toolbar, scope = nul
             for (const result of group.items) {
                 const element = section.createDiv({ cls: "hub-context-result", attr: { role: "option", id: `${id}-${rows.length}`, "aria-selected": "false" } });
                 element.createDiv({ cls: "hub-context-result-title", text: result.title });
-                element.createDiv({ cls: "hub-context-result-path", text: result.context });
+                const context = element.createDiv({ cls: "hub-context-result-path" });
+                if (result.contextSegments) renderRouteBreadcrumb(context, result.contextSegments, " › ");
+                else context.textContent = result.context;
                 if (result.kind === "tasks") {
                     const date = result.task.due ? taskDateLabel(result.task.due.date, result.task.due.time, true) : "";
                     if (date || result.task.completed) element.createSpan({ cls: "hub-context-result-date", text: [result.task.completed ? "Completed" : "", date].filter(Boolean).join(" · ") });
@@ -17443,7 +18115,7 @@ const { renderReportWorkspaceHeader } = __hubRequire("lib/ui/report-workspace-he
 
 const { Modal, Component, setIcon } = require("obsidian");
 const { parseLocalISODate, formatDate, formatTime, formatDateTime } = __hubRequire("lib/domain/dates.js");
-const { activitySummary } = __hubRequire("lib/domain/report-context.js");
+const { activitySummary, recordedWorkSummary } = __hubRequire("lib/domain/report-context.js");
 const { createHubMarkdown } = __hubRequire("lib/ui/markdown.js");
 const { renderHistoryIcon } = __hubRequire("lib/ui/dashboard-ui.js");
 const { setHubIcon } = __hubRequire("lib/ui/icons.js");
@@ -17510,6 +18182,14 @@ function renderTaskProgress(parent, items, markdown, { heading = "Task progress"
 }
 
 function renderReportEvidence(parent, context, markdown, component) {
+    const disclosure = parent.createEl("details", { cls: "hub-report-recorded-work" });
+    disclosure.createEl("summary", { text: recordedWorkSummary(context) });
+    const body = disclosure.createDiv();
+    renderReportEvidenceDetails(body, context, markdown, component);
+    for (const oath of context.oaths ?? []) body.createDiv({ cls: "hub-report-evidence-row", text: "Oath fulfilled \u00b7 " + formatTime(new Date(oath.fulfilledAt)) });
+    return disclosure;
+}
+function renderReportEvidenceDetails(parent, context, markdown, component) {
     const evidence = parent.createDiv({ cls: "hub-report-evidence" });
     renderTaskProgress(evidence, context.tasks, markdown, { hideEmptyHeading: true, component, availability: context.tasksAvailability ?? "current" });
 
@@ -18239,18 +18919,21 @@ module.exports = { hasKeyboardFocus, focusControl, focusAfterRowRemoval, revealH
 // allocation remain CSS-owned; no banner/status-bar heights are duplicated here.
 function mountFullViewLayout({ root, component, app }) {
     const doc = root.ownerDocument, win = doc.defaultView;
+    const sizingProperties = [
+        "--hub-full-view-height",
+        "--hub-full-view-top-row-track",
+        "--hub-full-view-bottom-row-track"
+    ];
     let frame = null, disposed = false;
-    const layoutTop = element => {
-        let top = 0;
-        for (let node = element; node; node = node.offsetParent) top += node.offsetTop;
-        return top;
-    };
     function update() {
         frame = null;
         if (disposed || !root.isConnected) return;
         const full = !root.closest(".hub-project-rail");
         root.classList.toggle("hub-full-view", full);
-        if (!full) { root.style.removeProperty("--hub-full-view-height"); return; }
+        if (!full) {
+            for (const property of sizingProperties) root.style.removeProperty(property);
+            return;
+        }
         const content = [...root.children].find(el => el.matches(".project-main-grid, .hub-task-workspace, .hub-roadmap-host") && !el.hidden);
         if (!content) return;
         const viewport = root.closest(".markdown-preview-view") ?? root.closest(".view-content");
@@ -18259,17 +18942,40 @@ function mountFullViewLayout({ root, component, app }) {
         if (status?.getClientRects().length) bottom = Math.min(bottom, status.getBoundingClientRect().top);
         const style = win.getComputedStyle(root);
         const gutter = parseFloat(style.getPropertyValue("--hub-full-view-gutter")) || 0;
-        const origin = root.getBoundingClientRect().top + (viewport?.scrollTop ?? win.scrollY);
-        const headerHeight = layoutTop(content) - layoutTop(root);
+        // Rectangles include CSS zoom; CSS height tokens do not. Keep the
+        // fractional header height so rounding cannot shift shared row edges.
+        const bounds = root.getBoundingClientRect();
+        const scale = root.currentCSSZoom || bounds.width / parseFloat(style.width) || 1;
+        const scrollScale = viewport?.currentCSSZoom || 1;
+        const origin = bounds.top + (viewport?.scrollTop ?? win.scrollY) * scrollScale;
+        const headerHeight = (content.getBoundingClientRect().top - bounds.top) / scale;
         const minimum = headerHeight + (parseFloat(win.getComputedStyle(content).minHeight) || 0);
-        // Home's rows have natural fixed sizes, not a viewport-fill rule. Cap
-        // the shared Workspace surface at that same extent while preserving
-        // the existing viewport/minimum fallback on shorter windows.
-        const homeContentHeight = parseFloat(style.getPropertyValue("--hub-full-view-top-row-height"))
+        // Home's fixed rows define the shared desktop target. Workspace Work
+        // divides its measured content height in the same target proportions.
+        // CSS track minimums provide outer scrolling on short/narrow windows.
+        // Schedule and Roadmap retain their own content minimums and layouts.
+        const topRowHeight = parseFloat(style.getPropertyValue("--hub-full-view-top-row-height"));
+        const bottomRowHeight = parseFloat(style.getPropertyValue("--hub-full-view-bottom-row-height"));
+        const dashboardHeight = topRowHeight
             + parseFloat(style.getPropertyValue("--hub-panel-gap"))
-            + parseFloat(style.getPropertyValue("--hub-full-view-bottom-row-height"));
-        const homeBoundary = Number.isFinite(homeContentHeight) ? headerHeight + homeContentHeight : Infinity;
-        const height = Math.ceil(Math.max(minimum, Math.min(homeBoundary, bottom - origin - gutter)));
+            + bottomRowHeight;
+        if (Number.isFinite(dashboardHeight)) {
+            // Convert the CSS pixel targets to proportional grid tracks without
+            // duplicating their values in CSS weights or viewport calculations.
+            const rowTracks = [
+                ["--hub-full-view-top-row-track", topRowHeight],
+                ["--hub-full-view-bottom-row-track", bottomRowHeight]
+            ];
+            for (const [property, rowHeight] of rowTracks) {
+                const track = rowHeight + "fr";
+                if (root.style.getPropertyValue(property) !== track) root.style.setProperty(property, track);
+            }
+        }
+        const target = Number.isFinite(dashboardHeight) ? headerHeight + dashboardHeight : Infinity;
+        const available = (bottom - origin) / scale - gutter;
+        // Chromium lays out in 1/64px units. Match that precision to avoid
+        // ResizeObserver churn from tiny floating-point differences under zoom.
+        const height = Math.round(Math.max(minimum, Math.min(target, available)) * 64) / 64;
         const value = height + "px";
         if (root.style.getPropertyValue("--hub-full-view-height") !== value) root.style.setProperty("--hub-full-view-height", value);
     }
@@ -18291,7 +18997,8 @@ function mountFullViewLayout({ root, component, app }) {
     component.register(() => {
         disposed = true; if (frame != null) win.cancelAnimationFrame(frame);
         resize.disconnect(); mutation.disconnect(); win.removeEventListener("resize", schedule);
-        root.classList.remove("hub-full-view"); root.style.removeProperty("--hub-full-view-height");
+        root.classList.remove("hub-full-view");
+        for (const property of sizingProperties) root.style.removeProperty(property);
     });
     update();
     return { update };
@@ -18552,7 +19259,8 @@ function createHistoryPager(container, component) {
     component.register(() => { reset(); container.removeEventListener("scroll", scroll); });
     return {
         reset,
-        render(items, renderer) { reset(); records = items; renderRow = renderer; append(); }
+        get renderedCount() { return cursor; },
+        render(items, renderer, minimumCount = 50) { reset(); records = items; renderRow = renderer; do { append(); } while (cursor < Math.min(minimumCount, records.length)); }
     };
 }
 module.exports = { createHistoryPager };
@@ -18772,6 +19480,7 @@ function setHubIcon(element, name) {
 // https://github.com/lucide-icons/lucide/blob/main/icons/list-sort-ascending.svg
 // ISC copyright, permission and warranty notice above applies to these SVGs.
 const missingSortIcons = {
+    "circle-dashed-check": '<path d="M10.1 2.182a10 10 0 013.8 0" /><path d="M13.9 21.818a10 10 0 01-3.8 0" /><path d="m16 9-5.5 5.5L8 12" /><path d="M17.609 3.721a10 10 0 012.69 2.7" /><path d="M2.182 13.9a10 10 0 010-3.8" /><path d="M20.279 17.609a10 10 0 01-2.7 2.69" /><path d="M21.818 10.1a10 10 0 010 3.8" /><path d="M3.721 6.391a10 10 0 012.7-2.69" /><path d="M6.391 20.279a10 10 0 01-2.69-2.7" />',
     "list-sort-descending": '<path d="M15 12H3"/><path d="M3 5h18"/><path d="M9 19H3"/>',
     "list-sort-ascending": '<path d="M3 19h18"/><path d="M15 12H3"/><path d="M9 5H3"/>'
 };
@@ -18876,7 +19585,7 @@ class InboxModal extends CaptureModal {
         this.sort.setAttribute("aria-label","Sort by");this.sort.setAttribute("aria-haspopup","menu");this.sort.setAttribute("aria-expanded","false");
         this.sortChevron=this.sort.createSpan({cls:'hub-capture-icon',attr:{'aria-hidden':'true'}});setHubIcon(this.sortChevron,'chevron-right');
         this.stopSortToggle=bindMenuToggle(this.sort,{isOpen:()=>!!this.sortMenu,close:()=>this.sortMenu?.hide()});
-        this.list=aside.createDiv({cls:"hub-inbox-list",attr:{role:"group","aria-label":"Inbox items"}});
+        this.list=aside.createDiv({cls:"hub-inbox-list hub-scrollbar",attr:{role:"group","aria-label":"Inbox items"}});
         this.list.addEventListener("keydown",event=>{const rows=[...this.list.querySelectorAll('[data-capture-id]')],at=rows.indexOf(event.target);if(at<0)return;const n=event.key==='ArrowDown'?Math.min(rows.length-1,at+1):event.key==='ArrowUp'?Math.max(0,at-1):event.key==='Home'?0:event.key==='End'?rows.length-1:[' ','Enter'].includes(event.key)?at:null;if(n!==null){event.preventDefault();if((event.ctrlKey||event.metaKey)&&!event.shiftKey&&![' ','Enter'].includes(event.key))rows[n].focus();else void this.changeSelection(rows[n].dataset.captureId,event,true)}});
         this.detail=body.createEl("section",{cls:"hub-inbox-detail",attr:{"aria-label":"Item details",tabindex:"-1"}});
         const footer=this.contentEl.createDiv({cls:"hub-capture-actions hub-inbox-footer"});action(footer,"Close",null,()=>this.close());
@@ -18937,10 +19646,10 @@ class InboxModal extends CaptureModal {
         const captures=this.visible().filter(c=>this.checkedIds.has(c.id)),files=captures[0].attachments.length>0,batch=this.service.activeBulk,refs=files?inboxFiles(captures,ref=>this.service.attachmentPath(ref)):[];
         this.draft=null;this.sourceInput=null;
         this.detail.createEl('h3',{text:`${files?refs.length:captures.length} ${files?'file'+(refs.length===1?'':'s'):'texts'} selected`,cls:'hub-inbox-detail-title'});
-        const body=this.detail.createDiv({cls:'hub-inbox-action-body hub-inbox-bulk-body '+(files?'hub-inbox-bulk-files':'hub-inbox-bulk-texts')});
+        const body=this.detail.createDiv({cls:'hub-inbox-action-body hub-scrollbar hub-inbox-bulk-body '+(files?'hub-inbox-bulk-files':'hub-inbox-bulk-texts')});
         if(batch){body.createDiv({text:bulkMessage(batch),cls:'hub-capture-muted',attr:{role:'status'}});if(batch.error)body.createDiv({text:batch.error,cls:'hub-task-error'});}
         if(batch)body.createDiv({text:'Retry keeps all remaining batch items and their original order.',cls:'hub-capture-muted'});
-        if(files){this.bulkFilesList=body.createDiv({cls:'hub-capture-attachments hub-inbox-bulk-files-list'});attachments(this.bulkFilesList,refs,this.service,{remove:ref=>{void this.deselectFile(ref,refs.indexOf(ref));},removeLabel:'Deselect'});if(batch)for(const button of this.bulkFilesList.querySelectorAll('button')){button.disabled=true;button.title='Finish the retained batch before changing its selection.';}this.bulkFilesList.scrollTop=this.bulkFileScroll;}
+        if(files){this.bulkFilesList=body.createDiv({cls:'hub-capture-attachments hub-inbox-bulk-files-list hub-scrollbar'});attachments(this.bulkFilesList,refs,this.service,{remove:ref=>{void this.deselectFile(ref,refs.indexOf(ref));},removeLabel:'Deselect'});if(batch)for(const button of this.bulkFilesList.querySelectorAll('button')){button.disabled=true;button.title='Finish the retained batch before changing its selection.';}this.bulkFilesList.scrollTop=this.bulkFileScroll;}
         const actions=body.createDiv({cls:'hub-inbox-organize-actions'});
         for(const choice of captureActions(captures[0])){
             const inputs=batch?remainingMembers(batch).map(m=>m.input):captures,count=choice.mode==='file'?distinctFileCount(inputs):inputs.length,button=captureAction(actions,{...choice,label:bulkLabel(choice.mode,count,true)},mode=>{void this.showBulkAction(mode,batch?.id)});
@@ -18971,7 +19680,7 @@ class InboxModal extends CaptureModal {
         if(!c){this.detail.createDiv({cls:'hub-capture-empty',text:'Select an item to organize.'});return;}
         this.draft=clone(this.drafts.get(c.id)??captureDraft(c));
         this.detail.createEl('h3',{text:c.attachments.length?'File':'Text',cls:'hub-inbox-detail-title hub-inbox-action-heading'});
-        const body=this.detail.createDiv({cls:'hub-inbox-action-body'});this.sourceInput=null;
+        const body=this.detail.createDiv({cls:'hub-inbox-action-body hub-scrollbar'});this.sourceInput=null;
         if(c.text||!c.attachments.length){this.sourceInput=body.createEl('textarea',{cls:'hub-quick-add-input',attr:{rows:'4','aria-label':'Captured content'}});this.sourceInput.value=this.draft.text;this.sourceInput.disabled=!!operationMode(c)||!!this.service.bulkMember(c.id);this.sourceInput.oninput=()=>{this.draft.text=this.sourceInput.value;this.dirty=true;};}
         if(c.attachments.length)attachments(body.createDiv({cls:'hub-capture-attachments'}),c.attachments,this.service,{open:ref=>{void this.run(()=>this.service.openAttachment(ref));}});
         const actions=body.createDiv({cls:'hub-inbox-organize-actions'+(!c.attachments.length?' hub-capture-action-row':'')}),pending=operationMode(c);
@@ -19950,6 +20659,28 @@ function mountOathSettings(parent, service) {
         catch (problem) { error.textContent = problem.message; }
         finally { if (!disposed) { toggle.checked = !!service.strictEnabled; toggle.disabled = !service.strictSupported; } }
     });
+    if (service.strict.developmentRecovery) {
+        const development = section(parent, "Prototype development recovery");
+        development.createEl("p", { text: "Ctrl+Alt+Shift+F12 releases Strict Oath while Itacan has focus. A separate recovery window opens before activation. Restrictions automatically release after two minutes and the Oath is recorded as interrupted.", cls: "hub-settings-description" });
+        const verify = development.createEl("button", { text: "Verify development recovery", attr: { type: "button" } });
+        verify.addEventListener("click", async () => {
+            verify.disabled = true;
+            try { await service.strict.developmentRecovery.verify(); error.textContent = "Development recovery verified."; }
+            catch (problem) { error.textContent = problem.message; }
+            finally { verify.disabled = false; }
+        });
+        const release = development.createEl("button", { text: "Release Strict Oath (development)", attr: { type: "button" } });
+        release.addEventListener("click", async () => {
+            release.disabled = true;
+            try {
+                await service.strict.developmentRecovery.release("settings");
+                if (service.current?.state === "scheduled") await service.end(service.current.id, "cancel");
+                else await service.refresh();
+                error.textContent = "Development restrictions released.";
+            } catch (problem) { error.textContent = problem.message; }
+            finally { release.disabled = false; }
+        });
+    }
     const apps = section(parent, "Permitted desktop applications");
     if (!service.strictSupported) {
         apps.createEl("p", { text: "Application restrictions are unavailable on this device. Ordinary Oath remains available.", cls: "hub-settings-description" });
@@ -19965,7 +20696,7 @@ module.exports = { mountOathSettings };
 "lib/ui/oath-tasks.js": function (module, exports, __hubRequire) {
 "use strict";
 const { oathProgress, oathTime } = __hubRequire("lib/domain/oath.js");
-const { taskKey } = __hubRequire("lib/domain/oath-workspace.js");
+const { taskKey, oathTaskOrder } = __hubRequire("lib/domain/oath-workspace.js");
 
 function countdown(ms) {
     const seconds = Math.ceil(ms / 1000), hours = Math.floor(seconds / 3600);
@@ -19987,7 +20718,7 @@ function createOathTaskSection(service, body, component) {
     const taskOf = item => item.task && typeof item.task === "object" ? item.task : item;
     function partition(items, wrap = task => task) {
         if (!service?.active) return { ordinary: items, pinned: [], missing: [] };
-        const selected = new Set(service.current.tasks.map(taskKey));
+        const selected = oathTaskOrder(service.current);
         const selectedTask = task => selected.has(taskKey(task));
         return { ordinary: items.filter(item => !selectedTask(taskOf(item))),
             pinned: service.work.filter(item => item.task).map(item => wrap(item.task)),
@@ -20295,6 +21026,9 @@ function openOathSetup(service) {
         }
         setup() {
             const draft = this.draft;
+            draft.applicationCheckMode = "automatic";
+            draft.manualApplicationReviewAcknowledged = false;
+            delete draft.strictConfirmation;
             this.clearSetupEffects(); this.taskOwner?.unload(); this.updateNext = null; this.contentEl.empty();
             this.effects = mountTransientEffects(this.contentEl);
             this.contentEl.classList.remove("hub-oath-review");
@@ -20694,7 +21428,7 @@ function openOathSetup(service) {
                 const group = this.section(heading).createDiv({ cls: "hub-oath-row-group" });
                 for (const [icon, text] of rows) oathRow(group, icon, text);
             }
-            let accepted = null, refresh = null;
+            let accepted = null, refresh = null, manualChoice = null, manualAck = null, manualOptions = null, manualAcknowledgment = null;
             if (draft.mode === "strict") {
                 if (!strictReview) throw Error("Refresh the Strict review before confirming.");
                 const section = this.section("Strict Oath confirmation");
@@ -20702,19 +21436,31 @@ function openOathSetup(service) {
                 section.createEl("p", { text: "The dock opens permitted applications and returns to Itacan. Use Alt+Tab to switch existing windows; external minimize and restore controls are unavailable.", cls: "hub-oath-muted" });
                 const findings = section.createDiv({ cls: "hub-oath-preflight", attr: { role: "status", "aria-live": "polite" } });
                 this.paintStrictReview = review => {
+                    if (manualOptions) manualOptions.hidden = !(review.preflight.blockers?.length || draft.applicationCheckMode === "manual-review");
                     strictReview = review; draft.strictConfirmation = review.confirmation;
                     findings.empty();
                     findings.createEl("p", { text: review.policy.applications.length ? "Permitted: " + review.policy.applications.join(", ") : "Permitted: Itacan only." });
                     const grouped = new Map();
-                    for (const blocker of review.preflight.blockers ?? []) {
+                    for (const blocker of review.preflight.candidates ?? review.preflight.blockers ?? []) {
                         const key = blocker.executable;
                         grouped.set(key, [...(grouped.get(key) ?? []), blocker.title || "Untitled window"]);
                     }
-                    for (const [executable, titles] of grouped) findings.createEl("p", { text: "Close before starting: " + executable + " — " + titles.join(", ") });
+                    for (const [executable, titles] of grouped) findings.createEl("p", { text: "Possible non-permitted application (switchability unverified): " + executable + " — " + titles.join(", ") });
                     for (const warning of review.preflight.warnings ?? []) findings.createEl("p", { text: warning });
                     for (const unknown of review.preflight.unknown ?? []) findings.createEl("p", { text: "Identity unavailable: " + (unknown.title || "Untitled window") });
-                    findings.createEl("p", { text: review.preflight.ready ? "No known blockers detected. Applications will be checked again at activation." : draft.start === "scheduled" ? "This scheduled Oath will wait for checks to succeed and known blockers to close." : "Resolve blockers, then refresh these checks before taking the Oath." });
+                    for (const uncertain of review.preflight.uncertain ?? []) findings.createEl("p", { text: "Could not confirm switchability: " + uncertain.executable + " — " + (uncertain.title || "Untitled window") });
+                    findings.createEl("p", { text: review.preflight.ready ? draft.applicationCheckMode === "manual-review" ? "Manual review confirmed. The Oath Reminder appears during sustained non-permitted foreground activity." : "Application checks allow starting. They will run again at activation." : draft.start === "scheduled" ? "This scheduled Oath will wait for checks to succeed and known blockers to close." : "Close or permit the listed candidates, or choose manual application review, then confirm again." });
                 };
+                manualOptions = section.createDiv();
+                const manualLabel = manualOptions.createEl("label");
+                manualChoice = manualLabel.createEl("input", { type: "checkbox", attr: { "aria-label": "Use manual application review for this Oath" } });
+                manualChoice.checked = draft.applicationCheckMode === "manual-review";
+                manualLabel.createSpan({ text: "Use manual application review for this Oath" });
+                manualOptions.createEl("p", { text: "Application findings allow activation for this Oath. Newly observed non-permitted application paths may still trigger a return-to-Itacan attempt after two checks, up to three attempts at least 60 seconds apart. A scheduled Oath keeps this choice even if applications change before it starts." });
+                manualAcknowledgment = manualOptions.createEl("label");
+                manualAck = manualAcknowledgment.createEl("input", { type: "checkbox", attr: { "aria-label": "I checked Alt+Tab and accept incomplete application detection" } });
+                manualAcknowledgment.createSpan({ text: "I checked Alt+Tab and closed or permitted the non-permitted applications I can switch to. I accept incomplete application detection and the foreground-dependent Oath Reminder during this Oath." });
+                manualAcknowledgment.hidden = !manualChoice.checked;
                 this.paintStrictReview(strictReview);
                 refresh = section.createEl("button", { text: "Refresh application checks", attr: { type: "button" } });
                 const label = section.createEl("label", { cls: "hub-oath-strict-accept" });
@@ -20730,12 +21476,29 @@ function openOathSetup(service) {
             const take = actions.createEl("button", { text: "Take the Oath", cls: "mod-cta" });
             const updateTake = () => { take.disabled = !!accepted && (!accepted.checked || !draft.strictConfirmation || !strictReview.preflight.ready && draft.start !== "scheduled"); };
             accepted?.addEventListener("change", updateTake); updateTake();
-            refresh?.addEventListener("click", async () => {
+            const renewStrictReview = async () => {
                 if (this.saving || this.reviewing) return;
-                this.reviewing = true; refresh.disabled = take.disabled = back.disabled = true; accepted.checked = false;
+                accepted.checked = false;
+                delete draft.strictConfirmation;
+                draft.applicationCheckMode = manualChoice.checked ? "manual-review" : "automatic";
+                draft.manualApplicationReviewAcknowledged = manualAck.checked;
+                manualAcknowledgment.hidden = !manualChoice.checked;
+                if (manualChoice.checked && !manualAck.checked) { updateTake(); return; }
+                this.reviewing = true;
+                refresh.disabled = take.disabled = back.disabled = manualChoice.disabled = manualAck.disabled = accepted.disabled = true;
                 try { this.paintStrictReview(await service.reviewStrict(draft)); error.textContent = ""; }
                 catch (problem) { delete draft.strictConfirmation; error.textContent = problem.message; }
-                finally { this.reviewing = false; refresh.disabled = back.disabled = false; updateTake(); }
+                finally {
+                    this.reviewing = false;
+                    refresh.disabled = back.disabled = manualChoice.disabled = manualAck.disabled = accepted.disabled = false;
+                    updateTake();
+                }
+            };
+            manualChoice?.addEventListener("change", () => { manualAck.checked = false; void renewStrictReview(); });
+            manualAck?.addEventListener("change", () => void renewStrictReview());
+            refresh?.addEventListener("click", () => {
+                manualChoice.checked = false; manualAck.checked = false;
+                void renewStrictReview();
             });
             layoutModal(this, { headerEnd, footer: actions });
             back.addEventListener("click", () => this.setup());
@@ -20779,8 +21542,18 @@ function openOathStatus(service) {
             setWindowUndertext(heading, this.contentEl.createEl("p", { text: fulfilmentLabel(oath), cls: "hub-oath-muted" }));
             if (service.isStrict) {
                 this.contentEl.createEl("p", { text: "Strict Oath: ordinary exit becomes available after fulfillment. Desktop application checks are best effort.", cls: "hub-oath-muted" });
+                const monitoring = service.strictStatus?.monitoring;
+                if (monitoring) {
+                    this.contentEl.createEl("p", { text: `Application focus attempts ${monitoring.attempts} of ${monitoring.limit}. Windows may refuse a request.`, cls: "hub-oath-muted" });
+                    const event = monitoring.lastEvent;
+                    if (event) {
+                        const outcomes = { attempted: "Return requested", "focus-error": "Focus request failed", cooldown: "Cooldown suppressed return", "budget-exhausted": "Session limit suppressed return" };
+                        this.contentEl.createEl("p", { text: `${outcomes[event.outcome]} | ${new Date(event.observedAt).toLocaleTimeString()} | ${event.applications.join(", ")}`, cls: "hub-oath-muted" });
+                    }
+                }
                 for (const warning of service.strictStatus?.warnings ?? []) this.contentEl.createEl("p", { text: warning, cls: "hub-oath-muted" });
-                for (const blocker of service.strictStatus?.blockers ?? []) this.contentEl.createEl("p", { text: `Close before starting: ${blocker.title || blocker.executable || "Unknown application"}`, cls: "hub-oath-muted" });
+                for (const blocker of service.strictStatus?.candidates ?? service.strictStatus?.blockers ?? []) this.contentEl.createEl("p", { text: `Possible non-permitted application (switchability unverified): ${blocker.title || blocker.executable || "Unknown application"}`, cls: "hub-oath-muted" });
+                for (const uncertain of service.strictStatus?.uncertain ?? []) this.contentEl.createEl("p", { text: `Could not confirm switchability: ${uncertain.title || uncertain.executable || "Untitled window"}`, cls: "hub-oath-muted" });
             }
             const work = this.contentEl.createDiv({ cls: "hub-oath-status-work" });
             for (const ref of oath.tasks) {
@@ -20897,6 +21670,389 @@ function mountOathControl(plugin, service) {
 module.exports = { openOathPicker, openOathSetup, openOathStatus, mountOathControl, requestOathExit };
 
 },
+"lib/ui/plan-finish.js": function (module, exports, __hubRequire) {
+﻿"use strict";
+const {CaptureConfirmation}=__hubRequire("lib/ui/capture-modal.js");
+async function confirmFinish(plugin,id,returnFocus){
+ if(plugin.planFinishConfirmation)return false;
+ const modal=plugin.planFinishConfirmation=new CaptureConfirmation(plugin.app,null,{title:'Finish this plan?',message:'The plan will be preserved. Unfinished tasks will remain unchanged.',cancelLabel:'Keep working',confirmLabel:'Finish plan',returnFocus});
+ try{if(!await modal.ask())return false;await plugin.globalPlan.finishPlan(id);return true;}finally{plugin.planFinishConfirmation=null;}
+}
+module.exports={confirmFinish};
+
+},
+"lib/ui/plan-home.js": function (module, exports, __hubRequire) {
+"use strict";
+const {Component}=require('obsidian');
+const {setHubIcon}=__hubRequire("lib/ui/icons.js");
+const {localISODate,formatDate}=__hubRequire("lib/domain/dates.js");
+const {createHistoryPager}=__hubRequire("lib/ui/history-pager.js");
+function dateLabel(p){const today=new Date(),yesterday=new Date(today);yesterday.setDate(today.getDate()-1);return p.calendarDate===localISODate(today)?'Today':p.calendarDate===localISODate(yesterday)?'Yesterday':formatDate(p.calendarDate,'numeric');}
+function time(p,stamp){return new Intl.DateTimeFormat('en-GB',{timeZone:p.timeZone,hour:'2-digit',minute:'2-digit'}).format(new Date(stamp));}
+function mountPlanHome({root,component,plugin}){
+ const plan=plugin.globalPlan;let historyExpanded=false,child,renderedHistory=false,expandedPlanId=null,pager,loadedCount=50,noteLines=1,notePlanId;const positions={main:0,history:0};
+ const footer=root.createDiv({cls:'hub-plan-home-footer'});let footerMode,historyToggle,historyChevron,historyLabel;
+ const report=e=>{plan.status=e.message;render();};
+ const action=(host,text,run,cls='')=>{const b=host.createEl('button',{text,cls});b.onclick=()=>void Promise.resolve().then(run).catch(report);return b;};
+ const header=root.parentElement?.querySelector('.home-panel-title button');
+ let headerIcon,headerLabel;
+ if(header){
+  header.empty();header.classList.add('hub-panel-action','hub-panel-add');
+  headerIcon=header.createSpan({cls:'hub-task-add-icon',attr:{'aria-hidden':'true'}});setHubIcon(headerIcon,'plus');
+  headerLabel=header.createSpan();
+ }
+ const newPlan=async()=>{const id=await plan.createPlan();historyExpanded=false;render();__hubRequire("lib/ui/plan.js").openPlan(plugin,id);};
+ function render(){
+  const oldNote=root.querySelector(':scope > .hub-plan-note-excerpt:not(.is-empty-note) .hub-plan-note-text');
+  if(oldNote){const line=parseFloat(root.ownerDocument.defaultView.getComputedStyle(oldNote).lineHeight);if(line)noteLines=Math.max(1,Math.min(2,Math.round(oldNote.getBoundingClientRect().height/line)));}
+  const focused=root.contains(document.activeElement)?document.activeElement:null,focusHistory=focused?.closest('[data-history-id]')?.dataset.historyId,focusEntry=focused?.closest('[data-plan-id]')?.dataset.planId;
+  if(pager)loadedCount=Math.max(loadedCount,pager.renderedCount);pager=null;
+  const old=root.querySelector('.hub-plan-history-list')??root.querySelector('.hub-plan-collection');if(old)positions[renderedHistory?'history':'main']=old.scrollTop;
+  child?.unload();child=new Component();child.load();for(const node of [...root.children])if(node!==footer)node.remove();root.classList.add('hub-plan-home');
+  const active=plan.active(),finished=plan.readPlan(plan.finishedPreviewPlanId),p=active??(finished?.status==='finished'?finished:null),records=plan.listHistorical();
+  if(p){historyExpanded=false;expandedPlanId=null;}if(expandedPlanId&&!records.some(r=>r.id===expandedPlanId))expandedPlanId=null;renderedHistory=historyExpanded;
+  if(header){header.hidden=false;headerIcon.hidden=!!active;headerIcon.style.display=active?'none':'';headerLabel.textContent=active?'Edit':'Plan';header.setAttribute('aria-label',active?'Edit plan':'New plan');header.disabled=!!(plan.transitioning||plan.pendingTransition||plan.conflict||plan.readOnly);header.onclick=()=>void Promise.resolve().then(()=>active?__hubRequire("lib/ui/plan.js").openPlan(plugin,active.id):newPlan()).catch(report);}
+  if(p){
+   const bound=plan.bind(p.id);__hubRequire("lib/ui/plan-presentation.js").mountPlanPresentation({root,component:child,plan:bound,context:'home',interactive:p.status==='active',emptyMessage:false});
+   root.classList.toggle('is-finished-plan',p.status==='finished');
+   const note=root.querySelector('.hub-plan-note-excerpt'),text=(p.content??p.snapshot).note,empty=!text.trim();if(notePlanId!==p.id){noteLines=1;notePlanId=p.id;}note.hidden=false;note.classList.toggle('is-empty-note',empty);note.style.setProperty('--hub-plan-note-lines',String(noteLines));note.querySelector('.hub-plan-note-text').textContent=empty?'':text;
+  }else{
+   root.classList.remove('is-finished-plan');
+   if(historyExpanded&&records.length){
+    const list=root.createDiv({cls:'hub-plan-history-list hub-scrollbar'});list.id='hub-plan-home-history';
+    const rows=new Map();let expansion;
+    child.register(()=>expansion?.unload());
+    const expand=(id,anchor)=>{
+     const top=anchor?.getBoundingClientRect().top;
+     expansion?.unload();expansion=null;
+     for(const [key,row]of rows){row.content.empty();row.content.hidden=key!==id;row.button.setAttribute('aria-expanded',String(key===id));setHubIcon(row.chevron,key===id?'chevron-down':'chevron-right');}
+     const row=rows.get(id);
+     if(row&&row.record.snapshot.entries.length){
+      expansion=new Component();expansion.load();const collection=row.content.createDiv({cls:'hub-plan-collection'});
+      __hubRequire("lib/ui/plan-list.js").mountPlanList({root:collection,component:expansion,plan:plan.bind(id),editable:false,interactive:true,emptyMessage:false,scroller:list,onRendered:()=>{if(focusHistory===id&&focusEntry){const target=[...row.content.querySelectorAll('[data-plan-id]')].find(e=>e.dataset.planId===focusEntry)?.querySelector('.hub-plan-title');target?.focus({preventScroll:true});}}});
+     }
+     if(anchor&&top!==undefined)list.scrollTop+=anchor.getBoundingClientRect().top-top;
+    };
+    pager=createHistoryPager(list,child);pager.render(records,record=>{
+     const wrapper=list.createDiv({cls:'hub-plan-history-entry'});wrapper.dataset.historyId=record.id;
+     const b=action(wrapper,'',()=>{expandedPlanId=expandedPlanId===record.id?null:record.id;expand(expandedPlanId,b);b.focus({preventScroll:true});},'hub-plan-history-row'),status=b.createDiv({cls:'hub-plan-history-status'});
+     setHubIcon(status.createSpan({cls:record.status==='finished'?'hub-plan-finished':'hub-oath-muted'}),record.status==='finished'?'circle-check':'clock');
+     status.createSpan({text:dateLabel(record)+' \u00b7 '+time(record,record.createdAt)+'\u2013'+time(record,record.endedAt)});
+     const chevron=status.createSpan({cls:'hub-task-group-chevron'});chevron.setAttribute('aria-hidden','true');setHubIcon(chevron,'chevron-right');
+     b.title=(record.status==='finished'?'Manually finished':'Day ended')+' \u00b7 '+record.timeZone;b.setAttribute('aria-description',b.title);
+     b.createDiv({text:record.snapshot.note||'No note',cls:'hub-plan-history-note'+(record.snapshot.note?'':' hub-oath-muted')});b.createDiv({text:record.snapshot.entries.length+' planned items',cls:'hub-plan-history-count hub-oath-muted'});
+     const content=wrapper.createDiv({cls:'hub-plan-history-content hub-plan-presentation',attr:{hidden:''}});content.dataset.planContext='home';content.id='hub-plan-history-'+record.id;b.setAttribute('aria-controls',content.id);b.setAttribute('aria-expanded','false');
+     rows.set(record.id,{button:b,content,chevron,record});
+    },loadedCount);expand(expandedPlanId);list.scrollTop=positions.history;
+    if(focusHistory){const row=rows.get(focusHistory);row?.button.focus({preventScroll:true});}
+   }else root.createDiv({cls:'hub-plan-empty',text:'No active plan for today'});
+  }
+  const mode=p?p.status+':'+p.id:(records.length?'history':'empty');
+  if(mode!==footerMode){footer.empty();footerMode=mode;historyToggle=null;
+  if(p?.status==='active'){
+   const b=action(footer,'',()=>__hubRequire("lib/ui/plan-finish.js").confirmFinish(plugin,p.id,b),'hub-plan-finish'),icon=b.createSpan({cls:'hub-capture-icon'});setHubIcon(icon,'circle-dashed-check');b.createSpan({text:'Finish plan'});
+   for(const event of ['mouseenter','focus'])b.addEventListener(event,()=>setHubIcon(icon,'circle-check'));
+   for(const event of ['mouseleave','blur'])b.addEventListener(event,()=>setHubIcon(icon,b.matches(':hover,:focus')?'circle-check':'circle-dashed-check'));
+   b.disabled=!!(plan.transitioning||plan.pendingTransition||plan.conflict||plan.readOnly);
+  }else if(p){
+   const status=footer.createSpan({cls:'hub-plan-finished-status'});setHubIcon(status.createSpan(),'circle-check');status.createSpan({text:'Finished '+time(p,p.endedAt)});
+   action(footer,'Hide',()=>{plan.dismissHomePlan(p.id);header?.focus();},'hub-button-plain hub-plan-hide');
+  }else if(records.length){
+   const b=action(footer,'',()=>{historyExpanded=!historyExpanded;render();root.querySelector('.hub-task-group-toggle')?.focus();},'hub-task-group-toggle');b.setAttribute('aria-expanded',String(historyExpanded));b.setAttribute('aria-controls','hub-plan-home-history');historyToggle=b;historyChevron=b.createSpan({cls:'hub-task-group-chevron',attr:{'aria-hidden':'true'}});b.classList.add('hub-plan-history-toggle');const label=b.createSpan({cls:'hub-plan-history-toggle-label'});label.createSpan({text:'Show earlier plans',cls:'hub-plan-history-toggle-measure',attr:{'aria-hidden':'true'}});historyLabel=label.createSpan();
+  }
+  }
+  const finish=footer.querySelector('.hub-plan-finish');if(finish)finish.disabled=!!(plan.transitioning||plan.pendingTransition||plan.conflict||plan.readOnly);
+  if(historyToggle){historyToggle.setAttribute('aria-expanded',String(historyExpanded));setHubIcon(historyChevron,historyExpanded?'chevron-down':'chevron-right');historyLabel.textContent=historyExpanded?'Hide earlier plans':'Show earlier plans';}
+  if(plan.error||plan.status!=='Saved')root.createDiv({text:plan.status,cls:'hub-oath-muted',attr:{role:'status'}});
+  for(const node of [...root.children])if(node!==footer)root.insertBefore(node,footer);
+  const list=renderedHistory?null:root.querySelector('.hub-plan-collection');if(list){list.dataset.planScrollRestore=String(positions.main);list.scrollTop=positions.main;}
+ }
+ plan.subscribe(component,render);component.register(()=>{child?.unload();if(header)header.onclick=null;});render();
+}
+module.exports={mountPlanHome,dateLabel,time};
+
+},
+"lib/ui/plan-list.js": function (module, exports, __hubRequire) {
+"use strict";
+const {setIcon}=require("obsidian");
+const {createPointerListReorder}=__hubRequire("lib/ui/pointer-list-reorder.js");
+const {createTaskRow,mountTaskCardPresentation}=__hubRequire("lib/ui/task-card.js");
+const {fileIcon}=__hubRequire("lib/ui/file-icons.js");
+const {runNativeTaskToggle}=__hubRequire("lib/ui/task-operation.js");
+function mountPlanList({root,component,plan,editable=false,onRelink=()=>{},scroller=root,interactive=true,emptyMessage=true,onRendered}){
+ let generation=0,disposed=false,reorder;const report=error=>new(require("obsidian").Notice)(error.message);
+ async function render(){const gen=++generation;let items;try{items=await plan.references.resolve();}catch(error){if(gen===generation){root.empty();root.createDiv({text:error.message});}return;}if(disposed||gen!==generation||reorder?.busy)return;
+  const focus=root.ownerDocument.activeElement,focused=focus?.closest?.("[data-plan-id]")?.dataset.planId,control=focus?.dataset.planControl,scroll=Number(scroller.dataset.planScrollRestore??scroller.scrollTop);delete scroller.dataset.planScrollRestore;reorder?.cancel();root.empty();root.classList.toggle('is-empty-plan',editable&&!items.length);
+  if(editable&&!items.length)root.createDiv({cls:'hub-plan-editor-empty',text:'Add at least one item to save this plan.'});
+  if(!editable&&!items.length&&emptyMessage)root.createDiv({cls:"home-empty",text:"Add something to your plan when it helps."});
+  const list=root.createDiv({cls:"hub-plan-list"});
+  const live=root.createDiv({cls:"hub-plan-announcement",attr:{"aria-live":"polite"}});
+  reorder=createPointerListReorder({container:list,scroller,placeholderClass:"hub-plan-placeholder",sortingClass:"is-sorting-plan",focusTarget:row=>row.querySelector("[data-plan-control=grip]"),commit:(rows,moved)=>plan.move(moved.dataset.planId,rows.indexOf(moved)),onError:report});
+  items.forEach((item,index)=>{const {entry,task}=item,available=item.availability==="current";const row=list.createDiv({cls:"hub-plan-row"+((item.historical?item.snapshot.taskState==="completed":task?.completed)?" is-completed":""),attr:{"data-plan-id":entry.id}});
+   if(editable){const grip=row.createEl("button",{cls:"hub-button-plain hub-plan-hover",attr:{"aria-label":"Reorder "+item.label,"data-plan-control":"grip","aria-keyshortcuts":"Alt+ArrowUp Alt+ArrowDown Alt+Home Alt+End","aria-description":"Drag to reorder. Alt+Up or Down moves one position; Alt+Home or End moves to the first or last position.",title:"Drag to reorder \u00b7 Alt+\u2191/\u2193 to move"}});setIcon(grip,"grip-vertical");grip.onpointerdown=e=>{e.preventDefault();reorder.begin(e,row,list);};grip.onkeydown=e=>{if(e.altKey&&["ArrowUp","ArrowDown","Home","End"].includes(e.key)){e.preventDefault();const to=e.key==="Home"?0:e.key==="End"?items.length-1:index+(e.key==="ArrowUp"?-1:1);plan.move(entry.id,to);live.textContent=`Moved to position ${Math.max(1,Math.min(items.length,to+1))}`;}};}
+   let content,title;
+   if(task&&!item.historical){
+    const native=createTaskRow(row,task,task.completed,{variant:"home",leadingSlot:true});
+    native.row.classList.add("hub-plan-native-task");
+    const check=native.checkbox;check.disabled=!available||task.nativeReadOnly||plan.busy;
+    check.onchange=()=>void runNativeTaskToggle({checkbox:check,task,completed:check.checked,run:done=>{plan.assertEditable?.();return plan.trackNative?plan.trackNative(plan.references.tasks.toggle(task,done)):plan.references.tasks.toggle(task,done);},onEdit:()=>plan.emit(),report});
+    mountTaskCardPresentation(native.row,native.textEl,task,()=>task.path??"",{importance:false,dates:false,description:false});
+    content=native.info;title=native.textEl;title.classList.add("hub-plan-title");title.tabIndex=available?0:-1;title.setAttribute("role","button");title.setAttribute("aria-disabled",String(!available));
+    title.onclick=()=>{if(available)void plan.references.open(item).catch(report);};title.onkeydown=e=>{if(["Enter"," "].includes(e.key)){e.preventDefault();title.click();}};
+   }else{
+    setIcon(row.createSpan({cls:"hub-plan-icon hub-plan-leading"}),item.historical&&entry.kind==="task"?(item.snapshot.taskState==="completed"?"square-check":item.snapshot.taskState==="unknown"?"circle-help":"square"):entry.kind==="workspace"?(item.context?.icon??"folder"):fileIcon(entry.reference.path));
+    content=row.createDiv({cls:"hub-plan-content"});title=content.createEl(interactive?"button":"span",{cls:"hub-button-plain hub-plan-title",text:item.label||"Unavailable reference"});if(interactive){title.disabled=!available;title.onclick=()=>void plan.references.open(item).catch(report);}
+    if(item.historical){content.createDiv({cls:"hub-plan-metadata",text:item.snapshot.route});if(entry.kind==="task"&&item.snapshot.taskState==="unknown")content.createDiv({cls:"hub-oath-muted",text:"Task state at day end unknown"});}else __hubRequire("lib/ui/plan-presentation.js").renderPlanMetadata(content.createDiv({cls:"hub-plan-metadata"}),item,plan);
+   }
+   if(item.historical&&interactive){title.title='Open current '+entry.kind;title.setAttribute('aria-description',title.title);}
+   if(!available)content.createDiv({cls:"hub-oath-muted",text:item.fileState==="deleted"?"File deleted":item.fileState==="unresolved"?"File reference needs relinking":item.fileState==="missing"?"File not found":entry.kind==="file"&&item.availability==="missing"?"File reference needs relinking":item.availability==="missing"?"Source unavailable":"Temporarily unavailable"});
+   if(editable){row.append(row.querySelector("[data-plan-control=grip]"));if(entry.kind==="file"&&!available){const relink=row.createEl("button",{text:"Relink"});relink.onclick=()=>onRelink(entry);}const remove=row.createEl("button",{cls:"hub-button-plain hub-plan-hover",attr:{"aria-label":"Remove from plan: "+item.label,title:"Remove from plan","data-plan-control":"remove"}});setIcon(remove,"x");remove.onclick=()=>{plan.remove(entry.id);queueMicrotask(()=>root.querySelectorAll(".hub-plan-title")[Math.min(index,items.length-2)]?.focus());};}
+  });scroller.scrollTop=scroll;onRendered?.();if(focused){const row=[...list.children].find(r=>r.dataset.planId===focused);row?.querySelector(control?`[data-plan-control="${control}"]`:".hub-plan-title")?.focus({preventScroll:true});}
+ }
+ plan.subscribe(component,()=>void render());component.register(()=>{disposed=true;generation++;reorder?.cancel();});void render();return {render};
+}
+module.exports={mountPlanList};
+
+},
+"lib/ui/plan-picker.js": function (module, exports, __hubRequire) {
+"use strict";
+const {Modal,Component,Menu}=require("obsidian");
+const {ownModalColors,ownMenuColors}=__hubRequire("lib/ui/color-system.js");
+const {createModalHeader,layoutModal}=__hubRequire("lib/ui/window-title.js");
+const {identity,refOf,clone}=__hubRequire("lib/domain/global-plan.js");
+const {setHubIcon}=__hubRequire("lib/ui/icons.js");
+const {fileIcon}=__hubRequire("lib/ui/file-icons.js");
+const {createTaskRow,mountTaskCardPresentation}=__hubRequire("lib/ui/task-card.js");
+const {taskGroups}=__hubRequire("lib/domain/task-planning.js");
+const {appendRouteSeparator}=__hubRequire("lib/ui/route-breadcrumb.js");
+class PlanPicker extends Modal {
+ constructor(plugin,{relink=null}={}){super(plugin.app);this.plugin=plugin;this.plan=plugin.globalPlan;this.relink=relink;this.planId=this.plan.active()?.id;this.selected=new Map();this.category=relink?"file":"task";this.returnFocus=document.activeElement;this.fileInitialized=false;this.invocation=plugin.workspaceModes?.currentContext?.()??null;if(!plugin.workspaceModes?.currentContext){const path=plugin.app.workspace?.getActiveFile?.()?.path;this.invocation=path?plugin.projectWizard.getContextForPath?.(path):null;}this.invocationPath=plugin.app.workspace?.getActiveFile?.()?.path;}
+ onOpen(){
+  ownModalColors(this);this.modalEl.classList.add("hub-plan-modal","hub-plan-picker");this.contentEl.classList.add("hub-button-scope");this.component=new Component();this.component.load();
+  createModalHeader(this.contentEl,{title:this.relink?"Relink file":"Add to plan",icon:"list-plus",subtitle:this.relink?undefined:"Choose what to include in your plan."});
+  const controls=this.contentEl.createDiv({cls:"hub-plan-picker-controls"});
+  this.categoryEl=controls.createEl("select",{attr:{"aria-label":"Item type",hidden:""}});this.categoryButtons=[];
+  const tabs=controls.createDiv({cls:"hub-plan-picker-tabs",attr:{role:"group","aria-label":"Item type"}});
+  for(const [value,text]of [["task","Tasks"],["file","Files"],["workspace","Workspaces"]]){
+   this.categoryEl.createEl("option",{attr:{value},text});const b=tabs.createEl("button",{text,attr:{type:"button"}});b.disabled=!!this.relink&&value!=="file";b.onclick=()=>{this.categoryEl.value=value;this.categoryEl.onchange();};this.categoryButtons.push({b,value});
+  }
+  this.categoryEl.value=this.category;this.categoryEl.onchange=()=>{if(this.category==="file")this.fileLocation={scope:this.workspaceScope.value,folder:this.folder};this.category=this.categoryEl.value;if(this.category==="file"){this.ensureFileLocation();if(this.fileLocation){this.workspaceScope.value=this.fileLocation.scope;this.folder=this.fileLocation.folder;}}this.render();};
+  this.search=controls.createEl("input",{attr:{type:"search",placeholder:"Search","aria-label":"Search plan items"}});this.search.oninput=()=>this.render();
+  this.workspaceScope=controls.createEl("select",{attr:{"aria-label":"Workspace scope",hidden:""}});this.workspaceScope.createEl("option",{attr:{value:""},text:"All workspaces"});
+  for(const w of this.plan.references.workspaces())this.workspaceScope.createEl("option",{attr:{value:JSON.stringify(refOf(w))},text:w.name??w.label});
+  this.workspaceScope.onchange=()=>{this.folder="";if(this.category==="file")this.fileLocation={scope:this.workspaceScope.value,folder:""};this.render();};
+  this.workspaceButton=controls.createEl("button",{cls:"hub-task-location-workspace-row",attr:{"aria-haspopup":"menu"}});
+  this.workspaceButton.onclick=()=>{const menu=ownMenuColors(new Menu());for(const option of this.workspaceScope.options)menu.addItem(i=>i.setTitle(option.text).setChecked(option.value===this.workspaceScope.value).onClick(()=>{this.workspaceScope.value=option.value;this.workspaceScope.onchange();}));const r=this.workspaceButton.getBoundingClientRect();menu.showAtPosition({x:r.left,y:r.bottom});};
+  this.breadcrumbs=controls.createEl("nav",{cls:"hub-task-location-breadcrumbs",attr:{"aria-label":"Folder",hidden:""}});
+  this.body=this.contentEl.createDiv({cls:"hub-plan-picker-body"});this.results=this.body.createDiv();this.results.onkeydown=e=>{if(!["ArrowDown","ArrowUp","Home","End"].includes(e.key))return;const controls=[...this.results.querySelectorAll("button,[data-selection-key]")].filter(el=>!el.disabled);const index=controls.indexOf(e.target);if(index<0)return;e.preventDefault();controls[e.key==="Home"?0:e.key==="End"?controls.length-1:Math.max(0,Math.min(controls.length-1,index+(e.key==="ArrowDown"?1:-1)))]?.focus();};this.error=this.contentEl.createDiv({cls:"hub-task-error",attr:{role:"alert"}});
+  this.review=this.contentEl.createDiv({cls:"hub-plan-review",attr:{hidden:""}});this.reviewToggle=this.review.createEl("button",{text:"Review selection",cls:"hub-button-plain",attr:{"aria-expanded":"false"}});this.reviewList=this.review.createDiv({cls:"hub-plan-review-list hub-scrollbar",attr:{hidden:""}});this.reviewToggle.onclick=()=>{this.reviewOpen=!this.reviewOpen;this.renderReview();};this.announcement=this.contentEl.createDiv({cls:"hub-plan-announcement",attr:{role:"status","aria-live":"polite"}});
+  const footer=this.contentEl.createDiv({cls:"hub-project-advancement-actions"});const cancel=footer.createEl("button",{text:"Cancel"});cancel.onclick=()=>this.close();this.add=footer.createEl("button",{text:"Add selected (0)",cls:"mod-cta"});this.add.disabled=true;this.add.onclick=()=>this.commit();
+  layoutModal(this,{headerEnd:controls,body:this.body,footer});this.plan.subscribe(this.component,()=>this.render());void this.load();
+ }
+ async load(){try{this.items=await this.plan.references.candidates();if(this.category==="file")this.ensureFileLocation();if(this.contentEl.isConnected){this.render();if(this.plan.references.taskError)this.error.textContent="Tasks are temporarily unavailable. Files and Workspaces are still available.";}}catch(error){if(this.isOpen)this.error.textContent=error.message;}}
+ existing(){return new Set(this.plan.draft.entries.filter(e=>e.id!==this.relink?.id).map(identity));}
+ render(){
+  if(!this.items)return;this.modalEl.dataset.category=this.category;
+  const scroll=this.body.scrollTop,active=this.results.ownerDocument.activeElement,key=active?.dataset.selectionKey;
+  this.results.empty();this.breadcrumbs.empty();this.breadcrumbs.hidden=this.category!=="file";const scope=this.category==="workspace"?null:this.workspaceScope.value?JSON.parse(this.workspaceScope.value):null,q=this.search.value.trim().toLocaleLowerCase();
+  for(const {b,value}of this.categoryButtons){b.classList.toggle("is-selected",value===this.category);b.setAttribute("aria-pressed",String(value===this.category));}
+  this.workspaceButton.hidden=this.category==="workspace";this.workspaceButton.empty();
+  const workspace=scope?this.plan.references.workspace(scope):null;
+  if(workspace)__hubRequire("lib/ui/workspace-thumbnail.js").mountWorkspaceThumbnail(this.workspaceButton,this.plugin,workspace);
+  const workspaceCopy=this.workspaceButton.createSpan({cls:"hub-plan-workspace-copy"});workspaceCopy.createSpan({text:workspace?.name??workspace?.label??"All workspaces"});if(workspace)workspaceCopy.createSpan({cls:"hub-plan-metadata",text:scope.type==="project"?"Project":"Resource"});setHubIcon(this.workspaceButton.createSpan({cls:"hub-plan-scope-chevron"}),"chevron-right");
+  let items=this.items.filter(i=>i.entry.kind===this.category&&(i.entry.kind!=="task"||!i.completed&&i.task?.nativeReadOnly!==true));
+  if(this.category==="task")items=this.orderTasks(items);
+  if(scope)items=items.filter(i=>JSON.stringify(i.workspace)===JSON.stringify(scope)||i.entry.kind==="file"&&this.sharedIn(scope,i.path));
+  items=items.filter(i=>!q||[i.label,i.path,this.plan.references.workspace(i.workspace)?.name].join(" ").toLocaleLowerCase().includes(q));
+  if(this.category==="file"){
+   if(!scope&&!this.folder){this.breadcrumbs.hidden=true;
+    const owners=new Map();for(const item of items)owners.set(JSON.stringify(item.workspace),item.workspace);
+    if(!q)for(const owner of owners.values()){const w=this.plan.references.workspace(owner);if(!w)continue;const b=this.results.createEl("button",{cls:"hub-button-plain hub-task-location-entry hub-plan-folder"});setHubIcon(b.createSpan(),w.icon??"folder");b.createSpan({text:w.name??w.label});setHubIcon(b.createSpan(),"chevron-right");b.onclick=()=>{this.workspaceScope.value=JSON.stringify(owner);this.workspaceScope.onchange();};}if(!q)items=[];
+   }else{
+    const workspaceRoot=workspace?.root??"";
+    const physicalOwner=this.folder&&this.plugin.projectWizard.getContextForPath?.(this.folder);
+    const physical=this.folder&&items.find(i=>i.path.startsWith(this.folder+"/"));
+    const root=physicalOwner?.root??(physical?this.plan.references.workspace(physical.workspace)?.root??workspaceRoot:workspaceRoot),current=this.folder||root;
+    const nav=this.breadcrumbs;
+    const segments=current.slice(root.length).split("/").filter(Boolean);let path=root;
+    const crumb=(text,target)=>{const b=nav.createEl("button",{cls:"hub-button-plain",attr:{type:"button",title:target}});b.createSpan({cls:"hub-task-location-segment-label",text});b.dataset.locationPath=target;b.onclick=()=>{this.folder=target;this.render();};};
+    if(root!==workspaceRoot){crumb(workspace?.name??workspace?.label??"Project",workspaceRoot);appendRouteSeparator(nav,"hub-task-location-separator");}
+    const physicalWorkspace=physicalOwner??(physical&&this.plan.references.workspace(physical.workspace));
+    crumb(physicalWorkspace?.name??workspace?.name??workspace?.label??"Files",root);for(const segment of segments){path+=(path?"/":"")+segment;appendRouteSeparator(nav,"hub-task-location-separator");crumb(segment,path);}
+    const endpoint=nav.querySelector("button:last-child");endpoint?.setAttribute("aria-current","location");endpoint?.removeAttribute("title");
+    const changed=this.breadcrumbPath!==current,oldScroll=this.breadcrumbScroll??0;this.breadcrumbPath=current;
+    queueMicrotask(()=>{if(nav.isConnected){nav.scrollLeft=changed?nav.scrollWidth:oldScroll;}});nav.onscroll=()=>{this.breadcrumbScroll=nav.scrollLeft;};
+    const folders=new Set();
+    const directory=this.plugin.app.vault.getAbstractFileByPath(current);for(const child of directory?.children??[])if(Array.isArray(child.children))folders.add(child.path);
+    if(scope?.type==="project"&&(!this.folder||this.folder===workspaceRoot))for(const item of items){if(this.sharedIn(scope,item.path)){const source=this.plan.references.workspace(item.workspace);if(source?.root&&source.root!==workspaceRoot)folders.add(source.root);}}
+    if(!q)items=items.filter(i=>{if(current&&!i.path.startsWith(current+"/"))return false;const relative=current?i.path.slice(current.length+1):i.path;if(relative.includes("/")){folders.add((current?current+"/":"")+relative.split("/")[0]);return false;}return true;});
+    if(!q)for(const folder of [...folders].sort()){const b=this.results.createEl("button",{cls:"hub-button-plain hub-task-location-entry hub-plan-folder"});setHubIcon(b.createSpan({cls:"hub-task-location-icon"}),"folder");b.createSpan({cls:"hub-task-location-name",text:folder.split("/").at(-1)});setHubIcon(b.createSpan({cls:"hub-task-location-icon"}),"chevron-right");b.onclick=()=>{this.folder=folder;this.render();};}
+   }
+  }
+  const existing=this.existing();for(const k of existing)this.selected.delete(k);
+  for(const item of items){
+   const k=identity(item.entry),inPlan=existing.has(k),pending=this.selected.has(k),row=this.results.createDiv({cls:"hub-plan-picker-row"+(inPlan?" is-in-plan":pending?" is-new":""),attr:{role:"button",tabindex:"0","aria-pressed":String(inPlan||pending),"aria-disabled":String(inPlan),"aria-label":item.label+(inPlan?", already in plan":pending?", selected for plan":"")}});row.dataset.selectionKey=k;
+   if(item.entry.kind==="task"&&item.task){const task=createTaskRow(row,item.task,false,{variant:"home",decorativeCheckbox:true});mountTaskCardPresentation(task.row,task.textEl,item.task,()=>item.task.path??"",{selection:true,normalSource:true});
+    if(item.task.steps?.length)task.info.createDiv({cls:"hub-plan-task-step-summary",text:__hubRequire("lib/ui/task-card.js").taskStepSummary(item.task.steps)});
+   }else{
+    if(item.entry.kind==="workspace"){const w=this.plan.references.workspace(item.workspace);if(w)__hubRequire("lib/ui/workspace-thumbnail.js").mountWorkspaceThumbnail(row,this.plugin,w);}
+    else setHubIcon(row.createSpan({cls:"hub-plan-icon"}),fileIcon(item.path));
+    const copy=row.createDiv({cls:"hub-plan-content"});copy.createDiv({text:item.label});
+    if(item.entry.kind!=="file"||q){const meta=copy.createDiv({cls:"hub-plan-metadata"});__hubRequire("lib/ui/plan-presentation.js").renderPlanMetadata(meta,item,this.plan);}
+   }
+   row.createSpan({cls:"hub-plan-selection-status",text:inPlan?"In plan":pending?"New":""});
+   const toggle=()=>{if(inPlan)return;if(this.selected.has(k))this.selected.delete(k);else{if(this.relink)this.selected.clear();const chosen=clone(item.entry);if(chosen.kind==="file"&&scope)chosen.intendedContext=scope;this.selected.set(k,chosen);}this.render();};
+   row.onclick=toggle;row.onkeydown=e=>{if(["Enter"," "].includes(e.key)){e.preventDefault();toggle();}};
+  }
+  if(!this.results.children.length)this.results.createDiv({cls:"home-empty",text:"No matching items."});
+  this.add.disabled=!this.selected.size;this.add.textContent=this.relink?"Relink selected":"Add selected ("+this.selected.size+")";this.body.scrollTop=scroll;this.renderReview();
+  if(key)[...this.results.querySelectorAll("[data-selection-key]")].find(b=>b.dataset.selectionKey===key)?.focus({preventScroll:true});
+ }
+ ensureFileLocation(){
+  if(this.fileInitialized)return;this.fileInitialized=true;
+  const workspaces=this.plan.references.workspaces(),available=w=>w?.root&&Array.isArray(this.plugin.app.vault.getAbstractFileByPath(w.root)?.children);
+  const wanted=this.relink?this.plan.references.workspace(this.relink.intendedContext??this.relink.reference.sourceWorkspace):this.invocation;
+  const exploration=__hubRequire("lib/config.js").RESOURCE_TYPES.find(w=>w.label==="Explorations");
+  const workspace=available(wanted)?wanted:workspaces.find(w=>w.resourceType===exploration?.id&&available(w))??workspaces.find(available);
+  if(!workspace)return;this.workspaceScope.value=JSON.stringify(refOf(workspace));this.folder=workspace.root;
+  const path=this.relink?.reference.path??(wanted===workspace?this.invocationPath:null),file=path&&this.plugin.app.vault.getAbstractFileByPath(path),parent=file?.parent?.path??path?.slice(0,path.lastIndexOf("/"));
+  if(parent&&(parent===workspace.root||parent.startsWith(workspace.root+"/")||this.sharedIn(refOf(workspace),parent))&&Array.isArray(this.plugin.app.vault.getAbstractFileByPath(parent)?.children))this.folder=parent;
+  this.fileLocation={scope:this.workspaceScope.value,folder:this.folder};
+ }
+ orderTasks(items){
+  const owners=this.plan.references.workspaces(),rank=i=>{const n=owners.findIndex(w=>JSON.stringify(refOf(w))===JSON.stringify(i.workspace));return n<0?owners.length:n;};
+  const ordered=[...items].sort((a,b)=>rank(a)-rank(b)),oath=this.plugin.oath;
+  const pinned=oath?.active?__hubRequire("lib/domain/oath-workspace.js").oathTaskOrder(oath.current):new Map();
+  const key=i=>__hubRequire("lib/domain/oath-workspace.js").taskKey(i.task),ordinary=ordered.filter(i=>!pinned.has(key(i))),groups=taskGroups(ordinary);
+  return [...ordered.filter(i=>pinned.has(key(i))).sort((a,b)=>pinned.get(key(a))-pinned.get(key(b))),...groups.active,...groups.future];
+ }
+ renderReview(){
+  const active=this.contentEl.ownerDocument.activeElement,focused=active?.dataset.reviewKey,scroll=this.reviewList.scrollTop;
+  this.review.hidden=!this.selected.size;if(!this.selected.size)this.reviewOpen=false;
+  this.reviewToggle.setAttribute("aria-expanded",String(!!this.reviewOpen));this.reviewList.hidden=!this.reviewOpen;this.reviewList.empty();
+  if(this.reviewOpen)for(const kind of ["task","file","workspace"]){const entries=[...this.selected].filter(([,e])=>e.kind===kind);if(!entries.length)continue;
+   this.reviewList.createEl("strong",{text:{task:"Tasks",file:"Files",workspace:"Workspaces"}[kind]});
+   for(const [k,e]of entries){const row=this.reviewList.createDiv({cls:"hub-plan-review-row"}),copy=row.createDiv();copy.createDiv({text:e.lastKnownLabel});const item=this.items.find(i=>identity(i.entry)===k);if(item){const meta=copy.createDiv({cls:"hub-plan-metadata"});if(kind==="task")meta.textContent=this.plan.references.workspace(item.workspace)?.name??"";else __hubRequire("lib/ui/plan-presentation.js").renderPlanMetadata(meta,item,this.plan);}
+    const remove=row.createEl("button",{cls:"hub-button-plain",text:"Remove",attr:{"aria-label":"Remove "+e.lastKnownLabel+" from selection"}});remove.dataset.reviewKey=k;remove.onclick=()=>{const keys=[...this.reviewList.querySelectorAll("[data-review-key]")].map(b=>b.dataset.reviewKey),index=keys.indexOf(k);this.selected.delete(k);this.render();const buttons=[...this.reviewList.querySelectorAll("button")];(buttons[Math.min(index,buttons.length-1)]??(this.review.hidden?this.categoryButtons.find(x=>x.value===this.category).b:this.reviewToggle)).focus();};
+   }
+  }
+  this.reviewList.scrollTop=scroll;if(focused)[...this.reviewList.querySelectorAll("button")].find(b=>b.dataset.reviewKey===focused)?.focus({preventScroll:true});
+  const message=this.selected.size+" selected for plan";if(this.announcement.textContent!==message)this.announcement.textContent=message;
+ }
+ sharedIn(scope,path){if(scope.type!=="project")return false;const project=this.plan.references.workspace(scope),ids=project?.resourceFolderIds??[];const folders=this.plugin.projectWizard.data.resourceFolders??[];return (Array.isArray(folders)?folders:Object.values(folders)).some(f=>ids.includes(f.id)&&(path===f.path||path.startsWith(f.path+"/")));}
+ async commit(){this.add.disabled=true;try{this.plan.assertEditable(this.planId);
+  const current=await this.plan.references.candidates();if(!this.isOpen)return;this.items=current;this.plan.assertEditable(this.planId);
+  const eligible=new Set(current.filter(i=>i.entry.kind!=="task"||!i.completed&&i.task?.nativeReadOnly!==true).map(i=>identity(i.entry))),existing=this.existing();let invalid=false;
+  for(const key of this.selected.keys()){if(existing.has(key))this.selected.delete(key);else if(!eligible.has(key)){this.selected.delete(key);invalid=true;}}
+  if(invalid){this.render();throw Error("A selected item became completed or unavailable. Review the remaining selection and add again.");}
+  if(!this.selected.size){this.render();return;}
+  if(this.relink){const chosen=[...this.selected.values()][0];this.plan.mutate(p=>{const e=p.entries.find(e=>e.id===this.relink.id);if(!e)throw Error("This entry was removed.");if(p.entries.some(x=>x.id!==e.id&&identity(x)===identity(chosen)))throw Error("Already in plan.");e.reference=chosen.reference;e.lastKnownLabel=chosen.lastKnownLabel;delete e.unavailableReason;});}else this.plan.add([...this.selected.values()]);
+  await this.plan.flush();this.close();
+ }catch(error){if(this.isOpen){this.error.textContent=error.message;this.add.disabled=!this.selected.size;}}}
+ onClose(){if(this.plugin.planPicker===this)this.plugin.planPicker=null;this.component?.unload();this.selected.clear();const target=this.returnFocus?.isConnected?this.returnFocus:this.plugin.planModal?.modalEl;target?.focus?.();}
+}
+function openPlanPicker(plugin,options){if(plugin.planPicker?.containerEl?.isConnected){plugin.planPicker.modalEl.focus();return plugin.planPicker;}const modal=new PlanPicker(plugin,options);plugin.planPicker=modal;try{modal.open();return modal;}catch(error){modal.close();plugin.planPicker=null;throw error;}}
+module.exports={PlanPicker,openPlanPicker};
+
+},
+"lib/ui/plan-presentation.js": function (module, exports, __hubRequire) {
+"use strict";
+const {renderRouteBreadcrumb}=__hubRequire("lib/ui/route-breadcrumb.js");
+const {compactPathSegments}=__hubRequire("lib/domain/native-task-location.js");
+function renderPlanMetadata(host,item,plan){
+ const {entry}=item, refs=plan.references;
+ if(entry.kind==="workspace"){host.textContent=entry.reference.type==="resource"?"Resource":"Project";return;}
+ if(entry.kind!=="file")return;
+ const source=refs.workspace(entry.reference.sourceWorkspace),path=entry.reference.path;
+ const root=source?.root,relative=root&&(path===root||path.startsWith(root+"/"))?path.slice(root.length).replace(/^\//,""):path;
+ const parts=relative.split("/").slice(0,-1);
+ renderRouteBreadcrumb(host,[source?.name??source?.label??"Vault",...compactPathSegments(parts).visible.map(part=>part??"\u2026")]);
+ host.title=path;
+ const intended=entry.intendedContext;
+ if(intended&&(intended.type!==entry.reference.sourceWorkspace?.type||intended.id!==entry.reference.sourceWorkspace?.id)){
+  const context=refs.workspace(intended);if(context)host.createSpan({cls:"hub-plan-intended",text:"For "+(context.name??context.label)});
+ }
+}
+function mountPlanPresentation({root,component,plan,context="home",scroller=root,editable=false,onRelink,noteEditor,interactive=true,emptyMessage=true}){
+ root.classList.add("hub-plan-presentation");root.dataset.planContext=context;
+ let note;
+ if(context==="editor"){
+  const label=root.createDiv({cls:"hub-plan-note-label"});
+  note=label.createEl("textarea",{attr:{rows:"2","aria-label":"Plan note (optional)",placeholder:"Add a note for today..."}});noteEditor?.(note);
+ }else note=root.createDiv({cls:"hub-plan-note-excerpt"});
+ let noteText=note;
+ if(context==="home"){
+  note.dataset.label="Today";
+  note.createSpan({cls:"hub-plan-note-caption",text:"Today"});
+  noteText=note.createSpan({cls:"hub-plan-note-text"});
+ }
+ const collection=root.createDiv({cls:"hub-plan-collection"});
+ if(context==="home")collection.classList.add("hub-scrollbar");
+ const status=context!=="editor"?root.createDiv({cls:"hub-plan-preview-status",attr:{role:"status"}}):null;
+ const update=()=>{if(status){status.textContent=plan.status==="Saved"?"":plan.status;status.hidden=!status.textContent;}if(context!=="editor"){const text=plan.draft.note??"";note.hidden=!text.trim();noteText.textContent=text;}};
+ plan.subscribe(component,update);update();
+ // Lazy import avoids the metadata helper/list module cycle.
+ __hubRequire("lib/ui/plan-list.js").mountPlanList({root:collection,component,plan,editable,onRelink,interactive,emptyMessage,scroller:context==="home"?collection:scroller});
+ return {note,collection};
+}
+module.exports={mountPlanPresentation,renderPlanMetadata};
+
+},
+"lib/ui/plan.js": function (module, exports, __hubRequire) {
+"use strict";
+
+const {Modal,Component,Notice}=require("obsidian");
+
+const {ownModalColors}=__hubRequire("lib/ui/color-system.js");
+
+const {createModalHeader,layoutModal}=__hubRequire("lib/ui/window-title.js");
+
+
+const {openPlanPicker}=__hubRequire("lib/ui/plan-picker.js");
+
+class PlanModal extends Modal {
+
+ constructor(plugin){super(plugin.app);this.plugin=plugin;this.plan=plugin.globalPlan;this.returnFocus=document.activeElement;}
+
+ onOpen(){
+  ownModalColors(this);this.modalEl.classList.add("hub-plan-modal");this.contentEl.classList.add("hub-button-scope");this.component=new Component();this.component.load();
+  this.planId=this.requestedPlanId??this.plan.active()?.id??this.plan.listHistorical()[0]?.id;
+  this.render();this.plan.subscribe(this.component,()=>{const p=this.plan.readPlan(this.planId);const key=(p?.id??'empty')+':'+p?.status;if(key!==this.renderKey)this.render();else this.update();});
+ }
+ render(){
+  this.presentation?.unload();this.presentation=new Component();this.presentation.load();this.contentEl.empty();const p=this.plan.readPlan(this.planId),active=p?.status==='active';this.renderKey=(p?.id??'empty')+':'+p?.status;this.modalEl.classList.toggle('is-active-plan-editor',active);
+  createModalHeader(this.contentEl,{title:"Plan",icon:"goal",subtitle:active?"Choose work to include in your plan.":p?"Historical plan - "+p.calendarDate:"No active plan for today"});
+  this.body=this.contentEl.createDiv();this.scroller=document.createElement('div');this.scroller.className='hub-plan-editor-scroll hub-scrollbar';
+  const bound=this.plan.bind(this.planId);
+  const presentation=__hubRequire("lib/ui/plan-presentation.js").mountPlanPresentation({root:this.body,component:this.presentation,plan:bound,context:active?'editor':'report',scroller:this.scroller,editable:active,emptyMessage:false,onRelink:entry=>openPlanPicker(this.plugin,{relink:entry}),noteEditor:note=>{this.note=note;note.value=p.content.note;note.oninput=()=>{try{this.plan.setNote(note.value,this.planId);}catch(e){this.showError(e.message);}};}});
+  this.body.append(this.scroller);this.scroller.append(presentation.collection);this.body.classList.add('hub-plan-editor-body');
+  if(!active){presentation.note.hidden=!p;presentation.note.empty();if(p){presentation.note.classList.add('hub-plan-historical-note');const label=presentation.note.createSpan({text:__hubRequire("lib/ui/plan-home.js").dateLabel(p),cls:'hub-oath-muted'});label.title=p.timeZone;presentation.note.createSpan({text:p.snapshot.note||'No note',cls:p.snapshot.note?'hub-plan-historical-text':'hub-plan-historical-text hub-oath-muted'});const ended=presentation.note.createSpan({cls:p.status==='finished'?'hub-plan-finished':'hub-oath-muted'});__hubRequire("lib/ui/icons.js").setHubIcon(ended.createSpan(),p.status==='finished'?'circle-check':'clock');ended.createSpan({text:(p.status==='finished'?'Finished ':'Day ended ')+__hubRequire("lib/ui/plan-home.js").time(p,p.endedAt)});}this.note=null;}
+  this.addButton=this.body.createEl('button',{cls:'hub-plan-add'});this.addButton.hidden=!active;__hubRequire("lib/ui/icons.js").setHubIcon(this.addButton.createSpan({cls:'hub-capture-icon'}),'plus');this.addButton.createSpan({text:'Add to plan'});this.addButton.onclick=()=>openPlanPicker(this.plugin);
+  this.legacyButton=this.scroller.createEl('button',{cls:'hub-button-plain hub-plan-legacy',text:'Review previous Focus',attr:{hidden:''}});this.legacyButton.onclick=()=>void this.reviewLegacy().catch(e=>this.showError(e.message));
+  this.status=this.body.createDiv({cls:'hub-plan-error',attr:{role:'alert',hidden:''}});this.recovery=this.scroller.createDiv();const footer=this.contentEl.createDiv({cls:'hub-project-advancement-actions hub-plan-footer'});this.footer=footer;
+  footer.createEl('button',{text:'Done',cls:'mod-cta'}).onclick=()=>this.close();
+  layoutModal(this,{body:this.body,footer});if(active)void this.legacySources().then(s=>{this.hasLegacy=s.length>0;if(this.contentEl.isConnected)this.update();}).catch(()=>{});this.update();
+ }
+ showError(message){this.status.textContent=message;this.status.hidden=!message;}
+ update(){const active=this.plan.readPlan(this.planId)?.status==='active',blocked=this.plan.transitioning||this.plan.pendingTransition||this.plan.conflict||this.plan.readOnly;this.legacyButton.hidden=!active||!this.hasLegacy||this.plan.draft.legacyReview!=='pending';this.addButton.disabled=!!blocked;this.showError(this.plan.error||this.plan.conflict||this.plan.readOnly?this.plan.status:'');if(this.note){if(document.activeElement!==this.note)this.note.value=this.plan.readPlan(this.planId)?.content?.note??this.note.value;this.note.disabled=!!blocked;}
+ this.recovery.empty();const button=(text,run)=>{this.recovery.createEl('button',{text}).onclick=()=>void Promise.resolve().then(run).catch(e=>this.showError(e.message));};if(this.plan.conflict){const details=this.recovery.createEl('details');details.createEl('summary',{text:'Review saved and recovered Plans'});for(const [label,state]of [['Saved',this.plan.baseState],['Recovered',this.plan.conflict.desired]]){const p=state.plansById?.[state.activePlanId];details.createEl('pre',{cls:'hub-plan-conflict',text:label+' ? '+(p?.id??'No active Plan')+'\n'+(p?.content.note??'')});}button('Keep saved plan',()=>this.plan.resolveConflict(false));button('Restore recovered draft',()=>this.plan.resolveConflict(true));}else if(this.plan.error){button('Retry',()=>this.plan.pendingTransition?this.plan.ensureLifecycle():this.plan.flush());button('Copy draft',()=>navigator.clipboard.writeText(this.note?.value??this.plan.deferredInput?.text??''));}
+ if(this.plan.deferredInput){const text=this.plan.deferredInput.text;button('Copy preserved text',()=>navigator.clipboard.writeText(text));if(!this.plan.active())button('Use preserved text in new plan',async()=>{const id=await this.plan.createPlan();this.plan.setNote(text,id);await this.plan.flush();this.plan.deferredInput=null;this.plan.checkpoint();this.planId=id;this.render();});}
+ }
+ async legacySources(){const wizard=this.plugin.projectWizard,date=__hubRequire("lib/domain/dates.js").localISODate(),sources=[];const add=(title,items)=>{if(items?.length)sources.push({title,items});};add("Pending Focus",wizard.getPendingFocus()?.items??wizard.data.pendingFocus?.items);add("Daily Focus - "+date,wizard.getDailyFocus(date));add("Report Focus - "+date,wizard.data.reportFocusByDate?.[date]);const daily=this.app.vault.getAbstractFileByPath("Daily Notes/"+date+".md");if(daily){const text=await this.app.vault.read(daily);const section=text.match(/^#{1,6} Focus\s*\n([\s\S]*?)(?=^#{1,6} |$(?![\s\S]))/m);if(section){const items=section[1].split("\n").map(line=>line.replace(/^\s*[-*]\s+(?:\[[ xX]\]\s*)?/," ").trim()).filter(Boolean).map(text=>({text}));add("Daily Note Focus - "+date,items);}}return sources;}
+ async reviewLegacy(){if(this.legacy){this.legacy.remove();this.legacy=null;return;}const sources=await this.legacySources();if(!this.contentEl.isConnected)return;this.legacy=this.scroller.createDiv();this.legacy.createEl("p",{text:"Choose descriptions to append to your note. Historical records are preserved."});const selected=[];for(const source of sources)for(const item of source.items){const text=typeof item==="string"?item:item.text;if(!text)continue;const label=this.legacy.createEl("label",{cls:"hub-plan-picker-row"}),box=label.createEl("input",{attr:{type:"checkbox"}});label.createSpan({text:source.title+": "+text});selected.push({box,text:"["+source.title+"] "+text});}const preview=this.legacy.createEl("pre");const refresh=()=>preview.textContent=selected.filter(i=>i.box.checked).map(i=>i.text).join("\n");this.legacy.onchange=refresh;const importButton=this.legacy.createEl("button",{text:"Append selected descriptions"});importButton.onclick=()=>{refresh();if(!preview.textContent)return;this.plan.mutate(p=>{p.note=[p.note,preview.textContent].filter(Boolean).join("\n\n");p.legacyReview="completed";});this.note.value=this.plan.draft.note;this.legacy.remove();this.legacy=null;};const dismiss=this.legacy.createEl("button",{text:"Dismiss"});dismiss.onclick=()=>{this.plan.mutate(p=>p.legacyReview="dismissed");this.legacy.remove();this.legacy=null;};}
+
+ close(){if(this.closing)return;this.closing=true;void (async()=>{const p=this.plan.readPlan(this.planId);if(p?.status==='active'&&!p.content.entries.length){await this.plan.abandonEmptyPlan(this.planId);return true;}return this.plan.closeSafe();})().then(safe=>{this.closing=false;if(safe)super.close();else{this.update();this.showError("Your latest draft could not be protected. Retry or copy it before closing.");const b=this.recovery.createEl("button",{text:"Discard unprotected changes"});b.onclick=()=>{this.plan.draft=JSON.parse(JSON.stringify(this.plan.base));this.plan.recovery.clear();this.plan.emit();super.close();};}}).catch(error=>{this.closing=false;this.update();this.showError(error.message);});}
+
+ onClose(){if(this.plugin.planModal===this)this.plugin.planModal=null;this.presentation?.unload();this.component?.unload();this.returnFocus?.focus?.();}
+
+}
+
+function openPlan(plugin,planId){if(plugin.planModal?.containerEl?.isConnected){if(planId&&plugin.planModal.planId!==planId){plugin.planModal.planId=planId;plugin.planModal.render();}plugin.planModal.modalEl.focus();return plugin.planModal;}const modal=new PlanModal(plugin);plugin.planModal=modal;modal.requestedPlanId=planId;try{modal.open();if(!modal.contentEl.isConnected)throw Error("Plan could not open.");return modal;}catch(error){plugin.planModal=null;modal.component?.unload();Modal.prototype.close.call(modal);new Notice(error.message);return null;}}
+
+module.exports={PlanModal,openPlan};
+
+
+},
 "lib/ui/planning-editor.js": function (module, exports, __hubRequire) {
 "use strict";
 const { ownModalColors } = __hubRequire("lib/ui/color-system.js");
@@ -20906,6 +22062,7 @@ const { createWindowTitle, setWindowUndertext, layoutModal } = __hubRequire("lib
 const { Modal, FuzzySuggestModal, Component } = require("obsidian");
 const { PhaseTaskRead, taskKey } = __hubRequire("lib/services/phase-task-read.js");
 const { localISODate } = __hubRequire("lib/domain/dates.js");
+const { renderRouteBreadcrumb } = __hubRequire("lib/ui/route-breadcrumb.js");
 
 function openPlanningEditor(service, projectId, kind, value = null, dv, defaults = {}) {
     const phase = kind === "phases", noun = phase ? "phase" : "milestone";
@@ -20938,6 +22095,8 @@ function openPlanningEditor(service, projectId, kind, value = null, dv, defaults
                 this.readComponent = new Component();
                 let picker = null, pickerFrame = null, pickerState = state, pickerSnapshot = null;
                 const rows = new Map();
+                const renderTaskLocation = (host, task) => renderRouteBreadcrumb(host,
+                    task.path ? task.path.replace(/\.md$/i, "").split("/").slice(2) : ["Source unavailable"], " › ");
                 const renderTasks = () => {
                     for (const [id, row] of rows) if (!draft.selected.has(id)) { row.remove(); rows.delete(id); }
                     list.querySelector("[data-phase-empty]")?.remove();
@@ -20946,7 +22105,7 @@ function openPlanningEditor(service, projectId, kind, value = null, dv, defaults
                         let existing = rows.get(id);
                         if (existing) {
                             existing.firstChild.firstChild.textContent = task.text;
-                            existing.firstChild.children[1].textContent = task.path ? task.path.replace(/\.md$/i, "").split("/").slice(2).join(" › ") : "Source unavailable";
+                            renderTaskLocation(existing.firstChild.children[1], task);
                             existing.querySelector("button").setAttribute("aria-label", "Remove phase from " + task.text);
                             existing.querySelector("[data-phase-unavailable]")?.remove();
                             if (!draft.usable(task)) existing.firstChild.createDiv({ cls: "hub-task-help", text: "Source changed or unavailable", attr: { "data-phase-unavailable": "" } });
@@ -20955,7 +22114,7 @@ function openPlanningEditor(service, projectId, kind, value = null, dv, defaults
                         const row = list.createDiv({ cls: "hub-phase-task-item" });
                         rows.set(id, row);
                         const info = row.createDiv(); info.createDiv({ text: task.text });
-                        info.createDiv({ cls: "hub-task-help", text: task.path ? task.path.replace(/\.md$/i, "").split("/").slice(2).join(" › ") : "Source unavailable" });
+                        renderTaskLocation(info.createDiv({ cls: "hub-task-help hub-route-wrap" }), task);
                         if (!draft.usable(task)) info.createDiv({ cls: "hub-task-help", text: "Source changed or unavailable", attr: { "data-phase-unavailable": "" } });
                         const remove = row.createEl("button", { text: "Remove", attr: { type: "button", "aria-label": "Remove phase from " + task.text } });
                         remove.addEventListener("click", event => {
@@ -21792,6 +22951,257 @@ module.exports = { progressColors, progressColor };
 
 
 },
+"lib/ui/progress-editor.js": function (module, exports, __hubRequire) {
+"use strict";
+const { Modal, Component, Notice, setIcon } = require("obsidian");
+const { ownModalColors } = __hubRequire("lib/ui/color-system.js");
+const { createWindowTitle, layoutModal } = __hubRequire("lib/ui/window-title.js");
+const { lockModalControls } = __hubRequire("lib/ui/modal-save.js");
+const { setHubTooltip } = __hubRequire("lib/ui/tooltips.js");
+const { renderReportWorkspaceHeader } = __hubRequire("lib/ui/report-workspace-header.js");
+const { renderReportEvidence } = __hubRequire("lib/ui/daily-report.js");
+const { createHubMarkdown } = __hubRequire("lib/ui/markdown.js");
+const { progressRatingOptions } = __hubRequire("lib/config.js");
+const { localISODate } = __hubRequire("lib/domain/dates.js");
+const { normalizeFocusItems } = __hubRequire("lib/domain/focus.js");
+const { savedReportContext } = __hubRequire("lib/domain/report-context.js");
+const { saveProgress, stored, idOf, validScore } = __hubRequire("lib/services/progress-report.js");
+
+class ProgressEditor extends Modal {
+    constructor(plugin, { date = localISODate(), scope = null, closeButton = null, FocusEditor } = {}) {
+        super(plugin.app); Object.assign(this, { plugin, date, reportScope: scope, closeButton, FocusEditor });
+        this.wizard = plugin.projectWizard; this.rows = new Map(); this.returnFocus = document.activeElement;
+        this.represented = plugin.reportEligibility.cutoff(date, plugin.reportEligibility.pending(date, { currentSession: !!closeButton }));
+    }
+    workspaces() { return [...this.wizard.getProjectRecords(), ...this.wizard.getResourceTypes()]; }
+    onOpen() {
+        ownModalColors(this); this.component = new Component(); this.component.load();
+        this.modalEl.classList.add("hub-progress-editor", "hub-project-advancement-modal");
+        this.modalEl.tabIndex = -1;
+        this.contentEl.classList.add("hub-button-scope");
+        createWindowTitle(this.contentEl, "Progress Report", "clipboard-pen", { date: { value: this.date, label: this.date } });
+        this.contentEl.createEl("p", { cls: "hub-oath-muted", text: "Evaluate the whole day so far. Recorded work supports your judgment." });
+        this.body = this.contentEl.createDiv(); this.dateNotice = this.body.createDiv({ cls: "hub-oath-muted" });
+        this.cards = this.body.createDiv();
+        const reports = this.wizard.getProgressReports({ kind: "all" }).filter(r => r.date === this.date);
+        const current = this.plugin.workspaceModes?.currentContext?.();
+        const all = this.workspaces(), suggested = new Set(Object.keys(this.represented));
+        if (!this.closeButton) {
+            for (const report of reports) suggested.add(report.projectId);
+            for (const w of all) {
+                const c = savedReportContext(this.wizard, this.date, idOf(w), stored(this.wizard.data, this.date, idOf(w)).log?.context);
+                if (c.tasks.length || c.activity.length || c.oaths?.length) suggested.add(idOf(w));
+            }
+        }
+        if (!this.closeButton && this.date === localISODate() && current) suggested.add(idOf(current));
+        const target = typeof this.reportScope === "string" ? this.reportScope : this.reportScope?.id ? (this.reportScope.kind === "resource" ? "resource:" + this.reportScope.id : this.reportScope.id) : null;
+        if (target) suggested.add(target);
+        const ordered = [...suggested].sort((a,b) => {
+            const preferred = target ?? (!this.closeButton ? idOf(current) : null);
+            return Number(b === preferred) - Number(a === preferred) || (this.plugin.reportEligibility.state[this.date]?.[b]?.lastObservedAt || 0) - (this.plugin.reportEligibility.state[this.date]?.[a]?.lastObservedAt || 0);
+        });
+        for (const id of ordered) {
+            if (target && id !== target) continue;
+            const w = all.find(w => idOf(w) === id) ?? reports.find(r => r.projectId === id);
+            if (w) this.addRow(w, this.rows.size === 0);
+        }
+        this.button(this.body, "Add workspace", () => this.openPicker());
+        if (this.plugin.globalPlan) {
+            const details = this.body.createEl("details", {cls:"hub-progress-focus"});
+            details.createEl("summary", {text:"Current plan - optional"});
+            details.createEl("p", {cls:"hub-oath-muted",text:"Live planning state. Changes are saved independently of this report."});
+            const preview = details.createDiv({cls:"hub-plan-report-preview"});
+            let planComponent;
+            const renderPlan=()=>{planComponent?.unload();planComponent=new (require('obsidian').Component)();planComponent.load();preview.empty();const p=this.plugin.globalPlan.selected(this.date);if(!p){preview.createDiv({text:'No plan for this date',cls:'hub-oath-muted'});return;}__hubRequire("lib/ui/plan-presentation.js").mountPlanPresentation({root:preview,component:planComponent,plan:this.plugin.globalPlan.bind(p.id),context:'report'});const b=preview.createEl('button',{text:p.status==='active'?'Edit plan':'View plan'});b.onclick=()=>__hubRequire("lib/ui/plan.js").openPlan(this.plugin,p.id);for(const earlier of this.plugin.globalPlan.listHistorical(this.date).filter(x=>x.id!==p.id)){const other=preview.createEl('button',{text:'Earlier plan - '+earlier.endedAt});other.onclick=()=>__hubRequire("lib/ui/plan.js").openPlan(this.plugin,earlier.id);}};
+            this.plugin.globalPlan.subscribe(this.component,renderPlan);this.component.register(()=>planComponent?.unload());renderPlan();
+        }
+        this.error = this.body.createDiv({ cls: "hub-task-error", attr: { role: "alert" } });
+        this.conflicts = this.body.createDiv();
+        this.footer = this.contentEl.createDiv({ cls: "hub-project-advancement-actions" });
+        this.button(this.footer, this.closeButton ? "Keep working" : "Cancel", () => this.close());
+        if (this.closeButton) this.button(this.footer, "Close without reporting", () => {
+            this.plugin.reportEligibility.dismiss(this.date, this.represented);
+            this.close(); this.plugin.finishWindowClose(this.closeButton);
+        });
+        this.saveButton = this.button(this.footer, this.closeButton ? "Save and close" : "Save progress", () => this.save());
+        layoutModal(this, { body: this.body, footer: this.footer, bodyClass: "hub-report-scroll" });
+        const refresh = () => { for (const row of this.rows.values()) this.evidence(row); };
+        document.addEventListener("hub-task-progress-evidence-changed", refresh);
+        this.component.register(() => document.removeEventListener("hub-task-progress-evidence-changed", refresh));
+        const timer = setInterval(() => { this.update(); refresh(); }, 1000); this.component.register(() => clearInterval(timer));
+        this.update();
+    }
+    button(parent, text, action) {
+        const b = parent.createEl("button", { text, attr: { type: "button" } });
+        b.addEventListener("click", action); return b;
+    }
+    addRow(workspace, expanded = true) {
+        const id = idOf(workspace) ?? workspace.projectId;
+        if (this.rows.has(id)) { this.rows.get(id).card.open = true; return; }
+        const initial = stored(this.wizard.data, this.date, id);
+        const card = this.cards.createEl("details", { cls: "hub-progress-card" }); card.open = expanded;
+        const heading = card.createEl("summary");
+        renderReportWorkspaceHeader(heading, { ...workspace, projectId: id, projectName: workspace.name ?? workspace.label ?? workspace.projectName }, this.plugin);
+        const status = heading.createSpan({ cls: "hub-oath-muted" });
+        const row = { id, card, initial, rating: initial.rating, reviewed: false, status };
+        this.rows.set(id, row);
+        const ratings = card.createDiv({ cls: "hub-progress-ratings", attr: { role: "group", "aria-label": "Rating for " + (workspace.name ?? workspace.label ?? workspace.projectName) } });
+        row.buttons = [];
+        for (const option of progressRatingOptions(workspace)) {
+            const b = this.button(ratings, String(option.score), () => { row.rating = option.score; row.reviewed = true; this.update(); });
+            b.classList.add("hub-project-advancement-score"); b.dataset.score = String(option.score);
+            setHubTooltip(b, option.title + " " + option.description, "top"); row.buttons.push(b);
+        }
+        this.button(ratings, "Clear rating", () => { row.rating = null; row.reviewed = true; this.update(); });
+        const label = card.createEl("label", { cls: "hub-progress-reflection", text: "Reflection — optional" });
+        row.input = label.createEl("textarea", { attr: { rows: "2", maxlength: "1000", "aria-label": "Reflection for " + (workspace.name ?? workspace.label ?? workspace.projectName) } });
+        row.input.value = initial.log?.summary ?? "";
+        row.input.addEventListener("input", () => this.update());
+        const helpId = `hub-progress-no-work-${this.rows.size}`;
+        row.noWorkHelp = card.createEl("p", { cls: "hub-progress-no-work-help", text: "No work selected. Your reflection is preserved. Choose 1–4 to edit it.", attr: { id: helpId } });
+        row.input.setAttribute("aria-describedby", helpId);
+        row.evidence = card.createDiv(); this.evidence(row); this.update();
+    }
+    evidence(row) {
+        const context = savedReportContext(this.wizard, this.date, row.id, row.initial.log?.context);
+        const signature = JSON.stringify(context);
+        if (row.evidenceSignature === signature) return;
+        row.evidenceSignature = signature;
+        const expanded = row.evidence.querySelector("details")?.open;
+        row.evidenceComponent?.unload(); row.evidenceComponent = new Component(); row.evidenceComponent.load();
+        row.evidence.empty();
+        renderReportEvidence(row.evidence, context,
+            createHubMarkdown({ app: this.app, component: row.evidenceComponent }), row.evidenceComponent);
+        if (expanded) row.evidence.querySelector("details").open = true;
+    }
+    changed(row) { return row.reviewed || row.input.value.trim() !== (row.initial.log?.summary ?? ""); }
+    focusValue() { return this.focus?.getValue(); }
+    update() {
+        if (!this.saveButton) return;
+        this.dateNotice.textContent = this.date !== localISODate() ? `Editing ${this.date}; today is ${localISODate()}. Next Focus edits apply to this report's archive only.` : "";
+        let focusChanged = false;
+        if (this.focusTouched) { try { focusChanged = JSON.stringify(this.focusValue()) !== this.initialFocus; } catch (_) { focusChanged = true; } }
+        this.saveButton.disabled = !!this.saving || (![...this.rows.values()].some(r => this.changed(r)) && !focusChanged);
+        for (const row of this.rows.values()) {
+            row.status.textContent = validScore(row.rating) ? `${row.rating}/4` : "Not rated";
+            row.input.disabled = !!this.saving || row.rating === 0;
+            row.noWorkHelp.hidden = row.rating !== 0;
+            for (const b of row.buttons) { const selected = Number(b.dataset.score) === row.rating; b.classList.toggle("is-selected", selected); b.setAttribute("aria-pressed", String(selected)); }
+        }
+    }
+    openPicker() {
+        if (this.picker) return;
+        const editor = this;
+        class Picker extends Modal {
+            onOpen() {
+                ownModalColors(this); this.modalEl.classList.add("hub-oath-dialog");
+                createWindowTitle(this.contentEl, "Add workspace", "clipboard-pen");
+                const search = this.contentEl.createEl("input", { type: "search", attr: { "aria-label": "Search Projects and Resources", placeholder: "Search Projects and Resources" } });
+                const list = this.contentEl.createDiv();
+                const render = () => {
+                    list.empty();
+                    for (const kind of ["project", "resource"]) {
+                        list.createEl("h3", { text: kind === "project" ? "Projects" : "Resources" });
+                        for (const w of editor.workspaces().filter(w => (w.contextKind === "resource" ? "resource" : "project") === kind && (w.name ?? w.label).toLocaleLowerCase().includes(search.value.trim().toLocaleLowerCase()))) {
+                            editor.button(list, (w.name ?? w.label) + (w.status ? ` · ${w.status}` : ""), () => {
+                                const current = editor.workspaces().find(item => idOf(item) === idOf(w));
+                                if (!current) return render(); editor.addRow(current); this.close();
+                            });
+                        }
+                    }
+                };
+                search.addEventListener("input", render); editor.button(this.contentEl, "Cancel", () => this.close()); render(); search.focus();
+            }
+            onClose() { editor.picker = null; editor.modalEl.focus(); }
+        }
+        this.picker = new Picker(this.app); this.picker.open();
+    }
+    async save() {
+        if (this.saving || this.saveButton.disabled) return;
+        const entries = [...this.rows.values()].filter(r => this.changed(r)).map(r => ({ id: r.id, expected: r.initial, rating: r.rating, summary: r.input.value.trim() }));
+        const cutoffs = this.plugin.reportEligibility.cutoff(this.date, entries.map(e => e.id));
+        let focus;
+        try { if (this.focusTouched && JSON.stringify(this.focusValue()) !== this.initialFocus) focus = this.focusValue(); }
+        catch (error) { this.error.textContent = error.message; return; }
+        this.saving = true; const unlock = lockModalControls(this); this.error.textContent = "";
+        try {
+            await saveProgress(this.wizard, { date: this.date, entries, cutoffs, dismiss: this.closeButton ? this.represented : {}, focus });
+            this.plugin.notifyProgressChanged(this.date, entries.map(e => e.id));
+            this.saving = false; unlock(); this.close();
+            if (this.closeButton) this.plugin.finishWindowClose(this.closeButton);
+        } catch (error) {
+            this.error.textContent = error.message || "Could not save progress. Your draft is retained.";
+            if (error.code === "REPORT_CONFLICT") {
+                const row = this.rows.get(error.workspaceId); this.conflicts.empty();
+                this.conflicts.createEl("p", { text: `Latest saved rating: ${error.latest.rating ?? "Unrated"}. Reflection: ${error.latest.log?.summary ?? ""}` });
+                this.button(this.conflicts, "Load latest", () => { row.initial = error.latest; row.rating = error.latest.rating; row.input.value = error.latest.log?.summary ?? ""; row.reviewed = false; this.conflicts.empty(); this.update(); });
+                this.button(this.conflicts, "Use my draft", () => { row.initial = error.latest; this.conflicts.empty(); this.error.textContent = "Review your draft and save again."; this.update(); });
+            }
+            this.saving = false; unlock(); this.update();
+        }
+    }
+    close() { if (!this.saving) super.close(); }
+    onClose() {
+        // Release ownership even if cleanup of a partially initialized view fails.
+        if (this.plugin.progressEditor === this) this.plugin.progressEditor = null;
+        this.plugin.hubAdvancementPromptOpen = false;
+        this.picker?.close(); this.focus?.destroy(); this.component?.unload();
+        for (const row of this.rows.values()) row.evidenceComponent?.unload();
+        this.contentEl.empty(); this.returnFocus?.focus?.();
+    }
+}
+function activeProgress(plugin) {
+    const modal = plugin.progressEditor;
+    if (!modal) return null;
+    if (modal.isOpen && modal.containerEl.isConnected && modal.modalEl.getClientRects().length) return modal;
+    try { modal.close(); }
+    catch (error) { console.error("Could not clean up stale Progress Report", error); }
+    finally {
+        modal.containerEl.remove();
+        plugin.progressEditor = null;
+        plugin.hubAdvancementPromptOpen = false;
+    }
+    return null;
+}
+function openProgress(plugin, options) {
+    const active = activeProgress(plugin);
+    if (active) { active.modalEl.focus(); return active; }
+    if (document.querySelector(".modal-container")) { document.querySelector(".modal-container input, .modal-container button")?.focus(); return; }
+    let modal;
+    try {
+        modal = new ProgressEditor(plugin, options);
+        plugin.progressEditor = modal;
+        modal.open();
+        return modal;
+    } catch (error) {
+        try { modal?.close(); }
+        catch (cleanupError) { console.error("Could not clean up failed Progress Report", cleanupError); }
+        finally {
+            modal?.containerEl.remove();
+            plugin.progressEditor = null;
+            plugin.hubAdvancementPromptOpen = false;
+        }
+        console.error("Could not open Progress Report", error);
+        new Notice("Could not open Progress Report. Please try again; Itacan can still be closed.");
+    }
+}
+function mountProgressControl(plugin, host, FocusEditor) {
+    const button = host.createEl("button", { cls: "hub-oath-button hub-log-progress-button", attr: { type: "button", "aria-label": "Log progress", "aria-haspopup": "dialog" } });
+    setIcon(button.createSpan({ cls: "hub-oath-icon", attr: { "aria-hidden": "true" } }), "clipboard-pen"); button.createSpan({ text: "Log progress" }); setHubTooltip(button, "Log progress", "top");
+    const open = () => openProgress(plugin, { FocusEditor }); button.addEventListener("click", open);
+    plugin.addCommand({ id: "log-progress", name: "Log progress", callback: open });
+    const measure = () => {
+        host.classList.remove("hub-shell-icons-only");
+        const available = host.parentElement.clientWidth - 24 - [...host.parentElement.children].filter(e => e !== host && !e.classList.contains("hub-shell-shortcuts")).reduce((n,e) => n + e.getBoundingClientRect().width, 0);
+        host.classList.toggle("hub-shell-icons-only", host.scrollWidth > available);
+    };
+    const resize = new ResizeObserver(measure); resize.observe(host.parentElement);
+    const mutation = new MutationObserver(measure); mutation.observe(host, { childList: true });
+    plugin.register(() => { resize.disconnect(); mutation.disconnect(); plugin.progressEditor?.close(); button.remove(); }); measure();
+}
+module.exports = { openProgress, activeProgress, mountProgressControl, ProgressEditor };
+
+},
 "lib/ui/progress-heatmap.js": function (module, exports, __hubRequire) {
 "use strict";
 
@@ -21889,14 +23299,14 @@ function createProgressHeatmap(calendar, component) {
         const extraLeading = Math.max(0, parseFloat(view.getComputedStyle(months).lineHeight) - parseFloat(view.getComputedStyle(weekdays).lineHeight)) / 2;
         const weekdayGap = labelGap + extraLeading;
         const inset = parseFloat(calendarStyle.getPropertyValue("--hub-heatmap-inline-inset")) || 4;
+        const axisOverhang = parseFloat(calendarStyle.getPropertyValue("--hub-heatmap-axis-overhang")) || 6;
         const scale = heatmapPixelScale(calendar);
         // offsetWidth rounds text to CSS pixels and can under-reserve this tight
         // column. Measure painted layout widths and round outward in device pixels.
         const zoom = scale / (view.devicePixelRatio || 1);
         const weekdayWidth = Math.ceil(Math.max(...samples.slice(24).map(label => label.getBoundingClientRect().width / zoom)) * scale - 1e-9) / scale;
-        // The separator bounds the complete assembly, not just the squares.
-        // Reserve its two insets and the measured label column before applying
-        // the existing integer-pixel sizing. Never borrow the panel padding.
+        // Preserve the sizing budget against the separator's content width.
+        // The axis placement below centers the resulting square grid.
         const gridAvailable = Math.max(0, availableWidth - 2 * inset - weekdayWidth - weekdayGap);
         // Some configured week starts place Sunday and Monday next to each
         // other. Keep their unchanged text size readable using the existing
@@ -21907,15 +23317,17 @@ function createProgressHeatmap(calendar, component) {
         const geometry = heatmapGeometry(gridAvailable, weeks,
             samples.slice(0, 12).map(label => label.offsetWidth), starts,
             samples.slice(12, 24).map(label => label.offsetWidth), scale, minimumDayCell);
-        const blockWidth = weekdayWidth + weekdayGap + geometry.innerWidth;
-        const outerWidth = Math.max(availableWidth, blockWidth + 2 * inset);
+        const axisWidth = weekdayWidth + weekdayGap;
+        const outerWidth = Math.max(availableWidth + 2 * axisOverhang, geometry.innerWidth + 2 * axisWidth);
+        const endMargin = (outerWidth - geometry.innerWidth) / 2;
         [...months.children].forEach((label, index) => {
             const text = geometry.compact ? MONTHS[index][0] : MONTHS[index];
             if (label.textContent !== text) label.textContent = text;
         });
         for (const [name, value] of Object.entries({
             cell: geometry.cell + "px", gap: geometry.gap + "px",
-            margin: (outerWidth - blockWidth) / 2 + "px", weeks, width: outerWidth + "px",
+            margin: Math.max(0, endMargin - axisWidth) + "px", "end-margin": endMargin + "px",
+            weeks, width: outerWidth + "px",
             weekday: weekdayWidth + "px", "weekday-gap": weekdayGap + "px", inner: geometry.innerWidth + "px"
         })) graph.style.setProperty("--hub-heatmap-" + name, value);
     }
@@ -22200,7 +23612,7 @@ function mountProjectRoadmap({ plugin, component, dv, host, workspace, state }) 
             menu.onHide(() => { if (activeMenu === menu) activeMenu = null; });
             menu.showAtPosition({ x: event.clientX, y: event.clientY });
         });
-        const scroller = panel.createDiv({ cls: "hub-roadmap-scroll" });
+        const scroller = panel.createDiv({ cls: "hub-roadmap-scroll hub-scrollbar" });
         const timeline = scroller.createDiv({ cls: "hub-roadmap-timeline" });
         const scaleWidth = state.roadmapZoom === "all" ? 0 : Math.max(530, Number(state.roadmapZoom) * 85);
         timeline.style.setProperty("--hub-roadmap-scale-width", scaleWidth + "px");
@@ -22615,6 +24027,46 @@ function renderReportWorkspaceHeader(parent, record, plugin) {
 }
 
 module.exports = { renderReportWorkspaceHeader };
+
+},
+"lib/ui/route-breadcrumb.js": function (module, exports, __hubRequire) {
+"use strict";
+const { setHubIcon } = __hubRequire("lib/ui/icons.js");
+
+function appendRouteSeparator(host, className = "") {
+    const separator = host.ownerDocument.createElement("span");
+    separator.className = "hub-route-separator" + (className ? " " + className : "");
+    separator.setAttribute("aria-hidden", "true");
+    host.append(separator);
+    setHubIcon(separator, "chevron-right");
+    return separator;
+}
+
+// Inline content lets the host retain its existing ellipsis or wrapping rules.
+// Accessible separator text also preserves readable plain-text route labels.
+function renderRouteBreadcrumb(host, segments, separatorText = " / ") {
+    host.replaceChildren();
+    host.classList.add("hub-route");
+    segments.forEach((label, index) => {
+        const part = host.ownerDocument.createElement("span");
+        part.className = "hub-route-part";
+        if (index) {
+            const accessible = host.ownerDocument.createElement("span");
+            accessible.className = "hub-route-accessible-separator";
+            accessible.textContent = separatorText;
+            part.append(accessible);
+            appendRouteSeparator(part);
+        }
+        const text = host.ownerDocument.createElement("span");
+        text.className = "hub-route-label";
+        text.textContent = label;
+        part.append(text);
+        host.append(part);
+    });
+    return host;
+}
+
+module.exports = { appendRouteSeparator, renderRouteBreadcrumb };
 
 },
 "lib/ui/row-activation.js": function (module, exports, __hubRequire) {
@@ -23381,6 +24833,7 @@ module.exports = { mountTaskAccordion };
 },
 "lib/ui/task-card.js": function (module, exports, __hubRequire) {
 "use strict";
+const { renderRouteBreadcrumb } = __hubRequire("lib/ui/route-breadcrumb.js");
 
 function taskSourceLabel(path) {
     const parts = String(path ?? "").replace(/\\/g, "/").split("/").filter(Boolean);
@@ -23389,12 +24842,15 @@ function taskSourceLabel(path) {
 
 // The original Tasks-panel row, with its Home/Project host class convention.
 // Editing adapters attach controls to these parts; they do not recreate a card.
-function createTaskRow(parent, task, completed = task.completed, { variant = "project", checkboxScope } = {}) {
+function createTaskRow(parent, task, completed = task.completed, { variant = "project", checkboxScope, decorativeCheckbox = false, leadingSlot = false } = {}) {
     const row = parent.createDiv({ cls: variant + "-task-row" + (completed ? " is-completed" : "") });
     // Native Modal overrides checkbox-size with its smaller UI font. A composer
     // can inherit the dashboard's theme token without a second checkbox design.
     if (checkboxScope) row.style.setProperty("--checkbox-size", parent.ownerDocument.defaultView.getComputedStyle(checkboxScope).getPropertyValue("--checkbox-size"));
-    const checkbox = row.createEl("input", { type: "checkbox", cls: variant + "-task-checkbox" });
+    const leading = leadingSlot ? row.createSpan({cls:"hub-plan-leading"}) : row;
+    const checkbox = decorativeCheckbox
+        ? leading.createSpan({cls: variant + "-task-checkbox hub-task-decorative-checkbox",attr:{"aria-hidden":"true"}})
+        : leading.createEl("input", { type: "checkbox", cls: variant + "-task-checkbox" });
     checkbox.checked = !!completed;
     const info = row.createDiv({ cls: variant + "-task-info" });
     const textEl = info.createDiv({ cls: variant + "-task-text", text: task.text });
@@ -23433,7 +24889,7 @@ function mountDescriptionIndicator(row, info) {
 function mountTaskCardPresentation(row, textEl, task, getPath, { now = new Date(), phaseLabel, ...options } = {}) {
     const { taskDatePresentation, taskIsFuture, taskIsOverdue } = __hubRequire("lib/domain/task-planning.js");
     row.classList.add("hub-planned-task-row");
-    const info = textEl.parentElement, checkbox = row.querySelector('input[type="checkbox"]');
+    const info = textEl.parentElement, checkbox = row.querySelector('input[type="checkbox"], .hub-task-decorative-checkbox');
     if (task.nativeOperationStatus) row.createSpan({ cls: "hub-task-operation-status", text: task.nativeOperationStatus, attr: { role: "status", "data-operation-id": task.nativeOperationId } });
     const source = info.querySelector(".home-task-location, .project-task-location");
     const description = options.selection || options.description === false ? null : mountDescriptionIndicator(row, info);
@@ -23443,12 +24899,16 @@ function mountTaskCardPresentation(row, textEl, task, getPath, { now = new Date(
         __hubRequire("lib/ui/icons.js").setHubIcon(sourceControl.createSpan({ cls: "hub-task-location-edit-icon", attr: { "aria-hidden": "true" } }), "map-pin-pen");
         sourceText = sourceControl.createSpan({ cls: "hub-task-location-text" });
         sourceControl.addEventListener("click", event => { event.stopPropagation(); options.locationAction(); });
+    } else if (source) {
+        for (const child of [...source.childNodes]) if (child.nodeType === 3) child.remove();
+        sourceText = source.createSpan({ cls: "hub-task-route" });
+        source.prepend(sourceText);
     }
     function update(next = task) {
         task = next;
         row.classList.toggle("is-completed", !!task.completed);
-        checkbox?.setAttribute("aria-label", `Complete task: ${task.text}`);
-        if (task.necessity === "must" || task.necessity === "should") {
+        checkbox?.setAttribute("aria-label", options.checkboxPurpose === "selection" ? `Select for plan: ${task.text}` : `Complete task: ${task.text}`);
+        if (options.importance !== false && (task.necessity === "must" || task.necessity === "should")) {
             if (!indicator) {
                 indicator = row.ownerDocument.createElement("span");
                 indicator.setAttribute("role", "img"); checkbox?.before(indicator);
@@ -23483,17 +24943,19 @@ function mountTaskCardPresentation(row, textEl, task, getPath, { now = new Date(
             // unavailable location or a folder whose name resembles a placeholder.
             const workspaceRoot = native?.available && displayTask.nativeLocationDisplay?.segments?.length === 0;
             const insideRoot = workspaceRoot && sameOwner(displayTask.nativeReference?.owner ?? displayTask.owner ?? displayTask.nativeOwner, options.locationWorkspace);
-            const label = native?.label ?? options.sourceLabel ?? (options.selection && !options.normalSource ? getPath().replace(/\.md$/i, "").split("/").join(" › ") : taskSourceLabel(getPath()));
+            const legacyRoute = !native && options.sourceLabel == null && options.selection && !options.normalSource;
+            const legacySegments = legacyRoute ? getPath().replace(/\.md$/i, "").split("/") : null;
+            const label = native?.label ?? options.sourceLabel ?? (legacySegments ? legacySegments.join(" › ") : taskSourceLabel(getPath()));
+            const segments = native?.visibleSegments ?? legacySegments ?? [label];
             if (native) {
                 source.title = native.full; source.classList.toggle("is-location-unavailable", !native.available);
                 if (checkbox && (options.nativeDisplay || task.nativeLocationUnavailable)) checkbox.disabled = !native.available;
             }
-            if (sourceControl) { sourceControl.classList.toggle("is-workspace-root", !!workspaceRoot); sourceText.textContent = workspaceRoot ? "Edit task location" : label; sourceControl.setAttribute("aria-label", "Change task location: " + (native?.full ?? label)); sourceControl.title = native?.full ?? label; }
-
-            const labelText = source.firstChild;
-            if (!sourceControl) {
-                if (labelText?.nodeType === 3) labelText.textContent = label;
-                else source.prepend(row.ownerDocument.createTextNode(label));
+            renderRouteBreadcrumb(sourceText, sourceControl && workspaceRoot ? ["Edit task location"] : segments, legacyRoute ? " › " : " / ");
+            if (sourceControl) {
+                sourceControl.classList.toggle("is-workspace-root", !!workspaceRoot);
+                sourceControl.setAttribute("aria-label", "Change task location: " + (native?.full ?? label));
+                sourceControl.title = native?.full ?? label;
             }
             const phaseText = !options.selection && phaseLabel?.(task);
             if (phaseText) {
@@ -23551,7 +25013,8 @@ function createTaskChecklist(info, { setIcon = __hubRequire("lib/ui/icons.js").s
     return { host, toggle, chevron, progress, list, rowsHost, update, createRow };
 }
 
-module.exports = { createTaskRow, taskSourceLabel, mountTaskCardPresentation, createTaskChecklist };
+function taskStepSummary(steps){return `${steps.filter(step=>step.completed).length} of ${steps.length} ${steps.length===1?"step":"steps"}`;}
+module.exports = { taskStepSummary, createTaskRow, taskSourceLabel, mountTaskCardPresentation, createTaskChecklist };
 
 },
 "lib/ui/task-compact-form.js": function (module, exports, __hubRequire) {
@@ -23997,28 +25460,41 @@ function mountTaskText(host, state, onChange = () => {}, { placeholder = "", mul
 // text. Call resize after attaching/showing a field, before assigning focus.
 function mountWrappingTaskInput(input) {
     let width, frame;
+    const document = input.ownerDocument, view = document.defaultView;
+    // A rem-sized probe also changes when text grows without changing the
+    // editor's width. Keep it outside the title host, which swaps in Markdown.
+    const fontMeasure = document.createElement("span");
+    fontMeasure.setAttribute("aria-hidden", "true");
+    fontMeasure.style.cssText = "position:absolute;top:0;left:0;width:1rem;height:1rem;visibility:hidden;pointer-events:none";
+    document.body.append(fontMeasure);
     const resize = () => {
         if (!input.isConnected || !input.getClientRects().length) return;
         const originalWidth = input.style.width;
         for (let pass = 0; pass < 2; pass++) {
-            const measuredWidth = input.getBoundingClientRect().width;
+            const measuredWidth = input.getBoundingClientRect().width / (input.currentCSSZoom || 1);
             input.style.width = measuredWidth + "px";
             input.style.height = "auto"; input.style.height = input.scrollHeight + "px";
             input.style.width = originalWidth;
-            if (Math.abs(input.getBoundingClientRect().width - measuredWidth) < 0.1) break;
+            if (Math.abs(input.getBoundingClientRect().width / (input.currentCSSZoom || 1) - measuredWidth) < 0.1) break;
         }
-        width = input.clientWidth;
+        width = input.getBoundingClientRect().width;
     };
     input.addEventListener("input", resize);
-    const view = input.ownerDocument.defaultView;
-    const observer = new view.ResizeObserver(() => {
-        if (width !== input.clientWidth) {
-            width = input.clientWidth;
+    document.fonts?.addEventListener("loadingdone", resize);
+    const observer = new view.ResizeObserver(entries => {
+        if (width !== input.getBoundingClientRect().width || entries.some(entry => entry.target === fontMeasure)) {
             if (frame === undefined) frame = view.requestAnimationFrame(() => { frame = undefined; resize(); });
         }
     });
-    observer.observe(input); resize();
-    return { resize, destroy() { observer.disconnect(); input.removeEventListener("input", resize); if (frame !== undefined) view.cancelAnimationFrame(frame); } };
+    try { observer.observe(input, { box: "device-pixel-content-box" }); }
+    catch { observer.observe(input); }
+    observer.observe(fontMeasure); resize();
+    return { resize, destroy() {
+        observer.disconnect(); fontMeasure.remove();
+        input.removeEventListener("input", resize);
+        document.fonts?.removeEventListener("loadingdone", resize);
+        if (frame !== undefined) view.cancelAnimationFrame(frame);
+    } };
 }
 
 
@@ -24549,6 +26025,7 @@ const { ownModalColors } = __hubRequire("lib/ui/color-system.js");
 const { Modal } = require("obsidian");
 const { createModalHeader, layoutModal } = __hubRequire("lib/ui/window-title.js");
 const { setHubIcon } = __hubRequire("lib/ui/icons.js");
+const { appendRouteSeparator } = __hubRequire("lib/ui/route-breadcrumb.js");
 const { openTaskPopover } = __hubRequire("lib/ui/task-popover.js");
 const { sameOwner, relativePath } = __hubRequire("lib/domain/native-task-location.js");
 let pickerSequence = 0;
@@ -24600,7 +26077,7 @@ function openLocationPicker(app, { locations, owner, reference = null, allowOwne
             const locationSection = this.contentEl.createEl("section", { cls: "hub-oath-section hub-task-location-section" });
             const locationHeading = locationSection.createEl("h3", { text: "Location", attr: { id: "hub-task-location-heading-" + ++pickerSequence } });
             this.breadcrumbs = locationSection.createEl("nav", { cls: "hub-task-location-breadcrumbs", attr: { "aria-labelledby": locationHeading.id } });
-            this.list = locationSection.createDiv({ cls: "hub-task-location-entries", attr: { role: "group", "aria-label": "Folders and Markdown notes" } });
+            this.list = locationSection.createDiv({ cls: "hub-task-location-entries hub-scrollbar", attr: { role: "group", "aria-label": "Folders and Markdown notes" } });
             this.error = this.contentEl.createDiv({ cls: "hub-task-error", attr: { role: "alert" } });
             const actions = this.contentEl.createDiv({ cls: "hub-task-dialog-actions" });
             actions.createEl("button", { text: "Cancel", attr: { type: "button" } }).onclick = () => this.close();
@@ -24644,7 +26121,7 @@ function openLocationPicker(app, { locations, owner, reference = null, allowOwne
             const doc = this.contentEl.ownerDocument, win = doc.defaultView, copy = heading.parentElement;
             // Capture headings reserve a right margin as well as the shared row padding.
             // Contextual headers use the same single right inset as Progress report.
-            copy.parentElement.style.marginRight = "0";
+            heading.closest(".hub-window-header").style.marginRight = "0";
             const row = copy.createDiv({ cls: "hub-window-title-row hub-task-location-title-row" });
             copy.insertBefore(row, heading); row.append(heading);
             // Join the tab order only after a new Tab gesture in this dialog,
@@ -24802,11 +26279,12 @@ function openLocationPicker(app, { locations, owner, reference = null, allowOwne
             this.breadcrumbs.empty();
             this.breadcrumbs.setAttribute("aria-description", segments.map(segment => segment.label).join(" / "));
             for (let i = 0; i < segments.length; i++) {
-                if (i) this.breadcrumbs.createSpan({ text: "/", cls: "hub-task-location-separator", attr: { "aria-hidden": "true" } });
+                if (i) appendRouteSeparator(this.breadcrumbs, "hub-task-location-separator");
                 const segment = segments[i], current = i === segments.length - 1;
                 const element = this.breadcrumbs.createEl(segment.note ? "span" : "button", {
-                    cls: segment.note ? "hub-task-location-note" : "hub-button-plain", text: segment.label,
+                    cls: segment.note ? "hub-task-location-note" : "hub-button-plain",
                     attr: { ...(segment.note ? {} : { type: "button" }), title: segment.path, ...(current ? { "aria-current": "location" } : {}) } });
+                element.createSpan({ cls: "hub-task-location-segment-label", text: segment.label });
                 element.dataset.locationPath = segment.path;
                 if (current) element.removeAttribute("title");
                 if (!segment.note) {
@@ -25101,7 +26579,7 @@ function renderTaskCalendar(host, tasks, context, state) {
     renderScheduleToolbar(panel, context, state);
     const days = calendarRange(state.anchor, state.calendarMode);
     const format = date => formatDate(date);
-    const scroll = panel.createDiv({ cls: "hub-task-local-scroll" });
+    const scroll = panel.createDiv({ cls: "hub-task-local-scroll hub-scrollbar" });
     const grid = scroll.createDiv({ cls: "hub-task-calendar is-" + state.calendarMode });
     grid.style.setProperty("--hub-calendar-weeks", String(days.length / 7));
     for (const day of ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]) grid.createDiv({ cls: "hub-task-weekday", text: day });
@@ -25120,7 +26598,7 @@ function renderTaskCalendar(host, tasks, context, state) {
         const heading = cell.createDiv({ cls: "hub-task-calendar-day-heading" });
         heading.createSpan({ text: String(day.getDate()) });
         iconButton(heading, "Add task on " + format(day), "plus", () => context.create({ dueDate: iso }));
-        const body = cell.createDiv({ cls: "hub-task-calendar-day-body" });
+        const body = cell.createDiv({ cls: "hub-task-calendar-day-body hub-scrollbar" });
         for (const task of byDate.get(iso) ?? []) taskCard(body, task, context, true);
     }
     const count = tasks.filter(task => !task.dueDate && !task.fromDate).length;
@@ -25132,6 +26610,7 @@ module.exports = { renderTaskCalendar };
 "lib/ui/task-view-primitives.js": function (module, exports, __hubRequire) {
 "use strict";
 const { ownNoticeColors } = __hubRequire("lib/ui/color-system.js");
+const { renderRouteBreadcrumb } = __hubRequire("lib/ui/route-breadcrumb.js");
 
 const { setIcon, Notice } = require("obsidian");
 const { createTaskRow } = __hubRequire("lib/ui/tasks.js");
@@ -25168,12 +26647,14 @@ function date(host, task, key = "dueDate", now = new Date()) {
 }
 function source(host, task, context) {
     const label = context.locationLabel(task);
-    const el = button(host, label, async event => {
+    const native = __hubRequire("lib/domain/native-task-location.js").locationBreadcrumb(task, { type: "project", id: context.workspace.projectId });
+    const el = button(host, "", async event => {
         event.stopPropagation();
         try { await context.openSource(task); }
         catch (error) { ownNoticeColors(new Notice(error.message || "Could not open task location.")); }
     }, "hub-button-plain hub-full-location");
-    el.title = __hubRequire("lib/domain/native-task-location.js").locationBreadcrumb(task, { type: "project", id: context.workspace.projectId })?.full ?? label; el.setAttribute("aria-label", "Open location: " + label);
+    renderRouteBreadcrumb(el.createSpan(), native?.visibleSegments ?? [label]);
+    el.title = native?.full ?? label; el.setAttribute("aria-label", "Open location: " + label);
     el.disabled = true; el.setAttribute("aria-label", "Location: " + el.title);
 }
 function bindTask(row, title, checkbox, task, context, options = {}) {
@@ -25236,7 +26717,7 @@ const headingIcons = { past: "clock-alert", today: "sun", tomorrow: "clock-arrow
 const { taskCard } = __hubRequire("lib/ui/task-view-primitives.js");
 
 function renderUpcoming(host, tasks, context) {
-    const scroll = host.createDiv({ cls: "hub-task-local-scroll" });
+    const scroll = host.createDiv({ cls: "hub-task-local-scroll hub-scrollbar" });
     const board = scroll.createDiv({ cls: "hub-task-board" });
     const groups = upcomingGroups(tasks, context.now);
     for (const [id, label] of BUCKETS) {
@@ -25249,7 +26730,7 @@ function renderUpcoming(host, tasks, context) {
         }
         title.createSpan({ text: label });
         heading.createSpan({ cls: "hub-task-count", text: String(groups[id].length) });
-        const body = column.createDiv({ cls: "hub-task-column-body" });
+        const body = column.createDiv({ cls: "hub-task-column-body hub-scrollbar" });
         for (const task of groups[id]) taskCard(body, task, context);
         if (!groups[id].length) body.createDiv({ cls: "hub-task-column-empty", text: "No tasks" });
     }
@@ -25603,6 +27084,7 @@ function createTaskUi({ app, component, body, mutate, onEdit, editTask, createTa
             if (event.target.closest("textarea, input:not([type=checkbox])")) return;
             event.preventDefault(); event.stopPropagation();
             const menu = ownMenuColors(new Menu());
+            if (window.hubPlan) menu.addItem(item => item.setTitle("Add to plan").setIcon("list-plus").onClick(() => void window.hubPlan.add([window.hubPlan.task(task)])));
             menu.addItem(item => item.setTitle("Edit").setIcon("pencil")
                 .onClick(() => editTask(task, onEdit)));
             menu.addItem(item => item.setTitle("Delete").setIcon("trash-2").setWarning(true)
@@ -25978,24 +27460,25 @@ module.exports = { setHubTooltip, watchHubTooltips, createImmediateHubTooltip, b
 const { setIcon } = require("obsidian");
 
 const headers = new WeakMap();
-// Keep native heading/undertext styles while moving their outer margins to the
-// shared grid. Reading the existing styles also preserves the user's theme.
+// Native h2 styles resolve inside one UI-font context. Supporting text stays
+// outside that context and retains each window's existing content typography.
 function createWindowTitle(parent, text, icon, options = {}) {
     const { date, ...titleOptions } = options;
-    const title = parent.createEl("h2", { ...titleOptions, text });
+    const context = parent.createDiv({ cls: "hub-window-title-context" });
+    const title = context.createEl("h2", { ...titleOptions, text });
     const style = parent.ownerDocument.defaultView.getComputedStyle(title);
     const margins = [style.marginTop, style.marginRight, style.marginBottom, style.marginLeft];
     const color = style.color;
     const header = parent.createEl("div", { cls: "hub-window-header" });
-    parent.insertBefore(header, title);
+    parent.insertBefore(header, context);
     header.style.margin = margins.join(" ");
     const graphic = header.createEl("span", { cls: "hub-window-title-icon", attr: { "aria-hidden": "true", "data-icon": icon } });
     graphic.style.color = `var(--hub-color-window-title, ${color})`;
     setIcon(graphic, icon);
     const copy = header.createEl("div", { cls: "hub-window-header-copy" });
-    copy.append(title);
+    copy.append(context);
     if (date) {
-        const row = copy.createEl("div", { cls: "hub-window-title-row" });
+        const row = context.createEl("div", { cls: "hub-window-title-row" });
         row.append(title);
         const dateEl = row.createEl("time", { cls: "hub-window-header-date",
             text: date.label, attr: { datetime: date.value } });
@@ -26034,7 +27517,8 @@ function setWindowUndertext(title, undertext) {
 function createModalHeader(parent, { title, subtitle, icon, titleId, descriptionId }) {
     const header = parent.createEl("header", { cls: "hub-capture-header" });
     const options = titleId ? { attr: { id: titleId } } : {};
-    const heading = icon ? createWindowTitle(header, title, icon, options) : header.createEl("h2", { text: title, ...options });
+    const heading = icon ? createWindowTitle(header, title, icon, options)
+        : header.createDiv({ cls: "hub-window-title-context" }).createEl("h2", { text: title, ...options });
     const description = subtitle == null ? null : header.createEl("p", { text: subtitle, cls: "hub-oath-muted",
         ...(descriptionId ? { attr: { id: descriptionId } } : {}) });
     if (icon && description) setWindowUndertext(heading, description);
@@ -26056,7 +27540,7 @@ function layoutModal(modal, { container = modal.contentEl, headerEnd, footer, bo
         container.insertBefore(body, contents[0] ?? footer ?? null);
         body.append(...contents);
     }
-    body.classList.add("hub-modal-body");
+    body.classList.add("hub-modal-body", "hub-scrollbar");
     if (bodyClass) body.classList.add(bodyClass);
     root.classList.add("hub-modal-layout");
     modal.modalEl.classList.add("hub-modal-window");
@@ -26125,6 +27609,13 @@ function createWorkspaceCards({ app, root, component, renderImage, categories = 
             card.classList.add("has-icon-fallback");
             setIcon(thumbnail.createSpan({ cls: "home-resource-icon" }), context.icon ?? "library");
         }
+        if (resource) card.addEventListener("contextmenu", event => {
+            if (!window.hubPlan) return;
+            event.preventDefault(); event.stopPropagation();
+            const menu=__hubRequire("lib/ui/color-system.js").ownMenuColors(new (require("obsidian").Menu)());
+            menu.addItem(item=>item.setTitle("Add to plan").setIcon("list-plus").onClick(()=>void window.hubPlan.workspace(context)));
+            menu.showAtMouseEvent(event);
+        });
         card.addEventListener("click", event => {
             if (oath?.canOpen(context) === false) { event.preventDefault(); event.stopImmediatePropagation(); return; }
             activate?.(event, card);
@@ -26182,17 +27673,44 @@ function createExplorerHost(plugin, { FolderPicker, confirm }) {
         } catch (_) { return null; }
     }
     return {
-        showMenu(event, entries) {
+        showMenu(event, entries, { compactSort = false } = {}) {
             event.preventDefault?.(); event.stopPropagation?.();
             const menu = ownMenuColors(new Menu()); populate(menu, entries);
+            if (compactSort) menu.dom?.classList.add("hub-explorer-sort-menu");
+            let anchorObserver = null;
             const trigger = event.currentTarget?.closest?.("button") ?? event.target?.closest?.("button");
             if (trigger) {
                 trigger.setAttribute("aria-expanded", "true");
-                menu.onHide(() => trigger.setAttribute("aria-expanded", "false"));
+                menu.onHide(() => {
+                    trigger.setAttribute("aria-expanded", "false");
+                    anchorObserver?.disconnect();
+                });
             }
             const target = event.currentTarget?.getBoundingClientRect?.() ?? event.target?.getBoundingClientRect?.();
-            if (event.type === "click" && target) menu.showAtPosition({ x: target.left, y: target.bottom });
-            else menu.showAtMouseEvent(event);
+            if (event.type === "click" && target) {
+                menu.showAtPosition({ x: target.left, y: target.bottom });
+                if (compactSort && menu.dom) {
+                    const anchor = trigger ?? event.currentTarget ?? event.target;
+                    const centerMenu = () => {
+                        if (menu.dom.isConnected === false) return;
+                        const button = anchor.getBoundingClientRect();
+                        const bounds = menu.dom.getBoundingClientRect();
+                        const viewport = menu.dom.ownerDocument.defaultView.innerWidth;
+                        const centered = button.left + button.width / 2 - bounds.width / 2;
+                        const left = Math.max(0, Math.min(centered, viewport - bounds.width));
+                        const scale = bounds.width / menu.dom.offsetWidth;
+                        menu.dom.style.left = (parseFloat(menu.dom.style.left) + (left - bounds.left) / scale) + "px";
+                    };
+                    centerMenu();
+                    const ResizeObserver = menu.dom.ownerDocument.defaultView.ResizeObserver;
+                    if (ResizeObserver && trigger?.parentElement) {
+                        anchorObserver = new ResizeObserver(centerMenu);
+                        anchorObserver.observe(trigger.parentElement);
+                    }
+                    // Native positioning and zoom styles finish on the next frame.
+                    menu.dom.ownerDocument.defaultView.requestAnimationFrame?.(centerMenu);
+                }
+            } else menu.showAtMouseEvent(event);
             return menu;
         },
         canReveal: () => !!desktop(),
@@ -26204,6 +27722,7 @@ function createExplorerHost(plugin, { FolderPicker, confirm }) {
             host.shell.showItemInFolder(fullPath);
         },
         copyPaths: paths => navigator.clipboard.writeText(paths.join("\n")),
+        addToPlan: (paths, context) => window.hubPlan?.files(paths, context),
         renameFile: path => plugin.renameProjectFile(app.vault.getAbstractFileByPath(path)),
         deleteFile: path => plugin.deleteProjectFile(app.vault.getAbstractFileByPath(path)),
         duplicateFile: path => plugin.duplicateProjectFile(app.vault.getAbstractFileByPath(path)),
@@ -26228,6 +27747,7 @@ module.exports = { createExplorerHost };
 "use strict";
 
 const { workspaceTree, filterWorkspaceTree, sortExplorerChildren, rewriteExplorerPaths } = __hubRequire("lib/domain/workspace-explorer.js");
+const { availableDefaultItemPath } = __hubRequire("lib/domain/files.js");
 const { fileIcon } = __hubRequire("lib/ui/file-icons.js");
 const { formatDateTime } = __hubRequire("lib/domain/dates.js");
 
@@ -26261,7 +27781,7 @@ function mountWorkspaceExplorer({ parent, workspacePath, dashboardPath, descript
     shell.setAttribute("aria-label", "Workspace files");
     const heading = el(shell, "div", "project-panel-title hub-explorer-heading");
     icon(heading, "folder-tree");
-    el(heading, "span", "", "Files");
+    el(heading, "h2", "hub-panel-heading-label", "Files");
     const searchBox = el(shell, "div", "hub-explorer-search");
     icon(searchBox, "search");
     const search = el(searchBox, "input", "hub-explorer-search-input");
@@ -26270,11 +27790,11 @@ function mountWorkspaceExplorer({ parent, workspacePath, dashboardPath, descript
     search.setAttribute("aria-label", "Search files in this workspace");
     const body = el(shell, "div", "hub-explorer-body");
     const toolbar = el(body, "div", "hub-explorer-toolbar");
-    const createNote = button(toolbar, "hub-explorer-create-note", "New note", "file-plus-2");
+    const createNote = button(toolbar, "hub-explorer-create-note", "New note", "notebook-plus");
     const createFolder = button(toolbar, "hub-explorer-create-folder", "New folder", "folder-plus");
-    const sortButton = button(toolbar, "hub-explorer-sort", "Sort by", "list-sort-descending");
+    const sortButton = button(toolbar, "hub-explorer-sort", "Sort by", "arrow-up-down");
     sortButton.setAttribute("aria-haspopup", "menu"); sortButton.setAttribute("aria-expanded", "false");
-    const tree = el(body, "div", "hub-explorer-tree");
+    const tree = el(body, "div", "hub-explorer-tree hub-scrollbar");
     tree.setAttribute("role", "tree");
     tree.setAttribute("aria-label", "Workspace folders and files");
     tree.setAttribute("aria-multiselectable", "true");
@@ -26289,7 +27809,7 @@ function mountWorkspaceExplorer({ parent, workspacePath, dashboardPath, descript
     splitter.setAttribute("aria-label", "Folder navigation width");
     breadcrumb.setAttribute("aria-label", "Selected folder");
     const columns = el(details, "div", "hub-explorer-columns");
-    const contents = el(details, "div", "hub-explorer-contents");
+    const contents = el(details, "div", "hub-explorer-contents hub-scrollbar");
     contents.setAttribute("role", "listbox");
     contents.setAttribute("aria-multiselectable", "true");
     const footer = el(shell, "div", "hub-explorer-footer");
@@ -26300,7 +27820,8 @@ function mountWorkspaceExplorer({ parent, workspacePath, dashboardPath, descript
     const editor = el(shell, "div", "hub-explorer-editor");
     editor.hidden = true;
     let model, filtered, currentPath = null, activePath = null, focusPath = null;
-    let query = "", editing = null, disposed = false, repainting = false;
+    let query = "", editing = null, disposed = false, repainting = false, creating = false;
+    let renameCommit = null;
     let selectionPane = null, selectionAnchor = null, detailFocusPath = null;
     const events = new doc.defaultView.AbortController();
     // currentPath belongs to Full-view; activePath only describes the open Note file.
@@ -26363,7 +27884,10 @@ function mountWorkspaceExplorer({ parent, workspacePath, dashboardPath, descript
         }
     }
     function selectFolder(node, expandAncestors = false) {
-        if (editing?.committing) return;
+        if (editing?.committing) {
+            renameCommit?.then(() => { if (!disposed && !editing) selectFolder(model.byPath.get(node.path) ?? node, expandAncestors); });
+            return;
+        }
         cancelDraft();
         if (currentPath !== node.path) contents.scrollTop = 0;
         if (!isNoteView() && currentPath !== node.path) { clearFullSelection(); detailFocusPath = null; }
@@ -26405,8 +27929,10 @@ function mountWorkspaceExplorer({ parent, workspacePath, dashboardPath, descript
         if (repaint) renderTree(true);
     }
     function nameContent(row, node, treeRow = false) {
-        const folderIcon = !node.parent && node.descriptor.sharedResource ? "folder-symlink"
-            : treeRow && isExpanded(node) ? "folder-open" : "folder";
+        const folderIcon = !isNoteView()
+            ? (treeRow && isExpanded(node) ? "folder-open" : "folder-closed")
+            : !node.parent && node.descriptor.sharedResource ? "folder-symlink"
+                : treeRow && isExpanded(node) ? "folder-open" : "folder";
         icon(row, node.folder ? folderIcon : fileIcon(node.item));
         const text = el(row, "span", "hub-explorer-label");
         const name = el(text, "span", "hub-explorer-name", node.name);
@@ -26509,11 +28035,12 @@ function mountWorkspaceExplorer({ parent, workspacePath, dashboardPath, descript
         breadcrumb.replaceChildren(); columns.replaceChildren(); contents.replaceChildren();
         const node = selectedFolder();
         if (!node) { el(contents, "div", "hub-explorer-empty", "Create a folder to get started."); return; }
-        icon(breadcrumb, !node.parent && node.descriptor.sharedResource ? "folder-symlink" : "folder-open");
+        if (isNoteView()) icon(breadcrumb, !node.parent && node.descriptor.sharedResource ? "folder-symlink" : "folder-open");
         for (const [index, ancestor] of lineage(node).entries()) {
             if (index) icon(breadcrumb, "chevron-right", "hub-explorer-crumb-separator");
             const crumb = button(breadcrumb, "hub-explorer-crumb", ancestor.name);
-            crumb.textContent = ancestor.name;
+            if (isNoteView()) crumb.textContent = ancestor.name;
+            else el(crumb, "span", "hub-explorer-crumb-label", ancestor.name);
             if (ancestor === node) crumb.setAttribute("aria-current", "location");
             crumb.addEventListener("click", () => selectFolder(ancestor, true));
         }
@@ -26625,21 +28152,15 @@ function mountWorkspaceExplorer({ parent, workspacePath, dashboardPath, descript
     }
     function showError(error) { status.textContent = error?.message ?? "Could not open this file."; }
     function syncToolbar() {
-        const busy = !!editing?.committing, allowed = canCreateNote(currentPath ?? workspacePath);
+        const busy = creating || !!editing?.committing, allowed = canCreateNote(currentPath ?? workspacePath);
         createNote.disabled = busy || !allowed; createFolder.disabled = busy; sortButton.disabled = busy;
         createNote.title = allowed ? "New note" : "Create notes inside a workspace folder";
         shell.setAttribute("aria-busy", String(busy));
     }
     function beginCreate(kind, path = currentPath ?? workspacePath) {
-        if (editing?.committing) return;
+        if (creating || editing?.committing) return;
         if (!isNoteView()) {
-            if (kind === "note" && !canCreateNote(path)) return;
-            const target = model.byPath.get(path);
-            if (!target?.folder) return;
-            selectFolder(target, true);
-            editing = { inline: true, kind, path, value: kind === "folder" ? "New folder" : "Untitled", committing: false, error: "" };
-            clearFullSelection(); selectionPane = contents; renderDraft();
-            const input = contents.querySelector(".project-create-input"); input.focus(); input.select();
+            void createAndRename(kind, path);
             return;
         }
         editing = { kind, path };
@@ -26683,13 +28204,78 @@ function mountWorkspaceExplorer({ parent, workspacePath, dashboardPath, descript
         cancel.addEventListener("click", close);
         input.focus();
     }
+    async function createAndRename(kind, path) {
+        if (kind === "note" && !canCreateNote(path) || !model.byPath.get(path)?.folder) return;
+        if (editing) { await commitInline(editing); if (editing) return; }
+        creating = true; syncToolbar();
+        selectFolder(model.byPath.get(path), true);
+        try {
+            let createdPath;
+            // Retry only a confirmed competing create at the allocated path.
+            for (let attempt = 0; attempt < 5; attempt++) {
+                const candidate = availableDefaultItemPath(path, kind, getByPath);
+                const filename = candidate.slice(path.length + 1);
+                const name = kind === "note" ? filename.slice(0, -3) : filename;
+                try { createdPath = await createItem(path, kind, name); break; }
+                catch (error) {
+                    if (!error.creationCollision || attempt === 4) throw error;
+                }
+            }
+            if (disposed || isNoteView() || currentPath !== path) return;
+            refresh(); selectedPaths.clear(); selectedPaths.add(createdPath);
+            selectionPane = contents;
+            beginRename(createdPath);
+        } catch (error) { if (!disposed) showError(error); }
+        finally { creating = false; if (!disposed) syncToolbar(); }
+    }
+    async function commitInline(draft, restoreFocus = false) {
+        if (editing !== draft || draft.committing) return renameCommit;
+        draft.value = draft.value.trim() || draft.originalName;
+        if (draft.value === draft.originalName) {
+            cancelDraft();
+            if (restoreFocus) {
+                if (draft.originPane === tree) focusNode(draft.renamePath); else focusDetail(draft.renamePath);
+            }
+            return;
+        }
+        if ([".", ".."].includes(draft.value)) {
+            draft.error = "Enter a valid name.";
+            renderDraft(); contents.querySelector(".project-create-input")?.focus();
+            return;
+        }
+        draft.committing = true;
+        const field = contents.querySelector(".project-create-input"); if (field) field.disabled = true;
+        syncToolbar();
+        renameCommit = (async () => {
+            try {
+                const path = await renameItem(draft.renamePath, draft.value);
+                if (disposed) return;
+                editing = null; refresh();
+                const old = draft.renamePath;
+                const restored = draft.returnPath === old || draft.returnPath?.startsWith(old + "/")
+                    ? path + draft.returnPath.slice(old.length) : draft.returnPath;
+                if (model.byPath.get(restored)?.folder) currentPath = restored;
+                const node = model.byPath.get(path);
+                if (node) reveal(node);
+                selectionPane = draft.originPane ?? contents; selectionAnchor = path;
+                selectedPaths.clear(); selectedPaths.add(path);
+                save(workspacePath, { currentPath }); render();
+                if (restoreFocus) { if (draft.originPane === tree) focusNode(path); else focusDetail(path); }
+            } catch (error) {
+                if (disposed) return;
+                draft.committing = false; draft.error = error.message ?? "Could not rename item.";
+                renderDraft(); syncToolbar(); contents.querySelector(".project-create-input")?.focus();
+            }
+        })();
+        return renameCommit;
+    }
     function beginRename(path = [...selectedPaths][0]) {
         if (isNoteView() || editing?.committing || !renameItem || selectedPaths.size > 1) return;
         const node = model.byPath.get(path);
         if (!node?.parent || !canSelect(path)) return;
         const returnPath = currentPath, originPane = selectionPane;
         selectFolder(node.parent, true);
-        editing = { returnPath, originPane, inline: true, renamePath: path, kind: node.folder ? "folder" : "note", path: node.parent.path, value: node.name, committing: false, error: "" };
+        editing = { returnPath, originPane, inline: true, renamePath: path, kind: node.folder ? "folder" : "note", path: node.parent.path, originalName: node.name, value: node.name, committing: false, error: "" };
         selectionPane = contents; selectedPaths.clear(); selectedPaths.add(path);
         renderDraft(); const input = contents.querySelector(".project-create-input"); input.focus(); input.select();
     }
@@ -26710,7 +28296,7 @@ function mountWorkspaceExplorer({ parent, workspacePath, dashboardPath, descript
         const row = original ?? el(contents, "div", "hub-explorer-detail-row");
         row.replaceChildren(); row.classList.add("hub-explorer-draft");
         const name = el(row, "div", "hub-explorer-detail-name");
-        icon(name, draft.kind === "folder" ? "folder" : "file-text");
+        icon(name, draft.kind === "folder" ? "folder-closed" : fileIcon(getByPath(draft.renamePath)));
         const input = el(name, "input", "project-create-input");
         input.value = draft.value; input.spellcheck = false; input.disabled = draft.committing;
         input.setAttribute("aria-label", draft.renamePath ? "Rename item" : draft.kind === "folder" ? "New folder name" : "New note name");
@@ -26718,42 +28304,24 @@ function mountWorkspaceExplorer({ parent, workspacePath, dashboardPath, descript
         errorText.setAttribute("role", "alert");
         if (draft.error) input.setAttribute("aria-invalid", "true");
         if (!original) contents.prepend(row);
-        input.addEventListener("input", () => { draft.value = input.value; });
+        const sizeInput = () => {
+            input.style.width = Math.max(8, input.value.length + 2) + "ch";
+        };
+        sizeInput();
+        input.addEventListener("input", () => { draft.value = input.value; sizeInput(); });
+        for (const type of ["click", "dblclick"]) input.addEventListener(type, event => event.stopPropagation());
         input.addEventListener("blur", () => {
-            if (!repainting && editing === draft && !draft.committing && input.isConnected) cancelDraft();
+            if (!repainting && editing === draft && !draft.committing && input.isConnected) {
+                draft.value = input.value; void commitInline(draft);
+            }
         });
         input.addEventListener("keydown", event => {
             event.stopPropagation();
+            if (event.isComposing) return;
             if (event.key === "Escape" && !draft.committing) { event.preventDefault(); cancelDraft(); contents.focus(); }
-            if (event.key !== "Enter" || event.isComposing || draft.committing) return;
-            event.preventDefault(); draft.value = input.value;
-            if (!draft.value.trim() || [".", ".."].includes(draft.value.trim())) {
-                draft.error = "Enter a valid name."; errorText.textContent = draft.error; input.setAttribute("aria-invalid", "true"); return;
+            if (event.key === "Enter" && !draft.committing) {
+                event.preventDefault(); draft.value = input.value; void commitInline(draft, true);
             }
-            draft.committing = true; input.disabled = true;
-            syncToolbar();
-            status.textContent = "Creating…";
-            void (async () => {
-                try {
-                    const path = draft.renamePath ? await renameItem(draft.renamePath, draft.value) : await createItem(draft.path, draft.kind, draft.value);
-                    if (disposed) return;
-                    editing = null; refresh();
-                    if (draft.renamePath && draft.returnPath) {
-                        const restored = draft.returnPath === draft.renamePath || draft.returnPath.startsWith(draft.renamePath + "/") ? path + draft.returnPath.slice(draft.renamePath.length) : draft.returnPath;
-                        if (model.byPath.get(restored)?.folder) currentPath = restored;
-                    }
-                    const node = model.byPath.get(path);
-                    if (node) { reveal(node); persist(); }
-                    selectionPane = draft.originPane ?? contents; selectionAnchor = path; selectedPaths.clear(); selectedPaths.add(path);
-                    save(workspacePath, { currentPath }); render();
-                    if (draft.originPane === tree) focusNode(path); else focusDetail(path);
-                } catch (error) {
-                    if (disposed) return;
-                    draft.committing = false; draft.error = error.message ?? "Could not create item.";
-                    status.textContent = ""; syncToolbar();
-                    renderDraft(); const field = contents.querySelector(".project-create-input"); field?.focus();
-                }
-            })();
         });
         repainting = previousRepaint;
     }
@@ -26768,7 +28336,13 @@ function mountWorkspaceExplorer({ parent, workspacePath, dashboardPath, descript
         splitter.setAttribute("aria-valuemin", String(Math.round(minimum)));
         splitter.setAttribute("aria-valuemax", String(Math.round(maximum)));
         splitter.setAttribute("aria-valuenow", String(Math.round(value)));
+        return value;
     }
+    splitter.addEventListener("dblclick", event => {
+        event.preventDefault(); event.stopPropagation();
+        dragWidth = null; preferredWidth = null; shell.classList.remove("is-resizing");
+        saveFull({ treeWidth: null }); applyWidth();
+    });
     function commitWidth() { if (preferredWidth !== null) saveFull({ treeWidth: preferredWidth }); }
     splitter.addEventListener("pointerdown", event => {
         if (event.button !== 0) return;
@@ -26783,7 +28357,7 @@ function mountWorkspaceExplorer({ parent, workspacePath, dashboardPath, descript
     function endResize(event) {
         if (!dragWidth || dragWidth.id !== event.pointerId) return;
         const id = dragWidth.id; dragWidth = null; shell.classList.remove("is-resizing");
-        preferredWidth = Number(splitter.getAttribute("aria-valuenow"));
+        preferredWidth = applyWidth();
         if (splitter.hasPointerCapture(id)) splitter.releasePointerCapture(id);
         commitWidth();
     }
@@ -26794,12 +28368,20 @@ function mountWorkspaceExplorer({ parent, workspacePath, dashboardPath, descript
             event.key === "Home" ? Number(splitter.getAttribute("aria-valuemin")) : event.key === "End" ? Number(splitter.getAttribute("aria-valuemax")) : null;
         if (value === null) return;
         event.preventDefault(); event.stopPropagation(); preferredWidth = value; applyWidth();
-        preferredWidth = Number(splitter.getAttribute("aria-valuenow")); commitWidth();
+        preferredWidth = applyWidth(); commitWidth();
     });
     const resize = new doc.defaultView.ResizeObserver(applyWidth); resize.observe(body);
     createNote.addEventListener("click", () => beginCreate("note"));
     createFolder.addEventListener("click", () => beginCreate("folder"));
+    let sortMenu = null, sortOpenAtPointerDown = false;
+    // Native Menu dismisses on outside press, before the trigger's click.
+    doc.addEventListener("pointerdown", event => {
+        sortOpenAtPointerDown = sortButton.contains(event.target) && sortButton.getAttribute("aria-expanded") === "true";
+    }, { capture: true, signal: events.signal });
     sortButton.addEventListener("click", event => {
+        const wasOpen = event.detail ? sortOpenAtPointerDown : sortButton.getAttribute("aria-expanded") === "true";
+        sortOpenAtPointerDown = false;
+        if (wasOpen) { sortMenu?.hide(); return; }
         const current = sortState(), entries = [];
         for (const [sortKey, label] of [["name", "Name"], ["modified", "Modified"], ["created", "Created"]]) {
             for (const sortDirection of ["asc", "desc"]) entries.push({
@@ -26808,8 +28390,7 @@ function mountWorkspaceExplorer({ parent, workspacePath, dashboardPath, descript
                 run: () => setSort({ sortKey, sortDirection })
             });
         }
-        entries.push(null, { title: "Folders use Name ascending for date sorts", disabled: true });
-        showMenu(event, entries);
+        sortMenu = showMenu(event, entries, { compactSort: true });
     });
     contents.tabIndex = 0;
     shell.addEventListener("focusin", event => {
@@ -26959,7 +28540,7 @@ function mountWorkspaceExplorer({ parent, workspacePath, dashboardPath, descript
         },
         isFullView: () => !isNoteView(),
         reportError: showError,
-        destroy() { disposed = true; events.abort(); resize.disconnect(); shell.remove(); }
+        destroy() { disposed = true; sortMenu?.hide(); events.abort(); resize.disconnect(); shell.remove(); }
     };
 }
 
@@ -28080,7 +29661,7 @@ class ProjectAdvancementModal
 
             if (
                 Number.isInteger(score) &&
-                score >= 1 &&
+                score >= 0 &&
                 score <= 4
             ) {
 
@@ -28495,11 +30076,6 @@ class ProjectAdvancementModal
             this.ratingEffects?.cancel(choices);
             choices?.removeAttribute("aria-invalid");
         }
-        if (score === 0) {
-            const input = this.summaryInputs.get(projectId);
-            if (input) input.value = "";
-            this.currentSummaries[projectId] = "";
-        }
 
         if (score === null) {
 
@@ -28609,10 +30185,6 @@ class ProjectAdvancementModal
         const scores =
             Object.fromEntries(
                 [...this.selectedScores]
-                    .filter(
-                        ([, score]) =>
-                            score !== 0
-                    )
             );
 
 
@@ -32077,6 +33649,7 @@ class ProjectWizardService {
     async activatePendingFocus(
         date
     ) {
+        return false; // Persistent Plan is authoritative; historical Focus remains untouched.
 
         if (
             !parseLocalISODate(date) ||
@@ -32172,7 +33745,7 @@ class ProjectWizardService {
 
                 for (const date of dates) {
                     if (!parseLocalISODate(date)) continue;
-                    const score = Number(ratings[date]);
+                    const score = ratings[date];
                     const log = logs[date] ?? {};
                     const report = {
                         date,
@@ -32181,7 +33754,7 @@ class ProjectWizardService {
                         resourceName: log.resourceName ?? resource.label,
                         projectId: `resource:${id}`,
                         projectName: log.resourceName ?? resource.label,
-                        score: Number.isInteger(score) && score >= 1 && score <= 4 ? score : null,
+                        score: Number.isInteger(score) && score >= 0 && score <= 4 ? score : null,
                         summary: typeof log.summary === "string" ? log.summary : "",
                         context: log.context,
                         timestamp: Number(log.timestamp) > 0 ? Number(log.timestamp) : null
@@ -32263,7 +33836,7 @@ class ProjectWizardService {
 
 
                 const score =
-                    Number(ratings[date]);
+                    ratings[date];
 
                 const log =
                     logs[date] ?? {};
@@ -32278,7 +33851,7 @@ class ProjectWizardService {
                     !summary &&
                     (
                         !Number.isInteger(score) ||
-                        score < 1 ||
+                        score < 0 ||
                         score > 4
                     )
                 ) {
@@ -32304,7 +33877,7 @@ class ProjectWizardService {
                         null,
                     score:
                         Number.isInteger(score) &&
-                        score >= 1 &&
+                        score >= 0 &&
                         score <= 4
                             ? score
                             : null,
@@ -32540,100 +34113,11 @@ class ProjectWizardService {
         );
     }
 
-    async setProjectWorkRatings(
-        date,
-        scoresByProject
-    ) {
-
-        if (
-            !/^\d{4}-\d{2}-\d{2}$/
-                .test(date)
-        ) {
-
-            throw new Error(
-                "Invalid project-rating date."
-            );
-        }
-
-
-        const entries =
-            Object.entries(
-                scoresByProject ?? {}
-            );
-
-
-        for (
-            const [
-                projectId,
-                score
-            ]
-            of entries
-        ) {
-
-            if (
-                typeof projectId !==
-                    "string" ||
-                !projectId.trim()
-            ) {
-
-                throw new Error(
-                    "Invalid project ID."
-                );
-            }
-
-
-            if (
-                !Number.isInteger(score) ||
-                score < 1 ||
-                score > 4
-            ) {
-
-                throw new Error(
-                    "Invalid project advancement rating."
-                );
-            }
-        }
-
-
-        for (
-            const [
-                projectId,
-                score
-            ]
-            of entries
-        ) {
-
-            if (
-                !this.projectWorkRatings[
-                    projectId
-                ] ||
-                typeof this.projectWorkRatings[
-                    projectId
-                ] !== "object"
-            ) {
-
-                this.projectWorkRatings[
-                    projectId
-                ] = {};
-            }
-
-
-            this.projectWorkRatings[
-                projectId
-            ][date] =
-                score;
-        }
-
-
-        this.data.projectWorkRatings =
-            this.projectWorkRatings;
-
-
-        await this.store.save(
-            this.data
-        );
+    async setProjectWorkRatings(date, scoresByProject) {
+        return __hubRequire("lib/services/progress-report.js").saveProgress(this, {
+            date, entries: Object.entries(scoresByProject ?? {}).map(([id, rating]) => ({ id, rating }))
+        });
     }
-
 
     getCompletedTaskHistory(projectId = null) {
         const observation = this.taskProgressEvidence?.();
@@ -32642,709 +34126,29 @@ class ProjectWizardService {
     }
 
 
-    async replaceProjectWorkRatings(
-        date,
-        projectIds,
-        scoresByProject
-    ) {
-
-        if (
-            !parseLocalISODate(date) ||
-            date > localISODate()
-        ) {
-
-            throw new Error(
-                "Invalid project-rating date."
-            );
-        }
-
-
-        if (!Array.isArray(projectIds)) {
-
-            throw new Error(
-                "Project-rating scope must be an array."
-            );
-        }
-
-
-        const scope =
-            [
-                ...new Set(
-                    projectIds ?? []
-                )
-            ];
-
-
-        for (
-            const projectId
-            of scope
-        ) {
-
-            if (
-                typeof projectId !==
-                    "string" ||
-                !projectId.trim()
-            ) {
-
-                throw new Error(
-                    "Invalid project ID."
-                );
-            }
-        }
-
-
-        const scopeSet =
-            new Set(scope);
-
-
-        const entries =
-            Object.entries(
-                scoresByProject ?? {}
-            );
-
-
-        for (
-            const [
-                projectId,
-                score
-            ]
-            of entries
-        ) {
-
-            if (
-                !scopeSet.has(
-                    projectId
-                )
-            ) {
-
-                throw new Error(
-                    "A rating is outside the editing scope."
-                );
-            }
-
-
-            if (
-                !Number.isInteger(score) ||
-                score < 1 ||
-                score > 4
-            ) {
-
-                throw new Error(
-                    "Invalid project advancement rating."
-                );
-            }
-        }
-
-
-        /*
-         * Replacement semantics are intentional:
-         * a missing score means that project's
-         * saved answer for this date is cleared.
-         * Other dates and projects remain untouched.
-         */
-        const nextProjectWorkRatings =
-            {
-                ...this.projectWorkRatings
-            };
-
-
-        for (
-            const projectId
-            of scope
-        ) {
-
-            const ratings =
-                nextProjectWorkRatings[
-                    projectId
-                ];
-
-
-            if (
-                !ratings ||
-                typeof ratings !==
-                    "object" ||
-                Array.isArray(ratings)
-            ) {
-                continue;
-            }
-
-
-            const nextRatings =
-                {
-                    ...ratings
-                };
-
-
-            delete nextRatings[date];
-
-
-            if (
-                Object.keys(nextRatings)
-                    .length === 0
-            ) {
-
-                delete nextProjectWorkRatings[
-                    projectId
-                ];
-
-            } else {
-
-                nextProjectWorkRatings[
-                    projectId
-                ] =
-                    nextRatings;
-            }
-        }
-
-
-        for (
-            const [
-                projectId,
-                score
-            ]
-            of entries
-        ) {
-
-            if (
-                !nextProjectWorkRatings[
-                    projectId
-                ] ||
-                typeof nextProjectWorkRatings[
-                    projectId
-                ] !== "object" ||
-                Array.isArray(
-                    nextProjectWorkRatings[
-                        projectId
-                    ]
-                )
-            ) {
-
-                nextProjectWorkRatings[
-                    projectId
-                ] = {};
-            }
-
-
-            nextProjectWorkRatings[
-                projectId
-            ][date] =
-                score;
-        }
-
-
-        const nextData = {
-            ...this.data,
-
-            projectWorkRatings:
-                nextProjectWorkRatings
-        };
-
-
-        await this.store.save(
-            nextData
-        );
-
-
-        this.projectWorkRatings =
-            nextProjectWorkRatings;
-
-
-        this.data =
-            nextData;
+    async replaceProjectWorkRatings(date, projectIds, scoresByProject) {
+        if (!Array.isArray(projectIds) || Object.keys(scoresByProject ?? {}).some(id => !projectIds.includes(id))) throw Error("Invalid progress scope.");
+        return __hubRequire("lib/services/progress-report.js").saveProgress(this, {
+            date, entries: projectIds.map(id => ({ id, rating: scoresByProject?.[id] ?? null }))
+        });
     }
 
-
-    async replaceProjectProgress(
-        date,
-        projectIds,
-        scoresByProject,
-        summariesByProject,
-        focusUpdate = null
-    ) {
-
-        if (
-            !parseLocalISODate(date) ||
-            date > localISODate()
-        ) {
-            throw new Error(
-                "Invalid project-progress date."
-            );
-        }
-
-
-        if (!Array.isArray(projectIds)) {
-            throw new Error(
-                "Project-progress scope must be an array."
-            );
-        }
-
-
-        const scope =
-            [...new Set(projectIds)];
-
-        const scopeSet =
-            new Set(scope);
-
-
-        for (
-            const projectId
-            of scope
-        ) {
-
-            if (
-                typeof projectId !== "string" ||
-                !projectId.trim()
-            ) {
-                throw new Error(
-                    "Invalid project ID."
-                );
-            }
-        }
-
-
-        const scoreEntries =
-            Object.entries(
-                scoresByProject ?? {}
-            );
-
-        const summaryEntries =
-            Object.entries(
-                summariesByProject ?? {}
-            );
-
-
-        for (
-            const [projectId, score]
-            of scoreEntries
-        ) {
-
-            if (
-                !scopeSet.has(projectId) ||
-                !Number.isInteger(score) ||
-                score < 1 ||
-                score > 4
-            ) {
-                throw new Error(
-                    "Invalid project advancement rating."
-                );
-            }
-        }
-
-
-        for (
-            const [projectId, summary]
-            of summaryEntries
-        ) {
-
-            if (
-                !scopeSet.has(projectId) ||
-                typeof summary !== "string" ||
-                summary.length > 1000
-            ) {
-                throw new Error(
-                    "Invalid project progress summary."
-                );
-            }
-        }
-
-
-        let normalizedFocus = null;
-
-
-        if (focusUpdate !== null) {
-
-            if (
-                !focusUpdate ||
-                !parseLocalISODate(
-                    focusUpdate.sourceDate
-                ) ||
-                focusUpdate.sourceDate !==
-                    date
-            ) {
-                throw new Error(
-                    "Invalid pending focus."
-                );
-            }
-
-
-            normalizedFocus =
-                validateFocusItems(
-                    focusUpdate.items
-                );
-        }
-
-
-        const nextRatings =
-            Object.fromEntries(
-                Object.entries(
-                    this.projectWorkRatings
-                ).map(
-                    ([projectId, ratings]) => [
-                        projectId,
-                        {
-                            ...ratings
-                        }
-                    ]
-                )
-            );
-
-        const nextLogs =
-            Object.fromEntries(
-                Object.entries(
-                    this.projectWorkLogs
-                ).map(
-                    ([projectId, logs]) => [
-                        projectId,
-                        Object.fromEntries(
-                            Object.entries(
-                                logs &&
-                                typeof logs === "object" &&
-                                !Array.isArray(logs)
-                                    ? logs
-                                    : {}
-                            ).map(
-                                ([logDate, entry]) => [
-                                    logDate,
-                                    {
-                                        ...entry
-                                    }
-                                ]
-                            )
-                        )
-                    ]
-                )
-            );
-
-
-        for (
-            const projectId
-            of scope
-        ) {
-
-            if (nextRatings[projectId]) {
-                delete nextRatings[projectId][date];
-
-                if (
-                    Object.keys(
-                        nextRatings[projectId]
-                    ).length === 0
-                ) {
-                    delete nextRatings[projectId];
-                }
-            }
-
-
-            if (nextLogs[projectId]) {
-                delete nextLogs[projectId][date];
-
-                if (
-                    Object.keys(
-                        nextLogs[projectId]
-                    ).length === 0
-                ) {
-                    delete nextLogs[projectId];
-                }
-            }
-        }
-
-
-        for (
-            const [projectId, score]
-            of scoreEntries
-        ) {
-
-            nextRatings[projectId] =
-                nextRatings[projectId] ?? {};
-
-            nextRatings[projectId][date] =
-                score;
-        }
-
-
-        for (
-            const [projectId, rawSummary]
-            of summaryEntries
-        ) {
-
-            const summary =
-                rawSummary.trim();
-
-
-            if (!summary) {
-                continue;
-            }
-
-
-            const project =
-                this.getProjectById(
-                    projectId
-                );
-
-
-            const previousLog =
-                this.projectWorkLogs[
-                    projectId
-                ]?.[date] ?? {};
-
-
-            const previousTimestamp =
-                Number(
-                    previousLog.timestamp
-                );
-
-
-            nextLogs[projectId] =
-                nextLogs[projectId] ?? {};
-
-            nextLogs[projectId][date] = {
-                summary,
-                projectName:
-                    project?.name ??
-                    previousLog.projectName ??
-                    "Unavailable project",
-                timestamp:
-                    Number.isFinite(
-                        previousTimestamp
-                    ) &&
-                    previousTimestamp > 0
-                        ? previousTimestamp
-                        : Date.now()
-            };
-        }
-
-
-        for (
-            const [projectId]
-            of scoreEntries
-        ) {
-
-            if (
-                nextLogs[projectId]?.[date]
-            ) {
-                continue;
-            }
-
-
-            const project =
-                this.getProjectById(
-                    projectId
-                );
-
-
-            const previousLog =
-                this.projectWorkLogs[
-                    projectId
-                ]?.[date] ?? {};
-
-
-            const previousTimestamp =
-                Number(
-                    previousLog.timestamp
-                );
-
-
-            nextLogs[projectId] =
-                nextLogs[projectId] ?? {};
-
-
-            nextLogs[projectId][date] = {
-                summary: "",
-                projectName:
-                    project?.name ??
-                    previousLog.projectName ??
-                    "Unavailable project",
-                timestamp:
-                    Number.isFinite(
-                        previousTimestamp
-                    ) &&
-                    previousTimestamp > 0
-                        ? previousTimestamp
-                        : Date.now()
-            };
-        }
-
-
-        for (const projectId of scope) {
-            const log = nextLogs[projectId]?.[date];
-            if (!log) continue;
-            const previous = this.projectWorkLogs[projectId]?.[date];
-            log.projectName = previous?.projectName ?? log.projectName;
-            log.context = savedReportContext(this, date, projectId, previous?.context);
-        }
-
-        const nextPendingFocus =
-            normalizedFocus === null
-                ? this.pendingFocus
-                : {
-                    sourceDate:
-                        focusUpdate.sourceDate,
-                    items:
-                        normalizedFocus
-                };
-
-
-        const nextData = {
-            ...this.data,
-            projectWorkRatings:
-                nextRatings,
-            projectWorkLogs:
-                nextLogs,
-            pendingFocus:
-                nextPendingFocus,
-            ...(normalizedFocus === null ? {} : { reportFocusByDate: {
-                ...this.data.reportFocusByDate,
-                [date]: { items: normalizedFocus }
-            } })
-        };
-
-
-        await this.store.save(
-            nextData
-        );
-
-
-        this.projectWorkRatings =
-            nextRatings;
-        this.projectWorkLogs =
-            nextLogs;
-        this.pendingFocus =
-            nextPendingFocus;
-        this.data =
-            nextData;
+    async replaceProjectProgress(date, projectIds, scores, summaries, focusUpdate = null) {
+        return this.replaceCombinedProgress(date, projectIds, [], scores, summaries, focusUpdate);
     }
 
-
-    async replaceResourceProgress(
-        date,
-        resourceId,
-        score,
-        summary
-    ) {
-        const resource = this.getResourceById(resourceId);
-        if (
-            !resource ||
-            !parseLocalISODate(date) ||
-            date > localISODate() ||
-            typeof summary !== "string" ||
-            summary.length > 1000
-        ) {
-            throw new Error("Invalid Resource progress entry.");
-        }
-
-        const id = resource.resourceType;
-        const nextRatings = {
-            ...this.resourceWorkRatings,
-            [id]: { ...(this.resourceWorkRatings[id] ?? {}) }
-        };
-        const nextLogs = {
-            ...this.resourceWorkLogs,
-            [id]: { ...(this.resourceWorkLogs[id] ?? {}) }
-        };
-
-        delete nextRatings[id][date];
-        delete nextLogs[id][date];
-
-        if (Number.isInteger(score) && score >= 1 && score <= 4) {
-            nextRatings[id][date] = score;
-        }
-
-        const normalizedSummary = String(summary ?? "").trim();
-        if (normalizedSummary || nextRatings[id][date]) {
-            const previousTimestamp = Number(this.resourceWorkLogs[id]?.[date]?.timestamp);
-            nextLogs[id][date] = {
-                summary: normalizedSummary,
-                resourceName: this.resourceWorkLogs[id]?.[date]?.resourceName ?? resource.label,
-                context: savedReportContext(this, date, `resource:${id}`, this.resourceWorkLogs[id]?.[date]?.context),
-                targetKind: "resource",
-                timestamp: Number.isFinite(previousTimestamp) && previousTimestamp > 0
-                    ? previousTimestamp
-                    : Date.now()
-            };
-        }
-
-        if (Object.keys(nextRatings[id]).length === 0) delete nextRatings[id];
-        if (Object.keys(nextLogs[id]).length === 0) delete nextLogs[id];
-
-        const nextData = {
-            ...this.data,
-            resourceWorkRatings: nextRatings,
-            resourceWorkLogs: nextLogs
-        };
-        await this.store.save(nextData);
-        this.resourceWorkRatings = nextRatings;
-        this.resourceWorkLogs = nextLogs;
-        this.data = nextData;
+    async replaceResourceProgress(date, resourceId, score, summary) {
+        const id = String(resourceId).replace(/^resource:/, "");
+        return this.replaceCombinedProgress(date, [], [id], { ["resource:" + id]: score ?? null }, { ["resource:" + id]: summary });
     }
 
-
-    async replaceCombinedProgress(
-        date,
-        projectIds,
-        resourceIds,
-        scoresByContext,
-        summariesByContext,
-        focusUpdate = null
-    ) {
-        const projects =
-            [...new Set(
-                Array.isArray(projectIds)
-                    ? projectIds
-                    : []
-            )];
-
-        const resources =
-            [...new Set(
-                Array.isArray(resourceIds)
-                    ? resourceIds
-                    : []
-            )];
-
-        const valuesFor = ids =>
-            Object.fromEntries(
-                ids
-                    .filter(id =>
-                        Object.prototype.hasOwnProperty.call(
-                            scoresByContext ?? {},
-                            id
-                        )
-                    )
-                    .map(id => [
-                        id,
-                        scoresByContext[id]
-                    ])
-            );
-
-        const summariesFor = ids =>
-            Object.fromEntries(
-                ids.map(id => [
-                    id,
-                    String(
-                        summariesByContext?.[id] ?? ""
-                    )
-                ])
-            );
-
-        await this.replaceProjectProgress(
-            date,
-            projects,
-            valuesFor(projects),
-            summariesFor(projects),
-            focusUpdate
-        );
-
-        for (const resourceId of resources) {
-            const key = `resource:${resourceId}`;
-            await this.replaceResourceProgress(
-                date,
-                resourceId,
-                scoresByContext?.[key],
-                String(
-                    summariesByContext?.[key] ?? ""
-                )
-            );
-        }
+    async replaceCombinedProgress(date, projectIds, resourceIds, scores, summaries, focusUpdate = null) {
+        const { saveProgress, stored } = __hubRequire("lib/services/progress-report.js");
+        const ids = [...projectIds, ...resourceIds.map(id => "resource:" + id)];
+        return saveProgress(this, { date, entries: ids.map(id => ({
+            id, expected: stored(this.data, date, id), rating: scores?.[id] ?? null, summary: summaries?.[id] ?? ""
+        })), ...(focusUpdate ? { focus: focusUpdate.items } : {}) });
     }
-
 
     async setDailyFocus(
         date,
@@ -37870,6 +38674,7 @@ module.exports = class HubProjectMenu extends Plugin {
             * Hub UI persistence that lives
             * outside plugin data.
             */
+            planRecovery: this.globalPlan ? { version:2, base: this.globalPlan.rawBase, desired: this.globalPlan.readState(), sequence: this.globalPlan.sequence, pending:this.globalPlan.pendingTransition, pendingFile:this.globalPlan.pendingFile, deferredInput:this.globalPlan.deferredInput } : null,
             localStorage:
                 this.getHubLocalStorage()
         };
@@ -38017,9 +38822,14 @@ module.exports = class HubProjectMenu extends Plugin {
         );
 
 
-        await this.dataStore.save(
-            backup.pluginData
-        );
+        if (this.globalPlan) { this.globalPlan.restoring = true; clearTimeout(this.globalPlan.timer); clearTimeout(this.globalPlan.dayTimer); }
+        try {
+            await this.dataStore.save(backup.pluginData, null, true);
+            this.globalPlan?.recovery.clear();
+        } catch (error) {
+            if (this.globalPlan) { this.globalPlan.restoring = false; this.globalPlan.checkpoint(); }
+            throw error;
+        }
 
 
         /*
@@ -38065,6 +38875,10 @@ module.exports = class HubProjectMenu extends Plugin {
             }
         }
 
+
+        if (this.globalPlan) {
+            if (backup.planRecovery) this.globalPlan.recovery.put(backup.planRecovery.version ? backup.planRecovery : {version:1,...backup.planRecovery});
+        }
 
         /*
         * Reload so every bridge, dashboard
@@ -38635,9 +39449,10 @@ module.exports = class HubProjectMenu extends Plugin {
 
         if (repair && dataAudit.changed) {
             await this.dataStore.save(
-                dataAudit.repairedData
+                dataAudit.repairedData, null, true
             );
             await this.projectWizard.load();
+        this.reportEligibility = new (__hubRequire("lib/services/progress-report.js").ReportEligibility)(this);
 
         this.workspaceState = new HubWorkspaceState(this);
         await this.workspaceState.initialize();
@@ -38752,6 +39567,7 @@ module.exports = class HubProjectMenu extends Plugin {
 
 
     async onload() {
+        this.reportSessionBaseline = null;
         this.taskStartupClock = performance.now();
         this.register(disposeColorSystem);
         const { AppearanceService, appearanceFile } = __hubRequire("lib/services/appearance.js");
@@ -38799,6 +39615,7 @@ module.exports = class HubProjectMenu extends Plugin {
         });
 
         await this.projectWizard.load();
+        this.reportEligibility = new (__hubRequire("lib/services/progress-report.js").ReportEligibility)(this);
 
         this.workspaceState = new HubWorkspaceState(this);
         await this.workspaceState.initialize();
@@ -39292,7 +40109,7 @@ module.exports = class HubProjectMenu extends Plugin {
                         : this.projectWizard.getProjectWorkRatings(normalizedProjectId),
 
                 levels:
-                    PROJECT_ADVANCEMENT_OPTIONS
+                    progressRatingOptions(resource ?? {})
                         .map(
                             option => ({
                                 score:
@@ -39473,7 +40290,7 @@ module.exports = class HubProjectMenu extends Plugin {
             try {
                 // Default-disabled main-process coordinator; reuse ownership on plugin reload.
                 strictOath = window.electron.remote.require(require("path").join(oathNativeModule,
-                    this.manifest.dir, "lib/services/oath-strict-host.js")).getStrictCoordinator(window.electronWindow);
+                    this.manifest.dir, "lib/services/oath-prototype-host.js")).getPrototypeStrictCoordinator(window.electronWindow);
             } catch (error) { console.error("Strict Oath host unavailable; ordinary Oaths remain available", error); }
         }
         this.oath = new HubOathService(this, createOathFullscreen(window, oathNativeModule ?
@@ -39508,6 +40325,27 @@ module.exports = class HubProjectMenu extends Plugin {
         this.nativeTaskHost = __hubRequire("lib/services/native-task-host.js").createNativeTaskHost(this);
         this.fileOperations = new (__hubRequire("lib/services/file-operations.js").FileOperations)(this);
         window.hubFileOperations = this.fileOperations;
+        this.globalPlan = new (__hubRequire("lib/services/global-plan.js").GlobalPlanService)(this);
+        this.globalPlan.references = new (__hubRequire("lib/services/plan-references.js").PlanReferences)(this, this.globalPlan);
+        this.globalPlan.start();
+        window.hubPlan = {
+            read: () => this.globalPlan.read(),
+            status: () => this.globalPlan.status,
+            subscribe: (component, fn) => this.globalPlan.subscribe(component, fn),
+            open: () => __hubRequire("lib/ui/plan.js").openPlan(this),
+            pick: async () => { await this.globalPlan.ensureLifecycle(); if(!this.globalPlan.active()) await this.globalPlan.createPlan(); return __hubRequire("lib/ui/plan-picker.js").openPlanPicker(this); },
+            add: entries => this.globalPlan.directAdd(entries),
+            task: task => this.globalPlan.references.taskEntry(task),
+            files: (paths, context) => this.globalPlan.directAdd(paths.map(path => this.app.vault.getAbstractFileByPath(path)).filter(f => f && !Array.isArray(f.children)).map(f => this.globalPlan.references.fileEntry(f, context))),
+            workspace: context => this.globalPlan.directAdd([this.globalPlan.references.workspaceEntry(context)]),
+            mountPresentation: (root, component) => __hubRequire("lib/ui/plan-home.js").mountPlanHome({root,component,plugin:this}),
+            mount: (root, component) => __hubRequire("lib/ui/plan-list.js").mountPlanList({root,component,plan:this.globalPlan})
+        };
+        this.addCommand({id:"open-global-plan",name:"Open Plan",callback:()=>window.hubPlan.open()});
+        void this.nativeTaskHost.ready.then(()=>this.globalPlan.references.audit()).catch(error=>console.error("Plan references unavailable",error));
+        this.registerEvent(this.app.workspace.on("quit", tasks => tasks.add(async () => { await this.fileOperations.close(); if (!await this.globalPlan.closeSafe()) { __hubRequire("lib/ui/plan.js").openPlan(this); throw Error("Plan draft needs recovery before closing."); } })));
+        this.register(() => { clearTimeout(this.globalPlan.timer); this.globalPlan.checkpoint(); delete window.hubPlan; });
+
         this.fileOperationNotice = message => ownNoticeColors(new Notice(message, 15000));
         this.addCommand({ id: "file-operation-recovery", name: "File operation recovery",
             callback: () => __hubRequire("lib/ui/file-operation-recovery.js").openFileOperationRecovery(this) });
@@ -39544,6 +40382,8 @@ module.exports = class HubProjectMenu extends Plugin {
             this.oathControl = mountOathControl(this, this.oath);
             this.captureControls = mountCaptureControls(this, this.inbox, this.oathControl.item);
             this.musicControl = mountMusicControl(this, this.oathControl.item);
+            __hubRequire("lib/ui/progress-editor.js").mountProgressControl(this, this.oathControl.item, FocusListEditor);
+            __hubRequire("lib/services/report-eligibility-hooks.js").installReportEligibilityHooks(this);
             this.dailyBriefControl = mountDailyBriefControl(this, this.dailyBrief, this.oathControl.item);
             this.settingsControl = mountSettingsControl(this, this.oathControl.item);
             this.appShortcutsControl = __hubRequire("lib/ui/app-shortcuts.js").mountAppShortcuts(this, this.oathControl.item);
@@ -40512,6 +41352,7 @@ module.exports = class HubProjectMenu extends Plugin {
             .recordActivity({
                 action,
                 ...details,
+                reportWorkspaceId: this.workspaceModes?.contextForFile(file.path)?.projectId ?? details.projectId,
                 ...extra
             });
 
@@ -40597,266 +41438,25 @@ module.exports = class HubProjectMenu extends Plugin {
         );
     }
 
-    openProjectAdvancementPrompt(
-        closeButton
-    ) {
-
-        if (
-            this.hubAdvancementPromptOpen
-        ) {
-            return;
+    async openProjectAdvancementPrompt(closeButton) {
+        const child = this.planPicker?.containerEl?.isConnected ? this.planPicker : this.planModal?.containerEl?.isConnected ? this.planModal : null;
+        if (child) { child.modalEl.focus(); return; }
+        const activeReport = __hubRequire("lib/ui/progress-editor.js").activeProgress(this);
+        if (activeReport) { (this.planPicker?.containerEl?.isConnected ? this.planPicker : this.planModal?.containerEl?.isConnected ? this.planModal : activeReport).modalEl.focus(); return; }
+        if (this.hubAdvancementPromptOpen) return;
+        if (document.querySelector(".modal-container")) {
+            document.querySelector(".modal-container input, .modal-container button")?.focus(); return;
         }
-
-
-        const projects =
-            this.getChangedProjects();
-
-        const resources =
-            this.getChangedResources();
-
-
-        const date =
-            localISODate();
-
-
-        if (
-            projects.length === 0 &&
-            resources.length === 0
-        ) {
-            this.finishWindowClose(
-                closeButton
-            );
-            return;
-        }
-
-
-        this.hubAdvancementPromptOpen =
-            true;
-
-
-        const currentScores = {};
-        const currentSummaries = {};
-
-
-        for (
-            const project
-            of projects
-        ) {
-
-            const score =
-                this.projectWizard
-                    .getProjectWorkRatings(
-                        project.projectId
-                    )[date];
-
-
-            if (
-                Number.isInteger(score) &&
-                score >= 1 &&
-                score <= 4
-            ) {
-
-                currentScores[
-                    project.projectId
-                ] =
-                    score;
-            }
-
-
-            currentSummaries[
-                project.projectId
-            ] =
-                this.projectWizard
-                    .getProjectWorkLogs(
-                        project.projectId
-                    )[date]?.summary ?? "";
-        }
-
-
-        for (const resource of resources) {
-            const key =
-                `resource:${resource.resourceType}`;
-
-            const score =
-                this.projectWizard
-                    .getResourceWorkRatings(
-                        resource.resourceType
-                    )[date];
-
-            if (
-                Number.isInteger(score) &&
-                score >= 1 &&
-                score <= 4
-            ) {
-                currentScores[key] =
-                    score;
-            }
-
-            currentSummaries[key] =
-                this.projectWizard
-                    .getResourceWorkLogs(
-                        resource.resourceType
-                    )[date]?.summary ?? "";
-        }
-
-
-        // Reuse the exit resolution marker and the existing activity query.
-        // Manual saves do not clear dirty contexts; a dirty flag alone cannot
-        // establish activity since a newer manual save or a legacy report.
-        const savedReports = [...this.projectWizard.getProgressReports(),
-            ...this.projectWizard.getProgressReports({ kind: "resource" })]
-            .filter(report => report.date === date);
-        const resolvedAt = this.projectWizard.normalizedDirtyContextRecord(date).resolvedAt;
-        const lastSavedAt = Math.max(resolvedAt, ...savedReports.map(report => report.timestamp || 0));
-        const activity = lastSavedAt > 0
-            ? this.projectWizard.activityDirtyContexts(date, lastSavedAt) : null;
-        const updatingReport = (resolvedAt > 0 && lastSavedAt === resolvedAt) ||
-            projects.some(project => activity?.projects.includes(project.projectId)) ||
-            resources.some(resource => activity?.resources.includes(resource.resourceType));
-        const reportMode = updatingReport ? "update"
-            : savedReports.length || resolvedAt > 0 ? "edit" : "complete";
-
-        new ProjectAdvancementModal(
-            this.app,
-            {
-                plugin: this,
-                requireExplicitRatings: true,
-                reportDate: date,
-                reportMode,
-                getReportContexts: () => Object.fromEntries([...projects, ...resources].map(workspace => {
-                    const id = workspace.projectId ?? `resource:${workspace.resourceType}`;
-                    const previous = id.startsWith("resource:")
-                        ? this.projectWizard.resourceWorkLogs[id.slice(9)]?.[date]
-                        : this.projectWizard.projectWorkLogs[id]?.[date];
-                    return [id, savedReportContext(this.projectWizard, date, id, previous?.context)];
-                })),
-                projects,
-
-                resources,
-
-                currentScores,
-
-                currentSummaries,
-
-                allowNoProgress:
-                    true,
-
-                showNextFocus:
-                    true,
-
-                currentFocus:
-                    this.projectWizard
-                        .getPendingFocus(
-                            date
-                        )?.items ?? [],
-
-                focusProjects:
-                    this.projectWizard
-                        .getFocusContexts(),
-
-                title:
-                    reportMode === "update" ? "Update progress report"
-                        : reportMode === "edit" ? "Edit progress report" : "Complete progress report",
-
-                onSave:
-                    async ({
-                        scores,
-                        summaries,
-                        focus
-                    }) => {
-
-                        await this
-                            .projectWizard
-                            .replaceCombinedProgress(
-                                date,
-                                projects.map(
-                                    project =>
-                                        project.projectId
-                                ),
-                                resources.map(
-                                    resource =>
-                                        resource.resourceType
-                                ),
-                                scores,
-                                summaries,
-                                {
-                                    sourceDate:
-                                        date,
-                                    items:
-                                        focus
-                                }
-                            );
-
-
-                        await this
-                            .projectWizard
-                            .clearDirtyContexts(
-                                date,
-                                projects.map(
-                                    project =>
-                                        project.projectId
-                                ),
-                                resources.map(
-                                    resource =>
-                                        resource.resourceType
-                                )
-                            );
-                    },
-
-                onSaved:
-                    () => {
-
-                        this.hubAdvancementPromptOpen =
-                            false;
-
-
-                        /*
-                        * Ratings are already saved.
-                        * If closing somehow fails,
-                        * don't ask for them again.
-                        */
-                        this.changedProjectIds
-                            .clear();
-
-                        this.changedResourceIds
-                            .clear();
-
-
-                        this.notifyProgressChanged(
-                            date,
-                            projects.map(
-                                project =>
-                                    project.projectId
-                            ).concat(
-                                resources.map(
-                                    resource =>
-                                        `resource:${resource.resourceType}`
-                                )
-                            )
-                        );
-
-
-                        this.finishWindowClose(
-                            closeButton
-                        );
-                    },
-
-                onCancel:
-                    () => {
-
-                        /*
-                        * Closing the modal itself
-                        * means "don't quit yet".
-                        *
-                        * The project set remains,
-                        * so the form appears again
-                        * on the next quit attempt.
-                        */
-                        this.hubAdvancementPromptOpen =
-                            false;
-                    }
-            }
-        ).open();
+        this.hubAdvancementPromptOpen = true;
+        try {
+            await this.reportEligibility.flush().catch(error => console.error("Could not flush reporting eligibility", error));
+            const date = localISODate();
+            if (!this.reportEligibility.pending(date, { currentSession: true }).length) { this.finishWindowClose(closeButton); return; }
+            __hubRequire("lib/ui/progress-editor.js").openProgress(this, { date, closeButton, FocusEditor: FocusListEditor });
+        } catch (error) {
+            ownNoticeColors(new Notice("Could not check reporting state. Keep working or try closing again."));
+            console.error(error);
+        } finally { if (!this.progressEditor) this.hubAdvancementPromptOpen = false; }
     }
 
     openTaskCreator(options = {}) {
@@ -41248,6 +41848,11 @@ module.exports = class HubProjectMenu extends Plugin {
     showProjectMenu(event, file, status, dashboard, card) {
 
         const menu = ownMenuColors(new Menu());
+
+        menu.addItem(item => item.setTitle("Add to plan").setIcon("list-plus").onClick(() => {
+            const context = this.projectWizard.getContextForPath(file.path);
+            if (context) void window.hubPlan.workspace(context);
+        }));
 
         // Open
 
@@ -41772,6 +42377,8 @@ module.exports = class HubProjectMenu extends Plugin {
             ownMenuColors(new Menu());
 
 
+        if (window.hubPlan && actions?.paths) menu.addItem(item => item.setTitle("Add selected files to plan").setIcon("list-plus").onClick(() => void window.hubPlan.files(actions.paths, actions.planContext)));
+
         const count =
             Number(
                 actions?.count
@@ -42057,6 +42664,7 @@ module.exports = class HubProjectMenu extends Plugin {
     openDailyFocusEditor(
         date
     ) {
+        return __hubRequire("lib/ui/plan.js").openPlan(this);
 
         if (!parseLocalISODate(date)) {
 
@@ -42110,361 +42718,10 @@ module.exports = class HubProjectMenu extends Plugin {
     }
 
 
-    openProgressEditor(
-        date,
-        projectId = null
-    ) {
-
-        const parsedDate =
-            parseLocalISODate(date);
-
-
-        if (
-            !parsedDate ||
-            date > localISODate()
-        ) {
-
-            ownNoticeColors(new Notice(
-                "Choose today or an earlier date."
-            ));
-
-            return;
-        }
-
-        const isGeneralReport =
-            projectId === null;
-
-
-        const requestedKind =
-            projectId &&
-            typeof projectId === "object"
-                ? projectId.kind
-                : typeof projectId === "string" &&
-                    projectId.startsWith("resource:")
-                    ? "resource"
-                    : projectId
-                        ? "project"
-                        : "all";
-
-
-        const resourceTarget =
-            requestedKind === "resource" &&
-            (
-                typeof projectId === "string" ||
-                projectId?.id
-            )
-                ? this.projectWizard.getResourceById(
-                    typeof projectId === "string"
-                        ? projectId
-                        : projectId.id
-                )
-                : null;
-
-
-        const projectTargetId =
-            requestedKind === "project"
-                ? (
-                    typeof projectId === "object"
-                        ? projectId.id ?? null
-                        : projectId
-                )
-                : null;
-
-
-        let projects =
-            requestedKind === "resource"
-                ? []
-                : this.projectWizard
-                    .getProjectRecords();
-
-
-        if (projectTargetId) {
-
-            projects =
-                projects.filter(
-                    project =>
-                        project.projectId ===
-                            projectTargetId
-                );
-
-        } else if (requestedKind !== "resource") {
-
-            /*
-             * Keep a daily check-in focused:
-             * show active projects plus any
-             * project already answered that day.
-             */
-            projects =
-                projects.filter(
-                    project => {
-
-                        const score =
-                            this.projectWizard
-                                .getProjectWorkRatings(
-                                    project.projectId
-                                )[date];
-
-                        const summary =
-                            this.projectWizard
-                                .getProjectWorkLogs(
-                                    project.projectId
-                                )[date]?.summary;
-
-
-                        return (
-                            project.status ===
-                                "active" ||
-                            (
-                                Number.isInteger(
-                                    score
-                                ) &&
-                                score >= 1 &&
-                                score <= 4
-                            ) ||
-                            Boolean(summary)
-                        );
-                    }
-                );
-        }
-
-
-        const resources =
-            requestedKind === "project"
-                ? []
-                : resourceTarget
-                    ? [resourceTarget]
-                    : this.projectWizard
-                        .getResourceTypes();
-
-
-        const statusOrder = {
-            active: 0,
-            future: 1,
-            shelved: 2
-        };
-
-
-        projects.sort(
-            (a, b) =>
-                (
-                    statusOrder[a.status] ?? 3
-                ) -
-                (
-                    statusOrder[b.status] ?? 3
-                ) ||
-                a.name.localeCompare(
-                    b.name,
-                    undefined,
-                    {
-                        sensitivity:
-                            "base"
-                    }
-                )
-        );
-
-
-        if (
-            projects.length === 0 &&
-            resources.length === 0
-        ) {
-
-            ownNoticeColors(new Notice(
-                requestedKind === "resource"
-                    ? "No Resource is available for this progress entry."
-                    : "No project is available for this progress entry."
-            ));
-
-            return;
-        }
-
-
-        const currentScores = {};
-        const currentSummaries = {};
-
-
-        for (
-            const project
-            of projects
-        ) {
-
-            const score =
-                this.projectWizard
-                    .getProjectWorkRatings(
-                        project.projectId
-                    )[date];
-
-
-            if (
-                Number.isInteger(score) &&
-                score >= 1 &&
-                score <= 4
-            ) {
-
-                currentScores[
-                    project.projectId
-                ] =
-                    score;
-            }
-
-
-            currentSummaries[
-                project.projectId
-            ] =
-                this.projectWizard
-                    .getProjectWorkLogs(
-                        project.projectId
-                    )[date]?.summary ?? "";
-        }
-
-
-        for (const resource of resources) {
-            const key =
-                `resource:${resource.resourceType}`;
-
-            const score =
-                this.projectWizard
-                    .getResourceWorkRatings(
-                        resource.resourceType
-                    )[date];
-
-            if (
-                Number.isInteger(score) &&
-                score >= 1 &&
-                score <= 4
-            ) {
-                currentScores[key] =
-                    score;
-            }
-
-            currentSummaries[key] =
-                this.projectWizard
-                    .getResourceWorkLogs(
-                        resource.resourceType
-                    )[date]?.summary ?? "";
-        }
-
-
-        const showNextFocus =
-            isGeneralReport &&
-            date === localISODate();
-
-
-        const projectIds =
-            projects.map(
-                project =>
-                    project.projectId
-            );
-
-
-        const resourceIds =
-            resources.map(
-                resource =>
-                    resource.resourceType
-            );
-
-
-        const dateLabel =
-            formatWeekday(parsedDate) + ", " + formatDate(parsedDate, "full");
-
-
-        new ProjectAdvancementModal(
-            this.app,
-            {
-                plugin: this,
-                reportDate: date,
-                getReportContexts: () => Object.fromEntries([...projects, ...resources].map(workspace => {
-                    const id = workspace.projectId ?? `resource:${workspace.resourceType}`;
-                    const previous = id.startsWith("resource:")
-                        ? this.projectWizard.resourceWorkLogs[id.slice(9)]?.[date]
-                        : this.projectWizard.projectWorkLogs[id]?.[date];
-                    return [id, savedReportContext(this.projectWizard, date, id, previous?.context)];
-                })),
-                projects,
-
-                resources,
-
-                currentScores,
-
-                currentSummaries,
-
-                showNextFocus,
-
-                currentFocus:
-                    showNextFocus
-                        ? (
-                            this.projectWizard
-                                .getPendingFocus(
-                                    date
-                                )?.items ?? []
-                        )
-                        : [],
-
-                focusProjects:
-                    this.projectWizard
-                        .getFocusContexts(),
-
-                title:
-                    reportTitle(date, true),
-
-                requireEveryProject:
-                    false,
-
-                allowNoProgress:
-                    true,
-
-                saveLabel:
-                    "Save changes",
-
-                showCancel:
-                    true,
-
-                onSave:
-                    async ({
-                        scores,
-                        summaries,
-                        focus
-                    }) => {
-
-                        await this.projectWizard
-                            .replaceCombinedProgress(
-                                date,
-                                projectIds,
-                                resourceIds,
-                                scores,
-                                summaries,
-                                showNextFocus
-                                    ? {
-                                        sourceDate:
-                                            date,
-                                        items:
-                                            focus
-                                    }
-                                    : null
-                            );
-                    },
-
-                onSaved:
-                    () => {
-
-                        this.notifyProgressChanged(
-                            date,
-                            projectIds.concat(
-                                resourceIds.map(
-                                    resourceId =>
-                                        `resource:${resourceId}`
-                                )
-                            )
-                        );
-
-
-                        ownNoticeColors(new Notice(
-                            `Updated progress for ${dateLabel}.`
-                        ));
-                    }
-            }
-        ).open();
+    openProgressEditor(date, scope = null) {
+        if (!parseLocalISODate(date) || date > localISODate()) return;
+        return __hubRequire("lib/ui/progress-editor.js").openProgress(this, { date, scope, FocusEditor: FocusListEditor });
     }
-
 
     enableProgressCalendarEditing(
         calendar,
@@ -42887,6 +43144,8 @@ module.exports = class HubProjectMenu extends Plugin {
         const menu =
             ownMenuColors(new Menu());
 
+
+        if (window.hubPlan) menu.addItem(item => item.setTitle("Add to plan").setIcon("list-plus").onClick(() => void window.hubPlan.files([path], actions.planContext)));
 
         // ---------- OPEN ----------
 

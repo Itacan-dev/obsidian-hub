@@ -40,6 +40,19 @@ function projectItemPath(parentPath, kind, rawName) {
     );
 }
 
+function availableDefaultItemPath(parentPath, kind, getByPath) {
+    const base = kind === "folder" ? "New folder" : "New note";
+    let number = 1;
+    let path;
+    do {
+        const name = number === 1 ? base : `${base} (${number})`;
+        path = projectItemPath(parentPath, kind, name);
+        number++;
+    } while (getByPath(path) || (getByPath(parentPath)?.children ?? []).some(item =>
+        item.name.toLocaleLowerCase() === path.slice(parentPath.length + 1).toLocaleLowerCase()));
+    return path;
+}
+
 function selectedRootPaths(paths) {
     const sorted = [...new Set(paths)].sort(
         (a, b) => a.length - b.length
@@ -93,6 +106,7 @@ function createFileDomain({ getByPath }) {
 }
 
 module.exports = {
+    availableDefaultItemPath,
     createFileDomain,
     directFiles,
     directFolders,

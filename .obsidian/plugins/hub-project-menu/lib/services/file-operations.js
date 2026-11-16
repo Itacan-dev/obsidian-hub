@@ -65,10 +65,12 @@ class FileOperations {
  ancestors(w,path,excluded){const rows=[];let p=parent(path);while(p&&inside(p,w.root)){if(!inside(p,excluded))rows.push({path:p,endpoint:this.endpoint(w,p,"folder")});if(p===w.root)break;p=parent(p);}rows.push({path:null,endpoint:{ownerId:this.db.ownerId(w.owner),context:null}});return rows;}
  completion(intent,extra={}){const fallbacks={},destinations={};intent.mappings.forEach((m,i)=>{const candidate=m.ancestors?.find(a=>a.path===null||folder(this.exact(a.path)));fallbacks[i]=candidate?.endpoint??m.fallback;if(intent.kind==="trash")destinations[i]=fallbacks[i];});return{phase:"filesystem-complete",fallbacks,destinations,...extra};}
  async progress(operationId,progress){return this.db.request({action:"progress",operationId,progress});}
+ observePlan(stage,operationId,intent,result){try{const observed=this.plugin.globalPlan?.references?.observe(stage,operationId,intent,result);if(observed?.catch)observed.catch(error=>console.error("Plan file observer failed",error));}catch(error){console.error("Plan file observer failed",error);}}
+ async cancelPlanOperation(operationId){const result=await this.db.request({action:"cancel",operationId});this.observePlan("cancelled",operationId);return result;}
  async execute(kind,from,to=null,options={}){return this.enqueue(async()=>{
   await this.recoverInside();await this.db.refresh?.();const operationId=options.operationId??randomUUID(),requestHash=digest(JSON.stringify([kind,from,to??null,!!options.workspaceRename,!!options.workspaceDelete]));
-  const old=await this.db.receipt(operationId);if(old){if(!old.fileOperation||old.requestHash!==requestHash)fail("Operation identity was reused.","OPERATION_ID_CONFLICT");if(old.cancelled)fail("This operation was cancelled. Start a new operation.","FILE_OPERATION_CANCELLED");if(old.partial)fail("The previous operation completed only partly. Review retained files.","FILE_OPERATION_PARTIAL");return old;}
-  const intent=await this.plan(kind,from,to,options,requestHash);await this.db.request({action:"prepare",operationId,intent});await this.boundary?.("prepared",operationId);
+  const old=await this.db.receipt(operationId);if(old){if(!old.fileOperation||old.requestHash!==requestHash)fail("Operation identity was reused.","OPERATION_ID_CONFLICT");if(old.cancelled)fail("This operation was cancelled. Start a new operation.","FILE_OPERATION_CANCELLED");if(old.partial)fail("The previous operation completed only partly. Review retained files.","FILE_OPERATION_PARTIAL");this.observePlan("committed",operationId,null,old);return old;}
+  const intent=await this.plan(kind,from,to,options,requestHash);await this.db.request({action:"prepare",operationId,intent});this.observePlan("prepared",operationId,intent);await this.boundary?.("prepared",operationId);
   let apiSettled=false;
   try{
    if(!this.exact(from)&&options.captureRecoveryHash&&await this.matches(to,intent.manifest)){
@@ -103,6 +105,7 @@ class FileOperations {
   }
  });}
  async afterCommit(result){
+  this.observePlan("committed",result.operationId,null,result);
   try{await this.db.refresh?.();}catch(error){this.plugin.fileOperationNotice?.("Files and native tasks were committed locally, but their views could not refresh: "+error.message);}
   return result;
  }
@@ -118,9 +121,9 @@ class FileOperations {
   }
  }
  async recoverInside(){
-  const pending=await this.db.request({action:"list"});if(!pending.length)return[];const p=pending[0],{intent,operationId,progress}=p;
+  const pending=await this.db.request({action:"list"});if(!pending.length)return[];const p=pending[0],{intent,operationId,progress}=p;this.observePlan("prepared",operationId,intent);
   if(progress.phase==="filesystem-complete"){await this.progress(operationId,this.completion(intent));const result=await this.db.request({action:"commit",operationId});await this.afterCommit(result);return[result];}
-  if(progress.phase==="prepared"){return[await this.db.request({action:"cancel",operationId})];}
+  if(progress.phase==="prepared"){return[await this.cancelPlanOperation(operationId)];}
   if(progress.phase==="review")fail(progress.message??"An interrupted file operation needs review.","FILE_OPERATION_UNRESOLVED");
   const source=this.exact(intent.from),destination=intent.to?this.exact(intent.to):null;
   if(intent.kind==="copy"){
@@ -136,10 +139,10 @@ class FileOperations {
 
     await this.progress(operationId,this.completion(intent,{...(source?{indices:missing}:{}),partial:!!source}));const result=await this.db.request({action:"commit",operationId});await this.afterCommit(result);if(source)fail("Deletion completed partly. Retained files were preserved; removed locations were reassigned.","FILE_OPERATION_PARTIAL");return[result];
    }
-   if(progress.apiSettled&&await this.matches(intent.from,intent.manifest)){await this.progress(operationId,{phase:"started",cancelSafe:true});return[await this.db.request({action:"cancel",operationId})];}
+   if(progress.apiSettled&&await this.matches(intent.from,intent.manifest)){await this.progress(operationId,{phase:"started",cancelSafe:true});return[await this.cancelPlanOperation(operationId)];}
   }else{
    if(!source&&destination&&await this.matches(intent.to,intent.manifest)){await this.progress(operationId,this.completion(intent));return this.recoverInside();}
-   if(progress.apiSettled&&source&&!destination&&await this.matches(intent.from,intent.manifest)){await this.progress(operationId,{phase:"started",cancelSafe:true});return[await this.db.request({action:"cancel",operationId})];}
+   if(progress.apiSettled&&source&&!destination&&await this.matches(intent.from,intent.manifest)){await this.progress(operationId,{phase:"started",cancelSafe:true});return[await this.cancelPlanOperation(operationId)];}
   }
   const message="Filesystem evidence is ambiguous for "+intent.kind+" "+intent.from+". Files are preserved; affected tasks remain protected. Review the pending operation before continuing.";
   await this.progress(operationId,{phase:"review",message});fail(message,"FILE_OPERATION_UNRESOLVED");
@@ -151,12 +154,12 @@ class FileOperations {
   const p=(await this.list())[0];if(!p)return[];
   if(decision==="keep-copy"){
    if(p.intent.kind!=="copy"||p.progress.phase!=="review")fail("Only a reviewed partial copy can be kept this way.");
-   await this.progress(p.operationId,{phase:"review",cancelSafe:true});return[await this.db.request({action:"cancel",operationId:p.operationId})];
+   await this.progress(p.operationId,{phase:"review",cancelSafe:true});return[await this.cancelPlanOperation(p.operationId)];
   }
   if(decision==="keep-source"){
    if(p.progress.phase!=="review")fail("Inspect this operation in recovery before choosing a retained source.");
    if(!["rename","move"].includes(p.intent.kind)||!await this.matches(p.intent.from,p.intent.manifest))fail("The original source evidence does not match. All files remain preserved.");
-   await this.progress(p.operationId,{phase:"review",cancelSafe:true});return[await this.db.request({action:"cancel",operationId:p.operationId})];
+   await this.progress(p.operationId,{phase:"review",cancelSafe:true});return[await this.cancelPlanOperation(p.operationId)];
   }
   if(decision==="use-destination"){
    if(p.progress.phase!=="review")fail("Inspect this operation in recovery before confirming a destination.");

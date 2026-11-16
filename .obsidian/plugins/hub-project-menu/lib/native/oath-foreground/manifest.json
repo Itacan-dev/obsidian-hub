@@ -1,0 +1,6 @@
+{
+  "provider": "get-windows",
+  "version": "9.3.0",
+  "sha256": "528cf76b3d7b85bcaf9c0fac928b3150bb338de41c9185ce1f06e2a4d998ebbf",
+  "prototypeOnly": true
+}

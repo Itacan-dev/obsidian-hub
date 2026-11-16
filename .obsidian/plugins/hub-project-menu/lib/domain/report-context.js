@@ -10,7 +10,7 @@ function onDay(record, date) {
 
 // Select by recorded identity, never by today's file location or workspace name.
 function workspaceId(record) {
-    return record.projectId || (record.resourceType ? `resource:${record.resourceType}` : null);
+    return record.reportWorkspaceId || record.projectId || (record.resourceType ? `resource:${record.resourceType}` : null);
 }
 
 function captureReportContext(service, date, id) {
@@ -29,8 +29,13 @@ function captureReportContext(service, date, id) {
         })).sort((a, b) => a.timestamp - b.timestamp),
         activity: select(service.activityLog).map(item => ({
             action: item.action, title: item.title, oldTitle: item.oldTitle ?? null,
-            timestamp: item.timestamp
+            ...(item.path ? { path: item.path } : {}), timestamp: item.timestamp
         })).sort((a, b) => b.timestamp - a.timestamp),
+        oaths: [...new Map(Object.values(service.data?.oathsByDevice ?? {}).flatMap(bucket => [...(bucket.history ?? []), bucket.current].filter(Boolean)).filter(oath => {
+            const ref = oath.workspace;
+            const owner = ref?.kind === "resource" || ref?.type === "resource" ? "resource:" + (ref.id ?? ref.resourceType) : ref?.projectId ?? ref?.id;
+            return owner === id && oath.fulfilledAt && localISODate(new Date(oath.fulfilledAt)) === date;
+        }).map(oath => [oath.id, { id: oath.id, fulfilledAt: oath.fulfilledAt }])).values()],
         focus: normalizeFocusItems(service.dailyFocus?.[date])
             .filter(item => item.projectId === id).map(item => item.text)
     };
@@ -59,10 +64,29 @@ const activityLabels = {
     "project-created": "projects created", "project-renamed": "projects renamed",
     "project-deleted": "projects deleted"
 };
+function recordedWorkSummary(context) {
+    const tasks = new Set(), steps = new Set();
+    for (const task of context.tasks ?? []) {
+        const key = task.nativeHistory ? JSON.stringify([task.nativeHistory.authorityId, task.nativeHistory.taskId, task.nativeHistory.stepId ?? null]) : task.id ?? JSON.stringify([task.kind, task.text, task.timestamp]);
+        (task.kind === "step" ? steps : tasks).add(key);
+    }
+    const parts = [];
+    const add = (n, singular, plural = singular + "s", suffix = "") => { if (n) parts.push(`${n} ${n === 1 ? singular : plural}${suffix}`); };
+    if (context.tasksAvailability !== "unavailable") { add(tasks.size, "task", "tasks", " completed"); add(steps.size, "step", "steps", " completed"); }
+    else parts.push("Task evidence unavailable");
+    for (const action of ["edited", "created", "renamed", "deleted"]) {
+        const items = (context.activity ?? []).filter(e => e.action === action);
+        if (!items.length) continue;
+        if (items.every(e => e.path)) add(new Set(items.map(e => e.path)).size, "file", "files", " " + action);
+        else add(items.length, action === "edited" ? "edit event" : action + " event");
+    }
+    add(new Set((context.oaths ?? []).map(o => o.id)).size, "Oath", "Oaths", " fulfilled");
+    return parts.join(" \u00b7 ") || "No recorded activity";
+}
 function activitySummary(entries) {
     const counts = new Map();
     for (const entry of entries) counts.set(entry.action, (counts.get(entry.action) ?? 0) + 1);
     return [...counts].map(([action, count]) => `${count} ${activityLabels[action] ?? action}`).join(" · ");
 }
 
-module.exports = { captureReportContext, savedReportContext, reportDay, activitySummary };
+module.exports = { captureReportContext, savedReportContext, reportDay, activitySummary, recordedWorkSummary };

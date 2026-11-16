@@ -9,8 +9,13 @@ test('one shared vault host admits one filesystem actor across windows and share
  const a=module.exports.attach(1,file),b=module.exports.attach(2,file);
  const call=(binding,id,method,...args)=>handlers.get(binding.channel)({sender:windows.get(id).webContents},{method,args});
  t.after(async()=>{await call(a,1,'close');await call(b,2,'close');});
+ const audit=await call(a,1,'fileOperation',{action:'receiptsSince',cursor:null});
+ assert.equal(audit.error,undefined,'Read-only Plan receipt audits do not require filesystem admission');
+ assert.equal(audit.result.valid,true);
  assert((await call(a,1,'fileOperation',{action:'acquire'})).result);
  assert.equal((await call(b,2,'fileOperation',{action:'acquire'})).error.code,'FILE_OPERATION_BUSY');
+ assert.equal((await call(b,2,'fileOperation',{action:'receiptsSince',cursor:null})).error,undefined,'Receipt reads remain available while another window owns the filesystem actor');
+ assert.equal((await call(b,2,'fileOperation',{action:'prepare',operationId:randomUUID(),intent:{}})).error.code,'FILE_OPERATION_BUSY','Read access does not grant write admission');
  const clipboard={id:randomUUID(),cut:true,paths:['Synthetic/One.md']};await call(a,1,'fileOperation',{action:'clipboardSet',value:clipboard});assert.deepEqual((await call(b,2,'fileOperation',{action:'clipboardGet'})).result,clipboard);
  const operationId=randomUUID(),intent={kind:'copy',requestHash:'a'.repeat(64),mappings:[],from:'Synthetic/A',to:'Synthetic/B'};
  await call(a,1,'fileOperation',{action:'prepare',operationId,intent});

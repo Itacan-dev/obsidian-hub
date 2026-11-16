@@ -4,18 +4,21 @@
 // allocation remain CSS-owned; no banner/status-bar heights are duplicated here.
 function mountFullViewLayout({ root, component, app }) {
     const doc = root.ownerDocument, win = doc.defaultView;
+    const sizingProperties = [
+        "--hub-full-view-height",
+        "--hub-full-view-top-row-track",
+        "--hub-full-view-bottom-row-track"
+    ];
     let frame = null, disposed = false;
-    const layoutTop = element => {
-        let top = 0;
-        for (let node = element; node; node = node.offsetParent) top += node.offsetTop;
-        return top;
-    };
     function update() {
         frame = null;
         if (disposed || !root.isConnected) return;
         const full = !root.closest(".hub-project-rail");
         root.classList.toggle("hub-full-view", full);
-        if (!full) { root.style.removeProperty("--hub-full-view-height"); return; }
+        if (!full) {
+            for (const property of sizingProperties) root.style.removeProperty(property);
+            return;
+        }
         const content = [...root.children].find(el => el.matches(".project-main-grid, .hub-task-workspace, .hub-roadmap-host") && !el.hidden);
         if (!content) return;
         const viewport = root.closest(".markdown-preview-view") ?? root.closest(".view-content");
@@ -24,17 +27,40 @@ function mountFullViewLayout({ root, component, app }) {
         if (status?.getClientRects().length) bottom = Math.min(bottom, status.getBoundingClientRect().top);
         const style = win.getComputedStyle(root);
         const gutter = parseFloat(style.getPropertyValue("--hub-full-view-gutter")) || 0;
-        const origin = root.getBoundingClientRect().top + (viewport?.scrollTop ?? win.scrollY);
-        const headerHeight = layoutTop(content) - layoutTop(root);
+        // Rectangles include CSS zoom; CSS height tokens do not. Keep the
+        // fractional header height so rounding cannot shift shared row edges.
+        const bounds = root.getBoundingClientRect();
+        const scale = root.currentCSSZoom || bounds.width / parseFloat(style.width) || 1;
+        const scrollScale = viewport?.currentCSSZoom || 1;
+        const origin = bounds.top + (viewport?.scrollTop ?? win.scrollY) * scrollScale;
+        const headerHeight = (content.getBoundingClientRect().top - bounds.top) / scale;
         const minimum = headerHeight + (parseFloat(win.getComputedStyle(content).minHeight) || 0);
-        // Home's rows have natural fixed sizes, not a viewport-fill rule. Cap
-        // the shared Workspace surface at that same extent while preserving
-        // the existing viewport/minimum fallback on shorter windows.
-        const homeContentHeight = parseFloat(style.getPropertyValue("--hub-full-view-top-row-height"))
+        // Home's fixed rows define the shared desktop target. Workspace Work
+        // divides its measured content height in the same target proportions.
+        // CSS track minimums provide outer scrolling on short/narrow windows.
+        // Schedule and Roadmap retain their own content minimums and layouts.
+        const topRowHeight = parseFloat(style.getPropertyValue("--hub-full-view-top-row-height"));
+        const bottomRowHeight = parseFloat(style.getPropertyValue("--hub-full-view-bottom-row-height"));
+        const dashboardHeight = topRowHeight
             + parseFloat(style.getPropertyValue("--hub-panel-gap"))
-            + parseFloat(style.getPropertyValue("--hub-full-view-bottom-row-height"));
-        const homeBoundary = Number.isFinite(homeContentHeight) ? headerHeight + homeContentHeight : Infinity;
-        const height = Math.ceil(Math.max(minimum, Math.min(homeBoundary, bottom - origin - gutter)));
+            + bottomRowHeight;
+        if (Number.isFinite(dashboardHeight)) {
+            // Convert the CSS pixel targets to proportional grid tracks without
+            // duplicating their values in CSS weights or viewport calculations.
+            const rowTracks = [
+                ["--hub-full-view-top-row-track", topRowHeight],
+                ["--hub-full-view-bottom-row-track", bottomRowHeight]
+            ];
+            for (const [property, rowHeight] of rowTracks) {
+                const track = rowHeight + "fr";
+                if (root.style.getPropertyValue(property) !== track) root.style.setProperty(property, track);
+            }
+        }
+        const target = Number.isFinite(dashboardHeight) ? headerHeight + dashboardHeight : Infinity;
+        const available = (bottom - origin) / scale - gutter;
+        // Chromium lays out in 1/64px units. Match that precision to avoid
+        // ResizeObserver churn from tiny floating-point differences under zoom.
+        const height = Math.round(Math.max(minimum, Math.min(target, available)) * 64) / 64;
         const value = height + "px";
         if (root.style.getPropertyValue("--hub-full-view-height") !== value) root.style.setProperty("--hub-full-view-height", value);
     }
@@ -56,7 +82,8 @@ function mountFullViewLayout({ root, component, app }) {
     component.register(() => {
         disposed = true; if (frame != null) win.cancelAnimationFrame(frame);
         resize.disconnect(); mutation.disconnect(); win.removeEventListener("resize", schedule);
-        root.classList.remove("hub-full-view"); root.style.removeProperty("--hub-full-view-height");
+        root.classList.remove("hub-full-view");
+        for (const property of sizingProperties) root.style.removeProperty(property);
     });
     update();
     return { update };

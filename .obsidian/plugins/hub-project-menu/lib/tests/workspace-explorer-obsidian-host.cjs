@@ -97,6 +97,13 @@ electron.app.whenReady().then(async () => {
         await evaluate(`require(${JSON.stringify(path.join(__dirname, "workspace-explorer-obsidian-fixture.cjs"))})()`);
         assert(await evaluate("__explorerProbe.root.querySelector('.hub-explorer-create-note').disabled"), "Root New note disabled in actual Obsidian");
         await click("__explorerProbe.row(__explorerProbe.child)");
+        assert(await evaluate("(()=>{const e=document.createElement('span');window.hubSetIcon(e,'notebook-plus');return e.querySelector('svg').outerHTML===__explorerProbe.root.querySelector('.hub-explorer-create-note svg').outerHTML})()"),'Toolbar uses the shared Quick Add notebook-plus renderer');
+        assert(await evaluate("__explorerProbe.detail(__explorerProbe.child+'/Nested').querySelector('svg').classList.contains('lucide-folder-closed')"),'Actual right-list folder-closed icon renders');
+        assert(await evaluate("__explorerProbe.row(__explorerProbe.child).querySelector(':scope > .hub-explorer-icon svg').classList.contains('lucide-folder-closed')"),'Navigation preserves the collapsed folder icon');
+        await click("__explorerProbe.row(__explorerProbe.child).querySelector('.hub-explorer-disclosure')");
+        assert(await evaluate("__explorerProbe.row(__explorerProbe.child).querySelector(':scope > .hub-explorer-icon svg').classList.contains('lucide-folder-open')"),'Actual expanded folder-open icon renders');
+        assert(await evaluate("!!__explorerProbe.root.querySelector('.hub-explorer-sort svg.lucide-arrow-up-down')"),'Actual arrow-up-down icon renders');
+
         assert(await evaluate("__explorerProbe.row(__explorerProbe.child).classList.contains('is-current-folder')"), "Native pointer navigates folder");
         await click("__explorerProbe.detail(__explorerProbe.child+'/One.md')");
         assert.equal(await evaluate("__explorerProbe.opens.length"), 0, "Single pointer click selects only");
@@ -119,10 +126,30 @@ electron.app.whenReady().then(async () => {
         await click("__explorerProbe.root.querySelector('.hub-explorer-sort')");
         await key("Escape", "Escape", 27);
         assert.equal(await evaluate("__explorerProbe.root.querySelector('.hub-explorer-sort').getAttribute('aria-expanded')"), "false", "Native Escape closes sort menu");
+        await click("__explorerProbe.root.querySelector('.hub-explorer-sort')");
+        const compactWidth=await evaluate("document.querySelector('.hub-explorer-sort-menu').getBoundingClientRect().width");
+        assert(compactWidth<210,'Sort menu stays compact');
+        assert(await evaluate("(()=>{const b=__explorerProbe.root.querySelector('.hub-explorer-sort').getBoundingClientRect(),m=document.querySelector('.hub-explorer-sort-menu').getBoundingClientRect();return Math.abs((b.left+b.width/2)-(m.left+m.width/2))<1&&m.top>=b.bottom})()"),'Native sort menu centers beneath its button');
+        assert(await evaluate("__explorerProbe.root.querySelector('.hub-explorer-breadcrumb').firstElementChild.matches('.hub-explorer-crumb')"),'Native breadcrumb starts with workspace label');
+        assert.equal(await evaluate("document.querySelector('.hub-explorer-sort-menu').querySelectorAll('.menu-item').length"),6,'Sort has six options without footer');
+        await click("__explorerProbe.root.querySelector('.hub-explorer-sort')");
+        assert(!await evaluate("!!document.querySelector('.hub-explorer-sort-menu')"),'Second actual pointer click closes sort menu');
+        for(const option of ['Name: Ascending','Name: Descending','Modified: Oldest','Modified: Newest','Created: Oldest','Created: Newest']){
+            await click("__explorerProbe.root.querySelector('.hub-explorer-sort')");
+            assert.equal(await evaluate("document.querySelector('.hub-explorer-sort-menu').getBoundingClientRect().width"),compactWidth,'Sort width stays fixed across selections');
+            await click(nativeItem(option));
+            assert(!await evaluate("!!document.querySelector('.hub-explorer-sort-menu')"),'Option closes sort menu');
+        }
+        await click("__explorerProbe.root.querySelector('.hub-explorer-sort')");
+        await click("__explorerProbe.root.querySelector('.hub-explorer-heading')");
+        assert(!await evaluate("!!document.querySelector('.hub-explorer-sort-menu')"),'Outside click dismisses sort menu');
+        assert(await evaluate("(()=>{const c=__explorerProbe.root.querySelector('.hub-explorer-crumb'),s=__explorerProbe.root.querySelector('.hub-explorer-crumb-separator');return getComputedStyle(c).color===getComputedStyle(s).color&&s.getBoundingClientRect().width===16})()"),'Breadcrumb chevrons match labels and use larger icons');
+        assert(await evaluate("(()=>{const r=__explorerProbe.root.querySelector('.hub-explorer-breadcrumb'),s=r.querySelector('.hub-explorer-crumb-separator').getBoundingClientRect(),t=r.querySelector('.hub-explorer-crumb-label').getBoundingClientRect();return CSS.supports('text-box-trim','trim-both')&&Math.abs(s.top+s.height/2-t.top-t.height/2)<1&&r.getBoundingClientRect().height===26})()"),'Breadcrumb cap-height and chevron centers align without changing row height');
         const openedBeforeCreate = await evaluate("__explorerProbe.opens.length");
         await click("__explorerProbe.root.querySelector('.hub-explorer-create-note')");
         assert(await evaluate("!!__explorerProbe.root.querySelector('.project-create-input')"), JSON.stringify(await evaluate("({active:document.activeElement?.outerHTML.slice(0,400),menus:document.querySelectorAll('.menu').length,modal:document.querySelector('.modal')?.textContent.slice(0,100),disabled:__explorerProbe.root.querySelector('.hub-explorer-create-note').disabled,status:__explorerProbe.root.querySelector('.hub-explorer-status').textContent})")));
-        assert.equal(await evaluate("__explorerProbe.root.querySelector('.project-create-input').value"), "Untitled");
+        assert.equal(await evaluate("__explorerProbe.root.querySelector('.project-create-input').value"), "New note");
+        assert(await evaluate("!!app.vault.getAbstractFileByPath(__explorerProbe.child+'/New note.md')"),'Actual file exists before rename confirmation');
         await evaluate("__explorerProbe.root.querySelector('.project-create-input').value='Native created'");
         await key("Enter", "Enter", 13);
         assert(await evaluate("!!app.vault.getAbstractFileByPath(__explorerProbe.child+'/Native created.md')"), "Native Enter creates in disposable vault");
@@ -140,15 +167,25 @@ electron.app.whenReady().then(async () => {
         assert(!await evaluate("!!__explorerProbe.root.querySelector('.project-create-input')"), "Native Escape cancels inline editor");
         await click("__explorerProbe.detail(__explorerProbe.child+'/Native created.md')");
         await key("a", "KeyA", 65, 2);
-        assert.equal(await evaluate("__explorerProbe.root.querySelectorAll('.hub-explorer-contents .is-selected').length"), 4, "Native Ctrl+A is explorer-scoped");
+        assert.equal(await evaluate("__explorerProbe.root.querySelectorAll('.hub-explorer-contents .is-selected').length"), 6, "Native Ctrl+A is explorer-scoped");
         await key("Escape", "Escape", 27);
         await click("__explorerProbe.detail(__explorerProbe.child+'/Native created.md')");
         await key("Delete", "Delete", 46);
         assert(!await evaluate("!!app.vault.getAbstractFileByPath(__explorerProbe.child+'/Native created.md')"), "Existing Delete callback trashes synthetic note");
         assert(!await evaluate("!!__explorerProbe.detail(__explorerProbe.child+'/Native created.md')"), "Deleted item leaves the right pane");
+        await click("__explorerProbe.root.querySelector('.hub-explorer-create-note')");
+        assert.equal(await evaluate("__explorerProbe.root.querySelector('.project-create-input').value"),'New note (2)','Actual repeated creation uses numbered default');
+        await evaluate("__explorerProbe.root.querySelector('.project-create-input').value=''");await key('Enter','Enter',13);
+        assert(await evaluate("!!app.vault.getAbstractFileByPath(__explorerProbe.child+'/New note (2).md')"),'Empty name retains generated note');
+        await click("__explorerProbe.root.querySelector('.hub-explorer-create-note')");
+        await evaluate("__explorerProbe.root.querySelector('.project-create-input').value='Outside confirmed'");
+        await click("__explorerProbe.root.querySelector('.hub-explorer-heading')");
+        await evaluate("__explorerProbe.plugin.fileOperations.tail");await settle();
+        assert(await evaluate("!!app.vault.getAbstractFileByPath(__explorerProbe.child+'/Outside confirmed.md')"),'Actual outside click commits rename');
+
         await evaluate("__explorerProbe.root.querySelector('.hub-explorer-contents').focus()");
         await key("N", "KeyN", 78, 10);
-        assert.equal(await evaluate("__explorerProbe.root.querySelector('.project-create-input').value"), "New folder", "Native Ctrl+Shift+N starts inline folder creation");
+        assert.equal(await evaluate("__explorerProbe.root.querySelector('.project-create-input').value"), "New folder (2)", "Native Ctrl+Shift+N starts inline folder creation");
         await evaluate("__explorerProbe.root.querySelector('.project-create-input').value='Native folder'");
         await key("Enter", "Enter", 13);
         assert(await evaluate("!!app.vault.getAbstractFileByPath(__explorerProbe.child+'/Native folder')"), "Native folder created in current directory");
@@ -176,18 +213,35 @@ electron.app.whenReady().then(async () => {
         assert.equal(await evaluate("(async()=> (await __explorerProbe.task()).location.type)()"),"folder","Actual trash reassigns native task to parent folder");
         assert(await evaluate("(async()=> (await __explorerProbe.task()).id===__explorerProbe.linkedId)()"),"Actual task identity survives rename, move and deletion");
         await click("__explorerProbe.row(__explorerProbe.child)");
+        const originalTreeWidth=await evaluate("__explorerProbe.root.querySelector('.hub-explorer-tree').getBoundingClientRect().width");
         const edge = await evaluate("(()=>{const e=__explorerProbe.root.querySelector('.hub-explorer-splitter'),r=e.getBoundingClientRect();return{x:r.left+r.width/2,y:r.top+r.height/2}})()");
         const width = await evaluate("__explorerProbe.root.querySelector('.hub-explorer-tree').getBoundingClientRect().width");
         await call("Input.dispatchMouseEvent", { type: "mousePressed", ...edge, button: "left", clickCount: 1 });
         await call("Input.dispatchMouseEvent", { type: "mouseMoved", x: edge.x + 70, y: edge.y, button: "left", buttons: 1 });
         await call("Input.dispatchMouseEvent", { type: "mouseReleased", x: edge.x + 70, y: edge.y, button: "left", clickCount: 1 }); await settle();
         assert(await evaluate("__explorerProbe.root.querySelector('.hub-explorer-tree').getBoundingClientRect().width") > width + 50, "Native pointer separator resize");
+        await click("__explorerProbe.root.querySelector('.hub-explorer-sort')");
+        assert(await evaluate("(()=>{const b=__explorerProbe.root.querySelector('.hub-explorer-sort').getBoundingClientRect(),m=document.querySelector('.hub-explorer-sort-menu').getBoundingClientRect();return Math.abs(b.left+b.width/2-m.left-m.width/2)<1})()"),'Sort centers after dragging pane divider');
+        await key('Escape','Escape',27);
+        await click("__explorerProbe.root.querySelector('.hub-explorer-splitter')",{count:2});
+        assert.equal(await evaluate("__explorerProbe.saved[__explorerProbe.projectRoot].fullExplorer.treeWidth"),null,'Actual double click resets saved width');
+        assert(Math.abs(await evaluate("__explorerProbe.root.querySelector('.hub-explorer-tree').getBoundingClientRect().width")-originalTreeWidth)<1,'Actual double click uses original default');
         for (const theme of ["dark", "light"]) {
             await evaluate(`document.body.classList.remove('theme-dark','theme-light');document.body.classList.add('theme-${theme}')`);
             for (const palette of ["default", "custom"]) {
                 if (palette === "custom") await evaluate("__explorerProbe.host.style.setProperty('--interactive-accent','#027a66');__explorerProbe.host.style.setProperty('--background-modifier-border','#9a7552')");
                 for (const zoom of [1, 1.25]) {
-                    wc.setZoomFactor(zoom); await settle();
+                    wc.setZoomFactor(zoom); await delay(350);
+                    assert(await evaluate("(()=>{const r=__explorerProbe.root.querySelector('.hub-explorer-breadcrumb'),s=r.querySelector('.hub-explorer-crumb-separator').getBoundingClientRect(),t=r.querySelector('.hub-explorer-crumb-label').getBoundingClientRect();return Math.abs(s.top+s.height/2-t.top-t.height/2)<1&&s.width===16&&r.getBoundingClientRect().height===26})()"),'Breadcrumb alignment across themes, palettes and zoom');
+                    await evaluate("(()=>{const button=__explorerProbe.root.querySelector('.hub-explorer-sort');const entries=__explorerProbe.menus.find(m=>m.entries.some(e=>e?.title==='Name: Ascending')).entries;window.hubExplorerHost.showMenu({type:'click',currentTarget:button,preventDefault(){},stopPropagation(){}},entries,{compactSort:true});})()"); await settle();
+                    assert(await evaluate("!!document.querySelector('.hub-explorer-sort-menu')"),'Menu opened '+theme+palette+zoom+' '+JSON.stringify(await evaluate("({expanded:__explorerProbe.root.querySelector('.hub-explorer-sort').getAttribute('aria-expanded'),active:document.activeElement?.outerHTML.slice(0,200),menus:document.querySelectorAll('.menu').length})")));
+                    assert(await evaluate("(()=>{const b=__explorerProbe.root.querySelector('.hub-explorer-sort').getBoundingClientRect(),m=document.querySelector('.hub-explorer-sort-menu').getBoundingClientRect();return Math.abs(b.left+b.width/2-m.left-m.width/2)<1})()"),'Sort centering '+theme+palette+zoom+' '+JSON.stringify(await evaluate("(()=>{const b=__explorerProbe.root.querySelector('.hub-explorer-sort'),m=document.querySelector('.hub-explorer-sort-menu');return{b:b.getBoundingClientRect().toJSON(),m:m.getBoundingClientRect().toJSON(),style:m.getAttribute('style'),width:m.offsetWidth,zoom:getComputedStyle(m).zoom,csswidth:getComputedStyle(m).width}})()")));
+                    await evaluate("__explorerProbe.menus.at(-1).menu.hide(); void 0");
+
+                    await click("__explorerProbe.detail(__explorerProbe.child+'/One.md')");await key('F2','F2',113);
+                    assert(await evaluate("(()=>{const e=__explorerProbe.root.querySelector('.project-create-input'),s=getComputedStyle(e),r=e.getBoundingClientRect(),n=e.parentElement.getBoundingClientRect();return s.boxShadow==='none'&&s.backgroundImage==='none'&&r.right<=n.right&&r.width<n.width&&e.closest('.hub-explorer-detail-row').getBoundingClientRect().height<=37})()"),'Compact flat native filename editor across themes and zooms');
+                    await key('Escape','Escape',27);
+
                     assert(await evaluate("__explorerProbe.root.scrollWidth<=__explorerProbe.root.clientWidth+1"), "No overflow " + theme + palette + zoom);
                     assert(await evaluate("(()=>{const a=__explorerProbe.root.querySelector('.hub-explorer-toolbar').getBoundingClientRect(),b=__explorerProbe.root.querySelector('.hub-explorer-location').getBoundingClientRect();return Math.abs(a.top-b.top)<1&&Math.abs(a.bottom-b.bottom)<1})()"), "Aligned native header");
                 }

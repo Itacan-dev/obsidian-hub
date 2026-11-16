@@ -18,7 +18,7 @@ function openNotePositionPicker(service, { workspace, selectedLocation, onSelect
             const search = searchBox.createEl("input", { type: "search", cls: "hub-explorer-search-input",
                 attr: { placeholder: "Search notes and folders...", "aria-label": "Search notes and folders" } });
             const body = this.contentEl.createDiv({ cls: "hub-note-position-body" });
-            const tree = body.createDiv({ cls: "hub-capture-location-tree", attr: { role: "tree", "aria-label": "Notes and folders" } });
+            const tree = body.createDiv({ cls: "hub-capture-location-tree hub-scrollbar", attr: { role: "tree", "aria-label": "Notes and folders" } });
             this.positions = body.createDiv({ cls: "hub-note-positions" });
             this.error = body.createDiv({ cls: "hub-task-error", attr: { role: "alert" } });
             const actions = this.contentEl.createDiv({ cls: "hub-capture-actions hub-capture-picker-actions" });

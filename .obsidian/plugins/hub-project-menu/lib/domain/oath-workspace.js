@@ -11,4 +11,5 @@ function validWorkspace(ref) {
 }
 function sameWorkspace(a, b) { return validWorkspace(a) && validWorkspace(b) && a.type === b.type && a.id === b.id; }
 function taskKey(task) { const ref = task.nativeReference ?? task; return JSON.stringify([ref.authorityId, ref.taskId ?? ref.id]); }
-module.exports = { workspaceRef, validWorkspace, sameWorkspace, taskKey };
+function oathTaskOrder(current) { return new Map((current?.tasks ?? []).map((task,index)=>[taskKey(task),index])); }
+module.exports = { oathTaskOrder, workspaceRef, validWorkspace, sameWorkspace, taskKey };

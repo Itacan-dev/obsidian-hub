@@ -163,6 +163,8 @@ class DailyBriefService {
                 if (!context) return null;
                 if (generation !== this.availabilityGeneration) continue;
                 if (!context.lastWorkDate) return null;
+                context.planRecommendation = await this.plugin.globalPlan?.references.recommendation();
+                const planSignature=JSON.stringify(this.plugin.globalPlan?.readState());
                 let recommendation = await this.provider.getRecommendation(context);
                 if (recommendation?.continuation) {
                     const workspace = context.workspaces.find(item => item.workspaceId === recommendation.target.workspaceId);
@@ -177,7 +179,7 @@ class DailyBriefService {
                 }
                 if (generation !== this.availabilityGeneration) continue;
                 const current = () => !this.disposed && this.ready() && !this.oathBlocked() &&
-                    activation === this.trigger.activation && generation === this.availabilityGeneration && dailyBriefDay(this.now()) === context.briefDate;
+                    activation === this.trigger.activation && generation === this.availabilityGeneration && planSignature===JSON.stringify(this.plugin.globalPlan?.readState()) && (!this.plugin.globalPlan?.active() || this.now().getTime()<Date.parse(this.plugin.globalPlan.active().endsAt)) && dailyBriefDay(this.now()) === context.briefDate;
                 if (!current()) return null;
                 const snapshot = dailyBriefSnapshot(context, recommendation);
                 if (await this.persistSnapshot(snapshot, current) === false) return null;
@@ -218,7 +220,7 @@ class DailyBriefService {
                 return task && !task.completed && !task.nativeReadOnly && (!target.stepId || task.steps.some(s => s.id === target.stepId && !s.completed)) && !this.plugin.oath.active ? { ...target, task, runtime: r } : null;
             } catch (_) { return null; }
         }
-        let path = this.resolvePath(target.path);
+        let path = target.kind === "file" && target.path && this.app.vault.getAbstractFileByPath(target.path) && !Array.isArray(this.app.vault.getAbstractFileByPath(target.path).children) ? target.path : this.resolvePath(target.path);
         if (!path || !this.plugin.oath.canOpen(path, false)) return null;
         const owner = this.plugin.projectWizard.getContextForPath(path);
         if (!this.eligible(owner)) return null;
@@ -260,6 +262,7 @@ class DailyBriefService {
         return this.navigate(null);
     }
     async navigate(requested) {
+        if (requested?.kind === "plan") { this.modal?.close(); require("../ui/plan").openPlan(this.plugin,requested.planId); return true; }
         if (requested?.kind === "configuration") return this.navigateConfiguration(requested);
         let target = await this.validateTarget(requested);
         if (!target) {

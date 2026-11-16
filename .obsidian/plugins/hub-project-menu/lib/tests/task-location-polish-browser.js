@@ -5,12 +5,12 @@ window.testDone=(async()=>{
  HTMLElement.prototype.createEl=function(tag,options={}){const e=document.createElement(tag);if(options.cls)e.className=options.cls;if(options.text!=null)e.textContent=options.text;for(const [k,v]of Object.entries(options.attr??{}))e.setAttribute(k,v);this.append(e);return e;};
  HTMLElement.prototype.createDiv=function(o={}){return this.createEl('div',o)};HTMLElement.prototype.createSpan=function(o={}){return this.createEl('span',o)};HTMLElement.prototype.empty=function(){this.replaceChildren()};
  class Modal{constructor(app){this.app=app;this.containerEl=document.body.createDiv({cls:'modal-container'});this.modalEl=this.containerEl.createDiv({cls:'modal'});this.contentEl=this.modalEl.createDiv({cls:'modal-content'});this.closeButton=this.modalEl.createEl('button',{cls:'modal-close-button',text:'?',attr:{'aria-label':'Close'}});this.closeButton.onclick=()=>this.close();}open(){this.onOpen();this.modalEl.querySelector('button:not(:disabled),[tabindex="0"]')?.focus()}close(){this.onClose();this.containerEl.remove()}}
- const icon=(e,name)=>{e.dataset.icon=name;e.innerHTML='<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="4" y="5" width="16" height="14" rx="2"/></svg>'};
+ const icon=(e,name)=>{e.dataset.icon=name;e.innerHTML='<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'+(name.endsWith('chevron-right')?'<path d="m9 5 7 7-7 7"/>':'<rect x="4" y="5" width="16" height="14" rx="2"/>')+'</svg>'};
  const obsidian={Modal,setIcon:icon,getIcon:()=>true,addIcon(){}};
  const modules=new Map();async function preload(id){if(modules.has(id))return;const source=await(await fetch('../'+id)).text();modules.set(id,{source});for(const m of source.matchAll(/require\(["'](\.[^"']+)["']\)/g)){const target=new URL(m[1],new URL(id,location.origin+'/')).pathname.slice(1);await preload(target.endsWith('.js')?target:target+'.js')}}
  function load(id){const record=modules.get(id);if(record.exports)return record.exports;const module={exports:{}};record.exports=module.exports;new Function('require','module','exports',record.source)(request=>{if(request==='obsidian')return obsidian;const target=new URL(request,new URL(id,location.origin+'/')).pathname.slice(1);return load(target.endsWith('.js')?target:target+'.js')},module,module.exports);return record.exports=module.exports;}
  await preload('ui/task-location-picker.js');await preload('ui/workspace-thumbnail.js');
- const {openTaskLocationPicker}=load('ui/task-location-picker.js'),{mountWorkspaceThumbnail}=load('ui/workspace-thumbnail.js');
+ const {openTaskLocationPicker,openLocationPicker}=load('ui/task-location-picker.js'),{mountWorkspaceThumbnail}=load('ui/workspace-thumbnail.js');
  const owners=[{type:'project',id:'p'},{type:'resource',id:'references'}],records=owners.map((owner,i)=>({owner,name:i?'Explorations':'Itacan',root:i?'Resources/E':'Projects/P',contextKind:owner.type,available:true,image:'cover.png',cover:'cover.png'}));
  const long='A very long workspace or folder title '.repeat(12);for(let i=0;i<75;i++)records.push({owner:{type:'project',id:'p'+i},name:i===0?long:'Project '+i,root:'Projects/P'+i,available:true});
  const key=o=>JSON.stringify(o),record=o=>records.find(w=>key(w.owner)===key(o)),tree=new Map(),refs=new Map();
@@ -37,7 +37,7 @@ window.testDone=(async()=>{
  check(chevron().endsWith('chevron-right'),'Collapsed chevron points right');
  check([...m.list.querySelectorAll('button')].every(e=>getComputedStyle(e).borderTopWidth==='0px'&&getComputedStyle(e).boxShadow==='none'&&e.getBoundingClientRect().height===32),'Navigator rows are borderless compact 32px rows');
  check(getComputedStyle(m.list).borderTopWidth==='1px','Outer navigator border retained');check(m.contentEl.querySelector('.hub-task-location-body').scrollHeight<=m.contentEl.querySelector('.hub-task-location-body').clientHeight+1,'Navigator shrinks within body without a second scrollbar');
- const row=p=>[...m.list.querySelectorAll('button')].find(e=>e.dataset.locationPath===p),click=p=>{const r=row(p);check(r,'Row exists '+p);r.click()},crumb=()=>m.breadcrumbs.textContent;
+ const row=p=>[...m.list.querySelectorAll('button')].find(e=>e.dataset.locationPath===p),click=p=>{const r=row(p);check(r,'Row exists '+p);r.click()},crumb=()=>[...m.breadcrumbs.querySelectorAll('button,.hub-task-location-note')].map(e=>e.textContent).join('/');
  const checkBreadcrumb=text=>{const segments=[...m.breadcrumbs.querySelectorAll('button,.hub-task-location-note')],selected=m.breadcrumbs.querySelectorAll('[aria-current]'),style=getComputedStyle(segments[0]);check(selected.length===1&&selected[0].textContent===text,'Exactly the selected breadcrumb endpoint is marked');check(getComputedStyle(selected[0]).backgroundColor!=='rgba(0, 0, 0, 0)','Endpoint has purple background');check(segments.every(e=>{const s=getComputedStyle(e);return s.fontSize===style.fontSize&&s.fontWeight===style.fontWeight&&s.lineHeight===style.lineHeight&&s.color===style.color&&s.borderTopWidth==='0px'}),'Breadcrumb segments have uniform typography and no persistent borders');check(segments.every(e=>Math.abs(e.getBoundingClientRect().top-segments[0].getBoundingClientRect().top)<1),'Breadcrumb segments have aligned baselines');};
  checkBreadcrumb('Itacan');
  check(getComputedStyle(m.breadcrumbs).borderTopWidth==='1px'&&m.breadcrumbs.getBoundingClientRect().height>=34&&m.breadcrumbs.getBoundingClientRect().height<=36,'Compact breadcrumb has a thin outer border and 34-36px height');
@@ -69,9 +69,9 @@ window.testDone=(async()=>{
  const groups=[...menu.body.querySelectorAll('[role=group]')];check(groups.map(e=>e.getAttribute('aria-label')).join('|')==='Resources|Projects','Resources appear first');
  check(groups.every(g=>getComputedStyle(g.querySelector('h3')).borderBottomWidth==='1px')&&getComputedStyle(groups[0]).borderTopWidth==='0px'&&getComputedStyle(groups[1]).borderTopWidth==='1px','Separator structure: under Resources, above Projects, under Projects');
  check(menu.element.scrollWidth<=menu.element.clientWidth+1,'Many and long workspaces do not overflow');
- const resource=[...menu.body.querySelectorAll('button')].find(b=>b.textContent==='Explorations');resource.click();check(m.proposed.reference===null&&m.path==='Resources/E'&&m.owner.type==='resource','Workspace switch clears note and selects root');check(crumb()==='Explorations'&&m.list.querySelectorAll('button').length===2,'New root shows immediate children');check(document.activeElement===m.workspaceButton,'Workspace selection restores focus');check(chevron().endsWith('chevron-right'),'Workspace selection collapses chevron');m.confirm.click();check(accepted.owner.type==='resource'&&accepted.reference===null,'Confirmation preserves exact owning root');check(events.size===0,'Modal unregisters listeners');
- m=open({id:note,type:'note'});check(m.proposed.path===note&&row(note).classList.contains('is-selected'),'Editing initializes saved note');m.confirm.click();check(accepted.path===note&&accepted.reference.type==='note','Confirmation returns note without embedding it');
- m=open();click('Projects/P/Meta');m.confirm.click();check(accepted.path==='Projects/P/Meta'&&accepted.reference.type==='folder','Confirmation returns folder');
+ const resource=[...menu.body.querySelectorAll('button')].find(b=>b.textContent==='Explorations');resource.click();check(m.proposed.reference===null&&m.path==='Resources/E'&&m.owner.type==='resource','Workspace switch clears note and selects root');check(crumb()==='Explorations'&&m.list.querySelectorAll('button').length===2,'New root shows immediate children');check(document.activeElement===m.workspaceButton,'Workspace selection restores focus');check(chevron().endsWith('chevron-right'),'Workspace selection collapses chevron');m.confirm.click();await frame();check(accepted.owner.type==='resource'&&accepted.reference===null,'Confirmation preserves exact owning root');check(events.size===0,'Modal unregisters listeners');
+ m=open({id:note,type:'note'});check(m.proposed.path===note&&row(note).classList.contains('is-selected'),'Editing initializes saved note');m.confirm.click();await frame();check(accepted.path===note&&accepted.reference.type==='note','Confirmation returns note without embedding it');
+ m=open();click('Projects/P/Meta');m.confirm.click();await frame();check(accepted.path==='Projects/P/Meta'&&accepted.reference.type==='folder','Confirmation returns folder');
  m=open();click('Projects/P/Meta');const buttons=[...m.list.querySelectorAll('button')];buttons[0].focus();buttons[0].dispatchEvent(new KeyboardEvent('keydown',{key:'End',bubbles:true,cancelable:true}));check(document.activeElement===buttons.at(-1),'End navigation');buttons.at(-1).dispatchEvent(new KeyboardEvent('keydown',{key:'Home',bubbles:true,cancelable:true}));check(document.activeElement===buttons[0],'Home navigation');buttons[0].dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true,cancelable:true}));check(document.activeElement===buttons[1],'Arrow navigation');
  // Deliberately deep paths retain navigable parent segments in a bounded strip.
 
@@ -147,6 +147,27 @@ window.testDone=(async()=>{
    if(taskTitle.length>100)check(name.querySelector('.hub-task-location-task-text').scrollWidth>name.querySelector('.hub-task-location-task-text').clientWidth&&getComputedStyle(name.querySelector('.hub-task-location-task-text')).textOverflow==='ellipsis','Long task name ellipsizes inside visible quotes');
    check(m.modalEl.scrollWidth<=m.modalEl.clientWidth+1,'Named header stays within responsive width');
   }m.close();
+ }
+ for(const mode of ['task','note','text','file']){
+  let chosen=null,locked=false;
+  const noteMode=mode==='task'||mode==='text',path=noteMode?'Projects/P/Meta/Note 2.md':'Projects/P/Meta';
+  const picker=openLocationPicker(app,{locations,owner:owners[0],mode,reference:{id:path,type:noteMode?'note':'folder'},noteTitle:'New note',contextTitle:mode==='file'?'a.pdf (+1 file)':'Draft title',confirmLabel:mode==='file'?'Add files':undefined,selectionLocked:()=>locked,onChoose:value=>{chosen=value}});
+  await frame();
+  const segments=[...picker.breadcrumbs.querySelectorAll('button,.hub-task-location-note')],separators=[...picker.breadcrumbs.querySelectorAll('.hub-task-location-separator')];
+  check(separators.length===segments.length-1&&getComputedStyle(picker.breadcrumbs).gap==='2px',mode+' picker uses balanced standard spacing');
+  for(const separator of separators){
+   const icon=separator.querySelector('svg'),box=icon.getBoundingClientRect(),label=separator.nextElementSibling.querySelector('.hub-task-location-segment-label').getBoundingClientRect();
+   check(separator.dataset.icon.endsWith('chevron-right')&&separator.getAttribute('aria-hidden')==='true'&&separator.textContent==='',mode+' decorative icon replaces the slash');
+   check(box.width===16&&box.height===16&&getComputedStyle(separator).marginLeft==='0px',mode+' standard chevron geometry');
+   check(Math.abs(box.top+box.height/2-label.top-label.height/2)<0.6,mode+' chevron is centered on cap-trimmed segment text');
+  }
+  check(picker.breadcrumbs.getAttribute('aria-description')===segments.map(e=>e.textContent).join(' / '),mode+' complete accessible route is retained');
+  check(picker.breadcrumbs.querySelector('[aria-current]')===segments.at(-1),mode+' final segment remains selected');
+  locked=true;picker.updateSelection();check([...picker.breadcrumbs.querySelectorAll('button')].every(e=>e.disabled),mode+' locked breadcrumb retains disabled navigation');
+  locked=false;picker.renderFolder();
+  if(mode==='file')check(picker.confirm.textContent==='Add files','Multiple-file destination uses the same breadcrumb');
+  picker.confirm.click();await frame();
+  check(chosen.path===path&&chosen.reference.id===path&&chosen.owner.id===owners[0].id,mode+' confirmation preserves raw path and owner');
  }
  // Exercise the actual Add/Edit location callback with a minimal form renderer.
  // The input deliberately differs from state.text to cover an uncommitted draft.

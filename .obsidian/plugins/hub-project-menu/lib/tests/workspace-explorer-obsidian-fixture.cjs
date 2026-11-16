@@ -44,7 +44,7 @@ module.exports = async function () {
     window.hubGetFolderPresetState = () => null;
     window.hubGetProjectResourceFolders = () => [];
     const originalMenu = window.hubExplorerHost.showMenu;
-    window.hubExplorerHost.showMenu = (event, entries) => { const menu = originalMenu(event, entries); menus.push({ menu, entries }); return menu; };
+    window.hubExplorerHost.showMenu = (event, entries, options) => { const menu = originalMenu(event, entries, options); menus.push({ menu, entries }); return menu; };
     const shell = require("electron").shell, originalReveal = shell.showItemInFolder;
     const appShell = window.electron?.shell, originalAppReveal = appShell?.showItemInFolder;
     shell.showItemInFolder = value => reveals.push(value);

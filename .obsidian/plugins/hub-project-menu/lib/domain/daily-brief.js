@@ -3,7 +3,7 @@ const { localISODate, parseLocalISODate, itacanDay } = require("./dates");
 const { reportDay, captureReportContext } = require("./report-context");
 const { taskIsFuture, taskIsOverdue } = require("./task-planning");
 
-/** @typedef {{kind: 'home'|'workspace'|'file'|'configuration'|'native-task', workspaceId?: string, path?: string, taskId?: string, stepId?: string, authorityId?:string, owner?:Object}} BriefTarget */
+/** @typedef {{kind: 'home'|'workspace'|'file'|'configuration'|'native-task'|'plan', workspaceId?: string, path?: string, taskId?: string, stepId?: string, authorityId?:string, owner?:Object}} BriefTarget */
 /**
  * @typedef {Object} DailyBriefContext
  * @property {string} briefDate Local 06:00 day key; report dates keep their existing midnight boundary.

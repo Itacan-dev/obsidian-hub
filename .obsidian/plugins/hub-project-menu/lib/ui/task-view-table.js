@@ -3,7 +3,7 @@ const { sortTasks } = require("../domain/task-views");
 const { button, date, source, stepsSummary, bindTask, empty } = require("./task-view-primitives");
 
 function renderTaskTable(host, tasks, context, state) {
-    const scroll = host.createDiv({ cls: "hub-task-local-scroll hub-task-table-panel" });
+    const scroll = host.createDiv({ cls: "hub-task-local-scroll hub-task-table-panel hub-scrollbar" });
     const table = scroll.createEl("table", { cls: "hub-full-task-table" });
     const columns = [["task", "Task"], ["location", "Location"],
         ["necessity", "Necessity"], ["start", "Start"], ["due", "Due"], ["steps", "Steps"]];

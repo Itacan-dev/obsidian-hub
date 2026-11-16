@@ -104,15 +104,44 @@ electron.app.whenReady().then(async () => {
             return state;
         };
         const results=[];
-        for(const theme of (process.env.HUB_LOCATION_SMOKE?['dark']:['dark','light'])){
+        const nativeThemes = process.env.HUB_LOCATION_SMOKE === 'visual'
+            ? [] : process.env.HUB_LOCATION_SMOKE ? ['dark'] : ['dark', 'light'];
+        for(const theme of nativeThemes){
          await evaluate(`document.body.classList.remove('theme-dark','theme-light');document.body.classList.add('theme-${theme}')`);
          for(const mode of (process.env.HUB_LOCATION_SMOKE?['Add']:['Add','Edit']))for(const kind of (process.env.HUB_LOCATION_SMOKE?['root']:['root','folder','note'])){
             await evaluate(`__locationProbe.open('${mode}','${kind}')`);await move();await settle();
+            assert(await evaluate(`(() => {
+                const icons = [...trigger().querySelectorAll('.hub-route-separator')];
+                return icons.length === ${kind === 'note' ? 1 : 0} && icons.every(icon => {
+                    const svg = icon.querySelector('svg'), rect = svg.getBoundingClientRect();
+                    return rect.width === 10 && rect.height === 10 && getComputedStyle(svg).opacity === '1'
+                        && getComputedStyle(svg).color === getComputedStyle(trigger()).color;
+                });
+            })()`), 'Native compact chevrons retain dimensions and metadata foreground');
+            if (mode === 'Add') {
+                assert(await evaluate(`(() => {
+                    const fields = __locationProbe.modal.taskFields, root = fields.input.closest('.hub-task-live-fields');
+                    const controls = () => [...root.querySelectorAll('.hub-task-config-action')];
+                    if (!controls().every(button => button.disabled)) return false;
+                    fields.input.value = 'Draft task'; fields.input.dispatchEvent(new Event('input', { bubbles: true }));
+                    const enabled = controls().some(button => !button.disabled);
+                    fields.input.value = ''; fields.input.dispatchEvent(new Event('input', { bubbles: true }));
+                    return enabled && controls().every(button => button.disabled) && root.classList.contains('is-title-empty');
+                })()`), 'Empty Add title retains existing configuration dimming and readiness');
+            }
             const before=await evaluate('__locationProbe.inspect()');
             const label=await evaluate('trigger().textContent');
             for(const dismissal of ['confirm','cancel','x','escape']){console.log('Testing',theme,mode,kind,dismissal);
                 await click('trigger()');
                 assert(await evaluate('Boolean(__locationProbe.modal.locationPicker)'),'Native input opens picker');
+                assert(await evaluate(`(() => {
+                    const picker = __locationProbe.modal.locationPicker;
+                    return [...picker.breadcrumbs.querySelectorAll('.hub-task-location-separator')].every(icon => {
+                        const box = icon.getBoundingClientRect();
+                        const label = icon.nextElementSibling.querySelector('.hub-task-location-segment-label').getBoundingClientRect();
+                        return box.width === 16 && box.height === 16 && Math.abs(box.top + box.height / 2 - label.top - label.height / 2) < 0.6;
+                    });
+                })()`), 'Native picker chevrons align with selected and ancestor text');
                 if(dismissal==='escape')await key('Escape','Escape',27);
                 else await click(dismissal==='confirm'?'__locationProbe.modal.locationPicker.confirm':dismissal==='x'?'__locationProbe.modal.locationPicker.modalEl.querySelector(".modal-header-button")':'__locationProbe.modal.locationPicker.contentEl.querySelector(".hub-task-dialog-actions button")');
                 const after=await rest();
@@ -143,8 +172,27 @@ electron.app.whenReady().then(async () => {
                 assert(await evaluate('document.activeElement===trigger()&&trigger().matches(":focus-visible")'),'Native keyboard restoration');
                 assert(await evaluate('getComputedStyle(trigger()).boxShadow==="none"&&getComputedStyle(trigger()).outlineStyle!=="none"&&parseFloat(getComputedStyle(trigger()).outlineWidth)>0'),'Keyboard outline preserved without raised shadow');
             }
-            console.log('PASS native',theme,mode,kind,'all dismissal paths, repeated open, changed location, hover, keyboard');
+            console.log('PASS native',theme,mode,kind,'chevrons, readiness, all dismissal paths, repeated open, changed location, hover, keyboard');
          }
+        }
+        const settleAnimations = () => evaluate(`Promise.all(document.getAnimations()
+            .filter(animation => animation.effect?.getTiming().iterations !== Infinity)
+            .map(animation => animation.finished.catch(() => {})))`);
+        const settleScreenshot = async () => {
+            await move();
+            await evaluate('new Promise(resolve => setTimeout(resolve, 300))');
+            await settleAnimations();
+        };
+        for (const theme of ['dark', 'light']) for (const mode of ['Add', 'Edit']) {
+            await evaluate(`document.body.classList.remove('theme-dark', 'theme-light');document.body.classList.add('theme-${theme}');__locationProbe.open('${mode}', 'note')`);
+            await settleScreenshot();
+            assert(await evaluate('trigger().querySelectorAll(".hub-route-separator").length === 1'), 'Native visual preview includes the compact route');
+            assert(await evaluate('__locationProbe.modal.containerEl.isConnected && trigger().getBoundingClientRect().width > 0'), 'Native preview is mounted and visible');
+            fs.writeFileSync(path.join(scratch, `route-${theme}-${mode}.png`), (await wc.capturePage()).toPNG());
+            await click('trigger()');
+            await settleScreenshot();
+            fs.writeFileSync(path.join(scratch, `picker-${theme}-${mode}.png`), (await wc.capturePage()).toPNG());
+            await key('Escape', 'Escape', 27);
         }
         await evaluate('__locationProbe.modal.close()');
         await wc.executeJavaScript("(async()=>{const p=app.plugins.plugins['hub-project-menu'];app.plugins.disablePlugin('hub-project-menu');await p.nativeTaskStopping})()");

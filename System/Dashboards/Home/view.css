@@ -1,4 +1,10 @@
 .home-dashboard {
+    /* Home's compact cards retain the shared picker styling and typography. */
+    --hub-project-card-height: 132px;
+    --hub-project-card-padding-block: 11px;
+    --hub-resource-card-height: 104px;
+    --hub-resource-thumbnail-size: 82px;
+    --hub-resource-card-basis: calc((100% - 48px) / 4);
     /* Bottom-up dashboard exit */
     --hub-row-duration: 170ms;
     --hub-row-stagger: 25ms;
@@ -167,7 +173,7 @@
 }
 
 .home-recent-breadcrumb-part {
-    color: var(--text-faint);
+    color: var(--text-muted);
 }
 
 .home-recent-breadcrumb-part.is-project {
@@ -289,8 +295,8 @@
 .home-project-rail {
     position: relative;
 
-    height: 131px;
-    min-height: 131px;
+    height: auto;
+    min-height: calc(var(--hub-project-card-height) + 12px);
 }
 
 .home-project-grid {
@@ -301,14 +307,14 @@
     overflow-x: auto;
     overflow-y: hidden;
 
-    height: 131px;
-    min-height: 131px;
+    height: auto;
+    min-height: calc(var(--hub-project-card-height) + 12px);
     box-sizing: border-box;
 
     scrollbar-width: none;
 
     /* Gives hover scaling a little breathing room */
-    padding: 3px 3px 8px;
+    padding: 4px 3px 8px;
 }
 
 
@@ -420,7 +426,7 @@
     display: flex;
     align-items: center;
     gap: 7px;
-    margin-bottom: 9px;
+    margin-bottom: 12px;
     font-weight: 700;
 }
 
@@ -430,8 +436,8 @@
     gap: 16px;
     overflow-x: auto;
     overflow-y: hidden;
-    padding: 12px 5px 9px 12px;
     scrollbar-width: thin;
+    padding: 12px 5px 9px 12px;
 }
 
 .home-project-card.is-dragging,
@@ -550,7 +556,10 @@
     padding: 8px 16px;
     font-weight: 600;
     text-align: center;
-    white-space: nowrap;
+    height: auto;
+    min-height: var(--input-height, 30px);
+    white-space: normal;
+    overflow-wrap: anywhere;
     cursor: pointer;
 }
 
@@ -675,18 +684,28 @@
 
 /* CALENDAR */
 
+.home-calendar {
+    --home-calendar-row-inset: 5px;
+    --home-calendar-time-width: 48px;
+    --home-calendar-column-gap: 9px;
+}
+
 .home-dashboard :is(
     .home-focus-edit,
     .home-task-clear-completed,
-    .home-calendar-today
+    .home-calendar-today,
+    .hub-task-add
 ) {
+    /* Native + Task icon, gap, label slot, and shared inline padding. */
+    width:calc(15px + 4px + 4ch + 20px);
+    height:var(--hub-panel-control-height);
+    min-height:var(--hub-panel-control-height);
     box-sizing: border-box;
     justify-content: center;
     text-align: center;
 }
 
 .home-calendar-today {
-    min-height: 26px;
     margin-left: auto;
     padding: 3px 9px;
 
@@ -712,6 +731,10 @@
     flex-direction: column;
 }
 
+.home-calendar-body > .home-empty {
+    padding-inline: var(--home-calendar-row-inset);
+}
+
 
 .home-calendar-week +
 .home-calendar-week {
@@ -730,14 +753,15 @@
     justify-content: space-between;
     gap: 10px;
 
-    padding: 4px 2px 7px;
+    padding: 4px var(--home-calendar-row-inset) 7px;
 }
 
 
 .home-calendar-week-number {
-    color: var(--text-normal);
+    color: var(--text-muted);
     font-size: var(--hub-font-secondary);
-    font-weight: 700;
+    font-weight: 600;
+    white-space: nowrap;
 }
 
 
@@ -748,93 +772,45 @@
 }
 
 
-.home-calendar-day {
-    border-top:
-        1px solid
-        var(--background-modifier-border);
-}
-
-
 .home-calendar-day-heading {
-    display: flex;
-    align-items: baseline;
-    gap: 7px;
-
-    padding: 6px 2px 4px;
-
+    padding: 6px var(--home-calendar-row-inset) 4px;
     color: var(--text-muted);
-}
-
-
-.home-calendar-day.is-today
-.home-calendar-day-heading {
-    color: var(--interactive-accent);
-}
-
-
-.home-calendar-weekday {
-    min-width: 27px;
-
-    font-size: var(--hub-font-secondary);
-    font-weight: 700;
-}
-
-
-.home-calendar-day-date {
     font-size: var(--hub-font-secondary);
     font-weight: 600;
+    line-height: 1.4;
 }
 
-
 .home-calendar-day-empty {
-    padding: 1px 0 6px 43px;
-
-    color: var(--text-faint);
+    padding: 1px var(--home-calendar-row-inset) 6px
+        calc(var(--home-calendar-row-inset) + var(--home-calendar-time-width) + var(--home-calendar-column-gap));
+    color: var(--text-muted);
     font-size: var(--hub-font-secondary);
     font-style: italic;
 }
 
-.home-calendar-row,
-.home-calendar-now {
+.home-calendar-row {
     position: relative;
     display: grid;
-    grid-template-columns: 48px 1fr;
-    gap: 9px;
-
-    padding: 6px 0 6px 11px;
+    grid-template-columns: var(--home-calendar-time-width) minmax(0, 1fr);
+    gap: var(--home-calendar-column-gap);
+    padding: 6px var(--home-calendar-row-inset);
 }
 
-.home-calendar-row {
-    border-bottom: 1px solid var(--background-modifier-border);
-}
-
-.home-calendar-row:last-child,
-.home-calendar-row:has(+ .home-calendar-now:last-child) {
-    border-bottom: none;
+.home-calendar-row + .home-calendar-row::before {
+    content: "";
+    position: absolute;
+    inset-inline: var(--home-calendar-row-inset);
+    top: 0;
+    border-top: 1px solid var(--background-modifier-border);
+    pointer-events: none;
 }
 
 .home-calendar-time {
-    font-size: var(--hub-font-meta);
-    font-weight: 650;
+    font-size: var(--hub-font-secondary);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
     color: var(--text-muted);
     white-space: nowrap;
-}
-
-/* The clock shares the event columns without adding event decoration. */
-.home-calendar-now {
-    align-items: center;
-    color: var(--interactive-accent);
-}
-
-.home-calendar-now .home-calendar-time {
-    color: inherit;
-}
-
-.home-calendar-now-line {
-    height: 1px;
-    min-width: 0;
-    background: currentColor;
-    opacity: 0.6;
 }
 
 .home-calendar-info {
@@ -842,27 +818,16 @@
 }
 
 .home-calendar-title {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    overflow: hidden;
+    overflow-wrap: anywhere;
+    white-space: normal;
+    color: var(--text-normal);
     font-size: var(--hub-font-body);
-    font-weight: 550;
-}
-
-a.home-calendar-title {
-    color: inherit;
-    text-decoration: none;
-}
-
-a.home-calendar-title:focus-visible {
-    outline: 2px solid var(--interactive-accent);
-    outline-offset: 2px;
-    border-radius: 3px;
-}
-
-.home-calendar-title.is-clickable {
-    cursor: pointer;
-}
-
-.home-calendar-title.is-clickable:hover {
-    color: var(--interactive-accent);
+    font-weight: 500;
+    line-height: var(--hub-activity-title-line-height, 1.3);
 }
 
 .home-calendar-location {
@@ -875,26 +840,15 @@ a.home-calendar-title:focus-visible {
     white-space: nowrap;
 }
 
-.home-calendar-dot {
-    position: absolute;
-    left: 0;
-    top: 12px;
-
-    width: 4px;
-    height: 18px;
-
-    border-radius: 3px;
-}
-
 .home-calendar-warning {
-    margin-top: 6px;
+    margin: 6px var(--home-calendar-row-inset) 0;
     font-size: var(--hub-font-secondary);
     color: var(--text-warning);
 }
 
 
 .home-calendar-loading {
-    padding: 10px 2px 4px;
+    padding: 10px var(--home-calendar-row-inset) 4px;
 
     color: var(--text-muted);
     font-size: var(--hub-font-secondary);
@@ -934,7 +888,7 @@ a.home-calendar-title:focus-visible {
 
 .home-cover {
     width: 100%;
-    height: 325px;
+    height: var(--hub-banner-height, 275px);
     overflow: hidden;
     border-radius: 10px;
 }
@@ -949,7 +903,6 @@ a.home-calendar-title:focus-visible {
     overflow-y: auto;
     overflow-x: hidden;
 
-    scrollbar-width: thin;
 }
 
 
@@ -995,10 +948,6 @@ a.home-calendar-title:focus-visible {
 
 .home-task-text,
 .home-upcoming-title {
-    font-size: var(--hub-font-compact);
-    line-height: 1.3;
-    font-weight: 400;
-
     white-space: normal;
     overflow: visible;
     text-overflow: clip;
@@ -1018,7 +967,7 @@ a.home-calendar-title:focus-visible {
 }
 
 .home-upcoming-date {
-    color: var(--text-faint);
+    color: var(--text-muted);
 }
 
 .home-task-row:hover
@@ -1055,7 +1004,7 @@ a.home-calendar-title:focus-visible {
 .home-task-location,
 .home-taskstodo-row.is-completed
 .home-upcoming-date {
-    opacity: 0.7;
+    opacity: 1;
 }
 
 
@@ -1063,7 +1012,6 @@ a.home-calendar-title:focus-visible {
     width: 26px;
     height: 26px;
     min-width: 26px;
-    min-height: 26px;
     padding: 5px;
     margin: -1px 0 0;
 
@@ -1140,7 +1088,7 @@ a.home-calendar-title:focus-visible {
 /* Top row */
 .home-glance,
 .home-calendar {
-    height: var(--hub-full-view-top-row-height, 245px);
+    height: var(--hub-full-view-top-row-height, 320px);
 
     overflow-y: auto;
     overflow-x: hidden;
@@ -1150,7 +1098,7 @@ a.home-calendar-title:focus-visible {
 
 
 .home-upcoming {
-    height: var(--hub-full-view-top-row-height, 245px);
+    height: var(--hub-full-view-top-row-height, 320px);
 
     display: flex;
     flex-direction: column;
@@ -1163,7 +1111,7 @@ a.home-calendar-title:focus-visible {
 /* Bottom row */
 
 .home-projects {
-    height: var(--hub-full-view-bottom-row-height, 429px);
+    height: var(--hub-full-view-bottom-row-height, 404px);
 
     overflow-y: auto;
     overflow-x: hidden;
@@ -1173,11 +1121,10 @@ a.home-calendar-title:focus-visible {
 
 
 .home-recent {
-    height: var(--hub-full-view-bottom-row-height, 429px);
+    height: var(--hub-full-view-bottom-row-height, 404px);
 
     overflow: hidden;
 
-    scrollbar-width: thin;
 
     box-sizing: border-box;
 }
@@ -1207,10 +1154,7 @@ a.home-calendar-title:focus-visible {
 
 
 .home-glance,
-.home-upcoming,
-.home-calendar,
-.home-projects,
-.home-recent {
+.home-projects {
     scrollbar-width: thin;
 }
 
@@ -1258,7 +1202,7 @@ a.home-calendar-title:focus-visible {
 .home-focus-project {
     margin-top: 1px;
 
-    color: var(--text-faint);
+    color: var(--text-muted);
     font-size: var(--hub-font-meta);
     font-weight: 650;
 }
@@ -1306,9 +1250,8 @@ a.home-calendar-title:focus-visible {
 .home-progress-activity-body {
     overflow-y: auto;
     overflow-x: hidden;
-
-    scrollbar-width: thin;
 }
+
 
 
 .home-progress-tabs {
@@ -1325,7 +1268,7 @@ a.home-calendar-title:focus-visible {
     align-items: center;
     gap: 7px;
     margin-left: auto;
-    height: var(--hub-progress-header-line-height);
+    min-height: var(--hub-progress-header-line-height);
 }
 
 .home-recent-action-icon.is-completed-task {
@@ -1396,7 +1339,7 @@ a.home-calendar-title:focus-visible {
 }
 
 .home-progress-report-summary.is-empty {
-    color: var(--text-faint);
+    color: var(--text-muted);
     font-style: italic;
 }
 
@@ -1459,4 +1402,5 @@ a.home-calendar-title:focus-visible {
 .home-recent-action-icon.is-project-deleted {
     color: var(--color-red);
 }
+
 

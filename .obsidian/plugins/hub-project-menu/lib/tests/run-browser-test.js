@@ -59,6 +59,14 @@ async function run() {
                 await send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value }] }, sessionId);
                 await send("Runtime.evaluate", { expression: "window.hubTestMotionDone()" }, sessionId);
             }
+            const forcedColors = await send("Runtime.evaluate", { expression: "window.hubTestForcedColorsRequest || false", returnByValue: true }, sessionId);
+            if (forcedColors.result?.value) {
+                const value = forcedColors.result.value;
+                if (!["active", "none"].includes(value)) throw Error("Invalid forced-colors request");
+                await send("Runtime.evaluate", { expression: "window.hubTestForcedColorsRequest = false" }, sessionId);
+                await send("Emulation.setEmulatedMedia", { features: [{ name: "forced-colors", value }] }, sessionId);
+                await send("Runtime.evaluate", { expression: "window.hubTestForcedColorsDone()" }, sessionId);
+            }
             const resize = await send("Runtime.evaluate", { expression: "window.hubTestViewportRequest || false", returnByValue: true }, sessionId);
             if (resize.result?.value) {
                 const next = resize.result.value;

@@ -1,6 +1,6 @@
 "use strict";
 const { oathProgress, oathTime } = require("../domain/oath");
-const { taskKey } = require("../domain/oath-workspace");
+const { taskKey, oathTaskOrder } = require("../domain/oath-workspace");
 
 function countdown(ms) {
     const seconds = Math.ceil(ms / 1000), hours = Math.floor(seconds / 3600);
@@ -22,7 +22,7 @@ function createOathTaskSection(service, body, component) {
     const taskOf = item => item.task && typeof item.task === "object" ? item.task : item;
     function partition(items, wrap = task => task) {
         if (!service?.active) return { ordinary: items, pinned: [], missing: [] };
-        const selected = new Set(service.current.tasks.map(taskKey));
+        const selected = oathTaskOrder(service.current);
         const selectedTask = task => selected.has(taskKey(task));
         return { ordinary: items.filter(item => !selectedTask(taskOf(item))),
             pinned: service.work.filter(item => item.task).map(item => wrap(item.task)),

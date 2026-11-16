@@ -944,9 +944,7 @@ async function createProjectItem(
             )
     ) {
 
-        throw new Error(
-            `That ${kind} already exists here.`
-        );
+        throw Object.assign(new Error(`That ${kind} already exists here.`), { creationCollision: true });
     }
 
 
@@ -2078,6 +2076,7 @@ function handleProjectItemContextMenu(
 
                 paths:
                     selectedPaths,
+                planContext: window.hubTaskOwner?.(current.file.path)?.contextKind === "resource" ? {type:"resource",id:window.hubTaskOwner(current.file.path).resourceType} : {type:"project",id:window.hubTaskOwner?.(current.file.path)?.projectId},
 
 
                 moveTo:
@@ -2488,9 +2487,9 @@ function explorerIsWorkspaceRoot(path) {
     return !!window.hubFileOperations?.isWorkspaceRoot?.(path) || path === projectRoot || window.hubTaskOwner?.(path)?.root === path || resourceTypes.some(resource => resource.root === path);
 }
 
-function showExplorerMenu(event, entries) {
+function showExplorerMenu(event, entries, options) {
     explorerMenu?.hide();
-    explorerMenu = window.hubExplorerHost?.showMenu(event, entries);
+    explorerMenu = window.hubExplorerHost?.showMenu(event, entries, options);
     return explorerMenu;
 }
 
@@ -2499,6 +2498,14 @@ function fullExplorerContextMenu(event, node, beginCreate, { kind = "item" } = {
     if (!host) return;
     const entries = [], add = (title, icon, run, disabled = false, warning = false) => entries.push({ title, icon, run, disabled, warning });
     const selected = selectedRootPaths([...selectedProjectItemPaths]);
+    if (kind === "item" && window.hubPlan) {
+        const paths = selectedProjectItemPaths.size > 1 ? [...selectedProjectItemPaths] : [node.path];
+        const files = paths.filter(path => { const file=app.vault.getAbstractFileByPath(path); return file && !Array.isArray(file.children); });
+        const context = window.hubTaskOwner?.(current.file.path);
+        const intended = context?.contextKind === "resource" ? {type:"resource",id:context.resourceType} : context ? {type:"project",id:context.projectId} : undefined;
+        add("Add selected files to plan", "list-plus", () => window.hubPlan.files(files, intended), !files.length);
+    }
+
     if (kind === "item" && selectedProjectItemPaths.size > 1) {
         add("Move items to…", "folder-input", () => host.moveTo(async target => { await moveProjectItemsTo(selected, target); clearProjectItemSelection(); renderFolderPanels(); }));
         add("Cut", "scissors", () => window.hubFileOperations.setClipboard(selected, true));
@@ -2626,7 +2633,15 @@ async function createExplorerItem(parentPath, kind, name) {
     const isWorkspaceFolder = parentPath === projectRoot && kind === "folder";
     if (isWorkspaceFolder && !folderOrder.length) folderOrder = projectFolderDescriptors()
         .filter(descriptor => !descriptor.isRoot && !descriptor.sharedResource).map(descriptor => descriptor.title);
-    const path = await createProjectItem(parentPath, kind, name);
+    const candidate = projectItemPath(parentPath, kind, name);
+    let path;
+    try { path = await createProjectItem(parentPath, kind, name); }
+    catch (error) {
+        const collision = app.vault.getAbstractFileByPath(candidate) || (app.vault.getAbstractFileByPath(parentPath)?.children ?? [])
+            .some(item => item.name.toLocaleLowerCase() === candidate.slice(parentPath.length + 1).toLocaleLowerCase());
+        if ((error.code === "EEXIST" || /already exists/i.test(error.message)) && collision) error.creationCollision = true;
+        throw error;
+    }
     if (isWorkspaceFolder) {
         const folderName = path.split("/").pop();
         folderOrder = [...folderOrder.filter(value => value !== folderName), folderName];
@@ -2681,6 +2696,7 @@ function renderFolderPanels() {
             const single = () => {
                 if (node.folder) window.hubShowProjectFolderMenu?.(event, explorerFolderActions(node, beginCreate));
                 else window.hubShowProjectFileMenu?.(event, node.path, {
+                    planContext: window.hubTaskOwner?.(current.file.path)?.contextKind === "resource" ? {type:"resource",id:window.hubTaskOwner(current.file.path).resourceType} : {type:"project",id:window.hubTaskOwner?.(current.file.path)?.projectId},
                     moveTo: async target => {
                         await moveProjectItemsTo([node.path], target);
                         clearProjectItemSelection(); renderFolderPanels();
@@ -2804,7 +2820,8 @@ window.hubSetIcon?.(
 
 
 const tasksTitleText =
-    tasksTitle.createSpan({
+    tasksTitle.createEl("h2", {
+        cls: "hub-panel-heading-label",
         text:
             "Tasks"
     });
@@ -2813,7 +2830,7 @@ const tasksTitleText =
 const tasksBody =
     tasksPanel.createDiv({
         cls:
-            "project-tasks-body"
+            "project-tasks-body hub-scrollbar"
     });
 
 
@@ -3276,7 +3293,8 @@ window.hubSetIcon?.(
 );
 
 
-progressTitle.createSpan({
+progressTitle.createEl("h2", {
+    cls: "hub-panel-heading-label",
     text:
         "Progress"
 });
@@ -3738,7 +3756,7 @@ const activitySection =
 const activityBody =
     activitySection.createDiv({
         cls:
-            "project-progress-activity-body"
+            "project-progress-activity-body hub-scrollbar"
     });
 activityBody.hubMarkdown = window.hubCreateMarkdown?.(dv.component);
 const historyPager = createHistoryPager(activityBody, dv.component);
@@ -4288,7 +4306,7 @@ function renderProjectReports() {
 
 
     const reports =
-        projectReports;
+        projectReports.filter(report => Number.isInteger(report.score) && report.score >= 1 && report.score <= 4);
 
 
     if (reports.length === 0) {
@@ -4505,10 +4523,10 @@ function renderProjectTaskHistory() {
             item.projectRoot ||
             projectRoot;
 
-        const sourceLocation = item.nativeHistory ? (item.projectName ?? "Native task") :
+        const sourceLocationParts = item.nativeHistory ? [item.projectName ?? "Native task"] :
             item.path === item.projectPath ||
             item.path === current.file.path
-                ? (isResourceContext ? "Resource Hub" : "Project Hub")
+                ? [isResourceContext ? "Resource Hub" : "Project Hub"]
                 : item.path.startsWith(
                     `${sourceRoot}/`
                 )
@@ -4519,21 +4537,24 @@ function renderProjectTaskHistory() {
                         .replace(/\.md$/i, "")
                         .split("/")
                         .filter(Boolean)
-                        .join(" › ") ||
-                        (isResourceContext ? "Resource Root" : "Project Root")
-                    : String(item.path)
+                    : [String(item.path)
                         .split("/")
                         .pop()
                         ?.replace(/\.md$/i, "") ||
-                        (isResourceContext ? "Resource Root" : "Project Root");
+                        (isResourceContext ? "Resource Root" : "Project Root")];
 
 
-        el(
-            info,
-            "div",
-            "project-activity-location",
-            sourceLocation
-        );
+        const sourceLocation = el(info, "div", "project-activity-location hub-route hub-route-wrap");
+        if (!sourceLocationParts.length) sourceLocationParts.push(isResourceContext ? "Resource Root" : "Project Root");
+        sourceLocationParts.forEach((label, index) => {
+            const part = sourceLocation.createSpan({ cls: "hub-route-part" });
+            if (index) {
+                part.createSpan({ cls: "hub-route-accessible-separator", text: " › " });
+                const separator = part.createSpan({ cls: "hub-route-separator", attr: { "aria-hidden": "true" } });
+                window.hubSetIcon?.(separator, "chevron-right");
+            }
+            part.createSpan({ cls: "hub-route-label", text: label });
+        });
 
 
         const when =

@@ -17,7 +17,7 @@ function renderTaskTimeline(host, tasks, context, state) {
     const scale = toolbar.createEl("select", { attr: { "aria-label": "Timeline range" } });
     for (const months of [3, 6, 12]) scale.createEl("option", { attr: { value: String(months) }, text: months + " months" });
     scale.value = String(state.months); scale.addEventListener("change", () => { state.months = Number(scale.value); context.render(); });
-    const scroll = panel.createDiv({ cls: "hub-task-local-scroll" });
+    const scroll = panel.createDiv({ cls: "hub-task-local-scroll hub-scrollbar" });
     const grid = scroll.createDiv({ cls: "hub-task-timeline" });
     grid.style.setProperty("--hub-timeline-width", Math.max(700, state.months * 150) + "px");
     const total = dayNumber(localISODate(end)) - dayNumber(localISODate(start));

@@ -9,20 +9,7 @@ const { matchesProgress } = require("./daily-brief");
 class RulesRecommendationProvider {
     getRecommendation(context) {
         if (!context.lastWorkDate) return null;
-        const completed = context.workspaces.flatMap(workspace => workspace.taskProgress).find(event =>
-            event.kind !== "step" && !context.relevantTasks.some(task => !task.completed &&
-                matchesProgress(task, event)));
-        for (const workspace of context.workspaces) {
-            const focus = workspace.nextFocus.find(item => item.available && item.target);
-            if (!focus) continue;
-            const continuing = workspace.continuations.some(({ task }) => focus.target.kind === "native-task" && focus.target.taskId === task.id && focus.target.authorityId === task.nativeReference.authorityId);
-            const transition = completed && !continuing;
-            return { title: focus.text, explanation: transition
-                ? `You completed ${completed.text}. Your next recorded focus is ${focus.text}.`
-                : `${focus.text} was your recorded next focus.`,
-                actionLabel: `${transition ? "Start" : "Continue"} ${focus.text}`, secondaryLabel: workspace.workspaceName,
-                target: focus.target, continuation: !transition, reason: "recorded-focus" };
-        }
+        if (context.planRecommendation) return context.planRecommendation;
         for (const workspace of context.workspaces) {
             const continuation = workspace.continuations[0];
             if (!continuation) continue;

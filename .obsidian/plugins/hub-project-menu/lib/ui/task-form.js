@@ -32,28 +32,41 @@ function mountTaskText(host, state, onChange = () => {}, { placeholder = "", mul
 // text. Call resize after attaching/showing a field, before assigning focus.
 function mountWrappingTaskInput(input) {
     let width, frame;
+    const document = input.ownerDocument, view = document.defaultView;
+    // A rem-sized probe also changes when text grows without changing the
+    // editor's width. Keep it outside the title host, which swaps in Markdown.
+    const fontMeasure = document.createElement("span");
+    fontMeasure.setAttribute("aria-hidden", "true");
+    fontMeasure.style.cssText = "position:absolute;top:0;left:0;width:1rem;height:1rem;visibility:hidden;pointer-events:none";
+    document.body.append(fontMeasure);
     const resize = () => {
         if (!input.isConnected || !input.getClientRects().length) return;
         const originalWidth = input.style.width;
         for (let pass = 0; pass < 2; pass++) {
-            const measuredWidth = input.getBoundingClientRect().width;
+            const measuredWidth = input.getBoundingClientRect().width / (input.currentCSSZoom || 1);
             input.style.width = measuredWidth + "px";
             input.style.height = "auto"; input.style.height = input.scrollHeight + "px";
             input.style.width = originalWidth;
-            if (Math.abs(input.getBoundingClientRect().width - measuredWidth) < 0.1) break;
+            if (Math.abs(input.getBoundingClientRect().width / (input.currentCSSZoom || 1) - measuredWidth) < 0.1) break;
         }
-        width = input.clientWidth;
+        width = input.getBoundingClientRect().width;
     };
     input.addEventListener("input", resize);
-    const view = input.ownerDocument.defaultView;
-    const observer = new view.ResizeObserver(() => {
-        if (width !== input.clientWidth) {
-            width = input.clientWidth;
+    document.fonts?.addEventListener("loadingdone", resize);
+    const observer = new view.ResizeObserver(entries => {
+        if (width !== input.getBoundingClientRect().width || entries.some(entry => entry.target === fontMeasure)) {
             if (frame === undefined) frame = view.requestAnimationFrame(() => { frame = undefined; resize(); });
         }
     });
-    observer.observe(input); resize();
-    return { resize, destroy() { observer.disconnect(); input.removeEventListener("input", resize); if (frame !== undefined) view.cancelAnimationFrame(frame); } };
+    try { observer.observe(input, { box: "device-pixel-content-box" }); }
+    catch { observer.observe(input); }
+    observer.observe(fontMeasure); resize();
+    return { resize, destroy() {
+        observer.disconnect(); fontMeasure.remove();
+        input.removeEventListener("input", resize);
+        document.fonts?.removeEventListener("loadingdone", resize);
+        if (frame !== undefined) view.cancelAnimationFrame(frame);
+    } };
 }
 
 

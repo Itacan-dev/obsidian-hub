@@ -11,7 +11,7 @@ HTMLElement.prototype.createEl=function(tag,o={}){const el=document.createElemen
 HTMLElement.prototype.createDiv=function(o){return this.createEl('div',o)};HTMLElement.prototype.createSpan=function(o){return this.createEl('span',o)};HTMLElement.prototype.empty=function(){this.replaceChildren()};
 let menu;class Menu{constructor(){this.items=[];menu=this}addItem(fn){const i={setTitle(t){this.title=t;return this},setIcon(){return this},setDisabled(v){this.disabled=v;return this},onClick(fn){this.click=fn;return this}};fn(i);this.items.push(i)}showAtMouseEvent(){}showAtPosition(){}}
 class Modal{constructor(){this.modalEl=document.body.createDiv({cls:'modal'});this.contentEl=this.modalEl.createDiv({cls:'modal-content'});this.scope={register:(_mods,_key,fn)=>{this.escape=fn}}}open(){this.onOpen()}close(){this.onClose();this.modalEl.remove()}}
-const notices=[],obsidian={Component,Menu,Modal,setIcon(el){el.innerHTML='<svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg>'},Notice:class{constructor(message){notices.push(message)}}};
+const notices=[],obsidian={Component,Menu,Modal,ownMenuColors:value=>value,ownModalColors:value=>value,ownNoticeColors:value=>value,setIcon(el){el.innerHTML='<svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg>'},Notice:class{constructor(message){notices.push(message)}}};
 const windowTitle={exports:{}};new Function('module','require',await(await fetch('../ui/window-title.js')).text())(windowTitle,()=>obsidian);
 const header={exports:{}},dataModule={exports:{}},ui={exports:{}};
 new Function('module','require',await(await fetch('../ui/header-image.js')).text())(header,()=>obsidian);
@@ -31,7 +31,7 @@ try{
  check(menu.items.length===1&&menu.items[0].title==='Edit cover images…','Home menu supersedes placement choice');menu.items[0].click();
  await until(()=>modal.previews.every(p=>p.editor&&!p.surface.querySelector('.hub-home-cover-staging')));
  check(modal.contentEl.querySelector('h2').textContent==='Edit cover images','Modal title');
- check(modal.contentEl.querySelector('p').textContent==='Right-click a preview to change its image or image placement.','Instruction');
+ check(modal.contentEl.querySelector('p').textContent==='Right-click a preview to change its image or image placement','Instruction');
  check([...modal.contentEl.querySelectorAll('h3')].map(el=>el.textContent).join('|')==='Morning|Afternoon|Evening|Night','Ordered period labels');
  check([...modal.contentEl.querySelectorAll('.hub-home-cover-time')].map(el=>el.textContent).join('|')==='06:00–11:59|12:00–17:59|18:00–23:59|00:00–05:59','Ordered time metadata');
  const headings=[...modal.contentEl.querySelectorAll('.hub-home-cover-heading')];

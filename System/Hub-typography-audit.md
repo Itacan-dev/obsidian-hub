@@ -1,5 +1,7 @@
 # Hub typography audit — 5 September 2026
 
+This file records the September typography before-state. Current role assignments, native window heading contexts and Stage 1/2 verification are documented in [Itacan semantic typography](Hub-typography-scale.md).
+
 Inspection only: no typography normalization was made. The one requested change was matching the Resources heading to the Projects heading.
 
 ## Count and scope
@@ -244,4 +246,3 @@ This includes repeated selectors and superseded declarations for traceability; u
 ### var(--font-ui-medium)
 
 - `.hub-data-audit-section h3` — `.obsidian/plugins/hub-project-menu/styles.css`
-

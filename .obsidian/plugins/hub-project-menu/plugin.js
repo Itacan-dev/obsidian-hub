@@ -1067,7 +1067,7 @@ class ProjectAdvancementModal
 
             if (
                 Number.isInteger(score) &&
-                score >= 1 &&
+                score >= 0 &&
                 score <= 4
             ) {
 
@@ -1482,11 +1482,6 @@ class ProjectAdvancementModal
             this.ratingEffects?.cancel(choices);
             choices?.removeAttribute("aria-invalid");
         }
-        if (score === 0) {
-            const input = this.summaryInputs.get(projectId);
-            if (input) input.value = "";
-            this.currentSummaries[projectId] = "";
-        }
 
         if (score === null) {
 
@@ -1596,10 +1591,6 @@ class ProjectAdvancementModal
         const scores =
             Object.fromEntries(
                 [...this.selectedScores]
-                    .filter(
-                        ([, score]) =>
-                            score !== 0
-                    )
             );
 
 
@@ -5064,6 +5055,7 @@ class ProjectWizardService {
     async activatePendingFocus(
         date
     ) {
+        return false; // Persistent Plan is authoritative; historical Focus remains untouched.
 
         if (
             !parseLocalISODate(date) ||
@@ -5159,7 +5151,7 @@ class ProjectWizardService {
 
                 for (const date of dates) {
                     if (!parseLocalISODate(date)) continue;
-                    const score = Number(ratings[date]);
+                    const score = ratings[date];
                     const log = logs[date] ?? {};
                     const report = {
                         date,
@@ -5168,7 +5160,7 @@ class ProjectWizardService {
                         resourceName: log.resourceName ?? resource.label,
                         projectId: `resource:${id}`,
                         projectName: log.resourceName ?? resource.label,
-                        score: Number.isInteger(score) && score >= 1 && score <= 4 ? score : null,
+                        score: Number.isInteger(score) && score >= 0 && score <= 4 ? score : null,
                         summary: typeof log.summary === "string" ? log.summary : "",
                         context: log.context,
                         timestamp: Number(log.timestamp) > 0 ? Number(log.timestamp) : null
@@ -5250,7 +5242,7 @@ class ProjectWizardService {
 
 
                 const score =
-                    Number(ratings[date]);
+                    ratings[date];
 
                 const log =
                     logs[date] ?? {};
@@ -5265,7 +5257,7 @@ class ProjectWizardService {
                     !summary &&
                     (
                         !Number.isInteger(score) ||
-                        score < 1 ||
+                        score < 0 ||
                         score > 4
                     )
                 ) {
@@ -5291,7 +5283,7 @@ class ProjectWizardService {
                         null,
                     score:
                         Number.isInteger(score) &&
-                        score >= 1 &&
+                        score >= 0 &&
                         score <= 4
                             ? score
                             : null,
@@ -5527,100 +5519,11 @@ class ProjectWizardService {
         );
     }
 
-    async setProjectWorkRatings(
-        date,
-        scoresByProject
-    ) {
-
-        if (
-            !/^\d{4}-\d{2}-\d{2}$/
-                .test(date)
-        ) {
-
-            throw new Error(
-                "Invalid project-rating date."
-            );
-        }
-
-
-        const entries =
-            Object.entries(
-                scoresByProject ?? {}
-            );
-
-
-        for (
-            const [
-                projectId,
-                score
-            ]
-            of entries
-        ) {
-
-            if (
-                typeof projectId !==
-                    "string" ||
-                !projectId.trim()
-            ) {
-
-                throw new Error(
-                    "Invalid project ID."
-                );
-            }
-
-
-            if (
-                !Number.isInteger(score) ||
-                score < 1 ||
-                score > 4
-            ) {
-
-                throw new Error(
-                    "Invalid project advancement rating."
-                );
-            }
-        }
-
-
-        for (
-            const [
-                projectId,
-                score
-            ]
-            of entries
-        ) {
-
-            if (
-                !this.projectWorkRatings[
-                    projectId
-                ] ||
-                typeof this.projectWorkRatings[
-                    projectId
-                ] !== "object"
-            ) {
-
-                this.projectWorkRatings[
-                    projectId
-                ] = {};
-            }
-
-
-            this.projectWorkRatings[
-                projectId
-            ][date] =
-                score;
-        }
-
-
-        this.data.projectWorkRatings =
-            this.projectWorkRatings;
-
-
-        await this.store.save(
-            this.data
-        );
+    async setProjectWorkRatings(date, scoresByProject) {
+        return require("./lib/services/progress-report").saveProgress(this, {
+            date, entries: Object.entries(scoresByProject ?? {}).map(([id, rating]) => ({ id, rating }))
+        });
     }
-
 
     getCompletedTaskHistory(projectId = null) {
         const observation = this.taskProgressEvidence?.();
@@ -5629,709 +5532,29 @@ class ProjectWizardService {
     }
 
 
-    async replaceProjectWorkRatings(
-        date,
-        projectIds,
-        scoresByProject
-    ) {
-
-        if (
-            !parseLocalISODate(date) ||
-            date > localISODate()
-        ) {
-
-            throw new Error(
-                "Invalid project-rating date."
-            );
-        }
-
-
-        if (!Array.isArray(projectIds)) {
-
-            throw new Error(
-                "Project-rating scope must be an array."
-            );
-        }
-
-
-        const scope =
-            [
-                ...new Set(
-                    projectIds ?? []
-                )
-            ];
-
-
-        for (
-            const projectId
-            of scope
-        ) {
-
-            if (
-                typeof projectId !==
-                    "string" ||
-                !projectId.trim()
-            ) {
-
-                throw new Error(
-                    "Invalid project ID."
-                );
-            }
-        }
-
-
-        const scopeSet =
-            new Set(scope);
-
-
-        const entries =
-            Object.entries(
-                scoresByProject ?? {}
-            );
-
-
-        for (
-            const [
-                projectId,
-                score
-            ]
-            of entries
-        ) {
-
-            if (
-                !scopeSet.has(
-                    projectId
-                )
-            ) {
-
-                throw new Error(
-                    "A rating is outside the editing scope."
-                );
-            }
-
-
-            if (
-                !Number.isInteger(score) ||
-                score < 1 ||
-                score > 4
-            ) {
-
-                throw new Error(
-                    "Invalid project advancement rating."
-                );
-            }
-        }
-
-
-        /*
-         * Replacement semantics are intentional:
-         * a missing score means that project's
-         * saved answer for this date is cleared.
-         * Other dates and projects remain untouched.
-         */
-        const nextProjectWorkRatings =
-            {
-                ...this.projectWorkRatings
-            };
-
-
-        for (
-            const projectId
-            of scope
-        ) {
-
-            const ratings =
-                nextProjectWorkRatings[
-                    projectId
-                ];
-
-
-            if (
-                !ratings ||
-                typeof ratings !==
-                    "object" ||
-                Array.isArray(ratings)
-            ) {
-                continue;
-            }
-
-
-            const nextRatings =
-                {
-                    ...ratings
-                };
-
-
-            delete nextRatings[date];
-
-
-            if (
-                Object.keys(nextRatings)
-                    .length === 0
-            ) {
-
-                delete nextProjectWorkRatings[
-                    projectId
-                ];
-
-            } else {
-
-                nextProjectWorkRatings[
-                    projectId
-                ] =
-                    nextRatings;
-            }
-        }
-
-
-        for (
-            const [
-                projectId,
-                score
-            ]
-            of entries
-        ) {
-
-            if (
-                !nextProjectWorkRatings[
-                    projectId
-                ] ||
-                typeof nextProjectWorkRatings[
-                    projectId
-                ] !== "object" ||
-                Array.isArray(
-                    nextProjectWorkRatings[
-                        projectId
-                    ]
-                )
-            ) {
-
-                nextProjectWorkRatings[
-                    projectId
-                ] = {};
-            }
-
-
-            nextProjectWorkRatings[
-                projectId
-            ][date] =
-                score;
-        }
-
-
-        const nextData = {
-            ...this.data,
-
-            projectWorkRatings:
-                nextProjectWorkRatings
-        };
-
-
-        await this.store.save(
-            nextData
-        );
-
-
-        this.projectWorkRatings =
-            nextProjectWorkRatings;
-
-
-        this.data =
-            nextData;
+    async replaceProjectWorkRatings(date, projectIds, scoresByProject) {
+        if (!Array.isArray(projectIds) || Object.keys(scoresByProject ?? {}).some(id => !projectIds.includes(id))) throw Error("Invalid progress scope.");
+        return require("./lib/services/progress-report").saveProgress(this, {
+            date, entries: projectIds.map(id => ({ id, rating: scoresByProject?.[id] ?? null }))
+        });
     }
 
-
-    async replaceProjectProgress(
-        date,
-        projectIds,
-        scoresByProject,
-        summariesByProject,
-        focusUpdate = null
-    ) {
-
-        if (
-            !parseLocalISODate(date) ||
-            date > localISODate()
-        ) {
-            throw new Error(
-                "Invalid project-progress date."
-            );
-        }
-
-
-        if (!Array.isArray(projectIds)) {
-            throw new Error(
-                "Project-progress scope must be an array."
-            );
-        }
-
-
-        const scope =
-            [...new Set(projectIds)];
-
-        const scopeSet =
-            new Set(scope);
-
-
-        for (
-            const projectId
-            of scope
-        ) {
-
-            if (
-                typeof projectId !== "string" ||
-                !projectId.trim()
-            ) {
-                throw new Error(
-                    "Invalid project ID."
-                );
-            }
-        }
-
-
-        const scoreEntries =
-            Object.entries(
-                scoresByProject ?? {}
-            );
-
-        const summaryEntries =
-            Object.entries(
-                summariesByProject ?? {}
-            );
-
-
-        for (
-            const [projectId, score]
-            of scoreEntries
-        ) {
-
-            if (
-                !scopeSet.has(projectId) ||
-                !Number.isInteger(score) ||
-                score < 1 ||
-                score > 4
-            ) {
-                throw new Error(
-                    "Invalid project advancement rating."
-                );
-            }
-        }
-
-
-        for (
-            const [projectId, summary]
-            of summaryEntries
-        ) {
-
-            if (
-                !scopeSet.has(projectId) ||
-                typeof summary !== "string" ||
-                summary.length > 1000
-            ) {
-                throw new Error(
-                    "Invalid project progress summary."
-                );
-            }
-        }
-
-
-        let normalizedFocus = null;
-
-
-        if (focusUpdate !== null) {
-
-            if (
-                !focusUpdate ||
-                !parseLocalISODate(
-                    focusUpdate.sourceDate
-                ) ||
-                focusUpdate.sourceDate !==
-                    date
-            ) {
-                throw new Error(
-                    "Invalid pending focus."
-                );
-            }
-
-
-            normalizedFocus =
-                validateFocusItems(
-                    focusUpdate.items
-                );
-        }
-
-
-        const nextRatings =
-            Object.fromEntries(
-                Object.entries(
-                    this.projectWorkRatings
-                ).map(
-                    ([projectId, ratings]) => [
-                        projectId,
-                        {
-                            ...ratings
-                        }
-                    ]
-                )
-            );
-
-        const nextLogs =
-            Object.fromEntries(
-                Object.entries(
-                    this.projectWorkLogs
-                ).map(
-                    ([projectId, logs]) => [
-                        projectId,
-                        Object.fromEntries(
-                            Object.entries(
-                                logs &&
-                                typeof logs === "object" &&
-                                !Array.isArray(logs)
-                                    ? logs
-                                    : {}
-                            ).map(
-                                ([logDate, entry]) => [
-                                    logDate,
-                                    {
-                                        ...entry
-                                    }
-                                ]
-                            )
-                        )
-                    ]
-                )
-            );
-
-
-        for (
-            const projectId
-            of scope
-        ) {
-
-            if (nextRatings[projectId]) {
-                delete nextRatings[projectId][date];
-
-                if (
-                    Object.keys(
-                        nextRatings[projectId]
-                    ).length === 0
-                ) {
-                    delete nextRatings[projectId];
-                }
-            }
-
-
-            if (nextLogs[projectId]) {
-                delete nextLogs[projectId][date];
-
-                if (
-                    Object.keys(
-                        nextLogs[projectId]
-                    ).length === 0
-                ) {
-                    delete nextLogs[projectId];
-                }
-            }
-        }
-
-
-        for (
-            const [projectId, score]
-            of scoreEntries
-        ) {
-
-            nextRatings[projectId] =
-                nextRatings[projectId] ?? {};
-
-            nextRatings[projectId][date] =
-                score;
-        }
-
-
-        for (
-            const [projectId, rawSummary]
-            of summaryEntries
-        ) {
-
-            const summary =
-                rawSummary.trim();
-
-
-            if (!summary) {
-                continue;
-            }
-
-
-            const project =
-                this.getProjectById(
-                    projectId
-                );
-
-
-            const previousLog =
-                this.projectWorkLogs[
-                    projectId
-                ]?.[date] ?? {};
-
-
-            const previousTimestamp =
-                Number(
-                    previousLog.timestamp
-                );
-
-
-            nextLogs[projectId] =
-                nextLogs[projectId] ?? {};
-
-            nextLogs[projectId][date] = {
-                summary,
-                projectName:
-                    project?.name ??
-                    previousLog.projectName ??
-                    "Unavailable project",
-                timestamp:
-                    Number.isFinite(
-                        previousTimestamp
-                    ) &&
-                    previousTimestamp > 0
-                        ? previousTimestamp
-                        : Date.now()
-            };
-        }
-
-
-        for (
-            const [projectId]
-            of scoreEntries
-        ) {
-
-            if (
-                nextLogs[projectId]?.[date]
-            ) {
-                continue;
-            }
-
-
-            const project =
-                this.getProjectById(
-                    projectId
-                );
-
-
-            const previousLog =
-                this.projectWorkLogs[
-                    projectId
-                ]?.[date] ?? {};
-
-
-            const previousTimestamp =
-                Number(
-                    previousLog.timestamp
-                );
-
-
-            nextLogs[projectId] =
-                nextLogs[projectId] ?? {};
-
-
-            nextLogs[projectId][date] = {
-                summary: "",
-                projectName:
-                    project?.name ??
-                    previousLog.projectName ??
-                    "Unavailable project",
-                timestamp:
-                    Number.isFinite(
-                        previousTimestamp
-                    ) &&
-                    previousTimestamp > 0
-                        ? previousTimestamp
-                        : Date.now()
-            };
-        }
-
-
-        for (const projectId of scope) {
-            const log = nextLogs[projectId]?.[date];
-            if (!log) continue;
-            const previous = this.projectWorkLogs[projectId]?.[date];
-            log.projectName = previous?.projectName ?? log.projectName;
-            log.context = savedReportContext(this, date, projectId, previous?.context);
-        }
-
-        const nextPendingFocus =
-            normalizedFocus === null
-                ? this.pendingFocus
-                : {
-                    sourceDate:
-                        focusUpdate.sourceDate,
-                    items:
-                        normalizedFocus
-                };
-
-
-        const nextData = {
-            ...this.data,
-            projectWorkRatings:
-                nextRatings,
-            projectWorkLogs:
-                nextLogs,
-            pendingFocus:
-                nextPendingFocus,
-            ...(normalizedFocus === null ? {} : { reportFocusByDate: {
-                ...this.data.reportFocusByDate,
-                [date]: { items: normalizedFocus }
-            } })
-        };
-
-
-        await this.store.save(
-            nextData
-        );
-
-
-        this.projectWorkRatings =
-            nextRatings;
-        this.projectWorkLogs =
-            nextLogs;
-        this.pendingFocus =
-            nextPendingFocus;
-        this.data =
-            nextData;
+    async replaceProjectProgress(date, projectIds, scores, summaries, focusUpdate = null) {
+        return this.replaceCombinedProgress(date, projectIds, [], scores, summaries, focusUpdate);
     }
 
-
-    async replaceResourceProgress(
-        date,
-        resourceId,
-        score,
-        summary
-    ) {
-        const resource = this.getResourceById(resourceId);
-        if (
-            !resource ||
-            !parseLocalISODate(date) ||
-            date > localISODate() ||
-            typeof summary !== "string" ||
-            summary.length > 1000
-        ) {
-            throw new Error("Invalid Resource progress entry.");
-        }
-
-        const id = resource.resourceType;
-        const nextRatings = {
-            ...this.resourceWorkRatings,
-            [id]: { ...(this.resourceWorkRatings[id] ?? {}) }
-        };
-        const nextLogs = {
-            ...this.resourceWorkLogs,
-            [id]: { ...(this.resourceWorkLogs[id] ?? {}) }
-        };
-
-        delete nextRatings[id][date];
-        delete nextLogs[id][date];
-
-        if (Number.isInteger(score) && score >= 1 && score <= 4) {
-            nextRatings[id][date] = score;
-        }
-
-        const normalizedSummary = String(summary ?? "").trim();
-        if (normalizedSummary || nextRatings[id][date]) {
-            const previousTimestamp = Number(this.resourceWorkLogs[id]?.[date]?.timestamp);
-            nextLogs[id][date] = {
-                summary: normalizedSummary,
-                resourceName: this.resourceWorkLogs[id]?.[date]?.resourceName ?? resource.label,
-                context: savedReportContext(this, date, `resource:${id}`, this.resourceWorkLogs[id]?.[date]?.context),
-                targetKind: "resource",
-                timestamp: Number.isFinite(previousTimestamp) && previousTimestamp > 0
-                    ? previousTimestamp
-                    : Date.now()
-            };
-        }
-
-        if (Object.keys(nextRatings[id]).length === 0) delete nextRatings[id];
-        if (Object.keys(nextLogs[id]).length === 0) delete nextLogs[id];
-
-        const nextData = {
-            ...this.data,
-            resourceWorkRatings: nextRatings,
-            resourceWorkLogs: nextLogs
-        };
-        await this.store.save(nextData);
-        this.resourceWorkRatings = nextRatings;
-        this.resourceWorkLogs = nextLogs;
-        this.data = nextData;
+    async replaceResourceProgress(date, resourceId, score, summary) {
+        const id = String(resourceId).replace(/^resource:/, "");
+        return this.replaceCombinedProgress(date, [], [id], { ["resource:" + id]: score ?? null }, { ["resource:" + id]: summary });
     }
 
-
-    async replaceCombinedProgress(
-        date,
-        projectIds,
-        resourceIds,
-        scoresByContext,
-        summariesByContext,
-        focusUpdate = null
-    ) {
-        const projects =
-            [...new Set(
-                Array.isArray(projectIds)
-                    ? projectIds
-                    : []
-            )];
-
-        const resources =
-            [...new Set(
-                Array.isArray(resourceIds)
-                    ? resourceIds
-                    : []
-            )];
-
-        const valuesFor = ids =>
-            Object.fromEntries(
-                ids
-                    .filter(id =>
-                        Object.prototype.hasOwnProperty.call(
-                            scoresByContext ?? {},
-                            id
-                        )
-                    )
-                    .map(id => [
-                        id,
-                        scoresByContext[id]
-                    ])
-            );
-
-        const summariesFor = ids =>
-            Object.fromEntries(
-                ids.map(id => [
-                    id,
-                    String(
-                        summariesByContext?.[id] ?? ""
-                    )
-                ])
-            );
-
-        await this.replaceProjectProgress(
-            date,
-            projects,
-            valuesFor(projects),
-            summariesFor(projects),
-            focusUpdate
-        );
-
-        for (const resourceId of resources) {
-            const key = `resource:${resourceId}`;
-            await this.replaceResourceProgress(
-                date,
-                resourceId,
-                scoresByContext?.[key],
-                String(
-                    summariesByContext?.[key] ?? ""
-                )
-            );
-        }
+    async replaceCombinedProgress(date, projectIds, resourceIds, scores, summaries, focusUpdate = null) {
+        const { saveProgress, stored } = require("./lib/services/progress-report");
+        const ids = [...projectIds, ...resourceIds.map(id => "resource:" + id)];
+        return saveProgress(this, { date, entries: ids.map(id => ({
+            id, expected: stored(this.data, date, id), rating: scores?.[id] ?? null, summary: summaries?.[id] ?? ""
+        })), ...(focusUpdate ? { focus: focusUpdate.items } : {}) });
     }
-
 
     async setDailyFocus(
         date,
@@ -10857,6 +10080,7 @@ module.exports = class HubProjectMenu extends Plugin {
             * Hub UI persistence that lives
             * outside plugin data.
             */
+            planRecovery: this.globalPlan ? { version:2, base: this.globalPlan.rawBase, desired: this.globalPlan.readState(), sequence: this.globalPlan.sequence, pending:this.globalPlan.pendingTransition, pendingFile:this.globalPlan.pendingFile, deferredInput:this.globalPlan.deferredInput } : null,
             localStorage:
                 this.getHubLocalStorage()
         };
@@ -11004,9 +10228,14 @@ module.exports = class HubProjectMenu extends Plugin {
         );
 
 
-        await this.dataStore.save(
-            backup.pluginData
-        );
+        if (this.globalPlan) { this.globalPlan.restoring = true; clearTimeout(this.globalPlan.timer); clearTimeout(this.globalPlan.dayTimer); }
+        try {
+            await this.dataStore.save(backup.pluginData, null, true);
+            this.globalPlan?.recovery.clear();
+        } catch (error) {
+            if (this.globalPlan) { this.globalPlan.restoring = false; this.globalPlan.checkpoint(); }
+            throw error;
+        }
 
 
         /*
@@ -11052,6 +10281,10 @@ module.exports = class HubProjectMenu extends Plugin {
             }
         }
 
+
+        if (this.globalPlan) {
+            if (backup.planRecovery) this.globalPlan.recovery.put(backup.planRecovery.version ? backup.planRecovery : {version:1,...backup.planRecovery});
+        }
 
         /*
         * Reload so every bridge, dashboard
@@ -11622,9 +10855,10 @@ module.exports = class HubProjectMenu extends Plugin {
 
         if (repair && dataAudit.changed) {
             await this.dataStore.save(
-                dataAudit.repairedData
+                dataAudit.repairedData, null, true
             );
             await this.projectWizard.load();
+        this.reportEligibility = new (require("./lib/services/progress-report").ReportEligibility)(this);
 
         this.workspaceState = new HubWorkspaceState(this);
         await this.workspaceState.initialize();
@@ -11739,6 +10973,7 @@ module.exports = class HubProjectMenu extends Plugin {
 
 
     async onload() {
+        this.reportSessionBaseline = null;
         this.taskStartupClock = performance.now();
         this.register(disposeColorSystem);
         const { AppearanceService, appearanceFile } = require("./lib/services/appearance");
@@ -11786,6 +11021,7 @@ module.exports = class HubProjectMenu extends Plugin {
         });
 
         await this.projectWizard.load();
+        this.reportEligibility = new (require("./lib/services/progress-report").ReportEligibility)(this);
 
         this.workspaceState = new HubWorkspaceState(this);
         await this.workspaceState.initialize();
@@ -12279,7 +11515,7 @@ module.exports = class HubProjectMenu extends Plugin {
                         : this.projectWizard.getProjectWorkRatings(normalizedProjectId),
 
                 levels:
-                    PROJECT_ADVANCEMENT_OPTIONS
+                    progressRatingOptions(resource ?? {})
                         .map(
                             option => ({
                                 score:
@@ -12460,7 +11696,7 @@ module.exports = class HubProjectMenu extends Plugin {
             try {
                 // Default-disabled main-process coordinator; reuse ownership on plugin reload.
                 strictOath = window.electron.remote.require(require("path").join(oathNativeModule,
-                    this.manifest.dir, "lib/services/oath-strict-host.js")).getStrictCoordinator(window.electronWindow);
+                    this.manifest.dir, "lib/services/oath-prototype-host.js")).getPrototypeStrictCoordinator(window.electronWindow);
             } catch (error) { console.error("Strict Oath host unavailable; ordinary Oaths remain available", error); }
         }
         this.oath = new HubOathService(this, createOathFullscreen(window, oathNativeModule ?
@@ -12495,6 +11731,27 @@ module.exports = class HubProjectMenu extends Plugin {
         this.nativeTaskHost = require("./lib/services/native-task-host").createNativeTaskHost(this);
         this.fileOperations = new (require("./lib/services/file-operations").FileOperations)(this);
         window.hubFileOperations = this.fileOperations;
+        this.globalPlan = new (require("./lib/services/global-plan").GlobalPlanService)(this);
+        this.globalPlan.references = new (require("./lib/services/plan-references").PlanReferences)(this, this.globalPlan);
+        this.globalPlan.start();
+        window.hubPlan = {
+            read: () => this.globalPlan.read(),
+            status: () => this.globalPlan.status,
+            subscribe: (component, fn) => this.globalPlan.subscribe(component, fn),
+            open: () => require("./lib/ui/plan").openPlan(this),
+            pick: async () => { await this.globalPlan.ensureLifecycle(); if(!this.globalPlan.active()) await this.globalPlan.createPlan(); return require("./lib/ui/plan-picker").openPlanPicker(this); },
+            add: entries => this.globalPlan.directAdd(entries),
+            task: task => this.globalPlan.references.taskEntry(task),
+            files: (paths, context) => this.globalPlan.directAdd(paths.map(path => this.app.vault.getAbstractFileByPath(path)).filter(f => f && !Array.isArray(f.children)).map(f => this.globalPlan.references.fileEntry(f, context))),
+            workspace: context => this.globalPlan.directAdd([this.globalPlan.references.workspaceEntry(context)]),
+            mountPresentation: (root, component) => require("./lib/ui/plan-home").mountPlanHome({root,component,plugin:this}),
+            mount: (root, component) => require("./lib/ui/plan-list").mountPlanList({root,component,plan:this.globalPlan})
+        };
+        this.addCommand({id:"open-global-plan",name:"Open Plan",callback:()=>window.hubPlan.open()});
+        void this.nativeTaskHost.ready.then(()=>this.globalPlan.references.audit()).catch(error=>console.error("Plan references unavailable",error));
+        this.registerEvent(this.app.workspace.on("quit", tasks => tasks.add(async () => { await this.fileOperations.close(); if (!await this.globalPlan.closeSafe()) { require("./lib/ui/plan").openPlan(this); throw Error("Plan draft needs recovery before closing."); } })));
+        this.register(() => { clearTimeout(this.globalPlan.timer); this.globalPlan.checkpoint(); delete window.hubPlan; });
+
         this.fileOperationNotice = message => ownNoticeColors(new Notice(message, 15000));
         this.addCommand({ id: "file-operation-recovery", name: "File operation recovery",
             callback: () => require("./lib/ui/file-operation-recovery").openFileOperationRecovery(this) });
@@ -12531,6 +11788,8 @@ module.exports = class HubProjectMenu extends Plugin {
             this.oathControl = mountOathControl(this, this.oath);
             this.captureControls = mountCaptureControls(this, this.inbox, this.oathControl.item);
             this.musicControl = mountMusicControl(this, this.oathControl.item);
+            require("./lib/ui/progress-editor").mountProgressControl(this, this.oathControl.item, FocusListEditor);
+            require("./lib/services/report-eligibility-hooks").installReportEligibilityHooks(this);
             this.dailyBriefControl = mountDailyBriefControl(this, this.dailyBrief, this.oathControl.item);
             this.settingsControl = mountSettingsControl(this, this.oathControl.item);
             this.appShortcutsControl = require("./lib/ui/app-shortcuts").mountAppShortcuts(this, this.oathControl.item);
@@ -13499,6 +12758,7 @@ module.exports = class HubProjectMenu extends Plugin {
             .recordActivity({
                 action,
                 ...details,
+                reportWorkspaceId: this.workspaceModes?.contextForFile(file.path)?.projectId ?? details.projectId,
                 ...extra
             });
 
@@ -13584,266 +12844,25 @@ module.exports = class HubProjectMenu extends Plugin {
         );
     }
 
-    openProjectAdvancementPrompt(
-        closeButton
-    ) {
-
-        if (
-            this.hubAdvancementPromptOpen
-        ) {
-            return;
+    async openProjectAdvancementPrompt(closeButton) {
+        const child = this.planPicker?.containerEl?.isConnected ? this.planPicker : this.planModal?.containerEl?.isConnected ? this.planModal : null;
+        if (child) { child.modalEl.focus(); return; }
+        const activeReport = require("./lib/ui/progress-editor").activeProgress(this);
+        if (activeReport) { (this.planPicker?.containerEl?.isConnected ? this.planPicker : this.planModal?.containerEl?.isConnected ? this.planModal : activeReport).modalEl.focus(); return; }
+        if (this.hubAdvancementPromptOpen) return;
+        if (document.querySelector(".modal-container")) {
+            document.querySelector(".modal-container input, .modal-container button")?.focus(); return;
         }
-
-
-        const projects =
-            this.getChangedProjects();
-
-        const resources =
-            this.getChangedResources();
-
-
-        const date =
-            localISODate();
-
-
-        if (
-            projects.length === 0 &&
-            resources.length === 0
-        ) {
-            this.finishWindowClose(
-                closeButton
-            );
-            return;
-        }
-
-
-        this.hubAdvancementPromptOpen =
-            true;
-
-
-        const currentScores = {};
-        const currentSummaries = {};
-
-
-        for (
-            const project
-            of projects
-        ) {
-
-            const score =
-                this.projectWizard
-                    .getProjectWorkRatings(
-                        project.projectId
-                    )[date];
-
-
-            if (
-                Number.isInteger(score) &&
-                score >= 1 &&
-                score <= 4
-            ) {
-
-                currentScores[
-                    project.projectId
-                ] =
-                    score;
-            }
-
-
-            currentSummaries[
-                project.projectId
-            ] =
-                this.projectWizard
-                    .getProjectWorkLogs(
-                        project.projectId
-                    )[date]?.summary ?? "";
-        }
-
-
-        for (const resource of resources) {
-            const key =
-                `resource:${resource.resourceType}`;
-
-            const score =
-                this.projectWizard
-                    .getResourceWorkRatings(
-                        resource.resourceType
-                    )[date];
-
-            if (
-                Number.isInteger(score) &&
-                score >= 1 &&
-                score <= 4
-            ) {
-                currentScores[key] =
-                    score;
-            }
-
-            currentSummaries[key] =
-                this.projectWizard
-                    .getResourceWorkLogs(
-                        resource.resourceType
-                    )[date]?.summary ?? "";
-        }
-
-
-        // Reuse the exit resolution marker and the existing activity query.
-        // Manual saves do not clear dirty contexts; a dirty flag alone cannot
-        // establish activity since a newer manual save or a legacy report.
-        const savedReports = [...this.projectWizard.getProgressReports(),
-            ...this.projectWizard.getProgressReports({ kind: "resource" })]
-            .filter(report => report.date === date);
-        const resolvedAt = this.projectWizard.normalizedDirtyContextRecord(date).resolvedAt;
-        const lastSavedAt = Math.max(resolvedAt, ...savedReports.map(report => report.timestamp || 0));
-        const activity = lastSavedAt > 0
-            ? this.projectWizard.activityDirtyContexts(date, lastSavedAt) : null;
-        const updatingReport = (resolvedAt > 0 && lastSavedAt === resolvedAt) ||
-            projects.some(project => activity?.projects.includes(project.projectId)) ||
-            resources.some(resource => activity?.resources.includes(resource.resourceType));
-        const reportMode = updatingReport ? "update"
-            : savedReports.length || resolvedAt > 0 ? "edit" : "complete";
-
-        new ProjectAdvancementModal(
-            this.app,
-            {
-                plugin: this,
-                requireExplicitRatings: true,
-                reportDate: date,
-                reportMode,
-                getReportContexts: () => Object.fromEntries([...projects, ...resources].map(workspace => {
-                    const id = workspace.projectId ?? `resource:${workspace.resourceType}`;
-                    const previous = id.startsWith("resource:")
-                        ? this.projectWizard.resourceWorkLogs[id.slice(9)]?.[date]
-                        : this.projectWizard.projectWorkLogs[id]?.[date];
-                    return [id, savedReportContext(this.projectWizard, date, id, previous?.context)];
-                })),
-                projects,
-
-                resources,
-
-                currentScores,
-
-                currentSummaries,
-
-                allowNoProgress:
-                    true,
-
-                showNextFocus:
-                    true,
-
-                currentFocus:
-                    this.projectWizard
-                        .getPendingFocus(
-                            date
-                        )?.items ?? [],
-
-                focusProjects:
-                    this.projectWizard
-                        .getFocusContexts(),
-
-                title:
-                    reportMode === "update" ? "Update progress report"
-                        : reportMode === "edit" ? "Edit progress report" : "Complete progress report",
-
-                onSave:
-                    async ({
-                        scores,
-                        summaries,
-                        focus
-                    }) => {
-
-                        await this
-                            .projectWizard
-                            .replaceCombinedProgress(
-                                date,
-                                projects.map(
-                                    project =>
-                                        project.projectId
-                                ),
-                                resources.map(
-                                    resource =>
-                                        resource.resourceType
-                                ),
-                                scores,
-                                summaries,
-                                {
-                                    sourceDate:
-                                        date,
-                                    items:
-                                        focus
-                                }
-                            );
-
-
-                        await this
-                            .projectWizard
-                            .clearDirtyContexts(
-                                date,
-                                projects.map(
-                                    project =>
-                                        project.projectId
-                                ),
-                                resources.map(
-                                    resource =>
-                                        resource.resourceType
-                                )
-                            );
-                    },
-
-                onSaved:
-                    () => {
-
-                        this.hubAdvancementPromptOpen =
-                            false;
-
-
-                        /*
-                        * Ratings are already saved.
-                        * If closing somehow fails,
-                        * don't ask for them again.
-                        */
-                        this.changedProjectIds
-                            .clear();
-
-                        this.changedResourceIds
-                            .clear();
-
-
-                        this.notifyProgressChanged(
-                            date,
-                            projects.map(
-                                project =>
-                                    project.projectId
-                            ).concat(
-                                resources.map(
-                                    resource =>
-                                        `resource:${resource.resourceType}`
-                                )
-                            )
-                        );
-
-
-                        this.finishWindowClose(
-                            closeButton
-                        );
-                    },
-
-                onCancel:
-                    () => {
-
-                        /*
-                        * Closing the modal itself
-                        * means "don't quit yet".
-                        *
-                        * The project set remains,
-                        * so the form appears again
-                        * on the next quit attempt.
-                        */
-                        this.hubAdvancementPromptOpen =
-                            false;
-                    }
-            }
-        ).open();
+        this.hubAdvancementPromptOpen = true;
+        try {
+            await this.reportEligibility.flush().catch(error => console.error("Could not flush reporting eligibility", error));
+            const date = localISODate();
+            if (!this.reportEligibility.pending(date, { currentSession: true }).length) { this.finishWindowClose(closeButton); return; }
+            require("./lib/ui/progress-editor").openProgress(this, { date, closeButton, FocusEditor: FocusListEditor });
+        } catch (error) {
+            ownNoticeColors(new Notice("Could not check reporting state. Keep working or try closing again."));
+            console.error(error);
+        } finally { if (!this.progressEditor) this.hubAdvancementPromptOpen = false; }
     }
 
     openTaskCreator(options = {}) {
@@ -14235,6 +13254,11 @@ module.exports = class HubProjectMenu extends Plugin {
     showProjectMenu(event, file, status, dashboard, card) {
 
         const menu = ownMenuColors(new Menu());
+
+        menu.addItem(item => item.setTitle("Add to plan").setIcon("list-plus").onClick(() => {
+            const context = this.projectWizard.getContextForPath(file.path);
+            if (context) void window.hubPlan.workspace(context);
+        }));
 
         // Open
 
@@ -14759,6 +13783,8 @@ module.exports = class HubProjectMenu extends Plugin {
             ownMenuColors(new Menu());
 
 
+        if (window.hubPlan && actions?.paths) menu.addItem(item => item.setTitle("Add selected files to plan").setIcon("list-plus").onClick(() => void window.hubPlan.files(actions.paths, actions.planContext)));
+
         const count =
             Number(
                 actions?.count
@@ -15044,6 +14070,7 @@ module.exports = class HubProjectMenu extends Plugin {
     openDailyFocusEditor(
         date
     ) {
+        return require("./lib/ui/plan").openPlan(this);
 
         if (!parseLocalISODate(date)) {
 
@@ -15097,361 +14124,10 @@ module.exports = class HubProjectMenu extends Plugin {
     }
 
 
-    openProgressEditor(
-        date,
-        projectId = null
-    ) {
-
-        const parsedDate =
-            parseLocalISODate(date);
-
-
-        if (
-            !parsedDate ||
-            date > localISODate()
-        ) {
-
-            ownNoticeColors(new Notice(
-                "Choose today or an earlier date."
-            ));
-
-            return;
-        }
-
-        const isGeneralReport =
-            projectId === null;
-
-
-        const requestedKind =
-            projectId &&
-            typeof projectId === "object"
-                ? projectId.kind
-                : typeof projectId === "string" &&
-                    projectId.startsWith("resource:")
-                    ? "resource"
-                    : projectId
-                        ? "project"
-                        : "all";
-
-
-        const resourceTarget =
-            requestedKind === "resource" &&
-            (
-                typeof projectId === "string" ||
-                projectId?.id
-            )
-                ? this.projectWizard.getResourceById(
-                    typeof projectId === "string"
-                        ? projectId
-                        : projectId.id
-                )
-                : null;
-
-
-        const projectTargetId =
-            requestedKind === "project"
-                ? (
-                    typeof projectId === "object"
-                        ? projectId.id ?? null
-                        : projectId
-                )
-                : null;
-
-
-        let projects =
-            requestedKind === "resource"
-                ? []
-                : this.projectWizard
-                    .getProjectRecords();
-
-
-        if (projectTargetId) {
-
-            projects =
-                projects.filter(
-                    project =>
-                        project.projectId ===
-                            projectTargetId
-                );
-
-        } else if (requestedKind !== "resource") {
-
-            /*
-             * Keep a daily check-in focused:
-             * show active projects plus any
-             * project already answered that day.
-             */
-            projects =
-                projects.filter(
-                    project => {
-
-                        const score =
-                            this.projectWizard
-                                .getProjectWorkRatings(
-                                    project.projectId
-                                )[date];
-
-                        const summary =
-                            this.projectWizard
-                                .getProjectWorkLogs(
-                                    project.projectId
-                                )[date]?.summary;
-
-
-                        return (
-                            project.status ===
-                                "active" ||
-                            (
-                                Number.isInteger(
-                                    score
-                                ) &&
-                                score >= 1 &&
-                                score <= 4
-                            ) ||
-                            Boolean(summary)
-                        );
-                    }
-                );
-        }
-
-
-        const resources =
-            requestedKind === "project"
-                ? []
-                : resourceTarget
-                    ? [resourceTarget]
-                    : this.projectWizard
-                        .getResourceTypes();
-
-
-        const statusOrder = {
-            active: 0,
-            future: 1,
-            shelved: 2
-        };
-
-
-        projects.sort(
-            (a, b) =>
-                (
-                    statusOrder[a.status] ?? 3
-                ) -
-                (
-                    statusOrder[b.status] ?? 3
-                ) ||
-                a.name.localeCompare(
-                    b.name,
-                    undefined,
-                    {
-                        sensitivity:
-                            "base"
-                    }
-                )
-        );
-
-
-        if (
-            projects.length === 0 &&
-            resources.length === 0
-        ) {
-
-            ownNoticeColors(new Notice(
-                requestedKind === "resource"
-                    ? "No Resource is available for this progress entry."
-                    : "No project is available for this progress entry."
-            ));
-
-            return;
-        }
-
-
-        const currentScores = {};
-        const currentSummaries = {};
-
-
-        for (
-            const project
-            of projects
-        ) {
-
-            const score =
-                this.projectWizard
-                    .getProjectWorkRatings(
-                        project.projectId
-                    )[date];
-
-
-            if (
-                Number.isInteger(score) &&
-                score >= 1 &&
-                score <= 4
-            ) {
-
-                currentScores[
-                    project.projectId
-                ] =
-                    score;
-            }
-
-
-            currentSummaries[
-                project.projectId
-            ] =
-                this.projectWizard
-                    .getProjectWorkLogs(
-                        project.projectId
-                    )[date]?.summary ?? "";
-        }
-
-
-        for (const resource of resources) {
-            const key =
-                `resource:${resource.resourceType}`;
-
-            const score =
-                this.projectWizard
-                    .getResourceWorkRatings(
-                        resource.resourceType
-                    )[date];
-
-            if (
-                Number.isInteger(score) &&
-                score >= 1 &&
-                score <= 4
-            ) {
-                currentScores[key] =
-                    score;
-            }
-
-            currentSummaries[key] =
-                this.projectWizard
-                    .getResourceWorkLogs(
-                        resource.resourceType
-                    )[date]?.summary ?? "";
-        }
-
-
-        const showNextFocus =
-            isGeneralReport &&
-            date === localISODate();
-
-
-        const projectIds =
-            projects.map(
-                project =>
-                    project.projectId
-            );
-
-
-        const resourceIds =
-            resources.map(
-                resource =>
-                    resource.resourceType
-            );
-
-
-        const dateLabel =
-            formatWeekday(parsedDate) + ", " + formatDate(parsedDate, "full");
-
-
-        new ProjectAdvancementModal(
-            this.app,
-            {
-                plugin: this,
-                reportDate: date,
-                getReportContexts: () => Object.fromEntries([...projects, ...resources].map(workspace => {
-                    const id = workspace.projectId ?? `resource:${workspace.resourceType}`;
-                    const previous = id.startsWith("resource:")
-                        ? this.projectWizard.resourceWorkLogs[id.slice(9)]?.[date]
-                        : this.projectWizard.projectWorkLogs[id]?.[date];
-                    return [id, savedReportContext(this.projectWizard, date, id, previous?.context)];
-                })),
-                projects,
-
-                resources,
-
-                currentScores,
-
-                currentSummaries,
-
-                showNextFocus,
-
-                currentFocus:
-                    showNextFocus
-                        ? (
-                            this.projectWizard
-                                .getPendingFocus(
-                                    date
-                                )?.items ?? []
-                        )
-                        : [],
-
-                focusProjects:
-                    this.projectWizard
-                        .getFocusContexts(),
-
-                title:
-                    reportTitle(date, true),
-
-                requireEveryProject:
-                    false,
-
-                allowNoProgress:
-                    true,
-
-                saveLabel:
-                    "Save changes",
-
-                showCancel:
-                    true,
-
-                onSave:
-                    async ({
-                        scores,
-                        summaries,
-                        focus
-                    }) => {
-
-                        await this.projectWizard
-                            .replaceCombinedProgress(
-                                date,
-                                projectIds,
-                                resourceIds,
-                                scores,
-                                summaries,
-                                showNextFocus
-                                    ? {
-                                        sourceDate:
-                                            date,
-                                        items:
-                                            focus
-                                    }
-                                    : null
-                            );
-                    },
-
-                onSaved:
-                    () => {
-
-                        this.notifyProgressChanged(
-                            date,
-                            projectIds.concat(
-                                resourceIds.map(
-                                    resourceId =>
-                                        `resource:${resourceId}`
-                                )
-                            )
-                        );
-
-
-                        ownNoticeColors(new Notice(
-                            `Updated progress for ${dateLabel}.`
-                        ));
-                    }
-            }
-        ).open();
+    openProgressEditor(date, scope = null) {
+        if (!parseLocalISODate(date) || date > localISODate()) return;
+        return require("./lib/ui/progress-editor").openProgress(this, { date, scope, FocusEditor: FocusListEditor });
     }
-
 
     enableProgressCalendarEditing(
         calendar,
@@ -15874,6 +14550,8 @@ module.exports = class HubProjectMenu extends Plugin {
         const menu =
             ownMenuColors(new Menu());
 
+
+        if (window.hubPlan) menu.addItem(item => item.setTitle("Add to plan").setIcon("list-plus").onClick(() => void window.hubPlan.files([path], actions.planContext)));
 
         // ---------- OPEN ----------
 

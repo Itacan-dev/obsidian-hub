@@ -1,4 +1,5 @@
 "use strict";
+const { renderRouteBreadcrumb } = require("./route-breadcrumb");
 
 function taskSourceLabel(path) {
     const parts = String(path ?? "").replace(/\\/g, "/").split("/").filter(Boolean);
@@ -7,12 +8,15 @@ function taskSourceLabel(path) {
 
 // The original Tasks-panel row, with its Home/Project host class convention.
 // Editing adapters attach controls to these parts; they do not recreate a card.
-function createTaskRow(parent, task, completed = task.completed, { variant = "project", checkboxScope } = {}) {
+function createTaskRow(parent, task, completed = task.completed, { variant = "project", checkboxScope, decorativeCheckbox = false, leadingSlot = false } = {}) {
     const row = parent.createDiv({ cls: variant + "-task-row" + (completed ? " is-completed" : "") });
     // Native Modal overrides checkbox-size with its smaller UI font. A composer
     // can inherit the dashboard's theme token without a second checkbox design.
     if (checkboxScope) row.style.setProperty("--checkbox-size", parent.ownerDocument.defaultView.getComputedStyle(checkboxScope).getPropertyValue("--checkbox-size"));
-    const checkbox = row.createEl("input", { type: "checkbox", cls: variant + "-task-checkbox" });
+    const leading = leadingSlot ? row.createSpan({cls:"hub-plan-leading"}) : row;
+    const checkbox = decorativeCheckbox
+        ? leading.createSpan({cls: variant + "-task-checkbox hub-task-decorative-checkbox",attr:{"aria-hidden":"true"}})
+        : leading.createEl("input", { type: "checkbox", cls: variant + "-task-checkbox" });
     checkbox.checked = !!completed;
     const info = row.createDiv({ cls: variant + "-task-info" });
     const textEl = info.createDiv({ cls: variant + "-task-text", text: task.text });
@@ -51,7 +55,7 @@ function mountDescriptionIndicator(row, info) {
 function mountTaskCardPresentation(row, textEl, task, getPath, { now = new Date(), phaseLabel, ...options } = {}) {
     const { taskDatePresentation, taskIsFuture, taskIsOverdue } = require("../domain/task-planning");
     row.classList.add("hub-planned-task-row");
-    const info = textEl.parentElement, checkbox = row.querySelector('input[type="checkbox"]');
+    const info = textEl.parentElement, checkbox = row.querySelector('input[type="checkbox"], .hub-task-decorative-checkbox');
     if (task.nativeOperationStatus) row.createSpan({ cls: "hub-task-operation-status", text: task.nativeOperationStatus, attr: { role: "status", "data-operation-id": task.nativeOperationId } });
     const source = info.querySelector(".home-task-location, .project-task-location");
     const description = options.selection || options.description === false ? null : mountDescriptionIndicator(row, info);
@@ -61,12 +65,16 @@ function mountTaskCardPresentation(row, textEl, task, getPath, { now = new Date(
         require("./icons").setHubIcon(sourceControl.createSpan({ cls: "hub-task-location-edit-icon", attr: { "aria-hidden": "true" } }), "map-pin-pen");
         sourceText = sourceControl.createSpan({ cls: "hub-task-location-text" });
         sourceControl.addEventListener("click", event => { event.stopPropagation(); options.locationAction(); });
+    } else if (source) {
+        for (const child of [...source.childNodes]) if (child.nodeType === 3) child.remove();
+        sourceText = source.createSpan({ cls: "hub-task-route" });
+        source.prepend(sourceText);
     }
     function update(next = task) {
         task = next;
         row.classList.toggle("is-completed", !!task.completed);
-        checkbox?.setAttribute("aria-label", `Complete task: ${task.text}`);
-        if (task.necessity === "must" || task.necessity === "should") {
+        checkbox?.setAttribute("aria-label", options.checkboxPurpose === "selection" ? `Select for plan: ${task.text}` : `Complete task: ${task.text}`);
+        if (options.importance !== false && (task.necessity === "must" || task.necessity === "should")) {
             if (!indicator) {
                 indicator = row.ownerDocument.createElement("span");
                 indicator.setAttribute("role", "img"); checkbox?.before(indicator);
@@ -101,17 +109,19 @@ function mountTaskCardPresentation(row, textEl, task, getPath, { now = new Date(
             // unavailable location or a folder whose name resembles a placeholder.
             const workspaceRoot = native?.available && displayTask.nativeLocationDisplay?.segments?.length === 0;
             const insideRoot = workspaceRoot && sameOwner(displayTask.nativeReference?.owner ?? displayTask.owner ?? displayTask.nativeOwner, options.locationWorkspace);
-            const label = native?.label ?? options.sourceLabel ?? (options.selection && !options.normalSource ? getPath().replace(/\.md$/i, "").split("/").join(" › ") : taskSourceLabel(getPath()));
+            const legacyRoute = !native && options.sourceLabel == null && options.selection && !options.normalSource;
+            const legacySegments = legacyRoute ? getPath().replace(/\.md$/i, "").split("/") : null;
+            const label = native?.label ?? options.sourceLabel ?? (legacySegments ? legacySegments.join(" › ") : taskSourceLabel(getPath()));
+            const segments = native?.visibleSegments ?? legacySegments ?? [label];
             if (native) {
                 source.title = native.full; source.classList.toggle("is-location-unavailable", !native.available);
                 if (checkbox && (options.nativeDisplay || task.nativeLocationUnavailable)) checkbox.disabled = !native.available;
             }
-            if (sourceControl) { sourceControl.classList.toggle("is-workspace-root", !!workspaceRoot); sourceText.textContent = workspaceRoot ? "Edit task location" : label; sourceControl.setAttribute("aria-label", "Change task location: " + (native?.full ?? label)); sourceControl.title = native?.full ?? label; }
-
-            const labelText = source.firstChild;
-            if (!sourceControl) {
-                if (labelText?.nodeType === 3) labelText.textContent = label;
-                else source.prepend(row.ownerDocument.createTextNode(label));
+            renderRouteBreadcrumb(sourceText, sourceControl && workspaceRoot ? ["Edit task location"] : segments, legacyRoute ? " › " : " / ");
+            if (sourceControl) {
+                sourceControl.classList.toggle("is-workspace-root", !!workspaceRoot);
+                sourceControl.setAttribute("aria-label", "Change task location: " + (native?.full ?? label));
+                sourceControl.title = native?.full ?? label;
             }
             const phaseText = !options.selection && phaseLabel?.(task);
             if (phaseText) {
@@ -169,4 +179,5 @@ function createTaskChecklist(info, { setIcon = require("./icons").setHubIcon, em
     return { host, toggle, chevron, progress, list, rowsHost, update, createRow };
 }
 
-module.exports = { createTaskRow, taskSourceLabel, mountTaskCardPresentation, createTaskChecklist };
+function taskStepSummary(steps){return `${steps.filter(step=>step.completed).length} of ${steps.length} ${steps.length===1?"step":"steps"}`;}
+module.exports = { taskStepSummary, createTaskRow, taskSourceLabel, mountTaskCardPresentation, createTaskChecklist };

@@ -186,9 +186,9 @@ const WORK_RATING_OPTIONS = [
 const PROJECT_ADVANCEMENT_OPTIONS = [
     {
         score: 1,
-        title: "At most polished, not clearly advanced.",
+        title: "Showed up.",
         description:
-            "Refined, reorganized, fixed a minor issue, or added a small detail."
+            "Read, thought about the project, refined something, or took a small step, even if progress was limited."
     },
     {
         score: 2,
@@ -212,12 +212,12 @@ const PROJECT_ADVANCEMENT_OPTIONS = [
 
 const PROGRESS_RATING_OPTIONS = {
     project: [
-        { score: 0, title: 'No progress', description: 'No meaningful work was done on the project.' },
+        { score: 0, title: 'No work', description: 'No work was done on this project.' },
         ...PROJECT_ADVANCEMENT_OPTIONS
     ],
     resource: [
-        { score: 0, title: 'No engagement', description: 'No meaningful work was done with the resource.' },
-        { score: 1, title: 'Light engagement.', description: 'Reviewed, annotated, organized, collected, or briefly studied material.' },
+        { score: 0, title: 'No work', description: 'No work was done with this resource.' },
+        { score: 1, title: 'Showed up.', description: 'Reviewed, annotated, organized, collected, or briefly studied material.' },
         { score: 2, title: 'Meaningful engagement.', description: 'Studied a meaningful amount, developed an idea, added useful material, or improved your understanding.' },
         { score: 3, title: 'Substantial engagement.', description: 'Worked through material in depth, gained a nontrivial insight, made meaningful connections, or added several substantial pieces.' },
         { score: 4, title: 'Major engagement.', description: 'Reached an important new understanding, produced a major synthesis, completed a large body of study, or substantially developed the resource.' }

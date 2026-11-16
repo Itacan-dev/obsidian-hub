@@ -1,0 +1,47 @@
+<!doctype html><meta charset="utf-8"><title>Itacan shared scrollbars</title>
+<script>const native=document.createElement('link');native.rel='stylesheet';native.href=new URL('itacan-native-app.css',new URLSearchParams(location.search).get('preview'));document.head.append(native);</script>
+<link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="../../../../../System/Dashboards/Home/view.css"><link rel="stylesheet" href="../../../../../System/Dashboards/Project/view.css">
+<style>body{padding:20px}.gallery{display:grid;grid-template-columns:repeat(4,1fr);gap:16px}.sample{min-width:0}.probe{height:160px!important;min-height:0!important;max-height:none!important;overflow:auto!important;width:100%;box-sizing:border-box}.probe>div{height:32px;padding:4px}#result{white-space:pre-wrap}</style>
+<body class="theme-dark styled-scrollbars"><div id="gallery" class="gallery hub-color-scope"></div><pre id="result">RUNNING</pre>
+<script>
+const paint=()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+const pointer=(x,y,action='move')=>new Promise(r=>{window.hubTestPointerDone=r;window.hubTestPointerRequest={x,y,action}});
+const key=key=>new Promise(r=>{window.hubTestKeyDone=r;window.hubTestKeyRequest=key});
+const pixels=points=>new Promise(r=>{window.hubTestPixelDone=r;window.hubTestPixelRequest=points});
+const capture=name=>new Promise(r=>{window.hubTestScreenshotDone=r;window.hubTestScreenshotRequest=name});
+onload=async()=>{try{
+ let count=0;const check=(v,m)=>{if(!v)throw Error(m);count++};
+ const names=['home-calendar','home-tasks-body','home-progress-history-body home-progress-activity-body','project-tasks-body','project-progress-activity-body','hub-inbox-list','hub-inbox-action-body','hub-explorer-tree','hub-explorer-contents','hub-task-local-scroll','hub-task-column-body','hub-task-calendar-day-body','hub-roadmap-scroll','hub-modal-body','hub-task-location-entries','hub-capture-location-tree'];
+ const probes=names.map(name=>{const sample=document.createElement('section');sample.className='sample';const label=document.createElement('div');label.textContent=name.split(' ')[0];sample.append(label);const p=document.createElement('div');p.className=name+' hub-scrollbar probe';p.tabIndex=0;for(let i=0;i<30;i++){const row=document.createElement('div');row.textContent='Item '+(i+1);p.append(row)}sample.append(p);gallery.append(sample);return p});
+ for(const theme of ['dark','light']){
+  document.body.classList.remove('theme-dark','theme-light');document.body.classList.add('theme-'+theme);await paint();
+  for(const p of probes){
+   const s=getComputedStyle(p),bar=getComputedStyle(p,'::-webkit-scrollbar'),thumb=getComputedStyle(p,'::-webkit-scrollbar-thumb');
+   check(s.scrollbarWidth==='auto'&&s.scrollbarColor==='auto','Custom host path retained: '+p.className);
+   check(bar.width==='12px'&&getComputedStyle(p,'::-webkit-scrollbar-button').display==='none','Usable lane without arrows');
+   check(thumb.backgroundColor!=='rgba(0, 0, 0, 0)'&&parseInt(thumb.borderRadius)>0,'Visible rounded themed thumb');
+   p.scrollTop=90;const before=p.getBoundingClientRect();p.classList.remove('hub-scrollbar');await paint();p.classList.add('hub-scrollbar');await paint();
+   check(p.scrollTop===90&&p.getBoundingClientRect().height===before.height&&p.getBoundingClientRect().width===before.width,'Style does not reset position or resize container');
+   p.scrollTop=0;
+  }
+  await capture('scrollbars-'+theme);
+ }
+ const themed=probes.map(p=>getComputedStyle(p,'::-webkit-scrollbar-thumb').backgroundColor);gallery.style.setProperty('--interactive-accent','#11aa88');check(probes.every((p,i)=>getComputedStyle(p,'::-webkit-scrollbar-thumb').backgroundColor===themed[i]),'Scrollbar stays neutral under alternate accent');
+ const p=probes[0];p.scrollIntoView({block:'center'});await paint();let b=p.getBoundingClientRect();
+ await pointer(1,1);await paint();const idle=await pixels([[b.right-6,b.top+20]]);
+ await pointer(b.right-6,b.top+20);await paint();
+ const hovered=await pixels([[b.right-6,b.top+20]]);check(JSON.stringify(hovered)!==JSON.stringify(idle),'Thumb hover changes raster color');
+ await pointer(b.right-6,b.top+20,'down');await pointer(b.right-6,b.top+95);await pointer(b.right-6,b.top+95,'up');await paint();
+ check(p.scrollTop>0,'Scrollbar thumb remains draggable');
+ p.scrollTop=0;p.focus();await key('End');await new Promise(r=>setTimeout(r,200));check(p.scrollTop>0,'Keyboard scrolling remains available');
+ const native=document.createElement('div');native.className='probe';native.innerHTML='<div>Native Obsidian surface</div>';gallery.append(native);
+ check(getComputedStyle(native).scrollbarWidth==='auto'&&!native.classList.contains('hub-scrollbar'),'Unowned native surface remains outside opt-in');
+ await new Promise(r=>{window.hubTestForcedColorsDone=r;window.hubTestForcedColorsRequest='active'});await paint();
+ check(matchMedia('(forced-colors: active)').matches,'Forced-colors mode active');
+ check(getComputedStyle(p).scrollbarWidth==='auto'&&getComputedStyle(p).scrollbarColor==='auto'&&getComputedStyle(p,'::-webkit-scrollbar-thumb').borderRightWidth==='0px','Forced colors restores system scrollbar geometry and colors');
+ p.scrollTop=0;p.focus();await key('End');await new Promise(r=>setTimeout(r,200));check(p.scrollTop>0,'System scrollbar remains keyboard operable');
+ await capture('scrollbars-forced-colors');
+ await new Promise(r=>{window.hubTestForcedColorsDone=r;window.hubTestForcedColorsRequest='none'});await paint();
+ result.textContent='PASS: '+count+' scrollbar theme, geometry, position, hover, drag and keyboard checks';
+}catch(e){result.textContent='FAIL: '+e.stack}};
+</script>

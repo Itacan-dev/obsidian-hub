@@ -94,14 +94,14 @@ function createProgressHeatmap(calendar, component) {
         const extraLeading = Math.max(0, parseFloat(view.getComputedStyle(months).lineHeight) - parseFloat(view.getComputedStyle(weekdays).lineHeight)) / 2;
         const weekdayGap = labelGap + extraLeading;
         const inset = parseFloat(calendarStyle.getPropertyValue("--hub-heatmap-inline-inset")) || 4;
+        const axisOverhang = parseFloat(calendarStyle.getPropertyValue("--hub-heatmap-axis-overhang")) || 6;
         const scale = heatmapPixelScale(calendar);
         // offsetWidth rounds text to CSS pixels and can under-reserve this tight
         // column. Measure painted layout widths and round outward in device pixels.
         const zoom = scale / (view.devicePixelRatio || 1);
         const weekdayWidth = Math.ceil(Math.max(...samples.slice(24).map(label => label.getBoundingClientRect().width / zoom)) * scale - 1e-9) / scale;
-        // The separator bounds the complete assembly, not just the squares.
-        // Reserve its two insets and the measured label column before applying
-        // the existing integer-pixel sizing. Never borrow the panel padding.
+        // Preserve the sizing budget against the separator's content width.
+        // The axis placement below centers the resulting square grid.
         const gridAvailable = Math.max(0, availableWidth - 2 * inset - weekdayWidth - weekdayGap);
         // Some configured week starts place Sunday and Monday next to each
         // other. Keep their unchanged text size readable using the existing
@@ -112,15 +112,17 @@ function createProgressHeatmap(calendar, component) {
         const geometry = heatmapGeometry(gridAvailable, weeks,
             samples.slice(0, 12).map(label => label.offsetWidth), starts,
             samples.slice(12, 24).map(label => label.offsetWidth), scale, minimumDayCell);
-        const blockWidth = weekdayWidth + weekdayGap + geometry.innerWidth;
-        const outerWidth = Math.max(availableWidth, blockWidth + 2 * inset);
+        const axisWidth = weekdayWidth + weekdayGap;
+        const outerWidth = Math.max(availableWidth + 2 * axisOverhang, geometry.innerWidth + 2 * axisWidth);
+        const endMargin = (outerWidth - geometry.innerWidth) / 2;
         [...months.children].forEach((label, index) => {
             const text = geometry.compact ? MONTHS[index][0] : MONTHS[index];
             if (label.textContent !== text) label.textContent = text;
         });
         for (const [name, value] of Object.entries({
             cell: geometry.cell + "px", gap: geometry.gap + "px",
-            margin: (outerWidth - blockWidth) / 2 + "px", weeks, width: outerWidth + "px",
+            margin: Math.max(0, endMargin - axisWidth) + "px", "end-margin": endMargin + "px",
+            weeks, width: outerWidth + "px",
             weekday: weekdayWidth + "px", "weekday-gap": weekdayGap + "px", inner: geometry.innerWidth + "px"
         })) graph.style.setProperty("--hub-heatmap-" + name, value);
     }

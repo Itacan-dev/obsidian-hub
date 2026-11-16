@@ -5,6 +5,7 @@ const { ownModalColors } = require("./color-system");
 const { Modal } = require("obsidian");
 const { createModalHeader, layoutModal } = require("./window-title");
 const { setHubIcon } = require("./icons");
+const { appendRouteSeparator } = require("./route-breadcrumb");
 const { openTaskPopover } = require("./task-popover");
 const { sameOwner, relativePath } = require("../domain/native-task-location");
 let pickerSequence = 0;
@@ -56,7 +57,7 @@ function openLocationPicker(app, { locations, owner, reference = null, allowOwne
             const locationSection = this.contentEl.createEl("section", { cls: "hub-oath-section hub-task-location-section" });
             const locationHeading = locationSection.createEl("h3", { text: "Location", attr: { id: "hub-task-location-heading-" + ++pickerSequence } });
             this.breadcrumbs = locationSection.createEl("nav", { cls: "hub-task-location-breadcrumbs", attr: { "aria-labelledby": locationHeading.id } });
-            this.list = locationSection.createDiv({ cls: "hub-task-location-entries", attr: { role: "group", "aria-label": "Folders and Markdown notes" } });
+            this.list = locationSection.createDiv({ cls: "hub-task-location-entries hub-scrollbar", attr: { role: "group", "aria-label": "Folders and Markdown notes" } });
             this.error = this.contentEl.createDiv({ cls: "hub-task-error", attr: { role: "alert" } });
             const actions = this.contentEl.createDiv({ cls: "hub-task-dialog-actions" });
             actions.createEl("button", { text: "Cancel", attr: { type: "button" } }).onclick = () => this.close();
@@ -100,7 +101,7 @@ function openLocationPicker(app, { locations, owner, reference = null, allowOwne
             const doc = this.contentEl.ownerDocument, win = doc.defaultView, copy = heading.parentElement;
             // Capture headings reserve a right margin as well as the shared row padding.
             // Contextual headers use the same single right inset as Progress report.
-            copy.parentElement.style.marginRight = "0";
+            heading.closest(".hub-window-header").style.marginRight = "0";
             const row = copy.createDiv({ cls: "hub-window-title-row hub-task-location-title-row" });
             copy.insertBefore(row, heading); row.append(heading);
             // Join the tab order only after a new Tab gesture in this dialog,
@@ -258,11 +259,12 @@ function openLocationPicker(app, { locations, owner, reference = null, allowOwne
             this.breadcrumbs.empty();
             this.breadcrumbs.setAttribute("aria-description", segments.map(segment => segment.label).join(" / "));
             for (let i = 0; i < segments.length; i++) {
-                if (i) this.breadcrumbs.createSpan({ text: "/", cls: "hub-task-location-separator", attr: { "aria-hidden": "true" } });
+                if (i) appendRouteSeparator(this.breadcrumbs, "hub-task-location-separator");
                 const segment = segments[i], current = i === segments.length - 1;
                 const element = this.breadcrumbs.createEl(segment.note ? "span" : "button", {
-                    cls: segment.note ? "hub-task-location-note" : "hub-button-plain", text: segment.label,
+                    cls: segment.note ? "hub-task-location-note" : "hub-button-plain",
                     attr: { ...(segment.note ? {} : { type: "button" }), title: segment.path, ...(current ? { "aria-current": "location" } : {}) } });
+                element.createSpan({ cls: "hub-task-location-segment-label", text: segment.label });
                 element.dataset.locationPath = segment.path;
                 if (current) element.removeAttribute("title");
                 if (!segment.note) {

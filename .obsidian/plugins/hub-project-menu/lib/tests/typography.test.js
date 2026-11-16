@@ -15,7 +15,11 @@ const exemptions = new Map([
     [".home-focus-dot", "0.65rem"], // Existing decorative diamond, not text.
     [".home-progress-scope-chevron", "0.75em"], // Relative icon.
     [":is(.home-progress-calendar, .project-progress-calendar) .heatmap-calendar-boxes li", "0"],
-    [".project-progress-calendar .heatmap-calendar-boxes li", "0"]
+    [".project-progress-calendar .heatmap-calendar-boxes li", "0"],
+    // Operation feedback retains the host's native status-label typography.
+    [".hub-task-operation-status", "var(--font-ui-smaller)"],
+    // The native heading's em size uses Obsidian's UI context, outside the Hub scale.
+    [".hub-window-title-context", "var(--font-ui-medium)"]
 ]);
 const used = new Set();
 for (const [, selector, body] of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
@@ -39,4 +43,17 @@ for (const [, selector, body] of css.replace(/\/\*[\s\S]*?\*\//g, "").matchAll(/
         assert.equal(match[1].trim(), expected, "Do not hide extra sizes in font shorthand");
     }
 }
-console.log("Hub typography checks passed: seven semantic text sizes; only decorative/hidden exceptions.");
+assert.ok(!css.includes("100cqw"), "Capture labels must not shrink with container width");
+assert.match(css, /--hub-progress-header-line-height:\s*1em;/, "Progress leading follows heading size");
+assert.match(css, /--hub-task-title-line:\s*calc\(var\(--hub-font-body\) \* 1\.35\)/, "Date and icon alignment follows primary title leading");
+const homeSource = fs.readFileSync(path.join(root, "System/Dashboards/Home/view.js"), "utf8");
+const projectSource = fs.readFileSync(path.join(root, "System/Dashboards/Project/view.js"), "utf8");
+const explorerSource = fs.readFileSync(path.join(root, ".obsidian/plugins/hub-project-menu/lib/ui/workspace-explorer.js"), "utf8");
+assert.match(homeSource, /heading\.createEl\("h2",\s*\{\s*cls: "hub-panel-heading-label"/, "Home's shared heading helper uses native panel labels");
+assert.match(projectSource, /tasksTitle\.createEl\("h2",\s*\{\s*cls: "hub-panel-heading-label"/, "Workspace Tasks has a level-two label");
+assert.match(projectSource, /progressTitle\.createEl\("h2",\s*\{\s*cls: "hub-panel-heading-label"/, "Workspace Progress has a level-two label");
+assert.ok(explorerSource.includes('el(heading, "h2", "hub-panel-heading-label", "Files")'), "Shared explorer supplies the Files heading");
+const AsyncFunction = Object.getPrototypeOf(async function() {}).constructor;
+new AsyncFunction("dv", homeSource);
+new AsyncFunction("dv", projectSource);
+console.log("Hub typography checks passed: seven unchanged semantic sizes, explicit native/decorative exceptions, scalable Progress leading.");

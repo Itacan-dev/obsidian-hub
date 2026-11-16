@@ -122,3 +122,15 @@ for (const frequency of ['daily', 'weekly']) test(`hidden recurrence action: ${f
  assert.equal(task.location.id, 'location-a');
  assert.deepEqual((await f.form.read(task)).recurrence, recurrence);
 });
+
+test('Plan task reference reader follows transfer and distinguishes deletion from authority mismatch',async t=>{
+ const f=await fixture(t),task=await f.create({steps:[]}),reader=f.host.nativeTasks.createReferenceRead({component:{register(){}},changed(){}}),reference={authorityId:task.nativeReference.authorityId,taskId:task.id};
+ assert.equal((await reader.read([reference]))[0].availability,'current');
+ const original=await f.form.read(task);await f.form.save(original,{...original,nativeOwner:f.other,phaseId:null,nativeLocation:'',text:'Transferred'});
+ let current=(await reader.read([reference]))[0].task;assert.deepEqual(current.owner,f.other);assert.equal(current.text,'Transferred');
+ await reader.toggle(current,true);current=(await reader.read([reference]))[0].task;assert(current.completed);
+ await reader.toggle(current,false);current=(await reader.read([reference]))[0].task;assert(!current.completed);
+ assert.equal((await reader.read([{...reference,authorityId:'different'}]))[0].availability,'authority-mismatch');
+ const form=f.host.runtime(f.other).formService(),values=await form.read(current);await form.save(values,{...values,operation:'delete'});
+ assert.equal((await reader.read([reference]))[0].availability,'missing');reader.close();
+});

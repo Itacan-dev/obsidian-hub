@@ -29,6 +29,28 @@ function mountOathSettings(parent, service) {
         catch (problem) { error.textContent = problem.message; }
         finally { if (!disposed) { toggle.checked = !!service.strictEnabled; toggle.disabled = !service.strictSupported; } }
     });
+    if (service.strict.developmentRecovery) {
+        const development = section(parent, "Prototype development recovery");
+        development.createEl("p", { text: "Ctrl+Alt+Shift+F12 releases Strict Oath while Itacan has focus. A separate recovery window opens before activation. Restrictions automatically release after two minutes and the Oath is recorded as interrupted.", cls: "hub-settings-description" });
+        const verify = development.createEl("button", { text: "Verify development recovery", attr: { type: "button" } });
+        verify.addEventListener("click", async () => {
+            verify.disabled = true;
+            try { await service.strict.developmentRecovery.verify(); error.textContent = "Development recovery verified."; }
+            catch (problem) { error.textContent = problem.message; }
+            finally { verify.disabled = false; }
+        });
+        const release = development.createEl("button", { text: "Release Strict Oath (development)", attr: { type: "button" } });
+        release.addEventListener("click", async () => {
+            release.disabled = true;
+            try {
+                await service.strict.developmentRecovery.release("settings");
+                if (service.current?.state === "scheduled") await service.end(service.current.id, "cancel");
+                else await service.refresh();
+                error.textContent = "Development restrictions released.";
+            } catch (problem) { error.textContent = problem.message; }
+            finally { release.disabled = false; }
+        });
+    }
     const apps = section(parent, "Permitted desktop applications");
     if (!service.strictSupported) {
         apps.createEl("p", { text: "Application restrictions are unavailable on this device. Ordinary Oath remains available.", cls: "hub-settings-description" });

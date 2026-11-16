@@ -34,8 +34,8 @@ window.hubTestFullView = async f => {
         assert(surface.scrollHeight <= surface.clientHeight + 2, label + " content stays inside structural height");
         return rect(surface).bottom;
     };
-    near(rect(home.querySelector(".home-calendar")).height, 245, "Home top panels unchanged");
-    near(rect(home.querySelector(".home-projects")).height, 429, "Home bottom panels unchanged");
+    near(rect(home.querySelector(".home-calendar")).height, 320, "Home top row uses the shared target");
+    near(rect(home.querySelector(".home-projects")).height, 404, "Home bottom row uses the shared target");
     for (const owner of [project, resource, ...["Research", "Explorations", "Inspiration"].map(name => ({ ...resource, name, root: "Resources/" + name, projectId: "resource:" + name.toLowerCase() }))]) {
         await mount(owner); f.controller.showFiles(); await settle();
         const explorer = f.root.querySelector(".hub-workspace-explorer"), right = f.root.querySelector(".project-right-column");

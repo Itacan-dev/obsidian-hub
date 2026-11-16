@@ -36,7 +36,7 @@ function openCaptureWorkspacePicker(service, { selectedId, onSelect, restoreFocu
             preparePicker(this, "Save to", ["hub-oath-workspace-picker", "hub-capture-workspace-picker"]);
             const search = this.contentEl.createEl("input", { type: "search", cls: "hub-oath-search",
                 attr: { placeholder: "Search projects and resources…", "aria-label": "Search destinations" } });
-            const body = this.contentEl.createDiv({ cls: "hub-capture-workspace-groups" });
+            const body = this.contentEl.createDiv({ cls: "hub-capture-workspace-groups hub-scrollbar" });
             const error = this.contentEl.createDiv({ cls: "hub-task-error", attr: { role: "alert" } });
             const paintImage = createCardImageRenderer(body, this.owner,
                 key => ({ initial: service.plugin.projectWizard.data.headerImagePlacements?.[key] }), service.plugin.cardImageCache);
@@ -91,7 +91,7 @@ function openCaptureLocationPicker(service, { workspace, task = false, selectedP
             setHubIcon(searchBox.createSpan({ cls: "hub-explorer-icon", attr: { "aria-hidden": "true" } }), "search");
             const search = searchBox.createEl("input", { type: "search", cls: "hub-explorer-search-input",
                 attr: { placeholder: task ? "Search notes and folders…" : "Search folders…", "aria-label": task ? "Search task locations" : "Search folders" } });
-            const tree = this.contentEl.createDiv({ cls: "hub-capture-location-tree", attr: { role: "tree", "aria-label": task ? "Task locations" : "Destination folders" } });
+            const tree = this.contentEl.createDiv({ cls: "hub-capture-location-tree hub-scrollbar", attr: { role: "tree", "aria-label": task ? "Task locations" : "Destination folders" } });
             const error = this.contentEl.createDiv({ cls: "hub-task-error", attr: { role: "alert" } });
             const hierarchy = mountCaptureLocationTree({ tree, search, getItems, foldersOnly: !task, showKind: task,
                 selectedPath: () => selectedPath,

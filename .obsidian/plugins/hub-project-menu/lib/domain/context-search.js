@@ -26,9 +26,12 @@ function inScope(entry, scope, workspaces) {
     if (!scope) return !!ownerOf(entry.path, workspaces);
     return validLocation(entry.path, scope);
 }
-function contextLabel(path, owner) {
+function contextSegments(path, owner) {
     const relative = path.slice(owner.root.length).replace(/^\//, "").replace(/\.md$/i, "");
-    return [owner.name ?? owner.label ?? owner.root.split("/").at(-1), ...relative.split("/").filter(Boolean)].join(" › ");
+    return [owner.name ?? owner.label ?? owner.root.split("/").at(-1), ...relative.split("/").filter(Boolean)];
+}
+function contextLabel(path, owner) {
+    return contextSegments(path, owner).join(" › ");
 }
 function groupResults(results, limit = 8) {
     const groups = new Map();
@@ -40,4 +43,4 @@ function groupResults(results, limit = 8) {
     }
     return [...groups].map(([kind, items]) => ({ kind, items }));
 }
-module.exports = { normalize, nameScore, ownerOf, inScope, contextLabel, groupResults };
+module.exports = { normalize, nameScore, ownerOf, inScope, contextLabel, contextSegments, groupResults };

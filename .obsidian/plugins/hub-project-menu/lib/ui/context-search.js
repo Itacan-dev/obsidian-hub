@@ -1,5 +1,6 @@
 "use strict";
 const { setHubIcon: setIcon } = require("./icons");
+const { renderRouteBreadcrumb } = require("./route-breadcrumb");
 const { taskDateLabel } = require("../domain/dates");
 let sequence = 0;
 const labels = { projects: "Projects", resources: "Resources", folders: "Folders", files: "Files", tasks: "Tasks", notes: "Note matches", phases: "Phases", milestones: "Milestones" };
@@ -52,7 +53,9 @@ function mountContextSearch({ service, component, dv, root, toolbar, scope = nul
             for (const result of group.items) {
                 const element = section.createDiv({ cls: "hub-context-result", attr: { role: "option", id: `${id}-${rows.length}`, "aria-selected": "false" } });
                 element.createDiv({ cls: "hub-context-result-title", text: result.title });
-                element.createDiv({ cls: "hub-context-result-path", text: result.context });
+                const context = element.createDiv({ cls: "hub-context-result-path" });
+                if (result.contextSegments) renderRouteBreadcrumb(context, result.contextSegments, " › ");
+                else context.textContent = result.context;
                 if (result.kind === "tasks") {
                     const date = result.task.due ? taskDateLabel(result.task.due.date, result.task.due.time, true) : "";
                     if (date || result.task.completed) element.createSpan({ cls: "hub-context-result-date", text: [result.task.completed ? "Completed" : "", date].filter(Boolean).join(" · ") });

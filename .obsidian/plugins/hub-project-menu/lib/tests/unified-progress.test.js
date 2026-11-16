@@ -54,7 +54,7 @@ wizard.projectWorkLogs.p[day].timestamp = 400;
 assert.deepEqual(wizard.getProgressReports({ kind: "all" }).slice(0, 2).map(r => r.targetKind), ["project", "resource"], "Equal names and times have stable kind/identity ties");
 
 // Exercise the Home refresh callback and getters, not an alternate test implementation.
-const source = fs.readFileSync(path.resolve(__dirname, "../../../../../System/Dashboards/Home/view.js"), "utf8");
+const source = fs.readFileSync(path.resolve(__dirname, "../../../../../System/Dashboards/Home/view.js"), "utf8").replace(/\r\n/g, "\n");
 const getters = source.slice(source.indexOf("function getCombinedProgressReports("), source.indexOf("const currentProgressYear"));
 const listeners = new Map(), calls = [], window = {
     hubGetWorkProgress(scope) { assert.equal(scope, "all"); return wizard.getHomeMomentumProgress(scope); },

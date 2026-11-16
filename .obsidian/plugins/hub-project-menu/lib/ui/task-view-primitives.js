@@ -1,5 +1,6 @@
 "use strict";
 const { ownNoticeColors } = require("./color-system");
+const { renderRouteBreadcrumb } = require("./route-breadcrumb");
 
 const { setIcon, Notice } = require("obsidian");
 const { createTaskRow } = require("./tasks");
@@ -36,12 +37,14 @@ function date(host, task, key = "dueDate", now = new Date()) {
 }
 function source(host, task, context) {
     const label = context.locationLabel(task);
-    const el = button(host, label, async event => {
+    const native = require("../domain/native-task-location").locationBreadcrumb(task, { type: "project", id: context.workspace.projectId });
+    const el = button(host, "", async event => {
         event.stopPropagation();
         try { await context.openSource(task); }
         catch (error) { ownNoticeColors(new Notice(error.message || "Could not open task location.")); }
     }, "hub-button-plain hub-full-location");
-    el.title = require("../domain/native-task-location").locationBreadcrumb(task, { type: "project", id: context.workspace.projectId })?.full ?? label; el.setAttribute("aria-label", "Open location: " + label);
+    renderRouteBreadcrumb(el.createSpan(), native?.visibleSegments ?? [label]);
+    el.title = native?.full ?? label; el.setAttribute("aria-label", "Open location: " + label);
     el.disabled = true; el.setAttribute("aria-label", "Location: " + el.title);
 }
 function bindTask(row, title, checkbox, task, context, options = {}) {
