@@ -685,9 +685,9 @@
 /* CALENDAR */
 
 .home-calendar {
-    --home-calendar-row-inset: 5px;
+    --home-calendar-row-inset: 0px;
     --home-calendar-time-width: 48px;
-    --home-calendar-column-gap: 9px;
+    --home-calendar-column-gap: var(--hub-task-card-gap, 12px);
 }
 
 .home-dashboard :is(
@@ -729,6 +729,8 @@
 .home-calendar-body {
     display: flex;
     flex-direction: column;
+    /* Measure content clearance from the scrollport, including panel padding. */
+    margin-inline: calc(var(--size-4-3, 12px) - var(--home-panel-padding));
 }
 
 .home-calendar-body > .home-empty {
@@ -736,46 +738,16 @@
 }
 
 
-.home-calendar-week +
-.home-calendar-week {
-    margin-top: 10px;
-    padding-top: 10px;
-
-    border-top:
-        1px solid
-        var(--background-modifier-border);
+.home-calendar-week + .home-calendar-week,
+.home-calendar-day + .home-calendar-day {
+    margin-top: var(--size-4-2, 8px);
 }
-
-
-.home-calendar-week-heading {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 10px;
-
-    padding: 4px var(--home-calendar-row-inset) 7px;
-}
-
-
-.home-calendar-week-number {
-    color: var(--text-muted);
-    font-size: var(--hub-font-secondary);
-    font-weight: 600;
-    white-space: nowrap;
-}
-
-
-.home-calendar-week-range {
-    color: var(--text-muted);
-    font-size: var(--hub-font-secondary);
-    font-weight: 600;
-}
-
 
 .home-calendar-day-heading {
     padding: 6px var(--home-calendar-row-inset) 4px;
-    color: var(--text-muted);
-    font-size: var(--hub-font-secondary);
+    text-align: center;
+    color: var(--text-normal);
+    font-size: var(--hub-font-compact);
     font-weight: 600;
     line-height: 1.4;
 }
@@ -791,6 +763,7 @@
 .home-calendar-row {
     position: relative;
     display: grid;
+    align-items: start;
     grid-template-columns: var(--home-calendar-time-width) minmax(0, 1fr);
     gap: var(--home-calendar-column-gap);
     padding: 6px var(--home-calendar-row-inset);
@@ -807,7 +780,8 @@
 
 .home-calendar-time {
     font-size: var(--hub-font-secondary);
-    font-weight: 600;
+    font-weight: 400;
+    line-height: 1.4;
     font-variant-numeric: tabular-nums;
     color: var(--text-muted);
     white-space: nowrap;
@@ -826,13 +800,14 @@
     white-space: normal;
     color: var(--text-normal);
     font-size: var(--hub-font-body);
-    font-weight: 500;
-    line-height: var(--hub-activity-title-line-height, 1.3);
+    font-weight: 400;
+    line-height: 1.35;
 }
 
 .home-calendar-location {
     margin-top: 2px;
     font-size: var(--hub-font-meta);
+    line-height: 1.4;
     color: var(--text-muted);
 
     overflow: hidden;

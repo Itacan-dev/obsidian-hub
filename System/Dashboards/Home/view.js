@@ -136,7 +136,6 @@ const {
     formatTime,
     formatDateTime,
     formatWeekday,
-    formatDateRange,
     createFrame,
     placeHeatmapNavigation,
     createProgressHeatmap,
@@ -1020,41 +1019,11 @@ function renderCalendarWeek(
     events,
     warnings = []
 ) {
-
-    const weekEnd =
-        weekStart.clone()
-            .add(6, "days");
-
-
     const week =
         calendarBody.createDiv({
             cls:
                 "home-calendar-week"
         });
-
-
-    const weekHeading =
-        week.createDiv({
-            cls:
-                "home-calendar-week-heading"
-        });
-
-
-    el(
-        weekHeading,
-        "span",
-        "home-calendar-week-number",
-        `Week ${weekStart.isoWeek()}`
-    );
-
-
-    el(
-        weekHeading,
-        "span",
-        "home-calendar-week-range",
-        formatDateRange(weekStart, weekEnd, true)
-    );
-
 
     const eventsByDate =
         new Map();

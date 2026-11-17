@@ -97,11 +97,6 @@ class LocalMoment {
         this.dateValue.setHours(23, 59, 59, 999);
         return this;
     }
-    isoWeek() {
-        const date = new Date(Date.UTC(this.year(), this.month(), this.date()));
-        date.setUTCDate(date.getUTCDate() + 4 - (date.getUTCDay() || 7));
-        return Math.ceil(((date - new Date(Date.UTC(date.getUTCFullYear(), 0, 1))) / 86400000 + 1) / 7);
-    }
     format(pattern) {
         if (pattern === 'YYYY-MM-DD') return this.year() + '-' + pad(this.month() + 1) + '-' + pad(this.date());
         assert(pattern === undefined, 'Known date format');
@@ -132,6 +127,17 @@ const event = (time, title, extra = {}) => ({
 
 window.onload = async () => {
     try {
+        const nativeCss = new URLSearchParams(location.search).get('preview');
+        if (nativeCss) {
+            const stylesheet = document.createElement('link');
+            stylesheet.rel = 'stylesheet';
+            stylesheet.href = nativeCss;
+            await new Promise((resolve, reject) => {
+                stylesheet.onload = resolve;
+                stylesheet.onerror = reject;
+                document.head.prepend(stylesheet);
+            });
+        }
         const read = async file => (await fetch(file)).text();
         const [dateSource, paletteSource, colorSource, frameSource, homeSource] = await Promise.all([
             read('../domain/dates.js'), read('../ui/color-palettes.js'), read('../ui/color-system.js'),
@@ -155,7 +161,7 @@ window.onload = async () => {
         });
         const agenda = homeSource.slice(homeSource.indexOf('calendarTodayButton.disabled = true;'), homeSource.indexOf('// ---------- PROJECTS ----------'));
         const build = new Function('dv', 'app', 'frame', 'calendar', 'calendarHeader', 'calendarTodayButton',
-            'moment', 'el', 'setInterval', 'clearInterval', 'ResizeObserver', 'formatTime', 'formatDate', 'formatDateRange', 'formatWeekday',
+            'moment', 'el', 'setInterval', 'clearInterval', 'ResizeObserver', 'formatTime', 'formatDate', 'formatWeekday',
             'let homeCalendarEventCount = null; const updateHomeContext = () => {}; ' + agenda +
             ';return { body: calendarBody, refresh: refreshCalendarDates, render: renderCalendarWeek, load: loadNextCalendarWeek, get summary() { return homeCalendarEventCount; } };');
         const originalOpen = window.open;
@@ -171,7 +177,7 @@ window.onload = async () => {
                 unload() { cleanups.splice(0).forEach(callback => callback()); }
             };
             const frame = frames.createDashboardFrame(host, owner, 'home-dashboard hub-button-scope');
-            const panel = frame.root.createDiv({ cls: 'home-panel home-calendar' });
+            const panel = frame.root.createDiv({ cls: 'home-panel home-calendar hub-scrollbar' });
             const header = panel.createDiv({ cls: 'home-panel-title', text: 'Calendar' });
             const today = header.createEl('button', { cls: 'home-calendar-today hub-panel-action', text: 'Today' });
             const queries = [], scrolls = [];
@@ -190,7 +196,7 @@ window.onload = async () => {
             const app = { plugins: { plugins: options.enabled === false ? {} : { 'google-calendar-agenda': provider } } };
             const controls = build({ container: host, component: owner }, app, frame, panel, header, today,
                 moment, (parent, tag, cls, text) => parent.createEl(tag, { cls, text }), every, id => timers.delete(id), CalendarResizeObserver,
-                dates.formatTime, dates.formatDate, dates.formatDateRange, dates.formatWeekday);
+                dates.formatTime, dates.formatDate, dates.formatWeekday);
             const view = Object.assign(controls, { host, owner, frame, panel, header, today, queries, scrolls });
             frame.commit();
             await settle();
@@ -204,16 +210,29 @@ window.onload = async () => {
             const panel = view.panel.getBoundingClientRect();
             return target.top >= view.header.getBoundingClientRect().bottom && target.bottom <= panel.bottom - view.panel.clientTop;
         };
+        const checkContentInsets = view => {
+            const panel = view.panel.getBoundingClientRect();
+            const scale = panel.height / view.panel.offsetHeight;
+            const left = panel.left + view.panel.clientLeft * scale;
+            const right = left + view.panel.clientWidth * scale;
+            const row = day(view).querySelector('.home-calendar-row');
+            const time = row.querySelector('.home-calendar-time').getBoundingClientRect();
+            const info = row.querySelector('.home-calendar-info').getBoundingClientRect();
+            assert(Math.abs((time.left - left) / scale - 12) < 1, 'Twelve-pixel effective leading clearance');
+            assert(Math.abs((right - info.right) / scale - 12) < 1, 'Twelve-pixel clearance before the scrollbar');
+        };
         const dispose = view => { view.owner.unload(); view.host.remove(); };
         const originals = [
-            event('00:00', 'All day', { allDay: true }),
+            event('00:00', 'Semana 47 de 2026', { allDay: true }),
             event('09:00', 'Morning'),
             event('16:00', 'Afternoon', { location: 'Existing location', link: 'https://example.test/event' }),
             event('16:00', 'Same start', { meetUrl: 'https://meet.example.test/meeting' }),
             event('20:00', 'Evening', { link: 'invalid URL' })
         ];
         let view = await mount(originals);
-        assert(order(view) === 'All day|Morning|Afternoon|Same start|Evening', 'Start-time ordering including ties and all-day events');
+        assert(order(view) === 'Semana 47 de 2026|Morning|Afternoon|Same start|Evening', 'Start-time ordering including ties and imported all-day events');
+        assert(day(view).querySelector('.home-calendar-time').textContent === 'All day', 'Imported week-named event retains its all-day label');
+        assert(!view.body.querySelector('.home-calendar-week-heading,.home-calendar-week-number,.home-calendar-week-range'), 'Generated week heading and metadata are absent');
         assert(heading(view).textContent === 'Today \u00b7 Tue 22 Sep', 'Relative heading uses English presentation helpers');
         assert(view.body.querySelector('[data-calendar-date="2026-09-23"] .home-calendar-day-heading').textContent === 'Tomorrow \u00b7 Wed 23 Sep', 'Tomorrow heading');
         assert(visible(view) && view.today.disabled && view.scrolls.length === 1 && view.scrolls[0].behavior === 'auto', 'Initial navigation positions today once');
@@ -234,7 +253,14 @@ window.onload = async () => {
         }
         assert(openings === 0, 'URLs never activate event opening');
         assert(getComputedStyle(rows[0], '::before').content === 'none' && getComputedStyle(rows[1], '::before').borderTopWidth === '1px', 'Only adjacent events have dividers');
-        assert(Math.abs(rows[0].querySelector('.home-calendar-time').getBoundingClientRect().left - heading(view).getBoundingClientRect().left - 5) < 1, 'Heading and row use one inset');
+        assert(Math.abs(rows[0].querySelector('.home-calendar-time').getBoundingClientRect().left - heading(view).getBoundingClientRect().left) < 1, 'Heading and row use one content edge');
+        checkContentInsets(view);
+        const tomorrow = day(view).nextElementSibling;
+        assert(Math.abs(tomorrow.getBoundingClientRect().top - day(view).getBoundingClientRect().bottom - 8) < 1, 'Eight-pixel separation between day groups');
+        assert(getComputedStyle(rows[0].querySelector('.home-calendar-title')).fontWeight === '400' &&
+            getComputedStyle(rows[0].querySelector('.home-calendar-time')).fontWeight === '400' &&
+            parseFloat(getComputedStyle(heading(view)).fontSize) > parseFloat(getComputedStyle(rows[0].querySelector('.home-calendar-time')).fontSize), 'Day headings lead regular-weight event text');
+        assert(rows[0].getBoundingClientRect().height < 32, 'Single-line events keep compact row height');
         view.panel.scrollTop = 0;
         await settle();
         const scrollTop = view.panel.scrollTop, calls = view.scrolls.length;
@@ -267,10 +293,12 @@ window.onload = async () => {
         assert(timers.size === 0 && observers.size === 0, 'Unload clears clock and resize observation');
 
         clock = new Date(2026, 8, 22, 14).getTime();
-        view = await mount([]);
+        view = await mount([event('09:00', 'Tomorrow appointment', { start: moment('2026-09-23T09:00:00') })]);
         assert(day(view).textContent.includes('No events'), 'Empty today remains visible');
         const empty = day(view).querySelector('.home-calendar-day-empty');
-        assert(getComputedStyle(empty).paddingLeft === '62px', 'Empty state aligns with event content column');
+        const nextDayInfo = day(view).nextElementSibling.querySelector('.home-calendar-info');
+        assert(Math.abs(empty.getBoundingClientRect().left + parseFloat(getComputedStyle(empty).paddingLeft) -
+            nextDayInfo.getBoundingClientRect().left) < 1, 'Empty state aligns with event content column');
         const old = view;
         view = await mount(originals, { host: old.host });
         old.owner.unload();
@@ -292,6 +320,12 @@ window.onload = async () => {
         await tick('2026-09-28T00:00:00');
         assert(day(view).dataset.calendarDate === '2026-09-28' && view.queries.length === 2, 'Sunday midnight loads next week');
         assert(view.panel.scrollTop === boundaryScroll && view.scrolls.length === boundaryCalls, 'Week rollover preserves viewport');
+        const previousDay = day(view).parentElement.previousElementSibling.lastElementChild;
+        assert(previousDay.dataset.calendarDate === '2026-09-27' &&
+            Math.abs(day(view).getBoundingClientRect().top - previousDay.getBoundingClientRect().bottom - 8) < 1,
+            'Week boundary uses the same eight-pixel day gap');
+        assert(getComputedStyle(day(view).parentElement).borderTopWidth === '0px' &&
+            getComputedStyle(day(view).parentElement).paddingTop === '0px', 'Week boundary adds no heading separator or padding');
         await tick('2026-10-12T10:00:00');
         assert(day(view).dataset.calendarDate === '2026-10-12' && view.body.querySelectorAll('.is-today').length === 1, 'Wake catches up across weeks');
         dispose(view);
@@ -313,7 +347,9 @@ window.onload = async () => {
 
         clock = new Date(2026, 11, 31, 23, 59).getTime();
         view = await mount([]);
-        assert(view.body.querySelector('.home-calendar-week-range').textContent === '28 Dec 2026 \u2013 3 Jan 2027', 'Cross-year week range');
+        const crossYearWeek = view.body.querySelector('.home-calendar-week');
+        assert(crossYearWeek.children.length === 7 && crossYearWeek.firstElementChild.dataset.calendarDate === '2026-12-28' &&
+            crossYearWeek.lastElementChild.dataset.calendarDate === '2027-01-03', 'Cross-year week grouping contains only its seven days');
         assert(view.body.querySelector('[data-calendar-date="2027-01-01"] .home-calendar-day-heading').textContent === 'Tomorrow \u00b7 Fri 1 Jan 2027', 'Future year appears in heading');
         await tick('2027-01-01T00:00:00');
         assert(heading(view).textContent === 'Today \u00b7 Fri 1 Jan', 'Year rollover refreshes headings');
@@ -330,6 +366,7 @@ window.onload = async () => {
             view.frame.root.style.zoom = zoom;
             await settle();
             assert(view.panel.scrollWidth <= view.panel.clientWidth + 1, 'No horizontal overflow at zoom ' + zoom);
+            checkContentInsets(view);
             assert(long.offsetHeight <= parseFloat(getComputedStyle(long).lineHeight) * 2 + 1, 'Title limited to two lines at zoom ' + zoom);
             assert(long.offsetHeight > parseFloat(getComputedStyle(long).lineHeight), 'Long title wraps at zoom ' + zoom);
             const location = long.parentElement.querySelector('.home-calendar-location');
@@ -351,8 +388,9 @@ window.onload = async () => {
                     await settle();
                     colorProbe.style.color = 'var(--text-normal)';
                     assert(getComputedStyle(long).color === getComputedStyle(colorProbe).color, 'Neutral title in ' + palette.id + ' ' + theme);
+                    assert(getComputedStyle(heading(view)).color === getComputedStyle(colorProbe).color, 'Clear neutral day heading in ' + palette.id + ' ' + theme);
                     colorProbe.style.color = 'var(--text-muted)';
-                    assert(getComputedStyle(heading(view)).color === getComputedStyle(colorProbe).color, 'Subdued heading in ' + palette.id + ' ' + theme);
+                    assert(getComputedStyle(long.parentElement.querySelector('.home-calendar-location')).color === getComputedStyle(colorProbe).color, 'Muted location in ' + palette.id + ' ' + theme);
                     assert(getComputedStyle(view.panel).scrollbarWidth === 'auto', 'Host Calendar scrollbar in ' + theme);
                 }
             }
