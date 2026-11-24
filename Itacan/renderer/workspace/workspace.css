@@ -1,0 +1,7 @@
+.files { padding: var(--s5); }
+.files .section-heading { margin-bottom: var(--s4); }
+.file-row { display: flex; width: 100%; align-items: center; gap: var(--s3); background: transparent; border: 0; border-top: 1px solid var(--line); text-align: left; padding: var(--s4) var(--s2); }
+button.file-row:hover { background: var(--tint); }
+.file-row .icon { color: var(--accent); }
+.file-name { flex: 1; overflow-wrap: anywhere; }
+.file-type { color: var(--muted); font-size: 12px; }

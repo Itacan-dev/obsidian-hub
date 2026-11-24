@@ -1,0 +1,21 @@
+.document { max-width: calc(940px + 2 * var(--gutter)); }
+.document-panel { overflow: hidden; }
+.document-tools { display: flex; align-items: center; justify-content: space-between; gap: var(--s4); padding: var(--s3) var(--s4); border-bottom: 1px solid var(--line); }
+.switcher { display: flex; gap: var(--s1); }
+.switcher .button { border-color: transparent; }
+.save-status { font-size: 12px; color: var(--muted); }
+.prose, .source { min-height: 280px; padding: var(--s5) clamp(20px, 5vw, 58px) var(--s7); }
+.prose { line-height: 1.75; overflow-wrap: anywhere; }
+.prose > * + * { margin-top: 1em; }
+.prose h1 { font-size: 35px; }
+.prose h2 { font-size: 27px; }
+.prose img { display: block; max-width: 100%; max-height: 60vh; object-fit: contain; border-radius: var(--control-radius); }
+.prose a { color: var(--accent); text-underline-offset: .15em; }
+.prose pre, .prose .katex-display { overflow-x: auto; }
+.prose pre, .prose blockquote { padding: var(--s3); background: var(--paper); }
+.prose table { border-collapse: collapse; }
+.prose th, .prose td { border: 1px solid var(--line); padding: var(--s2); }
+.prose eqn { display: block; }
+.source .cm-editor { min-height: 230px; outline: none; }
+.source .cm-scroller { font: 15px/1.65 var(--mono); }
+.source .cm-content { caret-color: var(--accent); }

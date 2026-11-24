@@ -1,0 +1,16 @@
+.home-cover { display: flex; flex-direction: column; justify-content: end; gap: var(--s2); min-height: clamp(185px, 21vw, 265px); padding: var(--s6); border-radius: var(--panel-radius); color: white; background: linear-gradient(85deg, #0d221cbb, #13291a08 85%), url('/assets/horizon.jpg') center 47% / cover; }
+.home-cover h1 { letter-spacing: -.035em; }
+.home-section, .welcome { margin-top: var(--s6); }
+.welcome { padding: var(--s6); display: grid; justify-items: start; gap: var(--s4); }
+.project-grid, .resource-grid { display: grid; gap: var(--s4); margin-top: var(--s4); }
+.project-grid { grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
+.project-grid .empty { grid-column: 1 / -1; border: 1px dashed var(--line); border-radius: var(--panel-radius); }
+.resource-grid { grid-template-columns: repeat(4, minmax(0,1fr)); }
+.collection-card { padding: 0; text-align: left; overflow: hidden; border-radius: var(--panel-radius); border: 1px solid var(--line); background: var(--surface); }
+.collection-card:hover { border-color: var(--accent); }
+.collection-card:hover .card-caption { color: var(--accent); }
+.collection-card img { display: block; width: 100%; height: 92px; object-fit: cover; }
+.project-grid img { height: 106px; }
+.card-caption { display: flex; align-items: center; justify-content: space-between; gap: var(--s2); padding: var(--s3) var(--s4); font-weight: 600; overflow-wrap: anywhere; }
+.card-caption .icon { color: var(--muted); }
+@media (max-width: 850px) { .resource-grid { grid-template-columns: repeat(2, minmax(0,1fr)); } }

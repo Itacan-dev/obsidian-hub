@@ -10,6 +10,7 @@
 !/Projects/
 !/AtlasCore/
 !/ItacanTaskCore/
+!/Itacan/
 
 # Share the Hub implementation, not installed third-party plugins or settings.
 /.obsidian/*
