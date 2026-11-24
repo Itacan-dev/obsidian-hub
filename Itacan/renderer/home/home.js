@@ -1,6 +1,10 @@
 import { el, button, icon } from '../ui/elements.js';
 import { askName } from '../ui/dialog.js';
 
+import { taskPanel } from '../tasks/tasks.js';
+import { planPanel } from '../plan/plan.js';
+import { confirmAction } from '../ui/forms.js';
+
 const resourceArt = { Knowledge: 'knowledge', Research: 'research', Explorations: 'explorations', Inspiration: 'inspiration' };
 function card(entry, image, open) {
   const control = el('button', 'collection-card');
@@ -14,7 +18,8 @@ function card(entry, image, open) {
   return control;
 }
 
-export function homeView(library, { openFolder, chooseLibrary, refresh }) {
+export function homeView(library, ctx) {
+  const { openFolder, chooseLibrary, refresh } = ctx;
   const root = el('section', 'home view-width');
   const hero = el('header', 'home-cover');
   const now = new Date();
@@ -49,6 +54,17 @@ export function homeView(library, { openFolder, chooseLibrary, refresh }) {
   const grid = el('div', 'resource-grid');
   for (const resource of library.resources) grid.append(card(resource, resourceArt[resource.name] || 'research', openFolder));
   resources.append(grid);
-  root.append(projects, resources);
-  return { root };
+  const desk = el('div','home-desk actions');
+  if (ctx.layout.panes.some(p => p.file)) desk.append(button('Resume documents', ctx.showDesk));
+  for (const preset of ctx.state.presets) {
+    desk.append(button(preset.name, () => ctx.restore(preset.layout)), button('Remove ' + preset.name, async () => {
+      if (!await confirmAction('Remove layout?',preset.name,'Remove')) return;
+      await ctx.update('layout','remove',{name:preset.name});
+      await refresh();
+    }, {variant:'quiet'}));
+  }
+  const tasks = taskPanel(ctx);
+  const plan = planPanel(ctx);
+  root.append(desk, projects, resources, tasks.root, plan.root);
+  return { root, refresh() { tasks.refresh(); plan.refresh(); } };
 }

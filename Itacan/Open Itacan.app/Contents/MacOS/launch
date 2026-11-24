@@ -1,0 +1,10 @@
+#!/bin/sh
+set -eu
+cd "$(dirname "$0")/../../.."
+runtime="node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
+if [ ! -x "$runtime" ]; then
+  /usr/bin/osascript -e 'display alert "Set up Itacan first" message "Follow Run and build from source in the Itacan README to install the development dependencies on this Mac."'
+  exit 1
+fi
+unset ELECTRON_RUN_AS_NODE
+exec "$runtime" "$PWD" --itacan-dev "$@"

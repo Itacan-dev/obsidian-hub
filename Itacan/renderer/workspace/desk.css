@@ -1,0 +1,17 @@
+.desk { padding: var(--s4) clamp(12px, 3vw, 40px) var(--s7); }
+.desk-tools { justify-content: flex-end; margin-bottom: var(--s3); }
+.desk-grid { display: grid; grid-template-columns: clamp(135px,18vw,230px) minmax(0,1fr); gap: var(--s4); align-items:start; }
+.file-tree { padding: var(--s2); overflow:auto; max-height:75vh; }
+.file-tree .button { display:flex; max-width:100%; justify-content:flex-start; overflow:hidden; text-overflow:ellipsis; border:0; }
+.file-tree summary { padding:var(--s2); font-size:13px; cursor:pointer; }
+.tree-children { padding-left:var(--s2); border-left:1px solid var(--line); }
+.panes { display:flex; gap:var(--s3); min-width:0; }
+.pane { min-width:0; flex:1; }
+.tabs { display:flex; overflow:auto; gap:3px; padding:3px 2px var(--s2); }
+.tabs .button { min-height:29px; padding:4px 8px; }
+.selected-pane .tabs .button[aria-pressed=true] { border-color:var(--accent); }
+.document-pane { overflow:hidden; }
+.note-name { font-size:clamp(24px,3vw,37px); padding:var(--s4); overflow-wrap:anywhere; }
+.pane .document-tools, .pane .actions { flex-wrap:wrap; gap:var(--s2); }
+.pane .prose, .pane .source { padding:var(--s4); }
+@media (max-width:900px) { .panes:has(.pane:nth-child(2)) { flex-direction:column; } }

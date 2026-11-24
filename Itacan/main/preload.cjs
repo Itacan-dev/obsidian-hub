@@ -6,6 +6,12 @@ async function call(channel, ...args) {
   return reply.value;
 }
 contextBridge.exposeInMainWorld('itacan', {
+  work: id => call('work-read', id),
+  update: (id, group, action, data) => call('work-update', id, group, action, data),
+  moveItem: (id, from, parent, name, trash) => call('move-item', id, from, parent, name, trash),
+  fileText: (id, data) => call('file-text', id, data),
+  captureFiles: (id,text) => call('capture-files', id,text),
+  resolveAttachment: (id, capture, parent) => call('resolve-attachment', id, capture, parent),
   home: () => call('home'),
   chooseLibrary: () => call('choose-library'),
   entries: (id, folder) => call('entries', id, folder),

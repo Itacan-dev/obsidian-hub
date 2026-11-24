@@ -29,6 +29,8 @@ export function icon(name) {
 }
 
 export function report(error) {
+  const inline = [...document.querySelectorAll('dialog[open]')].at(-1)?.querySelector('.form-error');
+  if (inline) { inline.textContent = error.message || String(error); return; }
   const message = document.querySelector('#message');
   message.textContent = error.message || String(error);
   message.hidden = false;
@@ -40,6 +42,12 @@ export function button(label, action, { variant = '', symbol } = {}) {
   control.type = 'button';
   if (symbol) control.append(icon(symbol));
   control.append(document.createTextNode(label));
-  control.addEventListener('click', () => Promise.resolve().then(action).catch(report));
+  let running = false;
+  control.addEventListener('click', async () => {
+    if (running) return;
+    running = true;
+    try { await action(); } catch (error) { report(error); }
+    finally { running = false; }
+  });
   return control;
 }

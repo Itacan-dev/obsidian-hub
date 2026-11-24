@@ -9,10 +9,14 @@ if (!app.isPackaged && !app.commandLine.hasSwitch('user-data-dir')) {
   app.setPath('userData', path.join(app.getPath('appData'), 'Itacan Development'));
 }
 const settingsFile = path.join(app.getPath('userData'), 'settings.json');
-const publicDir = path.join(__dirname, '../public');
+const fromSource = !app.isPackaged && app.commandLine.hasSwitch('itacan-dev');
+const publicDir = fromSource ? path.join(app.getAppPath(), 'build/app/public') : path.join(__dirname, '../public');
 const types = { ...imageTypes, '.js': 'text/javascript', '.css': 'text/css', '.html': 'text/html', '.woff2': 'font/woff2', '.woff': 'font/woff', '.ttf': 'font/ttf' };
 const csp = "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' itacan://image; font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-src 'none'";
+const { LibraryWork } = require('./work.cjs');
+const { moveItem, captureFiles, resolveAttachment, fileText } = require('./files.cjs');
 let library;
+let work;
 let win;
 let closeRequested = false;
 let closeApproved = false;
@@ -56,6 +60,12 @@ function current(sessionId) {
 }
 
 async function start() {
+  // Build only after acquiring the window's single-instance lock.
+  if (fromSource) {
+    process.chdir(app.getAppPath());
+    const { pathToFileURL } = require('node:url');
+    await import(pathToFileURL(path.join(app.getAppPath(), 'scripts/build.mjs')).href);
+  }
   try {
     const settings = JSON.parse(await fs.readFile(settingsFile, 'utf8'));
     library = await openLibrary(settings.directory);
@@ -79,6 +89,25 @@ async function start() {
     startupMessage = '';
     return overview;
   });
+  function currentWork(id) {
+    const selected = current(id);
+    if (work?.library !== selected) work = new LibraryWork(selected);
+    return work;
+  }
+  handle('work-read', id => currentWork(id).transaction());
+  handle('work-update', (id, group, action, data) => currentWork(id).command(group, action, data));
+  handle('move-item', async (id, from, parent, name, trash) => {
+    const {state, removed} = await moveItem(currentWork(id), from, parent, name, trash);
+    if (removed) await shell.trashItem(removed).catch(() => {}); // Library Trash retains the item if the OS cannot accept it.
+    return state;
+  });
+  handle('capture-files', async (id,text) => {
+    const selected = await dialog.showOpenDialog(win, {title:'Capture files', properties:['openFile','multiSelections']});
+    const store = currentWork(id);
+    return selected.canceled ? null : captureFiles(store, selected.filePaths, text);
+  });
+  handle('file-text', (id, data) => fileText(currentWork(id), data));
+  handle('resolve-attachment', (id, capture, parent) => resolveAttachment(currentWork(id), capture, parent));
   handle('entries', (id, folder) => current(id).entries(folder));
   handle('create', (id, parent, name, kind, text) => current(id).create(parent, name, kind, text));
   handle('read-note', (id, file) => current(id).readNote(file));

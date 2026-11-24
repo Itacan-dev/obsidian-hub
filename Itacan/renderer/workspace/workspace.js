@@ -1,7 +1,10 @@
 import { el, button, icon, report } from '../ui/elements.js';
-import { askName } from '../ui/dialog.js';
+import { taskPanel } from '../tasks/tasks.js';
+import { pickPath, confirmAction } from '../ui/forms.js';
+import { askName, showDialog } from '../ui/dialog.js';
 
-export async function workspaceView(library, folder, { openFolder, openNote }) {
+export async function workspaceView(library, folder, ctx) {
+  const { openFolder, openNote } = ctx;
   const entries = await window.itacan.entries(library.session, folder);
   const parts = folder.split('/');
   const root = el('section', 'workspace view-width');
@@ -18,6 +21,26 @@ export async function workspaceView(library, folder, { openFolder, openNote }) {
     if (kind === 'note') await openNote(created, true);
     else await openFolder(created);
   }
+  async function manage(entry, current = false) {
+    const parent = entry.path.split('/').slice(0, -1).join('/');
+    const options = [{ label: 'Rename', value: 'rename' }];
+    if (parent !== 'Projects') options.push({ label: 'Move', value: 'move' });
+    options.push({ label: 'Delete', value: 'delete' });
+    const action = await showDialog({ title: entry.name, actions: options });
+    if (!action) return;
+    let name = entry.name, destination = parent;
+    if (action === 'rename') name = await askName('Rename item', name, 'Rename');
+    if (action === 'move') destination = await pickPath(ctx, 'Move to folder', 'folder');
+    if (!name || !destination) return;
+    const trash = action === 'delete';
+    if (trash && !await confirmAction('Delete item?', 'Move ' + entry.name + ' and its contents to Trash?', 'Delete')) return;
+    if (!await ctx.changeFile(entry.path, destination, name, trash)) return;
+    if (!current) await openFolder(folder);
+    else if (!trash) await openFolder(destination + '/' + name);
+    else if (parent === 'Projects') await ctx.refresh();
+    else await openFolder(parent);
+  }
+  if (parts.length > 2 || parts[0] === 'Projects') actions.append(button('Manage folder', () => manage({ name: parts.at(-1), path: folder }, true)));
   actions.append(button('New folder', () => create('folder'), { symbol: 'folder' }),
     button('New note', () => create('note'), { symbol: 'plus', variant: 'primary' }));
   toolbar.append(el('h2', '', 'Files'), actions);
@@ -36,8 +59,12 @@ export async function workspaceView(library, folder, { openFolder, openNote }) {
         return window.itacan.openAttachment(library.session, entry.path).catch(report);
       };
     }
-    panel.append(row);
+    const line = el('div', 'entry-line');
+    const menu = button('Manage', () => manage(entry), { variant: 'quiet' });
+    menu.setAttribute('aria-label', 'Manage ' + entry.name);
+    line.append(row, menu); panel.append(line);
   }
-  root.append(panel);
-  return { root };
+  const tasks = taskPanel(ctx, parts.slice(0, 2).join('/'));
+  root.append(panel, tasks.root);
+  return { root, refresh: tasks.refresh };
 }

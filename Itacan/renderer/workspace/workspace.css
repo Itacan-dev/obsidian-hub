@@ -5,3 +5,7 @@ button.file-row:hover { background: var(--tint); }
 .file-row .icon { color: var(--accent); }
 .file-name { flex: 1; overflow-wrap: anywhere; }
 .file-type { color: var(--muted); font-size: 12px; }
+
+.entry-line { display:flex; align-items:center; border-top:1px solid var(--line); }
+.entry-line .file-row { flex:1; min-width:0; border:0; text-align:left; }
+.entry-line .file-name { overflow-wrap:anywhere; }

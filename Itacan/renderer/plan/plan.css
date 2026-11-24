@@ -1,0 +1,7 @@
+.daily-plan { display: grid; gap: var(--s4); }
+.daily-plan .actions { flex-wrap: wrap; }
+.plan-list { padding-left: var(--s5); margin: 0; }
+.plan-list li, .plan-history { border-top: 1px solid var(--line); padding: var(--s2) 0; }
+.plan-list li > .actions { display: inline-flex; margin-left: var(--s2); }
+.plan-preview { margin: 0; padding-left: var(--s5); }
+.plan-preview .empty { list-style: none; padding: var(--s2) 0; }

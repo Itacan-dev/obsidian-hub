@@ -1,12 +1,12 @@
 {
   "name": "itacan",
   "productName": "Itacan",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "A private local library for projects and research notes",
   "main": "main/app.cjs",
   "scripts": {
-    "start": "npm run build && electron build/app",
+    "start": "electron . --itacan-dev",
     "build": "node scripts/build.mjs",
     "package": "npm run build && node scripts/package.mjs",
     "test": "node --test test/*.test.mjs",

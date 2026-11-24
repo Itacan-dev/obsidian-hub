@@ -1,110 +1,75 @@
 import { el, button, report } from '../ui/elements.js';
-import { askName, showDialog } from '../ui/dialog.js';
+import { askName } from '../ui/dialog.js';
 import { renderPreview, scrollToHeading } from './preview.js';
+import { makeEditor } from './editor.js';
 
-export async function documentView(library, file, { editing, anchor, openNote }) {
-  const record = await window.itacan.readNote(library.session, file);
-  let savedText = record.text.replace(/\r\n?/g, '\n');
-  let revision = record.revision;
-  let dirty = false;
-  let editor;
-  let savedDocument;
-  let pending;
-  let disposed = false;
-  const parts = file.split('/');
-  const root = el('section', 'document view-width');
-  const header = el('header', 'view-title');
-  header.append(el('p', 'context-label', parts.slice(0, -1).join(' / ')), el('h1', '', parts.at(-1).replace(/\.md$/i, '')));
-  const panel = el('section', 'document-panel panel');
+export function documentView(buffer, pane, { openNote, anchor, changedMode }) {
+  const root = el('section', 'document-pane panel');
+  const heading = el('h1', 'note-name', buffer.path.split('/').at(-1).replace(/\.md$/i, ''));
   const toolbar = el('div', 'document-tools');
   const modes = el('div', 'switcher');
-  const readButton = button('Read', () => mode(false));
-  const editButton = button('Edit', () => mode(true));
-  modes.append(readButton, editButton);
   const actions = el('div', 'actions');
-  const status = el('span', 'save-status');
-  status.setAttribute('role', 'status');
-  const saveButton = button('Save', save, { variant: 'primary' });
-  const copyButton = button('Save a copy', saveCopy);
-  copyButton.hidden = true;
-  actions.append(status, copyButton, saveButton);
-  toolbar.append(modes, actions);
   const preview = el('article', 'prose');
   const source = el('div', 'source');
-  panel.append(toolbar, preview, source);
-  root.append(header, panel);
-  const text = () => editor ? editor.state.doc.toString() : savedText;
-
-  function updateControls() {
-    saveButton.disabled = !dirty || !!pending;
-    status.textContent = pending ? 'Saving…' : dirty ? 'Unsaved changes' : 'Saved';
-  }
-  async function save() {
-    if (pending) return pending;
-    if (!dirty) return true;
-    const draft = text();
-    const snapshot = editor?.state.doc;
-    pending = window.itacan.saveNote(library.session, file, draft, revision).then(next => {
-      revision = next;
-      savedText = draft;
-      savedDocument = snapshot;
-      dirty = text() !== savedText;
-      copyButton.hidden = true;
-      return true;
-    }).catch(error => {
-      copyButton.hidden = false;
-      report(error);
-      return false;
-    }).finally(() => { pending = null; updateControls(); });
-    updateControls();
-    return pending;
-  }
-  async function saveCopy() {
-    const name = await askName('Save a copy', parts.at(-1).replace(/\.md$/i, '') + ' copy');
+  let editor;
+  let disposed = false;
+  const read = button('Read', () => mode(false));
+  const edit = button('Edit', () => mode(true));
+  modes.append(read, edit);
+  const save = button('Save', () => buffer.save(), { variant: 'primary' });
+  const status = el('span', 'save-status');
+  const copy = button('Save a copy', async () => {
+    const parts = buffer.path.split('/');
+    const name = await askName('Save a copy', parts.pop().replace(/\.md$/i, '') + ' copy');
     if (!name) return;
-    const draft = text();
-    const created = await window.itacan.create(library.session, parts.slice(0, -1).join('/'), name, 'note', draft);
-    if (text() === draft) {
-      dirty = false;
-      await openNote(created, true);
-    }
-  }
-  async function mode(edit) {
-    if (edit && !editor) {
-      const { makeEditor } = await import('./editor.js');
-      if (disposed) return;
-      if (!editor) {
-        editor = makeEditor(source, savedText, doc => {
-          dirty = !doc.eq(savedDocument);
-          updateControls();
-        });
-        savedDocument = editor.state.doc;
+    const draft = buffer.text;
+    const path = await window.itacan.create(buffer.session, parts.join('/'), name, 'note', draft);
+    if (buffer.text === draft) {
+      const disk = await window.itacan.readNote(buffer.session, buffer.path).catch(() => null);
+      if (disk) {
+        buffer.revision = disk.revision;
+        buffer.saved = disk.text.replace(/\r\n?/g, '\n');
+        buffer.failed = false;
+        buffer.edit(buffer.saved);
       }
     }
-    source.hidden = !edit;
-    preview.hidden = edit;
-    readButton.setAttribute('aria-pressed', String(!edit));
-    editButton.setAttribute('aria-pressed', String(edit));
-    if (!edit) renderPreview(preview, text(), file, library.session, openNote, report);
-    else editor.focus();
+    await openNote(path, true);
+  });
+  actions.append(status, copy, save);
+  toolbar.append(modes, actions);
+  root.append(heading, toolbar, preview, source);
+  let displayed;
+  function update(origin) {
+    if (disposed) return;
+    if (editor && origin !== editor && editor.state.doc.toString() !== buffer.text) {
+      editor.dispatch({ changes: { from: 0, to: editor.state.doc.length, insert: buffer.text } });
+    }
+    if (!pane.edit && displayed !== buffer.text) {
+      renderPreview(preview, buffer.text, buffer.path, buffer.session, openNote, report);
+      displayed = buffer.text;
+    }
+    save.disabled = !buffer.dirty;
+    status.textContent = buffer.dirty ? 'Unsaved changes' : 'Saved';
+    copy.hidden = !buffer.failed;
   }
-  updateControls();
-  await mode(editing);
-  return { root, save,
-    mounted() {
-      if (editing) editor.focus();
-      if (anchor) scrollToHeading(preview, anchor);
-    },
-    async leave() {
-      if (pending) await pending;
-      if (!dirty) return true;
-      const choice = await showDialog({ title: 'Save your changes?', description: parts.at(-1), actions: [
-        { label: 'Cancel', value: null }, { label: 'Discard', value: 'discard' },
-        { label: 'Save', value: 'save', primary: true }
-      ] });
-      if (choice === 'save') return await save() && !dirty;
-      return choice === 'discard';
-    },
-    dispose() { disposed = true; editor?.destroy(); dirty = false; }
+  function mode(editing, persist = true) {
+    pane.edit = editing;
+    read.setAttribute('aria-pressed', String(!editing));
+    edit.setAttribute('aria-pressed', String(editing));
+    source.hidden = !editing;
+    preview.hidden = editing;
+    if (editing && !editor) editor = makeEditor(source, buffer.text, doc => buffer.edit(doc.toString(), editor));
+    update();
+    if (editing && persist) editor.focus();
+    if (persist) changedMode();
+  }
+  buffer.listeners.add(update);
+  mode(pane.edit, false);
+  return {
+    root, display(editing, fragment) {
+      mode(editing, false);
+      if (fragment) scrollToHeading(preview, fragment);
+    }, mounted() { if (pane.edit) editor?.focus(); if (anchor) scrollToHeading(preview, anchor); },
+    dispose() { disposed = true; buffer.listeners.delete(update); editor?.destroy(); }
   };
 }

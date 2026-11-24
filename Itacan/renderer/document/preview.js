@@ -7,6 +7,25 @@ const md = new MarkdownIt({ html: false }).use(texmath, {
   engine: katex, delimiters: 'dollars', katexOptions: { trust: false, throwOnError: false }
 });
 
+// Research notes commonly link to a sibling note using a relative wiki link.
+md.inline.ruler.before('link', 'wiki_note', (state, silent) => {
+  if (!state.src.startsWith('[[',state.pos)) return false;
+  const end = state.src.indexOf(']]',state.pos + 2);
+  if (end < 0) return false;
+  const [target, alias] = state.src.slice(state.pos + 2,end).split('|');
+  if (!target || /[\n\r]/.test(target)) return false;
+  const [file, heading] = target.split('#');
+  const url = (file && !/\.md$/i.test(file) ? file + '.md' : file) + (heading ? '#' + heading : '');
+  if (!md.validateLink(url) || /^[a-z][a-z0-9+.-]*:|^[\\/]/i.test(url)) return false;
+  if (!silent) {
+    state.push('link_open','a',1).attrSet('href',md.normalizeLink(url));
+    state.push('text','',0).content = alias || target;
+    state.push('link_close','a',-1);
+  }
+  state.pos = end + 2;
+  return true;
+});
+
 function localURL(value, note) {
   if (!value || /^[a-z][a-z\d+.-]*:|^[\\/]/i.test(value) || value.includes('\\')) return null;
   const base = 'itacan://image/' + note.split('/').map(encodeURIComponent).join('/');
@@ -51,5 +70,5 @@ export function renderPreview(container, text, note, session, openNote, onError)
   };
 }
 export function scrollToHeading(container, anchor) {
-  container.querySelector('#' + CSS.escape('heading-' + anchor.toLowerCase()))?.scrollIntoView();
+  container.querySelector('#' + CSS.escape('heading-' + anchor.toLowerCase().trim().replace(/\s+/g,'-')))?.scrollIntoView();
 }

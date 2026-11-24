@@ -21,10 +21,11 @@ function validName(value) {
 async function writableFile(file, data, mode) {
   const handle = await fs.open(file, 'wx', mode);
   try {
-    await handle.writeFile(data);
-    await handle.sync();
-  } finally {
-    await handle.close();
+    try { await handle.writeFile(data); await handle.sync(); }
+    finally { await handle.close(); }
+  } catch (error) {
+    await fs.unlink(file);
+    throw error;
   }
 }
 
@@ -166,4 +167,4 @@ class Library {
   }
 }
 
-module.exports = { openLibrary, atomicReplace, imageTypes };
+module.exports = { openLibrary, atomicReplace, imageTypes, validName };

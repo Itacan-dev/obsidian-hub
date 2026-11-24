@@ -77,3 +77,18 @@ button.crumb:hover { color: var(--accent); text-decoration: underline; }
 .field { display: grid; gap: var(--s2); font-size: 13px; font-weight: 600; }
 .field input { width: 100%; border: 1px solid var(--line); border-radius: var(--control-radius); padding: var(--s2) var(--s3); background: var(--surface); }
 #message { position: fixed; right: var(--s5); bottom: var(--s5); z-index: 2; max-width: min(480px,90%); background: var(--surface); color: var(--warning); padding: var(--s4); border: 1px solid var(--line); border-radius: var(--control-radius); box-shadow: 0 3px 18px #14251f22; }
+
+.dialog.wide { width:min(680px,94vw); }
+.dialog { max-height:88vh; overflow:auto; }
+.dialog-actions, .global-tools { flex-wrap:wrap; }
+.field select, .field textarea, .task-steps input:not([type=checkbox]) { width:100%; font:inherit; color:var(--ink); border:1px solid var(--line); border-radius:var(--control-radius); background:var(--surface); padding:var(--s2) var(--s3); }
+.field textarea { min-height:78px; resize:vertical; }
+.form-error { color:var(--warning); }
+.form-error:empty { display:none; }
+.path-picker, .picker-list { display:grid; gap:var(--s2); }
+.picker-list { max-height:42vh; overflow:auto; }
+.picker-list .button { justify-content:flex-start; }
+@media (max-width:850px) { .app-bar {padding-inline:var(--s3); gap:var(--s2);} }
+
+.work-panel { padding:var(--s5); margin:var(--s5) 0; }
+.multiline { white-space:pre-wrap; overflow-wrap:anywhere; }

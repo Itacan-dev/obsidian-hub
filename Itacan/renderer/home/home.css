@@ -14,3 +14,6 @@
 .card-caption { display: flex; align-items: center; justify-content: space-between; gap: var(--s2); padding: var(--s3) var(--s4); font-weight: 600; overflow-wrap: anywhere; }
 .card-caption .icon { color: var(--muted); }
 @media (max-width: 850px) { .resource-grid { grid-template-columns: repeat(2, minmax(0,1fr)); } }
+
+.home-desk { flex-wrap:wrap; margin:var(--s4) 0; }
+.home-desk:empty { display:none; }
